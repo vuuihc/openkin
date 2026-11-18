@@ -1,28 +1,36 @@
 #!/bin/bash
-# test-nas.sh — regression tests for the Mac-driven NAS ingest path.
-# No NAS, no network, no Claude: ssh/scp/gh are fakes in the temp sandbox, and "the NAS" is a
+# test-nas.sh — regression tests for the Mac-driven NAS forward and return paths.
+# No NAS, no network, no Claude: ssh/scp/docker/gh are fakes in the temp sandbox, and "the NAS" is a
 # temp tree (NAS_REMOTE) that remote commands reach because the fake ssh runs the command string locally.
+# The pulse drives bare ssh/scp/docker through PATH, so its sandbox HOME puts the fakes in ~/.local/bin,
+# which common.sh keeps on PATH; RSI_CTRL points at a throwaway git repo so no test touches rsi/state.
 # Each test targets one review finding. Run: bash rsi/runtime/nas/tests/test-nas.sh
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 NASDIR="$(cd "$HERE/.." && pwd)"
 INGEST="$NASDIR/ingest-nas.sh"
+PULSE="$NASDIR/pulse-nas.sh"
 PASS=0; FAIL=0
+SANDBOXES=()
 
 ok()  { PASS=$((PASS+1)); echo "ok   $*"; }
 bad() { FAIL=$((FAIL+1)); echo "FAIL $*"; }
 check() { local d="$1"; shift; if "$@"; then ok "$d"; else bad "$d"; fi; }
 finish() { echo; echo "$PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; }
+cleanup_sandboxes() { if [ "${#SANDBOXES[@]}" -gt 0 ]; then rm -rf "${SANDBOXES[@]}"; fi; return 0; }
+trap cleanup_sandboxes EXIT
 
 # --- sandbox -------------------------------------------------------------------------------------
 sandbox() {
   T=$(mktemp -d "${TMPDIR:-/tmp}/nas-test.XXXXXX")
+  SANDBOXES+=("$T")
   mkdir -p "$T/bin" "$T/state/cloud" "$T/state/cloud-briefs" "$T/state/nas" "$T/state/lanes" \
-           "$T/nas/work/jobs" "$T/nas/work/logs" "$T/wt"
-  : > "$T/gh.log"
+           "$T/nas/work/jobs" "$T/nas/work/logs" "$T/wt" "$T/home/.local/bin"
+  : > "$T/gh.log"; : > "$T/docker-starts"
   printf 'brief\n' > "$T/state/cloud-briefs/brief.md"
 
   # fake ssh: -n redirects stdin, otherwise stdin is drained like real ssh; the command string runs locally.
+  # The pulse's capacity probe is a python heredoc that reads Linux /proc, so the fake answers it.
   cat > "$T/bin/ssh" <<'EOS'
 #!/bin/bash
 export PATH="$(dirname "$0"):$PATH"
@@ -38,6 +46,7 @@ done
 shift || true            # host
 cmd="$*"
 [ "$n" = 1 ] || cat >/dev/null
+case "$cmd" in *"/proc/loadavg"*) printf '%s %s\n' "${FAKE_LOAD:-0.10}" "${FAKE_MEM:-12.00}"; exit 0;; esac
 exec bash -c "$cmd"
 EOS
 
@@ -53,6 +62,19 @@ for i in $(seq 0 $((n-2))); do
   case "$src" in *:*) src="${src#*:}";; esac
   cp "$src" "$dst"
 done
+EOS
+
+  # fake docker: inspect reports the container state; exec records the lane start (or fails on demand).
+  cat > "$T/bin/docker" <<'EOS'
+#!/bin/bash
+case "${1:-}" in
+  inspect) printf '%s\n' "${FAKE_CONTAINER_UP:-true}"; exit 0;;
+  exec)
+    [ "${FAKE_START_FAIL:-0}" = 1 ] && exit 1
+    printf 'docker %s\n' "$*" >> "${FAKE_STARTS:?}"
+    exit 0;;
+esac
+exit 0
 EOS
 
   # fake gh: no PR unless FAKE_PR is set; a list prints "NUMBER<TAB>FAKE_PR_HEAD"; create/edit log.
@@ -82,6 +104,17 @@ EOS
   git init -q --bare "$T/origin.git"
   git -C "$T/ctrl" remote add origin "$T/origin.git"
   git -C "$T/ctrl" push -q origin main
+
+  # The pulse sources common.sh with RSI_CTRL=$T/ctrl, so its state and its helper scripts live there.
+  # Stub the budget gate (allow new workers), the ingest half (not under test here) and the PATH fakes.
+  mkdir -p "$T/ctrl/rsi/state/cloud" "$T/ctrl/rsi/state/cloud-briefs" "$T/ctrl/rsi/state/nas" \
+           "$T/ctrl/rsi/state/lanes" "$T/ctrl/rsi/runtime/nas"
+  printf 'brief\n' > "$T/ctrl/rsi/state/cloud-briefs/brief.md"
+  printf 'import sys\nsys.exit(0)\n' > "$T/ctrl/rsi/runtime/volc-budget.py"
+  printf '#!/bin/bash\nexit 0\n' > "$T/ctrl/rsi/runtime/nas/ingest-nas.sh"
+  ln -s "$T/bin/ssh" "$T/home/.local/bin/ssh"
+  ln -s "$T/bin/scp" "$T/home/.local/bin/scp"
+  ln -s "$T/bin/docker" "$T/home/.local/bin/docker"
 }
 
 run_ingest() { # T [extra env...]
@@ -91,6 +124,29 @@ run_ingest() { # T [extra env...]
       FAKE_GHLOG="$T/gh.log" FAKE_GHEDIT="$T/gh-edit.log" \
       NAS_NO_MERGE=1 NAS_SELFCHECK_CMD=true "$@" bash "$INGEST"
 }
+run_pulse() { # T [extra env...] — the live pulse has no ssh/scp seams: HOME puts the fakes on common.sh's PATH
+  local T="$1"; shift
+  env HOME="$T/home" RSI_CTRL="$T/ctrl" NAS_REMOTE="$T/nas" RSI_MAX_OPEN_PRS=0 \
+      FAKE_STARTS="$T/docker-starts" "$@" bash "$PULSE"
+}
+pclaim() { # T SLUG ITEM — an untaken, ready claim in the control tree's state
+  printf '{"slug":"%s","item":"%s","brief":"%s","paths":["docs"],"status":"claimed"}\n' \
+    "$2" "$3" "$1/ctrl/rsi/state/cloud-briefs/brief.md" > "$1/ctrl/rsi/state/cloud/$2.json"
+}
+pclaim_as() { # T SLUG ITEM TAKER — a claim already owned by someone else
+  printf '{"slug":"%s","item":"%s","brief":"%s","paths":["docs"],"status":"launched","taker":"%s","launched_at":1,"claimed_at":1}\n' \
+    "$2" "$3" "$1/ctrl/rsi/state/cloud-briefs/brief.md" "$4" > "$1/ctrl/rsi/state/cloud/$2.json"
+}
+running_job() { # T SLUG — a remote record the capacity probe counts as running
+  mkdir -p "$1/nas/work/jobs/$2"
+  printf '{"status":"running","slug":"%s","started_at":%s,"updated_at":%s}\n' \
+    "$2" "$(date +%s)" "$(date +%s)" > "$1/nas/work/jobs/$2/status.json"
+}
+running_job_stale() { # T SLUG — a `running` record left behind by a lane the container recreate killed
+  mkdir -p "$1/nas/work/jobs/$2"
+  printf '{"status":"running","slug":"%s","started_at":1,"updated_at":1}\n' "$2" > "$1/nas/work/jobs/$2/status.json"
+}
+fhash() { shasum -a 256 "$1" | awk '{print $1}'; }
 claim_as() { # T SLUG ITEM TAKER LAUNCHED_AT
   printf '{"slug":"%s","item":"%s","brief":"%s","paths":["docs"],"status":"launched","taker":"%s","launched_at":%s,"claimed_at":%s}\n' \
     "$2" "$3" "$1/state/cloud-briefs/brief.md" "$4" "${5:-0}" "${5:-0}" > "$1/state/cloud/$2.json"
@@ -506,7 +562,136 @@ t_worktree_lock() {
   check "M4 the pid-less lock publishes nothing" [ ! -s "$T5/gh.log" ]
 }
 
-if [ "${1:-}" = "--sandbox" ]; then sandbox; echo "$T"; exit 0; fi
+# --- P1: a claim someone else owns is never touched (pulse) ----------------------------------------
+t_pulse_skips_taken() {
+  local T; sandbox; T=$T
+  pclaim_as "$T" boxed R-P-1a box
+  pclaim_as "$T" ours R-P-1b nas
+  local box_hash nas_hash
+  box_hash="$(fhash "$T/ctrl/rsi/state/cloud/boxed.json")"
+  nas_hash="$(fhash "$T/ctrl/rsi/state/cloud/ours.json")"
+  run_pulse "$T" > "$T/p.log" 2>&1
+  check "P1 a box claim is byte-identical" [ "$(fhash "$T/ctrl/rsi/state/cloud/boxed.json")" = "$box_hash" ]
+  check "P1 another NAS claim is byte-identical" [ "$(fhash "$T/ctrl/rsi/state/cloud/ours.json")" = "$nas_hash" ]
+  check "P1 no lane starts for a taken claim" [ ! -s "$T/docker-starts" ]
+  check "P1 the pulse reports no untaken briefs" grep -q 'no untaken cloud briefs' "$T/p.log"
+}
+
+# --- P2: one untaken claim becomes exactly one lane start (pulse) ---------------------------------
+t_pulse_starts_once() {
+  local T; sandbox; T=$T
+  pclaim "$T" s1 R-P-2a
+  run_pulse "$T" > "$T/p1.log" 2>&1
+  check "P2 exactly one docker exec starts the lane" [ "$(grep -c 'nas-lane\.sh s1' "$T/docker-starts")" = 1 ]
+  check "P2 the start names the container and the lane script" grep -q 'docker exec .*kin-rsi-nas-worker /bin/bash /opt/rsi/nas-lane\.sh s1' "$T/docker-starts"
+  check "P2 the claim is owned by nas" [ "$(jget "$T/ctrl/rsi/state/cloud/s1.json" taker)" = nas ]
+  check "P2 the claim is marked launched" [ "$(jget "$T/ctrl/rsi/state/cloud/s1.json" status)" = launched ]
+  check "P2 launched_at is a number" python3 -c "import json,sys;d=json.load(open(sys.argv[1]));assert isinstance(d['launched_at'],(int,float))" "$T/ctrl/rsi/state/cloud/s1.json"
+  check "P2 the shipped brief is on the NAS" test -s "$T/nas/work/jobs/s1/job.json"
+  check "P2 the origin/main bundle is on the NAS" test -s "$T/nas/work/jobs/s1/origin-main.bundle"
+  check "P2 the starter status is queued" [ "$(jget "$T/nas/work/jobs/s1/status.json" status)" = queued ]
+  check "P2 one starts.log row is written" [ "$(wc -l < "$T/ctrl/rsi/state/nas/starts.log" | tr -d ' ')" = 1 ]
+  run_pulse "$T" > "$T/p2.log" 2>&1
+  check "P2 a second pulse does not start the same claim again" [ "$(grep -c 'nas-lane\.sh s1' "$T/docker-starts")" = 1 ]
+  check "P2 a second pulse writes no second start row" [ "$(wc -l < "$T/ctrl/rsi/state/nas/starts.log" | tr -d ' ')" = 1 ]
+}
+
+# --- P3: a container that is down stops the pulse before any claim (pulse) -------------------------
+t_pulse_container_down() {
+  local T; sandbox; T=$T
+  pclaim "$T" s1 R-P-3a
+  local before; before="$(fhash "$T/ctrl/rsi/state/cloud/s1.json")"
+  run_pulse "$T" FAKE_CONTAINER_UP=false > "$T/p.log" 2>&1; local rc=$?
+  check "P3 the pulse exits 0" [ "$rc" = 0 ]
+  check "P3 nothing is claimed" [ "$(fhash "$T/ctrl/rsi/state/cloud/s1.json")" = "$before" ]
+  check "P3 no lane starts" [ ! -s "$T/docker-starts" ]
+  check "P3 the log names the container" grep -q 'container not running' "$T/p.log"
+}
+
+# --- P4: capacity stands the pulse down under load or with every slot busy (pulse) ----------------
+t_pulse_capacity() {
+  local T; sandbox; T=$T
+  pclaim "$T" s1 R-P-4a
+  running_job "$T" r1; running_job "$T" r2
+  run_pulse "$T" NAS_MAX_LANES=2 > "$T/p1.log" 2>&1
+  check "P4 two running jobs fill both lanes" grep -q 'allowed=2 running=2 idle_slots=0' "$T/p1.log"
+  check "P4 no lane starts when every slot is busy" [ ! -s "$T/docker-starts" ]
+  check "P4 the claim is left for a later pulse" [ -z "$(jget "$T/ctrl/rsi/state/cloud/s1.json" taker)" ]
+
+  local T2; sandbox; T2=$T
+  pclaim "$T2" s2 R-P-4b
+  run_pulse "$T2" NAS_MAX_LANES=2 FAKE_LOAD=5.00 > "$T2/p2.log" 2>&1
+  check "P4 load 5 stands the pulse down even with idle slots" grep -q 'under pressure' "$T2/p2.log"
+  check "P4 no lane starts under pressure" [ ! -s "$T2/docker-starts" ]
+  check "P4 the claim is left under pressure" [ -z "$(jget "$T2/ctrl/rsi/state/cloud/s2.json" taker)" ]
+
+  local T3; sandbox; T3=$T
+  pclaim "$T3" s3 R-P-4c
+  running_job "$T3" fresh
+  running_job_stale "$T3" stale
+  run_pulse "$T3" NAS_MAX_LANES=2 > "$T3/p3.log" 2>&1
+  check "P4 a stale running record does not consume a lane" grep -q 'allowed=2 running=1 idle_slots=1' "$T3/p3.log"
+  check "P4 the stale record is logged" grep -q 'skip stale running record stale' "$T3/p3.log"
+  check "P4 the freed slot starts a lane" [ "$(grep -c 'nas-lane\.sh s3' "$T3/docker-starts")" = 1 ]
+}
+
+# --- P5: a live pulse lock is owned by its pid, not deleted by a second pulse (pulse) ------------
+t_pulse_lock_ownership() {
+  local T; sandbox; T=$T
+  pclaim "$T" s1 R-P-5a
+  mkdir -p "$T/ctrl/rsi/state/nas/.pulse.lock"
+  sleep 300 & local pid=$!
+  echo "$pid" > "$T/ctrl/rsi/state/nas/.pulse.lock/pid"
+  run_pulse "$T" > "$T/p.log" 2>&1; local rc=$?
+  check "P5 the second pulse exits 0" [ "$rc" = 0 ]
+  check "P5 it reports the running owner" grep -q "already running pid $pid" "$T/p.log"
+  check "P5 the live lock is left in place" [ "$(cat "$T/ctrl/rsi/state/nas/.pulse.lock/pid")" = "$pid" ]
+  check "P5 nothing is claimed while another pulse runs" [ -z "$(jget "$T/ctrl/rsi/state/cloud/s1.json" taker)" ]
+  check "P5 no lane starts" [ ! -s "$T/docker-starts" ]
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  rm -rf "$T/ctrl/rsi/state/nas/.pulse.lock"
+}
+
+# --- P6: a start that fails returns the brief instead of burning the slot for 5 h (pulse) --------
+# Before this PR the live pulse ignored docker exec's status: the claim stayed taker=nas with no
+# worker and only expired after RSI_NAS_CLAIM_HOURS (5 h). The release below is dd141408's behaviour,
+# restored under the same state/lanes flock and bounded by NAS_MAX_START_FAILS.
+t_pulse_start_failure() {
+  local T; sandbox; T=$T
+  pclaim "$T" s1 R-P-6a
+  run_pulse "$T" FAKE_START_FAIL=1 > "$T/p1.log" 2>&1
+  check "P6 a failed start records no lane start" [ ! -s "$T/docker-starts" ]
+  check "P6 a failed start releases the claim" [ -z "$(jget "$T/ctrl/rsi/state/cloud/s1.json" taker)" ]
+  check "P6 a failed start counts the failure" [ "$(jget "$T/ctrl/rsi/state/cloud/s1.json" nas_start_failures)" = 1 ]
+  check "P6 the failure reason is kept on the claim" grep -q 'container start failed' "$T/ctrl/rsi/state/cloud/s1.json"
+  check "P6 the remote job is marked failed" [ "$(jget "$T/nas/work/jobs/s1/status.json" status)" = failed ]
+  check "P6 the remote note names the cause" grep -q 'container start failed' "$T/nas/work/jobs/s1/status.json"
+  check "P6 a failed start writes no starts.log row" [ ! -s "$T/ctrl/rsi/state/nas/starts.log" ]
+  run_pulse "$T" FAKE_START_FAIL=1 > "$T/p2.log" 2>&1
+  check "P6 a second failed start counts again" [ "$(jget "$T/ctrl/rsi/state/cloud/s1.json" nas_start_failures)" = 2 ]
+  run_pulse "$T" > "$T/p3.log" 2>&1
+  check "P6 a brief blocked after repeated failures is not retried" [ ! -s "$T/docker-starts" ]
+  check "P6 the block is logged" grep -q 'blocked after repeated start failures: s1' "$T/p3.log"
+}
+
+# --- P6b: a failed ship never starts the lane and hands the brief back (pulse) --------------------
+# Without job.json on the NAS, ingest can never see this run finish, so the claim would sit taker=nas
+# for the whole 5 h hold. The ship (mkdir + scp + bundle rename + starter status) is checked before
+# the docker exec.
+t_pulse_ship_failure() {
+  local T; sandbox; T=$T
+  pclaim "$T" s1 R-P-6b
+  run_pulse "$T" FAKE_SCP_FAIL=1 > "$T/p1.log" 2>&1
+  check "P6b a failed ship starts no lane" [ ! -s "$T/docker-starts" ]
+  check "P6b a failed ship releases the claim" [ -z "$(jget "$T/ctrl/rsi/state/cloud/s1.json" taker)" ]
+  check "P6b a failed ship counts the failure" [ "$(jget "$T/ctrl/rsi/state/cloud/s1.json" nas_start_failures)" = 1 ]
+  check "P6b the failure reason is kept on the claim" grep -q 'ship failed' "$T/ctrl/rsi/state/cloud/s1.json"
+  check "P6b the failure is logged" grep -q 'ship failed for s1' "$T/p1.log"
+  check "P6b no job.json is left on the NAS" test ! -e "$T/nas/work/jobs/s1/job.json"
+  check "P6b a failed ship writes no starts.log row" [ ! -s "$T/ctrl/rsi/state/nas/starts.log" ]
+}
+
+if [ "${1:-}" = "--sandbox" ]; then sandbox; echo "$T"; SANDBOXES=(); exit 0; fi
 if [ -n "${1:-}" ]; then "$1"; finish; exit $?; fi    # test-nas.sh <function> — one test (mutant runs)
 
 t_ingest_twice
@@ -520,4 +705,11 @@ t_existing_pr
 t_existing_pr_shots
 t_claim_identity
 t_worktree_lock
+t_pulse_skips_taken
+t_pulse_starts_once
+t_pulse_container_down
+t_pulse_capacity
+t_pulse_lock_ownership
+t_pulse_start_failure
+t_pulse_ship_failure
 finish
