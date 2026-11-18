@@ -547,7 +547,7 @@
     },
     {
       "id": "KIN-PROJECT-002",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J4"
