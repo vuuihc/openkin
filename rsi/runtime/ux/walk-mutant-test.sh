@@ -2,7 +2,7 @@
 # walk-mutant-test.sh — the one-command red proof for the walk contracts (R-walk-mutant, R-walk-tap-j7).
 #
 #   bash rsi/runtime/ux/walk-mutant-test.sh                    # apply every committed mutant, require red, restore
-#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J7|J2|J8|J9|J10] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
+#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J5|J7|J2|J8|J9|J10] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
 #   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest
 #
 # J3 has two contracts. One: pressing Start on /new must keep the typed message
@@ -61,6 +61,14 @@
 # walks only J9 at the mac viewport, and requires the switch-back notes to
 # carry the same-shell line, the scroll-kept line and the draft's value line.
 #
+# J5: the row menu a person manages a conversation with. The walk opens the
+# seeded running row's menu by its id (any other row has no 运行中 line) and
+# asserts rename, pin, archive and delete in both languages, plus exactly one
+# disabled 运行中 / Running line. The manifest drops that status item from the
+# menu (`runningNow && false`, which keeps the tone test used for tsc); the
+# walk's count then reads 0 and --walk-once J5 prints red. Without the walk
+# half, a renamed action or a pressable status line would ship green.
+#
 # Deliberately not wired into ux-gate.sh: the proof builds the UI twice (once
 # for the mutant, once restored), which is too heavy for every PR. This is a
 # one-command verification to run when a journey or its walk changes.
@@ -85,8 +93,8 @@ case "${1:-}" in
   --walk-once)
     JOURNEY="${2:-J3}"
     case "$JOURNEY" in
-      J3|J7|J2|J8|J9|J10) ;;
-      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J7, J2, J8, J9 or J10" ;;
+      J3|J5|J7|J2|J8|J9|J10) ;;
+      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J5, J7, J2, J8, J9 or J10" ;;
     esac
     ;;
   "")
@@ -118,6 +126,64 @@ trap '[ -f "$OUT/index.html.bak" ] && cp "$OUT/index.html.bak" "$WT/web/dist/ind
 
 ( cd ui && npm run build ) >"$OUT/build.log" 2>&1 \
   || unavailable "ui build failed: $(tail -c 300 "$OUT/build.log")"
+
+if [ "$JOURNEY" = "J5" ]; then
+  bash rsi/runtime/ux-walk.sh "$WT" "$OUT" J5 >"$OUT/ux-walk.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    unavailable "$(cat "$OUT/UNAVAILABLE" 2>/dev/null || tail -c 300 "$OUT/ux-walk.log")"
+  fi
+  [ "$rc" -eq 0 ] || unavailable "ux-walk.sh exited $rc: $(tail -c 300 "$OUT/ux-walk.log")"
+  [ -s "$OUT/walk.json" ] || unavailable "the walker wrote no walk.json"
+
+  python3 - "$OUT/walk.json" <<'PY'
+import json
+import sys
+
+walk = json.load(open(sys.argv[1], encoding="utf-8"))
+screens = [s for s in walk.get("screens", []) if s.get("journey") == "J5"]
+names = [str(s.get("name", "")) for s in screens]
+skips = [n for n in names if "-skipped-" in n]
+if skips:
+    # No seeded running conversation: a menu opened on a settled row has no
+    # 运行中 line, so the walk proves nothing. Fail closed as "could not run".
+    print("UNAVAILABLE: J5 was skipped (" + ", ".join(skips[:2]) + ")")
+    sys.exit(2)
+
+# Step failures are `J5/…`; screenshot lint is `J5-<vp>-…`. Both are J5's.
+hard = [f for f in walk.get("hardFail", [])
+        if str(f).startswith("J5/") or str(f).startswith("J5-")]
+print("J5 screens: " + (", ".join(names) or "none"))
+for f in hard:
+    print("J5 hardFail: " + str(f))
+if hard:
+    print("walk-mutant: J5 red: %d hard failure(s)" % len(hard))
+    sys.exit(1)
+
+# The photograph is only evidence if the walk read the menu. At both widths the
+# row-actions shot's notes must carry the rename wait and a count of exactly
+# one disabled 运行中 / Running line; the mutant leaves that count at 0.
+unread = []
+for vp in ("phone", "mac"):
+    mine = [s for s in screens
+            if str(s.get("name", "")).startswith("J5-%s-" % vp)
+            and str(s.get("name", "")).endswith("-row-actions")]
+    if not mine:
+        unread.append(vp + " (no row-actions shot)")
+        continue
+    notes = [str(n) for n in mine[-1].get("notes", [])]
+    if not any(n.startswith("waited for css=") and ("改名" in n or "Rename" in n) for n in notes):
+        unread.append(vp + " (rename item never read)")
+    if not any(n.startswith("count ") and ("运行中" in n or "Running" in n) and n.endswith("= 1") for n in notes):
+        unread.append(vp + " (disabled running line never counted)")
+if unread:
+    print("walk-mutant: J5 red: " + "; ".join(unread))
+    sys.exit(1)
+print("walk-mutant: J5 green: the running row's menu shows rename, pin, archive, delete "
+      "and one disabled 运行中 line at both viewports")
+PY
+  exit $?
+fi
 
 if [ "$JOURNEY" = "J7" ]; then
   bash rsi/runtime/ux-walk.sh "$WT" "$OUT" J7 >"$OUT/ux-walk.log" 2>&1

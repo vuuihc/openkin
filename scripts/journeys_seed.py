@@ -20,9 +20,12 @@ they move a saved diff comment to its new line and then make it stale
 Conversations are seedable because the harness (rsi/runtime/ux-walk.sh and
 scripts/journeys-smoke.sh) puts scripts/journeys_fake_agent first on the
 throwaway daemon's PATH: the seed creates one succeeded, one failed, one
-archived and three held-open conversations, and refuses to create any unless
-/api/agents names a `claude` inside that directory as the binary the daemon
-would launch. Each held conversation gets its approval card through the same
+archived, one still-running and three held-open conversations, and refuses to
+create any unless /api/agents names a `claude` inside that directory as the
+binary the daemon would launch. The still-running fixture is the one whose row
+menu J5 opens while the turn is still going: it asks for no approval card, so
+the task stays `running` instead of `waiting_approval`. Each held conversation
+gets its approval card through the same
 loopback-only `POST /internal/approvals` bridge the agent's own client uses:
 one card for the approve path, one for the deny path, and one that J7's
 notification deep link lands on. When both J1 cards exist the seed prints the
@@ -34,6 +37,10 @@ J7's own card prints its own line, naming the conversation, the card a
 notification would reveal, and the row title a reader clicks after Back:
 
     j7 target conversation=<task-id> focus=<approval-id> title=<title>
+
+The still-running conversation J5 opens prints the row it must act on:
+
+    j5 target conversation=<task-id> title=<title>
 
 With no J7 card that line is absent and J7 stays a skip; with no deny card the
 `j1 targets` line is absent, because a half pair would point 拒絕 at nothing.
@@ -65,6 +72,11 @@ CHANGE_MARKER = "[seed] change"
 # emits the request and then stays alive, so the task stays `running` until
 # the seed asks for an approval through the internal bridge.
 APPROVE_MARKER = "[seed] approve"
+# The literal the fake agent looks for to stay `running` without ever asking
+# for an approval: no result is printed and no card is created, so the row
+# menu J5 opens carries the shipped 运行中 / Running status line. Distinct from
+# APPROVE_MARKER because `waiting_approval` reads as an approval, not a run.
+HOLD_MARKER = "[seed] hold"
 # The exact line the fake agent appends to notes.md. The shell fake carries the
 # same text; a re-run finds it and leaves the file alone.
 CHANGE_SENTINEL = "- [seed] change: the journey walk reads this line as a real diff."
@@ -151,6 +163,22 @@ CONVERSATIONS = (
         "prompt": PREFIX + "Review the notes from last week and list what to keep.",
         "expect": ("succeeded",),
         "archive": True,
+    },
+    {
+        # J5's fixture: the one conversation that is genuinely still working
+        # when its row menu opens. `[seed] hold` keeps the turn `running` with
+        # no approval card, which is the state `taskCardStatusView` maps to the
+        # shipped 运行中 / Running line. Named in Gamma so the Alpha/Beta row
+        # order other journeys read does not move, and created before the
+        # approval trio so it is not the newest row J1's list shows.
+        "slug": "conversation-running",
+        "title": PREFIX + "Running the migration",
+        "prompt": HOLD_MARKER + ": keep working until the walk opens this row.",
+        "expect": ("running",),
+        "archive": False,
+        # Wait only for `running`: no approval, no terminal status.
+        "running": True,
+        "project": "Project Gamma",
     },
     {
         # The deny fixture: the same held turn, so a second card exists for J1
@@ -625,17 +653,21 @@ def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: boo
 
 
 def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> dict[str, tuple[str, str, str]]:
-    """Create one succeeded, one failed, one archived and three held-open conversations.
+    """Create one succeeded, one failed, one archived, one still-running and three held-open conversations.
 
     The fake agent makes every turn but the held ones terminal; nothing here
     waits longer than KIN_SEED_TASK_TIMEOUT_SECS, and a turn that does not
     settle is reported as a skip rather than hanging the walk. The held
     conversations are never waited on for a terminal status: they exist so the
-    walk can photograph the approval cards a person actually meets.
+    walk can photograph the approval cards a person actually meets. The
+    still-running conversation is waited on only until it reports `running`:
+    it exists so J5 opens a row menu that carries the shipped 运行中 line, and
+    it must not ask for an approval card.
 
     Returns {role: (conversation id, approval id, title)} for each held
     conversation that really produced a card — the `j1 targets` / `j7 target`
-    pairs — or {}.
+    pairs — plus `j5`, whose approval id is empty: it names the still-running
+    row J5 opens. Absent roles mean the walker skips that journey.
     """
     agent, why = _fake_agent(api)
     if agent is None:
@@ -678,6 +710,11 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             state = str(row.get("status") or "unknown")
             if state not in spec["expect"]:
                 report.skip(spec["slug"], f"existing task {ident} is {state}, wanted {'/'.join(spec['expect'])}")
+                continue
+            if spec.get("running"):
+                # The still-working row J5 acts on. A second run names it
+                # again and expects no card: this fixture never asks for one.
+                targets["j5"] = (ident, "", title)
                 continue
             if spec.get("hold"):
                 # An earlier run can leave the task running because its
@@ -737,6 +774,17 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             continue
         ident = str(body["id"])
         report.create("conversation", title, ident)
+
+        if spec.get("running"):
+            # No approval and no terminal wait: this turn is meant to still be
+            # working when J5 opens its row menu. Reaching `running` is the
+            # whole contract — the fake holds it open from there.
+            state, last = _wait_status(api, ident, ("running",), timeout)
+            if state is None:
+                report.skip(spec["slug"], f"task {ident} still {last} after {timeout:g}s of polling; not waiting forever")
+            else:
+                targets["j5"] = (ident, "", title)
+            continue
 
         if spec.get("hold"):
             # No terminal wait and no fake-answered gate: this turn is meant to
@@ -818,6 +866,11 @@ def main(argv: list[str] | None = None) -> int:
     # J7 a skip rather than a walk against a made-up id.
     if j7:
         print(f"j7 target conversation={j7[0]} focus={j7[1]} title={j7[2]}")
+    # The row J5 opens: by id, so the walk acts on the conversation that is
+    # really still running instead of whichever row happens to be first.
+    j5 = targets.get("j5")
+    if j5:
+        print(f"j5 target conversation={j5[0]} title={j5[2]}")
     report_unproducible(report)
     report.summary()
     return 0
