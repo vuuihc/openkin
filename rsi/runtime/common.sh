@@ -78,10 +78,10 @@ export RSI_MAX_LANES="${RSI_MAX_LANES:-2}"        # worker lanes; the merge lane
 # capacity and stands down unless the machine is genuinely cool; the rest of the work goes to the
 # NAS lanes. Measured at the change: 6.5 GB reclaimable, 1.3 GB swap -> the spare lane starts.
 export RSI_LANE2_MEM_MIN_MB="${RSI_LANE2_MEM_MIN_MB:-5120}"
-export RSI_LANE2_SWAP_MAX_MB="${RSI_LANE2_SWAP_MAX_MB:-1536}"
+export RSI_LANE2_PRESSURE_MAX="${RSI_LANE2_PRESSURE_MAX:-1}"
+export RSI_LANE2_SWAP_FREE_MIN_MB="${RSI_LANE2_SWAP_FREE_MIN_MB:-512}"
 # Do not default RSI_LOAD_MAX to 100000 (that disabled the guard). lanes.py
-# treats a missing or >=10000 value as 2× cores, and also refuses a new local
-# worker when free swap is below RSI_SWAP_FREE_MIN_MB (default 2048).
+# treats a missing or >=10000 value as 2× cores.
 export VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}"  # three lanes of default-parallel vitest overload 8 cores
 export GOMAXPROCS="${GOMAXPROCS:-2}"
 export GO_TEST_P="${GO_TEST_P:-2}"
