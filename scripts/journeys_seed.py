@@ -8,18 +8,20 @@ the token is never printed. A state the API cannot produce without launching a
 real agent CLI is reported as `skip <state>: <reason>` and does not fail the
 walk — ux-walk.sh only treats a non-zero exit as a seed failure.
 
-Each project root is a clean git repository with one committed file, and the
-`conversation-created` prompt carries CHANGE_MARKER: the fake agent appends one
-line to that tracked file, so the walk can open a real workspace diff instead
-of an empty Changes bar. A second round of the same walk sends two more
-markers to that conversation: `[seed] shift` inserts one line immediately above
-CHANGE_SENTINEL, and `[seed] rewrite` replaces the sentinel's text. Together
-they move a saved diff comment to its new line and then make it stale
-(该行已变化) — the P3 item 3 rerun this seed exists to make walkable.
+Each project root is a clean git repository with one committed file, and two
+prompts carry CHANGE_MARKER: the fake agent appends one line to that tracked
+file, so the walk can open a real workspace diff instead of an empty Changes
+bar. `[seed] Morning planning` (Project Alpha) is the diff J2 reruns: its
+`[seed] shift` inserts one line immediately above CHANGE_SENTINEL and its
+`[seed] rewrite` replaces the sentinel's text, moving a saved diff comment to
+its new line and then making it stale (该行已变化) — the P3 item 3 rerun this
+seed exists to make walkable. Because those writes land in Alpha's file,
+`[seed] Phone review` (Project Beta) is J8's own diff: the phone review reads a
+file no other journey rewrites, so it quotes a line that still exists.
 
 Conversations are seedable because the harness (rsi/runtime/ux-walk.sh and
 scripts/journeys-smoke.sh) puts scripts/journeys_fake_agent first on the
-throwaway daemon's PATH: the seed creates one succeeded, one failed, one
+throwaway daemon's PATH: the seed creates two succeeded, one failed, one
 archived, one still-running and three held-open conversations, and refuses to
 create any unless /api/agents names a `claude` inside that directory as the
 binary the daemon would launch. The still-running fixture is the one whose row
@@ -163,6 +165,20 @@ CONVERSATIONS = (
         "prompt": PREFIX + "Review the notes from last week and list what to keep.",
         "expect": ("succeeded",),
         "archive": True,
+    },
+    {
+        # J8's own root: J2's rerun leg rewrites alpha's notes.md with
+        # `[seed] shift` then `[seed] rewrite`, so the phone review must read a
+        # file nothing else touches. Beta's root gets the pristine sentinel
+        # from this one turn and is never rewritten (the deny / J7 fixtures
+        # hold their turns without writing). Created before the running and
+        # held fixtures so the approve row J1 opens stays the newest row.
+        "slug": "conversation-phone-review",
+        "title": PREFIX + "Phone review",
+        "prompt": PREFIX + "change: review this diff from the phone.",
+        "expect": ("succeeded",),
+        "archive": False,
+        "project": "Project Beta",
     },
     {
         # J5's fixture: the one conversation that is genuinely still working
@@ -653,7 +669,7 @@ def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: boo
 
 
 def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> dict[str, tuple[str, str, str]]:
-    """Create one succeeded, one failed, one archived, one still-running and three held-open conversations.
+    """Create two succeeded, one failed, one archived, one still-running and three held-open conversations.
 
     The fake agent makes every turn but the held ones terminal; nothing here
     waits longer than KIN_SEED_TASK_TIMEOUT_SECS, and a turn that does not

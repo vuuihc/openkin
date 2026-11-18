@@ -358,6 +358,11 @@ function checkJ2Contract(spec) {
 // transcript. Without these rules a J8 that presses Alt+C, sends with a chord,
 // or asserts only the words would be green while the tap path is broken.
 const J8_QUOTE = '- [seed] change: the journey walk reads this line as a real diff.';
+// The one seeded conversation J2's rerun leg rewrites: `[seed] shift` moves
+// the commented line and `[seed] rewrite` deletes the quoted text. J8 must
+// review its own seeded diff, or its tray wait asks for a line that is gone
+// and the failure gets excused as a known artifact.
+const J8_CONVERSATION = 'Morning planning';
 function checkJ8Contract(spec) {
   const journey = (((spec || {}).journeys || {}).J8) || {};
   const steps = journey.steps;
@@ -374,6 +379,18 @@ function checkJ8Contract(spec) {
   const viewports = journey.viewports;
   if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'phone') {
     errs.push('J8 is the phone review loop: its viewports must be exactly ["phone"]; the Mac loop is J2');
+  }
+
+  // The fixture. J2 rewrites [seed] Morning planning's notes.md in the same
+  // walk, so a J8 that opens that conversation quotes a line the first journey
+  // deleted; its tray wait then fails for a fixture reason and the gate learns
+  // to excuse it. The phone review reads its own seeded diff.
+  const listAt = idx((st) => st[0] === 'goto' && String(sel(st, 1)).startsWith('/sessions'));
+  const openAt = after(listAt, (st) => st[0] === 'click');
+  if (openAt < 0) {
+    errs.push('J8 never opens a conversation from the seeded list (click … after goto /sessions)');
+  } else if (String(sel(steps[openAt], 1)).includes(J8_CONVERSATION)) {
+    errs.push(`J8 opens ${J8_CONVERSATION}, the seeded conversation J2's [seed] shift / [seed] rewrite rewrites; give J8 its own seeded conversation`);
   }
 
   // The seeded diff must be open before a changed line is tapped. A tap on a
@@ -447,6 +464,21 @@ function checkJ8Contract(spec) {
     && sel(st, 1).includes(J8_QUOTE));
   if (sendAt >= 0 && transcriptAt < 0) {
     errs.push('J8 never asserts the sent follow-up carries the path, hunk header and quote in the transcript');
+  }
+  // The follow-up is exactly one of J8's own *settled* messages, and it still
+  // carries the whole anchor. The pending echo is also a `data-message-key`
+  // row and carries the full composed comment, so the count must exclude
+  // `pending-*` and re-assert path/hunk/quote on the settled row itself:
+  // otherwise a spec that drops the exclusion, or a daemon event that keeps
+  // the words but drops the anchor, still walks green.
+  const ownMessageCountAt = after(transcriptAt, (st) => st[0] === 'count'
+    && /data-message-key/.test(sel(st, 1)) && sel(st, 1).includes(':not([data-message-key^=')
+    && body !== '' && sel(st, 1).includes(body)
+    && /notes\.md:5/.test(sel(st, 1)) && sel(st, 1).includes(J8_QUOTE)
+    && /@@\s*-\d+,\d+\s*\+\d+,\d+\s*@@/.test(sel(st, 1))
+    && String(st[2]) === '1');
+  if (transcriptAt >= 0 && ownMessageCountAt < 0) {
+    errs.push('J8 never counts exactly one settled message carrying its own comment body and the whole anchor (count [data-message-key]:not([data-message-key^=\'pending-\']) … notes.md:5 … hunk header … quoted line = 1); the transcript wait can pass on the pending bubble');
   }
   // The loop closes: the tray is empty again (or says it was sent), otherwise
   // the send is unproven and the comments are still waiting.
