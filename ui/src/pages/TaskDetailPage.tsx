@@ -451,9 +451,14 @@ export default function TaskDetailPage({
   // while the task loads), and the files panel is offered whenever there is a
   // task, so the store's answer is the panel's.
   const filesPanelOpen = shownPanel?.view === id && shownPanel.id === "files";
+  // The PR is a tab of that same panel, so being on it is not leaving the
+  // files surface: the open file survives the visit and is still open — and
+  // still in the address — when a lens tab (or the header's Files button)
+  // comes back (TASTE 15).
+  const prSurfaceOpen = shownPanel?.view === id && shownPanel.id === "pr";
   useEffect(() => {
-    if (!filesPanelOpen) setWorkspaceOpenPath(null);
-  }, [filesPanelOpen]);
+    if (!filesPanelOpen && !prSurfaceOpen) setWorkspaceOpenPath(null);
+  }, [filesPanelOpen, prSurfaceOpen]);
   const slow = useSlowHint(loading);
 
   const loadUsage = useCallback(async () => {
@@ -1737,7 +1742,32 @@ export default function TaskDetailPage({
 
   function toggleFilesPanel() {
     if (filesPanelOpen) closeFilesPanel();
+    // Coming back from the PR tab is a change of view inside one panel, so it
+    // keeps the file the reader had open (see `showFilesSurface`); opening the
+    // panel from the conversation starts from the list.
+    else if (prSurfaceOpen) showFilesSurface();
     else openFilesPanel();
+  }
+
+  /**
+   * A lens tab picked while the pull-request tab was in front.
+   *
+   * The lens and the PR are tabs of one panel, so choosing a lens is choosing
+   * the files surface: the page records it the way a file pick does. Unlike
+   * `openFilesPanel`, this keeps the file the reader had open in the address —
+   * the tab changed the view, not the place (TASTE 15).
+   */
+  function showFilesSurface() {
+    if (!task || routedId !== id) return;
+    showPanel(id, "files");
+    const open = workspaceOpenPath ? toWorkspaceRelativePath(task.cwd, workspaceOpenPath) : null;
+    writeWorkspaceSearch(
+      patchWorkspaceLink(locationRef.current.search, {
+        panel: "files",
+        // "." is the checkout itself, not a file; the address names the list.
+        file: open === "." ? null : open,
+      }),
+    );
   }
 
   /**
@@ -2358,6 +2388,11 @@ export default function TaskDetailPage({
         onOpenPath={onOpenWorkspacePath}
         onPanelSelectPath={onPanelSelectPath}
         onOpenFilesPanel={openFilesPanel}
+        // The tab opens the surface; it does not toggle it. Only the header
+        // button and the phone action sheet toggle, which is why the panel
+        // itself cannot be the thing that decides.
+        onOpenPr={() => showPanel(id, "pr")}
+        onShowFiles={showFilesSurface}
         onKeepAll={onKeepAllChanges}
         onDiscardAll={onDiscardAllChanges}
         onPublish={openPublishPanel}

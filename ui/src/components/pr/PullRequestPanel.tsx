@@ -49,6 +49,16 @@ type Props = {
    */
   elsewhere?: Elsewhere;
   onClose?: () => void;
+  /**
+   * Drawn as the pull-request tab of the workspace panel rather than as a
+   * surface of its own.
+   *
+   * The container then owns the skin, the tab strip and the one close button,
+   * so this pane renders its body only: a second `PanelSurface` inside the
+   * workspace panel would be two landmarks at one z-index, and a second close
+   * would be two controls for one act.
+   */
+  embedded?: boolean;
 };
 
 /**
@@ -68,6 +78,7 @@ export default function PullRequestPanel({
   active = true,
   elsewhere = null,
   onClose,
+  embedded = false,
 }: Props) {
   const tr = useT();
   const [snapshot, setSnapshot] = useState<TaskPullRequestSnapshot | null>(null);
@@ -223,8 +234,8 @@ export default function PullRequestPanel({
   const lead = leadObservation(snapshot?.observations, snapshot?.branch);
   const others = otherPullRequests(snapshot?.observations, lead);
 
-  return (
-    <PanelSurface label={tr("pr.title")} className="flex flex-col" shape="column">
+  const body = (
+    <>
       {/* Header — matches the workspace and publish panels */}
       <div className="flex flex-none items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
         <IconPullRequest size={14} className="flex-none text-kin-muted" />
@@ -251,7 +262,7 @@ export default function PullRequestPanel({
           {busy ? <IconSpinner size={13} strokeWidth={2} /> : <IconRefresh size={13} />}
           <span className="hidden sm:inline">{tr("pr.refresh")}</span>
         </Button>
-        {onClose && (
+        {onClose && !embedded && (
           <Button
             variant="quiet"
             onClick={onClose}
@@ -335,6 +346,17 @@ export default function PullRequestPanel({
           )}
         </div>
       </div>
+    </>
+  );
+
+  // Embedded is the workspace panel's PR tab: the container draws the skin,
+  // the strip and the one close, so this pane draws neither. Still a flex
+  // column, so the header holds still and the body is what scrolls.
+  if (embedded) return <div className="h-full min-h-0 flex flex-col">{body}</div>;
+
+  return (
+    <PanelSurface label={tr("pr.title")} className="flex flex-col" shape="column">
+      {body}
     </PanelSurface>
   );
 }
