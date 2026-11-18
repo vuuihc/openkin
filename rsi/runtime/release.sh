@@ -71,7 +71,14 @@ mkdir -p "$STATE"
 CHK="$(RSI_REPO="$REPO" bash "$HERE/release-check.sh")"; rc=$?
 [ $rc -eq 0 ] || { printf '%s\n' "$CHK"; die "release-check says HOLD (see above)"; }
 printf '%s\n' "$CHK"
-SHA="$($git -C "$REPO" fetch -q origin main && $git -C "$REPO" rev-parse origin/main)"; SHORT="$(printf '%s' "$SHA" | cut -c1-8)"
+SHA="$($git -C "$REPO" fetch -q origin main && $git -C "$REPO" rev-parse origin/main)"
+# A failed fetch must stop here, before a single thing is rebuilt. Without this guard the
+# script logged an empty SHA, rebuilt and restarted the live node, and only then aborted at
+# the Hub with `git archive ""` — a half release plus a `node=` line with no SHA in
+# state/last_release (2026-11-18 19:51, a transient github.com SSL error).
+case "$SHA" in ''|*[!0-9a-f]*) die "git fetch origin main failed in $REPO; nothing shipped";; esac
+[ "${#SHA}" -eq 40 ] || die "origin/main is not a full SHA ('$SHA') in $REPO; nothing shipped"
+SHORT="$(printf '%s' "$SHA" | cut -c1-8)"
 say "releasing $SHORT to node=$NODE hub=$HUB"
 [ "$DRY" = 1 ] && { say "dry run: stopping here"; exit 0; }
 
