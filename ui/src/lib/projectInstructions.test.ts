@@ -84,7 +84,8 @@ describe("projectInstructions (KIN-PROJECT-003)", () => {
     const withNext = "# a\n\n## 工作方式\nrun tests\n\n## Next\n- one\n";
     expect(projectInstructions(withNext).text).toBe("run tests");
 
-    const withAuto = "# a\n\n## 工作方式\nrun tests\n\n<!-- kin:auto:start -->\n## Pulse\n_stats_\n";
+    const withAuto =
+      "# a\n\n## 工作方式\nrun tests\n\n<!-- kin:auto:start -->\n## Pulse\n_stats_\n";
     expect(projectInstructions(withAuto).text).toBe("run tests");
   });
 });

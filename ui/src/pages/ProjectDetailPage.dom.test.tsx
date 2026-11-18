@@ -371,7 +371,9 @@ describe("the project cover (KIN-PROJECT-001)", () => {
 
     // The summary and the work-instructions block read the same document, so
     // one failed read is reported in both places.
-    expect((await screen.findAllByText("The summary is unavailable right now")).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText("The summary is unavailable right now")).length,
+    ).toBeGreaterThan(0);
     expect(await screen.findByRole("heading", { level: 1, name: "alpha" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /newest chat/ })).toBeTruthy();
   });
