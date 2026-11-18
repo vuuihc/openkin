@@ -14,6 +14,7 @@
     ["vp", "mac"],
     ["goto", "/"],
     ["url", "^/tasks/"],
+    ["wait", "css=[role=region][tabindex='-1']:has-text('[seed] change: summarise the three things worth doing today.')"],
     ["wait", "css=[role=region][tabindex='-1']:has-text('Fake reply from the journey fake agent.')"],
     ["shot", "cold-start-mac"],
     ["key", "Meta+k"],
