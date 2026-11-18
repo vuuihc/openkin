@@ -42,6 +42,10 @@ mkdir -p "$CTRL/rsi/runtime"
 cp "$REPO/rsi/runtime/common.sh" "$CTRL/rsi/runtime/common.sh"
 cp "$UXWALK" "$CTRL/rsi/runtime/ux-walk.sh"
 chmod +x "$CTRL/rsi/runtime/"*.sh   # no +x heal message from common.sh
+# Staged before any case runs: a seam that acquired the heavy slot would create
+# $CTRL/rsi/state/heavy/slot1, and case 1 below must be able to see it.
+cp "$REPO/rsi/runtime/heavy.sh" "$CTRL/rsi/runtime/heavy.sh"
+chmod +x "$CTRL/rsi/runtime/heavy.sh"
 SEAM="$CTRL/rsi/runtime/ux-walk.sh"
 
 width() { wc -l < "$1" | tr -d ' '; }
@@ -135,8 +139,6 @@ pass "$case_name"
 # scroll-restore race (2026-11-18: J9/mac at 3471, J11/phone at 4983). The
 # walker therefore runs through heavy.sh, and RSI_NO_HEAVY fails closed instead
 # of walking next to the gate's own build.
-cp "$REPO/rsi/runtime/heavy.sh" "$CTRL/rsi/runtime/heavy.sh"
-chmod +x "$CTRL/rsi/runtime/heavy.sh"
 
 # Stub daemon: writes the token ux-walk.sh reads, then sleeps until the walk's
 # trap kills it. The ready marker lets the curl stub wait for that token rather
