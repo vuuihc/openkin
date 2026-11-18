@@ -1,5 +1,12 @@
 [
   {
+    "label": "the phone tabs forget the URL the reader left in each area",
+    "file": "ui/src/components/layout/PhoneFooter.tsx",
+    "old": "place.id === \"sessions\" ? returnListUrl(location) : phoneTabUrl(place.id, place.path);",
+    "new": "(place.id === \"sessions\" ? returnListUrl(location) : phoneTabUrl(place.id, place.path)).slice(0, 0) + place.path; // R-f5-tab-state: the remembered URL dropped on purpose",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J10"
+  },
+  {
     "label": "the seeded detail row and the pending bubble do not cross the route",
     "file": "ui/src/pages/NewChatPage.tsx",
     "old": "      liveResources.applyTaskSnapshot(task, liveResources.currentRevision());\n      // The same bubble travels with the route: the conversation mounts before\n      // its detail answers, and it must draw the message the draft was already\n      // showing rather than blink it away for one navigation plus one GET.\n      handOffPendingSend(task.id, sent);",

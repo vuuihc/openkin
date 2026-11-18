@@ -643,6 +643,129 @@ function checkJ9Contract(spec) {
   }
   return errs;
 }
+// J10's contract: F5 — the phone's four tabs keep their place, and a card a
+// person approved stays answered. J7 proves the deep link lands and Back
+// returns; it never answers the card or leaves the conversation, so a footer
+// that opens bare roots, or a decided card drawn pending again on the return,
+// is green today. IA D8 is the sharp half: 设置 and Agent 运维 share /settings
+// but each keeps its own `?tab=`, and the walk must assert the query, not just
+// the pathname. The `url` op matches `location.pathname` only, so the query is
+// a `search` step; a contract that demanded `url /settings?tab=…` would reject
+// the only honest spelling the walker can execute.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ10Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J10) || {};
+  const steps = journey.steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J10 has no steps'];
+  const errs = [];
+  const required = (v) => typeof v === 'string' && !v.startsWith('?');
+  const bare = (v) => String(v).replace(/^\?/, '');
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+
+  // Phone only: the footer exists below 700px, and the tab round is a thumb
+  // tap. J7 walks the same landing at both widths; J10 is the phone proof.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'phone') {
+    errs.push('J10 is the phone tab-memory proof: its viewports must be exactly ["phone"]');
+  }
+
+  // Land on the card the notification names, then answer it. A walk that only
+  // photographs the card leaves every later `gone` vacuous.
+  const deepAt = idx((st) => st[0] === 'goto' && required(sel(st, 1)) && /\/tasks\//.test(bare(sel(st, 1)))
+    && bare(sel(st, 1)).includes('{conversation}') && /focus=|\{focus\}/.test(bare(sel(st, 1))));
+  if (deepAt < 0) errs.push('J10 has no required deep-link goto naming both {conversation} and {focus}');
+  const cardWait = ([op, needle]) => op === 'wait' && required(needle) && /^css=/.test(bare(needle))
+    && bare(needle).includes('[data-pending-id="{focus}"]');
+  const waitAt = idx(cardWait);
+  if (waitAt < 0) errs.push('J10 never waits for the named card ([data-pending-id="{focus}"])');
+  const approveControl = (v) => /批准|Approve/.test(String(v));
+  const approveAt = idx((st) => st[0] === 'click' && required(sel(st, 1)) && approveControl(bare(sel(st, 1))));
+  if (approveAt < 0) errs.push("J10 never presses the card's approve control (批准 / Approve)");
+  else if ((deepAt >= 0 && approveAt < deepAt) || (waitAt >= 0 && approveAt < waitAt)) {
+    errs.push('J10 presses approve before it waits for the named card');
+  }
+
+  // The four peer entries (IA D8). Each tap is its own rule: dropping one
+  // leaves that area's memory unproven.
+  const footerAt = (id) => idx((st) => st[0] === 'click' && required(sel(st, 1))
+    && bare(sel(st, 1)).includes(`[data-phone-return="${id}"]`));
+  const tabs = ['sessions', 'routines', 'agents', 'settings'];
+  const taps = {};
+  tabs.forEach((id) => {
+    taps[id] = footerAt(id);
+    if (taps[id] < 0) errs.push(`J10 never taps the ${id} footer entry (click [data-phone-return="${id}"])`);
+  });
+  const tapList = tabs.map((id) => taps[id]).filter((i) => i >= 0);
+  const firstTap = tapList.length ? Math.min(...tapList) : -1;
+  const lastTap = tapList.length ? Math.max(...tapList) : -1;
+  const nextTapAfter = (from) => {
+    const later = tapList.filter((i) => i > from);
+    return later.length ? Math.min(...later) : steps.length;
+  };
+
+  // The answer must take the control off the screen before the reader leaves:
+  // a card still showing Approve on the way out was never decided.
+  const goneOf = (from = 0) => idx((st) => st[0] === 'gone' && required(sel(st, 1)) && approveControl(bare(sel(st, 1))), from);
+  const approveGone = goneOf();
+  if (approveGone < 0) errs.push('J10 never proves the approve control left the screen after the answer');
+  else if (firstTap >= 0 && approveGone > firstTap) {
+    errs.push('J10 never proves the approve control left the screen before the first footer tap');
+  }
+
+  // Settings and Agent Ops share a pathname; only `?tab=` tells them apart.
+  const urlAt = (from, needle) => idx((st) => st[0] === 'url' && required(sel(st, 1)) && bare(sel(st, 1)).includes(needle), from);
+  const searchAt = (from, needle) => idx((st) => st[0] === 'search' && required(sel(st, 1)) && bare(sel(st, 1)).includes(needle), from);
+  if (taps.settings >= 0 && urlAt(taps.settings, '/settings') < 0) {
+    errs.push('J10 never opens Settings from its footer entry (url ^/settings)');
+  }
+  if (taps.agents >= 0) {
+    const ops = searchAt(taps.agents, 'tab=operations');
+    if (ops < 0 || ops > nextTapAfter(taps.agents)) {
+      errs.push('J10 never proves the Agent Ops entry reopened its own tab (search tab=operations)');
+    }
+  }
+  if (taps.routines >= 0 && urlAt(taps.routines, '/routines') < 0) {
+    errs.push('J10 never proves the Routines entry reopened /routines (url ^/routines)');
+  }
+  if (taps.sessions >= 0 && urlAt(taps.sessions, '/sessions') < 0) {
+    errs.push('J10 never proves the Chats entry reopened the list (url ^/sessions)');
+  }
+  // The memory proof: leave Settings for another area, come back, and read
+  // the non-operations tab off the address. Two settings taps are the shape;
+  // one tap plus a bare root is the regression this journey exists to catch.
+  const settingsTaps = [];
+  steps.forEach((st, i) => {
+    if (st[0] === 'click' && required(sel(st, 1)) && bare(sel(st, 1)).includes('[data-phone-return="settings"]')) settingsTaps.push(i);
+  });
+  const backToSettings = settingsTaps.length >= 2 ? settingsTaps[settingsTaps.length - 1] : -1;
+  const leftSettings = backToSettings >= 0 && tapList.some((i) => i > settingsTaps[0] && i < backToSettings);
+  if (!leftSettings) {
+    errs.push('J10 never returns to Settings from another footer entry; the remembered tab cannot be proven without leaving and coming back');
+  } else {
+    const patterns = steps.map((st, i) => ({ st, i }))
+      .filter(({ st, i }) => i > backToSettings && st[0] === 'search' && required(sel(st, 1)))
+      .map(({ st }) => bare(sel(st, 1)));
+    if (!patterns.some((p) => /tab=/.test(p) && !/tab=operations/.test(p))) {
+      errs.push('J10 never proves Settings remembered its tab: a non-root settings URL (search tab=…) must follow the return');
+    }
+  }
+
+  // The return is the half that catches an answered card drawn pending again.
+  const rowAt = idx((st) => st[0] === 'click' && required(sel(st, 1))
+    && bare(sel(st, 1)).includes('[data-session-row="{conversation}"]'), lastTap + 1);
+  if (rowAt < 0) {
+    errs.push('J10 never returns to the conversation after the tab round (click [data-session-row="{conversation}"])');
+  } else {
+    const backTask = idx((st) => st[0] === 'url' && required(sel(st, 1)) && bare(sel(st, 1)).includes('/tasks/{conversation}'), rowAt + 1);
+    if (backTask < 0) errs.push('J10 never proves the return reached the conversation (url ^/tasks/{conversation})');
+    const finalGone = goneOf(rowAt + 1);
+    if (finalGone < 0) {
+      errs.push('J10 never proves the approved card stayed gone after the return (gone of the approve control)');
+    }
+  }
+  return errs;
+}
 // J7's contract: a notification tap must prove it landed on the card the
 // notification named — not just photograph whatever loaded. Without these
 // rules a blank deep link, a landing on the wrong card, and a Back that
@@ -703,12 +826,14 @@ if (process.argv.includes('--check-spec')) {
   const j7 = checkJ7Contract(spec);
   const j8 = checkJ8Contract(spec);
   const j9 = checkJ9Contract(spec);
-  if (j2.length || j3.length || j7.length || j8.length || j9.length) {
+  const j10 = checkJ10Contract(spec);
+  if (j2.length || j3.length || j7.length || j8.length || j9.length || j10.length) {
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
     if (j7.length) { console.log('spec red: J7'); j7.forEach((e) => console.log(' - ' + e)); }
     if (j8.length) { console.log('spec red: J8'); j8.forEach((e) => console.log(' - ' + e)); }
     if (j9.length) { console.log('spec red: J9'); j9.forEach((e) => console.log(' - ' + e)); }
+    if (j10.length) { console.log('spec red: J10'); j10.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
   console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
@@ -718,6 +843,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
   console.log('spec ok: J8 taps a changed line at 390, saves the sheet, sends the tray, and proves path, hunk and quote');
   console.log('spec ok: J9 keeps the shell, the scroll and the draft across a switch');
+  console.log('spec ok: J10 approves the deep-linked card, walks all four footer entries, and finds it gone on the return');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
@@ -1044,11 +1170,13 @@ async function fakeAgentVerdict() {
   return '';
 }
 for (const j of want) {
-  const seed = (j === 'J1' || j === 'J7') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
+  const seed = (j === 'J1' || j === 'J7' || j === 'J10') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
   const j1 = j === 'J1' ? readJ1Target(seed) : null;
-  const j7 = j === 'J7' ? readJ7Target(seed) : null;
+  // J10 answers the same seeded card J7 only looks at. Both must resolve the
+  // target the same way, and both skip rather than walk invented ids.
+  const j7 = (j === 'J7' || j === 'J10') ? readJ7Target(seed) : null;
   if (j1 && j1.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J1-skipped-no-approval-target', url: '', lint: {}, notes: ['skipped J1: ' + j1.skip] }); continue; }
-  if (j7 && j7.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J7-skipped-no-fixtures', url: '', lint: {}, notes: ['skipped J7: no seeded notification target'] }); continue; }
+  if (j7 && j7.skip) { screens.push({ journey: j, viewport: 'n/a', name: j + '-skipped-no-fixtures', url: '', lint: {}, notes: ['skipped ' + j + ': no seeded notification target'] }); continue; }
   const J = spec.journeys[j];
   for (const vpName of J.viewports) {
     const [w, h] = spec.viewports[vpName].split('x').map(Number); const phone = w < 700;
@@ -1088,7 +1216,7 @@ for (const j of want) {
     // the second width ran it.
     let vpOnly = '';
     for (const rawStep of J.steps) {
-      const preStep = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
+      const preStep = (j === 'J7' || j === 'J10') && j7 ? applyJ7Step(rawStep, j7) : rawStep;
       const st = applyVpStep(preStep, vpName);
       const [op, a, b] = st;
       if (op === 'vp') {

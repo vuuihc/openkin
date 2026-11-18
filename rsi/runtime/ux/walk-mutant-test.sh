@@ -2,7 +2,7 @@
 # walk-mutant-test.sh — the one-command red proof for the walk contracts (R-walk-mutant, R-walk-tap-j7).
 #
 #   bash rsi/runtime/ux/walk-mutant-test.sh                    # apply every committed mutant, require red, restore
-#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J7|J2|J8|J9] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
+#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J7|J2|J8|J9|J10] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
 #   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest
 #
 # J3 has two contracts. One: pressing Start on /new must keep the typed message
@@ -85,8 +85,8 @@ case "${1:-}" in
   --walk-once)
     JOURNEY="${2:-J3}"
     case "$JOURNEY" in
-      J3|J7|J2|J8|J9) ;;
-      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J7, J2, J8 or J9" ;;
+      J3|J7|J2|J8|J9|J10) ;;
+      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J7, J2, J8, J9 or J10" ;;
     esac
     ;;
   "")
@@ -232,6 +232,81 @@ if missing:
     print("walk-mutant: J9 red: the switch-back screen never read " + ", ".join(missing))
     sys.exit(1)
 print("walk-mutant: J9 green: the shell, the scroll and the draft survived the switch")
+PY
+  exit $?
+fi
+
+if [ "$JOURNEY" = "J10" ]; then
+  bash rsi/runtime/ux-walk.sh "$WT" "$OUT" J10 >"$OUT/ux-walk.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    unavailable "$(cat "$OUT/UNAVAILABLE" 2>/dev/null || tail -c 300 "$OUT/ux-walk.log")"
+  fi
+  [ "$rc" -eq 0 ] || unavailable "ux-walk.sh exited $rc: $(tail -c 300 "$OUT/ux-walk.log")"
+  [ -s "$OUT/walk.json" ] || unavailable "the walker wrote no walk.json"
+
+  python3 - "$OUT/walk.json" <<'PY'
+import json
+import sys
+
+walk = json.load(open(sys.argv[1], encoding="utf-8"))
+screens = [s for s in walk.get("screens", []) if s.get("journey") == "J10"]
+names = [str(s.get("name", "")) for s in screens]
+skips = [n for n in names if "-skipped-" in n]
+if skips:
+    # No seeded notification target: there is no card to answer, so the walk
+    # proves nothing. Fail closed as "could not run".
+    print("UNAVAILABLE: J10 was skipped (" + ", ".join(skips[:2]) + ")")
+    sys.exit(2)
+
+# Step failures are `J10/…`; screenshot lint is `J10-<vp>-…`. Both are J10's.
+hard = [f for f in walk.get("hardFail", [])
+        if str(f).startswith("J10/") or str(f).startswith("J10-")]
+print("J10 screens: " + (", ".join(names) or "none"))
+for f in hard:
+    print("J10 hardFail: " + str(f))
+if hard:
+    print("walk-mutant: J10 red: %d hard failure(s)" % len(hard))
+    sys.exit(1)
+
+# The round's shape, in order: land on the card, approve it, come back to the
+# remembered settings tab, read the routines root, then the return shot.
+expected = ["f5-deep-link", "f5-approved", "f5-tab-settings-remembered",
+            "f5-tab-routines", "f5-approved-card-stayed-gone"]
+positions = []
+for shot in expected:
+    hit = next((i for i, name in enumerate(names) if name.endswith("-" + shot)), None)
+    if hit is None:
+        print("walk-mutant: J10 red: no %s shot" % shot)
+        sys.exit(1)
+    positions.append(hit)
+if positions != sorted(positions):
+    print("walk-mutant: J10 red: the shots are out of order: " + ", ".join(expected))
+    sys.exit(1)
+
+# The notes are the journey's log. The remembered settings read is what the
+# mutant removes; the final gone and the zero count are the answered card. A
+# shot of the right screen without these proves only that the route works.
+def notes_of(shot):
+    mine = [s for s in screens if str(s.get("name", "")).endswith("-" + shot)]
+    return [str(n) for n in mine[-1].get("notes", [])] if mine else []
+
+remembered = [n for n in notes_of("f5-tab-settings-remembered")
+              if n.startswith("search ") and "tab=agents" in n and "matches" in n]
+final = notes_of("f5-approved-card-stayed-gone")
+gone = [n for n in final if n.startswith("gone ") and ("批准" in n or "Approve" in n)]
+zeroed = [n for n in final if n.startswith("count ") and n.endswith("= 0")]
+missing = []
+if not remembered:
+    missing.append("the remembered settings tab")
+if not gone:
+    missing.append("the final gone of the approve control")
+if not zeroed:
+    missing.append("the zero count of the approve control")
+if missing:
+    print("walk-mutant: J10 red: the walk never read " + ", ".join(missing))
+    sys.exit(1)
+print("walk-mutant: J10 green: the deep-linked card was approved, every footer entry kept its place, and the card stayed gone")
 PY
   exit $?
 fi
