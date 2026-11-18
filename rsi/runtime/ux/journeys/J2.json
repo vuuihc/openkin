@@ -1,0 +1,388 @@
+{
+  "title": "Mac: search last week's chat, continue, change model/permission, look at the diff; filter the list",
+  "viewports": [
+    "mac",
+    "mac-wide"
+  ],
+  "steps": [
+    [
+      "goto",
+      "/sessions"
+    ],
+    [
+      "shot",
+      "list"
+    ],
+    [
+      "fill",
+      "?input[type=search]",
+      "week"
+    ],
+    [
+      "shot",
+      "search"
+    ],
+    [
+      "click",
+      "?/筛选|Filter/"
+    ],
+    [
+      "shot",
+      "filters"
+    ],
+    [
+      "key",
+      "Escape"
+    ],
+    [
+      "fill",
+      "?input[type=search]",
+      ""
+    ],
+    [
+      "click",
+      "?/Morning planning/"
+    ],
+    [
+      "shot",
+      "conversation"
+    ],
+    [
+      "click",
+      "?/变更|文件|Changes|Files/"
+    ],
+    [
+      "shot",
+      "workspace-panel"
+    ],
+    [
+      "click",
+      "css=[role=tab]:has-text('Pull Request'), button[aria-label='Pull Request'], button[aria-label='Pull request']"
+    ],
+    [
+      "wait",
+      "css=p:has-text('尚未查询此分支。'), p:has-text('This branch has not been checked yet.')"
+    ],
+    [
+      "wait",
+      "css=div:has-text('此任务不在 GitHub 仓库中'), div:has-text('This task is not in a GitHub repository')"
+    ],
+    [
+      "count",
+      "css=button[aria-label='刷新'], button[aria-label='Refresh']",
+      "1"
+    ],
+    [
+      "enabled",
+      "css=button[aria-label='刷新'], button[aria-label='Refresh']"
+    ],
+    [
+      "count",
+      "css=p:has-text('正在查询该分支'), p:has-text('Checking this branch')",
+      "0"
+    ],
+    [
+      "shot",
+      "pr-panel"
+    ],
+    [
+      "click",
+      "css=button[aria-label='文件'], button[aria-label='Files']"
+    ],
+    [
+      "click",
+      "?css=[role=complementary][aria-label='文件'] li button:has-text('notes.md'), [role=complementary][aria-label='Files'] li button:has-text('notes.md')"
+    ],
+    [
+      "shot",
+      "workspace-diff"
+    ],
+    [
+      "wait",
+      "css=.monaco-diff-editor"
+    ],
+    [
+      "focus",
+      "css=.monaco-diff-editor .editor.modified textarea"
+    ],
+    [
+      "key",
+      "Meta+ArrowDown"
+    ],
+    [
+      "key",
+      "ArrowUp"
+    ],
+    [
+      "key",
+      "Alt+KeyC"
+    ],
+    [
+      "wait",
+      "css=section[aria-label^='评论 notes.md:'], section[aria-label^='Comment on notes.md:']"
+    ],
+    [
+      "shot",
+      "diff-comment-box"
+    ],
+    [
+      "fill",
+      "css=section[aria-label^='评论 notes.md:'] textarea, section[aria-label^='Comment on notes.md:'] textarea",
+      "把这一行改成一句总结。[{vp}]"
+    ],
+    [
+      "click",
+      "css=section[aria-label^='评论 notes.md:'] button:has-text('保存'), section[aria-label^='Comment on notes.md:'] button:has-text('Save')"
+    ],
+    [
+      "wait",
+      "css=section[aria-label='改动评论'] li:has-text('notes.md'):has-text('- [seed] change: the journey walk reads this line as a real diff.'), section[aria-label='Diff comments'] li:has-text('notes.md'):has-text('- [seed] change: the journey walk reads this line as a real diff.')"
+    ],
+    [
+      "count",
+      "css=section[aria-label='改动评论'] li, section[aria-label='Diff comments'] li",
+      "1"
+    ],
+    [
+      "shot",
+      "diff-comment-tray"
+    ],
+    [
+      "focus",
+      "css=section[aria-label='改动评论'] li button, section[aria-label='Diff comments'] li button"
+    ],
+    [
+      "key",
+      "Meta+Enter"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1']:has-text('把这一行改成一句总结。[{vp}]'):has-text('notes.md:5'):has-text('@@ -1,1 +1,6 @@'):has-text('- [seed] change: the journey walk reads this line as a real diff.')"
+    ],
+    [
+      "gone",
+      "css=section[aria-label='改动评论'], section[aria-label='Diff comments']"
+    ],
+    [
+      "wait",
+      "css=p:text-is('已发回对话'), p:text-is('Sent back to the conversation')"
+    ],
+    [
+      "shot",
+      "diff-comment-sent"
+    ],
+    [
+      "vp",
+      "mac-wide"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex=\"-1\"] p:has-text(\"Fake reply from the journey fake agent.\") >> nth=2",
+      "20000"
+    ],
+    [
+      "click",
+      "?css=[role=complementary][aria-label='文件'] button[aria-label='返回文件'], [role=complementary][aria-label='Files'] button[aria-label='Back to files']"
+    ],
+    [
+      "click",
+      "css=[role=complementary][aria-label='文件'] li button:has-text('notes.md'), [role=complementary][aria-label='Files'] li button:has-text('notes.md')"
+    ],
+    [
+      "wait",
+      "css=.monaco-diff-editor"
+    ],
+    [
+      "focus",
+      "css=.monaco-diff-editor .editor.modified textarea"
+    ],
+    [
+      "key",
+      "Meta+ArrowDown"
+    ],
+    [
+      "key",
+      "ArrowUp"
+    ],
+    [
+      "key",
+      "Alt+KeyC"
+    ],
+    [
+      "wait",
+      "css=section[aria-label^='评论 notes.md:5'], section[aria-label^='Comment on notes.md:5']"
+    ],
+    [
+      "fill",
+      "css=section[aria-label^='评论 notes.md:'] textarea, section[aria-label^='Comment on notes.md:'] textarea",
+      "第二轮：这一行之后会移动，评论要留住。[{vp}]"
+    ],
+    [
+      "click",
+      "css=section[aria-label^='评论 notes.md:'] button:has-text('保存'), section[aria-label^='Comment on notes.md:'] button:has-text('Save')"
+    ],
+    [
+      "wait",
+      "css=section[aria-label='改动评论'] li:has-text('notes.md'):has-text('- [seed] change: the journey walk reads this line as a real diff.'), section[aria-label='Diff comments'] li:has-text('notes.md'):has-text('- [seed] change: the journey walk reads this line as a real diff.')"
+    ],
+    [
+      "count",
+      "css=section[aria-label='改动评论'] li, section[aria-label='Diff comments'] li",
+      "1"
+    ],
+    [
+      "fill",
+      "css=form textarea",
+      "[seed] shift"
+    ],
+    [
+      "send",
+      "button[aria-label='发送'], button[aria-label='Send']"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex=\"-1\"] p:has-text(\"Fake reply from the journey fake agent.\") >> nth=3",
+      "20000"
+    ],
+    [
+      "click",
+      "?css=[role=complementary][aria-label='文件'] button[aria-label='返回文件'], [role=complementary][aria-label='Files'] button[aria-label='Back to files']"
+    ],
+    [
+      "click",
+      "css=[role=complementary][aria-label='文件'] li button:has-text('notes.md'), [role=complementary][aria-label='Files'] li button:has-text('notes.md')"
+    ],
+    [
+      "wait",
+      "css=.monaco-diff-editor"
+    ],
+    [
+      "wait",
+      "css=section[aria-label='改动评论'] li:has-text('notes.md:6'):has-text('- [seed] change: the journey walk reads this line as a real diff.'), section[aria-label='Diff comments'] li:has-text('notes.md:6'):has-text('- [seed] change: the journey walk reads this line as a real diff.')"
+    ],
+    [
+      "count",
+      "css=section[aria-label='改动评论'] li:has-text('该行已变化'), section[aria-label='Diff comments'] li:has-text('This line has changed')",
+      "0"
+    ],
+    [
+      "shot",
+      "diff-comment-reanchored"
+    ],
+    [
+      "fill",
+      "css=form textarea",
+      "[seed] rewrite"
+    ],
+    [
+      "send",
+      "button[aria-label='发送'], button[aria-label='Send']"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex=\"-1\"] p:has-text(\"Fake reply from the journey fake agent.\") >> nth=4",
+      "20000"
+    ],
+    [
+      "click",
+      "?css=[role=complementary][aria-label='文件'] button[aria-label='返回文件'], [role=complementary][aria-label='Files'] button[aria-label='Back to files']"
+    ],
+    [
+      "click",
+      "css=[role=complementary][aria-label='文件'] li button:has-text('notes.md'), [role=complementary][aria-label='Files'] li button:has-text('notes.md')"
+    ],
+    [
+      "wait",
+      "css=.monaco-diff-editor"
+    ],
+    [
+      "wait",
+      "css=section[aria-label='改动评论'] li:has-text('该行已变化'):has-text('- [seed] change: the journey walk reads this line as a real diff.'), section[aria-label='Diff comments'] li:has-text('This line has changed'):has-text('- [seed] change: the journey walk reads this line as a real diff.')"
+    ],
+    [
+      "count",
+      "css=section[aria-label='改动评论'] li, section[aria-label='Diff comments'] li",
+      "1"
+    ],
+    [
+      "shot",
+      "diff-comment-stale"
+    ],
+    [
+      "vp",
+      ""
+    ],
+    [
+      "goto",
+      "/new"
+    ],
+    [
+      "shot",
+      "new-chat"
+    ],
+    [
+      "focus",
+      "button[aria-label^='运行设置'], button[aria-label^='Run settings']"
+    ],
+    [
+      "key",
+      "Enter"
+    ],
+    [
+      "shot",
+      "run-config-card"
+    ],
+    [
+      "click",
+      "[role=dialog][aria-label='运行设置'] button[aria-label^='权限'], [role=dialog][aria-label='Run settings'] button[aria-label^='Permissions']"
+    ],
+    [
+      "shot",
+      "permission-picker"
+    ],
+    [
+      "key",
+      "ArrowDown"
+    ],
+    [
+      "key",
+      "Enter"
+    ],
+    [
+      "shot",
+      "permission-keyboard-choice"
+    ],
+    [
+      "click",
+      "[role=dialog][aria-label='运行设置'] button[aria-label^='模型'], [role=dialog][aria-label='Run settings'] button[aria-label^='Model']"
+    ],
+    [
+      "shot",
+      "model-picker"
+    ],
+    [
+      "key",
+      "Escape"
+    ],
+    [
+      "click",
+      "[role=dialog][aria-label='运行设置'] button[aria-label^='Agent'], [role=dialog][aria-label='Run settings'] button[aria-label^='Agent']"
+    ],
+    [
+      "shot",
+      "agent-picker"
+    ],
+    [
+      "key",
+      "Escape"
+    ],
+    [
+      "key",
+      "Escape"
+    ],
+    [
+      "shot",
+      "run-config-closed-focus"
+    ]
+  ]
+}
