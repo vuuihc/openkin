@@ -4,7 +4,7 @@
 //   node walk.mjs --resolve-j1 DIR/seed.log [--spec path/to/journeys.json]   (print the J1 approve/deny URLs or skip; no browser)
 //   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
 //   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
-//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J3's send + mid-run follow-up contract and J7's landing contract; no browser)
+//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J2/J8's review loop, J3's send + mid-run follow-up, and J7's landing contract; no browser)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
 // Exit 0 always when the walk ran (verdicts are the reviewer's and walk.json's `hardFail`); exit 2 when it could not run (no chrome, daemon unreachable).
 import { createRequire } from 'node:module';
@@ -252,6 +252,133 @@ function checkJ2Contract(spec) {
   else if (transcriptAt >= 0 && sentShot < transcriptAt) errs.push('the `diff-comment-sent` shot must follow the transcript assertion');
   return errs;
 }
+// J8's contract: the review loop the way a thumb runs it at 390. J2 proves the
+// same loop from the keyboard (⌥C, ⌘Enter), which a phone does not have, so J8
+// is its own journey: tap the changed line's glyph, write in the sheet, Save,
+// read the tray's one row, tap Send, and find the anchored follow-up in the
+// transcript. Without these rules a J8 that presses Alt+C, sends with a chord,
+// or asserts only the words would be green while the tap path is broken.
+const J8_QUOTE = '- [seed] change: the journey walk reads this line as a real diff.';
+function checkJ8Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J8) || {};
+  const steps = journey.steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J8 has no steps'];
+  const errs = [];
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const cssWait = (st, re) => st[0] === 'wait' && /^css=/.test(sel(st, 1)) && re.test(sel(st, 1));
+  const traySel = (st, i = 1) => /改动评论|Diff comments/.test(sel(st, i));
+
+  // Phone only. J2 already walks the Mac keyboard path, and replaying it at
+  // 390 would prove the chords rather than the tap a phone person uses.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'phone') {
+    errs.push('J8 is the phone review loop: its viewports must be exactly ["phone"]; the Mac loop is J2');
+  }
+
+  // The seeded diff must be open before a changed line is tapped. A tap on a
+  // glyph that is not there proves nothing about the diff.
+  const notesAt = idx((st) => st[0] === 'click' && /notes\.md/.test(sel(st, 1))
+    && !/评论|Comment on/.test(sel(st, 1)) && !/改动评论|Diff comments/.test(sel(st, 1)));
+  const diffWaitAt = idx((st) => cssWait(st, /monaco-diff-editor/));
+  if (notesAt < 0) errs.push('J8 never opens the seeded changed file (click notes.md)');
+  if (diffWaitAt < 0) errs.push('J8 never waits for the diff editor (wait css=.monaco-diff-editor)');
+
+  // The entry is a pointer tap on the line's own glyph. Alt+C may exist in the
+  // product for the desktop, but it must not be what J8 walks: a phone has no
+  // keyboard, so a chord here would leave the tap path unproven. The tap names
+  // the line by index and is not optional: an optional tap that resolves to
+  // nothing walks on and fails two steps later, where the cause is invisible.
+  const glyphClick = (st) => st[0] === 'click' && /kin-diff-comment-glyph/.test(sel(st, 1));
+  const glyphAt = idx((st) => glyphClick(st) && !sel(st, 1).startsWith('?') && />>\s*nth=\d+/.test(sel(st, 1)));
+  const keyOpenAt = idx((st) => st[0] === 'key' && /Alt\+.*C/i.test(sel(st, 1)));
+  if (keyOpenAt >= 0) {
+    errs.push('J8 uses the desktop Alt+C chord; the phone entry must be a tap on the changed line\'s glyph (click .kin-diff-comment-glyph)');
+  }
+  if (glyphAt < 0) {
+    const loose = idx((st) => glyphClick(st));
+    errs.push(loose >= 0
+      ? 'J8 taps the glyph without pinning a line (click css=.kin-diff-comment-glyph >> nth=…) and must not mark the tap optional'
+      : 'J8 never taps a changed line\'s glyph (click .kin-diff-comment-glyph)');
+  } else {
+    if (notesAt >= 0 && glyphAt < notesAt) errs.push('J8 taps the glyph before the seeded file is open');
+    if (diffWaitAt >= 0 && glyphAt < diffWaitAt) errs.push('J8 taps the glyph before the diff is open');
+  }
+  // The sheet names the seeded line, so a tap that landed on another changed
+  // line is caught right here rather than at the tray or the transcript.
+  const boxAt = idx((st) => cssWait(st, /section\[aria-label/) && /notes\.md:5/.test(sel(st, 1)) && /aria-label\^=/.test(sel(st, 1)));
+  if (boxAt < 0) errs.push('J8 never waits for the comment sheet naming notes.md:5 (section[aria-label^=…])');
+  else if (glyphAt >= 0 && boxAt < glyphAt) errs.push('J8 waits for the comment sheet before tapping the glyph');
+
+  // The person's words, typed into the sheet itself, then saved into the tray.
+  const fillAt = idx((st) => st[0] === 'fill' && /textarea/.test(sel(st, 1)) && /aria-label/.test(sel(st, 1))
+    && typeof st[2] === 'string' && st[2].trim() !== '');
+  const body = fillAt >= 0 ? String(steps[fillAt][2]) : '';
+  if (fillAt < 0) errs.push('J8 never types the comment into the sheet textarea');
+  else if (boxAt >= 0 && fillAt < boxAt) errs.push('J8 fills the comment before the sheet is on screen');
+  const saveAt = after(fillAt, (st) => st[0] === 'click' && /保存|Save/.test(sel(st, 1)));
+  if (saveAt < 0) errs.push('J8 never saves the comment (click Save) after typing it');
+
+  // Saved means one row in the tray, carrying both the path and the line's
+  // own text — not a count of text that happens to appear somewhere.
+  const trayWaitAt = after(saveAt, (st) => cssWait(st, /li:has-text/) && traySel(st) && /notes\.md/.test(sel(st, 1)) && sel(st, 1).includes(J8_QUOTE));
+  if (trayWaitAt < 0) errs.push('J8 never waits for the tray row naming notes.md and the quoted changed line');
+  const countAt = after(trayWaitAt, (st) => st[0] === 'count' && traySel(st) && String(st[2]) === '1');
+  if (countAt < 0) errs.push('J8 never asserts the tray holds exactly one comment (count … 1)');
+
+  // The press is the tray's own button: a thumb at 390 has no Meta/Ctrl+Enter.
+  // The row must already be read, or the send is unproven (an empty tray).
+  const sendAt = idx((st) => st[0] === 'click' && traySel(st) && /发送|Send/.test(sel(st, 1)));
+  if (sendAt < 0) {
+    const keySend = idx((st) => st[0] === 'key' && /(Meta|Ctrl|Control)\+Enter/i.test(sel(st, 1)));
+    errs.push('J8 never taps the tray\'s send (click the tray button 发送|Send); a thumb has no Meta/Ctrl+Enter'
+      + (keySend >= 0 ? ' — the spec only presses the chord' : ''));
+  } else if (countAt >= 0 && sendAt < countAt) {
+    errs.push('J8 sends the tray before it holds the saved comment; the one-row wait and count must come first');
+  }
+
+  // The transcript must carry the whole anchor. Counting the comment body
+  // alone is the mutant's shape: the words arrive, the path/hunk/quote are
+  // gone, and the reviewer can no longer tell what was commented.
+  const transcriptAt = sendAt < 0 ? -1 : after(sendAt, (st) => st[0] === 'wait' && /^css=/.test(sel(st, 1)) && /\[role=.?region/.test(sel(st, 1))
+    && body !== '' && sel(st, 1).includes(body)
+    && /notes\.md/.test(sel(st, 1))
+    && /@@\s*-\d+,\d+\s*\+\d+,\d+\s*@@/.test(sel(st, 1))
+    && sel(st, 1).includes(J8_QUOTE));
+  if (sendAt >= 0 && transcriptAt < 0) {
+    errs.push('J8 never asserts the sent follow-up carries the path, hunk header and quote in the transcript');
+  }
+  // The loop closes: the tray is empty again (or says it was sent), otherwise
+  // the send is unproven and the comments are still waiting.
+  const goneAt = sendAt < 0 ? -1 : after(sendAt, (st) => st[0] === 'gone' && traySel(st));
+  const sentAt = sendAt < 0 ? -1 : after(sendAt, (st) => st[0] === 'wait' && /已发回对话|Sent back to the conversation/.test(sel(st, 1)));
+  if (sendAt >= 0 && goneAt < 0 && sentAt < 0) errs.push('J8 never proves the tray emptied after send (gone … or the sent line)');
+
+  // The screenshots are the reviewable evidence, in the order the loop runs.
+  const shotAt = (name) => steps.findIndex((st) => Array.isArray(st) && st[0] === 'shot' && st[1] === name);
+  const sheetShot = shotAt('diff-comment-sheet'), trayShot = shotAt('diff-comment-tray'), sentShot = shotAt('diff-comment-sent');
+  if (sheetShot < 0) errs.push('J8 takes no `diff-comment-sheet` shot');
+  else if (boxAt >= 0 && (sheetShot < boxAt || (saveAt >= 0 && sheetShot > saveAt))) errs.push('the `diff-comment-sheet` shot must be taken while the sheet is open, before Save');
+  if (trayShot < 0) errs.push('J8 takes no `diff-comment-tray` shot');
+  else if (trayWaitAt >= 0 && trayShot < trayWaitAt) errs.push('the `diff-comment-tray` shot must follow the tray row wait');
+  if (sentShot < 0) errs.push('J8 takes no `diff-comment-sent` shot');
+  else if (transcriptAt >= 0 && sentShot < transcriptAt) errs.push('the `diff-comment-sent` shot must follow the transcript assertion');
+
+  // A workspace diff that no longer selects J8 would let the phone loop rot
+  // without the gate ever walking it. Same first-match rule the walker uses.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ8 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J8');
+  };
+  for (const file of ['ui/src/components/workspace/WorkspacePanel.tsx', 'ui/src/pages/TaskDetailPage.tsx', 'ui/src/components/sessions/SessionList.tsx', 'ui/src/components/ui/Button.tsx']) {
+    if (!mapsToJ8(file)) {
+      errs.push(`the paths table does not map ${file} to J8; a diff there would not walk the phone review loop`);
+    }
+  }
+  return errs;
+}
 // J7's contract: a notification tap must prove it landed on the card the
 // notification named — not just photograph whatever loaded. Without these
 // rules a blank deep link, a landing on the wrong card, and a Back that
@@ -310,16 +437,19 @@ if (process.argv.includes('--check-spec')) {
   const j2 = checkJ2Contract(spec);
   const j3 = checkJ3Contract(spec);
   const j7 = checkJ7Contract(spec);
-  if (j2.length || j3.length || j7.length) {
+  const j8 = checkJ8Contract(spec);
+  if (j2.length || j3.length || j7.length || j8.length) {
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
     if (j7.length) { console.log('spec red: J7'); j7.forEach((e) => console.log(' - ' + e)); }
+    if (j8.length) { console.log('spec red: J8'); j8.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
   console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
   console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
   console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
+  console.log('spec ok: J8 taps a changed line at 390, saves the sheet, sends the tray, and proves path, hunk and quote');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
