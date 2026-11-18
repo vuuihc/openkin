@@ -79,10 +79,13 @@ rm -f "$CONF_JSON" "$UXD/confirm.txt" "$UXD/confirm.summary" "$UXD/confirm.hard"
 # same slug must not decide the confirmation.
 rm -rf "$UXD/confirm"
 if [ -n "$HARD" ]; then
-  # walk.mjs prefixes a hard fail with `<journey>/<viewport>: `; only those lines can select a
-  # re-walk. A line with no journey prefix (e.g. "blank page") is kept and skips the confirm:
-  # re-walking everything would double the cost for a failure we cannot localise.
-  JOURNEYS="$(printf '%s\n' "$HARD" | sed -n 's#^\([A-Za-z0-9_]*\)/.*#\1#p' | sort -u | paste -sd, -)"
+  # A hard fail names its journey two ways: walk.mjs writes `<journey>/<viewport>: ` for a step
+  # failure, and `<J<nn>>-<viewport>-<NN>-<step>: ` for a screenshot check such as "blank page"
+  # or "horizontal page overflow". Both are localisable, so both select the re-walk; treating the
+  # screenshot form as unattributable billed #330 a rework round for two blank-page lines its own
+  # confirm walk could not reproduce. Only a line that names no journey at all is kept and skips
+  # the confirm: re-walking everything would double the cost for a failure we cannot target.
+  JOURNEYS="$(printf '%s\n' "$HARD" | sed -n -e 's#^\([A-Za-z0-9_]*\)/.*#\1#p' -e 's#^\(J[0-9][0-9]*\)-.*#\1#p' | sort -u | paste -sd, -)"
   if [ -n "$JOURNEYS" ]; then
     mkdir -p "$UXD/confirm"
     if [ -n "${RSI_UX_WALK_CMD:-}" ]; then
@@ -113,7 +116,7 @@ orig = [l for l in sys.argv[1].splitlines() if l]
 conf = [l for l in sys.argv[2].splitlines() if l]
 journeys = sys.argv[3]
 def journey(line):
-    m = re.match(r"^([A-Za-z0-9_]+)/", line)
+    m = re.match(r"^([A-Za-z0-9_]+)/", line) or re.match(r"^(J[0-9]+)-", line)
     return m.group(1) if m else ""
 conf_set = set(conf)
 reproduced = [l for l in orig if journey(l) and l in conf_set]
