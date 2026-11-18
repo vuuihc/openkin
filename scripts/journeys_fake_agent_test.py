@@ -144,6 +144,39 @@ class FakeAgentSlowTest(FakeAgentCase):
         )
         self.assertEqual(proc.wait(timeout=15), 0)
 
+    def test_slow_hold_covers_the_project_instructions_echo(self) -> None:
+        # J3's waiting row is drawn only while nothing has streamed in the
+        # round (shouldShowGenericThinking), so the [seed] slow hold must
+        # cover the WHOLE answer — the project-instructions echo included.
+        # An echo printed before the hold ends the pending window and turns
+        # J3's waiting-row proof back into a race.
+        proc = self.start(CONTEXT_PROMPT + "\nGo [seed] slow", RSI_FAKE_SLOW_SECS="2")
+        first = self.collect(proc, 1.0)
+        self.assertTrue(
+            any('"type":"system"' in line and '"init"' in line for line in first),
+            f"the init line must appear immediately, got {first!r}",
+        )
+        self.assertFalse(
+            any('"type":"assistant"' in line for line in first),
+            f"an assistant line inside the hold ends the pending window: {first!r}",
+        )
+        self.assertNotIn(RECEIPT, "".join(first), f"the echo must wait for the hold: {first!r}")
+        rest = self.collect(proc, 15)
+        self.assertEqual(proc.wait(timeout=15), 0)
+        events = [json.loads(line) for line in rest if line.strip()]
+        texts = [
+            block.get("text", "")
+            for event in events
+            if event.get("type") == "assistant"
+            for block in (event.get("message") or {}).get("content") or []
+            if isinstance(block, dict)
+        ]
+        receipt = [index for index, text in enumerate(texts) if RECEIPT in text]
+        reply = [index for index, text in enumerate(texts) if REPLY in text]
+        self.assertTrue(receipt, f"the receipt never arrived after the hold: {texts!r}")
+        self.assertTrue(reply, f"the ordinary reply never arrived after the hold: {texts!r}")
+        self.assertLess(receipt[0], reply[0], f"the receipt must precede the reply: {texts!r}")
+
     def test_slow_sleep_is_bounded(self) -> None:
         # 0 is immediate (a person debugging by hand waits for nothing), a
         # malformed value falls back to the default, and 99 is clamped so a
