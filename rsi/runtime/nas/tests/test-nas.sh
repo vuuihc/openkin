@@ -77,11 +77,12 @@ esac
 exit 0
 EOS
 
-  # fake gh: no PR unless FAKE_PR is set; a list prints "NUMBER<TAB>FAKE_PR_HEAD"; create/edit log.
+  # fake gh: no PR unless FAKE_PR is set. Real gh runs `.[0] | "…"` over an empty list and prints
+  # "null\tnull" (jq's string form of null), so the fake does too — the seam must not be kinder than gh.
   cat > "$T/bin/gh" <<'EOS'
 #!/bin/bash
 case "$*" in
-  *"pr list"*) [ -n "${FAKE_PR:-}" ] && printf '%s\t%s\n' "$FAKE_PR" "${FAKE_PR_HEAD:-}"; exit 0;;
+  *"pr list"*) if [ -n "${FAKE_PR:-}" ]; then printf '%s\t%s\n' "$FAKE_PR" "${FAKE_PR_HEAD:-}"; else printf 'null\tnull\n'; fi; exit 0;;
   *"pr create"*) echo "$*" >> "${FAKE_GHLOG:?}"; echo "https://example.invalid/pull/$(wc -l < "$FAKE_GHLOG" | tr -d ' ')"; exit 0;;
   *"pr edit"*) echo "$*" >> "${FAKE_GHEDIT:?}"; exit 0;;
 esac
@@ -691,6 +692,25 @@ t_pulse_ship_failure() {
   check "P6b a failed ship writes no starts.log row" [ ! -s "$T/ctrl/rsi/state/nas/starts.log" ]
 }
 
+# --- T16: no open PR is a fresh publish, never a divergence (the "null" PR-list answer) --------------
+t_no_pr_is_not_divergence() {
+  local T; sandbox; T=$T
+  job "$T" s1 R-T-16a 0 >/dev/null
+  run_ingest "$T" > "$T/i1.log" 2>&1
+  check "T16 a fresh slug with no open PR publishes" grep -q 'ingested R-T-16a s1' "$T/i1.log"
+  check "T16 the fresh branch reaches origin" test -n "$(git -C "$T/origin.git" rev-parse --verify -q refs/heads/rsi/s1)"
+  check "T16 a fresh PR is opened" [ "$(wc -l < "$T/gh.log" | tr -d ' ')" = 1 ]
+  check "T16 no divergence hold is written" [ ! -e "$T/state/nas/hold/s1.md" ]
+  check "T16 the result is consumed as ingested" [ "$(jget "$T/nas/work/jobs/s1/status.json" status)" = ingested ]
+
+  local T2; sandbox; T2=$T
+  job "$T2" s1 R-T-16b 0 >/dev/null
+  run_ingest "$T2" FAKE_PR=null FAKE_PR_HEAD=null > "$T2/i1.log" 2>&1
+  check "T16 a 'null' PR id is not a branch head" grep -q 'ingested R-T-16b s1' "$T2/i1.log"
+  check "T16 a 'null' answer writes no hold" [ ! -e "$T2/state/nas/hold/s1.md" ]
+  check "T16 no git error about a null object" bash -c "! grep -q 'Not a valid object name' '$T2/i1.log'"
+}
+
 if [ "${1:-}" = "--sandbox" ]; then sandbox; echo "$T"; SANDBOXES=(); exit 0; fi
 if [ -n "${1:-}" ]; then "$1"; finish; exit $?; fi    # test-nas.sh <function> — one test (mutant runs)
 
@@ -703,6 +723,7 @@ t_selfcheck_completion
 t_shot_validation
 t_existing_pr
 t_existing_pr_shots
+t_no_pr_is_not_divergence
 t_claim_identity
 t_worktree_lock
 t_pulse_skips_taken
