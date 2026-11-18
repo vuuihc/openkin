@@ -63,6 +63,7 @@ import {
 import {
   DelimitedTablePane,
   DownloadPreview,
+  FilePaneNotice,
   HtmlPreviewPane,
   HtmlViewToggle,
   ImagePreview,
@@ -1427,7 +1428,30 @@ export default function WorkspacePanel({
           ].join(" ")}
         >
           <div className="flex-1 min-h-0 flex flex-col">
-            {selectedPath && preview === "image" && fileBytes ? (
+            {selectedPath && error && !loading ? (
+              // A read that failed is the viewer's answer, and the only action
+              // that can change it is reading the same file again. The retry is
+              // offered only for a path this panel can actually ask for: an
+              // absolute path outside the checkout is refused before any
+              // request, and a button that could only repeat that refusal would
+              // be a lie.
+              <FilePaneNotice
+                kind="error"
+                action={
+                  toWorkspaceRelativePath(cwd, selectedPath) ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => loadFile(selectedPath)}
+                      className="min-h-11 px-3 text-body"
+                    >
+                      {tr("workspace.viewer.retry")}
+                    </Button>
+                  ) : undefined
+                }
+              >
+                {error}
+              </FilePaneNotice>
+            ) : selectedPath && preview === "image" && fileBytes ? (
               <ImagePreview
                 key={`${selectedPath}:${previewNonce}`}
                 name={selectedPath}

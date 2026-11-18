@@ -210,7 +210,51 @@ marker flips rather than carrying one that already passed. A flip with no walk s
 exactly as in P7 item 3.
 
 **Out of scope** — `KIN-NOTIFY-001` (its last acceptance row needs a real iPhone), `KIN-SETTINGS-002` (needs
-a packaged build), `KIN-CONTINUE-003` (its own surface; next phase), and every parked row above.
+a packaged build), `KIN-CONTINUE-003` (its own surface; after P9), and every parked row above.
+
+## Queued phase (P9) — 把评审读进来，不用回 GitHub
+<!-- queued-phase: P9-review-in-place target=2026-11-25T20:00 -->
+
+**Why this and not features.** P7/P8 settle the ledger except `KIN-CONTINUE-003` (still `approved`, P0) and the two
+rows that need Ethan, and the one read a person still leaves the app for — on the flow where T3 Code is
+strongest — is the review itself. The PR panel already names up to three failing checks (`ciLabel`,
+`ui/src/lib/prObservation.ts:247`, fed by `ci_summary` end to end), and it has no author, no state and no body
+for the reviews the same pull request carries, so "is this review asking me for something?" is answered on
+GitHub, not in the conversation that produced the change.
+
+**Done means** (evidence per item 3; the walk alone cannot prove this):
+1. A decided, additive shape for the reviews the panel may read: an ADR that names one column on
+   `pr_observations` (`internal/store/pr_observations.go`, table in `internal/store/migrate.go`) holding the
+   reviews as JSON — author, state, body — written by the same explicit refresh that writes `ci_summary`, plus
+   the ordered migration and both database tests AGENTS.md requires. **This half stops at `needs-ceo`**: the
+   ADR may land as docs, but the schema PR stays open for Ethan and the migration does not merge.
+2. Once that column exists (or Ethan answers with a different shape), the panel renders each review's author,
+   state and body from the cached snapshot, and keeps the failing-check names it already shows. A snapshot the
+   panel cannot read says so in one line instead of looking empty. The reviews come from the same cached
+   snapshot, so rendering them adds no GitHub call of its own; the one first-look query a never-checked branch
+   already gets on open stays as it is. `api/openapi.yaml` documents the additive field next to `ci_summary`.
+3. Evidence, named before the work starts: the walk cannot prove this today — `J2.json:68` asserts the
+   "not in a GitHub repository" state and `journeys_seed.py` is API-only, so there is no seeded observation with
+   a review. The PR says which seam it used (a dev-only seed route, or a DOM suite on the panel plus a Go test
+   on the snapshot) and why that proves the same thing; faking it inside the walk is not allowed.
+
+**Mechanism rows (rent, not phase items).** The two follow-ups measured on 2026-11-19 stay claimable by a free
+lane as `rsi/loop-guards`: `walk-mutant-test.sh`'s EXIT-only trap (change it to restore `web/dist/index.html`
+on TERM/HUP too), and archiving a merged PR's sendback (make `merge.sh` move `state/sendback/<slug>.md` into
+`done/` after a merge, not only a stale one, and make `lane.sh autofill` skip a slug with no open PR rather than
+only a no-diff one).
+
+**Cut rule.** At 11-25 20:00 land what is green and queue the rest with its reason. If Ethan has not answered the
+schema question by then, the phase's shipped part is the ADR and the queue says so; do not extend the date and
+do not merge the migration on a promise.
+
+**Out of scope** — `KIN-CONTINUE-003` (the last signed P0 not waiting on Ethan: it is the phase after P9, not part
+of it), PDF and Office preview (every in-app path crosses a decided boundary: `internal/api/secure.go` sets
+`object-src 'none'` with no `frame-src`, a PDF parser is a new dependency, and `window.open(blob:)` is denied by
+`desktop/src/window.ts` and would land in the OS browser with an unresolvable URL — one ADR, then one PR), queue
+reordering (needs a queue-order endpoint), 清空已结束 (needs a DELETE plus ADR), native steer (an agent
+capability), the browser panel (`webview` ADR), `KIN-NOTIFY-001` and `KIN-SETTINGS-002` (Ethan), and every parked
+row above.
 
 ## Closed phase (P5) — projects you can manage, not just open
 <!-- closed-phase: P5-projects-manage target=2026-11-23T20:00 -->

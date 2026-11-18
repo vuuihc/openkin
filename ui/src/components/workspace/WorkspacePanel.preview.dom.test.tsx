@@ -303,3 +303,56 @@ describe("previewing a file the editor cannot show", () => {
     expect(screen.queryByRole("img")).toBeNull();
   });
 });
+
+/**
+ * KIN-RESULT-002 「手机」: a failed read keeps the reason in the detail and
+ * offers the one action that can change it. Before this, the pane said what
+ * went wrong and left the reader on a phone with no way back to the file
+ * except leaving the detail and finding the row again.
+ */
+describe("a read that failed", () => {
+  it("says why, and reads the same file again when asked", async () => {
+    readTaskSourceFile.mockRejectedValueOnce(new ApiError(400, "file is not valid UTF-8"));
+    readTaskSourceFile.mockResolvedValueOnce({
+      path: "notes.md",
+      content: "the second read",
+      binary: false,
+    });
+    render(
+      <WorkspacePanel
+        taskId="task-1"
+        cwd={CWD}
+        changedFiles={[changedFile("notes.md")]}
+        events={[]}
+      />,
+    );
+    fireEvent.click(screen.getByTitle(`${CWD}/notes.md`));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("not valid UTF-8");
+
+    fireEvent.click(screen.getByRole("button", { name: t("workspace.viewer.retry") }));
+
+    await waitFor(() => expect(readTaskSourceFile).toHaveBeenCalledTimes(2));
+    expect(readTaskSourceFile).toHaveBeenLastCalledWith("task-1", "notes.md");
+    // The second answer replaces the refusal instead of sitting beside it.
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.getByTestId("code-viewer").textContent).toBe(`${CWD}/notes.md`);
+  });
+
+  it("offers no retry for a path this panel cannot ask for", async () => {
+    render(
+      <WorkspacePanel
+        taskId="task-1"
+        cwd={CWD}
+        changedFiles={[{ ...changedFile("a.ts"), path: "/Users/owner/elsewhere/a.ts" }]}
+        events={[]}
+      />,
+    );
+    fireEvent.click(screen.getByTitle("/Users/owner/elsewhere/a.ts"));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    // The refusal happens before any request, so a retry could only repeat it.
+    expect(screen.queryByRole("button", { name: t("workspace.viewer.retry") })).toBeNull();
+  });
+});

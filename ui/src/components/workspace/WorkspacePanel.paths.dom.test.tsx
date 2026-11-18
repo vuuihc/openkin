@@ -31,6 +31,11 @@ vi.mock("../../api/client", async () => {
   };
 });
 
+/**
+ * KIN-RESULT-002 「手机」/「真浏览器」: the phone's two exits keep their 44px
+ * touch floor and hand focus back to the row that opened the file, and a Mac
+ * column wide enough for both panes draws the list and the viewer at once.
+ */
 const CWD = "/Users/owner/project";
 
 // jsdom has no layout, so the change list's auto-scroll into view has nothing
@@ -170,6 +175,32 @@ describe("one pane at a time in a narrow container", () => {
     expect(hasClass(aside(container), "hidden")).toBe(false);
     expect(hasClass(viewer(container), "hidden")).toBe(true);
     expect(back()).toBeNull();
+  });
+
+  it("KIN-RESULT-002: both ways out keep the 44px touch floor", async () => {
+    // The phone has two exits — the header's close and, once a file is open,
+    // the back control the file pane replaces the list's row with. Both are
+    // 44px on a phone; the wide column overrides them down to 24px because a
+    // mouse has no touch floor.
+    render(
+      <WorkspacePanel
+        taskId="task-1"
+        cwd={CWD}
+        changedFiles={[changed]}
+        events={[]}
+        onClose={() => {}}
+      />,
+    );
+
+    const close = screen.getByRole("button", { name: t("workspace.close") });
+    expect(close.className).toContain("h-11");
+    expect(close.className).toContain("w-11");
+
+    fireEvent.click(screen.getByTitle(changed.path));
+    await waitFor(() => expect(back()).not.toBeNull());
+    const wayBack = back() as HTMLElement;
+    expect(wayBack.className).toContain("h-11");
+    expect(wayBack.className).toContain("w-11");
   });
 
   it("opens the refusal in the file pane too", () => {
