@@ -43,8 +43,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 11:
-    raise SystemExit("manifest must be exactly ten entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 12:
+    raise SystemExit("manifest must be exactly twelve entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -718,7 +718,7 @@ import sys
 index_path, specpy, journeys_dir = sys.argv[1], sys.argv[2], sys.argv[3]
 index = json.load(open(index_path, encoding="utf-8"))
 journeys = index.get("journeys") or {}
-MOVED = ["J1", "J2", "J3", "J5", "J6", "J7", "J9", "J10", "J11"]
+MOVED = ["J1", "J2", "J3", "J5", "J6", "J7", "J9", "J10", "J11", "J12"]
 for jid in MOVED:
     entry = journeys.get(jid)
     assert entry == "journeys/%s.json" % jid, \
