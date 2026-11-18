@@ -81,8 +81,9 @@ implementation's job, and it is safe to do with
 `CASE WHEN excluded.reviews = '' THEN pr_observations.reviews ELSE excluded.reviews END`
 precisely because a *successful* empty answer is `[]` and never `''`. `RecordPRFailure`
 already writes only the attempt columns, so a failed attempt preserves it. The panel
-can therefore say "reviews not read" only for `''`, and derives the age of a kept
-array from `observed_at`.
+can therefore say "reviews not read" only for `''`; a kept array's only age is the
+row's `observed_at`, which the successful pull-request read refreshes even when the
+reviews read failed.
 
 `api/openapi.yaml` documents `reviews` next to `ci_summary`, and the change regenerates
 the console's typed client (`ui/src/api/generated/openapi.ts` via
@@ -108,9 +109,11 @@ column half the world lacks: `migrate()` applies `migration001` (which already c
 `migrationPRObservations`) and then stamps `PRAGMA user_version = schemaVersion`, so a
 new database jumps straight to the current version. The held row therefore also adds
 `reviews TEXT NOT NULL DEFAULT ''` to the `migrationPRObservations` DDL and bumps
-`schemaVersion` to 49. The guarded 049 ALTER covers every existing database; the two
-must agree, which is what `ensureCurrentSchema` exists to catch and what the
-empty-database test proves.
+`schemaVersion` to 49. The guarded 049 ALTER covers every existing database, and the
+held row also adds an `ensurePRObservationReviewsSchema` reconcile to
+`ensureCurrentSchema` with the same `pragma_table_info` guard as 048, so a database
+whose version says 49 but whose table lacks the column is repaired on open; the
+empty-database test proves the fresh-install half.
 
 Both database tests AGENTS.md requires are part of that held row: one on an empty
 database (a fresh install has the column present and `''` by default — the test that
@@ -127,8 +130,9 @@ the schema row stays open with `needs-ceo` until the owner answers.
   call of its own, and keeps the failing-check names it already shows. A snapshot with
   `''` says "reviews not read" in one line instead of looking like a pull request
   nobody reviewed — the failure that would make the feature actively misleading. A
-  kept array whose refresh failed renders from the snapshot with its `observed_at`
-  age, which is the same honesty the row already gives the pull request itself.
+  kept array whose refresh failed renders from the snapshot with the row's
+  `observed_at` — the only timestamp the row carries for it — and the panel must not
+  present that as a fresh reviews read.
 - The reviews are not a durable history. If a review is edited or dismissed, the next
   refresh shows the new answer; nothing recovers the old one. That is the same
   trade-off the row already makes for the PR's own state, and it is the right one for a
