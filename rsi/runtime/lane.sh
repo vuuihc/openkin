@@ -28,6 +28,15 @@ if [ "$CMD" = autofill ]; then
   for sb in "$STATE"/sendback/*.md; do
     [ -e "$sb" ] || continue
     slug="$(basename "$sb" .md)"
+    # A size-only sendback must not open a rework lane while its waiver stands: the cap it asks
+    # to fit is gone, and a rework lane trims real content to obey it (2026-11-18: #296's round
+    # deleted 879 lines of a signed story before it was killed; #299 was waived before a lane
+    # claimed it). See state/merge/<slug>.size-ok.
+    src="$(sed -n 's/^source: *//p' "$sb" | head -1)"
+    if [ "$src" = "hold-size" ] && [ -e "$STATE/merge/$slug.size-ok" ]; then
+      echo "autofill: $slug: hold-size waived (merge/$slug.size-ok), not opening a rework lane"
+      continue
+    fi
     itm="$(sed -n 's/^item: *//p' "$sb" | head -1)"
     is_astryx=$(python3 -c "import json,sys;ids={s['id'] for s in json.load(open('$RSI_DIR/astryx-slices.json'))['slices']};print(1 if sys.argv[1] in ids else 0)" "$itm" 2>/dev/null || echo 0)
     [ "$SCOPE" = astryx ] && [ "$is_astryx" != 1 ] && continue
