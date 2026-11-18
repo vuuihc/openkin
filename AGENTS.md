@@ -72,6 +72,11 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
     generation, visit or flow id and are dropped or retargeted when the
     screen, machine or draft that asked is no longer current; test with two
     concurrent flows and one late answer.
+12. **New checks enter the gate in the same change.** Every new test suite,
+    guard, probe module or workspace package is named by an executing job in
+    `scripts/check.sh` (not only a change-detection glob) in the same commit,
+    and the gate's own output proves it ran; a suite nobody wires is a green
+    light for a regression.
 
 ## Development workflow
 
