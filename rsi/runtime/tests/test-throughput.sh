@@ -4,9 +4,10 @@
 set -u
 H="$(cd "$(dirname "$0")/.." && pwd)"; T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 ok() { echo "PASS $*"; }; bad() { echo "FAIL $*" >&2; exit 1; }
-# Path-claim cases test path validation only, never the host-pressure guard: a loaded machine must not
-# turn them into exit-8 refusals.
-NOPRESS="RSI_MEM_AVAIL_MIN_MB=0 RSI_SWAP_USED_MAX_MB=999999999 RSI_LOAD_MAX=9999"
+# Path-claim cases test path validation only, never the host-pressure guard (including the
+# spare-lane gate, which fires there because dotfile-claim already holds lane 1): a loaded
+# machine must not turn them into exit-8 refusals.
+NOPRESS="RSI_MEM_AVAIL_MIN_MB=0 RSI_SWAP_USED_MAX_MB=999999999 RSI_LOAD_MAX=9999 RSI_LANE2_MEM_MIN_MB=0 RSI_LANE2_SWAP_MAX_MB=999999999"
 tier() { printf '%b' "$3" | python3 "$H/review-tier.py" --title "$1" --item "$2" ${4:+--attempts "$4"} --numstat - | cut -d' ' -f1,2; }
 [ "$(tier 'refactor(x): extract row' L1 '300\t100\tui/src/a.tsx\n80\t0\tui/src/a.dom.test.tsx\n')" = "small reviewer" ] && ok small-extract || bad small-extract
 [ "$(tier 'feat(design): theme' F3 '100\t10\tui/src/x.tsx\n')" = "large reviewer-alt" ] && ok foundation-large || bad foundation-large
