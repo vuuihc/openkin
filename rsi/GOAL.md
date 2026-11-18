@@ -59,6 +59,36 @@ does not run on them — item 1's mutant is their verification):
 **Cut rule.** If item 1 is not green by the target, land it alone (it is the lost-review path and the one that
 catches the most), keep 2–4 queued, and say so in the weekly retro. Do not extend the date.
 
+## Next phase (P4) — the last two flows, walked
+<!-- next-phase: P4-flows-proven target=2026-11-21T20:00 -->
+
+**Why this and not features.** P1/P2/P3 gave F1, F2 and F3 a walk that fails when the flow breaks; F4 and F5
+still rest on DOM suites no person runs as a user. Nothing walks chat↔chat and area↔area to prove the shell
+node, the scroll offset and a typed draft survive, and nothing walks notification → item → approve → back on
+the phone's four tabs. Those are the flows Ethan uses right after review, and their regressions read as "the
+app flashed and ate my draft" — invisible to today's gate. So the phase proves the last two flows and finishes
+the panel review now lives in: 发布 becomes its fourth tab.
+
+**Done means** (throwaway daemon with the fake agent; walker/seed rows touch no `ui/` file, so `ux-gate.sh`
+does not run on them — each item's mutant is its verification):
+1. F4: a typed draft, the scroll offset and the shell node survive chat↔chat and area↔area; a mutant that
+   remounts the shell turns the walk red; 390/1100 shots of both switches.
+2. F5: after approving from a deep link, each phone tab returns to its own address and the approved card stays
+   gone; a state-losing mutant turns it red.
+3. 发布 is the panel's fourth tab (变更 · 文件 · PR · 发布), one surface, one close, and the old full-bleed
+   publish sheet is deleted; 390/1100 shots.
+4. J5's shipped row actions stay pinned (改名 on the active scope, 正在运行 disabled) so the walk cannot drift
+   from what ships.
+
+**Cut rule.** If item 1 is not green by the target, land it alone (lost drafts are what people notice first),
+keep 2–4 queued, and say so in the weekly retro. Do not extend the date.
+
+**Out of scope — parked on Ethan** (one line each in `state/needs-ceo.md`): F3 in-app PR writes (credential and
+permission model), the browser panel tab (Electron `webview` ADR), the agent catalog cut 74 → ≤10.
+
+**Marker.** The `<!-- phase: … -->` marker stays on P3 until its item 4 lands; then this block takes it and P3
+becomes `closed-phase: P3-review-pr`.
+
 ## Closing phase (P2) — mid-run control made real
 <!-- closing-phase: P2-midrun-control target=2026-11-19T20:00 -->
 
