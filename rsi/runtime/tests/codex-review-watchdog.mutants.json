@@ -1,0 +1,9 @@
+[
+  {
+    "label": "codex watchdog removed: a silent codex exec holds the merge lane forever",
+    "file": "rsi/runtime/dispatch.sh",
+    "test": "bash rsi/runtime/tests/test-dispatch-codex-timeout.sh",
+    "old": "  ( cd \"$CWD\" && codex exec -m gpt-6.1-sol -s read-only \"$PROMPT\" < /dev/null > \"$LOG.txt\" 2>&1 ) &\n  local pid=$!\n  ( sleep \"${DISPATCH_MAX_SECS:-3000}\"; rsi_kill_tree \"$pid\"; kill -TERM -\"$pid\" 2>/dev/null ) & local wd=$!\n  wait \"$pid\"; local rc=$?\n  kill \"$wd\" 2>/dev/null; wait \"$wd\" 2>/dev/null\n  rsi_kill_tree \"$pid\"\n  return $rc\n",
+    "new": "  ( cd \"$CWD\" && codex exec -m gpt-6.1-sol -s read-only \"$PROMPT\" < /dev/null > \"$LOG.txt\" 2>&1 )\n"
+  }
+]
