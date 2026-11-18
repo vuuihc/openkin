@@ -41,6 +41,19 @@
       "back-list"
     ],
     [
+      "vp",
+      "phone"
+    ],
+    [
+      "count",
+      "css=button[aria-label='批准'], button[aria-label='Approve']",
+      "0"
+    ],
+    [
+      "vp",
+      ""
+    ],
+    [
       "wait",
       "text={title}"
     ],
