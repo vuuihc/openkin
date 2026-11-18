@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:,">
+<title>KIN-PROJECT-002 · 项目的工作目录 · Figma 审阅</title>
+<style>
+  :root { color-scheme: light dark; --ink: #1a1a1a; --muted: #666a73; --line: #dedee3; --bg: #f1f1f4; --page: #fbfbfd; --card: #ffffff; --accent: #1f6feb; --accent-soft: #eef3ff; --warn: #b42318; --warn-soft: #fff1f0; --ok: #137a3f; --ok-soft: #eef8f1; --gutter: clamp(16px, 5vw, 24px); --radius: 16px; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #f5f5f7; --muted: #a1a1aa; --line: #35353a; --bg: #0b0b0d; --page: #141416; --card: #1d1d20; --accent: #6ea8fe; --accent-soft: #17243a; --warn: #ff8a80; --warn-soft: #2a1717; --ok: #6dd58c; --ok-soft: #13251b; }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); }
+  code { padding: 1px 5px; border-radius: 5px; background: var(--bg); font-size: .9em; overflow-wrap: anywhere; }
+  .page { max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom)); background: var(--page); }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 26px; line-height: 1.28; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 2px; font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill { display: inline-flex; align-items: center; height: 25px; padding: 0 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.draft { color: var(--muted); background: var(--bg); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 15.5px; }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 14.5px; }
+  .howto li { margin: 5px 0; }
+  .note { color: var(--muted); font-size: 13.5px; }
+  .howto .note { margin: 4px 0 0; }
+  .toc { position: sticky; top: 0; z-index: 20; display: flex; gap: 8px; margin: 0 calc(-1 * var(--gutter)); padding: 8px var(--gutter); overflow-x: auto; background: var(--page); border-bottom: 1px solid var(--line); scrollbar-width: none; }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none; white-space: nowrap; }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 0 0 6px; font-size: 16px; line-height: 1.4; }
+  h4 { margin: 16px 0 8px; font-size: 15px; line-height: 1.4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .lead { font-size: 15px; }
+  .bullets { font-size: 14.5px; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 12.5px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card h3 { font-size: 15px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none; }
+  .screen { margin: 16px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+  .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line); border-radius: 12px; background: #fff; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-phone .frame-scroll { max-width: 390px; margin: 0 auto; }
+  .fig-phone img { width: 100%; }
+  .fig-wide img { width: 1100px; }
+  .fig-board img { width: 1600px; }
+  .frame figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 14.5px; }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+  .state-list { display: grid; gap: 8px; margin-top: 10px; }
+  .state { padding: 11px 13px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
+  .state b { display: block; margin-bottom: 2px; font-size: 14.5px; }
+  .state span { color: var(--muted); }
+  .decision { margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 14px; }
+  .decision h3 { font-size: 16px; }
+  .decision p { font-size: 14.5px; }
+  .decision .rec { margin: 6px 0; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 13.5px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+  .reply { margin-top: 10px; }
+  .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 13.5px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .sign { border-left: 4px solid var(--ok); }
+  .sign p { margin: 6px 0; }
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+  a:focus-visible, .screen-index a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+    .toc { border-radius: 0; }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 380px) {
+    .flow li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 约 6 分钟 · 5 个决定（4 个已定）</div>
+    <h1>KIN-PROJECT-002 · 项目的工作目录 <small>Figma 设计稿</small></h1>
+    <p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-PROJECT-002.md</code></p>
+    <p class="meta">2026 年 11 月 18 日 · 6 屏（含状态板）· 7 个状态</p>
+    <div class="tags">
+      <span class="pill here">待签字</span>
+      <span class="pill plain">旅程 J4</span>
+      <span class="pill plain">Mac / 手机</span>
+    </div>
+  </header>
+
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>当我有一个由几个目录一起组成的项目，我想在项目封面上看清这几个目录分别是哪些、哪个是默认、为什么它们属于同一个项目，并且能自己增删和改默认，以便新对话落在我想要的目录里。</p>
+  </section>
+
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：这条为什么是「项目的容器」的第二半，和 PROJECT-001、START-001 各自管什么。</li>
+      <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
+      <li><strong>最后回决定</strong>：D1–D4 是已经拍过板的 CEO 决定；D5 是你这次要拍的。页尾有回复模板。</li>
+    </ol>
+    <p class="note">都同意就回「全部同意」；有修改就回「D5 改成…」。宽帧在卡片内左右滑动，页面本身不横滚。</p>
+  </section>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">PROJECT-001 回答「这里发生过什么、从哪继续」；PROJECT-002 回答「这个项目由哪几个目录组成、新对话落在哪」。项目仍是对话的容器，不另造「项目组」实体。</p>
+    <div class="card mece">
+      <div class="mece-row">
+        <div class="name">接着问一段对话<div class="who">KIN-CONTINUE-001 / 002 / 003</div></div>
+        <span class="pill plain">approved</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">被叫回来<div class="who">KIN-NOTIFY-001</div></div>
+        <span class="pill plain">approved</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">新建一段对话<div class="who">KIN-START-001</div></div>
+        <span class="pill ok">covered</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">看它改了什么<div class="who">KIN-RESULT-001 / 002 / 003</div></div>
+        <span class="pill plain">approved</span>
+      </div>
+      <div class="mece-row here">
+        <div class="name"><strong>整理对话与项目</strong><div class="who">KIN-MANAGE-001（对话）· KIN-PROJECT-001（封面，已交付）· KIN-PROJECT-002（工作目录，这条）</div></div>
+        <span class="pill here">本页</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">设置与环境<div class="who">KIN-SETTINGS-001 / 002 · KIN-AGENTS-001</div></div>
+        <span class="pill plain">approved / covered</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">让它按时跑<div class="who">KIN-ROUTINE-001</div></div>
+        <span class="pill ok">covered</span>
+      </div>
+    </div>
+    <ul class="bullets">
+      <li><strong>为什么单独一条：</strong>封面的问题已经由 PROJECT-001 回答；「这个项目由哪几个目录组成、哪个是默认」是同一容器页上的另一件事，有自己的增删、默认与保存失败，装不进「看清发生过什么」。</li>
+      <li><strong>为什么不并进相邻故事：</strong>新对话怎么选目录归 START-001；项目改名、置顶、归档归 MANAGE-001；例行任务的目录与调度归 ROUTINE-001。这条只让 roots 可见、可增删、可设默认。</li>
+      <li><strong>job map：</strong>覆盖定义 / 定位 / 准备 / 确认 / 执行·监控 / 修改 / 收尾七步；每一步都有帧或流程，没有省略的段。</li>
+      <li><strong>设备只是差异：</strong>这条覆盖 Mac 和手机；Mac 是贴合块的浮层，手机是底部 sheet，差异写在故事「各面差异」，不按设备拆故事。</li>
+      <li><strong>不在这一条：</strong>项目说明 / instructions → 未来 <code>KIN-PROJECT-003</code>（尚未写，prompt-first 是默认）；改名 / 置顶 / 归档 → MANAGE-001；项目上的例行调度 → ROUTINE-001；<code>.gitmodules</code> 自动发现 → 未来故事（需要 daemon 侧读文件）；跨设备同步 → 暂不在任何故事。</li>
+      <li><strong>大小：</strong>1 个封面块 + 1 个编辑浮层 / sheet + 1 个移除确认；一次交付；两个面都成立；组件、单元、真浏览器与 390/1100 截图装得下，预计 4 个文件、约 300 行产品代码 + 测试（不含本页）。</li>
+    </ul>
+  </section>
+
+  <section id="before-after">
+    <h2>现在 → 之后</h2>
+    <div class="two">
+      <div class="card now">
+        <h3>现在</h3>
+        <ul>
+          <li>封面只显示 <code>roots[0]</code>；第二、第三个目录在界面上不存在。</li>
+          <li>没有「默认」标记；用户不知道新对话会落在哪个目录。</li>
+          <li>多 root 项目只能靠 API 或数据库改目录，改不了顺序。</li>
+        </ul>
+      </div>
+      <div class="card after">
+        <h3>之后</h3>
+        <ul>
+          <li>封面上看到全部目录、顺序和默认，一句话说明它们为什么在一起。</li>
+          <li>「编辑」里增删目录、把某个设为默认，保存后封面立即更新。</li>
+          <li>移除时先说清后果：对话不删，只是不再出现在这个项目下。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <h2>界面与用户流程</h2>
+    <p class="note">每一屏先看 Figma 帧，再读下面六段流程。帧是设计源；宽帧在卡片内左右滑动，点「打开原图」可以全尺寸看。</p>
+
+    <div class="screen-index" aria-label="界面索引">
+      <a href="#screen-1">01 · Mac · 封面工作目录块</a>
+      <a href="#screen-2">02 · Mac · 编辑浮层</a>
+      <a href="#screen-3">03 · Mac · 移除确认</a>
+      <a href="#screen-4">04 · 手机 · 封面</a>
+      <a href="#screen-5">05 · 手机 · 编辑 sheet</a>
+      <a href="#states">06 · 状态板</a>
+    </div>
+
+    <article class="screen" id="screen-1">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">01 · Mac · 1100×760</div>
+          <h3>项目封面 · 工作目录块</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 项目封面的工作目录块" tabindex="0" data-start="330">
+          <img src="KIN-PROJECT-002.figma/frames/01-mac-cover-roots.svg" alt="Mac 项目封面：页头下方是工作目录块，三条路径按顺序列出，第一条带默认标记，块标题右端是编辑按钮，下面才是概览" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-PROJECT-002.figma/frames/01-mac-cover-roots.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>从对话列表的项目标题或 <code>/projects</code> 集合进入封面；页头是项目名与模式。</span></li>
+        <li><b>动作</b><span>不点任何东西，先读页头下方的工作目录块。</span></li>
+        <li><b>立刻看到</b><span>全部目录按保存顺序列出，第一条带「默认」，块里写明「新对话默认落在第一个目录」；下面才是概览，页面上没有多出 tab。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>项目加载中与页头共用骨架；没有目录写「这个项目还没有目录」并给「添加目录」；项目读取失败走整页失败态；离线显示上次缓存的列表并标「上次结果」，编辑禁用并说明。</span></li>
+        <li><b>键盘与焦点</b><span>Tab 从页头到「编辑」再到概览控件；只读块里不逐行停 Tab；块读成标题为「工作目录」的 region。</span></li>
+        <li><b>离开再回来</b><span>回到封面仍是保存后的列表与顺序，不闪空、不重排。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-2">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">02 · Mac · 1100×760</div>
+          <h3>编辑浮层 · 增删与设为默认</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 工作目录编辑浮层" tabindex="0" data-start="292">
+          <img src="KIN-PROJECT-002.figma/frames/02-mac-edit-sheet.svg" alt="Mac 编辑浮层：三行目录，第一行带默认，后两行有设为默认和移除；底部是添加目录、取消与保存，保存为主按钮" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-PROJECT-002.figma/frames/02-mac-edit-sheet.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>封面工作目录块 →「编辑」；浮层贴在块旁，封面留在后面。</span></li>
+        <li><b>动作</b><span>点「添加目录」用新建对话同一套机器 / 目录选择器；点某一行的「设为默认」或「移除」。</span></li>
+        <li><b>立刻看到</b><span>新目录追加到末尾；「设为默认」把那一行移到第一位；「移除」先出确认条；保存前封面不变。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>选择器读目录时写「正在读取目录…」，失败给原因与重试且不清空已选；重复目录就地提示；离线时添加与移除禁用并说明。</span></li>
+        <li><b>键盘与焦点</b><span>打开后焦点在标题；Tab 到每行的「设为默认」「移除」、「添加目录」、「取消」「保存」；Esc 关浮层并把焦点还给「编辑」。</span></li>
+        <li><b>离开再回来</b><span>有未保存修改时关闭先确认；取消后回到打开前的列表。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-3">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">03 · Mac · 1100×760</div>
+          <h3>移除确认 · 后果写在行内</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 移除目录的行内确认" tabindex="0" data-start="292">
+          <img src="KIN-PROJECT-002.figma/frames/03-mac-remove-confirm.svg" alt="Mac 移除确认：被移除的行标为待移除，行内确认条写明对话不再出现在这个项目下、仍在会话列表里、没有对话会被删除，下面是取消与移除" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-PROJECT-002.figma/frames/03-mac-remove-confirm.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>编辑浮层里至少两个目录。</span></li>
+        <li><b>动作</b><span>点某一行的「移除」。</span></li>
+        <li><b>立刻看到</b><span>行内确认条：「移除后，这个目录下的对话不再出现在这个项目下；它们仍然在会话列表里。没有对话会被删除。」确认后行从草稿消失；默认被移除时新的第一行接任。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>移除最后一个目录时说明新对话将无处可落（「新建对话」会禁用），仍允许保存；离线时移除禁用；取消确认则行原样留下。</span></li>
+        <li><b>键盘与焦点</b><span>确认条出现时焦点在「取消」；Esc 取消并回到这一行的「移除」；不用全屏二次弹窗。</span></li>
+        <li><b>离开再回来</b><span>未保存的移除在关闭前确认；已保存的移除下次打开不再出现。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-4">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">04 · 手机 · 390×844</div>
+          <h3>手机 · 封面的工作目录块</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机项目封面的工作目录块" tabindex="0">
+          <img src="KIN-PROJECT-002.figma/frames/04-phone-cover-roots.svg" alt="手机项目封面：页头下方是工作目录块，三条路径，长路径换行，编辑是 44px 的行尾按钮，下面才是概览与底部导航" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-PROJECT-002.figma/frames/04-phone-cover-roots.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>手机对话列表点项目标题推入封面；左上返回至少 44px。</span></li>
+        <li><b>动作</b><span>上下滑读工作目录块，点块标题右端的「编辑」。</span></li>
+        <li><b>立刻看到</b><span>单列；三条路径按顺序排，长路径换行不横滚；第一条带「默认」；概览在块下面。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>与 Mac 同一套文案；加载骨架、空目录、失败与离线各自说明；离线时编辑禁用并写明原因。</span></li>
+        <li><b>键盘与焦点</b><span>外接键盘：Tab 到「编辑」；读屏把块读成标题为「工作目录」的 region，顺序念路径与默认。</span></li>
+        <li><b>离开再回来</b><span>返回列表再进来，仍在原来滚动位置，列表是保存后的顺序。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-5">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">05 · 手机 · 390×844</div>
+          <h3>手机 · 编辑底部 sheet</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机工作目录编辑底部 sheet" tabindex="0">
+          <img src="KIN-PROJECT-002.figma/frames/05-phone-edit-sheet.svg" alt="手机编辑 sheet：封面在背后压暗，sheet 里三行目录，每行有 44px 的设为默认与移除，下面是添加目录、取消与保存" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-PROJECT-002.figma/frames/05-phone-edit-sheet.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>手机封面 → 工作目录块的「编辑」；底部 sheet 从下方升起，封面留在后面。</span></li>
+        <li><b>动作</b><span>点「添加目录」选目录；点「设为默认」「移除」；最后点「保存」。</span></li>
+        <li><b>立刻看到</b><span>sheet 占大半屏，每行路径可换行，「设为默认」与「移除」各 44px；保存按钮在底部，不被键盘遮住。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>保存中按钮禁用并写「保存中…」；失败保留草稿、给原因与重试；离线或只读说明原因并禁用保存。</span></li>
+        <li><b>键盘与焦点</b><span>每个可点区域 ≥44px；外接键盘 Tab 顺序与 Mac 一致；Esc 等同关闭并确认草稿。</span></li>
+        <li><b>离开再回来</b><span>保存成功后 sheet 关闭、封面块立即更新；取消不留下草稿。</span></li>
+      </ol>
+    </article>
+  </section>
+
+  <section id="states">
+    <h2>状态</h2>
+    <p class="note">状态也是 Figma 帧的一部分；先看状态板，再读它下面的流程与检查表。宽板在卡片内左右滑动。</p>
+    <figure class="frame fig-board">
+      <div class="frame-scroll" role="region" aria-label="工作目录的状态板" tabindex="0">
+        <img src="KIN-PROJECT-002.figma/frames/06-states.svg" width="1600" height="900" alt="状态板六格：没有目录、一个目录、保存中、保存失败、离线或只读、关闭前有未保存修改" loading="lazy" decoding="async">
+      </div>
+      <figcaption>
+        <span>1600×900 · 状态板 · 左右滑动或打开原图</span>
+        <a href="KIN-PROJECT-002.figma/frames/06-states.svg">打开原图</a>
+      </figcaption>
+    </figure>
+    <h4>用户流程</h4>
+    <ol class="flow">
+      <li><b>起点</b><span>封面块或编辑浮层，处在状态板中的任意一格。</span></li>
+      <li><b>动作</b><span>读当前状态给出的下一步：添加目录、重试、等保存、恢复网络或继续编辑。</span></li>
+      <li><b>立刻看到</b><span>每一格都有明确文案与一个主要动作；保存失败保留草稿，离线保留上次列表并标时间。</span></li>
+      <li><b>慢 / 空 / 失败 / 断线</b><span>慢写「仍在保存…」；空写「这个项目还没有目录」；失败给原因与重试；断线标「离线 · 显示上次结果」。</span></li>
+      <li><b>键盘与焦点</b><span>状态变化后焦点不丢：保存失败回「保存」，确认条回「取消」，离线时禁用控件仍可聚焦读原因。</span></li>
+      <li><b>离开再回来</b><span>未保存的状态在离开前有确认；已保存的状态重新打开即服务器上的列表。</span></li>
+    </ol>
+    <div class="state-list">
+      <div class="state"><b>空</b><span>「这个项目还没有目录」+「添加目录」；「新建对话」禁用并写原因。</span></div>
+      <div class="state"><b>一个目录</b><span>仍显示「默认」；不出现排序说明或拖拽手柄。</span></div>
+      <div class="state"><b>加载</b><span>与页头共用骨架；不先画「没有目录」，也不整页变白。</span></div>
+      <div class="state"><b>保存中</b><span>「保存中…」并禁用；慢时「仍在保存…」；封面等成功后才更新。</span></div>
+      <div class="state"><b>保存失败</b><span>原因 + 重试；草稿（含新增、移除、默认位置）保留，焦点回「保存」。</span></div>
+      <div class="state"><b>断线 / 只读</b><span>「离线 · 显示上次结果（时间）」；编辑、添加、移除、保存禁用并说明原因；路径仍可读。</span></div>
+      <div class="state"><b>未保存修改</b><span>关闭浮层前问「放弃这些修改？」：继续编辑 / 放弃修改；Esc 等同继续编辑。</span></div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>要你拍板的</h2>
+    <p class="note">每条都写推荐和代价；只回不同意的编号就行。已经拍过板的写「已定」，不再重复问。</p>
+    <div class="decision settled">
+      <h3>D1 这条放在哪个面</h3>
+      <p class="rec"><strong>已定：</strong>工作目录块放在现有封面 <code>/projects/:id</code> 上，inline，从块打开编辑 sheet；不开新 tab、不加新路由。Mac 与手机都有。</p>
+      <p class="tradeoff"><strong>代价：</strong>封面更长，手机上概览被往下推；换来的是不复制第二个项目页，也不破坏 KIN-PROJECT-001 D2 的单面结构。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D2 数据怎么读写</h3>
+      <p class="rec"><strong>已定：</strong>复用 <code>PATCH /api/projects/:id</code> 的 <code>roots</code>，保存时发送完整有序列表（整体替换）；第一个 root 就是新对话的默认目录，「设为默认」= 移到第一位。</p>
+      <p class="tradeoff"><strong>代价：</strong>没有局部更新接口，两个端同时改会以后保存者为准；换来零 schema、零新 API。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D3 移除目录时说什么</h3>
+      <p class="rec"><strong>已定：</strong>明说后果：这个目录下的对话不再出现在这个项目下（仍在会话列表里），没有对话会被删除。不承诺删除对话。</p>
+      <p class="tradeoff"><strong>代价：</strong>确认文案更长；换来的是不会有人以为移除目录等于清理对话。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D4 只承诺 API 能产生的状态</h3>
+      <p class="rec"><strong>已定：</strong>不写「目录不存在 / 不可读」——当前没有对已保存 root 的文件系统检查端点。允许的状态只有：加载项目、没有目录、一个目录、多个目录、保存中、保存失败、离线 / 只读、未保存修改。</p>
+      <p class="tradeoff"><strong>代价：</strong>移走磁盘上的目录时界面不会当场报警；换来的是不显示一个没人验证过的判断。</p>
+    </div>
+    <div class="decision">
+      <h3>D5 工作目录块放在页头上面还是下面</h3>
+      <p class="rec"><strong>推荐：</strong>放在页头（项目名 / 模式）与概览之间，先于摘要与最近活动。</p>
+      <p class="tradeoff"><strong>代价：</strong>手机上前两屏看不到「最近发生了什么」；如果更看重继续对话，可以改到概览之后，但工作目录就会落到折叠线以下。这条听你的。</p>
+    </div>
+  </section>
+
+  <section id="reply">
+    <h2>回复模板</h2>
+    <div class="card reply">
+      <p class="note">长按下面这段复制，改掉不同意的；都同意就回「全部同意」。</p>
+      <pre>D5 同意
+（D1–D4 已定，不用回；只回不同意的编号）</pre>
+    </div>
+  </section>
+
+  <section id="sign">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p>你回「全部同意」后，我把 <code>KIN-PROJECT-002.md</code> 改成 <code>approved</code>，开始交付。</p>
+      <p class="note">现在是 <code>draft</code>：合同、帧与本页都等人读。Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-PROJECT-002.figma/</code> 里的 SVG 帧和本页的流程。</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>设计源：<code>KIN-PROJECT-002.figma/frames/</code>（SVG 帧）</p>
+    <p>审阅编排：<code>KIN-PROJECT-002.review.html</code>（本页）</p>
+    <p>合同：<code>KIN-PROJECT-002.md</code></p>
+    <p>Figma 审阅版 · figma-flow-v1</p>
+  </footer>
+
+</main>
+<script>
+  // 宽帧默认露出主区；仍可左右滑回侧栏。无脚本时从左侧开始，不影响阅读。
+  // 布局完成后才生效：解析时设置会被尚未排版的容器忽略。
+  function startFrames() {
+    for (const el of document.querySelectorAll('.frame-scroll[data-start]')) {
+      el.scrollLeft = Number(el.dataset.start) || 0;
+    }
+  }
+  requestAnimationFrame(startFrames);
+  window.addEventListener('load', startFrames);
+</script>
+</body>
+</html>

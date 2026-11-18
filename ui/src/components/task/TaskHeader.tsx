@@ -43,6 +43,24 @@ function StatusPill({ degraded }: { degraded: boolean }) {
   );
 }
 
+/**
+ * How many subagent calls the live turn still has running, beside the pill.
+ *
+ * A count, not a control: no button, no panel, no per-subagent stop — the
+ * existing Stop interrupts the turn, which is the only cancellation a
+ * subagent has. It is text in the same fixed-size, non-shrinking spirit as
+ * the pill, so it reads as part of the state the header already shows and
+ * never pushes the title around. At zero it is absent rather than "0".
+ */
+function SubagentCount({ count }: { count: number }) {
+  const tr = useT();
+  return (
+    <span className="inline-flex flex-none items-center whitespace-nowrap text-micro text-kin-muted tabular-nums">
+      {tr("task.subagentCount", { count })}
+    </span>
+  );
+}
+
 /*
  * The desktop bar's five verbs are the shared `Button` facade (Astryx behind
  * `.kin-btn-*`), not hand-rolled `<button>`s. Every callback, accessible name
@@ -74,6 +92,12 @@ export type TaskHeaderProps = {
   terminal: boolean;
   /** Connected to the daemon's live stream but not receiving it. */
   degraded: boolean;
+  /**
+   * Subagent calls this turn still has in flight. Absent or 0 draws nothing —
+   * zero is the empty state, and an agent with no subagent concept never
+   * reports one.
+   */
+  subagentsRunning?: number;
   filesOpen: boolean;
   /** The read-only pull-request panel is the surface in front. */
   prOpen: boolean;
@@ -111,6 +135,7 @@ export default function TaskHeader({
   project,
   terminal,
   degraded,
+  subagentsRunning = 0,
   filesOpen,
   prOpen,
   panelOpen,
@@ -157,6 +182,7 @@ export default function TaskHeader({
           task.cwd || !terminal ? (
             <span className="flex min-w-0 items-center justify-center gap-1.5">
               {!terminal && <StatusPill degraded={degraded} />}
+              {!terminal && subagentsRunning > 0 && <SubagentCount count={subagentsRunning} />}
               {task.cwd && (
                 <span className="min-w-0 truncate">
                   {[project, task.workspace_branch].filter(Boolean).join(" · ")}
@@ -312,6 +338,9 @@ export default function TaskHeader({
           )}
           {!terminal && (
             <>
+              {/* The count merges into the live-state cluster the pill already
+                  leads: same row, same moment, no new container. */}
+              {subagentsRunning > 0 && <SubagentCount count={subagentsRunning} />}
               <StatusPill degraded={degraded} />
               <Button
                 variant="secondary"

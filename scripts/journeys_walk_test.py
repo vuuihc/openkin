@@ -5,10 +5,11 @@ Run directly: `python3 -B scripts/journeys_walk_test.py`. Pure: fixture
 seed.log and spec files, no browser, no daemon, no network. The walker's
 `--resolve-j1` / `--resolve-j7` modes run the same read/apply functions the
 real walk uses, so a green case here is the resolution that walk would take.
-`--check-spec` runs the J2 review-loop, J3 send and J8 phone-tap contracts
-through the same parser, so a spec that regressed to photographing the diff, to
-merely asserting Start is usable, or to pressing a desktop chord on the phone,
-fails before a browser starts.
+`--check-spec` runs the J2 review-loop, J3 send, J8 phone-tap, J9 Mac switch
+and J11 phone switch contracts through the same parser, so a spec that
+regressed to photographing the diff, to merely asserting Start is usable, to
+pressing a desktop chord on the phone, or to leaving the shell, the scroll and
+the draft unread, fails before a browser starts.
 """
 
 from __future__ import annotations
@@ -1343,6 +1344,503 @@ class WalkJ9ContractTest(unittest.TestCase):
         code, out = self.check(self.copy_with(drop_the_scroll_kept))
         self.assertEqual(code, 1, out)
         self.assertIn("scroll-kept", out)
+
+
+class WalkJ10ContractTest(unittest.TestCase):
+    """J10 must prove the phone's four tabs keep their place and a card stays answered.
+
+    The tab memory itself is pinned in `phoneNavigation.test.tsx`, but no walk
+    ever approves a deep-linked card, visits the four footer entries, and comes
+    back. Without J10 a settings tab that reopens General, a Routines entry that
+    forgets its machine, or an approved card that reappears on the return are
+    all green. Same shape as WalkJ9ContractTest: the checked-in spec passes the
+    walker's own contract check, and a copy that regresses one rule at a time
+    fails with a message naming that rule.
+    """
+
+    SHOTS = (
+        "f5-deep-link",
+        "f5-approved",
+        "f5-tab-settings-remembered",
+        "f5-tab-routines",
+        "f5-approved-card-stayed-gone",
+    )
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j10-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J10"]["steps"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred, start: int = 0) -> int:
+        return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+    @staticmethod
+    def approve(step: list) -> bool:
+        return step[0] in ("click", "gone") and (
+            "批准" in str(step[1]) or "Approve" in str(step[1])
+        )
+
+    def test_j10_contract_accepts_the_checked_in_spec(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J10 ", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            journey = json.load(fh)["journeys"]["J10"]
+        self.assertEqual(journey["viewports"], ["phone"])
+        names = [step[1] for step in journey["steps"] if step[0] == "shot"]
+        for name in self.SHOTS:
+            self.assertIn(name, names)
+        # The order is the story: land, approve, walk the tabs, return.
+        self.assertLess(names.index("f5-deep-link"), names.index("f5-approved"))
+        self.assertLess(names.index("f5-approved"), names.index("f5-tab-settings-remembered"))
+        self.assertLess(names.index("f5-tab-settings-remembered"), names.index("f5-tab-routines"))
+        self.assertLess(names.index("f5-tab-routines"), names.index("f5-approved-card-stayed-gone"))
+
+    def test_j10_contract_rejects_a_walk_that_never_approves_the_card(self) -> None:
+        # Approving is the decision the return must find gone. A walk that only
+        # looks at the card never answers it, and the final gone is vacuous.
+        def drop_the_approve_click(steps: list) -> None:
+            steps.pop(self.at(steps, lambda step: step[0] == "click" and self.approve(step)))
+
+        code, out = self.check(self.copy_with(drop_the_approve_click))
+        self.assertEqual(code, 1, out)
+        self.assertIn("never presses the card's approve control", out)
+
+        def drop_the_approve_gone(steps: list) -> None:
+            steps.pop(self.at(steps, lambda step: step[0] == "gone" and self.approve(step)))
+
+        code, out = self.check(self.copy_with(drop_the_approve_gone))
+        self.assertEqual(code, 1, out)
+        self.assertIn("never proves the approve control left the screen", out)
+
+    def test_j10_contract_rejects_a_walk_without_all_four_footer_taps(self) -> None:
+        # IA D8: four peer entries. Dropping any one leaves its area's memory
+        # unproven, so each is a required tap, not a nicety.
+        for tab in ("sessions", "routines", "agents", "settings"):
+            with self.subTest(tab=tab):
+                def drop_one_tab(steps: list, tab: str = tab) -> None:
+                    needle = f'[data-phone-return="{tab}"]'
+                    hits = [i for i, step in enumerate(steps)
+                            if step[0] == "click" and needle in str(step[1])]
+                    for i in reversed(hits):
+                        steps.pop(i)
+
+                code, out = self.check(self.copy_with(drop_one_tab))
+                self.assertEqual(code, 1, out)
+                self.assertIn(f"never taps the {tab} footer entry", out)
+
+    def test_j10_contract_rejects_a_tab_round_without_the_remembered_settings_url(self) -> None:
+        # F5's whole point: 设置 and Agent 运维 share /settings but not a memory
+        # key. A round that only asserts bare roots passes while Settings
+        # reopens General after Agent Ops, which is the regression.
+        def drop_the_settings_memory(steps: list) -> None:
+            hits = [i for i, step in enumerate(steps)
+                    if step[0] == "search" and "tab=agents" in str(step[1])]
+            steps.pop(hits[-1])
+
+        code, out = self.check(self.copy_with(drop_the_settings_memory))
+        self.assertEqual(code, 1, out)
+        self.assertIn("Settings remembered its tab", out)
+
+    def test_j10_contract_rejects_a_return_that_never_proves_the_card_stayed_gone(self) -> None:
+        # The return is the half that catches a decided card drawn as pending
+        # again. Without the final gone the walk photographs a page and says
+        # nothing about the answer it gave.
+        def drop_the_final_gone(steps: list) -> None:
+            hits = [i for i, step in enumerate(steps)
+                    if step[0] == "gone" and self.approve(step)]
+            steps.pop(hits[-1])
+
+        code, out = self.check(self.copy_with(drop_the_final_gone))
+        self.assertEqual(code, 1, out)
+        self.assertIn("stayed gone", out)
+
+
+class WalkJ11ContractTest(unittest.TestCase):
+    """J11 must prove the phone switch keeps the shell, the scroll and the draft.
+
+    J9 proves the same promise on the Mac; the phone has its own Back, its own
+    list rows and a footer, and nothing walked the switch at 390. A regression
+    that remounts the pane, resets the transcript, or drops the draft reads as
+    "the app ate my draft" and is invisible to the gate. Same shape as
+    WalkJ9ContractTest: the checked-in spec passes the walker's own contract
+    check, and a copy that regresses one rule at a time fails naming that rule.
+    """
+
+    DRAFT = "F4 draft [seed]"
+    OFFSET = "320"
+    TRANSCRIPT = "css=[role=region][tabindex='-1']"
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j11-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J11"]["steps"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred, start: int = 0) -> int:
+        return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+    @staticmethod
+    def is_click_title(step: list, title: str) -> bool:
+        return step[0] == "click" and title in str(step[1])
+
+    def test_j11_spec_pins_the_phone_switch(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J11 keeps the shell, the scroll and the draft", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        journey = spec["journeys"]["J11"]
+        steps = journey["steps"]
+        # Phone only: the footer and the phone's own Back are what this walks.
+        self.assertEqual(journey["viewports"], ["phone"])
+        # The three pieces, in the order the switch runs: a numeric middle
+        # scroll and the shell tagged before the first leaving, an unsent
+        # draft, then the same shell, the same offset and the same draft read
+        # back after the return.
+        self.assertIn(["node", "css=#root .touch-lg", "shell"], steps)
+        self.assertIn(["scroll", self.TRANSCRIPT, self.OFFSET], steps)
+        self.assertIn(["scroll-kept", self.TRANSCRIPT, self.OFFSET], steps)
+        self.assertIn(["value", "textarea", self.DRAFT], steps)
+        names = [step[1] for step in steps if step[0] == "shot"]
+        self.assertLess(names.index("switch-chat"), names.index("switch-back"), names)
+        # The order is the story: leave, switch, assert the shell, return,
+        # read the draft and the position, then the footer round.
+        scroll_i = steps.index(["scroll", self.TRANSCRIPT, self.OFFSET])
+        back_i = self.at(steps, lambda step: step[0] == "back", scroll_i + 1)
+        switch_i = self.at(steps, lambda step: self.is_click_title(step, "Failed migration"), back_i + 1)
+        node_i = self.at(steps, lambda step: step[0] == "node" and step[2] == "shell", switch_i + 1)
+        return_i = self.at(steps, lambda step: self.is_click_title(step, "Morning planning"), node_i + 1)
+        value_i = self.at(steps, lambda step: step[0] == "value" and step[2] == self.DRAFT, return_i + 1)
+        kept_i = self.at(steps, lambda step: step[0] == "scroll-kept", value_i + 1)
+        routines_i = self.at(steps, lambda step: step[0] == "click"
+                             and '[data-phone-return="routines"]' in str(step[1]), kept_i + 1)
+        self.assertLess(scroll_i, back_i)
+        self.assertLess(back_i, switch_i)
+        self.assertLess(switch_i, node_i)
+        self.assertLess(node_i, return_i)
+        self.assertLess(return_i, value_i)
+        self.assertLess(value_i, kept_i)
+        self.assertLess(kept_i, routines_i)
+        # The leaving is the phone's Back (a `goto` after the conversation is
+        # open would reload the document and make the shell question
+        # meaningless). The area round is the footer's, never the Mac's
+        # `[data-area=…]` nav.
+        first_open = self.at(steps, lambda step: self.is_click_title(step, "Morning planning"))
+        first_back = self.at(steps, lambda step: step[0] == "back", first_open + 1)
+        self.assertTrue(all(i < first_open for i, step in enumerate(steps) if step[0] == "goto"))
+        self.assertLess(first_open, first_back)
+        self.assertFalse(any("[data-area=" in str(step[1])
+                             for step in steps if step[0] == "click"), steps)
+        for tab in ("routines", "sessions"):
+            self.assertTrue(any(step[0] == "click" and f'[data-phone-return="{tab}"]' in str(step[1])
+                                for step in steps), tab)
+        # The area switch is the stronger claim: the pane was off screen, so
+        # the return must prove the restore again, not only element identity.
+        values = [i for i, step in enumerate(steps)
+                  if step[0] == "value" and "textarea" in str(step[1])]
+        kepts = [i for i, step in enumerate(steps) if step[0] == "scroll-kept"]
+        self.assertEqual(len(values), 2, values)
+        self.assertEqual(len(kepts), 2, kepts)
+        self.assertGreater(kepts[1], self.at(
+            steps, lambda step: step[0] == "click" and '[data-phone-return="sessions"]' in str(step[1])), kepts)
+        # A shell or conversation-pane diff must select J11.
+        for row_needle in ("ui/src/components/layout/", "ui/src/pages/TaskDetail"):
+            row = next((row for row in spec["paths"] if row_needle in row[0]), None)
+            self.assertIsNotNone(row, row_needle)
+            self.assertIn("J11", row[1], row_needle)
+
+    def test_j11_contract_rejects_a_return_without_the_scroll_assertion(self) -> None:
+        # A resumed conversation that snapped back to the top is the regression
+        # this journey exists to catch; without scroll-kept the walk only
+        # photographs the right pane.
+        def drop_the_scroll_kept(steps: list) -> None:
+            hits = [i for i, step in enumerate(steps) if step[0] == "scroll-kept"]
+            for i in reversed(hits):
+                steps.pop(i)
+
+        code, out = self.check(self.copy_with(drop_the_scroll_kept))
+        self.assertEqual(code, 1, out)
+        self.assertIn("never asserts the transcript came back", out)
+
+    def test_j11_contract_rejects_a_return_without_the_draft_value(self) -> None:
+        # The half-typed message is the thing keep-alive exists for. A return
+        # that never reads the composer back proves only that the route works.
+        def drop_the_draft_value(steps: list) -> None:
+            hits = [i for i, step in enumerate(steps)
+                    if step[0] == "value" and "textarea" in str(step[1])]
+            for i in reversed(hits):
+                steps.pop(i)
+
+        code, out = self.check(self.copy_with(drop_the_draft_value))
+        self.assertEqual(code, 1, out)
+        self.assertIn("draft survived the return", out)
+
+    def test_j11_contract_rejects_an_area_round_without_the_shell_assertion(self) -> None:
+        # The footer tap is a route change while the pane is off screen; a
+        # shell remounted there is exactly the page-load flash F4 prevents.
+        def drop_the_routines_node(steps: list) -> None:
+            tap = self.at(steps, lambda step: step[0] == "click"
+                          and '[data-phone-return="routines"]' in str(step[1]))
+            node = self.at(steps, lambda step: step[0] == "node", tap + 1)
+            steps.pop(node)
+
+        code, out = self.check(self.copy_with(drop_the_routines_node))
+        self.assertEqual(code, 1, out)
+        self.assertIn("routines area change", out)
+
+
+class WalkJ5ContractTest(unittest.TestCase):
+    """J5 must read the row menu it opens, not only photograph it.
+
+    A menu that quietly lost 改名, or a 运行中 line that became pressable, ships
+    green today: the walk hovers a row, clicks the trigger and stops. The
+    checked-in spec must open the *running* row's menu (the only one with a
+    status line) and assert the shipped contents in both languages at both
+    viewports. Each rule is broken in a copy below, so the gate fails before a
+    browser starts.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j5-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J5"]["steps"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred, start: int = 0) -> int:
+        return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+    def test_j5_spec_pins_the_row_menu(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J5 ", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            journey = json.load(fh)["journeys"]["J5"]
+        self.assertEqual(journey["viewports"], ["phone", "mac"])
+        steps = journey["steps"]
+
+        # The running row's own trigger: a menu opened on whichever row is
+        # first has no 运行中 line to pin. aria-describedby is the trigger's
+        # existing accessible description, not new scaffolding.
+        clicks = [step for step in steps if step[0] == "click"]
+        self.assertEqual(len(clicks), 1, steps)
+        self.assertFalse(clicks[0][1].startswith("?"), "the row-menu click is optional")
+        self.assertIn("[data-row-actions]", clicks[0][1])
+        self.assertIn("{j5.conversation}", clicks[0][1])
+
+        # The shipped actions, in both languages, as required steps.
+        for zh, en in (("改名", "Rename"), ("置顶", "Pin"), ("归档", "Archive"), ("删除", "Delete")):
+            hits = [
+                step
+                for step in steps
+                if step[0] in ("wait", "count")
+                and not str(step[1]).startswith("?")
+                and zh in str(step[1])
+                and en in str(step[1])
+            ]
+            self.assertTrue(hits, f"J5 never asserts {zh} / {en}: {steps}")
+
+        # The status line: present AND disabled, pinned by one visible element
+        # carrying the label and either disabled marker (Mac aria-disabled,
+        # phone native disabled). A wait alone would pass on an enabled item.
+        counts = [step for step in steps if step[0] == "count" and "运行中" in str(step[1])]
+        self.assertEqual(len(counts), 1, steps)
+        self.assertIn("Running", counts[0][1])
+        self.assertEqual(counts[0][2], "1")
+        self.assertIn("aria-disabled", counts[0][1])
+        self.assertIn("[disabled]", counts[0][1])
+
+        # The photograph is of a menu that was read, not one that might be.
+        running_at = steps.index(counts[0])
+        self.assertGreater(running_at, steps.index(clicks[0]))
+        shot_at = steps.index(next(step for step in steps if step[0] == "shot" and step[1] == "row-actions"))
+        self.assertGreater(shot_at, running_at)
+
+    def test_j5_contract_rejects_a_menu_without_the_rename_item(self) -> None:
+        def drop_the_rename(steps: list) -> None:
+            steps.pop(self.at(steps, lambda step: step[0] == "wait" and "改名" in str(step[1])))
+
+        code, out = self.check(self.copy_with(drop_the_rename))
+        self.assertEqual(code, 1, out)
+        self.assertIn("rename", out)
+
+    def test_j5_contract_rejects_a_running_line_that_is_only_present(self) -> None:
+        # Flipping the disabled assertion to a plain presence wait is the
+        # regression: the label stays, a pressable status item ships.
+        def enable_the_running_line(steps: list) -> None:
+            at = self.at(steps, lambda step: step[0] == "count" and "运行中" in str(step[1]))
+            steps[at] = ["wait", "css=[role=menuitem]:has-text('运行中'), button:has-text('运行中')"]
+
+        code, out = self.check(self.copy_with(enable_the_running_line))
+        self.assertEqual(code, 1, out)
+        self.assertIn("运行中", out)
+        self.assertIn("disabled", out)
+
+    def test_j5_contract_rejects_a_viewport_scoped_menu(self) -> None:
+        # A `vp` scope would leave one width's menu unread while the walk still
+        # reports green.
+        def scope_to_mac(steps: list) -> None:
+            steps.insert(0, ["vp", "mac"])
+
+        code, out = self.check(self.copy_with(scope_to_mac))
+        self.assertEqual(code, 1, out)
+        self.assertIn("scopes steps to one viewport", out)
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class WalkJ5ResolveTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j5-resolve-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def resolve(self, seed: str | None) -> tuple[int, str]:
+        seed_path = os.path.join(self.tmp, "seed.log")
+        if seed is not None:
+            with open(seed_path, "w", encoding="utf-8") as fh:
+                fh.write(seed)
+        done = subprocess.run(
+            [NODE, WALK, "--resolve-j5", seed_path, "--spec", SPEC],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, (done.stdout + done.stderr).strip()
+
+    def test_the_seeded_target_resolves_the_running_rows_trigger(self) -> None:
+        code, out = self.resolve(
+            "journeys seed: base http://127.0.0.1:<port>\n"
+            "j5 target conversation=task-9 title=[seed] Running the migration\n"
+            "summary: created 1, existing 0, skipped 0\n"
+        )
+        self.assertEqual(code, 0, out)
+        self.assertEqual(
+            out, "J5 css=[data-row-actions][aria-describedby='session-row-title-task-9']"
+        )
+
+    def test_absent_target_line_skips(self) -> None:
+        code, out = self.resolve("journeys seed: base http://127.0.0.1:<port>\nsummary: created 0, existing 1, skipped 0\n")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out, "J5 skip: no seeded running conversation")
+
+    def test_failed_seed_skips(self) -> None:
+        code, out = self.resolve("seed failed (walk continues on what exists)\n")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out, "J5 skip: seed failed or empty daemon")
+
+
+class WalkMutantManifestTest(unittest.TestCase):
+    """The J5 red proof is only real while the manifest still points at the menu.
+
+    `rsi/runtime/tests/test-walk-mutant.sh` pins the count and the shape; this
+    test is the Python-side half that runs with the rest of the walk suite, and
+    compares the shell's literal count with the manifest it reads.
+    """
+
+    MANIFEST = os.path.join(ROOT, "rsi", "runtime", "ux", "walk-mutant.json")
+    SHELL = os.path.join(ROOT, "rsi", "runtime", "tests", "test-walk-mutant.sh")
+
+    def test_walk_mutant_manifest_pins_the_j5_row_actions(self) -> None:
+        with open(self.MANIFEST, encoding="utf-8") as fh:
+            entries = json.load(fh)
+        matching = [entry for entry in entries if entry["file"].endswith("SessionRow.tsx")]
+        self.assertEqual(len(matching), 1, matching)
+        entry = matching[0]
+        self.assertIn("--walk-once J5", entry["test"])
+        self.assertIn("runningNow", entry["old"])
+        # `runningNow && false` keeps the tone test referenced, so the mutant
+        # build still passes tsc's noUnusedLocals while rendering no line.
+        self.assertIn("runningNow && false", entry["new"])
+        with open(os.path.join(ROOT, entry["file"]), encoding="utf-8") as fh:
+            source = fh.read()
+        self.assertEqual(source.count(entry["old"]), 1, "the mutant's `old` no longer occurs exactly once")
+        with open(self.SHELL, encoding="utf-8") as fh:
+            shell = fh.read()
+        pinned = re.search(r"len\(entries\)\s*!=\s*(\d+)", shell)
+        self.assertIsNotNone(pinned, "test-walk-mutant.sh no longer pins the entry count")
+        self.assertEqual(int(pinned.group(1)), len(entries), "the manifest grew without bumping the pinned count")
+
+    def test_walk_mutant_manifest_pins_the_j11_phone_switch(self) -> None:
+        """The phone switch proof reddens on a page load, not a guess.
+
+        J11 must have its own mutant: a manifest entry whose `test` walks J11.
+        The phone's Back reloading the document throws away the shell and the
+        kept-alive panes, so J11's `node` assertion is what fails. The break is
+        on the phone's own Back helper, so J9 (which never presses Back) stays
+        green and the phone claim has its own proof.
+        """
+        with open(self.MANIFEST, encoding="utf-8") as fh:
+            entries = json.load(fh)
+        matching = [entry for entry in entries
+                    if entry["file"].endswith("ui/src/lib/phoneBack.ts")
+                    and "--walk-once J11" in entry["test"]]
+        self.assertEqual(len(matching), 1, matching)
+        entry = matching[0]
+        self.assertIn("navigate(-1)", entry["old"])
+        # A full document load replaces the shell; the mutant must not leave the
+        # client-side history back reachable, or the walk could stay green.
+        self.assertIn('window.location.assign("/sessions")', entry["new"])
+        self.assertNotIn("navigate(-1)", entry["new"])
+        self.assertIn("R-f4-switch-phone", entry["new"])
+        with open(os.path.join(ROOT, entry["file"]), encoding="utf-8") as fh:
+            source = fh.read()
+        self.assertEqual(source.count(entry["old"]), 1, "the mutant's `old` no longer occurs exactly once")
+        with open(self.SHELL, encoding="utf-8") as fh:
+            shell = fh.read()
+        pinned = re.search(r"len\(entries\)\s*!=\s*(\d+)", shell)
+        self.assertIsNotNone(pinned, "test-walk-mutant.sh no longer pins the entry count")
+        self.assertEqual(int(pinned.group(1)), len(entries), "the manifest grew without bumping the pinned count")
 
 
 if __name__ == "__main__":

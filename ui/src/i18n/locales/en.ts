@@ -473,6 +473,7 @@ const en: MessageTree = {
     loadFailed: "Failed to load",
     home: "← Home",
     running: "running",
+    subagentCount: "Subagents: {count}",
     reconnect: "reconnect…",
     statusRunning: "running",
     statusQueued: "queued",

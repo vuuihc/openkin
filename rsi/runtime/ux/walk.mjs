@@ -2,9 +2,10 @@
 // Journey walk of the REAL console. Usage:
 //   node walk.mjs --base http://127.0.0.1:PORT --token T --out DIR [--journeys J1,J2] [--files changed-files.txt] [--spec path/to/journeys.json] [--delay-tasks MS]
 //   node walk.mjs --resolve-j1 DIR/seed.log [--spec path/to/journeys.json]   (print the J1 approve/deny URLs or skip; no browser)
+//   node walk.mjs --resolve-j5 DIR/seed.log [--spec path/to/journeys.json]   (print the resolved J5 row-menu step or skip; no browser)
 //   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
 //   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
-//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J2/J8's review loop, J3's send + mid-run follow-up, and J7's landing contract; no browser)
+//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J7's landing contract, J9's Mac switch and J11's phone switch; no browser)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
 // Exit 0 always when the walk ran (verdicts are the reviewer's and walk.json's `hardFail`); exit 2 when it could not run (no chrome, daemon unreachable).
 import { createRequire } from 'node:module';
@@ -643,6 +644,295 @@ function checkJ9Contract(spec) {
   }
   return errs;
 }
+// J11's contract: F4 at 390 — the phone switch keeps the same shell element,
+// the transcript where the reader left it, and the unsent draft. J9 proves the
+// promise on the Mac; the phone has its own Back, its own list rows and a
+// footer, and nothing walked the switch there. The leaving is a `back` to the
+// list (a `goto` would reload the document), and the area round goes through
+// the footer: the pane is off screen while the reader is in Routines, so the
+// return proves the restore, not only element identity. A `value` after the
+// first return and a second one after the area round are both required, and
+// so are both `scroll-kept`s.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ11Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J11) || {};
+  const steps = journey.steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J11 has no steps'];
+  const errs = [];
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const sel = (st, i) => String((st || [])[i] ?? '');
+
+  // Phone only: the footer and the phone's own Back are what this walks.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'phone') {
+    errs.push('J11 is the phone switch proof: its viewports must be exactly ["phone"]');
+  }
+
+  // Open, back to the list, open the other conversation, back, return.
+  const openAt = idx((st) => st[0] === 'click' && /Morning planning/.test(sel(st, 1)));
+  const leaveAt = after(openAt, (st) => st[0] === 'back');
+  const switchAt = after(leaveAt, (st) => st[0] === 'click' && /Failed migration/.test(sel(st, 1)));
+  const backAt = after(switchAt, (st) => st[0] === 'back');
+  const returnAt = after(backAt, (st) => st[0] === 'click' && /Morning planning/.test(sel(st, 1)));
+  if (openAt < 0) errs.push('J11 never opens the seeded conversation from the list (click … Morning planning)');
+  if (leaveAt < 0) errs.push('J11 never leaves the conversation for the list (back)');
+  if (switchAt < 0) errs.push('J11 never opens the second seeded conversation (click … Failed migration)');
+  if (backAt < 0) errs.push('J11 never leaves the second conversation for the list (back again)');
+  if (returnAt < 0) errs.push('J11 never returns to the conversation it left (click … Morning planning again)');
+
+  // A `goto` reloads the document. The shell claim is about client-side
+  // navigation, so nothing after the first open may replace the page.
+  if (openAt >= 0 && steps.findIndex((st, i) => i > openAt && Array.isArray(st) && st[0] === 'goto') >= 0) {
+    errs.push('J11 reloads the document with goto after the conversation is open; the switch must be client-side navigation');
+  }
+
+  // Shell identity. One tag before the first leaving, then the same tag after
+  // every route change: a shell remounted on the new pathname is a page load
+  // wearing the same markup.
+  const nodes = [];
+  steps.forEach((st, i) => { if (Array.isArray(st) && st[0] === 'node') nodes.push(i); });
+  const nodeName = nodes.length ? sel(steps[nodes[0]], 2) : '';
+  const tagged = nodes.find((i) => i < (leaveAt < 0 ? steps.length : leaveAt));
+  if (!nodeName || tagged === undefined) {
+    errs.push('J11 never tags the shell before the switch (node css=… shell)');
+  } else if (!/^css=/.test(sel(steps[tagged], 1))) {
+    errs.push('J11\'s shell tag must name the element with css=<selector>');
+  }
+  const areaNavAt = (from) => steps.findIndex((st, i) => i > from && Array.isArray(st) && st[0] === 'click' && sel(st, 1).includes('data-phone-return='));
+  const sameShell = (from, to = steps.length) => nodes.find((i) => i > from && i < to && sel(steps[i], 2) === nodeName);
+  if (nodeName) {
+    if (switchAt >= 0 && sameShell(switchAt, backAt < 0 ? steps.length : backAt) === undefined) {
+      errs.push('J11 never asserts the same shell node after the chat switch; a remount would go unseen');
+    }
+    const firstArea = returnAt < 0 ? -1 : areaNavAt(returnAt);
+    if (returnAt >= 0 && sameShell(returnAt, firstArea < 0 ? steps.length : firstArea) === undefined) {
+      errs.push('J11 never asserts the same shell node after returning to the conversation');
+    }
+  }
+
+  // The footer round: the list, Routines, the list again. Each tap is a route
+  // change while the pane is off screen.
+  const footerAt = (id) => idx((st) => st[0] === 'click' && sel(st, 1).includes(`[data-phone-return="${id}"]`));
+  const routinesAt = footerAt('routines');
+  const sessionsAt = routinesAt < 0 ? -1 : idx((st) => st[0] === 'click' && sel(st, 1).includes('[data-phone-return="sessions"]'), routinesAt + 1);
+  if (routinesAt < 0) errs.push('J11 never visits the routines area from the phone footer (click [data-phone-return="routines"])');
+  if (sessionsAt < 0) errs.push('J11 never returns to the chat list from the footer (click [data-phone-return="sessions"])');
+  if (nodeName) {
+    if (routinesAt >= 0 && sameShell(routinesAt, sessionsAt < 0 ? steps.length : sessionsAt) === undefined) {
+      errs.push('J11 never asserts the same shell node after the routines area change');
+    }
+    if (sessionsAt >= 0 && sameShell(sessionsAt) === undefined) {
+      errs.push('J11 never asserts the same shell node after the sessions area change');
+    }
+  }
+
+  // The transcript's place. The offset must be numeric and away from the top:
+  // a remount that starts at 0 must not be able to satisfy the return by
+  // accident.
+  const transcript = (st) => sel(st, 1).startsWith('css=') && /role=.?region/.test(sel(st, 1));
+  const scrollAt = idx((st) => st[0] === 'scroll' && transcript(st));
+  if (scrollAt < 0) {
+    errs.push('J11 never scrolls the transcript before the switch; the return has no position to prove');
+  } else {
+    const asked = sel(steps[scrollAt], 2);
+    if (!/^\d+$/.test(asked) || Number(asked) < 96) {
+      errs.push('J11 must scroll the transcript to a numeric middle offset of at least 96px, not ' + JSON.stringify(asked));
+    }
+    if (leaveAt >= 0 && scrollAt > leaveAt) {
+      errs.push('J11 scrolls the transcript after leaving; the position must be left before it');
+    }
+  }
+  const keptAfter = (from) => (from < 0 ? -1 : idx((st) => st[0] === 'scroll-kept' && transcript(st), from + 1));
+  const keptBack = keptAfter(returnAt);
+  if (keptBack < 0) {
+    errs.push('J11 never asserts the transcript came back where it was left (scroll-kept after the return)');
+  } else if (scrollAt >= 0) {
+    const asked = Number(sel(steps[scrollAt], 2));
+    const kept = Number(sel(steps[keptBack], 2));
+    if (!Number.isFinite(kept) || Math.abs(kept - asked) > 48) {
+      errs.push('J11\'s scroll-kept offset must be the offset it scrolled to (within the walker\'s 48px tolerance)');
+    }
+  }
+  if (keptAfter(sessionsAt) < 0) {
+    errs.push('J11 never asserts the transcript came back after the area round; the off-screen restore is the stronger claim');
+  }
+
+  // The half-typed message. Sends in the journey give the transcript a
+  // position to lose, so the draft is the last fill before the leaving that no
+  // `send` follows, and it is read back from the composer after both returns.
+  const fills = [];
+  steps.forEach((st, i) => {
+    if (Array.isArray(st) && st[0] === 'fill' && /textarea/.test(sel(st, 1)) && typeof st[2] === 'string' && st[2].trim() !== '') fills.push(i);
+  });
+  const sentAfter = (i) => {
+    const send = idx((st) => st[0] === 'send', i + 1);
+    return send >= 0 && (leaveAt < 0 || send < leaveAt);
+  };
+  const draftFills = leaveAt < 0 ? fills : fills.filter((i) => i < leaveAt && !sentAfter(i));
+  const draftFillAt = draftFills.length ? draftFills[draftFills.length - 1] : -1;
+  const draft = draftFillAt >= 0 ? String(steps[draftFillAt][2]) : '';
+  if (fills.length === 0) {
+    errs.push('J11 never types an unsent draft into the composer');
+  } else if (draftFillAt < 0) {
+    errs.push('J11 never leaves an unsent draft in the composer before the switch; every text it typed was sent');
+  }
+  const draftAt = (from) => (from < 0 || draftFillAt < 0 ? -1
+    : idx((st) => st[0] === 'value' && /textarea/.test(sel(st, 1)) && sel(st, 2) === draft, from + 1));
+  if (draftFillAt >= 0 && draftAt(returnAt) < 0) {
+    errs.push('J11 never proves the draft survived the return (value textarea … after the return)');
+  }
+  if (draftFillAt >= 0 && draftAt(sessionsAt) < 0) {
+    errs.push('J11 never proves the draft survived the area round (value textarea … after the footer return)');
+  }
+
+  // The screenshots are the reviewable evidence, in the order the switch runs.
+  const shotAt = (name) => steps.findIndex((st) => Array.isArray(st) && st[0] === 'shot' && st[1] === name);
+  const chatShot = shotAt('switch-chat'), backShot = shotAt('switch-back'), areaShot = shotAt('switch-area-back');
+  if (chatShot < 0) errs.push('J11 takes no `switch-chat` shot');
+  else if (leaveAt >= 0 && chatShot > leaveAt) errs.push('the `switch-chat` shot must be taken before the leaving');
+  if (backShot < 0) errs.push('J11 takes no `switch-back` shot');
+  else if (returnAt >= 0 && backShot < returnAt) errs.push('the `switch-back` shot must follow the return');
+  if (areaShot < 0) errs.push('J11 takes no `switch-area-back` shot');
+  else if (sessionsAt >= 0 && areaShot < sessionsAt) errs.push('the `switch-area-back` shot must follow the footer round');
+
+  // A shell, conversation-pane or footer diff that no longer selects J11
+  // would let the phone claim rot without the gate ever walking it.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ11 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J11');
+  };
+  for (const file of ['ui/src/components/layout/AppShell.tsx', 'ui/src/components/layout/PhoneFooter.tsx', 'ui/src/pages/TaskDetailPage.tsx']) {
+    if (!mapsToJ11(file)) {
+      errs.push(`the paths table does not map ${file} to J11; a diff there would not walk the phone switch`);
+    }
+  }
+  return errs;
+}
+// J10's contract: F5 — the phone's four tabs keep their place, and a card a
+// person approved stays answered. J7 proves the deep link lands and Back
+// returns; it never answers the card or leaves the conversation, so a footer
+// that opens bare roots, or a decided card drawn pending again on the return,
+// is green today. IA D8 is the sharp half: 设置 and Agent 运维 share /settings
+// but each keeps its own `?tab=`, and the walk must assert the query, not just
+// the pathname. The `url` op matches `location.pathname` only, so the query is
+// a `search` step; a contract that demanded `url /settings?tab=…` would reject
+// the only honest spelling the walker can execute.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ10Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J10) || {};
+  const steps = journey.steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J10 has no steps'];
+  const errs = [];
+  const required = (v) => typeof v === 'string' && !v.startsWith('?');
+  const bare = (v) => String(v).replace(/^\?/, '');
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+
+  // Phone only: the footer exists below 700px, and the tab round is a thumb
+  // tap. J7 walks the same landing at both widths; J10 is the phone proof.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'phone') {
+    errs.push('J10 is the phone tab-memory proof: its viewports must be exactly ["phone"]');
+  }
+
+  // Land on the card the notification names, then answer it. A walk that only
+  // photographs the card leaves every later `gone` vacuous.
+  const deepAt = idx((st) => st[0] === 'goto' && required(sel(st, 1)) && /\/tasks\//.test(bare(sel(st, 1)))
+    && bare(sel(st, 1)).includes('{conversation}') && /focus=|\{focus\}/.test(bare(sel(st, 1))));
+  if (deepAt < 0) errs.push('J10 has no required deep-link goto naming both {conversation} and {focus}');
+  const cardWait = ([op, needle]) => op === 'wait' && required(needle) && /^css=/.test(bare(needle))
+    && bare(needle).includes('[data-pending-id="{focus}"]');
+  const waitAt = idx(cardWait);
+  if (waitAt < 0) errs.push('J10 never waits for the named card ([data-pending-id="{focus}"])');
+  const approveControl = (v) => /批准|Approve/.test(String(v));
+  const approveAt = idx((st) => st[0] === 'click' && required(sel(st, 1)) && approveControl(bare(sel(st, 1))));
+  if (approveAt < 0) errs.push("J10 never presses the card's approve control (批准 / Approve)");
+  else if ((deepAt >= 0 && approveAt < deepAt) || (waitAt >= 0 && approveAt < waitAt)) {
+    errs.push('J10 presses approve before it waits for the named card');
+  }
+
+  // The four peer entries (IA D8). Each tap is its own rule: dropping one
+  // leaves that area's memory unproven.
+  const footerAt = (id) => idx((st) => st[0] === 'click' && required(sel(st, 1))
+    && bare(sel(st, 1)).includes(`[data-phone-return="${id}"]`));
+  const tabs = ['sessions', 'routines', 'agents', 'settings'];
+  const taps = {};
+  tabs.forEach((id) => {
+    taps[id] = footerAt(id);
+    if (taps[id] < 0) errs.push(`J10 never taps the ${id} footer entry (click [data-phone-return="${id}"])`);
+  });
+  const tapList = tabs.map((id) => taps[id]).filter((i) => i >= 0);
+  const firstTap = tapList.length ? Math.min(...tapList) : -1;
+  const lastTap = tapList.length ? Math.max(...tapList) : -1;
+  const nextTapAfter = (from) => {
+    const later = tapList.filter((i) => i > from);
+    return later.length ? Math.min(...later) : steps.length;
+  };
+
+  // The answer must take the control off the screen before the reader leaves:
+  // a card still showing Approve on the way out was never decided.
+  const goneOf = (from = 0) => idx((st) => st[0] === 'gone' && required(sel(st, 1)) && approveControl(bare(sel(st, 1))), from);
+  const approveGone = goneOf();
+  if (approveGone < 0) errs.push('J10 never proves the approve control left the screen after the answer');
+  else if (firstTap >= 0 && approveGone > firstTap) {
+    errs.push('J10 never proves the approve control left the screen before the first footer tap');
+  }
+
+  // Settings and Agent Ops share a pathname; only `?tab=` tells them apart.
+  const urlAt = (from, needle) => idx((st) => st[0] === 'url' && required(sel(st, 1)) && bare(sel(st, 1)).includes(needle), from);
+  const searchAt = (from, needle) => idx((st) => st[0] === 'search' && required(sel(st, 1)) && bare(sel(st, 1)).includes(needle), from);
+  if (taps.settings >= 0 && urlAt(taps.settings, '/settings') < 0) {
+    errs.push('J10 never opens Settings from its footer entry (url ^/settings)');
+  }
+  if (taps.agents >= 0) {
+    const ops = searchAt(taps.agents, 'tab=operations');
+    if (ops < 0 || ops > nextTapAfter(taps.agents)) {
+      errs.push('J10 never proves the Agent Ops entry reopened its own tab (search tab=operations)');
+    }
+  }
+  if (taps.routines >= 0 && urlAt(taps.routines, '/routines') < 0) {
+    errs.push('J10 never proves the Routines entry reopened /routines (url ^/routines)');
+  }
+  if (taps.sessions >= 0 && urlAt(taps.sessions, '/sessions') < 0) {
+    errs.push('J10 never proves the Chats entry reopened the list (url ^/sessions)');
+  }
+  // The memory proof: leave Settings for another area, come back, and read
+  // the non-operations tab off the address. Two settings taps are the shape;
+  // one tap plus a bare root is the regression this journey exists to catch.
+  const settingsTaps = [];
+  steps.forEach((st, i) => {
+    if (st[0] === 'click' && required(sel(st, 1)) && bare(sel(st, 1)).includes('[data-phone-return="settings"]')) settingsTaps.push(i);
+  });
+  const backToSettings = settingsTaps.length >= 2 ? settingsTaps[settingsTaps.length - 1] : -1;
+  const leftSettings = backToSettings >= 0 && tapList.some((i) => i > settingsTaps[0] && i < backToSettings);
+  if (!leftSettings) {
+    errs.push('J10 never returns to Settings from another footer entry; the remembered tab cannot be proven without leaving and coming back');
+  } else {
+    const patterns = steps.map((st, i) => ({ st, i }))
+      .filter(({ st, i }) => i > backToSettings && st[0] === 'search' && required(sel(st, 1)))
+      .map(({ st }) => bare(sel(st, 1)));
+    if (!patterns.some((p) => /tab=/.test(p) && !/tab=operations/.test(p))) {
+      errs.push('J10 never proves Settings remembered its tab: a non-root settings URL (search tab=…) must follow the return');
+    }
+  }
+
+  // The return is the half that catches an answered card drawn pending again.
+  const rowAt = idx((st) => st[0] === 'click' && required(sel(st, 1))
+    && bare(sel(st, 1)).includes('[data-session-row="{conversation}"]'), lastTap + 1);
+  if (rowAt < 0) {
+    errs.push('J10 never returns to the conversation after the tab round (click [data-session-row="{conversation}"])');
+  } else {
+    const backTask = idx((st) => st[0] === 'url' && required(sel(st, 1)) && bare(sel(st, 1)).includes('/tasks/{conversation}'), rowAt + 1);
+    if (backTask < 0) errs.push('J10 never proves the return reached the conversation (url ^/tasks/{conversation})');
+    const finalGone = goneOf(rowAt + 1);
+    if (finalGone < 0) {
+      errs.push('J10 never proves the approved card stayed gone after the return (gone of the approve control)');
+    }
+  }
+  return errs;
+}
 // J7's contract: a notification tap must prove it landed on the card the
 // notification named — not just photograph whatever loaded. Without these
 // rules a blank deep link, a landing on the wrong card, and a Back that
@@ -697,27 +987,107 @@ function checkJ7Contract(spec) {
   }
   return errs;
 }
+// J5's contract: the row menu is a shipped list of actions, and one of them is
+// a status line. Opening the menu and photographing it proves neither: a
+// rename that left the active scope, a pin/archive/delete that vanished, or a
+// 运行中 line that became pressable all ship green today. The walk must open
+// the *running* row's menu — any other row has no 运行中 line — and assert the
+// list in both languages, at both viewports. The running line is pinned by a
+// required count of exactly one element that carries the label AND the
+// disabled marker (the Mac menu item uses aria-disabled, the phone ActionSheet
+// row is a <button disabled>), so dropping either half is red.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ5Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J5) || {};
+  const steps = journey.steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J5 has no steps'];
+  const errs = [];
+  const required = (v) => typeof v === 'string' && !v.startsWith('?');
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+
+  // The menu is one list on both surfaces. A `vp` scope would leave one
+  // width's menu unread while the walk still reported green.
+  if (steps.some((st) => Array.isArray(st) && st[0] === 'vp')) {
+    errs.push('J5 scopes steps to one viewport; the row menu is the same list on the phone and the Mac, so its assertions must run at every viewport J5 claims');
+  }
+  const viewports = Array.isArray(journey.viewports) ? journey.viewports : [];
+  for (const vp of ['phone', 'mac']) {
+    if (!viewports.includes(vp)) errs.push(`J5 does not claim the ${vp} viewport; the row menu ships on both`);
+  }
+
+  // The menu under test is the seeded running row's. Opening whichever trigger
+  // the list renders first photographs a menu that may have no 运行中 line.
+  const listAt = idx((st) => st[0] === 'goto' && required(sel(st, 1)) && /sessions/.test(sel(st, 1)));
+  const openAt = idx((st) => st[0] === 'click' && required(sel(st, 1))
+    && sel(st, 1).includes('[data-row-actions]') && sel(st, 1).includes('{j5.conversation}'));
+  if (listAt < 0) errs.push('J5 never opens the conversation list (goto /sessions)');
+  if (openAt < 0) {
+    errs.push('J5 never opens the seeded running row\'s menu (click [data-row-actions][aria-describedby="session-row-title-{j5.conversation}"])');
+  } else if (listAt >= 0 && openAt < listAt) {
+    errs.push('J5 opens a row menu before it is on the conversation list');
+  }
+
+  // The shipped contents, named in both languages. Every item is a required
+  // step: an optional one records a skip when the action is gone, which is the
+  // regression this journey exists to catch.
+  const named = (zh, en) => (st) => (st[0] === 'wait' || st[0] === 'count')
+    && required(sel(st, 1)) && sel(st, 1).includes(zh) && sel(st, 1).includes(en);
+  let previous = openAt;
+  for (const [zh, en, name] of [['改名', 'Rename', 'rename'], ['置顶', 'Pin', 'pin'], ['归档', 'Archive', 'archive'], ['删除', 'Delete', 'delete']]) {
+    const at = previous < 0 ? -1 : idx(named(zh, en), previous + 1);
+    if (at < 0) errs.push(`J5 never asserts the ${name} item (${zh} / ${en}) after opening the row menu`);
+    else previous = at;
+  }
+
+  // The running line is a state, not an action: present and unusable. Both
+  // halves are in the selector, and the count is exactly one, so a label that
+  // stayed while the disable was dropped is red at both surfaces.
+  const runningAt = previous < 0 ? -1 : idx((st) => st[0] === 'count' && required(sel(st, 1))
+    && sel(st, 1).includes('运行中') && sel(st, 1).includes('Running')
+    && (sel(st, 1).includes('aria-disabled') || sel(st, 1).includes('[disabled]'))
+    && String(st[2]) === '1', previous + 1);
+  if (runningAt < 0) {
+    errs.push('J5 never asserts the 运行中 / Running line is present and disabled after opening the row menu (a required count … 1 naming the label and the disabled marker)');
+  }
+
+  const shotAt = idx((st) => st[0] === 'shot' && sel(st, 1) === 'row-actions');
+  if (shotAt < 0) errs.push('J5 takes no `row-actions` shot');
+  else if (runningAt >= 0 && shotAt < runningAt) {
+    errs.push('the `row-actions` shot must follow the 运行中 assertion, so the photograph is of a menu whose contents were read');
+  }
+  return errs;
+}
 if (process.argv.includes('--check-spec')) {
   const j2 = checkJ2Contract(spec);
   const j3 = checkJ3Contract(spec);
+  const j5 = checkJ5Contract(spec);
   const j7 = checkJ7Contract(spec);
   const j8 = checkJ8Contract(spec);
   const j9 = checkJ9Contract(spec);
-  if (j2.length || j3.length || j7.length || j8.length || j9.length) {
+  const j10 = checkJ10Contract(spec);
+  const j11 = checkJ11Contract(spec);
+  if (j2.length || j3.length || j5.length || j7.length || j8.length || j9.length || j10.length || j11.length) {
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
+    if (j5.length) { console.log('spec red: J5'); j5.forEach((e) => console.log(' - ' + e)); }
     if (j7.length) { console.log('spec red: J7'); j7.forEach((e) => console.log(' - ' + e)); }
     if (j8.length) { console.log('spec red: J8'); j8.forEach((e) => console.log(' - ' + e)); }
     if (j9.length) { console.log('spec red: J9'); j9.forEach((e) => console.log(' - ' + e)); }
+    if (j10.length) { console.log('spec red: J10'); j10.forEach((e) => console.log(' - ' + e)); }
+    if (j11.length) { console.log('spec red: J11'); j11.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
   console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
   console.log('spec ok: J2 keeps a saved comment across a rerun — re-anchored to its new line, then 该行已变化 when the quoted line is gone');
   console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
   console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
+  console.log('spec ok: J5 opens the running row\'s menu and pins rename, pin, archive, delete and a disabled 运行中 line');
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
   console.log('spec ok: J8 taps a changed line at 390, saves the sheet, sends the tray, and proves path, hunk and quote');
   console.log('spec ok: J9 keeps the shell, the scroll and the draft across a switch');
+  console.log('spec ok: J10 approves the deep-linked card, walks all four footer entries, and finds it gone on the return');
+  console.log('spec ok: J11 keeps the shell, the scroll and the draft across the phone\'s switches');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
@@ -730,6 +1100,13 @@ if (process.argv.includes('--check-spec')) {
       console.log('J7 ' + applyJ7Target(gotoStep[1], target));
       console.log('J7 assert ' + resolvedCardSelector(target));
     }
+    // J5's row: the trigger the spec clicks, resolved to the seeded task id,
+    // so the reviewer reads the row the walk really acts on.
+    const j5Target = readJ5Target(fs.existsSync(seedPath) ? fs.readFileSync(seedPath, 'utf8') : '');
+    const j5Click = ((spec.journeys.J5 || {}).steps || []).find((st) => st[0] === 'click'
+      && String(st[1]).includes('[data-row-actions]'));
+    if (j5Target.skip || !j5Click) console.log('J5 skip: ' + (j5Target.skip || 'the spec has no J5 row-menu click'));
+    else console.log('J5 ' + applyJ5Fields(j5Click[1], j5Target));
   }
   process.exit(0);
 }
@@ -767,6 +1144,29 @@ function applyJ7Fields(value, target) {
 }
 function applyJ7Step(step, target) {
   return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? applyJ7Fields(part, target) : part)) : step;
+}
+// J5 must open the row menu of the conversation the seed left running. The
+// seed prints one `j5 target conversation=<task> title=<title>` line when that
+// fixture really reached `running`; without it J5 is a skip, never a walk
+// against an invented id. The row's trigger carries the row title's id as its
+// description (`aria-describedby`), so the id selects one specific row's
+// menu instead of whichever trigger the list happens to render first.
+function readJ5Target(seedText) {
+  const J5_TARGET = /^j5 target conversation=(\S+)(?: title=(.+))?$/m;
+  const seed = typeof seedText === 'string' ? seedText : '';
+  if (/no scripts\/journeys_seed|seed failed|empty daemon/i.test(seed)) return { skip: 'seed failed or empty daemon' };
+  if (!seed.trim()) return { skip: 'no seeded running conversation' };
+  const match = J5_TARGET.exec(seed);
+  if (!match) return { skip: 'no seeded running conversation' };
+  return { conversation: match[1], title: (match[2] || '').trim() };
+}
+function applyJ5Fields(value, target) {
+  return String(value)
+    .replace(/\{j5\.conversation\}/g, target.conversation)
+    .replace(/\{j5\.title\}/g, target.title);
+}
+function applyJ5Step(step, target) {
+  return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? applyJ5Fields(part, target) : part)) : step;
 }
 // `{vp}` makes a step's own words viewport-specific: two widths walk the same
 // seeded conversation against one daemon, so an identical comment body would
@@ -832,6 +1232,20 @@ if (resolveJ7 || resolveJ7Plan) {
     const steps = (spec.journeys.J7.steps || []).map((st) => applyJ7Step(st, target));
     console.log(JSON.stringify({ journey: 'J7', steps, title: target.title }, null, 1));
   } else console.log('J7 ' + applyJ7Target(gotoStep[1], target));
+  process.exit(0);
+}
+// `--resolve-j5 <seed.log>` answers J5's question without a browser: the
+// trigger the walk clicks, resolved from the seed's `j5 target` line, or the
+// skip. The selector is printed through the same field replacement the walk
+// uses, so a placeholder that stopped substituting is red here.
+const resolveJ5 = arg('resolve-j5');
+if (resolveJ5) {
+  const target = readJ5Target(fs.existsSync(resolveJ5) ? fs.readFileSync(resolveJ5, 'utf8') : '');
+  const clickStep = ((spec.journeys.J5 || {}).steps || []).find((st) => st[0] === 'click'
+    && String(st[1]).includes('[data-row-actions]'));
+  if (target.skip) console.log('J5 skip: ' + target.skip);
+  else if (!clickStep) console.log('J5 skip: the spec has no J5 row-menu click');
+  else console.log('J5 ' + applyJ5Fields(clickStep[1], target));
   process.exit(0);
 }
 let want = arg('journeys', '') ? arg('journeys').split(',') : null;
@@ -1044,11 +1458,15 @@ async function fakeAgentVerdict() {
   return '';
 }
 for (const j of want) {
-  const seed = (j === 'J1' || j === 'J7') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
+  const seed = (j === 'J1' || j === 'J5' || j === 'J7' || j === 'J10') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
   const j1 = j === 'J1' ? readJ1Target(seed) : null;
-  const j7 = j === 'J7' ? readJ7Target(seed) : null;
+  const j5 = j === 'J5' ? readJ5Target(seed) : null;
+  // J10 answers the same seeded card J7 only looks at. Both must resolve the
+  // target the same way, and both skip rather than walk invented ids.
+  const j7 = (j === 'J7' || j === 'J10') ? readJ7Target(seed) : null;
   if (j1 && j1.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J1-skipped-no-approval-target', url: '', lint: {}, notes: ['skipped J1: ' + j1.skip] }); continue; }
-  if (j7 && j7.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J7-skipped-no-fixtures', url: '', lint: {}, notes: ['skipped J7: no seeded notification target'] }); continue; }
+  if (j5 && j5.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J5-skipped-no-running-conversation', url: '', lint: {}, notes: ['skipped J5: ' + j5.skip] }); continue; }
+  if (j7 && j7.skip) { screens.push({ journey: j, viewport: 'n/a', name: j + '-skipped-no-fixtures', url: '', lint: {}, notes: ['skipped ' + j + ': no seeded notification target'] }); continue; }
   const J = spec.journeys[j];
   for (const vpName of J.viewports) {
     const [w, h] = spec.viewports[vpName].split('x').map(Number); const phone = w < 700;
@@ -1088,7 +1506,7 @@ for (const j of want) {
     // the second width ran it.
     let vpOnly = '';
     for (const rawStep of J.steps) {
-      const preStep = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
+      const preStep = j === 'J5' && j5 ? applyJ5Step(rawStep, j5) : (j === 'J7' || j === 'J10') && j7 ? applyJ7Step(rawStep, j7) : rawStep;
       const st = applyVpStep(preStep, vpName);
       const [op, a, b] = st;
       if (op === 'vp') {
