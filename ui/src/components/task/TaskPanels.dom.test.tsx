@@ -169,7 +169,9 @@ describe("TaskPanels", () => {
     const strip = within(regions[0]!).getByRole("tablist");
     expect(within(strip).getAllByRole("tab")).toHaveLength(3);
     expect(
-      within(strip).getByRole("tab", { name: t("pr.title") }).getAttribute("aria-selected"),
+      within(strip)
+        .getByRole("tab", { name: t("pr.title") })
+        .getAttribute("aria-selected"),
     ).toBe("true");
   });
 

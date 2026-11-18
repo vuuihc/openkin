@@ -1760,9 +1760,7 @@ export default function TaskDetailPage({
   function showFilesSurface() {
     if (!task || routedId !== id) return;
     showPanel(id, "files");
-    const open = workspaceOpenPath
-      ? toWorkspaceRelativePath(task.cwd, workspaceOpenPath)
-      : null;
+    const open = workspaceOpenPath ? toWorkspaceRelativePath(task.cwd, workspaceOpenPath) : null;
     writeWorkspaceSearch(
       patchWorkspaceLink(locationRef.current.search, {
         panel: "files",
