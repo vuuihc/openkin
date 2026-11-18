@@ -124,7 +124,7 @@
     },
     {
       "id": "KIN-RESULT-001",
-      "state": "approved",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J4"
@@ -144,13 +144,14 @@
       "tests": [
         "ui/src/components/workspace/WorkspacePanel.esc.dom.test.tsx",
         "ui/src/components/workspace/ChangedFilesList.keys.dom.test.tsx",
-        "ui/src/components/workspace/FileTree.keys.dom.test.tsx"
+        "ui/src/components/workspace/FileTree.keys.dom.test.tsx",
+        "scripts/journeys_walk_test.py"
       ],
       "blockedReason": null
     },
     {
       "id": "KIN-MANAGE-001",
-      "state": "approved",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J5"
@@ -171,7 +172,8 @@
       "tests": [
         "ui/src/components/sessions/SessionRow.dom.test.tsx",
         "ui/src/components/sessions/SessionList.selection.dom.test.tsx",
-        "ui/src/components/sessions/SessionList.drag.dom.test.tsx"
+        "ui/src/components/sessions/SessionList.drag.dom.test.tsx",
+        "scripts/journeys_walk_test.py"
       ],
       "blockedReason": null
     },
@@ -520,7 +522,7 @@
     },
     {
       "id": "KIN-RESULT-003",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J2",
@@ -538,7 +540,8 @@
         "ui/src/components/workspace/diffCommentAnchor.test.ts",
         "ui/src/components/workspace/DiffCommentGutter.dom.test.tsx",
         "ui/src/components/workspace/DiffCommentsTray.dom.test.tsx",
-        "ui/src/components/workspace/WorkspacePanel.comments.dom.test.tsx"
+        "ui/src/components/workspace/WorkspacePanel.comments.dom.test.tsx",
+        "scripts/journeys_walk_test.py"
       ],
       "blockedReason": null
     },
