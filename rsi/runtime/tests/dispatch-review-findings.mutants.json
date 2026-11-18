@@ -1,0 +1,16 @@
+[
+  {
+    "label": "old defect restored at emit_and_exit: a FAIL records the bare verdict and the finding is lost",
+    "file": "rsi/runtime/dispatch.sh",
+    "test": "bash rsi/runtime/tests/test-dispatch-review-findings.sh",
+    "old": "  if [ -n \"$f\" ] && grep -qE 'VERDICT: *FAIL' \"$f\"; then oc=FAIL; note=\"$(review_note FAIL \"$f\")\"",
+    "new": "  if [ -n \"$f\" ] && grep -qE 'VERDICT: *FAIL' \"$f\"; then oc=FAIL; note=\"VERDICT: FAIL\""
+  },
+  {
+    "label": "old defect restored on the escalated named-model path: its FAIL record also loses the finding",
+    "file": "rsi/runtime/dispatch.sh",
+    "test": "bash rsi/runtime/tests/test-dispatch-review-findings.sh",
+    "old": "if grep -qE 'VERDICT: *FAIL' \"$LOG\" 2>/dev/null; then record_outcome FAIL \"$(review_note FAIL \"$LOG\")\"; stamp_review \"$LOG\"",
+    "new": "if grep -qE 'VERDICT: *FAIL' \"$LOG\" 2>/dev/null; then record_outcome FAIL \"VERDICT: FAIL\"; stamp_review \"$LOG\""
+  }
+]
