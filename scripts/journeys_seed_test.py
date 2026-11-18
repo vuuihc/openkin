@@ -63,6 +63,11 @@ CONVERSATIONS = [
     # rewrites. Created before the held fixtures so the approve row J1 opens
     # stays the newest row.
     "[seed] Phone review",
+    # Two more rows in Gamma: J12's edge-back leg scrolls the phone list before
+    # it pops the screen, and the filtered list must be more than scroll-kept's
+    # 48px tolerance taller than the viewport for the read-back to mean anything.
+    "[seed] Gamma planning",
+    "[seed] Gamma review",
     RUNNING_CONVERSATION,
     *HELD_CONVERSATIONS,
 ]
@@ -425,6 +430,8 @@ class SeedTest(unittest.TestCase):
                 # still-working one is named in Gamma too, so Alpha/Beta row
                 # order does not move for the journeys that read it.
                 self.stub.projects[1]["roots"][0],
+                self.stub.projects[2]["roots"][0],
+                self.stub.projects[2]["roots"][0],
                 self.stub.projects[2]["roots"][0],
                 self.stub.projects[1]["roots"][0],
                 self.stub.projects[1]["roots"][0],
@@ -1054,7 +1061,7 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(
             [os.path.basename(body["cwd"]) for body in self.task_posts()],
-            ["alpha", "beta", "gamma", "beta", "gamma", "beta", "beta", "alpha"],
+            ["alpha", "beta", "gamma", "beta", "gamma", "gamma", "gamma", "beta", "beta", "alpha"],
         )
 
 

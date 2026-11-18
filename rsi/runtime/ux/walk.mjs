@@ -5,7 +5,7 @@
 //   node walk.mjs --resolve-j5 DIR/seed.log [--spec path/to/journeys.json]   (print the resolved J5 row-menu step or skip; no browser)
 //   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
 //   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
-//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J7's landing contract, J9's Mac switch and J11's phone switch; no browser)
+//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J7's landing contract, J9's Mac switch, J11's phone switch and J12's thumb gestures; no browser)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
 // Exit 0 always when the walk ran (verdicts are the reviewer's and walk.json's `hardFail`); exit 2 when it could not run (no chrome, daemon unreachable).
 import { createRequire } from 'node:module';
@@ -1243,6 +1243,127 @@ function checkJ4Contract(spec) {
   if (composerShot >= 0 && firstSendAt >= 0 && composerShot > firstSendAt) errs.push('the `instructions-composer` shot must be taken before the send');
   return errs;
 }
+// J12's contract: the phone's three thumb gestures, driven as real touch.
+// jsdom has neither pointer capture nor `touch-action`, so a gesture can pass
+// there and be dead under a finger (LESSONS 2026-10-30). J12 is the browser
+// walk for the edge back, the row reveal and the hold-to-reorder: every leg
+// must perform a `swipe`/`drag` and then READ the consequence it exists to
+// prove. A journey that drops the gesture, starts the edge swipe outside the
+// strip, or photographs the order instead of reading it after a reload is
+// green while the phone gesture is dead.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+// These are the shipped thresholds, duplicated so the spec cannot quietly
+// drift from the gestures: ui/src/hooks/useEdgeSwipeBack.ts
+// (EDGE_START_PX / EDGE_COMMIT_PX) and SwipeReveal.tsx (+swipeGesture.ts).
+const J12_EDGE_START_PX = 20;
+const J12_EDGE_COMMIT_PX = 64;
+const J12_REVEAL_WIDTH = 152;
+const J12_LONG_PRESS_MS = 500;
+const J12_CHIP = /改名|Rename|置顶|Pin/;
+function checkJ12Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J12) || {};
+  const steps = journey.steps;
+  // The index does not name J12 yet (registration is a later row), and every
+  // reduced spec in the frozen Python tests is built from that index, so an
+  // absent J12 is "this spec does not carry the journey", not a red contract.
+  // A J12 that IS present is held to every rule below.
+  if (!journey.title && !Array.isArray(steps)) return [];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J12 has no steps'];
+  const errs = [];
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const num = (st, i) => Number(sel(st, i));
+  const gestureAt = (i) => steps[i] && Array.isArray(steps[i]) && (steps[i][0] === 'swipe' || steps[i][0] === 'drag');
+  const ASSERT_OPS = new Set(['wait', 'gone', 'count', 'url', 'search', 'value', 'rows', 'scroll-kept', 'active']);
+  const assertionBetween = (from, to) => steps.some((st, i) => i > from && i < to && Array.isArray(st) && ASSERT_OPS.has(st[0]));
+
+  // Phone only. A `swipe` or `drag` in a context without `hasTouch` is a mouse
+  // wearing a touch verb; the executor refuses it, and so must the spec.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'phone') {
+    errs.push('J12 is the phone thumb walk: its viewports must be exactly ["phone"]');
+  }
+
+  // Every gesture must be followed by the assertion it feeds before the next
+  // gesture starts. A swipe nobody reads proves only that the event was sent.
+  const gestures = steps.map((st, i) => i).filter((i) => gestureAt(i));
+  gestures.forEach((at, k) => {
+    const next = k + 1 < gestures.length ? gestures[k + 1] : steps.length;
+    if (!assertionBetween(at, next)) {
+      errs.push(`J12's ${steps[at][0]} at step ${at + 1} is never followed by an assertion (wait/gone/count/url/value/rows/scroll-kept) before the next gesture`);
+    }
+  });
+
+  // Leg 1 — edge swipe back. The finger must start inside EDGE_START_PX and
+  // travel past EDGE_COMMIT_PX; the point of the leg is that the search text
+  // and the scroll offset it left are still there, so both must be set before
+  // the swipe and read after it, without a reload in between (a fresh load
+  // would restore them from the URL and sessionStorage, not from the pop).
+  const edgeAt = idx((st) => {
+    if (st[0] !== 'swipe') return false;
+    const from = num(st, 1), to = num(st, 2);
+    return Number.isFinite(from) && Number.isFinite(to) && from <= J12_EDGE_START_PX && to - from > J12_EDGE_COMMIT_PX;
+  });
+  if (edgeAt < 0) {
+    errs.push(`J12 never swipes in from the left edge past ${J12_EDGE_COMMIT_PX}px (swipe fromX ≤ ${J12_EDGE_START_PX} → toX; the strip and the commit distance are the gesture)`);
+  } else {
+    const searchSel = (st) => /input\[type=search\]/.test(sel(st, 1));
+    const fillAt = idx((st) => st[0] === 'fill' && searchSel(st) && typeof st[2] === 'string' && st[2].trim() !== '');
+    const scrollAt = idx((st) => st[0] === 'scroll' && /data-phone-scroll/.test(sel(st, 1)) && num(st, 2) > 0);
+    if (fillAt < 0 || fillAt > edgeAt) errs.push('J12 must type a search term before the edge swipe; a search restored from nothing proves nothing');
+    if (scrollAt < 0 || scrollAt > edgeAt) errs.push('J12 must scroll the list before the edge swipe; a kept offset of 0 is not a kept offset');
+    const valueAt = after(edgeAt, (st) => st[0] === 'value' && searchSel(st));
+    const keptAt = after(edgeAt, (st) => st[0] === 'scroll-kept' && /data-phone-scroll/.test(sel(st, 1)));
+    if (valueAt < 0) errs.push('J12 never reads the search text back after the edge swipe (value input[type=search] …)');
+    else if (fillAt >= 0 && sel(steps[valueAt], 2) !== sel(steps[fillAt], 2)) errs.push('J12 reads a different search text than it typed before the edge swipe');
+    if (keptAt < 0) errs.push('J12 never proves the scroll offset survived the edge swipe (scroll-kept css=[data-phone-scroll] …)');
+    else if (scrollAt >= 0 && Math.abs(num(steps[keptAt], 2) - num(steps[scrollAt], 2)) > 48) errs.push('J12\'s scroll-kept offset is not the offset it scrolled to before the edge swipe');
+    const gotoBetween = steps.findIndex((st, i) => i > edgeAt && i < Math.max(valueAt, keptAt, edgeAt + 1) && Array.isArray(st) && st[0] === 'goto');
+    if (gotoBetween >= 0) errs.push('J12 reloads the document after the edge swipe; the search and scroll must survive the pop, not a fresh load');
+  }
+
+  // Leg 2 — row swipe. Left past the reveal width, the chip must be readable;
+  // closing rightward must take the chips away and must NOT navigate.
+  const leftAt = idx((st) => st[0] === 'swipe' && Number.isFinite(num(st, 1)) && Number.isFinite(num(st, 2)) && num(st, 1) - num(st, 2) > J12_REVEAL_WIDTH);
+  if (leftAt < 0) {
+    errs.push(`J12 never swipes a row left past ${J12_REVEAL_WIDTH}px (swipe fromX → toX; the reveal distance is the gesture)`);
+  } else {
+    const chipAt = after(leftAt, (st) => st[0] === 'wait' && J12_CHIP.test(sel(st, 1)));
+    if (chipAt < 0) errs.push('J12 never waits for the revealed action chip after the row swipe (wait … 置顶|Pin|改名|Rename)');
+    const closeAt = after(Math.max(chipAt, leftAt), (st) => st[0] === 'swipe' && num(st, 2) > num(st, 1));
+    if (closeAt < 0) errs.push('J12 never swipes the row back closed (a rightward swipe); a revealed strip must be closable');
+    const goneAt = after(Math.max(closeAt, chipAt), (st) => st[0] === 'gone' && J12_CHIP.test(sel(st, 1)));
+    if (goneAt < 0) errs.push('J12 never proves the action chips are gone after the row closes (gone … 置顶|Pin|改名|Rename)');
+    const urlAt = after(Math.max(closeAt, leftAt), (st) => st[0] === 'url' && /^\^?\/sessions/.test(sel(st, 1)));
+    if (urlAt < 0) errs.push('J12 never proves the row swipe stayed on /sessions (url ^/sessions); a swipe must not navigate');
+  }
+
+  // Leg 3 — hold-to-reorder. The hold must be a real one, the new order must
+  // be read from the drawn DOM, and the same read must happen after a reload:
+  // a reorder that lives only in React state is gone as soon as the phone
+  // reopens the list.
+  const dragAt = idx((st) => st[0] === 'drag' && /data-session-row/.test(sel(st, 1)) && num(st, 3) >= J12_LONG_PRESS_MS);
+  if (dragAt < 0) {
+    errs.push(`J12 never holds a conversation row for ${J12_LONG_PRESS_MS}ms and drags it (drag css=…[data-session-row]… <dy> ${J12_LONG_PRESS_MS})`);
+  } else {
+    const reloadAt = after(dragAt, (st) => st[0] === 'goto' && sel(st, 1) === '/sessions');
+    const orderAt = idx((st) => st[0] === 'rows', dragAt + 1);
+    if (orderAt < 0 || (reloadAt >= 0 && orderAt > reloadAt)) {
+      errs.push('J12 never reads the new row order after the drag and before the reload (rows css=<scope> token|token)');
+    }
+    if (reloadAt < 0) errs.push('J12 never reloads the list after the drag (goto /sessions)');
+    const postAt = after(reloadAt, (st) => st[0] === 'rows');
+    if (reloadAt >= 0 && postAt < 0) errs.push('J12 never reads the order back after the reload; persistence is the half a drag without a reload cannot prove');
+    if (orderAt >= 0 && reloadAt >= 0 && orderAt < reloadAt && postAt >= 0 && sel(steps[orderAt], 2) !== sel(steps[postAt], 2)) errs.push('J12 expects a different order after the reload than the drag produced');
+  }
+
+  // The legs run in the order a thumb learns them; the contract stays honest
+  // about which gesture the later assertions belong to.
+  if (edgeAt >= 0 && leftAt >= 0 && edgeAt > leftAt) errs.push('J12 runs the row swipe before the edge back; the edge leg is first');
+  if (leftAt >= 0 && dragAt >= 0 && leftAt > dragAt) errs.push('J12 runs the hold-to-reorder before the row swipe; the row reveal is the middle leg');
+  return errs;
+}
 if (process.argv.includes('--check-spec')) {
   const j2 = checkJ2Contract(spec);
   const j3 = checkJ3Contract(spec);
@@ -1253,7 +1374,8 @@ if (process.argv.includes('--check-spec')) {
   const j9 = checkJ9Contract(spec);
   const j10 = checkJ10Contract(spec);
   const j11 = checkJ11Contract(spec);
-  if (j2.length || j3.length || j4.length || j5.length || j7.length || j8.length || j9.length || j10.length || j11.length) {
+  const j12 = checkJ12Contract(spec);
+  if (j2.length || j3.length || j4.length || j5.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length) {
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
     if (j4.length) { console.log('spec red: J4'); j4.forEach((e) => console.log(' - ' + e)); }
@@ -1263,6 +1385,7 @@ if (process.argv.includes('--check-spec')) {
     if (j9.length) { console.log('spec red: J9'); j9.forEach((e) => console.log(' - ' + e)); }
     if (j10.length) { console.log('spec red: J10'); j10.forEach((e) => console.log(' - ' + e)); }
     if (j11.length) { console.log('spec red: J11'); j11.forEach((e) => console.log(' - ' + e)); }
+    if (j12.length) { console.log('spec red: J12'); j12.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
   console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
@@ -1276,6 +1399,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J9 keeps the shell, the scroll and the draft across a switch');
   console.log('spec ok: J10 approves the deep-linked card, walks all four footer entries, and finds it gone on the return');
   console.log('spec ok: J11 keeps the shell, the scroll and the draft across the phone\'s switches');
+  console.log('spec ok: J12 walks the phone\'s edge back, row reveal and hold-to-reorder as real touch and reads the consequences');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
@@ -1634,6 +1758,133 @@ async function waitVisible(page, needle, timeout) {
   }
   throw new Error('wait needs text=<literal> or css=<selector>');
 }
+// ---- Real touch input -------------------------------------------------------
+// The phone's thumb gestures cannot be proved by dispatching a synthetic
+// PointerEvent: that skips the browser's hit test, its pointer capture and its
+// `touch-action` decision, which is exactly where a gesture dies under a
+// finger (LESSONS 2026-10-30). `swipe` and `drag` drive Chrome's own input
+// pipeline through CDP (`Input.dispatchTouchEvent`), the technique the shipped
+// touch-drag.mjs proof already uses: OS-level touch to the renderer, not an
+// event dispatched at a node. Both verbs are phone-only — a context without
+// `hasTouch` would deliver the same points as a mouse, which is a different
+// gesture — so the executor refuses them off the phone instead of pretending.
+const TOUCH_ID = 7;
+// A finger sized like a fingertip; the id must stay stable for the whole path
+// so the renderer pairs the samples into one pointer.
+const touchFinger = (x, y) => ({ x, y, id: TOUCH_ID, radiusX: 6, radiusY: 6, force: 1 });
+async function touchPoint(cdp, type, x, y) {
+  // `touchEnd` / `touchCancel` carry no live points; the lifted finger is the
+  // empty list. A move keeps the same id from touchStart to touchEnd.
+  await cdp.send('Input.dispatchTouchEvent', {
+    type,
+    touchPoints: type === 'touchEnd' || type === 'touchCancel' ? [] : [touchFinger(x, y)],
+  });
+}
+// A gesture's Y may be a pixel or a target: `css=<selector>` / `text=<literal>`
+// resolves to the first visible match's centre. A missing target is a hard
+// failure naming the journey and viewport (the executor prefixes those), not a
+// gesture at y=0 that happens to hit something else.
+async function gestureAnchor(page, raw, axis) {
+  const text = String(raw ?? '').trim();
+  if (text !== '' && !text.startsWith('css=') && !text.startsWith('text=')) {
+    const n = Number(text);
+    return Number.isFinite(n) ? n : null;
+  }
+  let loc;
+  if (text.startsWith('css=')) loc = page.locator(text.slice('css='.length));
+  else if (text.startsWith('text=')) loc = page.getByText(text.slice('text='.length));
+  else return null;
+  const total = await loc.count();
+  for (let i = 0; i < total; i++) {
+    const item = loc.nth(i);
+    if (!(await item.isVisible().catch(() => false))) continue;
+    const box = await item.boundingBox().catch(() => null);
+    if (!box) continue;
+    return axis === 'x' ? box.x + box.width / 2 : box.y + box.height / 2;
+  }
+  return null;
+}
+/** One finger, in a straight line, with enough samples for a real pointer path. */
+async function performSwipe(page, cdp, fromX, toX, y, ms) {
+  const duration = Number.isFinite(ms) && ms > 0 ? ms : 240;
+  const samples = Math.max(8, Math.min(48, Math.ceil(Math.abs(toX - fromX) / 8)));
+  const frame = Math.max(8, Math.round(duration / samples));
+  await touchPoint(cdp, 'touchStart', fromX, y);
+  try {
+    for (let i = 1; i <= samples; i++) {
+      await touchPoint(cdp, 'touchMove', fromX + ((toX - fromX) * i) / samples, y);
+      await page.waitForTimeout(frame);
+    }
+  } catch (e) {
+    // A step that throws mid-gesture must not leave the renderer holding a
+    // finger: the next gesture would otherwise be a second touch point.
+    await touchPoint(cdp, 'touchCancel', toX, y).catch(() => {});
+    throw e;
+  }
+  await touchPoint(cdp, 'touchEnd', toX, y);
+  await page.waitForTimeout(260);
+}
+/** The first visible match of a selector, or null when the target is missing. */
+async function firstVisibleLocator(page, selector) {
+  const loc = page.locator(selector);
+  const total = await loc.count();
+  for (let i = 0; i < total; i++) {
+    const item = loc.nth(i);
+    if (await item.isVisible().catch(() => false)) return item;
+  }
+  return total > 0 ? loc.first() : null;
+}
+/** Press an element's centre, hold it, then drag vertically and release. */
+async function performDrag(page, cdp, selector, dy, holdMs) {
+  const loc = await firstVisibleLocator(page, selector);
+  if (!loc) throw new Error(`drag target ${selector} is not on the page`);
+  if (!(await loc.isVisible().catch(() => false))) throw new Error(`drag target ${selector} is not visible`);
+  const box = await loc.boundingBox().catch(() => null);
+  if (!box) throw new Error(`drag target ${selector} has no layout box`);
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  const hold = Number.isFinite(holdMs) && holdMs >= 0 ? holdMs : 500;
+  const samples = 8;
+  const endY = y + dy;
+  await touchPoint(cdp, 'touchStart', x, y);
+  try {
+    // The lift is a timer at the hold threshold; a frame of grace keeps the
+    // first move from racing it on a busy machine.
+    await page.waitForTimeout(hold + 60);
+    for (let i = 1; i <= samples; i++) {
+      await touchPoint(cdp, 'touchMove', x, y + (dy * i) / samples);
+      await page.waitForTimeout(24);
+    }
+    await page.waitForTimeout(120);
+  } catch (e) {
+    await touchPoint(cdp, 'touchCancel', x, endY).catch(() => {});
+    throw e;
+  }
+  await touchPoint(cdp, 'touchEnd', x, endY);
+  await page.waitForTimeout(350);
+}
+/** The visible conversation rows under a scope, in drawn order. */
+async function readRows(page, scope) {
+  // Resolve the scope with Playwright's engine: a spec scopes a bucket with
+  // `:has-text(...)`, which native `querySelectorAll` cannot parse.
+  const loc = page.locator(scope);
+  const total = await loc.count();
+  for (let i = 0; i < total; i++) {
+    const item = loc.nth(i);
+    if (!(await item.isVisible().catch(() => false))) continue;
+    const texts = await item.evaluate((root) => {
+      const visible = (el) => {
+        const box = el.getBoundingClientRect();
+        return box.width > 0 && box.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+      };
+      return [...root.querySelectorAll('[data-session-row]')]
+        .filter(visible)
+        .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim());
+    }).catch(() => null);
+    if (texts) return texts;
+  }
+  return null;
+}
 // This repo's fake agent, and the directory that proves it: the seed's
 // `_fake_agent` makes the same test on the daemon's answer.
 const FAKE_AGENT_DIRNAME = 'journeys_fake_agent';
@@ -1686,6 +1937,10 @@ for (const j of want) {
     const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: phone ? 2 : 1, isMobile: phone, hasTouch: phone });
     if (token) await ctx.addInitScript((t) => { try { localStorage.setItem('kin_token', t); } catch (_) {} }, token);
     const page = await ctx.newPage(); const errs = [], bad = [], soft = [];
+    // The touch verbs speak CDP. The session is created only for the phone,
+    // where the context is already a finger (`hasTouch`); it installs no
+    // override, so the other journeys' hover/click semantics are untouched.
+    const cdp = phone ? await ctx.newCDPSession(page) : null;
     if (DELAY_TASKS_MS > 0) {
       // Only the detail GET: /api/tasks/<one segment>, with or without a query.
       // Never the list (/api/tasks), the create POST, or /api/tasks/<id>/events:
@@ -2064,6 +2319,79 @@ for (const j of want) {
           if (top !== null && Math.abs(top - want) <= 48) log.push(`scroll-kept ${selector} at ${Math.round(top)} (want ${want}±48)`);
           else if (optional) log.push(`skipped scroll-kept ${selector} (at ${top === null ? 'nothing visible' : Math.round(top)})`);
           else hardFail.push(`${j}/${vpName}: scroll-kept ${selector} is at ${top === null ? 'nothing visible' : Math.round(top)}, want ${want}±48`);
+        } else if (op === 'swipe') {
+          // `["swipe", "<fromX>", "<toX>", "<y>", "<ms>?"]`: one finger travels
+          // horizontally at a fixed Y, through Chrome's own touch pipeline.
+          // `y` may be a pixel or `css=<selector>` / `text=<literal>`, resolved
+          // to the first visible match's centre, so a spec names a row rather
+          // than guessing its offset on the day. `ms` paces the samples.
+          const fromX = Number(a), toX = Number(b);
+          if (!phone || !cdp) {
+            hardFail.push(`${j}/${vpName}: swipe is a phone gesture; this viewport has no touch context`);
+            continue;
+          }
+          if (!Number.isFinite(fromX) || !Number.isFinite(toX)) {
+            hardFail.push(`${j}/${vpName}: swipe needs numeric fromX and toX, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          if (fromX === toX) {
+            hardFail.push(`${j}/${vpName}: swipe needs distinct fromX and toX; a zero-length swipe is not a gesture`);
+            continue;
+          }
+          const y = await gestureAnchor(page, st[3], 'y');
+          if (y === null) {
+            hardFail.push(`${j}/${vpName}: swipe target ${JSON.stringify(st[3])} is not on the screen`);
+            continue;
+          }
+          const ms = st[4] === undefined ? 240 : Number(st[4]);
+          log.push(`swipe ${fromX} → ${toX} at y=${Math.round(y)}`);
+          await performSwipe(page, cdp, fromX, toX, y, ms);
+        } else if (op === 'drag') {
+          // `["drag", "<selector>", "<dy>", "<holdMs>?"]`: press the element's
+          // centre, hold it, move vertically in samples, release. This is the
+          // pointer-level twin of touch-drag.mjs: a 500ms hold must lift the
+          // row before a vertical move is allowed to reorder it.
+          if (!phone || !cdp) {
+            hardFail.push(`${j}/${vpName}: drag is a phone gesture; this viewport has no touch context`);
+            continue;
+          }
+          const dy = Number(b);
+          if (typeof a !== 'string' || !a.trim() || !Number.isFinite(dy)) {
+            hardFail.push(`${j}/${vpName}: drag needs <selector> and a numeric dy, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          if (dy === 0) {
+            hardFail.push(`${j}/${vpName}: drag needs a non-zero dy; a press that does not move is not a drag`);
+            continue;
+          }
+          const holdMs = st[3] === undefined ? 500 : Number(st[3]);
+          if (!Number.isFinite(holdMs) || holdMs < 0) {
+            hardFail.push(`${j}/${vpName}: drag hold must be a non-negative number of ms, got ${JSON.stringify(st[3])}`);
+            continue;
+          }
+          log.push(`drag ${a} by ${dy}px after a ${holdMs}ms hold`);
+          await performDrag(page, cdp, a, dy, holdMs);
+        } else if (op === 'rows') {
+          // `["rows", "css=<scope>", "<token>|<token>"]`: the visible
+          // conversation rows under the first visible match of `<scope>`
+          // appear exactly in this order and number, each containing its
+          // token. A reorder (and its restore after a reload) is a fact about
+          // drawn order, so it is read, not photographed.
+          const { optional, value } = optionalOf(a);
+          const wanted = String(b ?? '').split('|').map((token) => token.trim()).filter(Boolean);
+          if (!value.startsWith('css=') || wanted.length === 0) {
+            hardFail.push(`${j}/${vpName}: rows needs css=<scope> and token|token, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          const got = await readRows(page, value.slice('css='.length)).catch(() => null);
+          if (got === null) {
+            if (optional) { log.push('skipped rows ' + value); continue; }
+            hardFail.push(`${j}/${vpName}: rows scope ${value} is not on screen`); continue;
+          }
+          const same = got.length === wanted.length && wanted.every((token, i) => got[i].includes(token));
+          if (same) log.push('rows ' + value + ' = ' + wanted.join(' | '));
+          else if (optional) log.push('skipped rows ' + value + ' (is ' + got.join(' | ') + ')');
+          else hardFail.push(`${j}/${vpName}: rows ${value} are ${JSON.stringify(got)}, want ${JSON.stringify(wanted)}`);
         }
         else { hardFail.push(`${j}/${vpName}: unknown step op ${JSON.stringify(op)}`); }
       } catch (e) {
