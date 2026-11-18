@@ -15,7 +15,7 @@
 | `KIN-AGENTS-001` | covered | P1 | J6 | Mac/手机 | 机器上的 agent：装了什么、能不能用、用掉多少 | 7 |
 | `KIN-MANAGE-001` | approved | P1 | J5 | Mac/手机 | 整理一段对话 | 3 |
 | `KIN-PROJECT-001` | covered | P1 | J4 | Mac/手机 | 一个项目的封面：看清这里发生过什么，并从这里继续 | 6 |
-| `KIN-PROJECT-003` | approved | P1 | J4 | Mac/手机 | 项目的工作说明：新对话一开始就知道这里怎么干活 | 4 |
+| `KIN-PROJECT-003` | covered | P1 | J4 | Mac/手机 | 项目的工作说明：新对话一开始就知道这里怎么干活 | 7 |
 | `KIN-RESULT-001` | approved | P1 | J4 | Mac/手机 | 看它改了什么 | 3 |
 | `KIN-ROUTINE-001` | covered | P1 | J4 | Mac/手机 | 让它按时跑：把一件事交给机器重复做 | 6 |
 | `KIN-SETTINGS-001` | approved | P1 | J6 | Mac/手机 | 改默认设置 | 8 |
@@ -24,4 +24,4 @@
 
 ## 汇总
 
-approved 12 · covered 4
+approved 11 · covered 5
