@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 import Editor, { DiffEditor, type Monaco } from "@monaco-editor/react";
@@ -721,7 +722,10 @@ export default function CodeViewer({
         )}
         {showEditor && useDiff && diff && (
           <MonacoSafe fallback={<FallbackPre text={diff.modified || diff.original} />}>
-            <DiffEditor
+            {/* The key lives on the owner, not the inner DiffEditor: a layout
+                or path remount must dispose the old models through the same
+                cleanup as closing the panel. */}
+            <OwnedDiffEditor
               key={`diff-${diffLayout}-${path}`}
               height="100%"
               theme="vs-dark"
@@ -764,6 +768,75 @@ export default function CodeViewer({
         )}
       </div>
     </div>
+  );
+}
+
+type DiffEditorProps = ComponentProps<typeof DiffEditor>;
+
+/**
+ * `@monaco-editor/react@4.7.0` unmounts a diff editor by disposing both text
+ * models and then the widget (`P()` in the package's dist/index.js):
+ *
+ *   function P() {
+ *     let i = p.current?.getModel();
+ *     R || i?.original?.dispose();   // keepCurrentOriginalModel
+ *     j || i?.modified?.dispose();   // keepCurrentModifiedModel
+ *     p.current?.dispose();          // the DiffEditorWidget, last
+ *   }
+ *
+ * monaco 0.52.2 reports `TextModel got disposed before DiffEditorWidget model
+ * got reset` when a model the widget still holds is disposed, and the report
+ * escapes as a page error: a cleanup throw is outside `MonacoSafe`, which is a
+ * render error boundary. So the viewer keeps both models alive through the
+ * widget's own teardown and disposes them here, after detaching them from the
+ * widget with `setModel(null)` — React runs a deleted tree's cleanups
+ * parent-first, so this can run before the diff editor's own cleanup, and
+ * detaching first makes the order irrelevant. A layout or path remount
+ * unmounts this component (its `key`), so it takes the same path as closing
+ * the panel.
+ */
+function OwnedDiffEditor({ onMount, ...props }: DiffEditorProps) {
+  const editorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null);
+  const modelsRef = useRef<MonacoEditor.IDiffEditorModel | null>(null);
+
+  useEffect(() => {
+    return () => {
+      const editor = editorRef.current;
+      const models = modelsRef.current;
+      editorRef.current = null;
+      modelsRef.current = null;
+      if (!models) return;
+      try {
+        // `setModel(null)` only detaches (monaco.d.ts: "safe ... to simply
+        // detach"), so the widget no longer watches these models for disposal.
+        editor?.setModel(null);
+      } catch {
+        // The widget is already gone; its own cleanup left the models alone.
+      }
+      for (const model of [models.original, models.modified]) {
+        // One owner, one dispose. A model already gone must not throw from a
+        // cleanup — there is nothing above it but the page.
+        if (model.isDisposed()) continue;
+        try {
+          model.dispose();
+        } catch {
+          // `isDisposed()` raced another owner; the model is gone either way.
+        }
+      }
+    };
+  }, []);
+
+  return (
+    <DiffEditor
+      {...props}
+      keepCurrentOriginalModel
+      keepCurrentModifiedModel
+      onMount={(editor, monaco) => {
+        editorRef.current = editor;
+        modelsRef.current = editor.getModel();
+        onMount?.(editor, monaco);
+      }}
+    />
   );
 }
 
