@@ -120,6 +120,21 @@ for lock in "$STATE/.land.lock" "$STATE"/lanes/*.lock "$STATE"/merge/*.lock; do
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && jobs=$((jobs + 1))
 done
 
+# heavy — a build or a walk holding the machine-wide slot (heavy.sh) would be raced by
+# the rebuild's own npm/go build, which takes no slot: two builds at once is exactly the
+# memory condition behind the 2026-11-18/19 false reds. A lane that is merely waiting on
+# a model call holds no slot and must NOT block a release, so this reads the slot, never
+# `jobs`. A slot whose pid is gone is a stale directory the runner will collect.
+heavy=""
+for slot in "$STATE"/heavy/slot*; do
+  [ -d "$slot" ] || continue
+  pid="$(cat "$slot/pid" 2>/dev/null || true)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    heavy="$(basename "$slot") pid=$pid"
+    break
+  fi
+done
+
 verdict=GO; reason=""
 if [ "$note" != "" ]; then
   verdict=HOLD; reason="sessions unknown: $note"
@@ -129,6 +144,8 @@ elif [ -d "$STATE/.land.lock" ] && [ -n "$(cat "$STATE/.land.lock/pid" 2>/dev/nu
   verdict=HOLD; reason="a merge is landing"
 elif [ "$UNSHIPPED" -lt "$MIN" ]; then
   verdict=HOLD; reason="unshipped $UNSHIPPED < $MIN"
+elif [ -n "$heavy" ]; then
+  verdict=HOLD; reason="heavy: a build/test holds the machine ($heavy)"
 fi
 
 if [ "$JSON" = 1 ]; then

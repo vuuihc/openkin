@@ -142,6 +142,28 @@ mkdir -p "$STATE/.land.lock"; echo $$ > "$STATE/.land.lock/pid"
 run 10 "HOLD: a merge is landing right now"
 rm -rf "$STATE/.land.lock"
 
+# 7b. A build or a walk holding the machine-wide slot would be raced by the rebuild's own
+#     npm/go build, which takes no slot (2026-11-19 04:42: a release started inside a
+#     12-mutant walk). A live slot pid holds it; a stale pid does not; a lane waiting on a
+#     model call holds no slot, so four idle-lane locks must not block the release.
+echo "node=$ROOT" > "$STATE/last_release"
+mkdir -p "$STATE/heavy/slot1"; echo $$ > "$STATE/heavy/slot1/pid"
+run 10 "HOLD: a build/test holds the heavy slot"
+grep -q '^reason=heavy: ' <<<"$LAST" || fail "heavy: reason must start with 'heavy:': $LAST"
+# ... and it is the binding reason only once enough work is waiting: below the threshold the
+#     older, stable explanation wins, so a misshapen marker is not blamed on a build.
+echo "node=$BASE1" > "$STATE/last_release"
+run 10 "HOLD: below the threshold the unshipped reason wins over the heavy slot"
+grep -q 'unshipped 1 < 5' <<<"$LAST" || fail "heavy: threshold reason overwritten by the heavy slot: $LAST"
+echo "node=$ROOT" > "$STATE/last_release"
+echo 99999998 > "$STATE/heavy/slot1/pid"   # no such process
+run 0 "GO: a stale heavy pid does not hold the release"
+rm -rf "$STATE/heavy/slot1"
+mkdir -p "$STATE/lanes/1.lock" "$STATE/lanes/2.lock" "$STATE/merge/x.lock"
+for l in "$STATE/lanes/1.lock" "$STATE/lanes/2.lock" "$STATE/merge/x.lock"; do echo $$ > "$l/pid"; done
+run 0 "GO: lanes waiting on a model call hold no slot"
+rm -rf "$STATE/lanes" "$STATE/merge"
+
 # 8. Unshipped is measured per target, so a half-release is retried, never counted done.
 printf 'node=%s\nhub=%s\n' "$HEAD_SHA" "$ROOT" > "$STATE/last_release"
 run 0 "GO: node at tip but hub baseline at the root still counts the work"
