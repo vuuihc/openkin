@@ -694,7 +694,7 @@ const en: MessageTree = {
     rootsUnsaved: "Folder changes are not saved. Discard them?",
     rootsOffline: "Offline — folder editing is disabled.",
     rootsForbidden: "You do not have permission to change this project's folders.",
-    rootsEditorHelp: "Saving sends the complete ordered list to the project.",
+    rootsEditorHelp: "The first folder is where new chats start; changes apply when you save.",
   },
   artifacts: {
     title: "Artifacts",

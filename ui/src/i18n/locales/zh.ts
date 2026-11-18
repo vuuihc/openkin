@@ -673,7 +673,7 @@ const zh = {
     rootsUnsaved: "工作目录还没保存，确定放弃修改？",
     rootsOffline: "离线，暂时不能编辑工作目录。",
     rootsForbidden: "没有权限修改这个项目的工作目录。",
-    rootsEditorHelp: "保存时把完整的有序列表发给项目。",
+    rootsEditorHelp: "第一个目录就是新对话开始的地方；改动在你点「保存」之后才生效。",
   },
   artifacts: {
     title: "产物库",

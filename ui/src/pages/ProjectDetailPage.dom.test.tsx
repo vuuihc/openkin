@@ -851,6 +851,30 @@ describe("the project's working folders (KIN-PROJECT-002)", () => {
     expect(within(block).getByText(/New chats start in the first folder/)).toBeTruthy();
   });
 
+  it("KIN-PROJECT-002 says default once per editor row and explains the intent", async () => {
+    client.getProject.mockImplementation(async () => withRoots(threeRoots));
+    renderPage();
+    const { dialog } = await openRootsEditor();
+
+    // The helper talks about where a new chat starts, not about what the save
+    // request carries.
+    expect(
+      within(dialog).getByText(
+        "The first folder is where new chats start; changes apply when you save.",
+      ),
+    ).toBeTruthy();
+
+    const rows = within(dialog).getAllByRole("listitem");
+    // Row 1: the pill is the one statement that this folder is the default;
+    // no disabled "already the default" button repeats it.
+    expect(within(rows[0]!).getByText("Default")).toBeTruthy();
+    expect(within(rows[0]!).queryByText("Already the default")).toBeNull();
+    expect(within(rows[0]!).queryByRole("button", { name: "Make default" })).toBeNull();
+    // Rows 2..n keep the action that moves the default.
+    expect(within(rows[1]!).getByRole("button", { name: "Make default" })).toBeTruthy();
+    expect(within(rows[2]!).getByRole("button", { name: "Make default" })).toBeTruthy();
+  });
+
   it("KIN-PROJECT-002 saves the complete ordered list through PATCH roots", async () => {
     client.getProject.mockImplementation(async () => withRoots(threeRoots));
     client.patchProject.mockImplementation(async (_id: string, body: { roots?: string[] }) =>

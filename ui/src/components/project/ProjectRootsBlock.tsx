@@ -359,14 +359,16 @@ export default function ProjectRootsBlock({
                   </span>
                 )}
                 <div className="flex flex-none items-center gap-1">
-                  <Button
-                    variant="quiet"
-                    disabled={index === 0 || saving || locked}
-                    onClick={() => setDefault(root)}
-                    className="text-caption"
-                  >
-                    {index === 0 ? tr("projects.rootsIsDefault") : tr("projects.rootsSetDefault")}
-                  </Button>
+                  {index !== 0 && (
+                    <Button
+                      variant="quiet"
+                      disabled={saving || locked}
+                      onClick={() => setDefault(root)}
+                      className="text-caption"
+                    >
+                      {tr("projects.rootsSetDefault")}
+                    </Button>
+                  )}
                   <Button
                     ref={(element) => {
                       removeRefs.current[root] = element;
@@ -526,8 +528,14 @@ export default function ProjectRootsBlock({
               const shown = middleEllipsis(root, wide ? 64 : 40);
               return (
                 <li key={root} className="flex min-w-0 items-baseline gap-2 py-0.5">
+                  {/* The path sizes to its text and the pill follows it; the
+                      row's leftover width stays empty. Truncation happens in
+                      middleEllipsis, and the span clips on one line so a
+                      narrow row never pushes the pill away or wraps the tail
+                      under it. The full path stays in `title` and, when shown
+                      shortened, in the screen reader's text. */}
                   <span
-                    className="min-w-0 flex-1 break-all font-mono text-body leading-ui text-kin-text"
+                    className="min-w-0 flex-initial truncate font-mono text-body leading-ui text-kin-text"
                     title={root}
                   >
                     {shown === root ? (
