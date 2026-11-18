@@ -89,6 +89,37 @@ permission model), the browser panel tab (Electron `webview` ADR), the agent cat
 **Marker.** The `<!-- phase: … -->` marker stays on P3 until its item 4 lands; then this block takes it and P3
 becomes `closed-phase: P3-review-pr`.
 
+## Next phase (P5) — projects you can manage, not just open
+<!-- next-phase: P5-projects-manage target=2026-11-23T20:00 -->
+
+**Why this and not features.** P4 proved the last two daily flows. The next most-used surface with no
+management face is the project: `Project.roots` and `PATCH /api/projects/:id {roots}` already exist and
+`SetProjectRoots` replaces the whole ordered list, but the cover renders `roots[0]` only — a project made
+of several directories looks like a project with one, the default is invisible, and there is no way to
+add, remove or re-order directories without calling the API by hand. The signed `KIN-PROJECT-002`
+(2026-11-18) is the first story; parity §7 names it, and KIN-PROJECT-001 D2 keeps it inline, with no new
+tab and no route change.
+
+**Done means** (throwaway daemon with the fake agent; each item names what proves it):
+1. KIN-PROJECT-002 delivered: the Mac cover lists every root in order with the first badged 默认, and the
+   edit sheet adds / removes / promotes a root through one `PATCH {roots}` (replace-whole-list), with the
+   loading, empty, one, many, saving, failure+retry and offline/read-only states the signed frames draw;
+   390/1100 shots.
+2. The phone cover and bottom sheet do the same at 390 (44px targets, paths wrap, no horizontal scroll),
+   and the first delivery flips `KIN-PROJECT-002` to `approved` with its registered tests in the same PR.
+3. The new-chat landing follows the saved first root (single root → cwd, multiple roots → directory
+   picker), proven by `ui/src/lib/projectChats.test.ts`.
+
+**Cut rule.** If item 1 is not green by the target, land it alone, keep 2–3 queued, and say so in the
+weekly retro. Do not extend the date.
+
+**Out of scope** — §6 MCP config face (needs a security pass; OAuth deferred) and per-project
+instructions (prompt-first, needs its own story); the P4 parked rows (F3 in-app PR writes, browser panel
+tab, agent catalog cut) stay parked on Ethan.
+
+**Marker.** The `<!-- phase: … -->` marker stays on P4 until its item 1-phone lands; then this block takes
+it and P4 becomes `closed-phase: P4-flows-proven`.
+
 ## Closing phase (P2) — mid-run control made real
 <!-- closing-phase: P2-midrun-control target=2026-11-19T20:00 -->
 
