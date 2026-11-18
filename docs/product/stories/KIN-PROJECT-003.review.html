@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:,">
+<title>KIN-PROJECT-003 · 项目的工作说明 · Figma 审阅</title>
+<style>
+  :root { color-scheme: light dark; --ink: #1a1a1a; --muted: #666a73; --line: #dedee3; --bg: #f1f1f4; --page: #fbfbfd; --card: #ffffff; --accent: #1f6feb; --accent-soft: #eef3ff; --warn: #b42318; --warn-soft: #fff1f0; --ok: #137a3f; --ok-soft: #eef8f1; --gutter: clamp(16px, 5vw, 24px); --radius: 16px; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #f5f5f7; --muted: #a1a1aa; --line: #35353a; --bg: #0b0b0d; --page: #141416; --card: #1d1d20; --accent: #6ea8fe; --accent-soft: #17243a; --warn: #ff8a80; --warn-soft: #2a1717; --ok: #6dd58c; --ok-soft: #13251b; }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); }
+  code { padding: 1px 5px; border-radius: 5px; background: var(--bg); font-size: .9em; overflow-wrap: anywhere; }
+  .page { max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom)); background: var(--page); }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 26px; line-height: 1.28; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 2px; font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill { display: inline-flex; align-items: center; height: 25px; padding: 0 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.draft { color: var(--muted); background: var(--bg); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 15.5px; }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 14.5px; }
+  .howto li { margin: 5px 0; }
+  .note { color: var(--muted); font-size: 13.5px; }
+  .howto .note { margin: 4px 0 0; }
+  .toc { position: sticky; top: 0; z-index: 20; display: flex; gap: 8px; margin: 0 calc(-1 * var(--gutter)); padding: 8px var(--gutter); overflow-x: auto; background: var(--page); border-bottom: 1px solid var(--line); scrollbar-width: none; }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none; white-space: nowrap; }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 0 0 6px; font-size: 16px; line-height: 1.4; }
+  h4 { margin: 16px 0 8px; font-size: 15px; line-height: 1.4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .lead { font-size: 15px; }
+  .bullets { font-size: 14.5px; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 12.5px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card h3 { font-size: 15px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none; }
+  .screen { margin: 16px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+  .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line); border-radius: 12px; background: #fff; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-phone .frame-scroll { max-width: 390px; margin: 0 auto; }
+  .fig-phone img { width: 100%; }
+  .fig-wide img { width: 1100px; }
+  .fig-board img { width: 1600px; }
+  .frame figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 14.5px; }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+  .state-list { display: grid; gap: 8px; margin-top: 10px; }
+  .state { padding: 11px 13px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
+  .state b { display: block; margin-bottom: 2px; font-size: 14.5px; }
+  .state span { color: var(--muted); }
+  .decision { margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 14px; }
+  .decision h3 { font-size: 16px; }
+  .decision p { font-size: 14.5px; }
+  .decision .rec { margin: 6px 0; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 13.5px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+  .reply { margin-top: 10px; }
+  .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 13.5px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .sign { border-left: 4px solid var(--ok); }
+  .sign p { margin: 6px 0; }
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+  a:focus-visible, .screen-index a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+    .toc { border-radius: 0; }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 380px) {
+    .flow li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 约 7 分钟 · 6 个决定（2 个已定）</div>
+    <h1>KIN-PROJECT-003 · 项目的工作说明 <small>Figma 设计稿</small></h1>
+    <p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-PROJECT-003.md</code></p>
+    <p class="meta">2026 年 11 月 18 日 · 6 屏（含状态板与上下文示意）· 7 个状态</p>
+    <div class="tags">
+      <span class="pill here">待签字</span>
+      <span class="pill plain">旅程 J4</span>
+      <span class="pill plain">Mac / 手机</span>
+      <span class="pill draft">prompt-first</span>
+    </div>
+  </header>
+
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>当我有一个反复干活的目录（固定的构建命令、不许手改的生成文件、动手前必须先读的文档），我想把「在这里怎么干活」在项目里写一次，让每个新对话一开始就带着它，以便我不用每次重打一遍，也不用指望自己记得。</p>
+  </section>
+
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：这条为什么是项目的第三件事，和 PROJECT-001（封面）、PROJECT-002（工作目录）各自管什么。</li>
+      <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
+      <li><strong>最后回决定</strong>：D1、D2 是 CEO 在 2026-11-18 拍过板的；D3–D6 是你这次要拍的。页尾有回复模板。</li>
+    </ol>
+    <p class="note">都同意就回「全部同意」；有修改就回「D3 改成…」。宽帧在卡片内左右滑动，页面本身不横滚。</p>
+  </section>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">PROJECT-001 回答「这里发生过什么、从哪继续」；PROJECT-002 回答「这个项目由哪几个目录组成」；PROJECT-003 回答「在这里干活要守什么」。三件事都在同一个封面上，各有自己的文件、失败态和编辑路径。</p>
+    <div class="card mece">
+      <div class="mece-row">
+        <div class="name">接着问一段对话<div class="who">KIN-CONTINUE-001 / 002 / 003</div></div>
+        <span class="pill plain">approved</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">被叫回来<div class="who">KIN-NOTIFY-001</div></div>
+        <span class="pill plain">approved</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">新建一段对话<div class="who">KIN-START-001</div></div>
+        <span class="pill ok">covered</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">看它改了什么<div class="who">KIN-RESULT-001 / 002 / 003</div></div>
+        <span class="pill plain">approved</span>
+      </div>
+      <div class="mece-row here">
+        <div class="name"><strong>整理对话与项目</strong><div class="who">KIN-MANAGE-001（对话）· KIN-PROJECT-001（封面，已交付）· KIN-PROJECT-002（工作目录）· KIN-PROJECT-003（工作方式，这条）</div></div>
+        <span class="pill here">本页</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">设置与环境<div class="who">KIN-SETTINGS-001 / 002 · KIN-AGENTS-001</div></div>
+        <span class="pill plain">approved / covered</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">让它按时跑<div class="who">KIN-ROUTINE-001</div></div>
+        <span class="pill ok">covered</span>
+      </div>
+    </div>
+    <ul class="bullets">
+      <li><strong>为什么单独一条：</strong>封面已经把「发生过什么」和「由哪几个目录组成」讲清；「新对话该带着哪几条干活规则」是同一个容器上的第三件事，有自己的上限、截断、空态与编辑路径，装不进前两条。</li>
+      <li><strong>为什么不并进相邻故事：</strong>新对话怎么选项目归 START-001；项目改名、置顶、归档归 MANAGE-001；工作目录的增删与默认归 PROJECT-002；例行任务的调度与目录归 ROUTINE-001。这条只让「工作方式」这一段可见、可被对话修改、可被新对话收到。</li>
+      <li><strong>job map：</strong>覆盖定义 / 定位 / 准备 / 确认 / 执行·监控 / 修改 / 收尾七步；每一步都有帧或流程，没有省略的段。</li>
+      <li><strong>设备只是差异：</strong>这条覆盖 Mac 和手机；块的位置与顺序相同，Mac 是左栏整宽、手机是单列 44px 行尾按钮，差异写在故事「各面差异」，不按设备拆故事。</li>
+      <li><strong>不在这一条：</strong>新的 tab / 路由 / 页面 → 明确不做（封面 inline）；新 schema / 表 / endpoint → 明确不做（复用 one-pager GET/PUT）；第二个编辑器 → 明确不做（编辑走对话，ADR 0013）；项目目录里的 <code>AGENTS.md</code> / <code>CLAUDE.md</code> → 未来故事（文件系统与 agent 自己的事）；项目记忆 → 未来故事；给运行中的对话补注入 → 明确不做。</li>
+      <li><strong>大小：</strong>1 个只读块 + 1 个对话启动器 + 1 段 digest 抽取/截断 + 1 个共用 helper；一次交付；两个面都成立；Go 单测、API 测、组件测、真浏览器与 390/1100 截图装得下，预计 6–8 个文件、约 350 行产品代码 + 测试（不含本页）。</li>
+    </ul>
+  </section>
+
+  <section id="before-after">
+    <h2>现在 → 之后</h2>
+    <div class="two">
+      <div class="card now">
+        <h3>现在</h3>
+        <ul>
+          <li>新对话只收到 North Star、Current Focus 和最多三条 Next；「怎么干活」没有位置。</li>
+          <li>把它塞进 Current Focus，就挤掉当下主线；每次重打一遍，对话一结束就丢。</li>
+          <li>封面上看不到 agent 究竟会收到什么，也没有一个地方能改它。</li>
+        </ul>
+      </div>
+      <div class="card after">
+        <h3>之后</h3>
+        <ul>
+          <li><code>ONE_PAGER.md</code> 里多一段「工作方式」，新对话一开始就带着它（至多 400 字）。</li>
+          <li>封面只读显示这段原文，空、截断、离线各有说法；显示的就是 agent 会收到的。</li>
+          <li>点「让 Kin 改…」带着预填提示词进对话；改的是同一份文件，没有第二个编辑器。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <h2>界面与用户流程</h2>
+    <p class="note">每一屏先看 Figma 帧，再读下面六段流程。帧是设计源；宽帧在卡片内左右滑动，点「打开原图」可以全尺寸看。</p>
+
+    <div class="screen-index" aria-label="界面索引">
+      <a href="#screen-1">01 · Mac · 封面的工作方式块</a>
+      <a href="#screen-2">02 · Mac · 让 Kin 改</a>
+      <a href="#screen-3">03 · 手机 · 封面的工作方式块</a>
+      <a href="#screen-4">04 · 手机 · 让 Kin 改</a>
+      <a href="#screen-5">05 · 新对话 · agent 收到的上下文</a>
+      <a href="#states">06 · 状态板</a>
+    </div>
+
+    <article class="screen" id="screen-1">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">01 · Mac · 1100×760</div>
+          <h3>项目封面 · 工作方式块</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 项目封面的工作方式块" tabindex="0" data-start="330">
+          <img src="KIN-PROJECT-003.figma/frames/01-mac-cover-instructions.svg" alt="Mac 项目封面：左栏一句话摘要下面是工作方式块，只读显示一段构建与文件规则，标题右端是让 Kin 改按钮，再往下是最近活动；页面没有 tab" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-PROJECT-003.figma/frames/01-mac-cover-instructions.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>从对话列表的项目标题或 <code>/projects</code> 集合进入封面；页头是项目名与模式。</span></li>
+        <li><b>动作</b><span>不点任何东西，先读「一句话摘要」下面的「工作方式」块。</span></li>
+        <li><b>立刻看到</b><span>块标题「工作方式」和一句「新对话开始时，Kin 会收到这段」；正文是原文，至多 400 字；标题右端是「让 Kin 改…」；下面才是最近活动，页面上没有多出 tab。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>读取中与摘要共用骨架；没有这一段写「还没写工作说明」并给「让 Kin 写…」；读取失败走块内错误条与重试；离线显示上次缓存并标「上次结果」，启动器禁用并说明。</span></li>
+        <li><b>键盘与焦点</b><span>Tab 从摘要的「编辑」到「让 Kin 改…」再到最近活动；只读正文不逐行停 Tab；块读成标题为「工作方式」的 region。</span></li>
+        <li><b>离开再回来</b><span>回到封面仍是同一段原文，不闪空、不把截断脚注读成正文。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-2">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">02 · Mac · 1100×760</div>
+          <h3>让 Kin 改 · 新建对话已预填</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 新建对话页：项目已选中，输入框预填工作方式提示词" tabindex="0" data-start="330">
+          <img src="KIN-PROJECT-003.figma/frames/02-mac-ask-kin.svg" alt="Mac 新建对话页：顶部项目选择显示 alpha，输入框里是已选中的预填提示词，要求先复述工作方式现状再按指示修改且只改这一节；发送按钮等待用户按下" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-PROJECT-003.figma/frames/02-mac-ask-kin.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>封面工作方式块 →「让 Kin 改…」；跳到新建对话页，项目已选中。</span></li>
+        <li><b>动作</b><span>读预填提示词，按需要增删，然后自己按发送；也可以直接返回。</span></li>
+        <li><b>立刻看到</b><span>输入框里是选中的预填文本（读 ONE_PAGER.md 的「工作方式」、先复述现状、按我说的改、只改这一节）；没有任务开始跑，也没有任何保存发生。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>新建页加载慢时保留导航结果并给加载态；离线或只读时封面上的启动器已禁用并写明原因；没有 One-Pager 文件时同一句预填，Kin 会新建这一节。</span></li>
+        <li><b>键盘与焦点</b><span>到达后焦点在输入框文本末尾；Esc 不清空预填；返回封面时焦点回「让 Kin 改…」。</span></li>
+        <li><b>离开再回来</b><span>预填只属于这次导航；回到封面，块内容没变——因为还什么都没保存。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-3">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">03 · 手机 · 390×844</div>
+          <h3>手机 · 封面的工作方式块</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机项目封面的工作方式块" tabindex="0">
+          <img src="KIN-PROJECT-003.figma/frames/03-phone-cover-instructions.svg" alt="手机项目封面：一句话摘要下面是工作方式块，正文换行，长文本截断并带脚注，让 Kin 改是 44px 的行尾按钮，再往下是最近活动与底部导航" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-PROJECT-003.figma/frames/03-phone-cover-instructions.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>手机对话列表点项目标题推入封面；左上返回至少 44px。</span></li>
+        <li><b>动作</b><span>上下滑读摘要与工作方式块，点块标题右端的「让 Kin 改…」。</span></li>
+        <li><b>立刻看到</b><span>单列：摘要 → 工作方式 → 最近活动；正文换行不横滚；超过 400 字时正文停在第 400 字，脚注说明已截断；按钮 44px。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>与 Mac 同一套文案；加载共用骨架、空态给「让 Kin 写…」、读取失败给重试、离线标「上次结果」并禁用启动器。</span></li>
+        <li><b>键盘与焦点</b><span>外接键盘 Tab 到「让 Kin 改…」；读屏把块读成标题为「工作方式」的 region，正文与脚注连续读出。</span></li>
+        <li><b>离开再回来</b><span>从新建对话返回，封面仍在原来的滚动位置，块内容是文件里的原文。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-4">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">04 · 手机 · 390×844</div>
+          <h3>手机 · 让 Kin 改（新建对话）</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机新建对话页：项目已选中，输入框预填工作方式提示词" tabindex="0">
+          <img src="KIN-PROJECT-003.figma/frames/04-phone-ask-kin.svg" alt="手机新建对话页：顶部显示项目 alpha，输入框预填提示词，键盘弹起，发送按钮 44px 且在有内容时才可用" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-PROJECT-003.figma/frames/04-phone-ask-kin.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>手机封面 →「让 Kin 改…」；新建对话页推入，项目已选中。</span></li>
+        <li><b>动作</b><span>读并修改预填文本，点发送。</span></li>
+        <li><b>立刻看到</b><span>单列输入框，预填文本已选中；发送与返回都是 44px；输入框不被键盘遮住。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>发送沿用现有失败态；没有 One-Pager 文件时同一句预填；离线时封面上的启动器已禁用，不会走到这一步。</span></li>
+        <li><b>键盘与焦点</b><span>焦点在文本末尾；键盘弹起后输入框仍可见；返回时焦点回封面启动器。</span></li>
+        <li><b>离开再回来</b><span>返回不保存任何东西；封面块不变，草稿是否保留沿用新建页现有规则。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-5">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">05 · 新对话 · 1100×760（示意）</div>
+          <h3>agent 收到的项目上下文</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="新对话里 agent 收到的项目上下文示意" tabindex="0" data-start="330">
+          <img src="KIN-PROJECT-003.figma/frames/05-agent-digest.svg" alt="新对话示意：第一条消息带着项目上下文，依次是项目名与模式、North Star、Current Focus、How to work here 段和 Next；工作方式段与封面显示的一致，至多 400 字" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 示意 agent 收到的上下文，不是新界面</span>
+          <a href="KIN-PROJECT-003.figma/frames/05-agent-digest.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>用户从任一端为这个项目开始一段新对话。</span></li>
+        <li><b>动作</b><span>发送第一条消息，不经过封面。</span></li>
+        <li><b>立刻看到</b><span>项目上下文里出现「How to work here」段，至多 400 字；与封面显示的是同一段原文；封面不弹提示。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>没有这一段或为空时项目上下文照常注入、只是少了它；One-Pager 读不到时注入整体跳过，任务照常开始；已存在的对话与追问不改写。</span></li>
+        <li><b>键盘与焦点</b><span>这一层没有新控件；焦点仍在输入框或发送按钮。</span></li>
+        <li><b>离开再回来</b><span>对话保留它开始时的 prompt；改文件只影响下一次新对话。</span></li>
+      </ol>
+    </article>
+  </section>
+
+  <section id="states">
+    <h2>状态</h2>
+    <p class="note">状态也是 Figma 帧的一部分；先看状态板，再读它下面的流程与检查表。宽板在卡片内左右滑动。</p>
+    <figure class="frame fig-board">
+      <div class="frame-scroll" role="region" aria-label="工作方式的状态板" tabindex="0">
+        <img src="KIN-PROJECT-003.figma/frames/06-states.svg" width="1600" height="900" alt="状态板六格：还没写工作说明、加载、读取失败与重试、离线或只读、超过 400 字截断、还没有 One-Pager 文件" loading="lazy" decoding="async">
+      </div>
+      <figcaption>
+        <span>1600×900 · 状态板 · 左右滑动或打开原图</span>
+        <a href="KIN-PROJECT-003.figma/frames/06-states.svg">打开原图</a>
+      </figcaption>
+    </figure>
+    <h4>用户流程</h4>
+    <ol class="flow">
+      <li><b>起点</b><span>封面上的工作方式块，处在状态板中的任意一格。</span></li>
+      <li><b>动作</b><span>读当前状态给出的下一步：写一段、重试、等加载、恢复网络或什么都不做。</span></li>
+      <li><b>立刻看到</b><span>每一格都有明确文案与一个主要动作；截断写明只收到前 400 字；空态写明新对话不会收到这一段。</span></li>
+      <li><b>慢 / 空 / 失败 / 断线</b><span>慢：与摘要共用骨架；空：还没写或没有文件；失败：原因 + 重试；断线：「离线 · 显示上次结果（时间）」，启动器禁用。</span></li>
+      <li><b>键盘与焦点</b><span>状态变化后焦点不丢：失败回「重试」，离线时禁用的启动器仍可聚焦读原因。</span></li>
+      <li><b>离开再回来</b><span>没有草稿状态可丢；回来按文件当前内容重新判断空、截断与完整。</span></li>
+    </ol>
+    <div class="state-list">
+      <div class="state"><b>还没写工作说明</b><span>「还没写工作说明。」+「让 Kin 写…」；脚注「新对话不会收到这一段」。</span></div>
+      <div class="state"><b>还没有 One-Pager 文件</b><span>与「还没写」同一套空态；启动器的预填会新建这一节。今天没有文件就没有项目上下文注入。</span></div>
+      <div class="state"><b>加载</b><span>与摘要共用骨架；不先画「还没写」，也不整页变白。</span></div>
+      <div class="state"><b>读取失败</b><span>块内错误条 + 重试；不显示任何正文，避免把猜的内容当成原文。</span></div>
+      <div class="state"><b>离线 / 只读</b><span>「离线 · 显示上次结果（时间）」；正文仍可读，启动器禁用并说明原因。</span></div>
+      <div class="state"><b>超过 400 字</b><span>正文停在第 400 字，脚注「已截断：新对话只收到前 400 字，其余留在 ONE_PAGER.md」。</span></div>
+      <div class="state"><b>完整</b><span>脚注「新对话会收到这段原文」；不出现截断提示。</span></div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>要你拍板的</h2>
+    <p class="note">每条都写推荐和代价；只回不同意的编号就行。已经拍过板的写「已定」，不再重复问。</p>
+    <div class="decision settled">
+      <h3>D1 这条放在哪、数据放哪</h3>
+      <p class="rec"><strong>已定：</strong>prompt-first，durable source 是项目自己的 <code>ONE_PAGER.md</code>——在文件里加一段有界的工作说明，让现有 digest 带上它。零 schema、零新端点、零新编辑器、零新 tab；块 inline 在现有封面上。</p>
+      <p class="tradeoff"><strong>代价：</strong>工作说明和项目叙事共用一份文件，没有结构化字段可查询；换来的是它天然可被 agent 读写、可被用户直接编辑，也不新增任何持久化概念（PRINCIPLE 5.5、ADR 0013）。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D2 怎么改</h3>
+      <p class="rec"><strong>已定：</strong>编辑走对话。封面只读，旁边一个「让 Kin 改…」按 ADR 0013 把预填提示词交给现有输入框；改的是同一份文件，不新造第二个编辑器。</p>
+      <p class="tradeoff"><strong>代价：</strong>改一句话也要经过一次对话；换来的是不需要第二个 markdown 编辑器，也不会出现两份要同步的文档（TASTE 1、13）。</p>
+    </div>
+    <div class="decision">
+      <h3>D3 标题叫什么、没有 One-Pager 文件时怎么办</h3>
+      <p class="rec"><strong>推荐：</strong>主标题 <code>## 工作方式</code>，别名 <code>How to work here</code>、<code>Instructions</code>；digest 按这三个名字找同一节。项目还没有 <code>ONE_PAGER.md</code> 时不合成任何说明——今天没有文件就没有项目上下文注入，封面就显示空态，由启动器让 Kin 新建这一节。</p>
+      <p class="tradeoff"><strong>代价：</strong>用户写成别的标题（例如「工作说明」）时不会被注入，而且没有报错；换来的是不猜、不把别的小节冒充成工作说明。若你希望更宽松，可以加更多别名，但每加一个都要有测试。</p>
+    </div>
+    <div class="decision">
+      <h3>D4 封面显示原文还是普通小节视图</h3>
+      <p class="rec"><strong>推荐：</strong>显示 agent 实际会收到的原文——同一段、同一个 400 字上限，同一句截断脚注。封面不做「展开全文」，其余内容留在 <code>ONE_PAGER.md</code>。</p>
+      <p class="tradeoff"><strong>代价：</strong>长说明在封面上看起来是断的，用户要判断「剩下的在文件里」；换来的是封面不承诺 agent 收不到的东西（PRINCIPLE 5.6）。</p>
+    </div>
+    <div class="decision">
+      <h3>D5 块放在哪</h3>
+      <p class="rec"><strong>推荐：</strong>紧贴「一句话摘要」下面、「最近活动」上面；Mac 在左栏，手机同一顺序。摘要回答「这是什么」，工作方式回答「怎么干活」，最近活动回答「刚发生了什么」。</p>
+      <p class="tradeoff"><strong>代价：</strong>手机上最近活动被再往下推一屏；如果你更看重「从上一段继续」，可以放到最近活动之后，但工作方式就会落到折叠线以下。这条听你的。</p>
+    </div>
+    <div class="decision">
+      <h3>D6 启动器写什么、预填还是直接开跑</h3>
+      <p class="rec"><strong>推荐：</strong>按钮写「让 Kin 改…」（空态写「让 Kin 写…」），跳到新建对话、项目已选中、提示词已预填并选中；用户看完再按发送，任务不会自己开始。</p>
+      <p class="tradeoff"><strong>代价：</strong>多一步「发送」；直接开跑少一次点击，但用户看不到、也改不了即将发送的提示词。这条听你的。</p>
+    </div>
+  </section>
+
+  <section id="reply">
+    <h2>回复模板</h2>
+    <div class="card reply">
+      <p class="note">长按下面这段复制，改掉不同意的；都同意就回「全部同意」。</p>
+      <pre>D3 同意
+D4 同意
+D5 同意
+D6 同意
+（D1、D2 已定，不用回；只回不同意的编号）</pre>
+    </div>
+  </section>
+
+  <section id="sign">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p>你回「全部同意」后，我把 <code>KIN-PROJECT-003.md</code> 改成 <code>approved</code>，开始交付。</p>
+      <p class="note">现在是 <code>draft</code>：合同、帧与本页都等人读。Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-PROJECT-003.figma/</code> 里的 SVG 帧和本页的流程。</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>设计源：<code>KIN-PROJECT-003.figma/frames/</code>（SVG 帧）</p>
+    <p>审阅编排：<code>KIN-PROJECT-003.review.html</code>（本页）</p>
+    <p>合同：<code>KIN-PROJECT-003.md</code></p>
+    <p>Figma 审阅版 · figma-flow-v1</p>
+  </footer>
+
+</main>
+<script>
+  // 宽帧默认露出主区；仍可左右滑回侧栏。无脚本时从左侧开始，不影响阅读。
+  // 布局完成后才生效：解析时设置会被尚未排版的容器忽略。
+  function startFrames() {
+    for (const el of document.querySelectorAll('.frame-scroll[data-start]')) {
+      el.scrollLeft = Number(el.dataset.start) || 0;
+    }
+  }
+  requestAnimationFrame(startFrames);
+  window.addEventListener('load', startFrames);
+</script>
+</body>
+</html>

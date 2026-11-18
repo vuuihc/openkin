@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff" rx="18"/>
+<!-- 状态栏 -->
+<text x="20" y="26" font-size="11" fill="#555">9:41</text><text x="370" y="26" font-size="11" fill="#555" text-anchor="end">▮▮▮</text>
+<!-- 页头 -->
+<text x="20" y="66" font-size="18" fill="#1f6feb">←</text>
+<text x="48" y="66" font-size="12" fill="#6b6b6b">项目</text>
+<text x="20" y="100" font-size="21" fill="#1a1a1a" font-weight="600">alpha</text>
+<rect x="300" y="82" width="70" height="26" rx="13" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="335" y="99" font-size="11" fill="#1f6feb" text-anchor="middle">ship ▾</text>
+<!-- 一句话摘要 -->
+<rect x="16" y="124" width="358" height="94" rx="12" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="30" y="150" font-size="14" fill="#1a1a1a" font-weight="600">一句话摘要</text>
+<rect x="298" y="132" width="64" height="44" rx="10" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="330" y="159" font-size="11" fill="#444" text-anchor="middle">编辑</text>
+<text x="30" y="176" font-size="11.5" fill="#555">这个项目是什么、现在做到哪。</text>
+<text x="30" y="198" font-size="11" fill="#999">占位文案：一句话，最多两行。</text>
+<!-- 工作方式块 -->
+<rect x="16" y="230" width="358" height="330" rx="12" fill="#ffffff" stroke="#1f6feb"/>
+<text x="30" y="258" font-size="14" fill="#1a1a1a" font-weight="600">工作方式</text>
+<rect x="270" y="238" width="94" height="44" rx="10" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="317" y="265" font-size="12" fill="#1f6feb" text-anchor="middle">让 Kin 改…</text>
+<text x="30" y="280" font-size="11" fill="#6b6b6b">新对话开始时，Kin 会收到这段。</text>
+<rect x="30" y="290" width="330" height="206" rx="8" fill="#fbfbfb" stroke="#e3e3e3"/>
+<text x="42" y="314" font-size="11.5" fill="#1a1a1a">- 动手前先读 docs/ 与 CONTEXT.md。</text>
+<text x="42" y="337" font-size="11.5" fill="#1a1a1a">- 跑 make test；不要手改 web/dist</text>
+<text x="42" y="356" font-size="11.5" fill="#1a1a1a">  里的生成文件。</text>
+<text x="42" y="379" font-size="11.5" fill="#1a1a1a">- 新代码先写失败的测试，再让它</text>
+<text x="42" y="398" font-size="11.5" fill="#1a1a1a">  变绿。</text>
+<text x="42" y="421" font-size="11.5" fill="#1a1a1a">- 提交用 Conventional Commits；</text>
+<text x="42" y="440" font-size="11.5" fill="#1a1a1a">  一个改动一个提交。</text>
+<text x="42" y="463" font-size="11.5" fill="#1a1a1a">- 不确定时先问，不要猜产品决定。</text>
+<text x="42" y="486" font-size="11" fill="#999">……（第 400 字到此为止）</text>
+<text x="30" y="522" font-size="11" fill="#1f6feb">已截断：新对话只收到前 400 字，</text>
+<text x="30" y="540" font-size="11" fill="#1f6feb">其余留在 ONE_PAGER.md。</text>
+<text x="30" y="552" font-size="10" fill="#888">正文换行，不横向滚动；按钮 44px。</text>
+<!-- 最近活动 -->
+<rect x="16" y="576" width="358" height="120" rx="12" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="30" y="602" font-size="13" fill="#1a1a1a" font-weight="600">最近活动</text>
+<text x="30" y="626" font-size="11.5" fill="#555">对话 A · 2 小时前</text>
+<text x="30" y="648" font-size="11" fill="#777">只放最近一段对话的入口。</text>
+<rect x="30" y="660" width="84" height="24" rx="12" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="72" y="676" font-size="11" fill="#1f6feb" text-anchor="middle">新建对话</text>
+<!-- 底部导航 -->
+<line x1="0" y1="752" x2="390" y2="752" stroke="#e3e3e3"/>
+<text x="49" y="784" font-size="11" fill="#1f6feb" text-anchor="middle">对话</text>
+<text x="146" y="784" font-size="11" fill="#888" text-anchor="middle">项目</text>
+<text x="243" y="784" font-size="11" fill="#888" text-anchor="middle">例行任务</text>
+<text x="340" y="784" font-size="11" fill="#888" text-anchor="middle">设置</text>
+<circle cx="49" cy="800" r="2.5" fill="#1f6feb"/>
+</g>
+</svg>
