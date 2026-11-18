@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -27,6 +28,19 @@ ROOT = os.path.dirname(SCRIPTS)
 WALK = os.path.join(ROOT, "rsi", "runtime", "ux", "walk.mjs")
 SPEC = os.path.join(ROOT, "rsi", "runtime", "ux", "journeys.json")
 NODE = shutil.which("node")
+
+SPECPY = os.path.join(ROOT, "rsi", "runtime", "ux", "spec.py")
+
+
+def load_spec(path: str = SPEC) -> dict:
+    """Resolve the journey index through its one reader, rsi/runtime/ux/spec.py.
+
+    The spec is an index with one file per journey; reading the files here by
+    hand would be a second reader that can drift from the walker's loader.
+    Inline fixture specs (the temp files the mutants write) pass through.
+    """
+    out = subprocess.check_output([sys.executable, SPECPY, "--resolve", path])
+    return json.loads(out)
 
 # The two ids a notification names: the conversation and the card it points
 # at. Deliberately fake, like every other fixture in this repository.
@@ -56,8 +70,7 @@ def j1_contract_problems(spec_path: str) -> list[str]:
     conversations the seed named. Returns the problems; empty means the spec
     holds the contract.
     """
-    with open(spec_path, encoding="utf-8") as fh:
-        spec = json.load(fh)
+    spec = load_spec(spec_path)
     steps = spec.get("journeys", {}).get("J1", {}).get("steps", [])
     problems: list[str] = []
     if not any(st[0] == "goto" and "{approve.conversation}" in st[1] for st in steps):
@@ -184,8 +197,7 @@ class WalkJ1ResolveTest(unittest.TestCase):
         self.assertEqual(j1_contract_problems(SPEC), [])
 
     def test_j1_deny_leg_removed_is_rejected(self) -> None:
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         spec["journeys"]["J1"]["steps"] = [
             st
             for st in spec["journeys"]["J1"]["steps"]
@@ -221,8 +233,7 @@ class WalkJ3ContractTest(unittest.TestCase):
         return done.returncode, done.stdout + done.stderr
 
     def copy_with(self, mutate) -> str:
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         mutate(spec["journeys"]["J3"]["steps"])
         path = os.path.join(self.tmp, "journeys.json")
         with open(path, "w", encoding="utf-8") as fh:
@@ -233,8 +244,7 @@ class WalkJ3ContractTest(unittest.TestCase):
         code, out = self.check()
         self.assertEqual(code, 0, out)
         self.assertIn("spec ok: J3", out)
-        with open(SPEC, encoding="utf-8") as fh:
-            steps = json.load(fh)["journeys"]["J3"]["steps"]
+        steps = load_spec()["journeys"]["J3"]["steps"]
         # The evidence the reviewer reads: a real press, the prompt and the
         # waiting row still on screen, then the reply and the empty composer.
         ops = [step[0] for step in steps]
@@ -331,8 +341,7 @@ class WalkJ2ContractTest(unittest.TestCase):
         return done.returncode, done.stdout + done.stderr
 
     def copy_with(self, mutate) -> str:
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         mutate(spec["journeys"]["J2"]["steps"])
         path = os.path.join(self.tmp, "journeys.json")
         with open(path, "w", encoding="utf-8") as fh:
@@ -357,8 +366,7 @@ class WalkJ2ContractTest(unittest.TestCase):
         code, out = self.check()
         self.assertEqual(code, 0, out)
         self.assertIn("spec ok: J2", out)
-        with open(SPEC, encoding="utf-8") as fh:
-            journey = json.load(fh)["journeys"]["J2"]
+        journey = load_spec()["journeys"]["J2"]
         steps = journey["steps"]
         self.assertEqual(journey["viewports"], ["mac", "mac-wide"])
         names = [step[1] for step in steps if step[0] == "shot"]
@@ -389,8 +397,7 @@ class WalkJ2ContractTest(unittest.TestCase):
         # round that moves it landed. Pin the three indices to the replies they
         # actually wait for: the width's own tray reply (nth=2), then the
         # [seed] shift round (nth=3), then the [seed] rewrite round (nth=4).
-        with open(SPEC, encoding="utf-8") as fh:
-            steps = json.load(fh)["journeys"]["J2"]["steps"]
+        steps = load_spec()["journeys"]["J2"]["steps"]
         waits = [
             step
             for step in steps
@@ -719,8 +726,7 @@ class J2PrPanelContractTest(unittest.TestCase):
         return done.returncode, done.stdout + done.stderr
 
     def steps(self) -> list:
-        with open(SPEC, encoding="utf-8") as fh:
-            return json.load(fh)["journeys"]["J2"]["steps"]
+        return load_spec()["journeys"]["J2"]["steps"]
 
     def leg(self) -> list:
         steps = self.steps()
@@ -932,8 +938,7 @@ class WalkJ8ContractTest(unittest.TestCase):
         return done.returncode, done.stdout + done.stderr
 
     def copy_with(self, mutate) -> str:
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         mutate(spec["journeys"]["J8"])
         path = os.path.join(self.tmp, "journeys.json")
         with open(path, "w", encoding="utf-8") as fh:
@@ -941,8 +946,7 @@ class WalkJ8ContractTest(unittest.TestCase):
         return path
 
     def copy_spec_with(self, mutate) -> str:
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         mutate(spec)
         path = os.path.join(self.tmp, "journeys.json")
         with open(path, "w", encoding="utf-8") as fh:
@@ -965,8 +969,7 @@ class WalkJ8ContractTest(unittest.TestCase):
         code, out = self.check()
         self.assertEqual(code, 0, out)
         self.assertIn("spec ok: J8", out)
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         journey = spec["journeys"]["J8"]
         steps = journey["steps"]
         self.assertEqual(journey["viewports"], ["phone"])
@@ -1015,8 +1018,7 @@ class WalkJ8ContractTest(unittest.TestCase):
         code, out = self.check()
         self.assertEqual(code, 0, out)
         self.assertIn("spec ok: J8", out)
-        with open(SPEC, encoding="utf-8") as fh:
-            steps = json.load(fh)["journeys"]["J8"]["steps"]
+        steps = load_spec()["journeys"]["J8"]["steps"]
         conversation = next(
             step
             for step in steps
@@ -1230,8 +1232,7 @@ class WalkJ7ContractTest(unittest.TestCase):
         return done.returncode, done.stdout + done.stderr
 
     def copy_with(self, mutate) -> str:
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         mutate(spec["journeys"]["J7"]["steps"])
         path = os.path.join(self.tmp, "journeys.json")
         with open(path, "w", encoding="utf-8") as fh:
@@ -1253,8 +1254,7 @@ class WalkJ7ContractTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn("spec ok: J7", out)
         self.assertIn('[data-pending-id="appr-1"]', out)
-        with open(SPEC, encoding="utf-8") as fh:
-            steps = json.load(fh)["journeys"]["J7"]["steps"]
+        steps = load_spec()["journeys"]["J7"]["steps"]
         ops = [step[0] for step in steps]
         # The landing is asserted, not photographed: a visible card, DOM focus
         # on that card, then proof the ?focus= link was consumed.
@@ -1361,8 +1361,7 @@ class WalkJ9ContractTest(unittest.TestCase):
         return done.returncode, done.stdout + done.stderr
 
     def copy_with(self, mutate) -> str:
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         mutate(spec["journeys"]["J9"]["steps"])
         path = os.path.join(self.tmp, "journeys.json")
         with open(path, "w", encoding="utf-8") as fh:
@@ -1381,8 +1380,7 @@ class WalkJ9ContractTest(unittest.TestCase):
         code, out = self.check()
         self.assertEqual(code, 0, out)
         self.assertIn("spec ok: J9 keeps the shell, the scroll and the draft across a switch", out)
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         journey = spec["journeys"]["J9"]
         steps = journey["steps"]
         self.assertEqual(journey["viewports"], ["mac"])
@@ -1469,8 +1467,7 @@ class WalkJ10ContractTest(unittest.TestCase):
         return done.returncode, done.stdout + done.stderr
 
     def copy_with(self, mutate) -> str:
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         mutate(spec["journeys"]["J10"]["steps"])
         path = os.path.join(self.tmp, "journeys.json")
         with open(path, "w", encoding="utf-8") as fh:
@@ -1491,8 +1488,7 @@ class WalkJ10ContractTest(unittest.TestCase):
         code, out = self.check()
         self.assertEqual(code, 0, out)
         self.assertIn("spec ok: J10 ", out)
-        with open(SPEC, encoding="utf-8") as fh:
-            journey = json.load(fh)["journeys"]["J10"]
+        journey = load_spec()["journeys"]["J10"]
         self.assertEqual(journey["viewports"], ["phone"])
         names = [step[1] for step in journey["steps"] if step[0] == "shot"]
         for name in self.SHOTS:
@@ -1592,8 +1588,7 @@ class WalkJ11ContractTest(unittest.TestCase):
         return done.returncode, done.stdout + done.stderr
 
     def copy_with(self, mutate) -> str:
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         mutate(spec["journeys"]["J11"]["steps"])
         path = os.path.join(self.tmp, "journeys.json")
         with open(path, "w", encoding="utf-8") as fh:
@@ -1612,8 +1607,7 @@ class WalkJ11ContractTest(unittest.TestCase):
         code, out = self.check()
         self.assertEqual(code, 0, out)
         self.assertIn("spec ok: J11 keeps the shell, the scroll and the draft", out)
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         journey = spec["journeys"]["J11"]
         steps = journey["steps"]
         # Phone only: the footer and the phone's own Back are what this walks.
@@ -1739,8 +1733,7 @@ class WalkJ5ContractTest(unittest.TestCase):
         return done.returncode, done.stdout + done.stderr
 
     def copy_with(self, mutate) -> str:
-        with open(SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         mutate(spec["journeys"]["J5"]["steps"])
         path = os.path.join(self.tmp, "journeys.json")
         with open(path, "w", encoding="utf-8") as fh:
@@ -1755,8 +1748,7 @@ class WalkJ5ContractTest(unittest.TestCase):
         code, out = self.check()
         self.assertEqual(code, 0, out)
         self.assertIn("spec ok: J5 ", out)
-        with open(SPEC, encoding="utf-8") as fh:
-            journey = json.load(fh)["journeys"]["J5"]
+        journey = load_spec()["journeys"]["J5"]
         self.assertEqual(journey["viewports"], ["phone", "mac"])
         steps = journey["steps"]
 

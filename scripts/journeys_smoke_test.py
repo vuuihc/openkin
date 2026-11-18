@@ -174,6 +174,41 @@ class SummarizerTest(unittest.TestCase):
         self.assertIn("unavailable:", bad_out + bad_err)
         self.assertIn("J99", bad_out + bad_err)
 
+    def test_split_spec_reads_a_body_file_through_the_resolver(self) -> None:
+        # Once the body move lands, an index entry is a path string, not a
+        # body. Reading the raw index would call .get on that string and crash
+        # a clean walk into exit 1; the summarizer must resolve through
+        # spec.py and still list every pair.
+        os.makedirs(os.path.join(self.dir, "journeys"), exist_ok=True)
+        with open(os.path.join(self.dir, "journeys", "J1.json"), "w", encoding="utf-8") as fh:
+            json.dump({"viewports": ["phone"], "steps": [["goto", "/sessions"]]}, fh)
+        path = self.write_spec({
+            "viewports": SPEC["viewports"],
+            "journeys": {
+                "J1": "journeys/J1.json",
+                "J2": {"viewports": ["mac", "mac-wide"]},
+            },
+        })
+        self.write_walk(screens=[
+            screen("J1", "phone"), screen("J2", "mac"), screen("J2", "mac-wide"),
+        ])
+        code, out, err = self.run_main("--walk-json", self.walk, "--spec", path)
+        rows = self.rows(out)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(rows["J1/phone"][2], "1")  # the file body's pair is listed
+        self.assertEqual(sorted(rows), ["J1/phone", "J2/mac", "J2/mac-wide"])
+
+    def test_split_spec_missing_body_is_unavailable_not_a_crash(self) -> None:
+        path = self.write_spec({
+            "viewports": SPEC["viewports"],
+            "journeys": {"J1": "journeys/absent.json"},
+        })
+        self.write_walk(screens=[screen("J1", "phone")])
+        code, out, err = self.run_main("--walk-json", self.walk, "--spec", path)
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("unavailable: cannot read spec", out + err)
+        self.assertIn("J1", out + err)
+
 
 class SeedSkipContractTest(unittest.TestCase):
     """The walk's skip list must only name states nothing can seed yet."""
