@@ -113,8 +113,14 @@ vi.mock("@monaco-editor/react", async () => {
           },
         };
         timer = window.setTimeout(() => {
+          // The viewer's diff editor owns its models now (see
+          // `OwnedDiffEditor`), so the stub exposes the two calls that
+          // ownership uses.
+          const model = { dispose: () => {}, isDisposed: () => false };
           onMount?.(
             {
+              getModel: () => ({ original: model, modified: model }),
+              setModel: () => {},
               getModifiedEditor: () => modifiedEditor,
               getLineChanges: () => editorState.lineChanges,
               onDidUpdateDiff: (handler: () => void) => {
