@@ -77,6 +77,22 @@ RSI_STATE="$T/pr" env $PRESSURE python3 "$H/lanes.py" claim 1 --slug pnew --item
 RSI_STATE="$T/pr" env $PRESSURE python3 "$H/lanes.py" claim 1 --slug prew --item PX1 --brief "$T/brief.md" --mode rework --paths ui/src/a.tsx 2>/dev/null | grep -q "CLAIMED lane 1" && ok pressure-admits-rework || bad pressure-admits-rework
 [ -z "$(RSI_STATE="$T/pr" env $PRESSURE python3 "$H/lanes.py" idle 2>/dev/null)" ] && ok pressure-gates-idle || bad pressure-gates-idle
 [ -n "$(RSI_STATE="$T/pr" env $PRESSURE python3 "$H/lanes.py" idle --ignore-pressure 2>/dev/null)" ] && ok pressure-ignore-idle || bad pressure-ignore-idle
+# spare-lane gate (2026-11-18, Ethan: the Mac's memory is the constraint). While one local worker
+# is active, the SECOND one starts only with headroom; a rework may still take the free slot.
+SPARE="RSI_MAX_LANES=2 RSI_MEM_AVAIL_MIN_MB=0 RSI_SWAP_USED_MAX_MB=999999999 RSI_LANE2_MEM_MIN_MB=999999999 RSI_LOAD_MAX=9999"
+LOOSE="RSI_MAX_LANES=2 RSI_MEM_AVAIL_MIN_MB=0 RSI_SWAP_USED_MAX_MB=999999999 RSI_LANE2_MEM_MIN_MB=0 RSI_LANE2_SWAP_MAX_MB=999999999 RSI_LOAD_MAX=9999"
+busy_lane() { mkdir -p "$1/lanes" "$1/cloud"
+  printf '{"lane":1,"slug":"busy","item":"SP1","brief":"%s","mode":"new","paths":["ui/src/a.tsx"],"status":"running","pid":%s,"claimed_at":%s}\n' \
+    "$T/brief.md" "$$" "$(date +%s)" > "$1/lanes/1.json"; }
+busy_lane "$T/sp1"; busy_lane "$T/sp2"; busy_lane "$T/sp3"
+[ -z "$(RSI_STATE="$T/sp1" env $SPARE python3 "$H/lanes.py" idle 2>/dev/null)" ] && ok spare-gates-second-idle || bad spare-gates-second-idle
+[ "$(RSI_STATE="$T/sp1" env $LOOSE python3 "$H/lanes.py" idle 2>/dev/null)" = "2" ] && ok spare-idle-with-headroom || bad spare-idle-with-headroom
+RSI_STATE="$T/sp2" env $SPARE python3 "$H/lanes.py" claim 2 --slug pspare --item PS2 --brief "$T/brief.md" --paths ui/src/b.tsx >/dev/null 2>&1; [ $? -eq 8 ] && ok spare-refuses-second-claim || bad spare-refuses-second-claim
+RSI_STATE="$T/sp2" env $LOOSE python3 "$H/lanes.py" claim 2 --slug pspare --item PS2 --brief "$T/brief.md" --paths ui/src/b.tsx 2>/dev/null | grep -q "CLAIMED lane 2" && ok spare-admits-with-headroom || bad spare-admits-with-headroom
+RSI_STATE="$T/sp3" env $SPARE python3 "$H/lanes.py" claim 2 --slug prew --item PS2 --brief "$T/brief.md" --mode rework --paths ui/src/b.tsx 2>/dev/null | grep -q "CLAIMED lane 2" && ok spare-admits-rework || bad spare-admits-rework
+# an idle machine still offers both lanes (the gate is about the SECOND worker, not lane 2 itself)
+mkdir -p "$T/sp4/lanes" "$T/sp4/cloud"
+[ "$(RSI_STATE="$T/sp4" env $SPARE python3 "$H/lanes.py" idle 2>/dev/null | tr '\n' ' ')" = "1 2 " ] && ok spare-first-worker-unaffected || bad spare-first-worker-unaffected
 # root-file claim (e.g. Makefile) must succeed, while broad dir 'ui' is refused
 RSI_STATE="$T/st" env $NOPRESS python3 "$H/lanes.py" claim 2 --slug mk --item X2 --brief "$T/brief.md" --paths Makefile | grep -q "CLAIMED lane 2" && ok root-file-claim || bad root-file-claim
 ! RSI_STATE="$T/st" env $NOPRESS python3 "$H/lanes.py" claim 2 --slug bad --item X3 --brief "$T/brief.md" --paths ui >/dev/null 2>&1 && ok broad-dir-refused || bad broad-dir-refused
