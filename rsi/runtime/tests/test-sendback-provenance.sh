@@ -137,7 +137,7 @@ every_site_guard() {
   awk '
     {
       line = $0
-      sub(/#.*/, "", line)
+      sub(/[[:space:]]#.*/, "", line)
       hit = (line ~ /^[[:space:]]*(sendback|sendback_mech)[[:space:]]/ ||
              line ~ /(;|&&|\|\||then)[[:space:]]*(sendback|sendback_mech)[[:space:]]/) &&
             line ~ /"\$SLUG"/
