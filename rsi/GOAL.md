@@ -169,6 +169,49 @@ retro. Do not extend the date.
 model), the browser panel tab (Electron `webview` ADR), the agent catalog cut 74 → ≤10, and queue rows 9
 `R-steer-native`, 10 `R-queue-reorder`, 13 `R-routine-filter`, 15 `R-at-sessions`.
 
+## Next phase (P8) — 把签过字的承诺结算成事实
+<!-- next-phase: P8-settled-ledger target=2026-11-21T20:00 -->
+
+**Why this and not features.** The ledger says 8 `approved` / 8 `covered`, and the label now means
+"nobody has checked" rather than "not built". Three facts from this week measure the gap. `KIN-PROJECT-002`'s
+folder block shipped in #296 and its J4 walk already proved default → save → return, yet #315 deliberately
+kept it `approved`, because the two verbs its acceptance names — 添加目录 and 移除 — were never pressed in a
+real browser. `KIN-SETTINGS-001` promises four defaults (agent / 模型 / 设备 / 权限); the settings tabs
+(通用 / Agents / Providers / 路由 / 高级) already ship, but the server settings store holds only
+`agent.default` (`internal/server/server.go:343`); the other three are client-side keys (`kin_draft_model` /
+`kin_draft_machine` in `ui/src/lib/draftChat.ts`, `kin_permission_mode` in `ui/src/lib/permissionMode.ts`)
+that `NewChatPage` seeds a new chat from, and the sentence the story asks for —
+"下一次新建对话会用上" — has no string in either locale. `KIN-CONTINUE-001` and `-002` each carry a walk in
+J1/J2, but not the specific sentences they are made of. The gate runs tests; it does not run promises, so
+these four stories stay `approved` forever unless someone walks the sentences themselves. Every item below
+uses the walker, the throwaway daemon and the fake agent that already exist, and whatever a walk proves
+false is fixed in the same delivery.
+
+**Done means** (throwaway daemon with the fake agent; each item names what proves it):
+1. `KIN-PROJECT-002` closes the two verbs #315 named: the J4 leg presses 添加目录 and 移除 at 390 and 1100,
+   reads the confirm, saves, leaves and returns to the same order and default; the story flips to `covered`
+   naming that step, and `COVERAGE.md` is regenerated in the same PR.
+2. `KIN-SETTINGS-001` is settled field by field: for each of the four defaults, a walk changes it in
+   settings, opens a new chat and asserts the new value arrived (or the field does not exist — say which, in
+   the story, rather than inventing a surface). The row says what it affects in zh and en, and a failed read
+   keeps the saved value instead of showing an empty form. A default that needs a new stored key is reported
+   with its smallest additive shape before it is built.
+3. `KIN-CONTINUE-002` is walked at 390: the document holds exactly one list (no drawer, no dock, no second
+   copy), and Back from a conversation restores the search word and the scroll offset; the flip names the
+   step.
+4. `KIN-CONTINUE-001` is walked on four sentences: switching conversations leaves the shell and the composer
+   nodes un-rebuilt (no full-page skeleton); a cold start at `/` on Mac returns to the last conversation,
+   while at 390 it lands on the list (`KIN-CONTINUE-002` step 1); the phone list is 设备 → 项目 → 对话,
+   and ⌘K lists actions and places but no conversation rows. Anything false is fixed in the same delivery.
+
+**Cut rule.** At 11-21 20:00 land whatever is green, queue the rest with the reason, and do not extend the
+number. The date assumes P7 closes by 11-19; if P7 lands on its own deadline (11-23), re-state this date when the
+marker flips rather than carrying one that already passed. A flip with no walk step or test named is refused,
+exactly as in P7 item 3.
+
+**Out of scope** — `KIN-NOTIFY-001` (its last acceptance row needs a real iPhone), `KIN-SETTINGS-002` (needs
+a packaged build), `KIN-CONTINUE-003` (its own surface; next phase), and every parked row above.
+
 ## Closed phase (P5) — projects you can manage, not just open
 <!-- closed-phase: P5-projects-manage target=2026-11-23T20:00 -->
 
