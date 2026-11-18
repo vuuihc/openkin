@@ -29,8 +29,13 @@ the five flows below closer to "passes without a human noticing".
 - Prefer deleting/merging UI over adding it (TASTE 7). Prompt before product machinery (PRINCIPLE 5.5).
 - Escaped defects → `docs/product/LESSONS.md` (see `LESSONS-HOOK.md`).
 
-## Current phase (P3) — review → PR, proven
-<!-- phase: P3-review-pr target=2026-11-20T20:00 -->
+## Closed phase (P3) — review → PR, proven
+<!-- closed-phase: P3-review-pr target=2026-11-20T20:00 -->
+
+Closed 2026-11-18, all four items landed: item 1 `58afe1ae` (#274 walks the Mac review loop, with the tray's
+single primary and ⌘Enter/edit/undo passes `c583b892`/`d12a3cdc`), item 2 `db4792a7` (#279 the 390 review
+loop), item 3 `f55f70bb` (#282 a rerun keeps the comment; seed `6adca723`), item 4 `dc5a4cdb` (#287 the PR tab
+walked as unobserved → refresh → read). P4 took the marker on the same day.
 
 **Why this and not features.** P1 proved F1 by walking a real send; P2 proved F2 by walking mid-run control.
 F3 is the last of the three daily flows with parts but no proof: line comments, the tray, the send-back
@@ -59,8 +64,8 @@ does not run on them — item 1's mutant is their verification):
 **Cut rule.** If item 1 is not green by the target, land it alone (it is the lost-review path and the one that
 catches the most), keep 2–4 queued, and say so in the weekly retro. Do not extend the date.
 
-## Next phase (P4) — the last two flows, walked
-<!-- next-phase: P4-flows-proven target=2026-11-21T20:00 -->
+## Current phase (P4) — the last two flows, walked
+<!-- phase: P4-flows-proven target=2026-11-21T20:00 -->
 
 **Why this and not features.** P1/P2/P3 gave F1, F2 and F3 a walk that fails when the flow breaks; F4 and F5
 still rest on DOM suites no person runs as a user. Nothing walks chat↔chat and area↔area to prove the shell
@@ -86,8 +91,10 @@ keep 2–4 queued, and say so in the weekly retro. Do not extend the date.
 **Out of scope — parked on Ethan** (one line each in `state/STATUS.md`, "Parked / needs a person"): F3 in-app PR writes (credential and
 permission model), the browser panel tab (Electron `webview` ADR), the agent catalog cut 74 → ≤10.
 
-**Marker.** The `<!-- phase: … -->` marker stays on P3 until its item 4 lands; then this block takes it and P3
-becomes `closed-phase: P3-review-pr`.
+**Marker.** This block took the `<!-- phase: … -->` marker on 2026-11-18, when P3's item 4 landed; P3 is now
+`closed-phase: P3-review-pr`. Where P4 stands: item 2 `d00d19cf` (#288), item 3 `cb345bef` (#285, 发布 as the
+fourth tab, after `11ebc0dd` made PR a tab) and item 1's desktop half `4b175773` (#284) have landed; item 4 is
+#291 in the merge gate, and item 1's phone half is the queue's row 11.
 
 ## Closing phase (P2) — mid-run control made real
 <!-- closing-phase: P2-midrun-control target=2026-11-19T20:00 -->
