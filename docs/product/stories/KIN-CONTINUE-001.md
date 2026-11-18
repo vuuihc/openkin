@@ -1,6 +1,6 @@
 # KIN-CONTINUE-001 · 接着问一段对话
 
-状态：approved
+状态：covered
 优先级：P0
 旅程：J1、J2
 归属面：`IA.md`「Mac 上接着问」「手机上接着问」
@@ -177,6 +177,22 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
   - 390：列表是 设备 → 项目 → 对话 三层；K 面板只有入口、没有对话行和第二个搜索框；运行设置是底部面板；点模型后第二层 `fixed` 浮在面板上（`body` 子节点、视口内可见），面板高度保持 261px 不变；发出的消息立即进入运行并完成。
   - 截图为本地临时文件，未入库。
 
+## 走查（2026-11-19）
+
+`bash rsi/runtime/ux-walk.sh <worktree> <out> J9,J11,J14`，1100×760 与 390×844；`walk.json` 的 `hardFail` 为空。四条句子各有一步钉住：
+
+| 句子 | 走查步骤 | 截图 |
+|---|---|---|
+| Mac 冷启动回到上次停留的对话 | J14（mac）：在列表点开 `[seed] Morning planning`，`goto /` 打开新文档（同一次浏览器上下文保留 `localStorage`），`url ^/tasks/` 通过，对话区等到 fake 回复 | `J14-mac-01-cold-start-mac.png` |
+| ⌘K 只有操作和去处，没有对话行 | J14（mac）：`key Meta+k` 打开 `[role=dialog]`，`例行任务` 一行可见；`count css=[role=dialog] [data-session-row] 0`、`count css=[role=dialog]:has-text('[seed] Morning planning') 0`；`key Escape` 后 `gone css=[role=dialog]` | `J14-mac-02-palette-mac.png` |
+| 手机首页是唯一的列表，设备 → 项目 → 对话 三层同屏 | J14（phone）：`goto /` 落 `^/sessions`；依次等到 `section[aria-label='此设备'] h2`、项目标题 `button[aria-label='[seed] Project Alpha']`、`[data-session-row]`；`count css=[data-session-row]:has-text('[seed] Morning planning') 1` | `J14-phone-01-cold-start-phone.png` |
+| 切换对话时外壳和输入框都不重建 | J9（mac）与 J11（phone）：切走前 `node css=[data-kin-bottom-chrome] form composer`；切到 `[seed] Failed migration` 后 shell 是同一节点，该对话自己的输入框标记为 `composer-failed`；回到 `[seed] Morning planning` 后 `composer` 仍是同一个元素。J11 在底栏往返后的第二次返回再读一次 | `J9-mac-03-switch-back.png`、`J11-phone-04-switch-back.png` |
+
+红证（`scripts/mutants.py`，两处改动均已逐字节还原，`shasum -a 256` 与改动前一致：`TaskDetailPage.tsx` `ad0aa8a8…`，`StartRoute.tsx` `0b4715cc…`）：
+
+- 给 `TaskDetailPage.tsx` 的 `TaskComposerDock` 加 `key={active ? "shown" : "hidden"}`（显示/隐藏即重建输入框）→ J9 恰好红 `J9/mac: the composer node was replaced`。
+- 让 `StartRoute.tsx` 在宽屏也返回 `/new` → J14 红 `J14/mac: url /new did not match ^/tasks/ within 15000ms`。
+
 ## 变更记录
 
 - 2026-10-30 创建（Phase 0 签字后）
@@ -191,3 +207,4 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 - 2026-10-30 四轮复审修复：Mac 的归档地址仍走草稿页，由左栏展开归档区（主区不再出现第二份列表）；冷启动恢复上次对话；⌘F / 上下键 / Esc 与返回行焦点接上；运行设置第二层接住 Tab 和系统返回，面板自己关闭时归还历史条目；权限菜单随面板失活关闭；`decided_via` 的 `a2a` / `mcp:` / `ios:` 改成渠道文案；置顶行保留设备名；SearchSelect 分组包住选项；小选择器在 Mac 上是贴按钮菜单（`SheetSelect`）；导入改成普通按钮展开区；底部图标徽标数进入无障碍名字
 - 2026-10-30 三轮复审修复：覆盖层判定只看真正渲染的层（Ionic 关闭的 `role="dialog"` 宿主、隐藏的常驻面板不算）；已决卡片只为本机给出的答案接焦点，答复失败后读者把注意力移开就不再抢；引擎自动拒绝记为 `interrupt`，前端说“运行停止时自动拒绝”，不再冒充在线决定；补 `TestInterruptSteerDeniesPendingApproval`
 - 2026-11-12 `KIN-CONTINUE-002` 签字后，手机冷启动改为落列表页（手机列表成为唯一导航面）；本条 step 1 与手机面描述的 K 面板由新故事取代，Mac 行为不变，`StartRoute.dom.test.tsx` 两种宽度都钉住
+- 2026-11-19 P8 结算：新增 J14 冷启动走查（Mac 回到上次对话、⌘K 无数对话行、手机列表三层同屏），J9/J11 增记输入框节点在同一元素上的断言；两处红证只红对应步骤。故事翻 `covered`
