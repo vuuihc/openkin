@@ -26,8 +26,8 @@ commit, runs the full self-check on the Mac, pushes `rsi/<slug>` (never force), 
 PR, releases the cloud claim only while this run still owns it, marks the job `ingested`/`held` on the
 NAS, acks it locally and kicks `merge.sh`. The launchd job that schedules the pulse is installed on the
 Mac outside this repo; `run.sh` also starts the pulse when the script is executable. The in-container
-Compose stack, `nas-lane.sh`, installer and smoke probe land in `rsi/runtime/nas/compose/` +
-`install-nas.sh` in a parallel PR.
+pieces ship in this tree: the Compose stack in `compose/`, the lane entrypoint `nas-side/nas-lane.sh`,
+`install-nas.sh`, and the `smoke-nas.sh` probe.
 
 ```
 pulse-nas.sh (every 20 min) ─► container runs nas-lane.sh ─► <NAS>/work/jobs/<slug>/{job.json,status.json,bundle}
