@@ -33,6 +33,7 @@ import { IconBack, IconMachine, IconRoutines } from "../components/icons";
 import Button from "../components/ui/Button";
 import SearchSelect from "../components/ui/SearchSelect";
 import Heatmap from "../components/project/Heatmap";
+import ProjectInstructionsBlock from "../components/project/ProjectInstructionsBlock";
 import ProjectOnePager from "../components/project/ProjectOnePager";
 import ProjectRootsBlock from "../components/project/ProjectRootsBlock";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
@@ -695,6 +696,13 @@ export default function ProjectDetailPage() {
         : "";
   const newChatDisabled = Boolean(newChatReason);
   const newChatHref = newChat.kind === "no-root" ? null : newChat.href;
+  // The work-instructions launcher is the same draft as "New chat", with the
+  // edit request pre-filled. It obeys the same disabled rules, so a cover with
+  // no root or no agent never offers a link that cannot work.
+  const instructionsHref =
+    newChatHref && !newChatDisabled
+      ? `${newChatHref}${newChatHref.includes("?") ? "&" : "?"}q=${encodeURIComponent(tr("projects.instructionsPrompt"))}`
+      : null;
 
   // Esc goes back and ⌘Enter starts a chat from anywhere on the cover, not
   // only while a particular control has focus. Typing fields and open pickers
@@ -889,6 +897,25 @@ export default function ProjectDetailPage() {
               onDismissConflict={onDismissConflict}
               onEditingChange={onEditingChange}
               onDirtyChange={onDirtyChange}
+            />
+
+            <ProjectInstructionsBlock
+              titleId={`${cardIds}-instructions`}
+              loaded={onePagerLoaded}
+              loading={onePagerLoading}
+              loadError={onePagerError}
+              markdown={markdown}
+              offline={offline}
+              launcherHref={instructionsHref}
+              launcherLabel={tr("projects.instructionsAsk")}
+              launcherReason={newChatDisabled ? newChatReason : ""}
+              onLauncherClick={(event) => {
+                if (!instructionsHref) return;
+                onGuardedLinkClick(event, navigate, location, instructionsHref, {
+                  state: draftEntryState(returnListUrl(location)),
+                });
+              }}
+              onRetry={() => void loadOnePager()}
             />
 
             <section aria-labelledby={`${cardIds}-recent`} className="rounded-xl bg-kin-panel p-4">

@@ -3,6 +3,7 @@ import type { OnePager } from "../../api/client";
 import { onePagerFocus } from "../../lib/onePagerSummary";
 import { SkeletonLine } from "../Skeleton";
 import Button from "../ui/Button";
+import InlineAlert from "../ui/InlineAlert";
 import { useT } from "../../i18n/react";
 
 /**
@@ -164,15 +165,12 @@ export default function ProjectOnePager({
       </div>
 
       {loadError && (
-        <div
-          role="alert"
-          className="mb-3 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body text-kin-red-ink"
-        >
+        <InlineAlert className="mb-3">
           <p>{loadError}</p>
           <Button variant="secondary" onClick={onRetry} className="mt-2 text-strong">
             {tr("common.retry")}
           </Button>
-        </div>
+        </InlineAlert>
       )}
 
       {!loaded ? (
@@ -203,10 +201,7 @@ export default function ProjectOnePager({
               </Button>
             </div>
           ) : conflict ? (
-            <div
-              role="alert"
-              className="mt-3 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body text-kin-red-ink"
-            >
+            <InlineAlert className="mt-3">
               <p className="font-medium">{tr("projects.conflictTitle")}</p>
               <p className="mt-1 whitespace-pre-wrap text-strong">
                 {conflict.one_pager_summary?.focus ||
@@ -236,7 +231,7 @@ export default function ProjectOnePager({
                   {tr("projects.conflictDismiss")}
                 </Button>
               </div>
-            </div>
+            </InlineAlert>
           ) : (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <Button

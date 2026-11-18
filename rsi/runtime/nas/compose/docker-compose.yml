@@ -1,0 +1,43 @@
+# Kin RSI NAS worker stack.
+# Isolated user-defined bridge only. Do not attach to host, macvlan, or any existing network.
+# Do not publish ports. Reaches the host's existing magpie (port 3425) via host-gateway.
+# CPU 1.0 and memory 5g are for the whole stack (up to 2 lanes share this container).
+name: kin-rsi-nas
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      pull: false
+    image: kin-rsi-nas:worker
+    pull_policy: never
+    container_name: kin-rsi-nas-worker
+    restart: unless-stopped
+    init: true
+    user: "1000:10"
+    cpus: "1.0"
+    mem_limit: 5g
+    memswap_limit: 5g
+    pids_limit: 2048
+    security_opt:
+      - no-new-privileges:true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      TZ: Asia/Singapore
+      HOME: /work/home
+      ANTHROPIC_BASE_URL: http://host.docker.internal:3425
+    volumes:
+      # KIN_RSI_NAS_ROOT is the install root on the NAS; build-up.sh defaults it to
+      # $HOME/kin-rsi-nas. No account path is committed.
+      - ${KIN_RSI_NAS_ROOT}/work:/work
+      - ${KIN_RSI_NAS_ROOT}/secrets:/secrets:ro
+      - ${KIN_RSI_NAS_ROOT}/nas-side:/opt/rsi:ro
+    networks:
+      - kin-rsi-nas
+    # No ports. No privileged. No host/macvlan.
+
+networks:
+  kin-rsi-nas:
+    name: kin-rsi-nas
+    driver: bridge

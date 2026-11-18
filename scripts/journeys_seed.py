@@ -94,7 +94,6 @@ REWRITE_MARKER = "[seed] rewrite"
 # The fake agent only writes inside a root whose path carries this prefix, and
 # scripts/journeys_fake_agent/claude hard-codes the same match.
 SEED_ROOT_PREFIX = "kin-journeys-seed-"
-SEED_ROOT_NAMES = ("alpha", "beta", "gamma")
 # The harness directory that holds the fake claude. The seed only creates
 # conversations when the daemon resolves its `claude` binary inside it.
 FAKE_AGENT_DIRNAME = "journeys_fake_agent"
@@ -104,11 +103,22 @@ TERMINAL_STATUSES = ("succeeded", "failed", "canceled")
 # One-Pager and leaves the file alone, and nothing extra shows on the cover.
 FOCUS_SENTINEL = "Finish the journey walk with real projects, conversations and routines on screen."
 
+# (name, mode, slug, roots). Roots are basenames under the one temp base
+# _seed_roots creates, and their order is the order the daemon must keep.
+#
+# Alpha carries two roots on purpose: J4 opens the cover's folder editor, moves
+# the default, saves and reloads, and the saved list is only distinguishable
+# from a sorted one when a root sorts before the default. `alpha` stays first
+# (J2 and J3 start their conversations there) and `aaa-config` sorts before it.
 PROJECTS = (
-    ("Project Alpha", "ship", "project-alpha"),
-    ("Project Beta", "learn", "project-beta"),
-    ("Project Gamma", "ship", "project-gamma"),
+    ("Project Alpha", "ship", "project-alpha", ("alpha", "aaa-config")),
+    ("Project Beta", "learn", "project-beta", ("beta",)),
+    ("Project Gamma", "ship", "project-gamma", ("gamma",)),
 )
+# Every directory _seed_roots creates. Derived from PROJECTS so a root no
+# project names cannot drift into existence, and a declared root cannot be
+# missing when the daemon is asked to store it.
+SEED_ROOT_NAMES = tuple(root for _name, _mode, _slug, roots in PROJECTS for root in roots)
 FOCUS_PROJECT = "Project Alpha"
 FOCUS_MARKDOWN = f"""# {PREFIX}Project Alpha
 
@@ -408,7 +418,7 @@ def seed_projects(api: Api, report: Report) -> dict[str, dict]:
     by_name = {row.get("name"): row for row in rows}
     created: dict[str, dict] = {}
     roots = ""
-    for name, mode, slug in PROJECTS:
+    for name, mode, slug, root_names in PROJECTS:
         full = PREFIX + name
         row = by_name.get(full)
         if row:
@@ -424,7 +434,7 @@ def seed_projects(api: Api, report: Report) -> dict[str, dict]:
         status, body = api.call(
             "POST",
             "/api/projects",
-            {"name": full, "mode": mode, "roots": [os.path.join(roots, name.split()[-1].lower())]},
+            {"name": full, "mode": mode, "roots": [os.path.join(roots, root) for root in root_names]},
         )
         if status in (200, 201) and isinstance(body, dict) and body.get("id"):
             report.create("project", full, str(body["id"]))
