@@ -221,6 +221,29 @@ test_unattributable_failure_skips_confirm() {
   [ ! -e "$UXD/confirm" ] || fail "unattributable: a confirm directory was created"
 }
 
+# A screenshot check names its journey in the step name (`J11-phone-03-switch-back: blank page`),
+# so it is localisable and must be re-walked like any step failure. Treating it as unattributable
+# billed #330 a rework round (2026-11-18 22:03) for two blank-page lines the gate's own confirm walk
+# could not reproduce — the same false-red class #296 paid for.
+test_step_named_failure_is_confirmed() {
+  new_case step_named_flake
+  fixture 1 '{"hardFail":["J11-phone-03-switch-back: blank page"],"screens":[]}'
+  run_gate
+  [ "$RC" -eq 0 ] || fail "step-named-flake: exit $RC, want 0 ($(tail -3 "$T/$CASE.out" | tr '\n' ' '))"
+  [ "$(walks)" = 2 ] || fail "step-named-flake: $(walks) walks, want exactly 2"
+  tail -1 "$LOG" | grep -q '|J11$' || fail "step-named-flake: confirm selector was '$(tail -1 "$LOG")', want J11"
+  [ ! -s "$BODY" ] || fail "step-named-flake: a sendback body was written: $(head -3 "$BODY" | tr '\n' ' ')"
+  [ "$(score_field flaked)" = 1 ] || fail "step-named-flake: scores.json walk_confirm.flaked is not 1"
+
+  new_case step_named_real
+  fixture 1 '{"hardFail":["J11-phone-03-switch-back: blank page"],"screens":[]}'
+  fixture 2 '{"hardFail":["J11-phone-03-switch-back: blank page"],"screens":[]}'
+  run_gate
+  [ "$RC" -eq 1 ] || fail "step-named-real: exit $RC, want 1 (a reproduced blank page must still block)"
+  hard_section | grep -Fqx 'J11-phone-03-switch-back: blank page' || fail "step-named-real: the reproduced blank page is not billed"
+  grep -Fq 'reproduced=1 flaked=0' "$BODY" || fail "step-named-real: the body does not count the reproduced line"
+}
+
 # A known artefact is an environment defect: it is filtered from the first walk (existing
 # behaviour) and must not sneak back in as a reproduced failure from the confirm walk.
 test_known_artefact_does_not_count_as_reproduced() {
@@ -259,8 +282,8 @@ import sys
 
 manifest, gate = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 3:
-    raise SystemExit("manifest must be exactly three entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 4:
+    raise SystemExit("manifest must be exactly four entries, got %r" % (entries,))
 text = open(gate, encoding="utf-8").read()
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
@@ -275,7 +298,7 @@ for entry in entries:
         raise SystemExit("`old` occurs %d times in ux-gate.sh, not once: %r" % (count, entry["label"]))
     if "test-ux-gate-confirm-red.sh" not in entry["test"]:
         raise SystemExit("`test` does not run this suite: %r" % entry["label"])
-print("manifest ok: 3 mutants, each anchored once in ux-gate.sh")
+print("manifest ok: 4 mutants, each anchored once in ux-gate.sh")
 PY
   [ $? -eq 0 ] || fail "manifest: the mutants no longer point at the confirm block"
 }
@@ -295,6 +318,7 @@ run test_confirm_unavailable_fails_closed
 run test_confirm_unreadable_json_fails_closed
 run test_confirm_new_failure_is_kept
 run test_unattributable_failure_skips_confirm
+run test_step_named_failure_is_confirmed
 run test_known_artefact_does_not_count_as_reproduced
 run test_stale_confirm_evidence_does_not_poison
 run test_mutant_manifest_points_at_this_gate
