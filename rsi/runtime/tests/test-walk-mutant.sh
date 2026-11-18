@@ -25,6 +25,10 @@ WT="$(cd "$HERE/../../.." && pwd)"
 MANIFEST="$WT/rsi/runtime/ux/walk-mutant.json"
 RUNNER="$WT/rsi/runtime/ux/walk-mutant-test.sh"
 WALKER="$WT/rsi/runtime/ux/walk.mjs"
+SPEC_INDEX="$WT/rsi/runtime/ux/journeys.json"
+JOURNEYS_DIR="$WT/rsi/runtime/ux/journeys"
+SPECPY="$WT/rsi/runtime/ux/spec.py"
+MERGE="$WT/rsi/runtime/merge.sh"
 
 pass() { echo "PASS $*"; }
 fail() { echo "FAIL $*" >&2; exit 1; }
@@ -244,11 +248,12 @@ pass "$case_name"
 # quietly disappear (no second fill, reusing Start, a bare `text=` wait that is
 # green off the header title, or the count moved after the reply).
 case_name="test_j3_spec_carries_the_midrun_followup"
-python3 - "$WT/rsi/runtime/ux/journeys.json" <<'PY' || fail "$case_name: the J3 spec lost the mid-run follow-up"
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$WT/rsi/runtime/ux/spec.py" <<'PY' || fail "$case_name: the J3 spec lost the mid-run follow-up"
 import json
+import subprocess
 import sys
 
-spec = json.load(open(sys.argv[1], encoding="utf-8"))
+spec = json.loads(subprocess.check_output([sys.executable, sys.argv[2], "--resolve", sys.argv[1]]))
 steps = spec["journeys"]["J3"]["steps"]
 REPLY = "Fake reply from the journey fake agent."
 
@@ -297,12 +302,13 @@ case_name="test_j3_spec_rejects_a_midrun_walk_without_the_ordering_proof"
 command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
 spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
 log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
-python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" <<'PY' || exit 1
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" "$WT/rsi/runtime/ux/spec.py" <<'PY' || exit 1
 import json
+import subprocess
 import sys
 
-src, dst = sys.argv[1], sys.argv[2]
-spec = json.load(open(src, encoding="utf-8"))
+src, dst, specpy = sys.argv[1], sys.argv[2], sys.argv[3]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", src]))
 steps = spec["journeys"]["J3"]["steps"]
 REPLY = "Fake reply from the journey fake agent."
 kept, dropped = [], 0
@@ -330,12 +336,13 @@ case_name="test_j3_spec_rejects_a_title_only_prompt_wait"
 command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
 spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
 log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
-python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" <<'PY' || exit 1
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" "$WT/rsi/runtime/ux/spec.py" <<'PY' || exit 1
 import json
+import subprocess
 import sys
 
-src, dst = sys.argv[1], sys.argv[2]
-spec = json.load(open(src, encoding="utf-8"))
+src, dst, specpy = sys.argv[1], sys.argv[2], sys.argv[3]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", src]))
 steps = spec["journeys"]["J3"]["steps"]
 prompt = next(st[2] for st in steps if st[0] == "fill" and "textarea" in str(st[1]))
 hit = 0
@@ -365,12 +372,13 @@ case_name="test_j3_spec_rejects_a_prompt_wait_outside_the_transcript"
 command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
 spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
 log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
-python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" <<'PY' || exit 1
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" "$WT/rsi/runtime/ux/spec.py" <<'PY' || exit 1
 import json
+import subprocess
 import sys
 
-src, dst = sys.argv[1], sys.argv[2]
-spec = json.load(open(src, encoding="utf-8"))
+src, dst, specpy = sys.argv[1], sys.argv[2], sys.argv[3]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", src]))
 steps = spec["journeys"]["J3"]["steps"]
 prompt = next(st[2] for st in steps if st[0] == "fill" and "textarea" in str(st[1]))
 hit = 0
@@ -399,11 +407,12 @@ pass "$case_name"
 # stays green (no Stop press, no gone, a silent discard, the shot moved before
 # the report, or a "stopped" round that never had a queued message in it).
 case_name="test_j3_spec_carries_the_stop_and_discard_proof"
-python3 - "$WT/rsi/runtime/ux/journeys.json" <<'PY' || fail "$case_name: the J3 spec lost the Stop proof"
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$WT/rsi/runtime/ux/spec.py" <<'PY' || fail "$case_name: the J3 spec lost the Stop proof"
 import json
+import subprocess
 import sys
 
-spec = json.load(open(sys.argv[1], encoding="utf-8"))
+spec = json.loads(subprocess.check_output([sys.executable, sys.argv[2], "--resolve", sys.argv[1]]))
 steps = spec["journeys"]["J3"]["steps"]
 DISCARD = "queued prompt(s) discarded with the canceled task"
 
@@ -456,12 +465,13 @@ case_name="test_j3_spec_rejects_a_stop_without_the_control_leaving"
 command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
 spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
 log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
-python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" <<'PY' || exit 1
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" "$WT/rsi/runtime/ux/spec.py" <<'PY' || exit 1
 import json
+import subprocess
 import sys
 
-src, dst = sys.argv[1], sys.argv[2]
-spec = json.load(open(src, encoding="utf-8"))
+src, dst, specpy = sys.argv[1], sys.argv[2], sys.argv[3]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", src]))
 steps = spec["journeys"]["J3"]["steps"]
 
 def stop_control(sel):
@@ -491,12 +501,13 @@ case_name="test_j7_spec_rejects_a_keyboard_reopen_instead_of_a_tap"
 command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
 spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
 log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
-python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" <<'PY' || exit 1
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" "$WT/rsi/runtime/ux/spec.py" <<'PY' || exit 1
 import json
+import subprocess
 import sys
 
-src, dst = sys.argv[1], sys.argv[2]
-spec = json.load(open(src, encoding="utf-8"))
+src, dst, specpy = sys.argv[1], sys.argv[2], sys.argv[3]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", src]))
 steps = spec["journeys"]["J7"]["steps"]
 row = '[data-session-row="{conversation}"]'
 hit = 0
@@ -522,4 +533,112 @@ fi
 rm -f "$log" "$spec_tmp"
 pass "$case_name"
 
-echo "walk-mutant contract: 10/10 cases passed"
+# --- the journey spec is an index, one file per journey ---------------------
+# Two walk PRs that each add a leg used to conflict in one 287-line JSON and
+# the second waited for the first (measured 2026-11-18, six idle fills). The
+# reader is the contract: the index names a file per journey, every body
+# resolves verbatim, and a missing body is loud rather than a skipped journey.
+
+case_name="test_spec_split_every_journey_resolves"
+[ -f "$SPECPY" ] || fail "$case_name: $SPECPY is missing"
+ids="$(python3 "$SPECPY" --ids "$SPEC_INDEX" 2>&1)" || fail "$case_name: --ids exited non-zero: $ids"
+[ "$ids" = "J1 J2 J3 J4 J5 J6 J7 J8 J9 J10 J11" ] || fail "$case_name: --ids printed '$ids'"
+python3 - "$SPEC_INDEX" "$SPECPY" "$JOURNEYS_DIR" <<'PY' || fail "$case_name: a journey body did not resolve from its own file"
+import json
+import subprocess
+import sys
+
+index_path, specpy, journeys_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+index = json.load(open(index_path, encoding="utf-8"))
+entries = index.get("journeys") or {}
+assert entries, "the index has no journeys"
+for jid, entry in entries.items():
+    assert isinstance(entry, str), "%s is still inline in the index" % jid
+    assert entry == "journeys/%s.json" % jid, "%s points at %r" % (jid, entry)
+resolved = json.loads(subprocess.check_output(
+    [sys.executable, specpy, "--resolve", index_path]))
+assert sorted(resolved["journeys"]) == sorted(entries), "resolve lost or added a journey"
+for jid, body in resolved["journeys"].items():
+    assert isinstance(body, dict), "%s did not resolve to an object" % jid
+    assert isinstance(body.get("steps"), list) and body["steps"], "%s has no steps" % jid
+    assert isinstance(body.get("title"), str) and body["title"], "%s has no title" % jid
+    on_disk = json.load(open("%s/%s.json" % (journeys_dir, jid), encoding="utf-8"))
+    assert body == on_disk, "%s was not moved verbatim" % jid
+assert resolved.get("viewports") == index.get("viewports"), "viewports changed"
+assert resolved.get("paths") == index.get("paths"), "paths changed"
+print("split ok: %d journeys resolve from %s" % (len(entries), journeys_dir))
+PY
+pass "$case_name"
+
+case_name="test_spec_split_missing_file_is_loud"
+tmpbase="${TMPDIR:-/tmp}"; tmpbase="${tmpbase%/}"
+tmp="$(mktemp -d "$tmpbase/walk-mutant-spec-split.XXXXXX")"
+mkdir -p "$tmp/ux"
+cp "$SPEC_INDEX" "$tmp/ux/journeys.json"
+cp -R "$JOURNEYS_DIR" "$tmp/ux/journeys"
+missing="$tmp/ux/journeys/J3.json"
+rm -f "$missing"
+for mode in --ids --resolve; do
+  err="$(python3 "$SPECPY" "$mode" "$tmp/ux/journeys.json" 2>&1 >/dev/null)"
+  rc=$?
+  if [ "$rc" -ne 2 ] || [ -z "$err" ]; then
+    rm -rf "$tmp"
+    fail "$case_name: $mode exited $rc (want 2 with stderr) for a missing J3: $err"
+  fi
+  case "$err" in *J3*) ;; *) rm -rf "$tmp"; fail "$case_name: $mode stderr does not name J3: $err" ;; esac
+  case "$err" in *"$missing"*) ;; *) rm -rf "$tmp"; fail "$case_name: $mode stderr does not name $missing: $err" ;; esac
+done
+rm -rf "$tmp"
+pass "$case_name"
+
+case_name="test_spec_split_walk_check_spec_passes"
+command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
+log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
+( cd "$WT" && node rsi/runtime/ux/walk.mjs --check-spec ) >"$log" 2>&1
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  cat "$log" >&2
+  rm -f "$log"
+  fail "$case_name: --check-spec exited $rc against the split spec"
+fi
+rm -f "$log"
+pass "$case_name"
+
+# The UX-gate header names the spec revision, so a per-journey edit must move
+# it: hashing only the index would let a J3 edit reuse a cached PASS.
+case_name="test_spec_split_spec_rev_tracks_a_journey_edit"
+tmp="$(mktemp -d "$tmpbase/walk-mutant-spec-rev.XXXXXX")"
+mkdir -p "$tmp/rsi/runtime/ux"
+cp "$SPEC_INDEX" "$tmp/rsi/runtime/ux/journeys.json"
+cp -R "$JOURNEYS_DIR" "$tmp/rsi/runtime/ux/journeys"
+commit_tmp() { ( cd "$tmp" && git add -A && git -c user.email=owner@example.com -c user.name=walk-mutant \
+  -c commit.gpgsign=false commit -qm "$1" ); }
+git -C "$tmp" init -q || { rm -rf "$tmp"; fail "$case_name: git init failed"; }
+commit_tmp one || { rm -rf "$tmp"; fail "$case_name: first commit failed"; }
+rev1="$(RSI_CTRL="$WT" bash "$MERGE" --spec-rev "$tmp" 2>&1)"
+case "$rev1" in
+  ""|*[!0-9a-f]*) rm -rf "$tmp"; fail "$case_name: spec-rev printed '$rev1', not lowercase hex" ;;
+esac
+[ ${#rev1} -eq 12 ] || { rm -rf "$tmp"; fail "$case_name: spec-rev printed '$rev1', not 12 hex"; }
+python3 - "$tmp/rsi/runtime/ux/journeys/J3.json" <<'PY' || { rm -rf "$tmp"; fail "$case_name: cannot edit J3"; }
+import json
+import sys
+
+path = sys.argv[1]
+body = json.load(open(path, encoding="utf-8"))
+body["_probe"] = "spec-rev tracks a per-journey edit"
+json.dump(body, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+commit_tmp two || { rm -rf "$tmp"; fail "$case_name: second commit failed"; }
+rev2="$(RSI_CTRL="$WT" bash "$MERGE" --spec-rev "$tmp" 2>&1)"
+[ "$rev1" != "$rev2" ] || { rm -rf "$tmp"; fail "$case_name: a J3 edit did not move spec-rev ($rev1)"; }
+empty="$(mktemp -d "$tmpbase/walk-mutant-spec-rev-empty.XXXXXX")"
+git -C "$empty" init -q
+git -C "$empty" -c user.email=owner@example.com -c user.name=walk-mutant \
+  -c commit.gpgsign=false commit -q --allow-empty -m empty
+dash="$(RSI_CTRL="$WT" bash "$MERGE" --spec-rev "$empty" 2>&1)"
+[ "$dash" = "-" ] || { rm -rf "$tmp" "$empty"; fail "$case_name: spec-rev without journeys.json printed '$dash', want -"; }
+rm -rf "$tmp" "$empty"
+pass "$case_name"
+
+echo "walk-mutant contract: 14/14 cases passed"

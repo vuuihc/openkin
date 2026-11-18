@@ -1,0 +1,79 @@
+{
+  "title": "Projects and routines: open a routine's working-directory browser",
+  "viewports": [
+    "phone",
+    "mac",
+    "mac-wide"
+  ],
+  "steps": [
+    [
+      "goto",
+      "/projects"
+    ],
+    [
+      "shot",
+      "projects"
+    ],
+    [
+      "click",
+      "?a[href^='/projects/'], [data-proj]"
+    ],
+    [
+      "shot",
+      "project-cover"
+    ],
+    [
+      "goto",
+      "/routines"
+    ],
+    [
+      "shot",
+      "routines"
+    ],
+    [
+      "click",
+      "/^新建例行任务$|^New routine$/"
+    ],
+    [
+      "shot",
+      "routine-editor"
+    ],
+    [
+      "focus",
+      "button[aria-label='设置工作目录'], button[aria-label='Set working directory']"
+    ],
+    [
+      "key",
+      "Enter"
+    ],
+    [
+      "shot",
+      "cwd-browser-open"
+    ],
+    [
+      "key",
+      "Tab"
+    ],
+    [
+      "shot",
+      "cwd-browser-focus"
+    ],
+    [
+      "click",
+      "?/改为手动输入|Type a path instead/"
+    ],
+    [
+      "fill",
+      "?input[list='kin-cwd-suggestions']",
+      "/tmp"
+    ],
+    [
+      "key",
+      "Enter"
+    ],
+    [
+      "shot",
+      "cwd-chosen"
+    ]
+  ]
+}

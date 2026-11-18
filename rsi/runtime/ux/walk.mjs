@@ -15,8 +15,31 @@ import fs from 'node:fs';
 const require = createRequire(import.meta.url);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
+// The spec is an index: each `journeys` entry is either an inline body (old
+// single-file specs, the smoke fixture, the reduced specs the mutant tests
+// write) or a path relative to the index (one file per journey, so two walk
+// PRs never edit the same JSON). A missing, unreadable or empty body is loud:
+// a walk that silently skips a journey is evidence of nothing.
+function loadSpec(specPath) {
+  const abs = path.resolve(specPath);
+  let spec;
+  try { spec = JSON.parse(fs.readFileSync(abs, 'utf8')); }
+  catch (e) { throw new Error(`spec ${abs}: ${e.message}`); }
+  for (const [id, entry] of Object.entries(spec.journeys || {})) {
+    if (typeof entry !== 'string') continue;
+    const body = path.resolve(path.dirname(abs), entry);
+    let parsed;
+    try { parsed = JSON.parse(fs.readFileSync(body, 'utf8')); }
+    catch (e) { throw new Error(`journey ${id}: cannot read ${body}: ${e.message}`); }
+    if (!parsed || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
+      throw new Error(`journey ${id}: ${body} has no steps`);
+    }
+    spec.journeys[id] = parsed;
+  }
+  return spec;
+}
 const base = arg('base'), token = arg('token', ''), out = path.resolve(arg('out', './ux-walk'));
-const spec = JSON.parse(fs.readFileSync(arg('spec', path.join(here, 'journeys.json')), 'utf8'));
+const spec = loadSpec(arg('spec', path.join(here, 'journeys.json')));
 // How long a `wait`/`url` may take before it is a hard failure.
 const WAIT_MS = (() => { const n = Number(process.env.RSI_UX_WAIT_MS); return Number.isFinite(n) && n > 0 ? n : 15000; })();
 // `--delay-tasks <ms>` holds the task-detail GET open so a walk can prove the
