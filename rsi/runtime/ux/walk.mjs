@@ -919,6 +919,14 @@ for (const j of want) {
       const [op, a, b] = st;
       if (op === 'vp') {
         vpOnly = String(a || '').trim();
+        // A name outside this journey's own viewports scopes every step below
+        // to a width that never runs, silently deleting the leg from a walk
+        // that still reports green. The executor is the only place that can
+        // see the journey's viewport list and the scope together, so it must
+        // refuse the name rather than `continue` past it.
+        if (vpOnly && !(J.viewports || []).includes(vpOnly)) {
+          hardFail.push(`${j}/${vpName}: vp ${JSON.stringify(vpOnly)} is not one of the journey's viewports (${(J.viewports || []).join(', ')}); the steps below would never run`);
+        }
         log.push(vpOnly ? 'steps below run only at ' + vpOnly : 'viewport scope cleared');
         continue;
       }
