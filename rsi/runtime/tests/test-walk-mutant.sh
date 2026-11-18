@@ -6,8 +6,9 @@
 # point at the real hand-off pair, the row tap, the mid-run follow-up
 # dispatch, the Stop that must cancel the round, the J2 review anchor, the
 # rerun that must keep a comment (re-anchored, then 该行已变化), the shell
-# that must not remount on a route change, and the unchecked PR branch that
-# must not read as still checking; that the runner prints
+# that must not remount on a route change, the phone footer that must reopen the
+# URL the reader left in each area, and the unchecked PR branch that must not
+# read as still checking; that the runner prints
 # that same manifest; and that the J3 spec carries the mid-run ordering proof
 # (the follow-up on screen before the first answer) and the Stop proof (a held
 # round stopped, its control gone, and the queued message accounted for by the
@@ -37,8 +38,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 8:
-    raise SystemExit("manifest must be exactly eight entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 9:
+    raise SystemExit("manifest must be exactly nine entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -66,6 +67,19 @@ if j7 is None:
     raise SystemExit("no J7 entry for ui/src/components/cards/FloatingApproval.tsx")
 if "--walk-once J7" not in j7["test"]:
     raise SystemExit("the J7 entry's `test` does not walk J7 (--walk-once J7)")
+# The J10 mutant must drop the remembered URL the footer asks for, not the
+# footer's labels or markup: the walk's settings memory proof fails only if the
+# tab opens its bare root. The empty `slice` keeps both helpers referenced so
+# the mutant build passes noUnusedLocals, and appends the root path.
+j10 = next((e for e in entries if e["file"].endswith("PhoneFooter.tsx")), None)
+if j10 is None:
+    raise SystemExit("no J10 entry for ui/src/components/layout/PhoneFooter.tsx")
+if "--walk-once J10" not in j10["test"]:
+    raise SystemExit("the J10 entry's `test` does not walk J10 (--walk-once J10)")
+if "slice(0, 0)" not in j10["new"] or "phoneTabUrl" not in j10["new"] or "returnListUrl" not in j10["new"]:
+    raise SystemExit("the J10 mutant does not throw the remembered URL away while keeping both helpers used")
+if "R-f5-tab-state" not in j10["new"]:
+    raise SystemExit("the J10 mutant does not name the item it breaks (no R-f5-tab-state marker)")
 # The mid-run mutant must drop the follow-up dispatch itself, not a render
 # detail: the walk's second message has to vanish from the transcript. The
 # guard below is the one snippet that removes the send for a running task
@@ -155,9 +169,9 @@ if "unobservedLabel(tr)" not in pr["new"]:
                      "of merely hiding it")
 if "--walk-once J2" not in pr["test"]:
     raise SystemExit("the PR panel entry's `test` does not walk J2 (--walk-once J2)")
-print("manifest ok: %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
-      % (j3["file"], j7["file"], follow["file"], review["file"], rerun["file"],
-         stop["file"], shell["file"], pr["file"]))
+print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
+      % (j3["file"], j7["file"], j10["file"], follow["file"], review["file"],
+         rerun["file"], stop["file"], shell["file"], pr["file"]))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
