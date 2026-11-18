@@ -13,7 +13,7 @@ Usage:
   python3 spec.py --resolve <spec>   print the fully inlined spec JSON
   python3 spec.py --ids <spec>       print the journey ids, space-separated
 Exit 0 on success; 2 with a one-line stderr message naming the journey id and
-the file when a body is missing, unreadable or has no steps.
+the file when a body file is missing, unreadable or has no steps.
 """
 import json
 import os

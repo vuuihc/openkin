@@ -93,10 +93,12 @@ pr_head() { # <pr-number> -> prints the live head oid, non-zero on failure (an o
 # A head is an oid and nothing else: a gh warning or a blank line on stdout must read as unreadable.
 oid() { case "${1:-}" in ""|*[!0-9a-fA-F]*) return 1 ;; esac; }
 # The journey spec the UX gate walked, as a 12-hex revision of the WHOLE spec: the index and
-# every per-journey file under rsi/runtime/ux/journeys/. Hashing only the index would let a J3
-# edit reuse the index's cached PASS. #251's false red was a walker/spec mismatch: the sendback
-# named neither, so the retro could not tell it from a real defect. Never fails: the header line
-# must always be writable, and an empty file list prints "-" rather than hashing nothing.
+# every per-journey file under rsi/runtime/ux/journeys/, so the sendback header names a revision
+# that moves when any journey body moves. That is provenance, not cache invalidation: the UX PASS
+# cache already keys on the PR diff plus origin/main:ui. #251's false red was a walker/spec
+# mismatch: the sendback named neither, so the retro could not tell it from a real defect. Never
+# fails: the header line must always be writable, and an empty file list prints "-" rather than
+# hashing nothing.
 spec_rev() { # <worktree> -> 12-hex revision of the split spec, or -
   local wt="${1:-}" files rev o ids ok
   if [ -n "$wt" ] && [ -d "$wt" ]; then

@@ -24,6 +24,7 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -175,10 +176,21 @@ def main(argv: list[str] | None = None) -> int:
         print("unavailable: --walk-json PATH is required", file=sys.stderr)
         return 2
     try:
-        spec = load_json(args.spec)
+        # Resolve the index through spec.py: after the body move an entry is a
+        # path string, and `.get` on it would crash this summarizer.
+        spec = json.loads(subprocess.check_output(
+            [sys.executable, os.path.join(ROOT, "rsi", "runtime", "ux", "spec.py"),
+             "--resolve", args.spec],
+            stderr=subprocess.PIPE,
+            encoding="utf-8",
+        ))
         if not isinstance(spec, dict):
             raise SpecError("spec is not a JSON object")
         pairs = declared_pairs(spec, args.journeys)
+    except subprocess.CalledProcessError as exc:
+        print(f"unavailable: cannot read spec {args.spec}: {(exc.stderr or '').strip() or exc}",
+              file=sys.stderr)
+        return 2
     except (OSError, ValueError, SpecError) as exc:
         print(f"unavailable: cannot read spec {args.spec}: {exc}", file=sys.stderr)
         return 2
