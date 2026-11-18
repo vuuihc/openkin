@@ -1,7 +1,8 @@
 #!/bin/bash
 # ux-walk.sh <worktree> <outdir> [journeys-or-@files]   Boots a THROWAWAY daemon from the worktree (temp state dir, free port, never :7777),
 # seeds it when scripts/journeys_seed.py exists, walks the journeys with rsi/runtime/ux/walk.mjs, tears the daemon down.
-# exit 0 walked | 2 could not run (reason in <outdir>/UNAVAILABLE). Heavy steps (go build, npm build) go through the heavy.sh shims.
+# exit 0 walked | 2 could not run (reason in <outdir>/UNAVAILABLE). The walk itself holds the machine-wide
+# heavy slot (heavy.sh), like the go build and npm build shims it uses; the seed and daemon are light.
 #   UX_KIN_BIN=/path/to/kin   use a prebuilt binary instead of building the worktree (baseline / tests)
 #   --walker-for <worktree>   print the walker that worktree would run and exit; build-free seam for
 #                             rsi/runtime/tests/test-ux-walker.sh
@@ -30,6 +31,10 @@ fi
 WT="$1"; OUT="$2"; SEL="${3:-}"; mkdir -p "$OUT"
 unavail() { echo "$*" > "$OUT/UNAVAILABLE"; echo "[ux-walk] unavailable: $*" >&2; exit 2; }
 TMP="$(mktemp -d)"; PID=""; trap '[ -n "$PID" ] && kill -KILL "$PID" 2>/dev/null; rm -rf "$TMP"' EXIT
+# RSI_NO_HEAVY=1 means "read code, do not build/test" (reviewers). The walk is
+# a heavy step: running it next to the gate's own build is exactly what starved
+# the transcript on 2026-11-18, so fail closed and never green.
+[ -n "${RSI_NO_HEAVY:-}" ] && unavail "the walk is a heavy step and needs the machine-wide slot; unset RSI_NO_HEAVY"
 BIN="${UX_KIN_BIN:-}"
 if [ -z "$BIN" ]; then
   [ -d "$WT/web/dist/assets" ] || { ( cd "$WT/ui" && npm run build >/dev/null 2>&1 ) || unavail "ui build failed in $WT"; }
@@ -91,6 +96,6 @@ case "$SEL" in @*) ARGS+=(--files "${SEL#@}");; ?*) ARGS+=(--journeys "$SEL");; 
 # Same selection as the seam above: one writer, so the walker and the spec
 # cannot come from different trees.
 WALKER="$(walker_for "$WT")"
-node "$WALKER" "${ARGS[@]}" > "$OUT/walk.log" 2>&1; rc=$?
+bash "$RSI_DIR/runtime/heavy.sh" node "$WALKER" "${ARGS[@]}" > "$OUT/walk.log" 2>&1; rc=$?
 [ $rc -eq 2 ] && unavail "walker could not run: $(tail -c 300 "$OUT/walk.log")"
 cat "$OUT/walk.log"; exit 0

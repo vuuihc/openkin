@@ -5,5 +5,19 @@
     "test": "bash rsi/runtime/tests/test-ux-walker.sh",
     "old": "  if [ -f \"$wt/rsi/runtime/ux/walk.mjs\" ]; then",
     "new": "  if false; then"
+  },
+  {
+    "label": "walker-for seam delegates to heavy.sh: the build-free answer now takes the machine-wide slot",
+    "file": "rsi/runtime/ux-walk.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "if [ \"${1:-}\" = \"--walker-for\" ]; then",
+    "new": "bash \"$RSI_DIR/runtime/heavy.sh\" true 2>/dev/null; if [ \"${1:-}\" = \"--walker-for\" ]; then"
+  },
+  {
+    "label": "walk no longer takes the heavy slot: a parallel build can starve the transcript again",
+    "file": "rsi/runtime/ux-walk.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "bash \"$RSI_DIR/runtime/heavy.sh\" node \"$WALKER\" \"${ARGS[@]}\" > \"$OUT/walk.log\" 2>&1; rc=$?",
+    "new": "node \"$WALKER\" \"${ARGS[@]}\" > \"$OUT/walk.log\" 2>&1; rc=$?"
   }
 ]
