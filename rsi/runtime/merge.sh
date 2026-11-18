@@ -185,7 +185,7 @@ gen_resolve() { # worktree -> 0 resolved and committed; 1 anything else (caller 
 main_move_verdict() { # <incoming-paths> <pr-changed-paths> — sets MOVE_TAG (CARRY|CARRY-UI|REGATE)
   # and MOVE_REASON. The one disjoint classifier: origin/main moved under a verified PR. CARRY when
   # every incoming path is disjoint from the PR's own files and packages and from the shared
-  # surfaces, CARRY-UI when only ui leaves moved, REGATE otherwise. The callers decide what a CARRY
+  # surfaces, CARRY-UI when a ui leaf moved (alone or beside disjoint Go packages), REGATE otherwise. The callers decide what a CARRY
   # means (carry the gate across a merge, or skip the step-1 sync entirely). Bias: every path this
   # cannot positively classify re-gates.
   # A here-document inside $( ) is mis-parsed by the macOS /bin/bash 3.2 this script runs on
@@ -354,7 +354,7 @@ ci_hold_window() { # <marker-file> -> 0 when a hold may continue (fresh marker, 
     [ -n "$at" ] || { CI_FIRST_REASON="the hold marker is unreadable: failing open to the sync"; return 1; }
     age=$(( now - at ))
     if [ "$age" -ge "$CI_HOLD_MAX_SECS" ]; then
-      CI_FIRST_REASON="the CI hold expired after ${age}s (max ${CI_HOLD_MAX_SECS}s): syncing and re-gating"
+      CI_FIRST_REASON="the hold expired after ${age}s (max ${CI_HOLD_MAX_SECS}s): syncing and re-gating"
       return 1
     fi
   else
@@ -726,7 +726,6 @@ SHA="$($GIT -C "$WT" rev-parse HEAD)"
 # the gate: carry it to the merged head instead of paying for a full fresh gate. carry_forward owns
 # the predicate and removes the gate on a re-gate; NEED_GATE below then sees the carried head and
 # skips the gate body, while CI still reports on that head before the land loop merges.
-QUEUE_INCOMING="$($GIT -C "$WT" diff --name-only "$OLDBASE" origin/main 2>/dev/null)"
 if queue_carry_step "$WT" "$OLDHEAD" "$QUEUE_INCOMING" "$SHA" "$CH" "$V" "$RV"; then
   QUEUE_CARRIED=1
   say "#$N $SLUG: gate carried across the main move to ${SHA:0:8} ($QUEUE_CARRY_REASON)"
@@ -1110,6 +1109,10 @@ PY
   fi
   # main moved: sync under the land lock
   OLDHEAD="$($GIT -C "$WT" rev-parse HEAD)"; OLDBASE="$($GIT -C "$WT" merge-base HEAD origin/main)"
+  # A step-1 hold means main is not an ancestor, so a held start usually reaches this merge in the
+  # same run. Record it next to the step-1 line: sync_decision=hold-* alone cannot tell a real skip
+  # (no land-sync line) from a merge the hold only deferred to here.
+  echo "$(date '+%F %H:%M') #$N $SLUG sync_decision=land-sync after=$CI_FIRST_KIND" >> "$STATE/merge/cycles.log"
   sync_main; rc=$?; if [ $rc -ne 0 ]; then rm -rf "$STATE/.land.lock"; exit 0; fi
   INCOMING="$($GIT -C "$WT" diff --name-only "$OLDBASE" origin/main 2>/dev/null)"
   NEWSHA="$($GIT -C "$WT" rev-parse HEAD)"

@@ -12,5 +12,26 @@
     "test": "RSI_TEST_ONLY=test_pass_no_gate_cache_syncs bash rsi/runtime/tests/test-merge-sync-skip.sh",
     "old": "  if [ \"$gsha\" != \"$hd\" ] || [ \"$gpass\" != PASS ]; then",
     "new": "  if false; then"
+  },
+  {
+    "label": "the CI hold ignores ui-leaf moves (CARRY-UI), so a ui move still cancels the green run",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_pass_ui_leaf_move_holds bash rsi/runtime/tests/test-merge-sync-skip.sh",
+    "old": "      CARRY|CARRY-UI)",
+    "new": "      CARRY)"
+  },
+  {
+    "label": "the step-1 call site inverts the decision, so a HOLD syncs and a SYNC is held",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_call_site_branches_on_the_decision bash rsi/runtime/tests/test-merge-sync-skip.sh",
+    "old": "if [ $CI_FIRST_RC -eq 0 ]; then",
+    "new": "if [ $CI_FIRST_RC -ne 0 ]; then"
+  },
+  {
+    "label": "a held start that merges in the land loop leaves no land-sync line, so the retro cannot tell it from a real skip",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_wiring_shares_classifier_and_logs_decision bash rsi/runtime/tests/test-merge-sync-skip.sh",
+    "old": "  echo \"$(date '+%F %H:%M') #$N $SLUG sync_decision=land-sync after=$CI_FIRST_KIND\" >> \"$STATE/merge/cycles.log\"",
+    "new": "  :"
   }
 ]

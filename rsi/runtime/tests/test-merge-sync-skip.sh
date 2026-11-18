@@ -52,6 +52,7 @@ DOCS_MOVE='docs/note.md'
 OWN_FILE_MOVE='internal/thing/thing.go'
 SAME_PKG_MOVE='internal/thing/helper.go'
 SHARED_MOVE='scripts/check.sh'
+UI_LEAF_MOVE='ui/src/components/chat/ChatRow.tsx'
 
 # diff_hash — the review key the merge lane computes for the PR's own diff (step 4's DH).
 diff_hash() { g diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16; }
@@ -111,6 +112,16 @@ test_pass_disjoint_move_holds() {
   expect_hold pass_disjoint_move_holds "touch no path this PR verifies"
   [ "$(cat "$MARK")" = "$AT" ] \
     || fail "pass_disjoint_move_holds: the marker was rewritten ($AT -> $(cat "$MARK")); the hold clock restarted"
+}
+
+# A ui leaf is disjoint from the PR's own Go file: the classifier says CARRY-UI and the same hold
+# applies. The inventory/build/unchanged-dist safety step belongs to carry_forward, where a move is
+# actually merged; this decision never merges, so the case pins the verdict reaching the hold.
+test_pass_ui_leaf_move_holds() {
+  new_repo; write_cache
+  decide green "$UI_LEAF_MOVE" "$PR_CHANGED"
+  expect_hold pass_ui_leaf_move_holds "touch no path this PR verifies"
+  case "$OUT" in *CARRY-UI*) ;; *) fail "pass_ui_leaf_move_holds: reason '$OUT' does not name CARRY-UI" ;; esac
 }
 
 # Main moving the PR's own file changes what the gate checked: sync and re-gate.
@@ -191,7 +202,7 @@ test_pass_ci_fail_syncs() {
 # main_move_verdict definition, carry_forward and the step-1 decision both call it, the step-1
 # call passes both lists, and the decision makes the additive measurement line.
 test_wiring_shares_classifier_and_logs_decision() {
-  local defs region line qin_at ch_at decision_at log_at
+  local defs region line qin_at ch_at decision_at log_at land_line land_at loop_at land_main_at
   defs="$(grep -cE '^main_move_verdict\(\)' "$MERGE")"
   [ "$defs" -eq 1 ] || fail "wiring: $defs main_move_verdict definitions in merge.sh, want 1"
   sed -n '/^carry_forward()/,/^}/p' "$MERGE" | grep -q 'main_move_verdict' \
@@ -212,6 +223,35 @@ test_wiring_shares_classifier_and_logs_decision() {
     || fail "wiring: no sync_decision log line after the decision"
   grep -qF 'CI_FIRST_KIND="hold-disjoint"' "$MERGE" \
     || fail "wiring: the disjoint hold sets no hold-disjoint kind for the log line"
+  # A held start still reaches the land loop's sync_main on the dominant path, so the skip and that
+  # later merge are distinguishable only if the land loop logs its own decision too.
+  land_line="$(grep -F 'sync_decision=land-sync' "$MERGE" | head -1)"
+  [ -n "$land_line" ] || fail "wiring: no land-sync measurement line"
+  case "$land_line" in *'after=$CI_FIRST_KIND'*) ;; *) fail "wiring: the land-sync line does not name the step-1 decision ($land_line)" ;; esac
+  land_at="$(grep -nF 'sync_decision=land-sync' "$MERGE" | head -1 | cut -d: -f1)"
+  loop_at="$(grep -nF 'for round in 1 2 3; do' "$MERGE" | head -1 | cut -d: -f1)"
+  [ -n "$loop_at" ] || fail "wiring: no step-6 land loop in $MERGE"
+  land_main_at="$(awk -v from="$loop_at" 'NR > from && index($0, "sync_main; rc=$?") {print NR; exit}' "$MERGE")"
+  [ -n "$land_main_at" ] || fail "wiring: cannot locate the land loop's sync_main"
+  [ "$land_at" -gt "$loop_at" ] && [ "$land_at" -lt "$land_main_at" ] \
+    || fail "wiring: the land-sync line ($land_at) is not inside the land loop before its sync_main ($land_main_at)"
+}
+
+# The seam cases end inside ci_first_decision, so they cannot prove what step 1 does with the
+# answer. Pin the call-site branch in the source, as test-gate-carry.sh pins its carry exits:
+# HOLD (rc 0) must not reach sync_main, SYNC (rc 1) must.
+test_call_site_branches_on_the_decision() {
+  local region branch_at else_at fi_at hold_block sync_block
+  region="$(sed -n '/^# 1\. sync main/,/^# 2\. hold rules/p' "$MERGE")"
+  branch_at="$(grep -nF 'if [ $CI_FIRST_RC -eq 0 ]; then' <<<"$region" | head -1 | cut -d: -f1)"
+  [ -n "$branch_at" ] || fail "call site: step 1 does not branch on CI_FIRST_RC -eq 0 (a HOLD must skip sync_main)"
+  else_at="$(grep -n '^else$' <<<"$region" | head -1 | cut -d: -f1)"
+  fi_at="$(grep -n '^fi$' <<<"$region" | head -1 | cut -d: -f1)"
+  [ -n "$else_at" ] && [ -n "$fi_at" ] || fail "call site: cannot delimit the decision branch"
+  hold_block="$(sed -n "${branch_at},$((else_at-1))p" <<<"$region")"
+  sync_block="$(sed -n "$((else_at+1)),$((fi_at-1))p" <<<"$region")"
+  case "$hold_block" in *sync_main*) fail "call site: the HOLD branch calls sync_main ($hold_block)" ;; esac
+  case "$sync_block" in *sync_main*) ;; *) fail "call site: the SYNC branch does not call sync_main ($sync_block)" ;; esac
 }
 
 run() {
@@ -221,6 +261,7 @@ run() {
 }
 
 run test_pass_disjoint_move_holds
+run test_pass_ui_leaf_move_holds
 run test_pass_own_file_move_syncs
 run test_pass_same_package_move_syncs
 run test_pass_shared_surface_move_syncs
@@ -230,4 +271,5 @@ run test_pass_ci_pending_still_holds
 run test_pass_disjoint_hold_expires
 run test_pass_ci_fail_syncs
 run test_wiring_shares_classifier_and_logs_decision
+run test_call_site_branches_on_the_decision
 echo ALL-PASS
