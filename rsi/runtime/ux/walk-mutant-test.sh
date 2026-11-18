@@ -2,7 +2,7 @@
 # walk-mutant-test.sh — the one-command red proof for the walk contracts (R-walk-mutant, R-walk-tap-j7).
 #
 #   bash rsi/runtime/ux/walk-mutant-test.sh                    # apply every committed mutant, require red, restore
-#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J5|J7|J2|J8|J9|J10] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
+#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J5|J7|J2|J8|J9|J10|J11] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
 #   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest
 #
 # J3 has two contracts. One: pressing Start on /new must keep the typed message
@@ -69,6 +69,17 @@
 # walk's count then reads 0 and --walk-once J5 prints red. Without the walk
 # half, a renamed action or a pressable status line would ship green.
 #
+# J11: the same F4 proof on the phone. The manifest turns the phone's Back into
+# a document load (`window.location.assign`), which throws away the shell and
+# the kept-alive panes — the page-load flash F4 exists to prevent. The journey
+# leaves the conversation with the phone's Back, opens another, comes back,
+# then leaves again, walks the footer's routines and sessions entries, and
+# reopens the conversation; the `node` assertion names the replaced shell, and
+# the `scroll-kept` and `value` assertions name the lost position and draft.
+# --walk-once J11 builds the UI, walks only J11 at 390, and requires the
+# switch-back and switch-area-back notes to carry the same-shell line and both
+# draft/scroll reads. J9 has no Back step, so this mutant is J11's own.
+#
 # Deliberately not wired into ux-gate.sh: the proof builds the UI twice (once
 # for the mutant, once restored), which is too heavy for every PR. This is a
 # one-command verification to run when a journey or its walk changes.
@@ -93,8 +104,8 @@ case "${1:-}" in
   --walk-once)
     JOURNEY="${2:-J3}"
     case "$JOURNEY" in
-      J3|J5|J7|J2|J8|J9|J10) ;;
-      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J5, J7, J2, J8, J9 or J10" ;;
+      J3|J5|J7|J2|J8|J9|J10|J11) ;;
+      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J5, J7, J2, J8, J9, J10 or J11" ;;
     esac
     ;;
   "")
@@ -373,6 +384,83 @@ if missing:
     print("walk-mutant: J10 red: the walk never read " + ", ".join(missing))
     sys.exit(1)
 print("walk-mutant: J10 green: the deep-linked card was approved, every footer entry kept its place, and the card stayed gone")
+PY
+  exit $?
+fi
+
+if [ "$JOURNEY" = "J11" ]; then
+  bash rsi/runtime/ux-walk.sh "$WT" "$OUT" J11 >"$OUT/ux-walk.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    unavailable "$(cat "$OUT/UNAVAILABLE" 2>/dev/null || tail -c 300 "$OUT/ux-walk.log")"
+  fi
+  [ "$rc" -eq 0 ] || unavailable "ux-walk.sh exited $rc: $(tail -c 300 "$OUT/ux-walk.log")"
+  [ -s "$OUT/walk.json" ] || unavailable "the walker wrote no walk.json"
+
+  python3 - "$OUT/walk.json" <<'PY'
+import json
+import sys
+
+walk = json.load(open(sys.argv[1], encoding="utf-8"))
+screens = [s for s in walk.get("screens", []) if s.get("journey") == "J11"]
+names = [str(s.get("name", "")) for s in screens]
+skips = [n for n in names if "-skipped-" in n]
+if skips:
+    # No seeded conversation, or no fake agent: a switch between two empty
+    # pages proves nothing. Fail closed as "could not run".
+    print("UNAVAILABLE: J11 was skipped (" + ", ".join(skips[:2]) + ")")
+    sys.exit(2)
+
+# Step failures are `J11/…`; screenshot lint is `J11-<vp>-…`. Both are J11's.
+hard = [f for f in walk.get("hardFail", [])
+        if str(f).startswith("J11/") or str(f).startswith("J11-")]
+print("J11 screens: " + (", ".join(names) or "none"))
+for f in hard:
+    print("J11 hardFail: " + str(f))
+if hard:
+    print("walk-mutant: J11 red: %d hard failure(s)" % len(hard))
+    sys.exit(1)
+
+# The return shot is the evidence. Its notes are the journey's whole log, so
+# they must carry the shell's element identity, the transcript position read
+# back and the composer's draft: a shot of the right pane taken without
+# reading any of them proves only that the route works.
+back = [s for s in screens if str(s.get("name", "")).endswith("-switch-back")]
+if not back:
+    print("walk-mutant: J11 red: no switch-back shot")
+    sys.exit(1)
+notes = [str(n) for n in back[-1].get("notes", [])]
+missing = []
+if not any(n.startswith("node ") and " is the same element " in n for n in notes):
+    missing.append("the same shell node")
+if not any(n.startswith("scroll-kept ") for n in notes):
+    missing.append("the scroll position")
+if not any(n.startswith("value textarea is ") and "F4 draft [seed]" in n for n in notes):
+    missing.append("the composer draft")
+if missing:
+    print("walk-mutant: J11 red: the switch-back screen never read " + ", ".join(missing))
+    sys.exit(1)
+
+# The area round is the stronger claim: the pane was off screen while the
+# reader was in Routines, so the return must read the draft and the position a
+# second time. The notes are cumulative, so the second read is counted.
+area = [s for s in screens if str(s.get("name", "")).endswith("-switch-area-back")]
+if not area:
+    print("walk-mutant: J11 red: no switch-area-back shot")
+    sys.exit(1)
+area_notes = [str(n) for n in area[-1].get("notes", [])]
+kept = [n for n in area_notes if n.startswith("scroll-kept ")]
+drafts = [n for n in area_notes if n.startswith("value textarea is ") and "F4 draft [seed]" in n]
+again = []
+if len(kept) < 2:
+    again.append("the scroll position a second time")
+if len(drafts) < 2:
+    again.append("the draft a second time")
+if again:
+    print("walk-mutant: J11 red: the area round never read " + ", ".join(again))
+    sys.exit(1)
+print("walk-mutant: J11 green: the shell, the scroll and the draft survived "
+      "the chat switch and the area round at 390")
 PY
   exit $?
 fi
