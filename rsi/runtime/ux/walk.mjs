@@ -1113,18 +1113,150 @@ function checkJ5Contract(spec) {
   }
   return errs;
 }
+// J4's instructions leg (KIN-PROJECT-003). The cover's 工作方式 block is
+// read-only on purpose, so the journey proves the *same text* on both surfaces
+// by reading the block and then the agent's own receipt: the digest is not
+// shown as user text in the transcript, so the user bubble cannot stand in.
+// The file is edited mid-walk through the one `api` op (fixture setup), and
+// the post-edit cover read and the old conversation's unchanged text are what
+// separate "the cover re-reads the file" from "the page kept its first copy".
+// Without these rules a J4 that photographs the cover, never presses the
+// launcher, never sends, or never edits the file is green today.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+const J4_OLD_LINE = '- 交付前先跑 scripts/check.sh；生成文件不要手改。';
+const J4_NEW_LINE = '- 新的工作方式：先写测试，再动实现；提交前先把结论说清楚。';
+// The transcript renders the received body as markdown, so a received bullet's
+// text is observable without its list marker: the marker is structure, not
+// text. The cover shows the raw file, dash included, which is why the two
+// halves of the proof use different needles for the same line.
+const J4_OLD_TEXT = '交付前先跑 scripts/check.sh；生成文件不要手改。';
+const J4_NEW_TEXT = '新的工作方式：先写测试，再动实现；提交前先把结论说清楚。';
+const J4_CUT_NEEDLE = 'CUT-BOUNDARY…';
+const J4_TAIL = 'TAIL-BEYOND-400';
+function checkJ4Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J4) || {};
+  const steps = journey.steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J4 has no steps'];
+  const errs = [];
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const required = (v) => typeof v === 'string' && !v.startsWith('?');
+  const cssWait = (st, re) => st[0] === 'wait' && /^css=/.test(sel(st, 1)) && re.test(sel(st, 1));
+  const transcript = (st) => cssWait(st, /\[role=.?region/);
+  const sectionWait = (st, text) => cssWait(st, /工作方式|How to work here/) && sel(st, 1).includes(text);
+  const sendAt = (from) => idx((st) => st[0] === 'send' && required(sel(st, 1)), from);
+  const shotAt = (name) => steps.findIndex((st) => Array.isArray(st) && st[0] === 'shot' && st[1] === name);
+
+  // The launcher: one press from the cover, and it must be mandatory.
+  const launcherAt = idx((st) => st[0] === 'click' && required(sel(st, 1)) && /让 Kin 改…|Ask Kin to edit…/.test(sel(st, 1)));
+  if (launcherAt < 0) errs.push('J4 never presses the cover launcher (让 Kin 改… / Ask Kin to edit…); the pre-filled path is unwalked');
+  // The prefill is the shipped prompt, and it is read from the composer, not
+  // inferred from the route: the address drops ?q= as soon as it is consumed.
+  const prefillAt = after(launcherAt, (st) => st[0] === 'value' && /textarea/.test(sel(st, 1)) && sel(st, 2).includes('ONE_PAGER.md'));
+  if (prefillAt < 0) errs.push('J4 never reads the pre-filled composer (value textarea … ONE_PAGER.md) after the launcher');
+  // Sending before the prefill is asserted would photograph an empty box.
+  const firstSendAt = sendAt(Math.max(launcherAt, 0) + 1);
+  if (firstSendAt < 0) errs.push('J4 never sends the pre-filled prompt');
+  else if (prefillAt < 0 || prefillAt > firstSendAt) errs.push('J4 sends before it asserts the composer prefill');
+  // The agent's receipt, inside the transcript. A bare text= wait passes on
+  // the cover or the header and proves nothing about what the agent received.
+  // The FIRST receipt read after the send belongs to the first chat; a later
+  // one (the second chat's) cannot stand in for it.
+  const firstReceiptAt = after(firstSendAt, (st) => st[0] === 'wait' && sel(st, 1).includes('Project instructions received:'));
+  if (firstReceiptAt < 0) errs.push('J4 never waits for the agent\'s receipt after the first send (Project instructions received:)');
+  else if (!transcript(steps[firstReceiptAt])) errs.push('the first chat\'s receipt wait is not scoped to the transcript; the cover could satisfy it');
+  const firstEchoLineAt = after(firstReceiptAt, (st) => transcript(st) && sel(st, 1).includes(J4_OLD_TEXT));
+  if (firstEchoLineAt < 0) errs.push('J4 never reads the received 工作方式 line inside the transcript');
+
+  // The edit is the one api op, after the first send and before the post-edit
+  // cover read; a PUT before the send would edit the file the first chat was
+  // supposed to receive.
+  const isApi = (st) => st[0] === 'api' && required(sel(st, 1)) && sel(st, 1) === 'PUT' && /^\/api\/projects\/[^/]+\/one-pager$/.test(sel(st, 2));
+  const apiAfterSend = idx(isApi, Math.max(firstSendAt, 0) + 1);
+  if (apiAfterSend < 0 || !sel(steps[apiAfterSend], 3).includes(J4_NEW_LINE)) {
+    errs.push('J4 never edits ONE_PAGER.md through the one api PUT after the first send (an api step before the send would prove the wrong text)');
+  }
+  if (firstSendAt >= 0 && idx(isApi) >= 0 && idx(isApi) < firstSendAt) errs.push('J4 runs an api step before the first send; the fixture must be edited mid-walk');
+  if (firstEchoLineAt >= 0 && apiAfterSend >= 0 && firstEchoLineAt > apiAfterSend) {
+    errs.push('J4 reads the first chat\'s receipt only after the file is edited; that text proves nothing about the first chat');
+  }
+  const editAt = apiAfterSend;
+  const postEditAt = after(editAt, (st) => sectionWait(st, J4_NEW_LINE));
+  const leaveCoverAt = after(editAt, (st) => st[0] === 'click' && required(sel(st, 1)) && /data-session-row/.test(sel(st, 1)));
+  if (postEditAt < 0 || (leaveCoverAt >= 0 && postEditAt > leaveCoverAt)) {
+    errs.push('J4 never re-reads the cover after the edit (a 工作方式 section wait naming the new line)');
+  }
+  const oldCountAt = after(postEditAt, (st) => st[0] === 'count' && sel(st, 1) === 'text=' + J4_OLD_LINE && String(st[2]) === '0');
+  if (oldCountAt < 0 || (leaveCoverAt >= 0 && oldCountAt > leaveCoverAt)) {
+    errs.push('J4 never proves the old line left the cover after the edit (count text=<old> 0)');
+  }
+
+  // The old conversation keeps the text it started with. Both halves: the old
+  // echo is still there, and the new line never reached it.
+  const oldChatAt = after(oldCountAt, (st) => st[0] === 'click' && required(sel(st, 1)) && /data-session-row/.test(sel(st, 1)));
+  if (oldChatAt < 0) errs.push('J4 never reopens the earlier conversation (click [data-session-row] …)');
+  const oldEchoAt = after(oldChatAt, (st) => transcript(st) && sel(st, 1).includes('Project instructions received:'));
+  const oldLineAt = after(oldEchoAt, (st) => transcript(st) && sel(st, 1).includes(J4_OLD_TEXT));
+  if (oldChatAt >= 0 && oldLineAt < 0) errs.push('J4 never reads the old received line in the earlier conversation');
+  const oldHasNewAt = after(oldLineAt, (st) => st[0] === 'count' && /\[role=.?region/.test(sel(st, 1)) && sel(st, 1).includes(J4_NEW_TEXT) && String(st[2]) === '0');
+  if (oldLineAt >= 0 && oldHasNewAt < 0) errs.push('J4 never proves the earlier conversation did not receive the new line (count … 0 inside the transcript)');
+
+  // A second chat, started after the edit, receives the new line.
+  const secondSendAt = sendAt(oldHasNewAt + 1);
+  if (secondSendAt < 0) errs.push('J4 never starts a second chat after the edit');
+  const newEchoAt = after(secondSendAt, (st) => transcript(st) && sel(st, 1).includes(J4_NEW_TEXT));
+  if (secondSendAt >= 0 && newEchoAt < 0) errs.push('J4 never reads the edited line in the new chat\'s receipt');
+
+  // The restore keeps the next viewport's fixture where this one found it.
+  const restoreAt = after(newEchoAt, (st) => isApi(st) && sel(st, 3).includes(J4_OLD_LINE) && !sel(st, 3).includes(J4_NEW_LINE));
+  if (restoreAt < 0) errs.push('J4 never restores the seeded One-Pager after the edit (a second api PUT); the next viewport would start on the edited file');
+
+  // The over-400 section: the same cut on the cover and in the agent's text,
+  // and the tail beyond rune 400 on neither.
+  const coverCutAt = after(restoreAt, (st) => sectionWait(st, J4_CUT_NEEDLE));
+  if (coverCutAt < 0) errs.push('J4 never reads the truncated body on the cover (a 工作方式 wait naming CUT-BOUNDARY…)');
+  const coverTruncAt = after(coverCutAt, (st) => sectionWait(st, '已截断') || sectionWait(st, 'Truncated'));
+  if (coverTruncAt < 0) errs.push('J4 never reads the truncation footnote on the cover (已截断 / Truncated)');
+  const coverTailAt = after(coverCutAt, (st) => st[0] === 'count' && sel(st, 1) === 'text=' + J4_TAIL && String(st[2]) === '0');
+  if (coverTailAt < 0) errs.push('J4 never proves the tail beyond rune 400 is absent from the cover (count text=TAIL-BEYOND-400 0)');
+  const gammaSendAt = sendAt(coverTailAt + 1);
+  if (gammaSendAt < 0) errs.push('J4 never sends a chat in the truncated project');
+  const sentCutAt = after(gammaSendAt, (st) => transcript(st) && sel(st, 1).includes(J4_CUT_NEEDLE));
+  if (sentCutAt < 0) errs.push('J4 never reads the same truncated body in the agent\'s receipt');
+  const sentTailAt = after(sentCutAt, (st) => st[0] === 'count' && /\[role=.?region/.test(sel(st, 1)) && sel(st, 1).includes(J4_TAIL) && String(st[2]) === '0');
+  if (sentTailAt < 0) errs.push('J4 never proves the agent received no text beyond rune 400 (count … TAIL-BEYOND-400 0 inside the transcript)');
+
+  // The empty state, so "no section" is read as its own copy rather than a
+  // blank block that a missing read could also draw.
+  const emptyAt = idx((st) => sectionWait(st, '还没写工作说明') || sectionWait(st, 'No working instructions yet'), Math.max(sentTailAt, 0) + 1);
+  if (emptyAt < 0) errs.push('J4 never reads the empty state on a project with no 工作方式 section (还没写工作说明)');
+  const emptyNoteAt = after(emptyAt, (st) => sectionWait(st, '新对话不会收到这一段') || sectionWait(st, 'New chats will not receive this section'));
+  if (emptyAt >= 0 && emptyNoteAt < 0) errs.push('J4 never reads the empty state footnote (新对话不会收到这一段)');
+
+  // The screenshots are the reviewable evidence, in the order the leg runs.
+  for (const name of ['instructions-cover', 'instructions-composer', 'instructions-sent', 'instructions-edited', 'instructions-old-chat', 'instructions-truncated', 'instructions-truncated-sent', 'instructions-empty']) {
+    if (shotAt(name) < 0) errs.push('J4 takes no `' + name + '` shot');
+  }
+  const coverShot = shotAt('instructions-cover'), composerShot = shotAt('instructions-composer');
+  if (coverShot >= 0 && firstSendAt >= 0 && coverShot > firstSendAt) errs.push('the `instructions-cover` shot must be taken before the send');
+  if (composerShot >= 0 && firstSendAt >= 0 && composerShot > firstSendAt) errs.push('the `instructions-composer` shot must be taken before the send');
+  return errs;
+}
 if (process.argv.includes('--check-spec')) {
   const j2 = checkJ2Contract(spec);
   const j3 = checkJ3Contract(spec);
+  const j4 = checkJ4Contract(spec);
   const j5 = checkJ5Contract(spec);
   const j7 = checkJ7Contract(spec);
   const j8 = checkJ8Contract(spec);
   const j9 = checkJ9Contract(spec);
   const j10 = checkJ10Contract(spec);
   const j11 = checkJ11Contract(spec);
-  if (j2.length || j3.length || j5.length || j7.length || j8.length || j9.length || j10.length || j11.length) {
+  if (j2.length || j3.length || j4.length || j5.length || j7.length || j8.length || j9.length || j10.length || j11.length) {
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
+    if (j4.length) { console.log('spec red: J4'); j4.forEach((e) => console.log(' - ' + e)); }
     if (j5.length) { console.log('spec red: J5'); j5.forEach((e) => console.log(' - ' + e)); }
     if (j7.length) { console.log('spec red: J7'); j7.forEach((e) => console.log(' - ' + e)); }
     if (j8.length) { console.log('spec red: J8'); j8.forEach((e) => console.log(' - ' + e)); }
@@ -1137,6 +1269,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J2 keeps a saved comment across a rerun — re-anchored to its new line, then 该行已变化 when the quoted line is gone');
   console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
   console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
+  console.log('spec ok: J4 reads the cover\'s 工作方式 block, sends the pre-filled prompt, edits the file, and proves the same cut on the cover and in the agent\'s receipt');
   console.log('spec ok: J5 opens the running row\'s menu and pins rename, pin, archive, delete and a disabled 运行中 line');
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
   console.log('spec ok: J8 taps a changed line at 390, saves the sheet, sends the tray, and proves path, hunk and quote');
@@ -1222,6 +1355,26 @@ function applyJ5Fields(value, target) {
 }
 function applyJ5Step(step, target) {
   return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? applyJ5Fields(part, target) : part)) : step;
+}
+// J4's mid-walk edit needs the seeded project's id. The seed prints one
+// `j4 target project=<id>` line only when Alpha's One-Pager document is really
+// in place; without it the journey must not PUT an invented project. The spec
+// keeps the `{project}` placeholder (rsi/runtime/ux/journeys.json is the
+// merge-gate spec); the walker substitutes here, like J1/J5/J7.
+function readJ4Target(seedText) {
+  const J4_TARGET = /^j4 target project=(\S+)$/m;
+  const seed = typeof seedText === 'string' ? seedText : '';
+  if (/no scripts\/journeys_seed|seed failed|empty daemon/i.test(seed)) return { skip: 'seed failed or empty daemon' };
+  if (!seed.trim()) return { skip: 'no seeded project for the One-Pager edit' };
+  const match = J4_TARGET.exec(seed);
+  if (!match) return { skip: 'no seeded project for the One-Pager edit' };
+  return { project: match[1] };
+}
+function applyJ4Fields(value, target) {
+  return String(value).replace(/\{project\}/g, target.project);
+}
+function applyJ4Step(step, target) {
+  return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? applyJ4Fields(part, target) : part)) : step;
 }
 // `{vp}` makes a step's own words viewport-specific: two widths walk the same
 // seeded conversation against one daemon, so an identical comment body would
@@ -1513,13 +1666,18 @@ async function fakeAgentVerdict() {
   return '';
 }
 for (const j of want) {
-  const seed = (j === 'J1' || j === 'J5' || j === 'J7' || j === 'J10') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
+  const seed = (j === 'J1' || j === 'J4' || j === 'J5' || j === 'J7' || j === 'J10') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
   const j1 = j === 'J1' ? readJ1Target(seed) : null;
   const j5 = j === 'J5' ? readJ5Target(seed) : null;
+  // Only a J4 spec that carries `{project}` needs the seed's id; an older spec
+  // (or a daemon seeded by an older script) walks its roots leg instead.
+  const j4UsesProject = j === 'J4' && ((spec.journeys.J4 || {}).steps || []).some((st) => Array.isArray(st) && st.some((part) => typeof part === 'string' && part.includes('{project}')));
+  const j4 = j4UsesProject ? readJ4Target(seed) : null;
   // J10 answers the same seeded card J7 only looks at. Both must resolve the
   // target the same way, and both skip rather than walk invented ids.
   const j7 = (j === 'J7' || j === 'J10') ? readJ7Target(seed) : null;
   if (j1 && j1.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J1-skipped-no-approval-target', url: '', lint: {}, notes: ['skipped J1: ' + j1.skip] }); continue; }
+  if (j4 && j4.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J4-skipped-no-project-target', url: '', lint: {}, notes: ['skipped J4: ' + j4.skip] }); continue; }
   if (j5 && j5.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J5-skipped-no-running-conversation', url: '', lint: {}, notes: ['skipped J5: ' + j5.skip] }); continue; }
   if (j7 && j7.skip) { screens.push({ journey: j, viewport: 'n/a', name: j + '-skipped-no-fixtures', url: '', lint: {}, notes: ['skipped ' + j + ': no seeded notification target'] }); continue; }
   const J = spec.journeys[j];
@@ -1561,7 +1719,7 @@ for (const j of want) {
     // the second width ran it.
     let vpOnly = '';
     for (const rawStep of J.steps) {
-      const preStep = j === 'J5' && j5 ? applyJ5Step(rawStep, j5) : (j === 'J7' || j === 'J10') && j7 ? applyJ7Step(rawStep, j7) : rawStep;
+      const preStep = j === 'J5' && j5 ? applyJ5Step(rawStep, j5) : (j === 'J7' || j === 'J10') && j7 ? applyJ7Step(rawStep, j7) : j === 'J4' && j4 ? applyJ4Step(rawStep, j4) : rawStep;
       const st = applyVpStep(preStep, vpName);
       const [op, a, b] = st;
       if (op === 'vp') {
@@ -1583,6 +1741,37 @@ for (const j of want) {
           const href = j === 'J1' && j1 ? applyJ1Target(a, j1) : a; // J7 is already substituted above.
           await page.goto(base + href, { waitUntil: 'domcontentloaded', timeout: 20000 });
           await page.waitForTimeout(900);
+        }
+        else if (op === 'api') {
+          // Fixture setup, nothing else: `["api", "PUT",
+          // "/api/projects/{project}/one-pager", "<markdown>"]` replaces the
+          // seeded project's One-Pager through the shipped endpoint, using the
+          // token the walk already holds — the same write a person makes by
+          // editing the file. The cover block is read-only on purpose
+          // (KIN-PROJECT-003), so the edit half of the journey has to happen
+          // outside the browser. Any other method, path or body shape is a
+          // hard failure: this is not a general HTTP client.
+          const method = String(a || '').toUpperCase();
+          const apiPath = String(b || '');
+          const apiBody = st[3];
+          if (method !== 'PUT' || !/^\/api\/projects\/[^/]+\/one-pager$/.test(apiPath) || typeof apiBody !== 'string') {
+            hardFail.push(`${j}/${vpName}: api allows only PUT /api/projects/<id>/one-pager with a markdown body, got ${JSON.stringify(st)}`);
+            continue;
+          }
+          let res;
+          try {
+            res = await fetch(base.replace(/\/$/, '') + apiPath, {
+              method,
+              headers: { Authorization: token ? 'Bearer ' + token : '', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ markdown: apiBody }),
+            });
+          } catch (e) {
+            hardFail.push(`${j}/${vpName}: api ${method} ${apiPath} failed: ${String(e.message).split('\n')[0]}`);
+            continue;
+          }
+          const detail = await res.text().catch(() => '');
+          log.push(`api ${method} ${apiPath} -> ${res.status}`);
+          if (!res.ok) hardFail.push(`${j}/${vpName}: api ${method} ${apiPath} answered ${res.status} ${detail.slice(0, 120)}`);
         }
         else if (op === 'shot') {
           await page.waitForTimeout(250); const name = `${j}-${vpName}-${String(++n).padStart(2, '0')}-${a}`;

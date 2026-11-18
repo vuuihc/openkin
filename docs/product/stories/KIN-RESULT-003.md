@@ -1,6 +1,6 @@
 # KIN-RESULT-003 · 对改动逐行评论并发回对话
 
-状态：approved
+状态：covered
 优先级：P0
 旅程：J2、J1
 归属面：`IA.md`「对话详情 → 文件工作区」
@@ -135,3 +135,4 @@ diff 已经能看：`WorkspacePanel` 的「改动 / 文件」标签里有文件�
 
 - 2026-11-17 创建；按 CEO 已定的五条产品判断收窄为评论回路，Git 与 PR 留给另一条意图。
 - 2026-11-18 · 证据：#181 475ccc8a + #200 b1280989 交付评论回路（评论 → 托盘 → 发送 → 重新落位）；补 WorkspacePanel.comments.dom.test.tsx（一条消息、失败保留、按对话归属）。⌘Enter 发送与焦点回原行、改一条、删除可撤销尚未实现，状态保持 approved。
+- 2026-11-18 走查（J2/J8）：J2 在 notes.md:5 上 `key Alt+KeyC` → `wait css=section[aria-label^='评论 notes.md:']` → 填写 → 保存 → 托盘 `count … 1` → `focus` 托盘条目 + `key Meta+Enter` → transcript `wait css=[role=region][tabindex='-1']:has-text('把这一行改成一句总结。[{vp}]'):has-text('notes.md:5'):has-text('@@ -1,1 +1,6 @@'):has-text('- [seed] change: …')` → 托盘 `gone` → `已发回对话`；接着 `[seed] shift` 把引用行移到 `notes.md:6`（托盘读到 `notes.md:6`，`该行已变化` count 0），`[seed] rewrite` 删掉引用行后托盘保留原文并标 `该行已变化`（count 1）。J8 在 390 用 `.kin-diff-comment-glyph >> nth=4` 点开评论面板，保存 → 托盘 → 点「发送」→ 同一条锚定 transcript 等待加 `[data-message-key]:not([data-message-key^='pending-'])` count 1 → 托盘消失 → `已发回对话`。落地：#274 58afe1ae（J2 回路）、#282 f55f70bb（重跑重落位）、#279 db4792a7（手机回路）。仍未走查：第 6 步改一条 / 删除可撤销、发送后焦点回到 diff 原行；⌘Enter 发送现由 J2 的 focus + Meta+Enter 证明。

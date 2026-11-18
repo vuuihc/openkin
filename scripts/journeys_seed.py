@@ -44,6 +44,11 @@ The still-running conversation J5 opens prints the row it must act on:
 
     j5 target conversation=<task-id> title=<title>
 
+The One-Pager document J4 edits mid-walk is Alpha's, and its id is printed
+only when that document is really in place:
+
+    j4 target project=<project-id>
+
 With no J7 card that line is absent and J7 stays a skip; with no deny card the
 `j1 targets` line is absent, because a half pair would point 拒絕 at nothing.
 States the fake cannot produce — a failed routine run — still print `skip`.
@@ -102,6 +107,33 @@ TERMINAL_STATUSES = ("succeeded", "failed", "canceled")
 # The focus line doubles as the sentinel: a second run finds it in the
 # One-Pager and leaves the file alone, and nothing extra shows on the cover.
 FOCUS_SENTINEL = "Finish the journey walk with real projects, conversations and routines on screen."
+# KIN-PROJECT-003. Alpha's "How to work here" section is one short line the
+# cover shows, a new chat receives and the journey fake echoes back verbatim;
+# the edited line replaces it mid-walk and shares no words with it, so a
+# `count text=<old> 0` cannot pass on a substring.
+ALPHA_INSTRUCTIONS = "- 交付前先跑 scripts/check.sh；生成文件不要手改。"
+ALPHA_INSTRUCTIONS_EDITED = "- 新的工作方式：先写测试，再动实现；提交前先把结论说清楚。"
+# Gamma's section is longer than the digest's 400-rune cut. The cut lands
+# inside CUT-BOUNDARY-PHRASE, so the cover and the agent's context can both be
+# read as `CUT-BOUNDARY…`; the tail lies beyond rune 400 and must appear in
+# neither. The fake echoes the received body, so these two strings are the
+# whole proof that both surfaces carry the same cut.
+GAMMA_PREFIX = "- 每周一先看上一周的失败运行；动手前读 docs/README.md；提交前跑 ./scripts/check.sh 并把结果贴回来；生成文件不要手改；"
+GAMMA_FILLER = (
+    "把这条说明写长一点，好让封面上的截断正好落在下面这个标记的中间，"
+    "这样封面上看到的最后一个词和 agent 收到的是同一段。"
+)
+# CUT-BOUNDARY-PHRASE begins at rune 388, so the 400-rune cut keeps
+# "CUT-BOUNDARY" and appends the digest's ellipsis. The needle both surfaces
+# are read with is therefore CUT-BOUNDARY… (see journeys_walk_test.py).
+GAMMA_INSTRUCTIONS = (
+    GAMMA_PREFIX
+    + (GAMMA_FILLER * 20)[: 388 - len(GAMMA_PREFIX)]
+    + "CUT-BOUNDARY-PHRASE；TAIL-BEYOND-400 只应该留在文件里。"
+)
+# The tail phrase that lies beyond rune 400: the file carries it, neither the
+# cover nor the agent context may. Also the sentinel for a second seed run.
+GAMMA_SENTINEL = "TAIL-BEYOND-400"
 
 # (name, mode, slug, roots). Roots are basenames under the one temp base
 # _seed_roots creates, and their order is the order the daemon must keep.
@@ -128,10 +160,41 @@ A walkthrough daemon that already looks lived-in.
 ## Current Focus
 {FOCUS_SENTINEL}
 
+## 工作方式
+{ALPHA_INSTRUCTIONS}
+
 ## Next
 - Read the J4 project cover
 - Check the routines page density
 """
+# The same document after the walk's mid-leg edit: the section is replaced and
+# everything else stays byte-identical, so the post-edit cover read is about
+# the section and not about a rewritten file.
+FOCUS_MARKDOWN_EDITED = FOCUS_MARKDOWN.replace(ALPHA_INSTRUCTIONS, ALPHA_INSTRUCTIONS_EDITED)
+# Gamma starts with more than 400 runes of instructions, so the cover and the
+# digest both have to cut and both have to cut at the same rune.
+GAMMA_MARKDOWN = f"""# {PREFIX}Project Gamma
+
+## North Star
+A walkthrough daemon whose instructions do not fit.
+
+## Current Focus
+Keep the long instructions under the digest's cut.
+
+## 工作方式
+{GAMMA_INSTRUCTIONS}
+
+## Next
+- Check the truncated instructions block
+"""
+# Which project carries which document, and the literal that proves a second
+# run need not write again. Beta is absent on purpose: a project created
+# through POST /api/projects already has the template's empty 工作方式 section,
+# which is the cover's empty state.
+ONE_PAGER_PROJECTS = (
+    ("Project Alpha", FOCUS_MARKDOWN, FOCUS_SENTINEL),
+    ("Project Gamma", GAMMA_MARKDOWN, GAMMA_SENTINEL),
+)
 
 ROUTINES = (
     {
@@ -449,34 +512,51 @@ def seed_projects(api: Api, report: Report) -> dict[str, dict]:
     return created
 
 
-def seed_focus(api: Api, report: Report, projects: dict[str, dict]) -> None:
-    full = PREFIX + FOCUS_PROJECT
-    target = projects.get(FOCUS_PROJECT) or {}
-    ident = target.get("id")
-    if not ident:
+def seed_focus(api: Api, report: Report, projects: dict[str, dict]) -> set[str]:
+    """Write each project's One-Pager document; return the names really in place.
+
+    Alpha carries the short 工作方式 section the J4 walk reads, edits and reads
+    again; Gamma carries a section longer than the digest's 400-rune cut. Both
+    writes are idempotent through their own sentinel, so a second run changes
+    no bytes. Beta is left alone: the project template already has the empty
+    section the cover draws as its empty state.
+
+    The returned names are what `j4 target project=` is allowed to name: a
+    journey that edits a One-Pager must not be pointed at a project whose
+    document this seed could not write.
+    """
+    ready: set[str] = set()
+    for name, markdown, sentinel in ONE_PAGER_PROJECTS:
+        full = PREFIX + name
+        target = projects.get(name) or {}
+        ident = target.get("id")
+        if not ident:
+            if report.dry_run:
+                report.plan("focus", full)
+            else:
+                report.skip("focus", f"{name} was not created")
+            continue
+        status, body = api.call("GET", f"/api/projects/{ident}/one-pager")
+        current = body.get("markdown") if isinstance(body, dict) else None
+        if status == 200 and isinstance(current, str) and sentinel in current:
+            report.existing("focus", full)
+            ready.add(name)
+            continue
         if report.dry_run:
             report.plan("focus", full)
-        else:
-            report.skip("focus", "the focus project was not created")
-        return
-    status, body = api.call("GET", f"/api/projects/{ident}/one-pager")
-    markdown = body.get("markdown") if isinstance(body, dict) else None
-    if status == 200 and isinstance(markdown, str) and FOCUS_SENTINEL in markdown:
-        report.existing("focus", full)
-        return
-    if report.dry_run:
-        report.plan("focus", full)
-        return
-    status, body = api.call("PUT", f"/api/projects/{ident}/one-pager", {"markdown": FOCUS_MARKDOWN})
-    if status in (200, 201):
-        report.create("focus", full)
-        return
-    reason = _reason(status, body)
-    if status in (401, 403):
-        raise AuthError(f"PUT /api/projects/{ident}/one-pager refused: {reason}; check KIN_TOKEN")
-    if status not in SKIPPABLE:
-        raise SeedError(f"PUT /api/projects/{ident}/one-pager: {reason}")
-    report.skip("focus", reason)
+            continue
+        status, body = api.call("PUT", f"/api/projects/{ident}/one-pager", {"markdown": markdown})
+        if status in (200, 201):
+            report.create("focus", full)
+            ready.add(name)
+            continue
+        reason = _reason(status, body)
+        if status in (401, 403):
+            raise AuthError(f"PUT /api/projects/{ident}/one-pager refused: {reason}; check KIN_TOKEN")
+        if status not in SKIPPABLE:
+            raise SeedError(f"PUT /api/projects/{ident}/one-pager: {reason}")
+        report.skip("focus", reason)
+    return ready
 
 
 def seed_routines(api: Api, report: Report) -> None:
@@ -868,7 +948,7 @@ def main(argv: list[str] | None = None) -> int:
     report = Report(args.dry_run)
     try:
         projects = seed_projects(api, report)
-        seed_focus(api, report, projects)
+        one_pagers = seed_focus(api, report, projects)
         seed_routines(api, report)
         targets = seed_conversations(api, report, projects)
     except SeedError as exc:
@@ -897,6 +977,13 @@ def main(argv: list[str] | None = None) -> int:
     j5 = targets.get("j5")
     if j5:
         print(f"j5 target conversation={j5[0]} title={j5[2]}")
+    # J4's api step edits the seeded One-Pager mid-walk, and the story's
+    # fixture is one file per project. The project id is named here, never
+    # invented by the walker, and only when the document this seed writes is
+    # really in place.
+    alpha = projects.get(FOCUS_PROJECT) or {}
+    if "Project Alpha" in one_pagers and alpha.get("id"):
+        print(f"j4 target project={alpha['id']}")
     report_unproducible(report)
     report.summary()
     return 0
