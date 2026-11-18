@@ -151,18 +151,27 @@ fi
 
 # Resolve the requested journeys against the spec, so a typo is a usage error
 # instead of a silently shortened walk, and print the declared matrix.
-MATRIX="$(python3 - "$SPEC" "$JOURNEYS" 2>&1 <<'PY'
+MATRIX="$(python3 - "$SPEC" "$ROOT/rsi/runtime/ux/spec.py" "$JOURNEYS" 2>&1 <<'PY'
 import json
+import subprocess
 import sys
 
+# The spec is an index with one file per journey; resolve it through its one
+# reader (spec.py) so this matrix sees the same bodies the walker walks.
 try:
-    with open(sys.argv[1], encoding="utf-8") as fh:
-        spec = json.load(fh)
+    raw = subprocess.check_output(
+        [sys.executable, sys.argv[2], "--resolve", sys.argv[1]],
+        stderr=subprocess.PIPE,
+    )
+    spec = json.loads(raw)
+except subprocess.CalledProcessError as exc:
+    print(exc.stderr.decode("utf-8", "replace").strip() or f"cannot read {sys.argv[1]}")
+    raise SystemExit(2)
 except Exception as exc:  # noqa: BLE001 - any read/parse failure is one reason
     print(f"cannot read {sys.argv[1]}: {exc}")
     raise SystemExit(2)
 known = list((spec.get("journeys") or {}).keys())
-selected = [j for j in sys.argv[2].split(",") if j] or known
+selected = [j for j in sys.argv[3].split(",") if j] or known
 unknown = [j for j in selected if j not in known]
 if unknown:
     print("unknown journey id: " + ", ".join(unknown) + " (known: " + ", ".join(known) + ")")
