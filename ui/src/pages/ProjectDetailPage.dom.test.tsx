@@ -1044,4 +1044,26 @@ describe("the project's working folders (KIN-PROJECT-002)", () => {
     expect(edit.disabled).toBe(true);
     expect(within(block).getByText(/Offline — folder editing is disabled/)).toBeTruthy();
   });
+
+  it("KIN-PROJECT-002 opens the anchored editor from the empty state on a wide cover", async () => {
+    viewport(true);
+    client.getProject.mockImplementation(async () => withRoots([]));
+    renderPage();
+
+    const user = userEvent.setup();
+    const block = await screen.findByRole("region", { name: "Working folders" });
+    expect(within(block).getByText("This project has no folders yet.")).toBeTruthy();
+    // With nothing saved the header's Edit button is not mounted: the empty
+    // state's own button is the trigger, and it must anchor the popover.
+    expect(within(block).queryByRole("button", { name: "Edit folders" })).toBeNull();
+    const add = within(block).getByRole("button", { name: /Add folder/ });
+    expect(add.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(add.getAttribute("aria-expanded")).toBe("false");
+
+    await user.click(add);
+
+    const dialog = await screen.findByRole("dialog", { name: "Working folders" });
+    expect(within(dialog).getByText("This project has no folders yet.")).toBeTruthy();
+    expect(add.getAttribute("aria-expanded")).toBe("true");
+  });
 });

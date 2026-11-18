@@ -505,8 +505,11 @@ export default function ProjectRootsBlock({
         <div>
           <p className="text-body text-kin-secondary">{tr("projects.rootsEmpty")}</p>
           <Button
+            ref={editRef}
             variant="secondary"
             disabled={offline}
+            aria-haspopup="dialog"
+            aria-expanded={editing}
             className="mt-2 text-strong"
             onClick={beginEdit}
           >
@@ -563,7 +566,7 @@ export default function ProjectRootsBlock({
           triggerRef={editRef}
           label={tr("projects.rootsTitle")}
           id={panelId}
-          align="right"
+          align={savedRoots.length === 0 ? "left" : "right"}
           placement="below"
           width={440}
           maxHeight={560}

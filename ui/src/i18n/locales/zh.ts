@@ -663,7 +663,7 @@ const zh = {
     rootsRemove: "移除",
     rootsRemoveTitle: "移除 {path}？",
     rootsRemoveConfirm:
-      "移除后，这个目录下的对话不再出现在这个项目下；它们仍然在会话列表里。没有对话会被删除。",
+      "移除后，这个目录下的对话不再出现在这个项目下；它们仍然在对话列表里。没有对话会被删除。",
     rootsRemoveLast: "新对话将无处可落（「新建对话」会禁用）。",
     rootsAddDuplicate: "这个目录已经在列表里。",
     rootsSave: "保存",
