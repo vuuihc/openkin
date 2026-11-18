@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1600" height="900" fill="#f7f7f9"/>
+<text x="30" y="28" font-size="15" font-weight="600" fill="#1a1a1a">工作方式块 · 状态板（KIN-PROJECT-003）</text>
+<text x="1570" y="28" font-size="11" fill="#777" text-anchor="end">每一格都写清「新对话会不会收到这段」；没有草稿状态</text>
+
+<!-- 1 还没写 -->
+<g>
+<rect x="30" y="46" width="490" height="390" rx="12" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="50" y="76" font-size="13" font-weight="600" fill="#1a1a1a">01 · 还没写工作说明</text>
+<rect x="50" y="94" width="450" height="250" rx="10" fill="#ffffff" stroke="#1f6feb"/>
+<text x="66" y="122" font-size="14" font-weight="600" fill="#1a1a1a">工作方式</text>
+<rect x="398" y="104" width="86" height="44" rx="10" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="441" y="131" font-size="11" fill="#1f6feb" text-anchor="middle">让 Kin 写…</text>
+<text x="66" y="146" font-size="11" fill="#6b6b6b">新对话开始时，Kin 会收到这段。</text>
+<rect x="66" y="160" width="418" height="120" rx="8" fill="#fbfbfb" stroke="#e3e3e3"/>
+<text x="80" y="190" font-size="12" fill="#555">还没写工作说明。</text>
+<text x="80" y="216" font-size="11" fill="#999">写清楚：先跑什么、什么不能手改、动手前读什么。</text>
+<text x="66" y="306" font-size="11" fill="#b42318">脚注：新对话不会收到这一段。</text>
+<text x="66" y="330" font-size="11" fill="#888">空态与「没有 One-Pager 文件」同一套文案与动作。</text>
+<text x="50" y="376" font-size="10.5" fill="#777">空：不猜内容；启动器写「让 Kin 写…」。</text>
+<text x="50" y="398" font-size="10.5" fill="#777">读屏读「还没写工作说明」，不读空 region。</text>
+<text x="50" y="420" font-size="10.5" fill="#777">离开再回来仍是空态，直到文件里出现这一节。</text>
+</g>
+
+<!-- 2 加载 -->
+<g>
+<rect x="555" y="46" width="490" height="390" rx="12" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="575" y="76" font-size="13" font-weight="600" fill="#1a1a1a">02 · 加载</text>
+<rect x="575" y="94" width="450" height="250" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="591" y="122" font-size="14" font-weight="600" fill="#1a1a1a">工作方式</text>
+<rect x="923" y="104" width="86" height="44" rx="10" fill="#f0f0f0" stroke="#dddddd"/>
+<text x="966" y="131" font-size="11" fill="#aaa" text-anchor="middle">让 Kin 改…</text>
+<rect x="591" y="144" width="300" height="10" rx="5" fill="#ececf0"/>
+<rect x="591" y="170" width="418" height="12" rx="6" fill="#ececf0"/>
+<rect x="591" y="194" width="418" height="12" rx="6" fill="#ececf0"/>
+<rect x="591" y="218" width="330" height="12" rx="6" fill="#ececf0"/>
+<rect x="591" y="242" width="386" height="12" rx="6" fill="#ececf0"/>
+<rect x="591" y="286" width="240" height="10" rx="5" fill="#ececf0"/>
+<text x="575" y="376" font-size="10.5" fill="#777">与摘要块共用一副骨架；不先画「还没写」。</text>
+<text x="575" y="398" font-size="10.5" fill="#777">不整页变白，也不显示假正文。</text>
+<text x="575" y="420" font-size="10.5" fill="#777">启动器在加载中禁用，避免带着空提示词出发。</text>
+</g>
+
+<!-- 3 读取失败 -->
+<g>
+<rect x="1080" y="46" width="490" height="390" rx="12" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="1100" y="76" font-size="13" font-weight="600" fill="#1a1a1a">03 · 读取失败 + 重试</text>
+<rect x="1100" y="94" width="450" height="250" rx="10" fill="#ffffff" stroke="#1f6feb"/>
+<text x="1116" y="122" font-size="14" font-weight="600" fill="#1a1a1a">工作方式</text>
+<rect x="1448" y="104" width="86" height="44" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="1491" y="131" font-size="11" fill="#888" text-anchor="middle">让 Kin 改…</text>
+<rect x="1116" y="146" width="418" height="88" rx="8" fill="#fff1f0" stroke="#e7b4af"/>
+<text x="1130" y="172" font-size="12" fill="#b42318">One-Pager 读取失败。</text>
+<text x="1130" y="194" font-size="11" fill="#b42318">无法确认新对话会收到什么。</text>
+<rect x="1130" y="204" width="70" height="24" rx="12" fill="#ffffff" stroke="#b42318"/>
+<text x="1165" y="220" font-size="11" fill="#b42318" text-anchor="middle">重试</text>
+<text x="1116" y="266" font-size="11" fill="#888">不显示任何正文，避免把猜的内容当成原文。</text>
+<text x="1116" y="290" font-size="11" fill="#888">最近活动、概览各自失败、各自保留（KIN-PROJECT-001）。</text>
+<text x="1100" y="376" font-size="10.5" fill="#777">失败态属于这一块，不让整页失败。</text>
+<text x="1100" y="398" font-size="10.5" fill="#777">重试成功后原地恢复，不重新加载整页。</text>
+<text x="1100" y="420" font-size="10.5" fill="#777">焦点在「重试」；失败后不跳到封面顶部。</text>
+</g>
+
+<!-- 4 离线 -->
+<g>
+<rect x="30" y="456" width="490" height="414" rx="12" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="50" y="486" font-size="13" font-weight="600" fill="#1a1a1a">04 · 离线 / 只读</text>
+<rect x="50" y="504" width="450" height="272" rx="10" fill="#ffffff" stroke="#1f6feb"/>
+<text x="66" y="532" font-size="14" font-weight="600" fill="#1a1a1a">工作方式</text>
+<rect x="398" y="514" width="86" height="44" rx="10" fill="#f0f0f0" stroke="#dddddd"/>
+<text x="441" y="541" font-size="11" fill="#aaa" text-anchor="middle">让 Kin 改…</text>
+<text x="66" y="556" font-size="11" fill="#6b6b6b">新对话开始时，Kin 会收到这段。</text>
+<rect x="66" y="570" width="418" height="128" rx="8" fill="#fbfbfb" stroke="#e3e3e3"/>
+<text x="80" y="596" font-size="11.5" fill="#1a1a1a">- 动手前先读 docs/ 与 CONTEXT.md。</text>
+<text x="80" y="618" font-size="11.5" fill="#1a1a1a">- 跑 make test；不要手改生成文件。</text>
+<text x="80" y="640" font-size="11.5" fill="#1a1a1a">- 不确定时先问，不要猜产品决定。</text>
+<text x="80" y="672" font-size="10.5" fill="#999">（上次读到的原文）</text>
+<text x="66" y="722" font-size="11" fill="#b42318">离线 · 显示上次结果（14:20）。改说明需要先联网。</text>
+<text x="66" y="746" font-size="11" fill="#888">正文仍可读、可选中；启动器禁用并说明原因。</text>
+<text x="50" y="808" font-size="10.5" fill="#777">断线不清空、不显示成「还没写」。</text>
+<text x="50" y="830" font-size="10.5" fill="#777">恢复网络后按文件当前内容刷新，不自动弹提示。</text>
+<text x="50" y="852" font-size="10.5" fill="#777">只读账号同一套：能读，不能启动修改。</text>
+</g>
+
+<!-- 5 截断 -->
+<g>
+<rect x="555" y="456" width="490" height="414" rx="12" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="575" y="486" font-size="13" font-weight="600" fill="#1a1a1a">05 · 超过 400 字（截断）</text>
+<rect x="575" y="504" width="450" height="272" rx="10" fill="#ffffff" stroke="#1f6feb"/>
+<text x="591" y="532" font-size="14" font-weight="600" fill="#1a1a1a">工作方式</text>
+<rect x="923" y="514" width="86" height="44" rx="10" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="966" y="541" font-size="11" fill="#1f6feb" text-anchor="middle">让 Kin 改…</text>
+<rect x="591" y="556" width="418" height="140" rx="8" fill="#fbfbfb" stroke="#e3e3e3"/>
+<text x="605" y="580" font-size="11.5" fill="#1a1a1a">- 动手前先读 docs/ 与 CONTEXT.md。</text>
+<text x="605" y="602" font-size="11.5" fill="#1a1a1a">- 跑 make test；不要手改 web/dist 里的</text>
+<text x="605" y="622" font-size="11.5" fill="#1a1a1a">  生成文件。</text>
+<text x="605" y="644" font-size="11.5" fill="#1a1a1a">- 新代码先写失败的测试，再让它变绿。</text>
+<text x="605" y="666" font-size="11.5" fill="#999">……（第 400 字到此为止）</text>
+<text x="591" y="722" font-size="11" fill="#1f6feb">已截断：新对话只收到前 400 字，其余留在 ONE_PAGER.md。</text>
+<text x="591" y="746" font-size="11" fill="#888">封面不做「展开全文」；完整内容只在文件里。</text>
+<text x="575" y="808" font-size="10.5" fill="#777">截断按同一段、同一个上限计算，与服务端一致。</text>
+<text x="575" y="830" font-size="10.5" fill="#777">窗口变宽不显示更多；提示只用文字，不靠渐隐。</text>
+<text x="575" y="852" font-size="10.5" fill="#777">改短后脚注回到「新对话会收到这段原文」。</text>
+</g>
+
+<!-- 6 没有文件 -->
+<g>
+<rect x="1080" y="456" width="490" height="414" rx="12" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="1100" y="486" font-size="13" font-weight="600" fill="#1a1a1a">06 · 还没有 One-Pager 文件</text>
+<rect x="1100" y="504" width="450" height="272" rx="10" fill="#ffffff" stroke="#1f6feb"/>
+<text x="1116" y="532" font-size="14" font-weight="600" fill="#1a1a1a">工作方式</text>
+<rect x="1448" y="514" width="86" height="44" rx="10" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="1491" y="541" font-size="11" fill="#1f6feb" text-anchor="middle">让 Kin 写…</text>
+<rect x="1116" y="556" width="418" height="120" rx="8" fill="#fbfbfb" stroke="#e3e3e3"/>
+<text x="1130" y="584" font-size="12" fill="#555">还没写工作说明。</text>
+<text x="1130" y="610" font-size="11" fill="#999">这个项目还没有 ONE_PAGER.md；今天没有</text>
+<text x="1130" y="630" font-size="11" fill="#999">文件就没有项目上下文注入。</text>
+<text x="1116" y="722" font-size="11" fill="#b42318">脚注：新对话不会收到这一段。</text>
+<text x="1116" y="746" font-size="11" fill="#888">启动器预填同一句；Kin 会新建这一节与文件。</text>
+<text x="1100" y="808" font-size="10.5" fill="#777">不为旧项目做迁移；文件在 Kin 写入时才出现。</text>
+<text x="1100" y="830" font-size="10.5" fill="#777">新项目模板带一个空的「工作方式」段。</text>
+<text x="1100" y="852" font-size="10.5" fill="#777">空文件、空段、缺段三种情况文案一致。</text>
+</g>
+</g>
+</svg>

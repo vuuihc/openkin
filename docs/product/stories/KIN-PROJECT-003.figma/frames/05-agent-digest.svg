@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="10"/>
+<rect width="1100" height="32" fill="#f0f0f0" rx="10"/><rect y="10" width="1100" height="22" fill="#f0f0f0"/>
+<line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/>
+<text x="12" y="21" font-size="12" fill="#555">新对话 1100×760 · agent 收到的项目上下文（示意，不是新界面）· KIN-PROJECT-003</text>
+<text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">封面上显示的就是这一段</text>
+<!-- 侧栏 -->
+<rect x="1" y="32" width="329" height="728" fill="#fbfbfb"/><line x1="330" y1="32" x2="330" y2="760" stroke="#e3e3e3"/>
+<text x="20" y="62" font-size="13" fill="#1a1a1a" font-weight="600">K</text>
+<rect x="16" y="76" width="298" height="30" rx="6" fill="#f0f0f0"/><text x="28" y="96" font-size="12" fill="#888">搜索对话…</text>
+<text x="28" y="132" font-size="12" fill="#666" font-weight="600">本机</text>
+<text x="40" y="160" font-size="12" fill="#666">▾ alpha</text><rect x="16" y="146" width="298" height="24" rx="5" fill="#eef2ff"/>
+<text x="56" y="162" font-size="12.5" fill="#1f6feb" font-weight="600">对话 C · 刚刚</text>
+<text x="72" y="186" font-size="12" fill="#666">对话 A</text><text x="72" y="208" font-size="12" fill="#666">对话 B</text>
+<text x="40" y="238" font-size="12" fill="#666">▸ beta</text>
+<text x="28" y="700" font-size="12" fill="#888">导入 · 归档 · 设置</text>
+<!-- 对话头 -->
+<text x="358" y="66" font-size="11" fill="#999">alpha · 对话 C</text>
+<text x="358" y="94" font-size="19" fill="#1a1a1a" font-weight="600">改一下登录页的文案</text>
+<rect x="960" y="70" width="122" height="26" rx="13" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="1021" y="87" font-size="11" fill="#1f6feb" text-anchor="middle">本地 · 新对话</text>
+<!-- 注入的消息 -->
+<rect x="358" y="116" width="724" height="392" rx="10" fill="#fbfbfb" stroke="#c4c4c4"/>
+<text x="374" y="142" font-size="11" fill="#6b6b6b">第一条消息（用户 prompt 前面带着项目上下文）</text>
+<text x="374" y="170" font-size="12" font-weight="600" fill="#1f6feb">[Project context — living cover digest; user owns goals]</text>
+<text x="374" y="194" font-size="12" fill="#1a1a1a">Project: alpha</text>
+<text x="374" y="216" font-size="12" fill="#1a1a1a">Mode: ship</text>
+<text x="374" y="238" font-size="12" fill="#6b6b6b">Mode focus: use cover Focus/Next; prefer the smallest useful next step.</text>
+<text x="374" y="268" font-size="12" fill="#1a1a1a">North Star: 让一个人在自己的机器上把活干完。</text>
+<text x="374" y="292" font-size="12" fill="#1a1a1a">Current Focus: 登录页的文案与错误提示。</text>
+<text x="374" y="320" font-size="12" font-weight="600" fill="#1f6feb">How to work here:</text>
+<text x="374" y="344" font-size="12" fill="#1a1a1a">- 动手前先读 docs/ 与 CONTEXT.md。</text>
+<text x="374" y="366" font-size="12" fill="#1a1a1a">- 跑 make test；不要手改 web/dist 里的生成文件。</text>
+<text x="374" y="388" font-size="12" fill="#1a1a1a">- 新代码先写失败的测试，再让它变绿。</text>
+<text x="374" y="410" font-size="12" fill="#1a1a1a">- 提交用 Conventional Commits；一个改动一个提交。</text>
+<text x="374" y="432" font-size="12" fill="#1a1a1a">- 不确定时先问，不要猜产品决定。</text>
+<text x="374" y="456" font-size="11" fill="#999">（超过 400 字时到这里为止，并带省略号；与封面脚的截断说明一致。）</text>
+<text x="374" y="482" font-size="12" fill="#1a1a1a">Next: 1. 改登录页文案 2. 补错误提示 3. 加一条回归测试</text>
+<text x="358" y="532" font-size="12" fill="#999">---</text>
+<text x="374" y="556" font-size="12" fill="#1a1a1a">帮我改一下登录页的文案，别动布局。</text>
+<!-- 边界说明 -->
+<rect x="358" y="584" width="724" height="140" rx="10" fill="#ffffff" stroke="#e3e3e3" stroke-dasharray="4 4"/>
+<text x="374" y="610" font-size="11.5" fill="#888">窗口：只在任务创建时注入一次；追问与正在跑的任务保留原来的 prompt，不会被改写。</text>
+<text x="374" y="634" font-size="11.5" fill="#888">持有者规则不变：只有机器持有者的新对话会带上这段，非持有者看不到。</text>
+<text x="374" y="658" font-size="11.5" fill="#888">没有「工作方式」一节、或整份 One-Pager 读不到：注入照常进行，只是少了这一段。</text>
+<text x="374" y="682" font-size="11.5" fill="#888">总预算仍是 1200 字；这一段至多 400 字，不另开注入通道。</text>
+</g>
+</svg>

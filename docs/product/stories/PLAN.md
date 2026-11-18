@@ -1,6 +1,6 @@
 # 用户故事方案
 
-状态：十五条合同已写，十四条已签字（4 条 `covered`、10 条 `approved`、1 条 `draft`）；七条意图已于 2026-11-11 全部签字。逐条签字、逐条交付，不分阶段。
+状态：十六条合同已写，十四条已签字（4 条 `covered`、10 条 `approved`、2 条 `draft`）；七条意图已于 2026-11-11 全部签字。逐条签字、逐条交付，不分阶段。
 配套：[`IA.md`](../IA.md)（哪个面归谁）、[`TASTE.md`](../TASTE.md)（所有面长什么样）、[`stories/README.md`](README.md)（怎么写、怎么签、怎么交付）、[`LESSONS.md`](../LESSONS.md)（规则从真实缺陷长出来）。
 
 ## 一句话
@@ -15,7 +15,7 @@
 | 2 | 被叫回来 | `KIN-NOTIFY-001` | Mac、手机 | 离开控制台后收到原生通知，点开落到那一条 |
 | 3 | 新建一段对话 | `KIN-START-001` | Mac、手机 | 任一端写一句、选设备与项目、选好、开始 |
 | 4 | 看它改了什么 | `KIN-RESULT-001`、`KIN-RESULT-002`、`KIN-RESULT-003` | Mac、手机 | 看改了哪些文件、打开 diff、分享、逐行评论；在工作区读文件、预览自包含 HTML 并返回原对话 |
-| 5 | 整理对话与项目 | `KIN-MANAGE-001`、`KIN-PROJECT-001`、`KIN-PROJECT-002` | Mac、手机 | 改名、置顶、归档、删除；打开一个项目的封面，从那继续；看清并增删项目的工作目录 |
+| 5 | 整理对话与项目 | `KIN-MANAGE-001`、`KIN-PROJECT-001`、`KIN-PROJECT-002`、`KIN-PROJECT-003` | Mac、手机 | 改名、置顶、归档、删除；打开一个项目的封面，从那继续；看清并增删项目的工作目录；让每个新对话一开始就知道这里怎么干活 |
 | 6 | 设置与环境 | `KIN-SETTINGS-001`、`KIN-SETTINGS-002`、`KIN-AGENTS-001` | Mac、手机 | 改 agent、模型、设备、权限的默认值；看清这台机器的 agent 与用量；桌面壳升级 |
 | 7 | 让它按时跑 | `KIN-ROUTINE-001` | Mac、手机 | 把一件事存成机器上的例行任务，到点自己跑、跑完告诉你 |
 
@@ -70,6 +70,6 @@
 
 - `covered`（4 条，验收全绿、已交付）：`KIN-START-001`、`KIN-PROJECT-001`、`KIN-AGENTS-001`、`KIN-ROUTINE-001`。
 - `approved`（10 条，已签字、可开工）：`KIN-CONTINUE-001`、`KIN-CONTINUE-002`、`KIN-CONTINUE-003`、`KIN-NOTIFY-001`、`KIN-RESULT-001`、`KIN-RESULT-002`、`KIN-RESULT-003`、`KIN-MANAGE-001`、`KIN-SETTINGS-001`、`KIN-SETTINGS-002`。
-- `draft`（1 条，只写了合同与设计稿、等人签字）：`KIN-PROJECT-002`（2026-11-18 创建，P5 第一条）。
-- 设计页：15 条都有 `<编号>.review.html`；其中 14 条另有 `<编号>.figma/frames/`，`KIN-CONTINUE-001` 是旧格式，只有审阅页。
+- `draft`（2 条，只写了合同与设计稿、等人签字）：`KIN-PROJECT-002`（2026-11-18 创建，P5 第一条）、`KIN-PROJECT-003`（2026-11-18 创建，P5 第二条）。
+- 设计页：16 条都有 `<编号>.review.html`；其中 15 条另有 `<编号>.figma/frames/`，`KIN-CONTINUE-001` 是旧格式，只有审阅页。
 - 第七条意图「让它按时跑」已于 2026-11-11 签字，成为正式一条；签字页在 `KIN-ROUTINE-001.review.html` 的 D1。
