@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="10"/><rect width="1100" height="32" fill="#f0f0f0" rx="10"/><rect y="10" width="1100" height="22" fill="#f0f0f0"/>
+<line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/><text x="12" y="21" font-size="12" fill="#555">Mac 1100×760 · 工作目录 · 移除确认（KIN-PROJECT-002）</text><text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">后果写在行内，不删对话</text>
+<rect x="1" y="32" width="1098" height="728" fill="#f4f4f6"/><rect x="1" y="32" width="329" height="728" fill="#ececef"/><line x1="330" y1="32" x2="330" y2="760" stroke="#dddddd"/>
+<text x="358" y="96" font-size="22" fill="#b9b9c0" font-weight="600">alpha</text><rect x="292" y="92" width="620" height="576" rx="14" fill="#ffffff" stroke="#bdbdbd"/><rect x="292" y="92" width="620" height="44" rx="14" fill="#fafafa"/>
+<line x1="292" y1="136" x2="912" y2="136" stroke="#e3e3e3"/><text x="312" y="121" font-size="16" fill="#1a1a1a" font-weight="600">工作目录</text><text x="892" y="121" font-size="16" fill="#888" text-anchor="end">×</text>
+<rect x="312" y="156" width="580" height="58" rx="8" fill="#eef2ff" stroke="#c9d9ff"/><text x="326" y="180" font-size="12.5" fill="#1a1a1a" font-weight="600">/work/alpha</text><rect x="326" y="188" width="52" height="20" rx="10" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="352" y="202" font-size="10.5" fill="#1f6feb" text-anchor="middle">默认</text><rect x="312" y="222" width="580" height="58" rx="8" fill="#ffffff" stroke="#e3e3e3"/><text x="326" y="246" font-size="12.5" fill="#1a1a1a" font-weight="600">/work/alpha-config</text>
+<rect x="742" y="240" width="66" height="24" rx="12" fill="#ffffff" stroke="#1f6feb"/><text x="775" y="256" font-size="11" fill="#1f6feb" text-anchor="middle">设为默认</text><text x="876" y="256" font-size="11.5" fill="#b42318" text-anchor="end">移除</text>
+<!-- 被移除的行，处于确认状态 --><rect x="312" y="288" width="580" height="58" rx="8" fill="#fff1f0" stroke="#e6a6a0"/><text x="326" y="312" font-size="12.5" fill="#1a1a1a" font-weight="600">/work/shared-lib</text>
+<text x="876" y="322" font-size="11.5" fill="#b42318" text-anchor="end">待移除</text><!-- 行内确认条 -->
+<rect x="312" y="354" width="580" height="138" rx="10" fill="#fff1f0" stroke="#b42318"/><text x="328" y="380" font-size="12.5" fill="#b42318" font-weight="600">移除 /work/shared-lib？</text><text x="328" y="404" font-size="12" fill="#5c2b27">移除后，这个目录下的对话不再出现在这个项目下；</text>
+<text x="328" y="424" font-size="12" fill="#5c2b27">它们仍然在会话列表里。没有对话会被删除。</text><text x="328" y="450" font-size="11" fill="#8a4c46">项目记录、目录内容和对话本身都不受影响。</text><rect x="716" y="438" width="72" height="36" rx="9" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="752" y="461" font-size="12" fill="#444" text-anchor="middle">取消</text><rect x="798" y="438" width="78" height="36" rx="9" fill="#b42318"/><text x="837" y="461" font-size="12" fill="#ffffff" text-anchor="middle">移除</text>
+<text x="312" y="520" font-size="11" fill="#6b6b6b">移除最后一个目录时，另说一句：新对话将无处可落（「新建对话」会禁用），仍允许保存。</text><text x="312" y="542" font-size="11" fill="#6b6b6b">确认条出现时焦点在「取消」；Esc 取消并回到这一行的「移除」。</text><line x1="312" y1="584" x2="892" y2="584" stroke="#e3e3e3"/>
+<rect x="700" y="600" width="84" height="40" rx="10" fill="#ffffff" stroke="#bbbbbb"/><text x="742" y="625" font-size="12.5" fill="#444" text-anchor="middle">取消</text><rect x="796" y="600" width="96" height="40" rx="10" fill="#1f6feb"/>
+<text x="844" y="625" font-size="12.5" fill="#ffffff" text-anchor="middle">保存</text><text x="312" y="625" font-size="11" fill="#6b6b6b">确认后行从草稿消失；默认被移除时，新的第一行接任默认。</text>
+</g>
+</svg>
