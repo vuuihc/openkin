@@ -129,6 +129,40 @@ object expansion (session / role / prompt shortcut: needs its own story), the §
 security pass), reading a project's `AGENTS.md` / `CLAUDE.md` (filesystem, future story), and anything that
 would add a schema, a migration or a new endpoint.
 
+## Next phase (P7) — 手机上没被走查过的三件事
+<!-- next-phase: P7-phone-gestures target=2026-11-23T20:00 -->
+
+**Why this and not features.** P1–P6 proved the five flows on the Mac and most of the phone, but three pointer
+gestures a person uses every day at 390 have no walk at all — the edge swipe back, the row swipe and the
+long-press drag. The plan says it in as many words: `docs/plans/2026-11-14-ux-unification.md` §3 records that
+the walks never simulate pointer gestures ("walk 不模拟指针手势"), and the drag order that already shipped
+(#205) is proven by unit tests only. The file deep link has the same hole:
+`/tasks/:id?panel=files&file=<path>` exists and has DOM tests, but no walk opens it on the phone and presses
+Back, so a regression there is invisible to the gate. And the acceptance ledger underclaims:
+`docs/product/stories/COVERAGE.md` is 12 `approved` / 4 `covered`, while the merged J5/J2/J8 walks already
+assert three of those approved stories step by step. Closing these four gaps uses the walker and the throwaway
+daemon that already exist — no new product surface, no schema, no endpoint.
+
+**Done means** (throwaway daemon with the fake agent; each item names what proves it):
+1. The phone's three pointer gestures are walked at 390 with real pointer events (a new J12 — J9–J11 are
+   already the switch and notification walks): the edge swipe back follows the finger and returns to the
+   list with its search and scroll intact; a row swipe opens its actions and closes without navigating; a
+   long-press drag lifts the row, moves it, and the order survives a reload. A mutant that removes the
+   gesture handler turns J12 red, and any defect the walk exposes is fixed in the same delivery.
+2. KIN-RESULT-002's phone legs are walked: `/tasks/:id?panel=files&file=<path>` opens the source file,
+   preview / source switches, and Back returns to the list or conversation with the pane state intact; the
+   story flips to `covered` in `registry.json` with `COVERAGE.md` regenerated in the same PR.
+3. The stories a merged walk already proves flip to `covered`, each naming the walk step that asserts it:
+   KIN-MANAGE-001 (J5, the row-actions menu), KIN-RESULT-001 (J2/J8, the diff view) and KIN-RESULT-003
+   (J2/J8, the line comment sent back to the conversation). A flip with no walk step is refused.
+
+**Cut rule.** If item 1 is not green by the target, land it alone, keep 2–3 queued, and say so in the weekly
+retro. Do not extend the date.
+
+**Out of scope** — the parked rows stay parked on Ethan: F3 in-app PR writes (credential and permission
+model), the browser panel tab (Electron `webview` ADR), the agent catalog cut 74 → ≤10, and queue rows 9
+`R-steer-native`, 10 `R-queue-reorder`, 13 `R-routine-filter`, 15 `R-at-sessions`.
+
 ## Closed phase (P5) — projects you can manage, not just open
 <!-- closed-phase: P5-projects-manage target=2026-11-23T20:00 -->
 
