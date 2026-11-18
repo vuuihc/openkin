@@ -1,6 +1,6 @@
 # KIN-PROJECT-003 · 项目的工作说明：新对话一开始就知道这里怎么干活
 
-状态：draft
+状态：approved
 优先级：P1
 旅程：J4
 归属面：`IA.md`「项目」行（对话列表里的项目标题 → `/projects/:id` 封面上的「工作方式」块）
@@ -140,8 +140,9 @@
 ## 证据
 
 - 之前：`ONE_PAGER.md` 只有 North Star、Current Focus 与 Next 进入项目上下文（`internal/store/onepager.go:302-334`）；封面上没有工作说明块（`ui/src/pages/ProjectDetailPage.tsx:863` 起是摘要与最近活动）；`test ! -f docs/product/stories/KIN-PROJECT-003.md` 在本轮之前成立，`registry.json` 里没有这一条。
-- 之后：本轮只写合同，没有产品代码；交付时补测试、390/1100 截图与 `./scripts/check.sh` 结果。
+- 之后：2026-11-18 交付。`BuildContinuePrompt` 在 Current Focus 之后、Next 之前带出「工作方式」（至多 400 字，整段仍 ≤1200 字）；新项目模板含空的 `## 工作方式`；封面在「一句话摘要」与「最近活动」之间显示只读块与「让 Kin 改…」启动器。测试：`internal/store/onepager_test.go`、`internal/api/projects_test.go`、`ui/src/lib/projectInstructions.test.ts`、`ui/src/components/project/ProjectInstructionsBlock.dom.test.tsx`。真浏览器走查（第 7 步的 item 3）仍待 row 30。
 
 ## 变更记录
 
 - 2026-11-18 创建（P5 第二条故事；prompt-first：一段有界的 `ONE_PAGER.md` 章节 + 现有注入 + 只读封面块 + 对话式编辑；只写合同，不写代码；状态 draft，等 Ethan 签字）
+- 2026-11-18 交付（P6 item 1 + item 2）：Go digest 与模板、只读封面块、预填启动器、四个测试文件；390/1100 截图见 `rsi/state/shots/project-instructions-face/`。item 3 的真浏览器走查与 `approved`→`covered` 仍归 row 30。

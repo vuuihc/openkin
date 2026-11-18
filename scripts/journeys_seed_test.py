@@ -928,6 +928,40 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(len(self.task_posts()), len(CONVERSATIONS), result.stdout)
 
+    def test_alpha_has_two_roots_in_non_sorted_order(self) -> None:
+        """J4's reload proof needs a saved order that sorting would change.
+
+        The cover reads a project's folders in saved order (`ORDER BY rowid`),
+        and `TestProjectRootsKeepSavedOrder` pins the store. A fixture whose
+        saved order happens to be alphabetical cannot prove that: a store that
+        sorted would still walk green. Alpha keeps `alpha` first — J2 and J3
+        start their conversations there — and gains `aaa-config` second, which
+        sorts before it. The seed must post both, in that order, as one list.
+        """
+        alpha = next(spec for spec in journeys_seed.PROJECTS if spec[0] == "Project Alpha")
+        roots = alpha[3]
+        self.assertEqual(roots, ("alpha", "aaa-config"))
+        self.assertEqual(roots[0], "alpha", "J2/J3 assume Alpha's first root is alpha")
+        self.assertLess(roots[1], roots[0], "the second root must sort before the first")
+        for name, _mode, _slug, other_roots in journeys_seed.PROJECTS:
+            if name == "Project Alpha":
+                continue
+            self.assertEqual(len(other_roots), 1, name)
+
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        posts = [
+            json.loads(raw or b"{}")
+            for method, path, raw in self.stub.requests
+            if method == "POST" and path == "/api/projects"
+        ]
+        posted = next(post for post in posts if post.get("name") == "[seed] Project Alpha")
+        self.assertEqual(
+            [os.path.basename(root) for root in posted["roots"]],
+            ["alpha", "aaa-config"],
+            posted,
+        )
+
     def test_created_report_lists_fixtures(self) -> None:
         result = self.run_seed()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -1002,7 +1036,13 @@ class HarnessContractTest(unittest.TestCase):
         base = journeys_seed._seed_roots()
         self.addCleanup(shutil.rmtree, base, True)
         self.assertTrue(os.path.basename(base).startswith("kin-journeys-seed-"), base)
-        for name in ("alpha", "beta", "gamma"):
+        # Every root the projects declare, not a hand-kept list: a root the
+        # seed names to the daemon but never creates is a picker row that
+        # cannot be opened.
+        self.assertEqual(
+            journeys_seed.SEED_ROOT_NAMES, ("alpha", "aaa-config", "beta", "gamma")
+        )
+        for name in journeys_seed.SEED_ROOT_NAMES:
             root = os.path.join(base, name)
             top = git(root, "rev-parse", "--show-toplevel")
             self.assertEqual(top.returncode, 0, top.stderr)

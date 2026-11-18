@@ -41,6 +41,11 @@ func DefaultOnePagerMarkdown(name, mode string) string {
 	b.WriteString("## Current Focus\n")
 	b.WriteString("当下唯一主线（越短越好）。\n\n")
 
+	// KIN-PROJECT-003: a bounded place for how work happens here. It starts
+	// empty on purpose: a hint sentence would be read as content by the digest
+	// and by the cover, and this section belongs to the user.
+	b.WriteString("## 工作方式\n\n")
+
 	switch mode {
 	case ProjectModeShip:
 		b.WriteString("## 完成定义（Demo）\n")
@@ -313,6 +318,12 @@ func BuildContinuePrompt(projectName, mode, onePagerMarkdown, userPrompt string)
 	}
 	if summary.Focus != "" {
 		fmt.Fprintf(&b, "Current Focus: %s\n", summary.Focus)
+	}
+	// Keep the section's own line breaks: a build command, a generated-file
+	// warning and a reading list are not one sentence. The outer 1200-rune
+	// budget below still bounds the whole context.
+	if w := sectionPick(ParseOnePagerSections(onePagerMarkdown), "工作方式", "How to work here", "Instructions"); w != "" && !isPlaceholderText(w) {
+		fmt.Fprintf(&b, "How to work here:\n%s\n", trimRunes(w, 400))
 	}
 	if len(summary.Next) > 0 {
 		b.WriteString("Next:\n")

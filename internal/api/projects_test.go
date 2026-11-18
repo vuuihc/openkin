@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/task"
 )
 
 func TestProjectsOnePagerCRUD(t *testing.T) {
@@ -314,4 +320,94 @@ func TestFindProjectByRootIncludesSummary(t *testing.T) {
 	if sum["focus"] == "" && sum["north_star"] == "" {
 		t.Fatalf("empty summary fields: %v", sum)
 	}
+}
+
+// authContextForTest runs the real auth middleware and hands back the request
+// context it built. It is how a test gets a principal without exporting the
+// context key from internal/remote.
+func authContextForTest(t *testing.T, s *Server, configure func(*http.Request)) context.Context {
+	t.Helper()
+	var ctx context.Context
+	h := s.Auth.Middleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		ctx = r.Context()
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	configure(req)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	if ctx == nil {
+		t.Fatal("auth middleware stored no principal")
+	}
+	return ctx
+}
+
+// KIN-PROJECT-003: the work-instructions section travels with the rest of the
+// project digest, and only for a caller who acts for the machine's holder.
+func TestPrepareTaskCreateInjectsWorkInstructions(t *testing.T) {
+	s, token := newTestServer(t)
+	dir := t.TempDir()
+	s.ProjectsDir = dir
+
+	rel := filepath.Join("proj-work", "ONE_PAGER.md")
+	abs := filepath.Join(dir, rel)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	md := "# Demo\n\n## Current Focus\nship\n\n## 工作方式\n先跑 make test\n不要手改 generated/\n"
+	if err := os.WriteFile(abs, []byte(md), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	if err := s.Store.InsertProject(context.Background(), store.Project{
+		ID:           "proj-work",
+		Name:         "Demo",
+		Mode:         store.ProjectModeShip,
+		Status:       store.ProjectActive,
+		OnePagerRel:  rel,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+		LastActiveAt: now,
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	holderCtx := authContextForTest(t, s, func(req *http.Request) {
+		req.Header.Set("Authorization", "Bearer "+token)
+	})
+
+	t.Run("KIN-PROJECT-003: the holder's task prompt carries the section", func(t *testing.T) {
+		req := &task.CreateRequest{Prompt: "add a test", ProjectID: "proj-work"}
+		PrepareTaskCreate(holderCtx, s.Store, dir, req)
+		if !strings.Contains(req.Prompt, "How to work here:\n先跑 make test\n不要手改 generated/") {
+			t.Fatalf("work instructions missing: %q", req.Prompt)
+		}
+		if req.UserPrompt != "add a test" {
+			t.Fatalf("user prompt = %q", req.UserPrompt)
+		}
+	})
+
+	t.Run("KIN-PROJECT-003: a member's task prompt does not carry it", func(t *testing.T) {
+		s.Auth.SetSessionLookup(func(_ context.Context, session string) (remote.Principal, bool) {
+			if session != "member-session" {
+				return remote.Principal{}, false
+			}
+			return remote.Principal{Kind: remote.PrincipalUser, UserID: "user-member"}, true
+		})
+		memberCtx := authContextForTest(t, s, func(req *http.Request) {
+			req.AddCookie(&http.Cookie{Name: remote.SessionCookieName, Value: "member-session"})
+		})
+		req := &task.CreateRequest{Prompt: "add a test", ProjectID: "proj-work"}
+		PrepareTaskCreate(memberCtx, s.Store, dir, req)
+		if req.Prompt != "add a test" {
+			t.Fatalf("member prompt was rewritten: %q", req.Prompt)
+		}
+	})
+
+	t.Run("KIN-PROJECT-003: a prompt that already carries project context is not injected twice", func(t *testing.T) {
+		already := "[Project context — living cover digest; user owns goals]\n---\nadd a test"
+		req := &task.CreateRequest{Prompt: already, ProjectID: "proj-work"}
+		PrepareTaskCreate(holderCtx, s.Store, dir, req)
+		if req.Prompt != already {
+			t.Fatalf("prompt was injected twice: %q", req.Prompt)
+		}
+	})
 }
