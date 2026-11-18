@@ -2,7 +2,7 @@
 # walk-mutant-test.sh — the one-command red proof for the walk contracts (R-walk-mutant, R-walk-tap-j7).
 #
 #   bash rsi/runtime/ux/walk-mutant-test.sh                    # apply every committed mutant, require red, restore
-#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J7|J2] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
+#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J7|J2|J8] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
 #   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest
 #
 # J3 has two contracts. One: pressing Start on /new must keep the typed message
@@ -46,6 +46,13 @@
 # --walk-once J2 prints red. The same mutant also reddens
 # diffCommentAnchor.test.ts, which is expected: --walk-once only runs the walk.
 #
+# J8: the same loop with a thumb. The phone journey taps the changed line's
+# glyph (no Alt+C), taps the tray's Send (no Meta+Enter), and must read the
+# sheet, the one-row tray and the anchored follow-up at 390. --walk-once J8
+# builds the UI, walks only J8 at the phone viewport, and reuses the J2 read:
+# sheet -> tray -> sent in order, count = 1, notes.md + @@ in the transcript,
+# and the tray gone afterwards.
+#
 # Deliberately not wired into ux-gate.sh: the proof builds the UI twice (once
 # for the mutant, once restored), which is too heavy for every PR. This is a
 # one-command verification to run when a journey or its walk changes.
@@ -70,8 +77,8 @@ case "${1:-}" in
   --walk-once)
     JOURNEY="${2:-J3}"
     case "$JOURNEY" in
-      J3|J7|J2) ;;
-      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J7 or J2" ;;
+      J3|J7|J2|J8) ;;
+      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J7, J2 or J8" ;;
     esac
     ;;
   "")
@@ -161,62 +168,66 @@ PY
   exit $?
 fi
 
-if [ "$JOURNEY" = "J2" ]; then
-  bash rsi/runtime/ux-walk.sh "$WT" "$OUT" J2 >"$OUT/ux-walk.log" 2>&1
-  rc=$?
-  if [ "$rc" -eq 2 ]; then
-    unavailable "$(cat "$OUT/UNAVAILABLE" 2>/dev/null || tail -c 300 "$OUT/ux-walk.log")"
-  fi
-  [ "$rc" -eq 0 ] || unavailable "ux-walk.sh exited $rc: $(tail -c 300 "$OUT/ux-walk.log")"
-  [ -s "$OUT/walk.json" ] || unavailable "the walker wrote no walk.json"
-
-  python3 - "$OUT/walk.json" <<'PY'
+# The review loop's proof, shared by J2 (Mac, both widths, keyboard entry) and
+# J8 (phone, glyph tap). One reader, so a later edit cannot let the phone walk
+# pass on a weaker check than the Mac one. $1 journey, $2 the entry shot name
+# (J2's box / J8's sheet), $3.. the viewports that must each show the loop.
+read_review_walk() {
+  python3 - "$OUT/walk.json" "$@" <<'PY'
 import json
 import re
 import sys
 
 walk = json.load(open(sys.argv[1], encoding="utf-8"))
-screens = [s for s in walk.get("screens", []) if s.get("journey") == "J2"]
+journey, entry_shot = sys.argv[2], sys.argv[3]
+viewports = sys.argv[4:]
+screens = [s for s in walk.get("screens", []) if s.get("journey") == journey]
 names = [str(s.get("name", "")) for s in screens]
 skips = [n for n in names if "-skipped-" in n]
 if skips:
     # No seeded conversation or diff: the review loop proves nothing on a page
     # that never had a changed line. Fail closed as "could not run".
-    print("UNAVAILABLE: J2 was skipped (" + ", ".join(skips[:2]) + ")")
+    print("UNAVAILABLE: %s was skipped (%s)" % (journey, ", ".join(skips[:2])))
     sys.exit(2)
 
-hard = [f for f in walk.get("hardFail", []) if str(f).startswith("J2/")]
-print("J2 screens: " + (", ".join(names) or "none"))
+# The walker writes two hardFail shapes: step failures as `<journey>/<vp>: …`
+# and screenshot-lint failures as `<journey>-<vp>-<n>-<shot>: …`. Both are this
+# journey's: a phone overflow at 390 is exactly what J8 exists to catch, and a
+# filter that only took the first shape would print green over it.
+hard = [f for f in walk.get("hardFail", [])
+        if str(f).startswith(journey + "/") or str(f).startswith(journey + "-")]
+print("%s screens: %s" % (journey, ", ".join(names) or "none"))
 for f in hard:
-    print("J2 hardFail: " + str(f))
+    print("%s hardFail: %s" % (journey, f))
 if hard:
-    print("walk-mutant: J2 red: %d hard failure(s)" % len(hard))
+    print("walk-mutant: %s red: %d hard failure(s)" % (journey, len(hard)))
     sys.exit(1)
 
-# Per viewport, the review loop in the order a person runs it: the box open,
-# the tray holding the saved comment, then the sent follow-up.
+# Per viewport, the review loop in the order a person runs it: the box/sheet
+# open, the tray holding the saved comment, then the sent follow-up.
 shots = {}
 for i, name in enumerate(names):
-    m = re.match(r"^J2-(.+?)-\d+-(.+)$", name)
+    m = re.match(r"^%s-(.+?)-\d+-(.+)$" % re.escape(journey), name)
     if m:
         shots.setdefault(m.group(1), []).append((i, m.group(2)))
 missing = []
-for vp in ("mac", "mac-wide"):
+for vp in viewports:
     seq = shots.get(vp, [])
-    box = [i for i, shot in seq if shot == "diff-comment-box"]
+    entry = [i for i, shot in seq if shot == entry_shot]
     tray = [i for i, shot in seq if shot == "diff-comment-tray"]
     sent = [i for i, shot in seq if shot == "diff-comment-sent"]
-    if not box or not tray or not sent or not (min(box) < min(tray) < min(sent)):
+    if not entry or not tray or not sent or not (min(entry) < min(tray) < min(sent)):
         missing.append(vp)
 if missing:
-    print("walk-mutant: J2 red: no diff-comment-box -> diff-comment-tray -> diff-comment-sent order at " + ", ".join(missing))
+    print("walk-mutant: %s red: no %s -> diff-comment-tray -> diff-comment-sent order at %s"
+          % (journey, entry_shot, ", ".join(missing)))
     sys.exit(1)
 
 # The screenshots are only evidence if the walk actually read the loop: one
 # saved row, the anchor in the transcript, and an emptied tray after the send.
 unread = []
-for vp in ("mac", "mac-wide"):
-    mine = [s for s in screens if s["name"].startswith(f"J2-{vp}-") and s["name"].endswith("-diff-comment-sent")]
+for vp in viewports:
+    mine = [s for s in screens if s["name"].startswith("%s-%s-" % (journey, vp)) and s["name"].endswith("-diff-comment-sent")]
     notes = mine[-1].get("notes", []) if mine else []
     counted = any(str(n).startswith("count ") and str(n).endswith("= 1") for n in notes)
     anchored = any(str(n).startswith("waited for css=[role=region]") and "notes.md" in str(n) and "@@" in str(n) for n in notes)
@@ -224,10 +235,28 @@ for vp in ("mac", "mac-wide"):
     if not (counted and anchored and emptied):
         unread.append(vp)
 if unread:
-    print("walk-mutant: J2 red: the tray row, anchored transcript or emptied tray was not read at " + ", ".join(unread))
+    print("walk-mutant: %s red: the tray row, anchored transcript or emptied tray was not read at %s"
+          % (journey, ", ".join(unread)))
     sys.exit(1)
-print("walk-mutant: J2 green: comment -> tray -> anchored follow-up -> empty tray at both viewports")
+print("walk-mutant: %s green: comment -> tray -> anchored follow-up -> empty tray at %s"
+      % (journey, "the phone width" if viewports == ["phone"] else "both viewports"))
 PY
+}
+
+if [ "$JOURNEY" = "J2" ] || [ "$JOURNEY" = "J8" ]; then
+  bash rsi/runtime/ux-walk.sh "$WT" "$OUT" "$JOURNEY" >"$OUT/ux-walk.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    unavailable "$(cat "$OUT/UNAVAILABLE" 2>/dev/null || tail -c 300 "$OUT/ux-walk.log")"
+  fi
+  [ "$rc" -eq 0 ] || unavailable "ux-walk.sh exited $rc: $(tail -c 300 "$OUT/ux-walk.log")"
+  [ -s "$OUT/walk.json" ] || unavailable "the walker wrote no walk.json"
+
+  if [ "$JOURNEY" = "J8" ]; then
+    read_review_walk J8 diff-comment-sheet phone
+  else
+    read_review_walk J2 diff-comment-box mac mac-wide
+  fi
   exit $?
 fi
 

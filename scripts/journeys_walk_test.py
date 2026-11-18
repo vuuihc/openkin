@@ -5,9 +5,10 @@ Run directly: `python3 -B scripts/journeys_walk_test.py`. Pure: fixture
 seed.log and spec files, no browser, no daemon, no network. The walker's
 `--resolve-j1` / `--resolve-j7` modes run the same read/apply functions the
 real walk uses, so a green case here is the resolution that walk would take.
-`--check-spec` runs the J2 review-loop and J3 send contracts through the same
-parser, so a spec that regressed to photographing the diff, or to merely
-asserting Start is usable, fails before a browser starts.
+`--check-spec` runs the J2 review-loop, J3 send and J8 phone-tap contracts
+through the same parser, so a spec that regressed to photographing the diff, to
+merely asserting Start is usable, or to pressing a desktop chord on the phone,
+fails before a browser starts.
 """
 
 from __future__ import annotations
@@ -451,6 +452,220 @@ class WalkJ2ContractTest(unittest.TestCase):
         code, out = self.check(self.copy_with(drop_send))
         self.assertEqual(code, 1, out)
         self.assertIn("send", out.lower())
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class WalkJ8ContractTest(unittest.TestCase):
+    """J8 must walk the review loop the way a thumb does, at 390 only.
+
+    J2 proves the same loop from the keyboard (⌥C, ⌘Enter), which a phone does
+    not have. J8 is its own journey so the phone path is a contract: tap the
+    changed line's glyph, write in the sheet, Save, read the tray's one row,
+    tap Send, and find the anchored follow-up in the transcript. Same shape as
+    WalkJ2ContractTest: the checked-in spec passes the walker's own contract
+    check, and a copy that regresses one phone rule at a time fails with a
+    message naming that rule.
+    """
+
+    BODY = "手机上把这一行改成一句总结。[{vp}]"
+    QUOTE = "- [seed] change: the journey walk reads this line as a real diff."
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j8-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J8"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    def copy_spec_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec)
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred) -> int:
+        return next(i for i, step in enumerate(steps) if pred(step))
+
+    @staticmethod
+    def is_send(step: list) -> bool:
+        return (
+            step[0] == "click"
+            and ("改动评论" in str(step[1]) or "Diff comments" in str(step[1]))
+            and ("发送" in str(step[1]) or "Send" in str(step[1]))
+        )
+
+    def test_j8_walks_the_phone_review_loop(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J8", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        journey = spec["journeys"]["J8"]
+        steps = journey["steps"]
+        self.assertEqual(journey["viewports"], ["phone"])
+        # The entry is the tap a thumb makes on the changed line, never the
+        # desktop chord: a phone has no Alt+C.
+        opened = self.at(
+            steps,
+            lambda step: step[0] == "click" and ".kin-diff-comment-glyph" in str(step[1]),
+        )
+        self.assertGreater(opened, 0, steps)
+        self.assertIn("nth=", str(steps[opened][1]))
+        self.assertFalse(
+            [step for step in steps if step[0] == "key" and re.search(r"Alt\+.*C", str(step[1]), re.I)],
+            steps,
+        )
+        names = [step[1] for step in steps if step[0] == "shot"]
+        self.assertLess(names.index("diff-comment-sheet"), names.index("diff-comment-tray"), names)
+        self.assertLess(names.index("diff-comment-tray"), names.index("diff-comment-sent"), names)
+        # The transcript assertion carries the whole anchor, not the words.
+        transcript = next(
+            step[1]
+            for step in steps
+            if step[0] == "wait" and "[role=region]" in str(step[1]) and "notes.md:5" in str(step[1])
+        )
+        self.assertIn(self.BODY, transcript)
+        self.assertIn("@@ ", transcript)
+        self.assertIn(self.QUOTE, transcript)
+        # A changes row under the workspace panel must select J8, or a diff
+        # there never walks the phone loop.
+        self.assertIsNotNone(
+            next(
+                (row for row in spec["paths"]
+                 if "ui/src/components/workspace/" in row[0] and "J8" in row[1]),
+                None,
+            )
+        )
+
+    def test_j8_contract_rejects_a_desktop_viewport(self) -> None:
+        # J2 already walks the Mac keyboard path; a J8 that also walks mac
+        # would replay the chords and prove nothing about the tap.
+        def add_mac(journey: dict) -> None:
+            journey["viewports"] = ["phone", "mac"]
+
+        code, out = self.check(self.copy_with(add_mac))
+        self.assertEqual(code, 1, out)
+        self.assertIn('viewports must be exactly ["phone"]', out)
+
+    def test_j8_contract_rejects_a_keyboard_opener(self) -> None:
+        # Today's desktop shape: Alt+C on the cursor line. At 390 that proves
+        # the keyboard, not the glyph a thumb has to hit.
+        def key_opener(journey: dict) -> None:
+            steps = journey["steps"]
+            at = self.at(
+                steps,
+                lambda step: step[0] == "click" and ".kin-diff-comment-glyph" in str(step[1]),
+            )
+            steps[at] = ["key", "Alt+KeyC"]
+
+        code, out = self.check(self.copy_with(key_opener))
+        self.assertEqual(code, 1, out)
+        self.assertIn("tap on the changed line's glyph", out)
+
+    def test_j8_contract_rejects_an_unpinned_glyph_tap(self) -> None:
+        # A tap that names no line, or that is optional, walks on when it
+        # resolves to nothing and fails at the tray or the transcript — two
+        # steps away from the tap that missed.
+        def mutate_tap(prefix: str) -> None:
+            def mutate(journey: dict) -> None:
+                steps = journey["steps"]
+                at = self.at(
+                    steps,
+                    lambda step: step[0] == "click" and ".kin-diff-comment-glyph" in str(step[1]),
+                )
+                steps[at][1] = prefix
+
+            code, out = self.check(self.copy_with(mutate))
+            self.assertEqual(code, 1, out)
+            self.assertIn("without pinning a line", out)
+
+        mutate_tap("css=.kin-diff-comment-glyph")
+        mutate_tap("?css=.kin-diff-comment-glyph >> nth=4")
+
+    def test_j8_contract_rejects_an_unanchored_transcript_assertion(self) -> None:
+        # The mutant's shape: the comment arrives with its words but no
+        # path/hunk/quote. A body-only wait must not satisfy the contract.
+        def body_only(journey: dict) -> None:
+            steps = journey["steps"]
+            at = self.at(
+                steps,
+                lambda step: step[0] == "wait"
+                and "[role=region]" in str(step[1])
+                and "notes.md:5" in str(step[1]),
+            )
+            steps[at] = [
+                "wait",
+                "css=[role=region][tabindex='-1']:has-text('%s')" % self.BODY,
+            ]
+
+        code, out = self.check(self.copy_with(body_only))
+        self.assertEqual(code, 1, out)
+        self.assertIn("path, hunk header and quote", out)
+
+    def test_j8_contract_rejects_a_key_only_send(self) -> None:
+        # The tray's ⌘Enter is the desktop press; a thumb has only the button.
+        def key_only_send(journey: dict) -> None:
+            steps = journey["steps"]
+            at = self.at(steps, self.is_send)
+            steps[at : at + 1] = [["focus", steps[at][1]], ["key", "Meta+Enter"]]
+
+        code, out = self.check(self.copy_with(key_only_send))
+        self.assertEqual(code, 1, out)
+        self.assertIn("never taps the tray's send", out)
+
+        # Deleting the press but keeping the transcript wait would prove only
+        # that the words are somewhere on the page.
+        def drop_send(journey: dict) -> None:
+            journey["steps"].pop(self.at(journey["steps"], self.is_send))
+
+        code, out = self.check(self.copy_with(drop_send))
+        self.assertEqual(code, 1, out)
+        self.assertIn("never taps the tray's send", out)
+
+    def test_j8_contract_rejects_a_send_before_the_tray_row(self) -> None:
+        # Sending before the saved comment is in the tray would send an empty
+        # tray (or the wrong row) and leave the transcript wait to match the
+        # words from somewhere else.
+        def early_send(journey: dict) -> None:
+            steps = journey["steps"]
+            send = steps.pop(self.at(steps, self.is_send))
+            save = self.at(steps, lambda step: step[0] == "click" and "保存" in str(step[1]))
+            steps.insert(save + 1, send)
+
+        code, out = self.check(self.copy_with(early_send))
+        self.assertEqual(code, 1, out)
+        self.assertIn("before it holds the saved comment", out)
+
+    def test_j8_contract_requires_the_workspace_paths_row(self) -> None:
+        # A workspace diff that no longer selects J8 would let the phone loop
+        # rot without the gate walking it.
+        def drop_workspace_row(spec: dict) -> None:
+            for row in spec["paths"]:
+                if "ui/src/components/workspace/" in row[0]:
+                    row[1] = [journey for journey in row[1] if journey != "J8"]
+
+        code, out = self.check(self.copy_spec_with(drop_workspace_row))
+        self.assertEqual(code, 1, out)
+        self.assertIn("paths table", out)
 
 
 @unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
