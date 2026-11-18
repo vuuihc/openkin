@@ -202,6 +202,25 @@ out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)
 grep -q 'detach=1' "$STATE/releases.log" || fail "release must pass KIN_REBUILD_DETACH=1 to the node rebuild"
 pass "release: the node rebuild is asked to detach"
 
+# (e) A fetch that fails must stop before anything is rebuilt. On 2026-11-18 19:51 a
+#     transient github.com SSL error made release.sh log an empty SHA, rebuild and restart
+#     the live node, and only then abort at the Hub with `git archive ""`, leaving a
+#     `node=` line with no SHA in the marker.
+start_node '[]'
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+git -C "$SECOND" reset -q --hard "$BASE2"
+git -C "$SECOND" remote set-url origin "$T/no-such-remote"
+RAN="$T/node-ran"; rm -f "$RAN"
+STUB2="$T/node-cmd-nofetch.sh"; printf '#!/bin/bash\ntouch %s\n' "$RAN" > "$STUB2"; chmod +x "$STUB2"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD="$STUB2" bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+[ "$rc" = 1 ] || { printf '%s\n' "$out" >&2; fail "release: a failed fetch must abort (got exit $rc)"; }
+grep -qi 'fetch origin main failed' <<<"$out" || fail "release: the abort did not name the failed fetch"
+[ -e "$RAN" ] && fail "release: the node was rebuilt after a failed fetch"
+grep -q "^node=$ROOT$" "$STATE/last_release" || fail "release: a failed fetch moved the node marker"
+pass "release: a failed fetch stops before the node rebuild (marker untouched)"
+git -C "$SECOND" remote set-url origin "$REPO"
+
 # 9b. A second release on the same checkout must not keep stacking merge commits, and
 #     the script must carry its own KIN_API default: `set -u` turns a missing one into an
 #     abort *after* the node rebuild, which no hermetic case can reach (the real node owns
