@@ -102,6 +102,15 @@ elif ! $git -C "$REPO" merge --ff-only -q origin/main; then
   fi
 fi
 
+# The integration above can bring a newer origin/main than the SHA captured before it. The
+# node builds HEAD and the Hub archives a commit, so from here on record and ship HEAD.
+PRE_SHA="$SHA"
+SHA="$($git -C "$REPO" rev-parse HEAD)"
+case "$SHA" in ''|*[!0-9a-f]*) die "cannot read the shipped commit in $REPO; nothing shipped";; esac
+[ "${#SHA}" -eq 40 ] || die "HEAD is not a full SHA ('$SHA') in $REPO; nothing shipped"
+SHORT="$(printf '%s' "$SHA" | cut -c1-8)"
+[ "$SHA" = "$PRE_SHA" ] || say "origin/main moved mid-release; shipping $SHORT (pre-flight ${PRE_SHA:0:8})"
+
 mark() { # mark <target> — record this SHA as released for one target, keeping the other.
   local t="$1" other="" tmp
   [ "$t" = node ] && other="$(sed -n 's/^hub=//p' "$STATE/last_release" 2>/dev/null | head -1)"

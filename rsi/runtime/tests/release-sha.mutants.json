@@ -1,0 +1,16 @@
+[
+  {
+    "label": "no recompute after integration",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "# The integration above can bring a newer origin/main than the SHA captured before it. The\n# node builds HEAD and the Hub archives a commit, so from here on record and ship HEAD.\nPRE_SHA=\"$SHA\"\nSHA=\"$($git -C \"$REPO\" rev-parse HEAD)\"\ncase \"$SHA\" in ''|*[!0-9a-f]*) die \"cannot read the shipped commit in $REPO; nothing shipped\";; esac\n[ \"${#SHA}\" -eq 40 ] || die \"HEAD is not a full SHA ('$SHA') in $REPO; nothing shipped\"\nSHORT=\"$(printf '%s' \"$SHA\" | cut -c1-8)\"\n[ \"$SHA\" = \"$PRE_SHA\" ] || say \"origin/main moved mid-release; shipping $SHORT (pre-flight ${PRE_SHA:0:8})\"\n",
+    "new": "# mutant: no recompute"
+  },
+  {
+    "label": "no pre-flight fetch guard",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "case \"$SHA\" in ''|*[!0-9a-f]*) die \"git fetch origin main failed in $REPO; nothing shipped\";; esac\n[ \"${#SHA}\" -eq 40 ] || die \"origin/main is not a full SHA ('$SHA') in $REPO; nothing shipped\"\n",
+    "new": "# mutant: no fetch-failure guard"
+  }
+]
