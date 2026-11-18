@@ -4,7 +4,7 @@
 //   node walk.mjs --resolve-j1 DIR/seed.log [--spec path/to/journeys.json]   (print the J1 approve/deny URLs or skip; no browser)
 //   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
 //   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
-//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J3's send + mid-run follow-up contract and J7's landing contract; no browser)
+//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J2/J8's review loop, J3's send + mid-run follow-up, and J7's landing contract; no browser)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
 // Exit 0 always when the walk ran (verdicts are the reviewer's and walk.json's `hardFail`); exit 2 when it could not run (no chrome, daemon unreachable).
 import { createRequire } from 'node:module';
@@ -145,6 +145,504 @@ function checkJ3Contract(spec) {
   }
   return errs;
 }
+// J2's contract: the review loop a person runs, not a screenshot of it. A
+// comment on a changed line is saved into the tray and sent as one ordinary
+// follow-up; the transcript must carry the anchor — path, hunk header and the
+// quoted line — not only the words. The quote is the exact line the journey
+// fake appends to the seeded notes.md; pinning it here (as J3 pins the fake
+// reply) is what lets a body-only assertion be rejected.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+const J2_QUOTE = '- [seed] change: the journey walk reads this line as a real diff.';
+function checkJ2Contract(spec) {
+  const steps = (((spec || {}).journeys || {}).J2 || {}).steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J2 has no steps'];
+  const errs = [];
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  // Strictly after `prev`: a rule that silently searches from 0 would accept
+  // the step it depends on being absent.
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const cssWait = (st, re) => st[0] === 'wait' && /^css=/.test(sel(st, 1)) && re.test(sel(st, 1));
+  const traySel = (st, i = 1) => /改动评论|Diff comments/.test(sel(st, i));
+
+  // The seeded diff must be open before a changed line is commented: the file
+  // click, then Monaco's diff editor. A comment box opened on whatever was
+  // mounted (the file list, another file) proves nothing about the diff.
+  const notesAt = idx((st) => st[0] === 'click' && /notes\.md/.test(sel(st, 1))
+    && !/评论|Comment on/.test(sel(st, 1)) && !/改动评论|Diff comments/.test(sel(st, 1)));
+  const diffWaitAt = idx((st) => cssWait(st, /monaco-diff-editor/));
+  if (notesAt < 0) errs.push('J2 never opens the seeded changed file (click notes.md)');
+  if (diffWaitAt < 0) errs.push('J2 never waits for the diff editor (wait css=.monaco-diff-editor)');
+
+  // The entry is the changed line's own: Alt+C on the cursor line, or the
+  // line's glyph. The box wait names the path, so a box opened elsewhere
+  // cannot stand in.
+  const openAt = idx((st) => (st[0] === 'key' && /Alt\+.*C/i.test(sel(st, 1)))
+    || (st[0] === 'click' && /kin-diff-comment-glyph/.test(sel(st, 1))));
+  if (openAt < 0) errs.push('J2 never opens the comment box on a changed line (key Alt+C, or click .kin-diff-comment-glyph)');
+  else if (notesAt >= 0 && openAt < notesAt) errs.push('J2 opens the comment box before the seeded file is open');
+  if (openAt >= 0 && diffWaitAt >= 0 && openAt < diffWaitAt) errs.push('J2 opens the comment box before the diff is open');
+  const boxAt = idx((st) => cssWait(st, /section\[aria-label/) && /notes\.md/.test(sel(st, 1)) && /aria-label\^=/.test(sel(st, 1)));
+  if (boxAt < 0) errs.push('J2 never waits for the comment box naming notes.md (section[aria-label^=…])');
+  else if (openAt >= 0 && boxAt < openAt) errs.push('J2 waits for the comment box before opening it');
+
+  // The person's words, typed into the box itself, then saved into the tray.
+  const fillAt = idx((st) => st[0] === 'fill' && /textarea/.test(sel(st, 1)) && /aria-label/.test(sel(st, 1))
+    && typeof st[2] === 'string' && st[2].trim() !== '');
+  const body = fillAt >= 0 ? String(steps[fillAt][2]) : '';
+  if (fillAt < 0) errs.push('J2 never types the comment into the box textarea');
+  else if (boxAt >= 0 && fillAt < boxAt) errs.push('J2 fills the comment before the box is on screen');
+  const saveAt = after(fillAt, (st) => st[0] === 'click' && /保存|Save/.test(sel(st, 1)));
+  if (saveAt < 0) errs.push('J2 never saves the comment (click Save) after typing it');
+
+  // Saved means one row in the tray, carrying both the path and the line's
+  // own text — not a count of text that happens to appear somewhere.
+  const trayWaitAt = after(saveAt, (st) => cssWait(st, /li:has-text/) && traySel(st) && /notes\.md/.test(sel(st, 1)) && sel(st, 1).includes(J2_QUOTE));
+  if (trayWaitAt < 0) errs.push('J2 never waits for the tray row naming notes.md and the quoted changed line');
+  const countAt = after(trayWaitAt, (st) => st[0] === 'count' && traySel(st) && String(st[2]) === '1');
+  if (countAt < 0) errs.push('J2 never asserts the tray holds exactly one comment (count … 1)');
+
+  // The press itself, after the row is read: the tray's send button, or the
+  // tray's documented ⌘/Ctrl+Enter on a focused row (the seeded pending
+  // approval floats over the button at Mac widths, and the keyboard path is
+  // the same send()).
+  const clickSendAt = after(countAt, (st) => st[0] === 'click' && traySel(st) && /发送|Send/.test(sel(st, 1)));
+  const rowFocusAt = after(countAt, (st) => st[0] === 'focus' && traySel(st));
+  const keySendAt = after(rowFocusAt, (st) => st[0] === 'key' && /(Meta|Ctrl|Control)\+Enter/i.test(sel(st, 1)));
+  const sendAt = clickSendAt >= 0 ? clickSendAt : keySendAt;
+  if (sendAt < 0) errs.push('J2 never sends the tray (click the send button, or focus a row and press Meta/Ctrl+Enter); a transcript assertion without the send proves nothing');
+
+  // The transcript must carry the whole anchor. Counting the comment body
+  // alone is the mutant's shape: the words arrive, the path/hunk/quote are
+  // gone, and a reviewer can no longer tell what was commented.
+  const transcriptAt = after(sendAt, (st) => st[0] === 'wait' && /^css=/.test(sel(st, 1)) && /\[role=.?region/.test(sel(st, 1))
+    && body !== '' && sel(st, 1).includes(body)
+    && /notes\.md/.test(sel(st, 1))
+    && /@@\s*-\d+,\d+\s*\+\d+,\d+\s*@@/.test(sel(st, 1))
+    && sel(st, 1).includes(J2_QUOTE));
+  if (transcriptAt < 0) {
+    errs.push('J2 never asserts the sent follow-up carries the path, hunk header and quote in the transcript');
+  }
+  // Both widths walk the same seeded conversation against one daemon. A body
+  // shared across viewports lets the second width's transcript wait be
+  // satisfied by the first width's message, so the second send is unproven;
+  // the body carries {vp}, and no substituted body may be a substring of
+  // another's (plain `mac` is inside `mac-wide`, so the token is bracketed).
+  const viewports = (((spec || {}).journeys || {}).J2 || {}).viewports;
+  const sentBodies = Array.isArray(viewports) ? viewports.map((vp) => applyVpStep([body], vp)[0]) : [];
+  if (body === '' || !body.includes('{vp}')) {
+    errs.push('J2 types one comment body at every viewport; put a {vp} token in the body and the transcript wait so each width proves its own send');
+  } else if (sentBodies.some((mine, i) => sentBodies.some((other, k) => i !== k && other.includes(mine)))) {
+    errs.push('J2\'s {vp} token leaves one viewport\'s comment body inside another\'s; bracket it, e.g. [{vp}]');
+  }
+  // The loop closes: the tray is empty again (or says it was sent), otherwise
+  // the send is unproven and the comments are still waiting.
+  const goneAt = after(sendAt, (st) => st[0] === 'gone' && traySel(st));
+  const sentAt = after(sendAt, (st) => st[0] === 'wait' && /已发回对话|Sent back to the conversation/.test(sel(st, 1)));
+  if (sentAt < 0 && goneAt < 0) errs.push('J2 never proves the tray emptied after send (gone … or the sent line)');
+
+  // The screenshots are the reviewable evidence, in the order the loop runs.
+  const shotAt = (name) => steps.findIndex((st) => Array.isArray(st) && st[0] === 'shot' && st[1] === name);
+  const boxShot = shotAt('diff-comment-box'), trayShot = shotAt('diff-comment-tray'), sentShot = shotAt('diff-comment-sent');
+  if (boxShot < 0) errs.push('J2 takes no `diff-comment-box` shot');
+  else if (boxAt >= 0 && (boxShot < boxAt || (saveAt >= 0 && boxShot > saveAt))) errs.push('the `diff-comment-box` shot must be taken while the box is open, before Save');
+  if (trayShot < 0) errs.push('J2 takes no `diff-comment-tray` shot');
+  else if (trayWaitAt >= 0 && trayShot < trayWaitAt) errs.push('the `diff-comment-tray` shot must follow the tray row wait');
+  if (sentShot < 0) errs.push('J2 takes no `diff-comment-sent` shot');
+  else if (transcriptAt >= 0 && sentShot < transcriptAt) errs.push('the `diff-comment-sent` shot must follow the transcript assertion');
+
+  // The rerun leg (R-p3-rerun-comment). A person comments a changed line, then
+  // asks the agent for another round. The tray must keep the comment: the row
+  // moves to the line its quote moved to, and when the quote is gone the row
+  // says 该行已变化 / This line has changed and still carries the quote. Without
+  // these rules a walk sends [seed] shift and [seed] rewrite and photographs
+  // whatever the tray happens to show: a dropped report renders an absent
+  // anchor as live (never as stale), which is a silent lie rather than a
+  // missing badge.
+  const J2_SHIFT = '[seed] shift';
+  const J2_REWRITE = '[seed] rewrite';
+  const J2_STALE = /该行已变化|This line has changed/;
+  const rerunFrom = sentShot >= 0 ? sentShot + 1 : (sendAt >= 0 ? sendAt + 1 : 0);
+  // The comment box is the only surface whose Save belongs to this leg; a bare
+  // Save elsewhere proves nothing about the tray.
+  const boxScoped = (v) => /section\[aria-label/.test(String(v)) && /评论|Comment on/.test(String(v));
+  const isBoxSave = (st) => st[0] === 'click' && /保存|Save/.test(sel(st, 1)) && boxScoped(sel(st, 1));
+  // The composer's own send, never the tray's button: the tray holds the
+  // comment under test and must not be emptied by the rerun.
+  const isComposerSend = (st) => st[0] === 'send' && /发送|Send/.test(sel(st, 1)) && !traySel(st);
+  // The rerun prompt is typed into the composer — not into Monaco's hidden
+  // editor textarea and not into a comment box, both of which are on screen
+  // while the diff is open.
+  const isMarkerFill = (st, marker) => st[0] === 'fill' && typeof st[2] === 'string' && st[2].includes(marker)
+    && /textarea/.test(sel(st, 1)) && !/monaco|editor\.modified/.test(sel(st, 1)) && !/评论|Comment on/.test(sel(st, 1));
+  const trayRowWithQuote = (st) => cssWait(st, /li:has-text/) && traySel(st) && /notes\.md/.test(sel(st, 1)) && sel(st, 1).includes(J2_QUOTE);
+  // The stale row keeps the saved quote but no longer has a live line, so its
+  // wait may name only the badge and the quote.
+  const staleRowWait = (st) => cssWait(st, /li:has-text/) && traySel(st) && J2_STALE.test(sel(st, 1)) && sel(st, 1).includes(J2_QUOTE);
+  const namedLines = (v) => [...String(v).matchAll(/notes\.md:(\d+)/g)].map((m) => Number(m[1]));
+
+  // (a) A second comment, saved while the first one's send has left the tray
+  // empty. Its box must pin the line, or "re-anchored to a different line" has
+  // nothing to be different from.
+  const box2At = idx((st) => cssWait(st, /section\[aria-label/) && /notes\.md:\d+/.test(sel(st, 1)) && /aria-label\^=/.test(sel(st, 1)), rerunFrom);
+  const box2Line = box2At >= 0 ? (namedLines(sel(steps[box2At], 1))[0] ?? NaN) : NaN;
+  if (box2At < 0) errs.push('J2 never reopens the comment box naming notes.md:<line> after the first send; the rerun must start from a saved comment and the box must pin the line');
+  const fill2At = after(box2At, (st) => st[0] === 'fill' && /textarea/.test(sel(st, 1)) && boxScoped(sel(st, 1)) && typeof st[2] === 'string' && st[2].trim() !== '');
+  if (box2At >= 0 && fill2At < 0) errs.push('J2 never types the second comment into the box textarea');
+  const save2At = after(fill2At, isBoxSave);
+  if (fill2At >= 0 && save2At < 0) errs.push('J2 never saves the second comment (click Save in the box); a rerun without a saved comment proves nothing');
+  const tray2At = after(save2At, trayRowWithQuote);
+  if (save2At >= 0 && tray2At < 0) errs.push('J2 never reads the second comment in the tray (a row naming notes.md and the quoted line) before the rerun');
+  const count2At = after(tray2At, (st) => st[0] === 'count' && traySel(st) && String(st[2]) === '1');
+  if (tray2At >= 0 && count2At < 0) errs.push('J2 never asserts the tray holds exactly one comment again after the second Save (count … 1)');
+
+  // (b) The round that moves the seeded line. It has to be sent after the
+  // comment is saved, or the saved line is already the moved one.
+  const shiftFillAt = idx((st) => isMarkerFill(st, J2_SHIFT), rerunFrom);
+  const shiftAt = after(shiftFillAt, isComposerSend);
+  if (shiftFillAt < 0 || shiftAt < 0) {
+    errs.push('J2 never sends a rerun round asking for [seed] shift after the second comment is saved; without it the tray is never re-anchored by a real fresh diff');
+  } else if (save2At >= 0 && shiftAt < save2At) {
+    errs.push('J2 sends [seed] shift before the second comment is saved; the rerun must start from a saved comment');
+  }
+  if (shiftAt >= 0 && tray2At >= 0 && tray2At > shiftAt) {
+    errs.push('J2 reads the tray holding the second comment after the [seed] shift send; the row and its count must come first');
+  }
+
+  // (c) Re-anchored means a DIFFERENT line number carrying the same quote.
+  // Waiting for the saved line again would pass on a stale report that never
+  // re-pointed anything.
+  const reanchorAt = after(shiftAt, (st) => {
+    if (!trayRowWithQuote(st)) return false;
+    const lines = namedLines(sel(st, 1));
+    return Number.isInteger(box2Line) && lines.length > 0 && lines.some((n) => n !== box2Line);
+  });
+  if (shiftAt >= 0 && reanchorAt < 0) {
+    errs.push('J2 never asserts the saved comment re-anchored to a different line (a tray row naming notes.md:<new line> with the saved quote) after [seed] shift');
+  }
+  // (d) At that moment no row may claim the line changed: a live row is never
+  // implied stale.
+  const staleZeroAt = after(reanchorAt, (st) => st[0] === 'count' && traySel(st) && J2_STALE.test(sel(st, 1)) && String(st[2]) === '0');
+  if (reanchorAt >= 0 && staleZeroAt < 0) errs.push('J2 never asserts no row is marked 该行已变化 while the comment is re-anchored (count … 0)');
+
+  // (e) Then the round that removes the quoted line.
+  const rewriteFillAt = after(reanchorAt, (st) => isMarkerFill(st, J2_REWRITE));
+  const rewriteAt = after(rewriteFillAt, isComposerSend);
+  if (reanchorAt >= 0 && (rewriteFillAt < 0 || rewriteAt < 0)) {
+    errs.push('J2 never sends a second rerun asking for [seed] rewrite after the re-anchored row; the stale half of the contract is unwalked');
+  }
+  // (f) The stale row: the badge AND the saved quote, so a row that merely
+  // says "changed" without saying what was commented cannot stand in.
+  const staleWaitAt = after(rewriteAt, staleRowWait);
+  if (rewriteAt >= 0 && staleWaitAt < 0) {
+    errs.push('J2 never waits for the stale row (该行已变化 / This line has changed) carrying the saved quote after [seed] rewrite');
+  }
+  // (g) Kept, not dropped and not duplicated.
+  const keptAt = after(staleWaitAt, (st) => st[0] === 'count' && traySel(st) && String(st[2]) === '1');
+  if (staleWaitAt >= 0 && keptAt < 0) errs.push('J2 never proves the stale comment was kept and not duplicated (count the tray rows = 1 after the stale wait)');
+
+  // (h) The two screenshots, each of the state it names.
+  const reanchorShot = shotAt('diff-comment-reanchored'), staleShot = shotAt('diff-comment-stale');
+  if (reanchorShot < 0) errs.push('J2 takes no `diff-comment-reanchored` shot');
+  else if (reanchorAt >= 0 && reanchorShot < reanchorAt) errs.push('the `diff-comment-reanchored` shot must follow the re-anchored row wait');
+  else if (rewriteAt >= 0 && reanchorShot > rewriteAt) errs.push('the `diff-comment-reanchored` shot must be taken before [seed] rewrite; after it the row is stale');
+  if (staleShot < 0) errs.push('J2 takes no `diff-comment-stale` shot');
+  else if (staleWaitAt >= 0 && staleShot < staleWaitAt) errs.push('the `diff-comment-stale` shot must follow the stale row wait');
+  return errs;
+}
+// J8's contract: the review loop the way a thumb runs it at 390. J2 proves the
+// same loop from the keyboard (⌥C, ⌘Enter), which a phone does not have, so J8
+// is its own journey: tap the changed line's glyph, write in the sheet, Save,
+// read the tray's one row, tap Send, and find the anchored follow-up in the
+// transcript. Without these rules a J8 that presses Alt+C, sends with a chord,
+// or asserts only the words would be green while the tap path is broken.
+const J8_QUOTE = '- [seed] change: the journey walk reads this line as a real diff.';
+function checkJ8Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J8) || {};
+  const steps = journey.steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J8 has no steps'];
+  const errs = [];
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const cssWait = (st, re) => st[0] === 'wait' && /^css=/.test(sel(st, 1)) && re.test(sel(st, 1));
+  const traySel = (st, i = 1) => /改动评论|Diff comments/.test(sel(st, i));
+
+  // Phone only. J2 already walks the Mac keyboard path, and replaying it at
+  // 390 would prove the chords rather than the tap a phone person uses.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'phone') {
+    errs.push('J8 is the phone review loop: its viewports must be exactly ["phone"]; the Mac loop is J2');
+  }
+
+  // The seeded diff must be open before a changed line is tapped. A tap on a
+  // glyph that is not there proves nothing about the diff.
+  const notesAt = idx((st) => st[0] === 'click' && /notes\.md/.test(sel(st, 1))
+    && !/评论|Comment on/.test(sel(st, 1)) && !/改动评论|Diff comments/.test(sel(st, 1)));
+  const diffWaitAt = idx((st) => cssWait(st, /monaco-diff-editor/));
+  if (notesAt < 0) errs.push('J8 never opens the seeded changed file (click notes.md)');
+  if (diffWaitAt < 0) errs.push('J8 never waits for the diff editor (wait css=.monaco-diff-editor)');
+
+  // The entry is a pointer tap on the line's own glyph. Alt+C may exist in the
+  // product for the desktop, but it must not be what J8 walks: a phone has no
+  // keyboard, so a chord here would leave the tap path unproven. The tap names
+  // the line by index and is not optional: an optional tap that resolves to
+  // nothing walks on and fails two steps later, where the cause is invisible.
+  const glyphClick = (st) => st[0] === 'click' && /kin-diff-comment-glyph/.test(sel(st, 1));
+  const glyphAt = idx((st) => glyphClick(st) && !sel(st, 1).startsWith('?') && />>\s*nth=\d+/.test(sel(st, 1)));
+  const keyOpenAt = idx((st) => st[0] === 'key' && /Alt\+.*C/i.test(sel(st, 1)));
+  if (keyOpenAt >= 0) {
+    errs.push('J8 uses the desktop Alt+C chord; the phone entry must be a tap on the changed line\'s glyph (click .kin-diff-comment-glyph)');
+  }
+  if (glyphAt < 0) {
+    const loose = idx((st) => glyphClick(st));
+    errs.push(loose >= 0
+      ? 'J8 taps the glyph without pinning a line (click css=.kin-diff-comment-glyph >> nth=…) and must not mark the tap optional'
+      : 'J8 never taps a changed line\'s glyph (click .kin-diff-comment-glyph)');
+  } else {
+    if (notesAt >= 0 && glyphAt < notesAt) errs.push('J8 taps the glyph before the seeded file is open');
+    if (diffWaitAt >= 0 && glyphAt < diffWaitAt) errs.push('J8 taps the glyph before the diff is open');
+  }
+  // The sheet names the seeded line, so a tap that landed on another changed
+  // line is caught right here rather than at the tray or the transcript.
+  const boxAt = idx((st) => cssWait(st, /section\[aria-label/) && /notes\.md:5/.test(sel(st, 1)) && /aria-label\^=/.test(sel(st, 1)));
+  if (boxAt < 0) errs.push('J8 never waits for the comment sheet naming notes.md:5 (section[aria-label^=…])');
+  else if (glyphAt >= 0 && boxAt < glyphAt) errs.push('J8 waits for the comment sheet before tapping the glyph');
+
+  // The person's words, typed into the sheet itself, then saved into the tray.
+  const fillAt = idx((st) => st[0] === 'fill' && /textarea/.test(sel(st, 1)) && /aria-label/.test(sel(st, 1))
+    && typeof st[2] === 'string' && st[2].trim() !== '');
+  const body = fillAt >= 0 ? String(steps[fillAt][2]) : '';
+  if (fillAt < 0) errs.push('J8 never types the comment into the sheet textarea');
+  else if (boxAt >= 0 && fillAt < boxAt) errs.push('J8 fills the comment before the sheet is on screen');
+  const saveAt = after(fillAt, (st) => st[0] === 'click' && /保存|Save/.test(sel(st, 1)));
+  if (saveAt < 0) errs.push('J8 never saves the comment (click Save) after typing it');
+
+  // Saved means one row in the tray, carrying both the path and the line's
+  // own text — not a count of text that happens to appear somewhere.
+  const trayWaitAt = after(saveAt, (st) => cssWait(st, /li:has-text/) && traySel(st) && /notes\.md/.test(sel(st, 1)) && sel(st, 1).includes(J8_QUOTE));
+  if (trayWaitAt < 0) errs.push('J8 never waits for the tray row naming notes.md and the quoted changed line');
+  const countAt = after(trayWaitAt, (st) => st[0] === 'count' && traySel(st) && String(st[2]) === '1');
+  if (countAt < 0) errs.push('J8 never asserts the tray holds exactly one comment (count … 1)');
+
+  // The press is the tray's own button: a thumb at 390 has no Meta/Ctrl+Enter.
+  // The row must already be read, or the send is unproven (an empty tray).
+  const sendAt = idx((st) => st[0] === 'click' && traySel(st) && /发送|Send/.test(sel(st, 1)));
+  if (sendAt < 0) {
+    const keySend = idx((st) => st[0] === 'key' && /(Meta|Ctrl|Control)\+Enter/i.test(sel(st, 1)));
+    errs.push('J8 never taps the tray\'s send (click the tray button 发送|Send); a thumb has no Meta/Ctrl+Enter'
+      + (keySend >= 0 ? ' — the spec only presses the chord' : ''));
+  } else if (countAt >= 0 && sendAt < countAt) {
+    errs.push('J8 sends the tray before it holds the saved comment; the one-row wait and count must come first');
+  }
+
+  // The transcript must carry the whole anchor. Counting the comment body
+  // alone is the mutant's shape: the words arrive, the path/hunk/quote are
+  // gone, and the reviewer can no longer tell what was commented.
+  const transcriptAt = sendAt < 0 ? -1 : after(sendAt, (st) => st[0] === 'wait' && /^css=/.test(sel(st, 1)) && /\[role=.?region/.test(sel(st, 1))
+    && body !== '' && sel(st, 1).includes(body)
+    && /notes\.md/.test(sel(st, 1))
+    && /@@\s*-\d+,\d+\s*\+\d+,\d+\s*@@/.test(sel(st, 1))
+    && sel(st, 1).includes(J8_QUOTE));
+  if (sendAt >= 0 && transcriptAt < 0) {
+    errs.push('J8 never asserts the sent follow-up carries the path, hunk header and quote in the transcript');
+  }
+  // The loop closes: the tray is empty again (or says it was sent), otherwise
+  // the send is unproven and the comments are still waiting.
+  const goneAt = sendAt < 0 ? -1 : after(sendAt, (st) => st[0] === 'gone' && traySel(st));
+  const sentAt = sendAt < 0 ? -1 : after(sendAt, (st) => st[0] === 'wait' && /已发回对话|Sent back to the conversation/.test(sel(st, 1)));
+  if (sendAt >= 0 && goneAt < 0 && sentAt < 0) errs.push('J8 never proves the tray emptied after send (gone … or the sent line)');
+
+  // The screenshots are the reviewable evidence, in the order the loop runs.
+  const shotAt = (name) => steps.findIndex((st) => Array.isArray(st) && st[0] === 'shot' && st[1] === name);
+  const sheetShot = shotAt('diff-comment-sheet'), trayShot = shotAt('diff-comment-tray'), sentShot = shotAt('diff-comment-sent');
+  if (sheetShot < 0) errs.push('J8 takes no `diff-comment-sheet` shot');
+  else if (boxAt >= 0 && (sheetShot < boxAt || (saveAt >= 0 && sheetShot > saveAt))) errs.push('the `diff-comment-sheet` shot must be taken while the sheet is open, before Save');
+  if (trayShot < 0) errs.push('J8 takes no `diff-comment-tray` shot');
+  else if (trayWaitAt >= 0 && trayShot < trayWaitAt) errs.push('the `diff-comment-tray` shot must follow the tray row wait');
+  if (sentShot < 0) errs.push('J8 takes no `diff-comment-sent` shot');
+  else if (transcriptAt >= 0 && sentShot < transcriptAt) errs.push('the `diff-comment-sent` shot must follow the transcript assertion');
+
+  // A workspace diff that no longer selects J8 would let the phone loop rot
+  // without the gate ever walking it. Same first-match rule the walker uses.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ8 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J8');
+  };
+  for (const file of ['ui/src/components/workspace/WorkspacePanel.tsx', 'ui/src/pages/TaskDetailPage.tsx', 'ui/src/components/sessions/SessionList.tsx', 'ui/src/components/ui/Button.tsx']) {
+    if (!mapsToJ8(file)) {
+      errs.push(`the paths table does not map ${file} to J8; a diff there would not walk the phone review loop`);
+    }
+  }
+  return errs;
+}
+// J9's contract: F4 — a switch is not a page load. Leaving a conversation for
+// another one (or for another area) and coming back must keep the same shell
+// element, the transcript where the reader left it, and the unsent draft in
+// the composer. The keep-alive host ships and pieces of it are pinned in DOM
+// tests, but no walk ever switches and comes back; a regression that remounts
+// the shell, resets the scroller, or drops the draft is invisible to the gate.
+// The proof is element identity, not a screenshot: `node` tags the shell once
+// and asserts the same element after every route change, `scroll`/`scroll-kept`
+// bracket the transcript's position, and `value` reads the draft back. A
+// `goto` after the conversation is open would reload the document and make the
+// shell question meaningless, so it is rejected.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ9Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J9) || {};
+  const steps = journey.steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J9 has no steps'];
+  const errs = [];
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const sel = (st, i) => String((st || [])[i] ?? '');
+
+  // The phone half needs per-viewport steps (#282's `vp` scope), so this
+  // journey is the Mac proof and must not pretend to be the phone one.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'mac') {
+    errs.push('J9 is the Mac switch proof: its viewports must be exactly ["mac"]; the phone switch is its own journey');
+  }
+
+  // Open, leave for a different conversation, come back. A journey that never
+  // leaves proves nothing, and one that leaves and never returns proves only
+  // the first half.
+  const openAt = idx((st) => st[0] === 'click' && /Morning planning/.test(sel(st, 1)));
+  const switchAt = after(openAt, (st) => st[0] === 'click' && /Failed migration/.test(sel(st, 1)));
+  const backAt = after(switchAt, (st) => st[0] === 'click' && /Morning planning/.test(sel(st, 1)));
+  if (openAt < 0) errs.push('J9 never opens the seeded conversation from the list (click … Morning planning)');
+  if (switchAt < 0) errs.push('J9 never switches to the second seeded conversation (click … Failed migration)');
+  if (backAt < 0) errs.push('J9 never returns to the conversation it left (click … Morning planning again)');
+
+  // A `goto` reloads the document. The shell claim is about client-side
+  // navigation, so nothing after the first open may replace the page.
+  if (openAt >= 0 && steps.findIndex((st, i) => i > openAt && Array.isArray(st) && st[0] === 'goto') >= 0) {
+    errs.push('J9 reloads the document with goto after the conversation is open; the switch must be client-side navigation');
+  }
+
+  // Shell identity. One tag before the first switch, then the same tag after
+  // every route change: a shell remounted on the new pathname is a page load
+  // wearing the same markup, and only element identity catches it.
+  const nodes = [];
+  steps.forEach((st, i) => { if (Array.isArray(st) && st[0] === 'node') nodes.push(i); });
+  const nodeName = nodes.length ? sel(steps[nodes[0]], 2) : '';
+  const tagged = nodes.find((i) => i < (switchAt < 0 ? steps.length : switchAt));
+  if (!nodeName || tagged === undefined) {
+    errs.push('J9 never tags the shell before the switch (node css=… shell)');
+  } else if (!/^css=/.test(sel(steps[tagged], 1))) {
+    errs.push('J9\'s shell tag must name the element with css=<selector>');
+  }
+  // The next area-nav click after `from`, or the end of the journey: the
+  // assertion must sit between the route change and the next one, so a node
+  // after the *return* cannot stand in for the one the switch needed.
+  const areaNavAt = (from) => steps.findIndex((st, i) => i > from && Array.isArray(st) && st[0] === 'click' && sel(st, 1).includes('data-area='));
+  const sameShell = (from, to = steps.length) => nodes.find((i) => i > from && i < to && sel(steps[i], 2) === nodeName);
+  if (nodeName) {
+    if (switchAt >= 0 && sameShell(switchAt, backAt < 0 ? steps.length : backAt) === undefined) {
+      errs.push('J9 never asserts the same shell node after the switch; a remount would go unseen');
+    }
+    const firstArea = backAt < 0 ? -1 : areaNavAt(backAt);
+    if (backAt >= 0 && sameShell(backAt, firstArea < 0 ? steps.length : firstArea) === undefined) {
+      errs.push('J9 never asserts the same shell node after returning to the conversation');
+    }
+  }
+  // Area changes are route changes too. A shell keyed on the pathname dies on
+  // /sessions → /projects just as it dies on one conversation → another.
+  const areas = ['projects', 'settings'].map((area) => ({
+    area,
+    at: idx((st) => st[0] === 'click' && sel(st, 1).includes(`data-area="${area}"`)),
+  }));
+  areas.forEach(({ area, at: areaAt }, i) => {
+    if (areaAt < 0) {
+      errs.push(`J9 never visits the ${area} area (click [data-area="${area}"])`);
+      return;
+    }
+    const nextAt = i + 1 < areas.length && areas[i + 1].at >= 0 ? areas[i + 1].at : steps.length;
+    if (nodeName && sameShell(areaAt, nextAt) === undefined) {
+      errs.push(`J9 never asserts the same shell node after the ${area} area change`);
+    }
+  });
+
+  // The transcript's place. The offset must be numeric and away from the top:
+  // a remount that starts at 0, or the product's own jump-to-bottom on a fresh
+  // pane, must not be able to satisfy the return by accident.
+  const transcript = (st) => sel(st, 1).startsWith('css=') && /role=.?region/.test(sel(st, 1));
+  const scrollAt = idx((st) => st[0] === 'scroll' && transcript(st));
+  const keptAt = backAt < 0 ? -1 : idx((st) => st[0] === 'scroll-kept' && transcript(st), backAt + 1);
+  if (scrollAt < 0) {
+    errs.push('J9 never scrolls the transcript before the switch; the return has no position to prove');
+  } else {
+    const asked = sel(steps[scrollAt], 2);
+    if (!/^\d+$/.test(asked) || Number(asked) < 96) {
+      errs.push('J9 must scroll the transcript to a numeric middle offset of at least 96px, not ' + JSON.stringify(asked));
+    }
+    if (switchAt >= 0 && scrollAt > switchAt) {
+      errs.push('J9 scrolls the transcript after the switch; the position must be left before it');
+    }
+  }
+  if (keptAt < 0) {
+    errs.push('J9 never asserts the transcript came back where it was left (scroll-kept after the return)');
+  } else if (scrollAt >= 0) {
+    const asked = Number(sel(steps[scrollAt], 2));
+    const kept = Number(sel(steps[keptAt], 2));
+    if (!Number.isFinite(kept) || Math.abs(kept - asked) > 48) {
+      errs.push('J9\'s scroll-kept offset must be the offset it scrolled to (within the walker\'s 48px tolerance)');
+    }
+  }
+
+  // The half-typed message. It must be typed before the conversation is left,
+  // must not be sent, and must be read back from the composer after the
+  // return; a walk that only checks the route survived leaves F4's draft half
+  // unproven. Sends in the journey are allowed (they give the transcript a
+  // position to lose), which is why the draft is the last fill before the
+  // switch that no `send` follows — not merely the first fill.
+  const fills = [];
+  steps.forEach((st, i) => {
+    if (Array.isArray(st) && st[0] === 'fill' && /textarea/.test(sel(st, 1)) && typeof st[2] === 'string' && st[2].trim() !== '') fills.push(i);
+  });
+  const sentAfter = (i) => {
+    const send = idx((st) => st[0] === 'send', i + 1);
+    return send >= 0 && (switchAt < 0 || send < switchAt);
+  };
+  const draftFills = switchAt < 0 ? fills : fills.filter((i) => i < switchAt && !sentAfter(i));
+  const draftFillAt = draftFills.length ? draftFills[draftFills.length - 1] : -1;
+  const draft = draftFillAt >= 0 ? String(steps[draftFillAt][2]) : '';
+  if (fills.length === 0) {
+    errs.push('J9 never types an unsent draft into the composer');
+  } else if (draftFillAt < 0) {
+    errs.push('J9 never leaves an unsent draft in the composer before the switch; every text it typed was sent');
+  }
+  const draftAt = backAt < 0 || draftFillAt < 0 ? -1
+    : idx((st) => st[0] === 'value' && /textarea/.test(sel(st, 1)) && sel(st, 2) === draft, backAt + 1);
+  if (draftFillAt >= 0 && draftAt < 0) {
+    errs.push('J9 never proves the draft survived the return (value textarea … after the return)');
+  }
+
+  // The screenshots are the reviewable evidence, in the order the switch runs.
+  const shotAt = (name) => steps.findIndex((st) => Array.isArray(st) && st[0] === 'shot' && st[1] === name);
+  const chatShot = shotAt('switch-chat'), backShot = shotAt('switch-back'), areaShot = shotAt('area-projects');
+  if (chatShot < 0) errs.push('J9 takes no `switch-chat` shot');
+  else if (switchAt >= 0 && chatShot > switchAt) errs.push('the `switch-chat` shot must be taken before the switch');
+  if (backShot < 0) errs.push('J9 takes no `switch-back` shot');
+  else if (backAt >= 0 && backShot < backAt) errs.push('the `switch-back` shot must follow the return');
+  if (areaShot < 0) errs.push('J9 takes no `area-projects` shot');
+
+  // A shell or conversation-pane diff that no longer selects J9 would let the
+  // keep-alive contract rot without the gate ever walking it. Same first-match
+  // rule the walker uses, and only the rows that can break the switch.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ9 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J9');
+  };
+  for (const file of ['ui/src/components/layout/AppShell.tsx', 'ui/src/pages/TaskDetailPage.tsx']) {
+    if (!mapsToJ9(file)) {
+      errs.push(`the paths table does not map ${file} to J9; a diff there would not walk the switch`);
+    }
+  }
+  return errs;
+}
 // J7's contract: a notification tap must prove it landed on the card the
 // notification named — not just photograph whatever loaded. Without these
 // rules a blank deep link, a landing on the wrong card, and a Back that
@@ -200,16 +698,26 @@ function checkJ7Contract(spec) {
   return errs;
 }
 if (process.argv.includes('--check-spec')) {
+  const j2 = checkJ2Contract(spec);
   const j3 = checkJ3Contract(spec);
   const j7 = checkJ7Contract(spec);
-  if (j3.length || j7.length) {
+  const j8 = checkJ8Contract(spec);
+  const j9 = checkJ9Contract(spec);
+  if (j2.length || j3.length || j7.length || j8.length || j9.length) {
+    if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
     if (j7.length) { console.log('spec red: J7'); j7.forEach((e) => console.log(' - ' + e)); }
+    if (j8.length) { console.log('spec red: J8'); j8.forEach((e) => console.log(' - ' + e)); }
+    if (j9.length) { console.log('spec red: J9'); j9.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
+  console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
+  console.log('spec ok: J2 keeps a saved comment across a rerun — re-anchored to its new line, then 该行已变化 when the quoted line is gone');
   console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
   console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
+  console.log('spec ok: J8 taps a changed line at 390, saves the sheet, sends the tray, and proves path, hunk and quote');
+  console.log('spec ok: J9 keeps the shell, the scroll and the draft across a switch');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
@@ -259,6 +767,13 @@ function applyJ7Fields(value, target) {
 }
 function applyJ7Step(step, target) {
   return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? applyJ7Fields(part, target) : part)) : step;
+}
+// `{vp}` makes a step's own words viewport-specific: two widths walk the same
+// seeded conversation against one daemon, so an identical comment body would
+// let the second width's wait pass on the first width's message and leave its
+// own send unproven. --check-spec resolves the same function it enforces.
+function applyVpStep(step, vpName) {
+  return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? part.split('{vp}').join(vpName) : part)) : step;
 }
 // The selector the landing assertion resolves to, printed by --check-spec so
 // the red/green evidence names a real card rather than `{focus}`.
@@ -332,6 +847,11 @@ fs.mkdirSync(out, { recursive: true });
 let browser; try { browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--disable-gpu'] }); } catch (e) { console.error('chrome launch failed: ' + e.message); process.exit(2); }
 
 const screens = [], hardFail = [];
+// J9's element-identity book. The first `node` call tags the matched element
+// with `data-kin-walk-node=<name>` and keeps the handle; every later call with
+// the same name compares against it. A remount produces a different element,
+// which no amount of identical markup can hide.
+const walkNodes = new Map();
 async function lint(page, phone) {
   return page.evaluate((phone) => {
     const vis = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden'; };
@@ -559,9 +1079,32 @@ for (const j of want) {
       if (r.status() >= 400) bad.push(r.status() + ' ' + p);
     });
     const log = []; let n = 0;
+    // `["vp", "mac"]` scopes the steps that follow to one viewport and
+    // `["vp", ""]` clears the scope. Some legs mutate the seeded fixture
+    // irreversibly — the fake's `[seed] shift` / `[seed] rewrite` write once per
+    // seed root — so replaying such a leg at the second width would walk a file
+    // the first width already changed and fail for a fixture reason, not a
+    // product one. The scope keeps one real walk of the leg without pretending
+    // the second width ran it.
+    let vpOnly = '';
     for (const rawStep of J.steps) {
-      const st = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
+      const preStep = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
+      const st = applyVpStep(preStep, vpName);
       const [op, a, b] = st;
+      if (op === 'vp') {
+        vpOnly = String(a || '').trim();
+        // A name outside this journey's own viewports scopes every step below
+        // to a width that never runs, silently deleting the leg from a walk
+        // that still reports green. The executor is the only place that can
+        // see the journey's viewport list and the scope together, so it must
+        // refuse the name rather than `continue` past it.
+        if (vpOnly && !(J.viewports || []).includes(vpOnly)) {
+          hardFail.push(`${j}/${vpName}: vp ${JSON.stringify(vpOnly)} is not one of the journey's viewports (${(J.viewports || []).join(', ')}); the steps below would never run`);
+        }
+        log.push(vpOnly ? 'steps below run only at ' + vpOnly : 'viewport scope cleared');
+        continue;
+      }
+      if (vpOnly && vpOnly !== vpName) continue;
       try {
         if (op === 'goto') {
           const href = j === 'J1' && j1 ? applyJ1Target(a, j1) : a; // J7 is already substituted above.
@@ -762,6 +1305,104 @@ for (const j of want) {
           else if (optional) log.push('skipped value ' + sel + ' (is ' + JSON.stringify(actual) + ')');
           else hardFail.push(`${j}/${vpName}: ${sel} value is ${JSON.stringify(actual)}, want ${JSON.stringify(b)}`);
         } else if (op === 'key') { await page.keyboard.press(a); await page.waitForTimeout(200); }
+        else if (op === 'node') {
+          // `["node", "css=<selector>", "<name>"]`: first call tags the element
+          // with `data-kin-walk-node=<name>`; any later call with the same name
+          // asserts it is the SAME element. A shell remounted on a route change
+          // is a different element, and identical markup cannot hide it.
+          const { optional, value } = optionalOf(a);
+          const name = String(b ?? '').trim();
+          if (!value.startsWith('css=') || !name) {
+            hardFail.push(`${j}/${vpName}: node needs css=<selector> and a name, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          const selector = value.slice('css='.length);
+          const key = `${j}/${vpName}/${name}`;
+          if (!walkNodes.has(key)) {
+            const found = page.locator(selector).first();
+            if (await found.count() === 0) {
+              if (optional) { log.push('skipped node ' + name + ' (' + selector + ')'); continue; }
+              hardFail.push(`${j}/${vpName}: missing required node ${selector}`); continue;
+            }
+            const handle = await found.elementHandle({ timeout: 3000 }).catch(() => null);
+            if (!handle) {
+              if (optional) { log.push('skipped node ' + name + ' (' + selector + ')'); continue; }
+              hardFail.push(`${j}/${vpName}: missing required node ${selector}`); continue;
+            }
+            await handle.evaluate((el, n) => el.setAttribute('data-kin-walk-node', n), name).catch(() => {});
+            walkNodes.set(key, handle);
+            log.push('node ' + name + ' tagged (' + selector + ')');
+          } else {
+            // A detached handle throws; a different live element compares
+            // false. Both mean the node was replaced.
+            const same = await walkNodes.get(key)
+              .evaluate((el, s) => el === el.ownerDocument.querySelector(s), selector)
+              .catch(() => false);
+            if (!same) { hardFail.push(`${j}/${vpName}: the ${name} node was replaced`); continue; }
+            log.push('node ' + name + ' is the same element (' + selector + ')');
+          }
+        } else if (op === 'scroll') {
+          // `["scroll", "css=<selector>", "<px>|bottom"]`: put the scroller
+          // where the reader left it and record what it actually reached (a
+          // short transcript clamps, and the log says so rather than pretending).
+          const { optional, value } = optionalOf(a);
+          const asked = String(b ?? '').trim();
+          if (!value.startsWith('css=') || !(asked === 'bottom' || /^\d+$/.test(asked))) {
+            hardFail.push(`${j}/${vpName}: scroll needs css=<selector> and <px>|bottom, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          const selector = value.slice('css='.length);
+          const got = await page.evaluate(({ selector, asked }) => {
+            const vis = (el) => {
+              const r = el.getBoundingClientRect();
+              return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+            };
+            const el = [...document.querySelectorAll(selector)].find(vis);
+            if (!el) return null;
+            el.scrollTop = asked === 'bottom' ? el.scrollHeight : Number(asked);
+            return { top: el.scrollTop, max: el.scrollHeight - el.clientHeight };
+          }, { selector, asked }).catch(() => null);
+          if (!got) {
+            if (optional) { log.push('skipped scroll ' + selector); continue; }
+            hardFail.push(`${j}/${vpName}: missing required scroll ${selector}`); continue;
+          }
+          // Let the product's own onScroll record the position before the
+          // route changes; the restore effect reads the same saved value.
+          await page.waitForTimeout(300);
+          log.push(`scroll ${selector} to ${Math.round(got.top)} (asked ${asked}, max ${Math.round(got.max)})`);
+        } else if (op === 'scroll-kept') {
+          // `["scroll-kept", "css=<selector>", "<px>"]`: the scroller came back
+          // within 48px of where it was left. The tolerance is the contract
+          // ("where I left it", not the exact pixel); the wait is because the
+          // restore is a layout effect after the pane is shown again, not an
+          // instant DOM write.
+          const { optional, value } = optionalOf(a);
+          const want = Number(b);
+          if (!value.startsWith('css=') || !Number.isFinite(want)) {
+            hardFail.push(`${j}/${vpName}: scroll-kept needs css=<selector> and a pixel offset, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          const selector = value.slice('css='.length);
+          const readTop = () => page.evaluate((selector) => {
+            const vis = (el) => {
+              const r = el.getBoundingClientRect();
+              return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+            };
+            const el = [...document.querySelectorAll(selector)].find(vis);
+            return el ? el.scrollTop : null;
+          }, selector).catch(() => null);
+          let top = null;
+          const deadline = Date.now() + WAIT_MS;
+          for (;;) {
+            top = await readTop();
+            if (top !== null && Math.abs(top - want) <= 48) break;
+            if (Date.now() >= deadline) break;
+            await page.waitForTimeout(100);
+          }
+          if (top !== null && Math.abs(top - want) <= 48) log.push(`scroll-kept ${selector} at ${Math.round(top)} (want ${want}±48)`);
+          else if (optional) log.push(`skipped scroll-kept ${selector} (at ${top === null ? 'nothing visible' : Math.round(top)})`);
+          else hardFail.push(`${j}/${vpName}: scroll-kept ${selector} is at ${top === null ? 'nothing visible' : Math.round(top)}, want ${want}±48`);
+        }
         else { hardFail.push(`${j}/${vpName}: unknown step op ${JSON.stringify(op)}`); }
       } catch (e) {
         if (e && e[SKIP]) {

@@ -5,7 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import type { Task, TaskEvent } from "../api/client";
 import { liveResources } from "../api/liveResources";
-import { setLocale } from "../i18n";
+import { setLocale, t } from "../i18n";
 import { useAppStore } from "../store/appStore";
 import TaskDetailPage from "./TaskDetailPage";
 
@@ -79,7 +79,18 @@ vi.mock("../api/useLiveResources", () => {
       useSyncExternalStore(store.subscribe, store.version, store.version);
       let data = dataById.get(id);
       if (!data) {
-        data = { task: { ...task, id }, events: [], deleted: false };
+        data = {
+          task: {
+            ...task,
+            id,
+            // A `remote-*` id stands for a session whose checkout lives on
+            // another machine: that is what offers the publish tab and keeps
+            // the files surface's own tabs beside it.
+            ...(id.startsWith("remote-") ? { executing_device_id: "node-other" } : {}),
+          },
+          events: [],
+          deleted: false,
+        };
         dataById.set(id, data);
       }
       return { loaded: true, error: null, data, id };
@@ -136,6 +147,7 @@ vi.mock("../components/chat/ChatStream", () => ({
 const panelProbe = vi.hoisted(() => ({
   selectPath: null as ((path: string) => void) | null,
   selectWorkspace: null as ((id: string | null) => void) | null,
+  showFiles: null as (() => void) | null,
 }));
 
 vi.mock("../components/workspace/WorkspacePanel", () => ({
@@ -147,6 +159,8 @@ vi.mock("../components/workspace/WorkspacePanel", () => ({
     selectedWorkspaceId,
     onSelectPath,
     onSelectWorkspace,
+    surface,
+    onShowFiles,
   }: {
     taskId: string;
     openPath?: string | null;
@@ -155,9 +169,12 @@ vi.mock("../components/workspace/WorkspacePanel", () => ({
     selectedWorkspaceId?: string | null;
     onSelectPath?: (path: string) => void;
     onSelectWorkspace?: (id: string | null) => void;
+    surface?: "files" | "pr" | "publish";
+    onShowFiles?: () => void;
   }) => {
     panelProbe.selectPath = onSelectPath ?? null;
     panelProbe.selectWorkspace = onSelectWorkspace ?? null;
+    panelProbe.showFiles = onShowFiles ?? null;
     return (
       <div
         data-testid="workspace-panel"
@@ -166,6 +183,7 @@ vi.mock("../components/workspace/WorkspacePanel", () => ({
         data-nonce={openNonce ?? 0}
         data-show-list-nonce={showListNonce ?? 0}
         data-workspace={selectedWorkspaceId ?? ""}
+        data-surface={surface ?? "files"}
       />
     );
   },
@@ -308,6 +326,69 @@ describe("the files panel's address", () => {
     expect(address()).toBe("/tasks/task-1?panel=files&file=src/a%20b.ts");
     expect(screen.getByTestId("location").getAttribute("data-key")).toBe(arrivalKey);
     expect(historyType()).toBe("POP");
+  });
+
+  it("a visit to the PR tab keeps the open file in the panel and in the address", async () => {
+    open("?panel=files&file=notes.md");
+    await waitFor(() => expect(panel()?.getAttribute("data-open-path")).toBe("notes.md"));
+
+    // The header's PR control switches the panel's surface — it does not
+    // unmake the place the reader was in.
+    fireEvent.click(screen.getByRole("button", { name: t("pr.title") }));
+    await waitFor(() =>
+      expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "pr" }),
+    );
+    expect(panel()?.getAttribute("data-surface")).toBe("pr");
+
+    // A lens tab picked from the PR surface asks the page for files (the
+    // panel's own suite covers the tab; this is the page's answer).
+    act(() => {
+      panelProbe.showFiles?.();
+    });
+
+    await waitFor(() =>
+      expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "files" }),
+    );
+    // The open file survives the visit: the panel still has it and the address
+    // still names it (TASTE 15).
+    expect(panel()?.getAttribute("data-open-path")).toBe("notes.md");
+    expect(address()).toBe("/tasks/task-1?panel=files&file=notes.md");
+  });
+
+  it("a visit to the publish tab keeps the open file in the panel and in the address", async () => {
+    // A `remote-*` task is one whose checkout is on another machine, which is
+    // the only case publish is offered for.
+    render(
+      <MemoryRouter initialEntries={["/tasks/remote-1?panel=files&file=notes.md"]}>
+        <HistoryProbe />
+        <TaskDetailPage taskId="remote-1" fallbackTask={task} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(panel()?.getAttribute("data-open-path")).toBe("notes.md"));
+
+    // Picking 发布 moves the panel's surface — the page's `openPublishPanel`
+    // does exactly this — and does not unmake the place the reader was in.
+    act(() => {
+      useAppStore.getState().showPanel("remote-1", "publish");
+    });
+    await waitFor(() =>
+      expect(useAppStore.getState().shownPanel).toEqual({ view: "remote-1", id: "publish" }),
+    );
+    expect(panel()?.getAttribute("data-surface")).toBe("publish");
+    expect(panel()?.getAttribute("data-open-path")).toBe("notes.md");
+
+    // A lens tab picked from publish asks the page for files (the panel's own
+    // suite covers the tab; this is the page's answer). The open file survives
+    // the visit and the address still names it (TASTE 15).
+    act(() => {
+      panelProbe.showFiles?.();
+    });
+
+    await waitFor(() =>
+      expect(useAppStore.getState().shownPanel).toEqual({ view: "remote-1", id: "files" }),
+    );
+    expect(panel()?.getAttribute("data-open-path")).toBe("notes.md");
+    expect(address()).toBe("/tasks/remote-1?panel=files&file=notes.md");
   });
 
   it("an unsafe file link opens the list and the address loses only the file", async () => {

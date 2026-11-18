@@ -55,6 +55,12 @@ type Turns struct {
 	ReconnectGrace time.Duration
 	// Warn receives problems that have nowhere else to go. Nil means quiet.
 	Warn func(format string, args ...any)
+	// afterStartDeadline, when set, runs after the start deadline has claimed
+	// its turn under Turns.mu and before the ending that claim decided on is
+	// written. It is the window a device ack can land in, so a test uses it to
+	// take that moment deterministically; production leaves it nil. Tests set
+	// it before the deadline can run.
+	afterStartDeadline func(item *turn)
 
 	mu   sync.Mutex
 	byID map[string]*turn
@@ -103,9 +109,11 @@ type turn struct {
 	graceTimer *time.Timer
 	// failing marks a turn one of the two deadlines has already decided to end.
 	// The decision is taken under Turns.mu, but the transcript write that
-	// follows is not, so a turn.resume arriving in that window must not adopt a
-	// turn that is about to close: it is told the id is unknown, which stops the
-	// machine's run instead of letting it wait for the next refusal. Guarded by
+	// follows is not, so a frame arriving in that window must not be treated as
+	// the current run's: a turn.resume must not adopt a turn that is about to
+	// close, and a start ack must not be accepted for one. Both are told the id
+	// is unknown, which makes the caller stop the machine instead of letting it
+	// keep working for a hub that is already deleting the turn. Guarded by
 	// Turns.mu.
 	failing bool
 
@@ -240,7 +248,10 @@ func (item *turn) name() string {
 // It settles that question against the deadline under the registry lock: an ack
 // that arrives as the deadline fires either wins (and the turn runs) or loses
 // (and the caller is told the turn is already gone, so the device hears a
-// cancel instead of nothing).
+// cancel instead of nothing). Losing includes the deadline's other side: the
+// decision to give up is taken under that lock, but the ending it decided on is
+// written outside it, and an ack accepted in between would tell a device to
+// keep working on a turn the Hub is already deleting.
 func (t *Turns) Started(sender Sender, started worker.TurnStarted) error {
 	item, err := t.owned(sender, started.TurnID)
 	if err != nil {
@@ -251,7 +262,7 @@ func (t *Turns) Started(sender Sender, started worker.TurnStarted) error {
 	// the ack was in flight — answers the device the same way: the caller sends a
 	// cancel, so an agent that has not produced anything yet still hears that
 	// nobody is waiting for it.
-	if item.closed {
+	if item.closed || item.failing {
 		t.mu.Unlock()
 		return fmt.Errorf("%w: %s was given up on before the device answered", ErrTurnUnknown, started.TurnID)
 	}
@@ -542,7 +553,11 @@ func (t *Turns) failIfOpen(item *turn, message string) {
 	}
 	item.answered = true
 	item.failing = true
+	after := t.afterStartDeadline
 	t.mu.Unlock()
+	if after != nil {
+		after(item)
+	}
 	t.fail(item, message)
 }
 

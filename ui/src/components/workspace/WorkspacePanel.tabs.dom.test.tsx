@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { t } from "../../i18n";
@@ -108,9 +109,23 @@ function renderPanel(
     changedFiles?: ChangedFile[];
     events?: TaskEvent[];
     selectedWorkspaceId?: string | null;
+    /** Which of the panel's surfaces is in front. */
+    surface?: "files" | "pr" | "publish";
+    /** The pull-request body the panel shows when `surface` is `"pr"`. */
+    prPane?: ReactNode;
+    /** The publish body the panel shows when `surface` is `"publish"`. */
+    publishPane?: ReactNode;
+    onOpenPr?: () => void;
+    /** Defining it is what puts the publish tab in the strip. */
+    onOpenPublish?: () => void;
+    onShowFiles?: () => void;
+    onClose?: () => void;
   } = {},
-): ReturnType<typeof render> {
-  return render(
+) {
+  // Spies the assertions can read; an injected handler still wins.
+  const onOpenPr = vi.fn(props.onOpenPr ?? (() => {}));
+  const onShowFiles = vi.fn(props.onShowFiles ?? (() => {}));
+  const view = render(
     // The tab strip is Astryx's surface behind the Kin facade, the way the
     // console mounts it.
     <AstryxProvider>
@@ -120,9 +135,17 @@ function renderPanel(
         changedFiles={props.changedFiles ?? SEVEN}
         events={props.events ?? []}
         selectedWorkspaceId={props.selectedWorkspaceId}
+        onClose={props.onClose}
+        surface={props.surface}
+        prPane={props.prPane}
+        publishPane={props.publishPane}
+        onOpenPr={onOpenPr}
+        onOpenPublish={props.onOpenPublish}
+        onShowFiles={onShowFiles}
       />
     </AstryxProvider>,
   );
+  return { ...view, onOpenPr, onShowFiles };
 }
 
 const tabs = () => screen.getAllByRole("tab");
@@ -136,15 +159,17 @@ beforeEach(() => {
 });
 
 describe("one shared tab set", () => {
-  it("renders one tab set: two tabs and no second strip", () => {
+  it("renders one tab set: changes, files and PR, and no second strip", () => {
     renderPanel();
 
-    // One tablist for the panel: the lenses are the only things that are tabs.
+    // One tablist for the panel: the lenses and the pull request are the only
+    // things that are tabs — the PR is a tab of this panel, not a second sheet.
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
     const rows = tabs();
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0]?.textContent).toContain(t("workspace.tabChanges"));
     expect(rows[1]?.textContent).toContain(t("workspace.tabFiles"));
+    expect(rows[2]?.textContent).toContain(t("pr.title"));
 
     // The strip is `ui/Tabs`, not another hand-written one: the facade's own
     // class contract sits on the tablist (or its own wrapper) inside the
@@ -199,6 +224,189 @@ describe("one shared tab set", () => {
     fireEvent.click(changes!);
     expect(useAppStore.getState().lensPick).toBeNull();
     expect(tree?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("shows the PR pane and marks the PR tab selected when the surface is the pull request", () => {
+    renderPanel({
+      surface: "pr",
+      prPane: <div data-testid="pr-pane">pull request body</div>,
+    });
+
+    // The PR body is the panel's content, in the same container as the lenses.
+    expect(screen.getByTestId("pr-pane")).toBeTruthy();
+    // …and the strip says where the reader is.
+    const [changes, tree, pr] = tabs();
+    expect(pr?.getAttribute("aria-selected")).toBe("true");
+    expect(changes?.getAttribute("aria-selected")).not.toBe("true");
+    expect(tree?.getAttribute("aria-selected")).not.toBe("true");
+    // The lens strip is still the one strip; no second one appears for PR.
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
+  });
+
+  it("publish is the fourth tab beside changes, files and pr", () => {
+    renderPanel({
+      surface: "publish",
+      onOpenPublish: () => {},
+      publishPane: <div data-testid="publish-pane">publish body</div>,
+    });
+
+    // One strip, four tabs — the two lenses, the read-only pull request and
+    // publish — and the tab says where the reader is.
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
+    const rows = tabs();
+    expect(rows).toHaveLength(4);
+    expect(rows[0]?.textContent).toContain(t("workspace.tabChanges"));
+    expect(rows[1]?.textContent).toContain(t("workspace.tabFiles"));
+    expect(rows[2]?.textContent).toContain(t("pr.title"));
+    expect(rows[3]?.textContent).toContain(t("publish.title"));
+    expect(rows[3]?.getAttribute("aria-selected")).toBe("true");
+
+    // The publish body is the panel's own content, under this panel's strip —
+    // not a second surface of its own. WorkspacePanel draws no landmark, so the
+    // one `PanelSurface` the page mounts stays the only one.
+    const pane = screen.getByTestId("publish-pane");
+    expect(pane.closest('[role="complementary"]')).toBeNull();
+    expect(screen.queryAllByRole("complementary")).toHaveLength(0);
+    expect(
+      screen.getByRole("tablist").compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("asks for the publish surface when the publish tab is picked", () => {
+    const onOpenPublish = vi.fn();
+    renderPanel({ onOpenPublish });
+
+    fireEvent.click(tabs()[3]!);
+
+    // The page owns the panel address, so the tab asks rather than flipping
+    // anything here — the same contract the PR tab has.
+    expect(onOpenPublish).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks for the files surface and keeps the remembered lens when a lens tab is picked from PR", () => {
+    // A lens was picked earlier in this place; going through PR must not erase
+    // it — the tabs are views of one panel, and the pick is the place's memory.
+    useAppStore.setState({
+      lensPick: { taskId: "task-1", view: "source", lens: "files" },
+    });
+    const { onShowFiles } = renderPanel({
+      surface: "pr",
+      prPane: <div data-testid="pr-pane" />,
+    });
+
+    fireEvent.click(tabs()[0]!);
+
+    // The page owns the panel address, so the panel asks rather than flips it.
+    expect(onShowFiles).toHaveBeenCalledTimes(1);
+    // The new lens is the one remembered for this place, not a per-tab map.
+    expect(useAppStore.getState().lensPick).toEqual({
+      taskId: "task-1",
+      view: "source",
+      lens: "changes",
+    });
+  });
+
+  it("keeps PR available when there are no changes, and the Changes tab disabled", () => {
+    const { onOpenPr } = renderPanel({ changedFiles: [] });
+
+    const [changes, , pr] = tabs();
+    expect(changes?.getAttribute("aria-disabled")).toBe("true");
+    expect(pr?.getAttribute("aria-disabled")).not.toBe("true");
+
+    // The PR tab is how the page is asked for that surface.
+    fireEvent.click(pr!);
+    expect(onOpenPr).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the keyboard on the selected tab when a surface switch rebuilds the strip", async () => {
+    // The strip moves to a different parent on the PR surface, so the tab that
+    // had focus is unmounted. A keyboard user must land on the tab that is now
+    // selected — otherwise the panel has lost them and Escape no longer closes.
+    const onClose = vi.fn();
+    function SurfaceSwitch() {
+      const [surface, setSurface] = useState<"files" | "pr">("files");
+      return (
+        <AstryxProvider>
+          <WorkspacePanel
+            taskId="task-1"
+            cwd={CWD}
+            changedFiles={SEVEN}
+            events={[]}
+            surface={surface}
+            prPane={<div data-testid="pr-pane" />}
+            onOpenPr={() => setSurface("pr")}
+            onShowFiles={() => setSurface("files")}
+            onClose={onClose}
+          />
+        </AstryxProvider>
+      );
+    }
+    render(<SurfaceSwitch />);
+
+    const tree = tabs()[1]!;
+    tree.focus();
+    fireEvent.keyDown(tree, { key: "ArrowRight" });
+
+    await waitFor(() => expect(screen.getByTestId("pr-pane")).toBeTruthy());
+    const prTab = tabs().find((tab) => tab.getAttribute("aria-selected") === "true");
+    expect(prTab?.textContent).toContain(t("pr.title"));
+    await waitFor(() => expect(document.activeElement).toBe(prTab));
+
+    // Focus is inside the panel again, so Escape still unwinds it.
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("pr to publish to files keeps one strip and one close", async () => {
+    function SurfaceSwitch() {
+      const [surface, setSurface] = useState<"files" | "pr" | "publish">("pr");
+      return (
+        <AstryxProvider>
+          <WorkspacePanel
+            taskId="task-1"
+            cwd={CWD}
+            changedFiles={SEVEN}
+            events={[]}
+            surface={surface}
+            prPane={<div data-testid="pr-pane" />}
+            publishPane={<div data-testid="publish-pane" />}
+            onOpenPr={() => setSurface("pr")}
+            onOpenPublish={() => setSurface("publish")}
+            onShowFiles={() => setSurface("files")}
+            onClose={vi.fn()}
+          />
+        </AstryxProvider>
+      );
+    }
+    render(<SurfaceSwitch />);
+
+    // PR in front: one strip, one close.
+    expect(tabs()).toHaveLength(4);
+    expect(screen.getAllByRole("button", { name: t("pr.close") })).toHaveLength(1);
+
+    // PR -> publish: the same strip and the same close, a different body.
+    fireEvent.click(tabs()[3]!);
+    await waitFor(() => expect(screen.getByTestId("publish-pane")).toBeTruthy());
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
+    expect(tabs()).toHaveLength(4);
+    expect(tabs()[3]?.getAttribute("aria-selected")).toBe("true");
+    // The one close says what it closes: the publish panel now, not the files
+    // panel the reader came from.
+    expect(screen.getAllByRole("button", { name: t("publish.close") })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: t("pr.close") })).toBeNull();
+
+    // publish -> files: one tab switch, the lens is picked, and the panel's
+    // body is the lenses' again — nothing was closed and reopened.
+    fireEvent.click(tabs()[1]!);
+    await waitFor(() => expect(screen.queryByTestId("publish-pane")).toBeNull());
+    expect(useAppStore.getState().lensPick).toEqual({
+      taskId: "task-1",
+      view: "source",
+      lens: "files",
+    });
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
+    expect(tabs()).toHaveLength(4);
+    expect(screen.getAllByRole("button", { name: t("workspace.close") })).toHaveLength(1);
   });
 });
 

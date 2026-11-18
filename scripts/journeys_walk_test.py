@@ -5,9 +5,10 @@ Run directly: `python3 -B scripts/journeys_walk_test.py`. Pure: fixture
 seed.log and spec files, no browser, no daemon, no network. The walker's
 `--resolve-j1` / `--resolve-j7` modes run the same read/apply functions the
 real walk uses, so a green case here is the resolution that walk would take.
-`--check-spec` runs the J3 send contract through the same parser, so a spec
-that regressed to merely asserting Start is usable fails before a browser
-starts.
+`--check-spec` runs the J2 review-loop, J3 send and J8 phone-tap contracts
+through the same parser, so a spec that regressed to photographing the diff, to
+merely asserting Start is usable, or to pressing a desktop chord on the phone,
+fails before a browser starts.
 """
 
 from __future__ import annotations
@@ -298,6 +299,823 @@ class WalkJ3ContractTest(unittest.TestCase):
 
 
 @unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class WalkJ2ContractTest(unittest.TestCase):
+    """J2 must walk the review loop, not stop at the diff screenshot.
+
+    The loop a reviewer actually runs is: open the changed file, comment a
+    changed line, save it into the tray, send the tray as one ordinary
+    follow-up, and find the comment in the transcript WITH its anchor (path,
+    hunk header and quoted line) — not only its words. Same shape as
+    WalkJ3ContractTest: the checked-in spec passes the walker's own contract
+    check, and a copy that regresses one rule at a time fails with a message
+    naming that rule. Without this, a J2 that stops at `workspace-diff`, or
+    one that asserts only the comment body, is green while a dropped anchor
+    reaches dogfooding unnoticed.
+    """
+
+    BODY = "把这一行改成一句总结。[{vp}]"
+    QUOTE = "- [seed] change: the journey walk reads this line as a real diff."
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j2-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J2"]["steps"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred) -> int:
+        return next(i for i, step in enumerate(steps) if pred(step))
+
+    @staticmethod
+    def is_send(step: list) -> bool:
+        # The tray's send is the button, or its documented ⌘/Ctrl+Enter on a
+        # focused row; the seeded pending approval floats over the button.
+        return (
+            step[0] == "click"
+            and ("改动评论" in str(step[1]) or "Diff comments" in str(step[1]))
+            and ("发送" in str(step[1]) or "Send" in str(step[1]))
+        ) or (step[0] == "key" and re.search(r"(Meta|Ctrl|Control)\+Enter", str(step[1]), re.I) is not None)
+
+    def test_j2_walks_the_review_loop(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J2", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            journey = json.load(fh)["journeys"]["J2"]
+        steps = journey["steps"]
+        self.assertEqual(journey["viewports"], ["mac", "mac-wide"])
+        names = [step[1] for step in steps if step[0] == "shot"]
+        self.assertLess(names.index("diff-comment-box"), names.index("diff-comment-tray"), names)
+        self.assertLess(names.index("diff-comment-tray"), names.index("diff-comment-sent"), names)
+        # The transcript assertion carries the whole anchor, not the words.
+        transcript = next(
+            step[1]
+            for step in steps
+            if step[0] == "wait" and "notes.md:5" in str(step[1])
+        )
+        self.assertIn(self.BODY, transcript)
+        self.assertIn("@@ ", transcript)
+        self.assertIn(self.QUOTE, transcript)
+        # Both widths run against one daemon and the same seeded conversation.
+        # A shared body would let mac-wide's wait pass on mac's message, so each
+        # viewport's substituted body must be its own needle.
+        bodies = [self.BODY.replace("{vp}", vp) for vp in journey["viewports"]]
+        for mine_vp, mine in zip(journey["viewports"], bodies):
+            for other_vp, other in zip(journey["viewports"], bodies):
+                if mine_vp != other_vp:
+                    self.assertNotIn(mine, other, "%s's body would match %s's message" % (mine_vp, other_vp))
+
+    def test_j2_reply_waits_are_indexed_past_the_earlier_rounds(self) -> None:
+        # One seeded conversation carries the seed's own answer plus one reply
+        # per width's tray send. A rerun wait indexed from 0 would already be
+        # satisfied at the leg start, so the file could be re-picked before the
+        # round that moves it landed. Pin the three indices to the replies they
+        # actually wait for: the width's own tray reply (nth=2), then the
+        # [seed] shift round (nth=3), then the [seed] rewrite round (nth=4).
+        with open(SPEC, encoding="utf-8") as fh:
+            steps = json.load(fh)["journeys"]["J2"]["steps"]
+        waits = [
+            step
+            for step in steps
+            if step[0] == "wait"
+            and "Fake reply from the journey fake agent." in str(step[1])
+            and "nth=" in str(step[1])
+        ]
+        self.assertEqual(
+            [int(re.search(r"nth=(\d+)", step[1]).group(1)) for step in waits],
+            [2, 3, 4],
+            waits,
+        )
+
+    def test_j2_contract_rejects_a_comment_before_the_diff_is_open(self) -> None:
+        # Today's shape: the workspace section ends at the diff screenshot, so
+        # moving the review block above the file click still reads plausibly.
+        def comment_before_diff(steps: list) -> None:
+            start = self.at(
+                steps,
+                lambda step: step[0] == "wait" and ".monaco-diff-editor" in str(step[1]),
+            )
+            send = self.at(steps, self.is_send)
+            block = steps[start : send + 1]
+            del steps[start : send + 1]
+            panel = self.at(steps, lambda step: step == ["shot", "workspace-panel"])
+            steps[panel + 1 : panel + 1] = block
+
+        code, out = self.check(self.copy_with(comment_before_diff))
+        self.assertEqual(code, 1, out)
+        self.assertIn("before the seeded file is open", out)
+
+    def test_j2_contract_rejects_an_unanchored_transcript_assertion(self) -> None:
+        # The failure the mutant proves: the comment arrives with its words but
+        # no path/hunk/quote. A body-only wait must not satisfy the contract.
+        def body_only(steps: list) -> None:
+            at = self.at(
+                steps,
+                lambda step: step[0] == "wait" and "notes.md:5" in str(step[1]),
+            )
+            steps[at] = [
+                "wait",
+                "css=[role=region][tabindex='-1']:has-text('%s')" % self.BODY,
+            ]
+
+        code, out = self.check(self.copy_with(body_only))
+        self.assertEqual(code, 1, out)
+        self.assertIn("path, hunk header and quote", out)
+
+    def test_j2_contract_rejects_a_comment_body_shared_across_viewports(self) -> None:
+        # Both widths walk the same seeded conversation against one daemon.
+        # Without the {vp} token, mac-wide's transcript wait was satisfied by
+        # mac's message, so the second width's own send was never proven.
+        def shared_body(steps: list) -> None:
+            for step in steps:
+                for i in (1, 2):
+                    if len(step) > i and isinstance(step[i], str):
+                        step[i] = step[i].replace("[{vp}]", "")
+
+        code, out = self.check(self.copy_with(shared_body))
+        self.assertEqual(code, 1, out)
+        self.assertIn("{vp}", out)
+
+    def test_j2_contract_rejects_an_unbracketed_viewport_token(self) -> None:
+        # `mac` sits inside `mac-wide`, so an unbracketed token would still let
+        # one viewport's body match the other's message.
+        def unbracketed(steps: list) -> None:
+            for step in steps:
+                for i in (1, 2):
+                    if len(step) > i and isinstance(step[i], str):
+                        step[i] = step[i].replace("[{vp}]", "{vp}")
+
+        code, out = self.check(self.copy_with(unbracketed))
+        self.assertEqual(code, 1, out)
+        self.assertIn("inside another", out)
+
+    def test_j2_contract_rejects_a_missing_tray_send(self) -> None:
+        # Deleting the press but keeping the transcript wait would prove only
+        # that the words are somewhere on the page.
+        def drop_send(steps: list) -> None:
+            steps.pop(self.at(steps, self.is_send))
+
+        code, out = self.check(self.copy_with(drop_send))
+        self.assertEqual(code, 1, out)
+        self.assertIn("send", out.lower())
+
+    @staticmethod
+    def find(steps: list, pred, what: str) -> int:
+        for i, step in enumerate(steps):
+            if pred(step):
+                return i
+        raise AssertionError("the checked-in J2 spec has no " + what)
+
+    @staticmethod
+    def rerun_fill(steps: list, marker: str) -> int:
+        return WalkJ2ContractTest.find(
+            steps,
+            lambda step: step[0] == "fill" and len(step) > 2 and marker in str(step[2]),
+            "composer fill carrying %s" % marker,
+        )
+
+    def test_j2_contract_rejects_a_rerun_without_the_shift_send(self) -> None:
+        # The re-anchored row is only proof of a rerun if the round that moved
+        # the quoted line was really asked for. Dropping the `[seed] shift`
+        # send leaves a tray that happens to show a new line number for no
+        # reason at all.
+        def drop_shift(steps: list) -> None:
+            at = self.rerun_fill(steps, "[seed] shift")
+            del steps[at : at + 2]  # the fill and the send that follows it
+
+        code, out = self.check(self.copy_with(drop_shift))
+        self.assertEqual(code, 1, out)
+        self.assertIn("[seed] shift", out)
+
+    def test_j2_contract_rejects_a_stale_comment_without_the_badge_wait(self) -> None:
+        # A stale row is the other half of the contract: when the quoted line
+        # is gone the tray must say 该行已变化 and keep the quote. A walk that
+        # sends `[seed] rewrite` and never reads the badge photographs a tray
+        # that may have silently dropped the comment.
+        def drop_stale_wait(steps: list) -> None:
+            at = self.find(
+                steps,
+                lambda step: step[0] == "wait"
+                and ("该行已变化" in str(step[1]) or "This line has changed" in str(step[1])),
+                "stale-row wait naming the badge",
+            )
+            steps.pop(at)
+
+        code, out = self.check(self.copy_with(drop_stale_wait))
+        self.assertEqual(code, 1, out)
+        self.assertIn("该行已变化", out)
+
+    def test_j2_contract_rejects_the_shift_send_before_the_second_comment_is_saved(self) -> None:
+        # The round that moves the line must run after the comment exists: a
+        # shift sent first re-anchors nothing, and the later Save would record
+        # the already-moved line as the saved position — the same row, but the
+        # walk would no longer prove a comment survived a change.
+        def shift_before_save(steps: list) -> None:
+            at = self.rerun_fill(steps, "[seed] shift")
+            pair = steps[at : at + 2]
+            del steps[at : at + 2]
+            saves = [
+                i
+                for i, step in enumerate(steps)
+                if step[0] == "click" and re.search(r"保存|Save", str(step[1]))
+            ]
+            self.assertGreaterEqual(len(saves), 2, "the J2 spec has only one Save")
+            steps[saves[1] : saves[1]] = pair
+
+        code, out = self.check(self.copy_with(shift_before_save))
+        self.assertEqual(code, 1, out)
+        self.assertIn("before the second comment is saved", out)
+
+
+# The read-only Pull Request tab's honest absent-repo state (F3's PR leg).
+# The seeded checkout is a plain git repo with no origin remote, so the daemon
+# reports no repository and no branch; `shouldAskForRead` is false, and opening
+# the tab must ask GitHub nothing and settle on these words instead.
+PR_REFRESH = "button[aria-label='刷新'], button[aria-label='Refresh']"
+PR_UNOBSERVED = ("尚未查询此分支。", "This branch has not been checked yet.")
+PR_NO_REPO = ("此任务不在 GitHub 仓库中", "This task is not in a GitHub repository")
+PR_CHECKING = ("正在查询该分支", "Checking this branch")
+
+
+def pr_tab_click_at(steps: list) -> int | None:
+    """Index of the mandatory click that opens the Pull Request surface.
+
+    The selector names the panel's tab and the task header's toggle, because
+    the side panel is stacked at 1100px (the file view covers the strip) and a
+    peer column at 1280; the header toggle is the control a person can press
+    at both widths.
+    """
+    for index, step in enumerate(steps):
+        if step[0] != "click":
+            continue
+        selector = str(step[1])
+        if selector.startswith("?"):
+            continue
+        if "[role=tab]" in selector and re.search(r"pull request", selector, re.I):
+            return index
+    return None
+
+
+def pr_panel_problems(steps: list) -> list[str]:
+    """What the J2 PR leg must carry to prove the panel is honest and quiet.
+
+    Returns the problems; empty means the checked-in leg holds the contract.
+    A step that went optional (`?`) is a recorded skip, not evidence, so the
+    checks below only read mandatory steps.
+    """
+    click = pr_tab_click_at(steps)
+    if click is None:
+        return ["J2 has no mandatory click on a [role=tab] naming the Pull Request tab"]
+    problems: list[str] = []
+    # The leg must run at every width. Inside a `vp` scope only one width
+    # executes it, so the other width's shot silently disappears from the walk.
+    scope = ""
+    for step in steps[:click]:
+        if step[0] == "vp":
+            scope = str(step[1]).strip() if len(step) > 1 else ""
+    if scope:
+        problems.append(
+            "the Pull Request tab click sits inside the %s-only vp scope; "
+            "both widths must walk the panel" % scope
+        )
+    # Opening the PR surface unmounts the files surface. With a Monaco diff
+    # still mounted that unmount throws `TextModel got disposed before
+    # DiffEditorWidget model got reset`, a page error the walker records as a
+    # hard failure — so the PR leg walks before the diff is opened.
+    diff_at = next(
+        (
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "wait" and ".monaco-diff-editor" in str(step[1])
+        ),
+        None,
+    )
+    if diff_at is not None and diff_at < click:
+        problems.append(
+            "the Pull Request tab click comes after the diff editor is mounted; "
+            "switching surfaces unmounts Monaco and its dispose error reddens the walk"
+        )
+    leg = steps[click + 1 :]
+    # The review loop that follows expects the files surface back in front.
+    if not any(
+        step[0] == "click"
+        and (
+            "button[aria-label='文件']" in str(step[1])
+            or "button[aria-label='Files']" in str(step[1])
+        )
+        for step in leg
+    ):
+        problems.append(
+            "J2 never returns to the files panel after the Pull Request leg "
+            "(the review loop would run against the PR pane)"
+        )
+    waits = [step for step in leg if step[0] == "wait" and not str(step[1]).startswith("?")]
+    if not any(all(needle in str(step[1]) for needle in PR_UNOBSERVED) for step in waits):
+        problems.append(
+            "J2 never waits for the unobserved line in both locales "
+            "('尚未查询此分支。' and 'This branch has not been checked yet.') "
+            "after opening the Pull Request tab"
+        )
+    if not any(all(needle in str(step[1]) for needle in PR_NO_REPO) for step in waits):
+        problems.append(
+            "J2 never waits for the absent-repo header in both locales "
+            "('此任务不在 GitHub 仓库中' and 'This task is not in a GitHub repository') "
+            "after opening the Pull Request tab"
+        )
+    counts = [
+        step
+        for step in leg
+        if step[0] == "count" and len(step) > 2 and not str(step[1]).startswith("?")
+    ]
+    refresh_counts = [step for step in counts if PR_REFRESH in str(step[1])]
+    if not any(str(step[2]) == "1" for step in refresh_counts):
+        problems.append(
+            "J2 never asserts exactly one explicit Refresh control "
+            "(count button[aria-label='刷新'|'Refresh'] 1)"
+        )
+    enabled = [
+        step
+        for step in leg
+        if step[0] == "enabled"
+        and not str(step[1]).startswith("?")
+        and PR_REFRESH in str(step[1])
+    ]
+    if not enabled:
+        problems.append(
+            "J2 never asserts the Refresh control is usable "
+            "(enabled button[aria-label='刷新'|'Refresh'])"
+        )
+    checking = [
+        step
+        for step in counts
+        if all(needle in str(step[1]) for needle in PR_CHECKING)
+    ]
+    if not any(str(step[2]) == "0" for step in checking):
+        problems.append(
+            "J2 never asserts the panel does not read as still checking "
+            "(count '正在查询该分支|Checking this branch' 0)"
+        )
+    shot_at = next(
+        (index for index, step in enumerate(steps) if step[0] == "shot" and step[1] == "pr-panel"),
+        None,
+    )
+    if shot_at is None:
+        problems.append("J2 takes no `pr-panel` shot")
+    elif shot_at < click:
+        problems.append("the `pr-panel` shot is taken before the Pull Request tab is opened")
+    return problems
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class J2PrPanelContractTest(unittest.TestCase):
+    """J2 must walk the read-only PR tab, and opening it must ask GitHub nothing.
+
+    The seeded checkout has no origin remote, so the panel's honest state is
+    the absent-repo header, "This branch has not been checked yet." and exactly
+    one explicit Refresh — with no query in flight. Nothing walked that state:
+    a change that hides Refresh, replaces the honest line with a spinner, or
+    fires an implicit first-look read on open stayed green. Same shape as
+    WalkJ2ContractTest: the checked-in spec passes, and a copy that regresses
+    one rule at a time fails with a message naming that rule.
+    """
+
+    # (op, selector needles, the guard's own words for that proof)
+    PROOFS = (
+        ("wait", PR_UNOBSERVED, "unobserved line"),
+        ("wait", PR_NO_REPO, "absent-repo header"),
+        ("count", (PR_REFRESH,), "Refresh control"),
+        ("enabled", (PR_REFRESH,), "usable"),
+        ("count", PR_CHECKING, "still checking"),
+    )
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j2-pr-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def steps(self) -> list:
+        with open(SPEC, encoding="utf-8") as fh:
+            return json.load(fh)["journeys"]["J2"]["steps"]
+
+    def leg(self) -> list:
+        steps = self.steps()
+        at = pr_tab_click_at(steps)
+        self.assertIsNotNone(
+            at,
+            "J2 has no mandatory click on a [role=tab] naming the Pull Request tab",
+        )
+        return steps[at + 1 :]
+
+    def test_j2_pr_tab_click_is_mandatory(self) -> None:
+        steps = self.steps()
+        at = pr_tab_click_at(steps)
+        self.assertIsNotNone(
+            at,
+            "J2 has no mandatory click on a [role=tab] naming the Pull Request tab",
+        )
+        selector = str(steps[at][1])
+        self.assertIn("[role=tab]", selector)
+        self.assertRegex(selector, r"(?i)pull request")
+        # Adding the leg must not weaken the review-loop contract it joins.
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J2", out)
+
+    def test_j2_pr_panel_asserts_the_honest_unobserved_state(self) -> None:
+        waits = [step for step in self.leg() if step[0] == "wait"]
+        self.assertTrue(
+            any(all(needle in str(step[1]) for needle in PR_UNOBSERVED) for step in waits),
+            "J2 never waits for '尚未查询此分支。' and 'This branch has not been checked yet.' "
+            "in one selector after opening the Pull Request tab",
+        )
+        self.assertTrue(
+            any(all(needle in str(step[1]) for needle in PR_NO_REPO) for step in waits),
+            "J2 never waits for '此任务不在 GitHub 仓库中' and "
+            "'This task is not in a GitHub repository' in one selector after opening the tab",
+        )
+
+    def test_j2_pr_panel_offers_one_explicit_refresh(self) -> None:
+        leg = self.leg()
+        counts = [
+            step
+            for step in leg
+            if step[0] == "count" and len(step) > 2 and PR_REFRESH in str(step[1])
+        ]
+        self.assertTrue(counts, "J2 never counts the Refresh control after opening the Pull Request tab")
+        self.assertEqual(
+            str(counts[0][2]),
+            "1",
+            "the Refresh control must be exactly one; got %r" % (counts[0][2],),
+        )
+        self.assertTrue(
+            any(
+                step[0] == "enabled" and PR_REFRESH in str(step[1]) for step in leg
+            ),
+            "J2 never asserts the Refresh control is enabled; a fired implicit query "
+            "leaves it disabled, so this is the liveness check",
+        )
+
+    def test_j2_pr_panel_does_not_read_as_checking(self) -> None:
+        checking = [
+            step
+            for step in self.leg()
+            if step[0] == "count"
+            and len(step) > 2
+            and all(needle in str(step[1]) for needle in PR_CHECKING)
+        ]
+        self.assertTrue(
+            checking,
+            "J2 never counts '正在查询该分支' / 'Checking this branch' after opening the tab",
+        )
+        self.assertEqual(
+            str(checking[0][2]),
+            "0",
+            "the unobserved state must not read as a query in flight; got %r" % (checking[0][2],),
+        )
+
+    def test_j2_pr_panel_leg_cannot_be_weakened(self) -> None:
+        steps = self.steps()
+        self.assertEqual(pr_panel_problems(steps), [])
+
+        def problems_after(mutate) -> list[str]:
+            copy = json.loads(json.dumps(steps))
+            mutate(copy)
+            return pr_panel_problems(copy)
+
+        def required(op: str, needles: tuple[str, ...]) -> int:
+            return next(
+                index
+                for index, step in enumerate(steps)
+                if step[0] == op
+                and not str(step[1]).startswith("?")
+                and all(needle in str(step[1]) for needle in needles)
+            )
+
+        # The click is the whole leg's entry: without it nothing below runs.
+        def drop_click(copy: list) -> None:
+            copy.pop(pr_tab_click_at(copy))
+
+        problems = problems_after(drop_click)
+        self.assertTrue(any("Pull Request tab" in problem for problem in problems), problems)
+
+        # Each proof, deleted, must redden the guard with its own name.
+        for op, needles, keyword in self.PROOFS:
+            at = required(op, needles)
+
+            def drop_step(copy: list, at: int = at) -> None:
+                copy.pop(at)
+
+            problems = problems_after(drop_step)
+            self.assertTrue(
+                any(keyword in problem for problem in problems),
+                "dropping the %s proof left the guard green: %r" % (keyword, problems),
+            )
+
+        # A proof that went optional is a recorded skip, not evidence.
+        for op, needles, keyword in self.PROOFS:
+            at = required(op, needles)
+
+            def make_optional(copy: list, at: int = at) -> None:
+                copy[at][1] = "?" + str(copy[at][1])
+
+            problems = problems_after(make_optional)
+            self.assertTrue(
+                any(keyword in problem for problem in problems),
+                "an optional %s proof left the guard green: %r" % (keyword, problems),
+            )
+
+        # Inside the mac-wide rerun scope only one width would walk the panel.
+        at = pr_tab_click_at(steps)
+
+        def scope_to_mac_wide(copy: list, at: int = at) -> None:
+            copy.insert(at, ["vp", "mac-wide"])
+
+        problems = problems_after(scope_to_mac_wide)
+        self.assertTrue(any("vp scope" in problem for problem in problems), problems)
+
+        # A live Monaco diff cannot be unmounted by a surface switch: the
+        # dispose error is a page error, which the walker fails on.
+        def after_the_diff(copy: list) -> None:
+            moved = copy.pop(pr_tab_click_at(copy))
+            at = next(
+                index
+                for index, step in enumerate(copy)
+                if step[0] == "wait" and ".monaco-diff-editor" in str(step[1])
+            )
+            copy.insert(at + 1, moved)
+
+        problems = problems_after(after_the_diff)
+        self.assertTrue(
+            any("diff editor is mounted" in problem for problem in problems), problems
+        )
+
+        # Without the return click the review loop that follows runs against
+        # the PR pane, where notes.md has no row.
+        ret = next(
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "click" and "button[aria-label='文件']" in str(step[1])
+        )
+
+        def drop_return(copy: list, at: int = ret) -> None:
+            copy.pop(at)
+
+        problems = problems_after(drop_return)
+        self.assertTrue(any("files panel" in problem for problem in problems), problems)
+
+        # The shot is the stored evidence (TASTE 9), and it names the leg.
+        shot = next(
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "shot" and step[1] == "pr-panel"
+        )
+
+        def drop_shot(copy: list, shot: int = shot) -> None:
+            copy.pop(shot)
+
+        problems = problems_after(drop_shot)
+        self.assertTrue(any("pr-panel" in problem for problem in problems), problems)
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class WalkJ8ContractTest(unittest.TestCase):
+    """J8 must walk the review loop the way a thumb does, at 390 only.
+
+    J2 proves the same loop from the keyboard (⌥C, ⌘Enter), which a phone does
+    not have. J8 is its own journey so the phone path is a contract: tap the
+    changed line's glyph, write in the sheet, Save, read the tray's one row,
+    tap Send, and find the anchored follow-up in the transcript. Same shape as
+    WalkJ2ContractTest: the checked-in spec passes the walker's own contract
+    check, and a copy that regresses one phone rule at a time fails with a
+    message naming that rule.
+    """
+
+    BODY = "手机上把这一行改成一句总结。[{vp}]"
+    QUOTE = "- [seed] change: the journey walk reads this line as a real diff."
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j8-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J8"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    def copy_spec_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec)
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred) -> int:
+        return next(i for i, step in enumerate(steps) if pred(step))
+
+    @staticmethod
+    def is_send(step: list) -> bool:
+        return (
+            step[0] == "click"
+            and ("改动评论" in str(step[1]) or "Diff comments" in str(step[1]))
+            and ("发送" in str(step[1]) or "Send" in str(step[1]))
+        )
+
+    def test_j8_walks_the_phone_review_loop(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J8", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        journey = spec["journeys"]["J8"]
+        steps = journey["steps"]
+        self.assertEqual(journey["viewports"], ["phone"])
+        # The entry is the tap a thumb makes on the changed line, never the
+        # desktop chord: a phone has no Alt+C.
+        opened = self.at(
+            steps,
+            lambda step: step[0] == "click" and ".kin-diff-comment-glyph" in str(step[1]),
+        )
+        self.assertGreater(opened, 0, steps)
+        self.assertIn("nth=", str(steps[opened][1]))
+        self.assertFalse(
+            [step for step in steps if step[0] == "key" and re.search(r"Alt\+.*C", str(step[1]), re.I)],
+            steps,
+        )
+        names = [step[1] for step in steps if step[0] == "shot"]
+        self.assertLess(names.index("diff-comment-sheet"), names.index("diff-comment-tray"), names)
+        self.assertLess(names.index("diff-comment-tray"), names.index("diff-comment-sent"), names)
+        # The transcript assertion carries the whole anchor, not the words.
+        transcript = next(
+            step[1]
+            for step in steps
+            if step[0] == "wait" and "[role=region]" in str(step[1]) and "notes.md:5" in str(step[1])
+        )
+        self.assertIn(self.BODY, transcript)
+        self.assertIn("@@ ", transcript)
+        self.assertIn(self.QUOTE, transcript)
+        # A changes row under the workspace panel must select J8, or a diff
+        # there never walks the phone loop.
+        self.assertIsNotNone(
+            next(
+                (row for row in spec["paths"]
+                 if "ui/src/components/workspace/" in row[0] and "J8" in row[1]),
+                None,
+            )
+        )
+
+    def test_j8_contract_rejects_a_desktop_viewport(self) -> None:
+        # J2 already walks the Mac keyboard path; a J8 that also walks mac
+        # would replay the chords and prove nothing about the tap.
+        def add_mac(journey: dict) -> None:
+            journey["viewports"] = ["phone", "mac"]
+
+        code, out = self.check(self.copy_with(add_mac))
+        self.assertEqual(code, 1, out)
+        self.assertIn('viewports must be exactly ["phone"]', out)
+
+    def test_j8_contract_rejects_a_keyboard_opener(self) -> None:
+        # Today's desktop shape: Alt+C on the cursor line. At 390 that proves
+        # the keyboard, not the glyph a thumb has to hit.
+        def key_opener(journey: dict) -> None:
+            steps = journey["steps"]
+            at = self.at(
+                steps,
+                lambda step: step[0] == "click" and ".kin-diff-comment-glyph" in str(step[1]),
+            )
+            steps[at] = ["key", "Alt+KeyC"]
+
+        code, out = self.check(self.copy_with(key_opener))
+        self.assertEqual(code, 1, out)
+        self.assertIn("tap on the changed line's glyph", out)
+
+    def test_j8_contract_rejects_an_unpinned_glyph_tap(self) -> None:
+        # A tap that names no line, or that is optional, walks on when it
+        # resolves to nothing and fails at the tray or the transcript — two
+        # steps away from the tap that missed.
+        def mutate_tap(prefix: str) -> None:
+            def mutate(journey: dict) -> None:
+                steps = journey["steps"]
+                at = self.at(
+                    steps,
+                    lambda step: step[0] == "click" and ".kin-diff-comment-glyph" in str(step[1]),
+                )
+                steps[at][1] = prefix
+
+            code, out = self.check(self.copy_with(mutate))
+            self.assertEqual(code, 1, out)
+            self.assertIn("without pinning a line", out)
+
+        mutate_tap("css=.kin-diff-comment-glyph")
+        mutate_tap("?css=.kin-diff-comment-glyph >> nth=4")
+
+    def test_j8_contract_rejects_an_unanchored_transcript_assertion(self) -> None:
+        # The mutant's shape: the comment arrives with its words but no
+        # path/hunk/quote. A body-only wait must not satisfy the contract.
+        def body_only(journey: dict) -> None:
+            steps = journey["steps"]
+            at = self.at(
+                steps,
+                lambda step: step[0] == "wait"
+                and "[role=region]" in str(step[1])
+                and "notes.md:5" in str(step[1]),
+            )
+            steps[at] = [
+                "wait",
+                "css=[role=region][tabindex='-1']:has-text('%s')" % self.BODY,
+            ]
+
+        code, out = self.check(self.copy_with(body_only))
+        self.assertEqual(code, 1, out)
+        self.assertIn("path, hunk header and quote", out)
+
+    def test_j8_contract_rejects_a_key_only_send(self) -> None:
+        # The tray's ⌘Enter is the desktop press; a thumb has only the button.
+        def key_only_send(journey: dict) -> None:
+            steps = journey["steps"]
+            at = self.at(steps, self.is_send)
+            steps[at : at + 1] = [["focus", steps[at][1]], ["key", "Meta+Enter"]]
+
+        code, out = self.check(self.copy_with(key_only_send))
+        self.assertEqual(code, 1, out)
+        self.assertIn("never taps the tray's send", out)
+
+        # Deleting the press but keeping the transcript wait would prove only
+        # that the words are somewhere on the page.
+        def drop_send(journey: dict) -> None:
+            journey["steps"].pop(self.at(journey["steps"], self.is_send))
+
+        code, out = self.check(self.copy_with(drop_send))
+        self.assertEqual(code, 1, out)
+        self.assertIn("never taps the tray's send", out)
+
+    def test_j8_contract_rejects_a_send_before_the_tray_row(self) -> None:
+        # Sending before the saved comment is in the tray would send an empty
+        # tray (or the wrong row) and leave the transcript wait to match the
+        # words from somewhere else.
+        def early_send(journey: dict) -> None:
+            steps = journey["steps"]
+            send = steps.pop(self.at(steps, self.is_send))
+            save = self.at(steps, lambda step: step[0] == "click" and "保存" in str(step[1]))
+            steps.insert(save + 1, send)
+
+        code, out = self.check(self.copy_with(early_send))
+        self.assertEqual(code, 1, out)
+        self.assertIn("before it holds the saved comment", out)
+
+    def test_j8_contract_requires_the_workspace_paths_row(self) -> None:
+        # A workspace diff that no longer selects J8 would let the phone loop
+        # rot without the gate walking it.
+        def drop_workspace_row(spec: dict) -> None:
+            for row in spec["paths"]:
+                if "ui/src/components/workspace/" in row[0]:
+                    row[1] = [journey for journey in row[1] if journey != "J8"]
+
+        code, out = self.check(self.copy_spec_with(drop_workspace_row))
+        self.assertEqual(code, 1, out)
+        self.assertIn("paths table", out)
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
 class WalkJ7ContractTest(unittest.TestCase):
     """J7 must prove the notification landed on the card it named.
 
@@ -423,6 +1241,108 @@ class WalkJ7ContractTest(unittest.TestCase):
         self.assertNotIn("{conversation}", rendered)
         self.assertNotIn("{title}", rendered)
         self.assertNotIn("demo-item", rendered)
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class WalkJ9ContractTest(unittest.TestCase):
+    """J9 must prove a switch keeps the shell, the scroll and the draft.
+
+    The keep-alive host ships and pieces of it are pinned in DOM tests, but no
+    walk ever leaves a conversation and comes back, so a regression that
+    remounts the shell, resets the transcript scroller, or drops an unsent
+    draft is invisible to the gate. Same shape as WalkJ2ContractTest: the
+    checked-in spec passes the walker's own contract check, and a copy that
+    regresses one rule at a time fails with a message naming that rule.
+    """
+
+    DRAFT = "F4 draft [seed]"
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j9-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J9"]["steps"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred, start: int = 0) -> int:
+        return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+    @staticmethod
+    def is_click_title(step: list, title: str) -> bool:
+        return step[0] == "click" and title in str(step[1])
+
+    def test_j9_walks_the_switch(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J9 keeps the shell, the scroll and the draft across a switch", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        journey = spec["journeys"]["J9"]
+        steps = journey["steps"]
+        self.assertEqual(journey["viewports"], ["mac"])
+        # The evidence the reviewer reads: the shell tagged before the switch
+        # and asserted again after it, a scroll left behind, a draft typed, and
+        # all three read back after the return.
+        self.assertIn(["node", "css=#root .touch-lg", "shell"], steps)
+        self.assertIn(["scroll-kept", "css=[role=region][tabindex='-1']", "320"], steps)
+        self.assertIn(["value", "textarea", self.DRAFT], steps)
+        names = [step[1] for step in steps if step[0] == "shot"]
+        self.assertLess(names.index("switch-chat"), names.index("switch-back"), names)
+        # A diff to the shell or the conversation pane must select J9.
+        for row_needle in ("ui/src/components/layout/", "ui/src/pages/TaskDetail"):
+            row = next((row for row in spec["paths"] if row_needle in row[0]), None)
+            self.assertIsNotNone(row, row_needle)
+            self.assertIn("J9", row[1], row_needle)
+
+    def test_j9_contract_rejects_a_switch_without_the_same_shell_assertion(self) -> None:
+        # A shell remounted on the new pathname is a page load wearing the same
+        # markup. Dropping the assertion after the switch must redden the spec.
+        def drop_the_switch_node(steps: list) -> None:
+            switch = self.at(steps, lambda step: self.is_click_title(step, "Failed migration"))
+            node = self.at(steps, lambda step: step[0] == "node", switch + 1)
+            steps.pop(node)
+
+        code, out = self.check(self.copy_with(drop_the_switch_node))
+        self.assertEqual(code, 1, out)
+        self.assertIn("same shell node", out)
+
+    def test_j9_contract_rejects_a_return_without_the_draft_value(self) -> None:
+        # The half-typed message is the thing keep-alive exists for. A return
+        # that never reads the composer back proves only that the route works.
+        def drop_the_draft_value(steps: list) -> None:
+            at = self.at(steps, lambda step: step[0] == "value" and "textarea" in str(step[1]))
+            steps.pop(at)
+
+        code, out = self.check(self.copy_with(drop_the_draft_value))
+        self.assertEqual(code, 1, out)
+        self.assertIn("draft survived the return", out)
+
+    def test_j9_contract_rejects_a_return_without_the_scroll_assertion(self) -> None:
+        # A resumed conversation that snapped back to the bottom (or the top)
+        # is the regression this journey exists to catch.
+        def drop_the_scroll_kept(steps: list) -> None:
+            at = self.at(steps, lambda step: step[0] == "scroll-kept")
+            steps.pop(at)
+
+        code, out = self.check(self.copy_with(drop_the_scroll_kept))
+        self.assertEqual(code, 1, out)
+        self.assertIn("scroll-kept", out)
 
 
 if __name__ == "__main__":
