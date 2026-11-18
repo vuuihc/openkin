@@ -1390,6 +1390,158 @@ function checkJ12Contract(spec) {
   }
   return errs;
 }
+// J13 is KIN-RESULT-002's phone leg: the files panel's address, the two Back
+// stops behind it, and the self-contained HTML file's preview/source switch.
+// The deep link is a cold start (a `goto`), so the only way to prove the
+// address is a place is to press Back and read where it lands; the switch is
+// component state, so its proof is the iframe leaving and `aria-pressed`
+// moving — and the address NOT moving. A click nobody reads is a click that
+// proves only that the event was delivered.
+const J13_DEEP_LINK = /panel=files&file=/;
+const J13_PREVIEW = /预览|Preview/;
+const J13_SOURCE = /源码|Code/;
+function checkJ13Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J13) || {};
+  const steps = journey.steps;
+  // Registration is the point: deleting the one index line must be loud, or
+  // the phone's file walk can be retired by an edit no gate notices.
+  if (!journey.title && !Array.isArray(steps)) return ['J13 is not in the spec'];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J13 has no steps'];
+  const errs = [];
+  // J13's proofs are mandatory for the same reason J12's are: a `?`-prefixed
+  // step that misses is logged as `skipped`, so one optional Back or iframe
+  // wait would leave the walk green while the address or the switch is dead.
+  steps.forEach((st) => {
+    if (Array.isArray(st) && st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'))) {
+      errs.push('J13 step ' + JSON.stringify(st) + ' is optional; every J13 proof must be mandatory');
+    }
+  });
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const sel = (st, i) => String((st || [])[i] ?? '');
+
+  // Phone only. The Mac draws the list and the viewer as two columns, so a
+  // Mac width would walk a surface this leg never claims.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'phone') {
+    errs.push('J13 is the phone file walk: its viewports must be exactly ["phone"]');
+  }
+  // No Mac-only paths: a hover is a mouse without a finger, a platform chord
+  // is the desktop's shortcut, and a viewport scope is a leg that never runs
+  // at 390.
+  steps.forEach((st) => {
+    if (!Array.isArray(st)) return;
+    if (st[0] === 'hover') errs.push('J13 hovers a control; the phone walk must press, not hover');
+    if (st[0] === 'vp' && String(st[1] || '') !== '') errs.push('J13 scopes steps to ' + JSON.stringify(st[1]) + '; it is phone-only');
+    if (st[0] === 'key' && /meta|cmd|ctrl|alt/i.test(String(st[1] || ''))) errs.push('J13 presses the Mac-only chord ' + JSON.stringify(st[1]));
+  });
+
+  // Every click must be followed by the state it changed before the next
+  // click starts. J13 is a chain of presses, and a press with no read is a
+  // photograph of a page that may not have moved.
+  const ASSERT_OPS = new Set(['wait', 'gone', 'count', 'url', 'search', 'value', 'active']);
+  const clicks = steps.map((st, i) => i).filter((i) => Array.isArray(steps[i]) && steps[i][0] === 'click');
+  clicks.forEach((at, k) => {
+    const next = k + 1 < clicks.length ? clicks[k + 1] : steps.length;
+    if (!steps.some((st, i) => i > at && i < next && Array.isArray(st) && ASSERT_OPS.has(st[0]))) {
+      errs.push(`J13's click at step ${at + 1} (${sel(steps[at], 1)}) is never followed by an assertion before the next click`);
+    }
+  });
+
+  // Leg 1 — the cold-start link names the seeded conversation and one source
+  // file, and the file is read before Back leaves it.
+  const deepAt = idx((st) => st[0] === 'goto' && J13_DEEP_LINK.test(sel(st, 1)) && sel(st, 1).includes('{conversation}'));
+  if (deepAt < 0) {
+    errs.push('J13 has no cold-start goto naming {conversation} and ?panel=files&file=…');
+  } else {
+    const readAt = idx((st) => st[0] === 'wait' || st[0] === 'count', deepAt + 1);
+    const backAt = after(deepAt, (st) => st[0] === 'back');
+    if (readAt < 0 || (backAt >= 0 && readAt > backAt)) {
+      errs.push('J13 never reads the linked file before pressing Back; a link that only changed the URL proves nothing');
+    }
+    if (backAt < 0) {
+      errs.push('J13 never presses Back after the file deep link');
+    } else {
+      // Back must be read as an address: `url` sees the pathname only, so the
+      // query needs `search` — and the list state is `panel=files` with no
+      // `file=`. A Back that only changes the local view fails this.
+      const urlAt = after(backAt, (st) => st[0] === 'url');
+      if (urlAt < 0) errs.push('J13 presses Back after the deep link without asserting the address it returned to (url …)');
+      const listAt = after(backAt, (st) => (st[0] === 'search' || st[0] === 'url') && /panel=files/.test(sel(st, 1)) && !/file=/.test(sel(st, 1)));
+      if (listAt < 0) errs.push('J13 never proves Back landed on the list address (?panel=files with no file=)');
+      // The panel's own exits: Back from the file, then the list's exit to the
+      // conversation (the close button — a cold deep link's history parent is
+      // the session list, not the conversation it was pasted from, so a second
+      // browser Back is not this leg's proof). Either a Back or the close is
+      // the reader's way out; both must land on the conversation and take the
+      // panel off the screen.
+      const exitAt = after(listAt >= 0 ? listAt : backAt, (st) => st[0] === 'back' || (st[0] === 'click' && /关闭|Close/.test(sel(st, 1))));
+      if (exitAt < 0) {
+        errs.push('J13 never leaves the file list for the conversation (Back or the panel close)');
+      } else {
+        const taskAt = after(exitAt, (st) => st[0] === 'url' && /\/tasks\//.test(sel(st, 1)));
+        if (taskAt < 0) errs.push('J13 never proves the exit from the list reached the conversation (url ^/tasks/…)');
+        const cleanAt = after(exitAt, (st) => st[0] === 'search' && sel(st, 1).replace(/\s/g, '') === '^$');
+        if (cleanAt < 0) errs.push('J13 never proves the exit cleared panel/file from the address (search ^$)');
+        const closedAt = after(exitAt, (st) => st[0] === 'gone');
+        if (closedAt < 0) errs.push('J13 never proves the files pane left the screen when it returned to the conversation (gone …)');
+      }
+    }
+  }
+
+  // Leg 2 — the self-contained HTML file. The preview is pressed, the source
+  // press takes the iframe away and shows the source, and the preview press
+  // brings the page back; every press moves `aria-pressed`, and the address
+  // stays on the file because the switch is not a navigation.
+  const openHtmlAt = idx((st) => st[0] === 'click' && /preview\.html/.test(sel(st, 1)));
+  if (openHtmlAt < 0) errs.push('J13 never opens the seeded preview.html from the list');
+  else {
+    const iframeAt = after(openHtmlAt, (st) => (st[0] === 'wait' || st[0] === 'count') && /html-preview-header/.test(sel(st, 1)));
+    if (iframeAt < 0) errs.push('J13 never waits for the HTML preview page (wait css=[data-testid=html-preview-header] iframe)');
+  }
+  const sourceAt = idx((st) => st[0] === 'click' && J13_SOURCE.test(sel(st, 1)));
+  const previewAt = idx((st) => st[0] === 'click' && J13_PREVIEW.test(sel(st, 1)));
+  if (sourceAt < 0) {
+    errs.push('J13 never presses 源码/Code on the HTML preview');
+  } else {
+    const goneAt = after(sourceAt, (st) => st[0] === 'gone' && /iframe/.test(sel(st, 1)));
+    const seenAt = after(sourceAt, (st) => (st[0] === 'wait' || st[0] === 'count') && /Seed preview page/.test(sel(st, 1)));
+    const pressedAt = after(sourceAt, (st) => st[0] === 'count' && /aria-pressed/.test(sel(st, 1)) && J13_SOURCE.test(sel(st, 1)));
+    if (goneAt < 0) errs.push('J13 never proves the preview iframe left the screen when 源码 was pressed (gone …iframe)');
+    if (seenAt < 0) errs.push('J13 never reads the HTML source after pressing 源码');
+    if (pressedAt < 0) errs.push('J13 never proves 源码 is the pressed segment (count …aria-pressed…)');
+  }
+  if (previewAt < 0) {
+    errs.push('J13 never presses 预览/Preview');
+  } else {
+    const iframeBackAt = after(previewAt, (st) => (st[0] === 'wait' || st[0] === 'count') && /iframe/.test(sel(st, 1)));
+    const pressedBackAt = after(previewAt, (st) => st[0] === 'count' && /aria-pressed/.test(sel(st, 1)) && J13_PREVIEW.test(sel(st, 1)));
+    if (iframeBackAt < 0) errs.push('J13 never proves the preview iframe came back when 预览 was pressed');
+    if (pressedBackAt < 0) errs.push('J13 never proves 预览 is pressed again after the source');
+    if (sourceAt >= 0 && previewAt < sourceAt) errs.push('J13 presses 预览 before 源码; the switch is a round trip');
+    const openedAt = steps.findIndex((st, i) => i < previewAt && Array.isArray(st) && st[0] === 'count' && /aria-pressed/.test(sel(st, 1)) && J13_PREVIEW.test(sel(st, 1)));
+    if (openedAt < 0) errs.push('J13 never proves 预览 is the pressed segment when the HTML file opens');
+    if (sourceAt >= 0) {
+      const sameAddressAt = steps.findIndex((st, i) => i > sourceAt && i < (previewAt > sourceAt ? previewAt : steps.length) && Array.isArray(st) && (st[0] === 'search' || st[0] === 'url') && /file=/.test(sel(st, 1)));
+      if (sameAddressAt < 0) errs.push('J13 never asserts the address stayed on the file across the preview/source switch (search …file=…)');
+    }
+  }
+
+  // A page or locale diff that no longer selects J13 would let the phone's
+  // file panel rot without the gate ever walking it: `--files` picks journeys
+  // from this table, first match wins.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ13 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J13');
+  };
+  for (const file of ['ui/src/pages/TaskDetailPage.tsx', 'ui/src/components/workspace/WorkspacePanel.tsx', 'ui/src/components/workspace/FilePreview.tsx', 'ui/src/i18n/locales/zh.ts', 'ui/src/i18n/locales/en.ts']) {
+    if (!mapsToJ13(file)) {
+      errs.push(`the paths table does not map ${file} to J13; a diff there would not walk the file panel`);
+    }
+  }
+  return errs;
+}
 if (process.argv.includes('--check-spec')) {
   const j2 = checkJ2Contract(spec);
   const j3 = checkJ3Contract(spec);
@@ -1401,7 +1553,8 @@ if (process.argv.includes('--check-spec')) {
   const j10 = checkJ10Contract(spec);
   const j11 = checkJ11Contract(spec);
   const j12 = checkJ12Contract(spec);
-  if (j2.length || j3.length || j4.length || j5.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length) {
+  const j13 = checkJ13Contract(spec);
+  if (j2.length || j3.length || j4.length || j5.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length) {
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
     if (j4.length) { console.log('spec red: J4'); j4.forEach((e) => console.log(' - ' + e)); }
@@ -1412,6 +1565,7 @@ if (process.argv.includes('--check-spec')) {
     if (j10.length) { console.log('spec red: J10'); j10.forEach((e) => console.log(' - ' + e)); }
     if (j11.length) { console.log('spec red: J11'); j11.forEach((e) => console.log(' - ' + e)); }
     if (j12.length) { console.log('spec red: J12'); j12.forEach((e) => console.log(' - ' + e)); }
+    if (j13.length) { console.log('spec red: J13'); j13.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
   console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
@@ -1426,6 +1580,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J10 approves the deep-linked card, walks all four footer entries, and finds it gone on the return');
   console.log('spec ok: J11 keeps the shell, the scroll and the draft across the phone\'s switches');
   if (spec.journeys && spec.journeys.J12) console.log('spec ok: J12 walks the phone\'s edge back, row reveal and hold-to-reorder as real touch and reads the consequences');
+  if (spec.journeys && spec.journeys.J13) console.log('spec ok: J13 walks the phone file link through Back to the list and the conversation, and the HTML preview/source switch without leaving the file address');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
@@ -1725,24 +1880,43 @@ async function choosePlace(page, selector) {
 // is only hidden text is not the control — J7's `/返回|Back/` otherwise resolves
 // to the collapsed usage note "此任务未返回缓存用量" and every optional step
 // would wait out a click timeout on it.
-async function stepLocator(page, sel) {
+// Whether a finger (or a mouse) would actually land on this element.
+//
+// Playwright's `isVisible` only asks for a box: the files panel draws over the
+// page's own header at 390, so the covered header Back is "visible" and a
+// click on it waits out its timeout on an intercepting element. The document
+// is the honest reader of "can this be pressed" — ask what is at the point.
+async function receivesPointer(loc) {
+  return loc.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return false;
+    const hit = document.elementFromPoint(x, y);
+    return !!hit && (hit === el || el.contains(hit));
+  }).catch(() => false);
+}
+async function stepLocator(page, sel, opts = {}) {
+  const usable = async (loc) => (await loc.isVisible().catch(() => false))
+    && (!opts.reachable || await receivesPointer(loc));
   // `text=` is a literal the way `wait text=` is: the seeded title carries
   // `[seed]`, which as a regex is a character class and matches nothing.
   if (sel.startsWith('text=')) {
     const text = page.getByText(sel.slice('text='.length));
     const count = await text.count();
-    for (let i = 0; i < count; i++) if (await text.nth(i).isVisible().catch(() => false)) return text.nth(i);
+    for (let i = 0; i < count; i++) if (await usable(text.nth(i))) return text.nth(i);
     return text.first();
   }
   if (!sel.startsWith('/')) return page.locator(sel).first();
   const re = new RegExp(sel.slice(1, sel.lastIndexOf('/')), 'i');
   const text = page.getByText(re);
   const count = await text.count();
-  for (let i = 0; i < count; i++) if (await text.nth(i).isVisible().catch(() => false)) return text.nth(i);
+  for (let i = 0; i < count; i++) if (await usable(text.nth(i))) return text.nth(i);
   for (const role of ['button', 'link']) {
     const named = page.getByRole(role, { name: re });
     const namedCount = await named.count();
-    for (let i = 0; i < namedCount; i++) if (await named.nth(i).isVisible().catch(() => false)) return named.nth(i);
+    for (let i = 0; i < namedCount; i++) if (await usable(named.nth(i))) return named.nth(i);
   }
   return text.first();
 }
@@ -1979,7 +2153,7 @@ async function fakeAgentVerdict() {
   return '';
 }
 for (const j of want) {
-  const seed = (j === 'J1' || j === 'J4' || j === 'J5' || j === 'J7' || j === 'J10') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
+  const seed = (j === 'J1' || j === 'J4' || j === 'J5' || j === 'J7' || j === 'J10' || j === 'J13') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
   const j1 = j === 'J1' ? readJ1Target(seed) : null;
   const j5 = j === 'J5' ? readJ5Target(seed) : null;
   // Only a J4 spec that carries `{project}` needs the seed's id; an older spec
@@ -1988,7 +2162,10 @@ for (const j of want) {
   const j4 = j4UsesProject ? readJ4Target(seed) : null;
   // J10 answers the same seeded card J7 only looks at. Both must resolve the
   // target the same way, and both skip rather than walk invented ids.
-  const j7 = (j === 'J7' || j === 'J10') ? readJ7Target(seed) : null;
+  // J13 walks the same seeded conversation the notification leg names, so the
+  // deep link resolves to a real task with a real checkout (and the seeded
+  // preview.html in it), never an invented id.
+  const j7 = (j === 'J7' || j === 'J10' || j === 'J13') ? readJ7Target(seed) : null;
   if (j1 && j1.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J1-skipped-no-approval-target', url: '', lint: {}, notes: ['skipped J1: ' + j1.skip] }); continue; }
   if (j4 && j4.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J4-skipped-no-project-target', url: '', lint: {}, notes: ['skipped J4: ' + j4.skip] }); continue; }
   if (j5 && j5.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J5-skipped-no-running-conversation', url: '', lint: {}, notes: ['skipped J5: ' + j5.skip] }); continue; }
@@ -2036,7 +2213,7 @@ for (const j of want) {
     // the second width ran it.
     let vpOnly = '';
     for (const rawStep of J.steps) {
-      const preStep = j === 'J5' && j5 ? applyJ5Step(rawStep, j5) : (j === 'J7' || j === 'J10') && j7 ? applyJ7Step(rawStep, j7) : j === 'J4' && j4 ? applyJ4Step(rawStep, j4) : rawStep;
+      const preStep = j === 'J5' && j5 ? applyJ5Step(rawStep, j5) : (j === 'J7' || j === 'J10' || j === 'J13') && j7 ? applyJ7Step(rawStep, j7) : j === 'J4' && j4 ? applyJ4Step(rawStep, j4) : rawStep;
       const st = applyVpStep(preStep, vpName);
       const [op, a, b] = st;
       if (op === 'vp') {
@@ -2255,9 +2432,13 @@ for (const j of want) {
           // accessible path and what `goBackToList` drives); a width without
           // one (the desktop bar has no Back control) falls back to browser
           // history, which is the same entry the app's own Back returns to.
+          // A control under an open panel is not the reader's: the files panel
+          // covers the page header at 390, so only a button the document says
+          // is at the point may be pressed — otherwise the browser's own Back
+          // is the honest press.
           let pressed = false;
-          const loc = await stepLocator(page, '/返回|Back/');
-          if ((await loc.count()) > 0 && (await loc.isVisible().catch(() => false))) {
+          const loc = await stepLocator(page, '/返回|Back/', { reachable: true });
+          if ((await loc.count()) > 0 && (await loc.isVisible().catch(() => false)) && (await receivesPointer(loc))) {
             await loc.click({ timeout: 3000 });
             pressed = true;
             log.push('pressed Back');

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useState } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { t } from "../../i18n";
 import type { TaskEvent } from "../../api/client";
@@ -50,6 +50,22 @@ vi.mock("../../api/client", async () => {
 const CWD = "/Users/owner/project";
 
 Element.prototype.scrollIntoView = vi.fn();
+
+// jsdom has no layout, and the panel measures its own container rather than
+// the viewport. Zero keeps the wide fallback, so a phone case says what its
+// container measures — the same stub WorkspacePanel.paths.dom.test.tsx uses.
+function stubContainerWidth(width: number) {
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get: () => width,
+  });
+}
+
+function restoreContainerWidth() {
+  delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+}
+
+afterEach(() => restoreContainerWidth());
 
 const FILES: ChangedFile[] = ["src/f1.ts", "src/f2.ts"].map((path, index) => ({
   path: `${CWD}/${path}`,
@@ -201,6 +217,27 @@ describe("a file picked inside the panel asks the page for its address", () => {
     // An arrival is the address talking. Reporting it would push the entry the
     // reader just arrived on.
     expect(onSelectPath).not.toHaveBeenCalled();
+  });
+
+  it("the phone's Back to files asks the page for the list's own address", async () => {
+    stubContainerWidth(390);
+    const onSelectPath = vi.fn();
+    renderPanel({ onSelectPath });
+
+    fireEvent.click(tabs()[1]!);
+    const row = await screen.findByTitle("a.ts");
+    fireEvent.click(row);
+    await waitFor(() => expect(api.readTaskSourceFile).toHaveBeenCalledTimes(1));
+
+    // The file pane is in front and its header carries the way back.
+    const back = screen.getByRole("button", { name: t("workspace.backToFiles") });
+    fireEvent.click(back);
+
+    // The workspace root is the list in this panel's address model, so the
+    // page can stop the URL naming a file the reader has left. Without this
+    // the address kept the file and a refresh reopened it.
+    expect(onSelectPath).toHaveBeenLastCalledWith(CWD);
+    expect(screen.queryByRole("button", { name: t("workspace.backToFiles") })).toBeNull();
   });
 
   it("a click that only re-opens the file already shown still asks the page", async () => {

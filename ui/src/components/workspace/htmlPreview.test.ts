@@ -124,7 +124,7 @@ describe("buildPreviewDocument", () => {
     const parsed = parse(buildPreviewDocument("<p>hi</p>"));
 
     expect(PREVIEW_CSP).toBe(
-      "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'",
     );
     const first = parsed.head.firstElementChild;
     expect(first?.tagName).toBe("META");
