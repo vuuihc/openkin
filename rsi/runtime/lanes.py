@@ -19,6 +19,9 @@ import subprocess, argparse, fcntl, fnmatch, json, os, sys, time, glob, shlex
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE = os.environ.get("RSI_STATE") or os.path.normpath(os.path.join(HERE, "..", "state"))
 LDIR = os.path.join(STATE, "lanes")
+# Worker event logs streamed by dispatch.sh: <stamp>-dispatch-lane<N>-<slug>-worker.jsonl.
+# Overridable so a hermetic test can point at its own runs dir.
+RUNS = os.environ.get("RSI_RUNS") or os.path.join(HERE, "runs")
 MAX_LANES = int(os.environ.get("RSI_MAX_LANES", "3"))
 CLAIM_TTL = 25 * 60
 
@@ -197,18 +200,38 @@ def reap():
         elif d and d.get("status") == "claimed" and time.time() - d.get("claimed_at", 0) >= CLAIM_TTL:
             d.update(status="expired", finished_at=time.time()); save(n, d)
 
-def fmt(d):
+def silent_minutes(n, slug):
+    """Minutes since the newest worker event log for this lane was written, or None.
+
+    Deliberately the log mtime, not started_at: a worker that has been alive 39m but
+    silent for 30m is the failure this exposes (a stuck Bash call, 2026-11-18).
+    """
+    if not slug:
+        return None
+    pat = os.path.join(RUNS, "*-dispatch-lane%d-%s-worker.jsonl" % (n, slug))
+    try:
+        mtimes = [os.path.getmtime(f) for f in glob.glob(pat)]
+    except OSError:
+        return None
+    if not mtimes:
+        return None
+    return int(max(0.0, time.time() - max(mtimes)) / 60)
+
+def fmt(d, n=None):
     if not d: return "idle (never used)"
     st = d.get("status")
     age = int((time.time() - (d.get("started_at") or d.get("claimed_at") or 0)) / 60)
     base = f"{st:8} {d.get('item','?')} {d.get('slug','?')} mode={d.get('mode','new')}"
-    if is_active(d): return f"ACTIVE   {base} age={age}m paths={','.join(d.get('paths', []))}"
+    if is_active(d):
+        sil = silent_minutes(n, d.get("slug")) if n is not None else None
+        silent = "-" if sil is None else f"{sil}m"
+        return f"ACTIVE   {base} age={age}m silent={silent} paths={','.join(d.get('paths', []))}"
     return f"idle     last: {base} pr={d.get('pr','-')} note={d.get('note','')[:90]}"
 
 def cmd_status(a):
     reap()
     for n in range(1, ALL_LANES + 1):
-        print(f"lane {n}: {fmt(load(n))}")
+        print(f"lane {n}: {fmt(load(n), n)}")
     try:
         press = host_pressure()
         avail = avail_mem_mb()
