@@ -408,10 +408,15 @@ while IFS=, read -r SLUG ST <&3; do
   fi
   VISIBLE="$(printf '%s\n' "$DIFF" | grep -E '^ui/src/.*\.(tsx|css)$' | grep -vE '\.test\.|/__tests__/' || true)"
   SHOTS="$STATE/shots/$SLUG"
-  PRINFO="$(with_timeout "$GH_T" "$GH_BIN" pr list --repo "$GH_REPO" --head "$BR" --state open --json number,headRefOid --jq '.[0] | "\(.number)\t\(.headRefOid)"' 2>/dev/null)"
+  # `.[0] // empty` matters: with no open PR, `.[0] | "…"` prints "null\tnull" (the string form of the
+  # null object), and that literal once reached `merge-base --is-ancestor null` below, so every fresh NAS
+  # result was held as "branch diverged" and never published. Absent means absent; it is not a rev.
+  PRINFO="$(with_timeout "$GH_T" "$GH_BIN" pr list --repo "$GH_REPO" --head "$BR" --state open --json number,headRefOid --jq '.[0] // empty | "\(.number)\t\(.headRefOid)"' 2>/dev/null)"
   PRN="${PRINFO%%$'\t'*}"; PRHEAD=""
   case "$PRINFO" in *$'\t'*) PRHEAD="${PRINFO#*$'\t'}";; esac
   case "$PRN" in ''|*[!0-9]*) PRN="";; esac
+  # Defence in depth: only a hex object name may be fed to git (a degraded `gh` must not fake a divergence).
+  case "$PRHEAD" in ''|*[!0-9a-f]*) PRHEAD="";; esac
   NEEDS_SHOTS=0; HOLD_WHY=""
   [ "$DIFF_FAILED" = 1 ] && { NEEDS_SHOTS=1; HOLD_WHY="cannot diff the branch against origin/main"; }
   [ -n "$VISIBLE" ] && { NEEDS_SHOTS=1; HOLD_WHY="visible UI changed and no two-width shots in $SHOTS"; }
