@@ -306,4 +306,39 @@ describe("TaskHeader", () => {
     expect((archive as HTMLButtonElement).disabled).toBe(true);
     expect((del as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("shows the running subagent count beside the status", () => {
+    // The count is a merge into the live-state area the header already owns:
+    // no button, no panel, no per-subagent stop. It sits immediately before
+    // the pill on the desktop cluster and just after it on the phone's
+    // subtitle row, so it reads as part of the same state, never a new line.
+    const plain = setup();
+    const buttonsBefore = screen.queryAllByRole("button").length;
+    plain.utils.unmount();
+
+    const { utils } = setup({ subagentsRunning: 2 });
+    const label = t("task.subagentCount", { count: 2 });
+
+    const desktop = desktopBar(utils);
+    const desktopCount = within(desktop).getByText(label);
+    expect(desktopCount.closest("button")).toBeNull();
+    expect(desktopCount.getAttribute("tabindex")).toBeNull();
+    expect(desktopCount.nextElementSibling).toBe(statusPill(desktop));
+
+    const phone = phoneBarEl(utils);
+    expect(within(phone).getByText(label).previousElementSibling).toBe(statusPill(phone));
+
+    // A count is not a control: the header's set of buttons did not grow.
+    expect(screen.queryAllByRole("button").length).toBe(buttonsBefore);
+  });
+
+  it("hides the count at zero and when the turn is terminal", () => {
+    // Zero is the empty state — absent, not "Subagents: 0" — and a finished
+    // turn has no live state left for a count to describe.
+    setup({ subagentsRunning: 0 });
+    expect(screen.queryByText(t("task.subagentCount", { count: 0 }))).toBeNull();
+
+    setup({ subagentsRunning: 3, terminal: true });
+    expect(screen.queryByText(t("task.subagentCount", { count: 3 }))).toBeNull();
+  });
 });

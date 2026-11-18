@@ -58,6 +58,7 @@ import { useMinWidth } from "../hooks/useMinWidth";
 import { usePendingResources, useTaskResource } from "../api/useLiveResources";
 import { isImeKeyEvent } from "../lib/ime";
 import { taskIdFromPathname } from "../lib/sessionCache";
+import { runningSubagentCount } from "../lib/subagents";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
@@ -187,6 +188,10 @@ export default function TaskDetailPage({
     detail.data.deleted || (detail.error instanceof ApiError && detail.error.status === 404);
   const task = detail.data.task ?? (gone ? null : fallbackTask) ?? null;
   const events = detail.data.events;
+  // The header's one honest number: subagent calls the running turn still has
+  // in flight. Read from the raw events, not the transcript projection — the
+  // projection drops some task-only child tools and would undercount.
+  const subagentsRunning = useMemo(() => runningSubagentCount(events), [events]);
   const approvals = useMemo(
     () => pending.data.approvals.filter((item) => item.task_id === id),
     [id, pending.data.approvals],
@@ -2148,6 +2153,9 @@ export default function TaskDetailPage({
           project={project}
           terminal={terminal}
           degraded={degraded}
+          // A finished turn has no live state, even if a stale event still
+          // looks open: the header must not outlive the run it described.
+          subagentsRunning={terminal ? 0 : subagentsRunning}
           filesOpen={filesOpen}
           prOpen={prOpen}
           panelOpen={panel !== null}
