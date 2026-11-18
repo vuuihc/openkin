@@ -541,6 +541,29 @@
         "ui/src/components/workspace/WorkspacePanel.comments.dom.test.tsx"
       ],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-PROJECT-002",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J4"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "项目的工作目录：看清这几个目录为什么在一起，并能增删",
+      "file": "docs/product/stories/KIN-PROJECT-002.md",
+      "surface": "Mac / 手机 项目封面 · 工作目录块",
+      "ownerPaths": [
+        "ui/src/pages/ProjectDetailPage.tsx",
+        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
+        "internal/api/projects.go",
+        "internal/store/projects.go"
+      ],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }
