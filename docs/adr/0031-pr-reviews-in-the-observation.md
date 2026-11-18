@@ -57,9 +57,12 @@ refresh that writes `ci_summary`.
 - Bounds are enforced at the boundary, because the payload is untrusted input: at most
   **20** reviews per snapshot (the newest 20, keeping their relative order), `author`
   at most 100 runes, `body` at most 4000 runes, truncated at a rune boundary and
-  keeping the head. The panel may clamp the visible body (for example to eight lines
-  with an expand affordance); it must not drop a review or misreport a clamped body as
-  a complete one.
+  keeping the head. The read asks for the newest page it can — `per_page=100`, then
+  the response's `rel="last"` link when one exists — so "the newest 20" is the newest
+  the API will hand back in one page, never the oldest twenty of a long list. The
+  panel may clamp the visible body (for example to eight lines with an expand
+  affordance); it must not drop a review or misreport a clamped body as a complete
+  one.
 
 ### The write path
 
@@ -68,12 +71,28 @@ explicit `lookup` sequence — the same call that reads the pull request and its
 by one added request to the pull request's reviews endpoint. That makes the cost
 visible where it belongs: one more GET on a refresh somebody asked for, never a read
 on panel open, never a background poll the panel added, and no second code path that
-can write a partial row. A reviews read that fails is reported to the caller the way a
-failed checks read already is: the pull request is still a good observation, its
-`reviews` value stays what it was, and the panel says the reviews were not read.
+can write a partial row.
 
-`api/openapi.yaml` documents `reviews` next to `ci_summary`, as an additive field on
-the same observation object the node hands to the Hub.
+A reviews read that fails is not a reviews answer. The pull request and its checks are
+still a good observation, so `record` writes the row with `reviews` unchanged; only a
+row that never had an answer reads `''`. The all-column upsert (`RecordPRObservation`)
+takes every observed column from `excluded`, so carrying the old value is the
+implementation's job, and it is safe to do with
+`CASE WHEN excluded.reviews = '' THEN pr_observations.reviews ELSE excluded.reviews END`
+precisely because a *successful* empty answer is `[]` and never `''`. `RecordPRFailure`
+already writes only the attempt columns, so a failed attempt preserves it. The panel
+can therefore say "reviews not read" only for `''`, and derives the age of a kept
+array from `observed_at`.
+
+`api/openapi.yaml` documents `reviews` next to `ci_summary`, and the change regenerates
+the console's typed client (`ui/src/api/generated/openapi.ts` via
+`npm run generate:api`, which `scripts/check-openapi.sh` compares):
+`additionalProperties: false` makes skipping that regeneration a contract break. The
+node→Hub carrier is *not* the openapi object: it is `worker.PRObserveResult`
+(`internal/remote/worker/query.go`), copied in `internal/node/responder_pr.go` and
+rebuilt in `internal/github/service.go`. The field is added in all three places, and
+the `''`/`[]` distinction has to survive the hop, or a phone reading a remote task
+shows "not read" for reviews the node did read.
 
 ### The migration, held
 
@@ -82,15 +101,22 @@ The migration is **049**, appended after 048 in the same ordered list in
 048 guards `routines.conversation_mode`: if `reviews` is absent, one
 `ALTER TABLE pr_observations ADD COLUMN reviews TEXT NOT NULL DEFAULT ''`, then
 `PRAGMA user_version = 49`. Old rows read as `''` — "no reviews cached" — which is the
-honest value, not an empty review list. The fresh-install schema concatenated at the
-top of `migrate.go` needs no second copy: the migration runs on a new database too,
-and a second literal would be a second thing to keep in step.
+honest value, not an empty review list.
+
+A fresh install never runs 049, and the ADR has to say so or the held row will ship a
+column half the world lacks: `migrate()` applies `migration001` (which already contains
+`migrationPRObservations`) and then stamps `PRAGMA user_version = schemaVersion`, so a
+new database jumps straight to the current version. The held row therefore also adds
+`reviews TEXT NOT NULL DEFAULT ''` to the `migrationPRObservations` DDL and bumps
+`schemaVersion` to 49. The guarded 049 ALTER covers every existing database; the two
+must agree, which is what `ensureCurrentSchema` exists to catch and what the
+empty-database test proves.
 
 Both database tests AGENTS.md requires are part of that held row: one on an empty
-database (fresh install reaches 49 with the column present and `''` by default) and one
-on a populated database (a row written before 49 upgrades with `''`, keeps every other
-column, and a row written after it round-trips a two-review array through
-`RecordPRObservation`/`GetPRObservation`).
+database (a fresh install has the column present and `''` by default — the test that
+catches a migration-only change) and one on a populated database (a row written before
+49 upgrades with `''`, keeps every other column, and a row written after it round-trips
+a two-review array through `RecordPRObservation`/`GetPRObservation`).
 
 **No SQL, no Go, no test code is written in this delivery.** The ADR records the shape;
 the schema row stays open with `needs-ceo` until the owner answers.
@@ -100,17 +126,18 @@ the schema row stays open with `needs-ceo` until the owner answers.
 - The panel can render author, state and body from the cached snapshot with no GitHub
   call of its own, and keeps the failing-check names it already shows. A snapshot with
   `''` says "reviews not read" in one line instead of looking like a pull request
-  nobody reviewed — the failure that would make the feature actively misleading.
+  nobody reviewed — the failure that would make the feature actively misleading. A
+  kept array whose refresh failed renders from the snapshot with its `observed_at`
+  age, which is the same honesty the row already gives the pull request itself.
 - The reviews are not a durable history. If a review is edited or dismissed, the next
   refresh shows the new answer; nothing recovers the old one. That is the same
   trade-off the row already makes for the PR's own state, and it is the right one for a
   panel that answers "what does this pull request say now?".
-- The Hub needs no new route and no new table: `responder_pr.go` already forwards the
-  observation, so the field travels with it. A phone that reads the panel sees the same
-  cached reviews as the desktop.
-- `pr_observations` grows by one TEXT column whose value is bounded (20 × ~4100 runes
-  worst case). The row is already per-branch and replaced wholesale, so this is smaller
-  than the JSON the checks field can carry.
+- The node→Hub hop carries the field: `worker.PRObserveResult`, `responder_pr.go` and
+  the Hub's rebuild all name it, so a phone reading a remote task sees the same cached
+  reviews as the desktop. The Hub needs no new route and no new table.
+- `pr_observations` grows by one TEXT column, bounded at the boundary (20 × ~4100 runes
+  worst case) and replaced wholesale like every other observed column.
 - An anonymous reader may be refused reviews on a private repository while it can read
   the pull request itself. That is visible as "not read", never as "none", and the
   panel keeps the failing-check line it already has.
@@ -139,8 +166,11 @@ the schema row stays open with `needs-ceo` until the owner answers.
 
 The walk cannot prove this today: `J2` asserts the "not in a GitHub repository" state,
 and the seeded journeys are API-only, so no seeded observation carries a review. The
-implementation row therefore proves it with two seams and says so in its PR: a Go test
-that runs the reader against a fake transport answering a two-review payload and round-
-trips the snapshot through the store, plus a DOM suite on the panel fed by a cached
-observation with `[]`, `''` and a two-review array. Faking a review inside the walk is
+implementation row therefore proves it with three seams and says so in its PR: a Go test
+that runs the reader against a fake transport answering a two-review payload (including
+the failed-read case, asserting the previous array survives and `''` stays `''`) and
+round-trips the snapshot through the store; a hop test that a fake machine answer
+carrying `[]` and one carrying `''` arrive at the Hub as themselves; and a DOM suite on
+the panel fed by a cached observation with `[]`, `''` and a two-review array. Faking a
+review inside the walk is
 not allowed — it would prove the seed, not the read.
