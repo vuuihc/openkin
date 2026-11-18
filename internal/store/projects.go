@@ -153,8 +153,13 @@ func (s *Store) GetProject(ctx context.Context, id string) (Project, error) {
 }
 
 func (s *Store) listProjectRoots(ctx context.Context, projectID string) ([]string, error) {
+	// The list is an ordered answer, not a set: the first folder is where a
+	// new chat starts. SetProjectRoots rewrites a project's rows in submitted
+	// order (DELETE, then INSERT one by one), and project_roots has an
+	// implicit rowid, so rowid *is* the saved order. Do not "tidy" this back
+	// to ORDER BY path — that silently re-sorts the user's default away.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT path FROM project_roots WHERE project_id = ? ORDER BY path
+		SELECT path FROM project_roots WHERE project_id = ? ORDER BY rowid
 	`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list project roots: %w", err)
