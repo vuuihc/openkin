@@ -73,7 +73,8 @@ NSHOT="$(ls "$SHOTS"/*.png 2>/dev/null | wc -l | tr -d ' ')"
 # are recorded as flaked in the sendback and scores.json, so the rework lane and the retro can
 # count false reds by source. A green run walks once and never creates $UXD/confirm. A confirm
 # that cannot run keeps the first-walk failures: fail closed, never turn a red into "unavailable".
-CONF_JSON="$UXD/confirm.json"; CONF_SUMMARY=""; rm -f "$CONF_JSON"
+CONF_JSON="$UXD/confirm.json"; CONF_SUMMARY=""
+rm -f "$CONF_JSON" "$UXD/confirm.txt" "$UXD/confirm.summary" "$UXD/confirm.hard"   # this attempt's evidence only
 # This run's own evidence only: a stale UNAVAILABLE or walk.json from an earlier attempt on the
 # same slug must not decide the confirmation.
 rm -rf "$UXD/confirm"
@@ -89,16 +90,17 @@ if [ -n "$HARD" ]; then
     else
       bash "$RSI_DIR/runtime/ux-walk.sh" "$WT" "$UXD/confirm" "$JOURNEYS" > "$UXD/confirm/walk.out" 2>&1; CRC=$?
     fi
-    CRSN=""
+    CRSN=""; CHARD=""
     if [ -e "$UXD/confirm/UNAVAILABLE" ]; then CRSN="$(tr '\n' ' ' < "$UXD/confirm/UNAVAILABLE")"
     elif [ "${CRC:-0}" -eq 2 ]; then CRSN="walker exit 2"
-    elif [ ! -s "$UXD/confirm/walk.json" ]; then CRSN="no confirm walk.json"; fi
-    if [ -n "$CRSN" ]; then
-      # Never unavailable() from here: the first walk already produced a verdict, and an infra
-      # hiccup on the second must not turn a red into "not merged / needs-ceo".
-      CONF_SUMMARY="walk confirm: unavailable (${CRSN% }) — first-walk failures kept"
+    elif [ ! -s "$UXD/confirm/walk.json" ]; then CRSN="no confirm walk.json"
     else
-      CHARD="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("\n".join(d.get("hardFail",[])))' "$UXD/confirm/walk.json")"
+      CHARD="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("\n".join(d.get("hardFail",[])))' "$UXD/confirm/walk.json")" \
+        || { CRSN="confirm walk.json unreadable"; CHARD=""; }
+    fi
+    # A confirm whose evidence cannot be parsed or decided keeps the first walk's red: an empty
+    # CHARD would otherwise record every first-walk failure as flaked and could pass a real one.
+    if [ -z "$CRSN" ]; then
       if [ -n "$CHARD" ] && [ -s "$KNOWN" ]; then
         CHARD="$(printf '%s\n' "$CHARD" | grep -v -F -f "$KNOWN" || true)"
       fi
@@ -131,8 +133,16 @@ open(sys.argv[6], "w").write(summary + "\n")
 json.dump({"journeys": journeys, "reproduced": len(reproduced), "flaked": len(flaked)}, open(sys.argv[5], "w"))
 open(sys.argv[7], "w").write("\n".join(final) + ("\n" if final else ""))
 PY
+      PYRC=$?
+      [ "$PYRC" -eq 0 ] || CRSN="confirm decision failed"
+    fi
+    if [ -z "$CRSN" ]; then
       HARD="$(cat "$UXD/confirm.hard")"
       CONF_SUMMARY="$(cat "$UXD/confirm.summary")"
+    else
+      # Never unavailable() from here: the first walk already produced a verdict, and an infra
+      # hiccup on the second must not turn a red into "not merged / needs-ceo".
+      CONF_SUMMARY="walk confirm: unavailable (${CRSN% }) — first-walk failures kept"
     fi
     printf 'ux-gate: %s\n' "$CONF_SUMMARY"
   fi

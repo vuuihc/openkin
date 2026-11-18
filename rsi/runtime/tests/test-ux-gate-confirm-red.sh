@@ -180,6 +180,21 @@ test_confirm_unavailable_fails_closed() {
   grep -Fq 'confirm: unavailable' "$BODY" || fail "confirm-no-json: the body does not say the confirm was unavailable"
 }
 
+# A confirm walk.json that is present but unparseable (walker killed mid-write, partial write,
+# disk full) must fail closed like any other unavailable confirm: empty evidence used to mark
+# every first-walk failure as flaked and could pass a real red.
+test_confirm_unreadable_json_fails_closed() {
+  new_case confirm_unreadable
+  fixture 1 '{"hardFail":["J9/mac: scroll-kept at 3471, want 320±48"],"screens":[]}'
+  fixture 2 '{"hardFail": ['
+  run_gate
+  [ "$RC" -eq 1 ] || fail "confirm-unreadable: exit $RC, want 1 (not 2, not 0)"
+  hard_section | grep -Fq 'scroll-kept' || fail "confirm-unreadable: the first-walk failure was dropped"
+  grep -Fq 'walk.json unreadable' "$BODY" || fail "confirm-unreadable: the body does not name the unreadable confirm"
+  grep -Fq 'flaked' "$BODY" && fail "confirm-unreadable: the first red was recorded as flaked"
+  [ "$(walks)" = 2 ] || fail "confirm-unreadable: $(walks) walks, want exactly 2"
+}
+
 # A flaky first sample must not hide a real second failure: the confirm walk's own new line
 # is billed, and the first-walk line is recorded as flaked.
 test_confirm_new_failure_is_kept() {
@@ -277,6 +292,7 @@ run test_confirm_fails_only_reproduced
 run test_confirm_flake_passes
 run test_green_run_walks_once
 run test_confirm_unavailable_fails_closed
+run test_confirm_unreadable_json_fails_closed
 run test_confirm_new_failure_is_kept
 run test_unattributable_failure_skips_confirm
 run test_known_artefact_does_not_count_as_reproduced
