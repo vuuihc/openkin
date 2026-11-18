@@ -2362,11 +2362,25 @@ J4_DEFAULT_EN = "Make default"
 J4_SAVE = "保存"
 J4_SAVE_EN = "Save folders"
 J4_ALPHA_LINK = "css=a[href^='/projects/']:has-text('Project Alpha')"
+# The two verbs the story is made of, and the inline confirmation they meet.
+J4_ADD = "添加目录"
+J4_ADD_EN = "Add folder"
+J4_REMOVE = "移除"
+J4_REMOVE_EN = "Remove"
+J4_CONFIRM = (
+    "[role=dialog] [role=group][aria-label^='移除'], "
+    "[role=dialog] [role=group][aria-label^='Remove']"
+)
+J4_PICKER_INPUT = "input[list='kin-cwd-suggestions']"
 
 
 def j4_contract_problems(steps: list) -> list[str]:
     """Everything J4 must carry: the folder-editor leg and the instructions leg."""
-    return _j4_roots_problems(steps) + j4_instructions_problems(steps)
+    return (
+        _j4_roots_problems(steps)
+        + j4_roots_verbs_problems(steps)
+        + j4_instructions_problems(steps)
+    )
 
 
 def j4_instructions_problems(steps: list) -> list[str]:
@@ -2638,8 +2652,9 @@ def _j4_roots_problems(steps: list) -> list[str]:
     """
     problems: list[str] = []
 
-    def at(pred, start: int = 0) -> int:
-        for index in range(start, len(steps)):
+    def at(pred, start: int = 0, stop: int | None = None) -> int:
+        end = len(steps) if stop is None else stop
+        for index in range(start, end):
             if pred(steps[index]):
                 return index
         return -1
@@ -2727,16 +2742,29 @@ def _j4_roots_problems(steps: list) -> list[str]:
         problems.append("J4 never saves the restored folder order")
 
     # A document reload, not a client-side route change: only a fresh load
-    # re-reads /api/projects and proves the store's order.
+    # re-reads /api/projects and proves the store's order. Bound the search at
+    # the 添加目录 leg, whose own goto /projects and Alpha link come later.
+    verbs_start = (
+        at(lambda step: step[0] == "click" and J4_ADD in str(step[1]), second_save + 1)
+        if second_save >= 0
+        else -1
+    )
+    goto_bound = verbs_start if verbs_start >= 0 else len(steps)
     goto = (
-        at(lambda step: step[0] == "goto" and str(step[1]).rstrip("/") == "/projects", second_save + 1)
+        at(
+            lambda step: step[0] == "goto" and str(step[1]).rstrip("/") == "/projects",
+            second_save + 1,
+            goto_bound,
+        )
         if second_save >= 0
         else -1
     )
     if second_save >= 0 and goto < 0:
         problems.append("J4 never reloads the document (goto /projects) after the save; a route change reads the page, not the store")
     reload_link = (
-        at(lambda step: step[0] == "click" and step[1] == J4_ALPHA_LINK, goto + 1) if goto >= 0 else -1
+        at(lambda step: step[0] == "click" and step[1] == J4_ALPHA_LINK, goto + 1, goto_bound)
+        if goto >= 0
+        else -1
     )
     if goto >= 0 and reload_link < 0:
         problems.append("J4 never reopens Project Alpha after the reload")
@@ -2744,11 +2772,18 @@ def _j4_roots_problems(steps: list) -> list[str]:
         problems.append("the post-reload Project Alpha click is optional")
 
     if reload_link >= 0:
+        # Bound the reloaded-order proof to the cover it reloaded: the
+        # 添加目录 / 移除 leg that follows reads the cover again (with
+        # aaa-config last after the remove), and an unbounded search would let
+        # a sorted read hide behind the later leg.
+        leg_start = at(is_edit, reload_link + 1)
+        bound = leg_start if leg_start >= 0 else len(steps)
         last_row = at(
             lambda step: step[0] == "wait"
             and "aaa-config" in str(step[1])
             and "last-child" in str(step[1]),
             reload_link + 1,
+            bound,
         )
         if last_row < 0:
             problems.append("the reloaded cover never proves aaa-config is the LAST row (saved order, not sorted order)")
@@ -2757,6 +2792,7 @@ def _j4_roots_problems(steps: list) -> list[str]:
             and "/alpha" in str(step[1])
             and "first-child" in str(step[1]),
             reload_link + 1,
+            bound,
         )
         if first_row < 0:
             problems.append("the reloaded cover never proves alpha is the first row")
@@ -2766,6 +2802,7 @@ def _j4_roots_problems(steps: list) -> list[str]:
             and "Default" in str(step[1])
             and "first-child" in str(step[1]),
             reload_link + 1,
+            bound,
         )
         if badge < 0:
             problems.append("the reloaded cover never proves the first row carries 默认 / Default")
@@ -2775,6 +2812,7 @@ def _j4_roots_problems(steps: list) -> list[str]:
             and str(step[2]) == "2"
             and "li" in str(step[1]),
             max(last_row, first_row, badge) + 1,
+            bound,
         )
         if count < 0:
             problems.append("the reloaded cover never counts exactly two folder rows")
@@ -2783,6 +2821,307 @@ def _j4_roots_problems(steps: list) -> list[str]:
             problems.append("J4 takes no roots-reloaded shot after reloading the document")
         elif saved_shot >= 0 and reloaded < saved_shot:
             problems.append("the roots-reloaded shot comes before roots-saved")
+    return problems
+
+
+def j4_roots_verbs_problems(steps: list) -> list[str]:
+    """What J4 must carry to walk KIN-PROJECT-002's two verbs.
+
+    The saved-order leg presses 设为默认 and reloads, but nobody has ever
+    pressed 添加目录 or 移除 in a real browser — which is why the story stayed
+    `approved`. This leg appends /tmp through the new-chat picker's 改为手动输入
+    route, saves, leaves and returns to read three rows, then presses 移除,
+    reads the inline consequence copy, cancels once (the row must stay),
+    confirms, saves, and leaves and returns again to read two rows. It must end
+    on the seeded alpha-first order so the next viewport replays cleanly.
+
+    Returns the problems; empty means the leg holds.
+    """
+    problems: list[str] = []
+
+    def at(pred, start: int = 0) -> int:
+        for index in range(start, len(steps)):
+            if pred(steps[index]):
+                return index
+        return -1
+
+    def required(step: list) -> bool:
+        return not str(step[1]).startswith("?")
+
+    def is_shot(step: list, name: str) -> bool:
+        return step[:2] == ["shot", name]
+
+    def is_edit(step: list) -> bool:
+        return step[0] == "click" and J4_EDIT in str(step[1]) and J4_EDIT_EN in str(step[1])
+
+    def is_save(step: list) -> bool:
+        return step[0] == "click" and J4_SAVE in str(step[1]) and J4_SAVE_EN in str(step[1])
+
+    def is_save_wait(step: list) -> bool:
+        return step[0] == "wait" and J4_SAVE in str(step[1]) and J4_SAVE_EN in str(step[1])
+
+    def is_gone_editor(step: list) -> bool:
+        return step[0] == "gone" and J4_SAVE in str(step[1]) and J4_SAVE_EN in str(step[1])
+
+    def is_add(step: list) -> bool:
+        return step[0] == "click" and J4_ADD in str(step[1]) and J4_ADD_EN in str(step[1])
+
+    def is_remove(step: list) -> bool:
+        return (
+            step[0] == "click"
+            and "[role=group]" not in str(step[1])
+            and "/tmp" in str(step[1])
+            and J4_REMOVE in str(step[1])
+            and J4_REMOVE_EN in str(step[1])
+        )
+
+    def is_confirm(step: list) -> bool:
+        return (
+            step[0] == "click"
+            and "[role=group]" in str(step[1])
+            and J4_REMOVE in str(step[1])
+            and J4_REMOVE_EN in str(step[1])
+        )
+
+    def is_cancel(step: list) -> bool:
+        return (
+            step[0] == "click"
+            and "[role=group]" in str(step[1])
+            and "取消" in str(step[1])
+            and "Cancel" in str(step[1])
+        )
+
+    def is_confirm_group(step: list, op: str = "wait") -> bool:
+        return step[0] == op and J4_CONFIRM in str(step[1])
+
+    def cover_wait(step: list, path: str, position: str) -> bool:
+        return (
+            step[0] == "wait"
+            and "section" in str(step[1])
+            and path in str(step[1])
+            and position in str(step[1])
+        )
+
+    def cover_first_default(step: list) -> bool:
+        return (
+            cover_wait(step, "/alpha", "first-child")
+            and "默认" in str(step[1])
+            and "Default" in str(step[1])
+        )
+
+    def draft_count(step: list, number: str) -> bool:
+        return (
+            step[0] == "count"
+            and str(step[2]) == number
+            and "[role=dialog]" in str(step[1])
+            and "li" in str(step[1])
+        )
+
+    def cover_count(step: list, number: str) -> bool:
+        return (
+            step[0] == "count"
+            and str(step[2]) == number
+            and "section" in str(step[1])
+            and "li" in str(step[1])
+        )
+
+    # The leg must leave the fixture as it found it: the next viewport replays
+    # from the seeded list. The LAST cover read is the one that counts, so this
+    # runs before the leg's own checks (which return early when the verb is
+    # missing) — a leg that only adds leaves three roots and is caught here.
+    last_cover = [
+        index
+        for index, step in enumerate(steps)
+        if step[0] == "count" and "section" in str(step[1]) and "li" in str(step[1])
+    ]
+    if not last_cover:
+        problems.append("J4 never reads the cover's folder count; the seeded list cannot be proven intact")
+    elif str(steps[last_cover[-1]][2]) != "2":
+        problems.append("the leg's last cover read is not two roots; the walk left the seeded list changed")
+    last_first = [
+        step
+        for step in steps
+        if step[0] == "wait" and "section" in str(step[1]) and "first-child" in str(step[1]) and "li" in str(step[1])
+    ]
+    if not last_first or "/alpha" not in str(last_first[-1][1]) or "默认" not in str(last_first[-1][1]):
+        problems.append("the leg's last cover read does not show alpha first with 默认; the seeded default drifted")
+    last_last = [
+        step
+        for step in steps
+        if step[0] == "wait" and "section" in str(step[1]) and "last-child" in str(step[1]) and "li" in str(step[1])
+    ]
+    if not last_last or "/aaa-config" not in str(last_last[-1][1]) or "/tmp" in str(last_last[-1][1]):
+        problems.append("the leg's last cover read does not show aaa-config last; the walk left the seeded list changed")
+
+    anchor = at(lambda step: is_shot(step, "roots-reloaded"))
+    if anchor < 0:
+        problems.append("J4 takes no roots-reloaded shot; the add/remove leg has no anchor")
+        return problems
+
+    edit = at(is_edit, anchor + 1)
+    if edit < 0:
+        problems.append("J4 never reopens the folder editor after the roots reload; the add/remove verbs are unwalked")
+        return problems
+    if not required(steps[edit]):
+        problems.append("the reopened folder editor click is optional")
+
+    add = at(is_add, edit + 1)
+    if add < 0:
+        problems.append("J4 never presses ＋ 添加目录 / ＋ Add folder in the editor; the add verb is unwalked")
+        return problems
+    if not required(steps[add]):
+        problems.append("the ＋ 添加目录 / ＋ Add folder click is optional")
+
+    type_path = at(
+        lambda step: step[0] == "click"
+        and ("改为手动输入" in str(step[1]) or "Type a path instead" in str(step[1])),
+        add + 1,
+    )
+    if type_path < 0:
+        problems.append("J4 never opens the new-chat picker's path field (改为手动输入 / Type a path instead) after 添加目录")
+    fill = at(
+        lambda step: step[0] == "fill"
+        and J4_PICKER_INPUT in str(step[1])
+        and str(step[2]).strip() == "/tmp",
+        add + 1,
+    )
+    if fill < 0:
+        problems.append(
+            "J4 clicks 添加目录 but never types a path into %s; the add could pass without the picker" % J4_PICKER_INPUT
+        )
+    elif type_path < 0 or type_path > fill:
+        problems.append("J4 types into %s without opening the picker's path field first" % J4_PICKER_INPUT)
+    if fill >= 0 and not required(steps[fill]):
+        problems.append("the typed /tmp path is optional")
+    if fill >= 0 and at(lambda step: step[0] == "key" and step[1] == "Enter", fill + 1) < 0:
+        problems.append("J4 never commits the typed /tmp path (key Enter)")
+
+    added_rows = at(lambda step: draft_count(step, "3"), max(fill, add) + 1)
+    if added_rows < 0:
+        problems.append("J4 never counts three draft rows after the add; the /tmp row was not appended")
+    enabled = at(
+        lambda step: step[0] == "enabled"
+        and J4_SAVE in str(step[1])
+        and J4_SAVE_EN in str(step[1]),
+        max(fill, add) + 1,
+    )
+    if enabled < 0:
+        problems.append("J4 never asserts the folder save is enabled after the add")
+
+    save = at(is_save, max(added_rows, enabled, fill, add) + 1)
+    if save < 0:
+        problems.append("J4 never saves the three-folder list after the add")
+        return problems
+    if at(is_gone_editor, save + 1) < 0:
+        problems.append("J4 never proves the editor closed after the add's save (the daemon accepted the list)")
+    if at(cover_first_default, save + 1) < 0:
+        problems.append("the saved cover never shows alpha first with 默认 / Default after the add")
+    if at(lambda step: cover_wait(step, "/tmp", "last-child"), save + 1) < 0:
+        problems.append("the saved cover never shows /tmp appended last after the add")
+    if at(lambda step: cover_count(step, "3"), save + 1) < 0:
+        problems.append("the cover never counts three folder rows after the add")
+
+    # Leaving and returning is the persistence proof: a client-side route
+    # change would read the list the save just installed, not the store.
+    reload = at(
+        lambda step: step[0] == "goto" and str(step[1]).rstrip("/") == "/projects",
+        save + 1,
+    )
+    if reload < 0:
+        problems.append("J4 never leaves the cover (goto /projects) after the add; the append's persistence is unproven")
+        return problems
+    reopen = at(lambda step: step[0] == "click" and step[1] == J4_ALPHA_LINK, reload + 1)
+    if reopen < 0:
+        problems.append("J4 never reopens Project Alpha after the add's reload")
+    else:
+        if not required(steps[reopen]):
+            problems.append("the post-add Project Alpha reopen is optional")
+        if at(lambda step: cover_wait(step, "/tmp", "last-child"), reopen + 1) < 0:
+            problems.append("the reloaded cover never shows /tmp last; the append did not persist")
+        if at(cover_first_default, reopen + 1) < 0:
+            problems.append("the reloaded cover never shows alpha first with 默认 / Default after the add")
+        if at(lambda step: cover_count(step, "3"), reopen + 1) < 0:
+            problems.append("the reloaded cover never counts three rows after the add")
+
+    edit2 = at(is_edit, max(reopen, save) + 1)
+    if edit2 < 0:
+        problems.append("J4 never reopens the editor to remove the added folder")
+        return problems
+    if at(is_save_wait, edit2 + 1) < 0:
+        problems.append("the editor reopened for the remove never shows its 保存 / Save folders control")
+    remove = at(is_remove, edit2 + 1)
+    if remove < 0:
+        problems.append("J4 never presses 移除 / Remove on the /tmp row")
+        return problems
+    if not required(steps[remove]):
+        problems.append("the 移除 / Remove press on the /tmp row is optional")
+    if at(is_confirm_group, remove + 1) < 0:
+        problems.append(
+            "J4 never asserts the inline removal confirmation (%s); a remove without reading its aria-labelled group is unwalked"
+            % J4_CONFIRM
+        )
+    if at(
+        lambda step: step[0] == "wait"
+        and "[role=group]" in str(step[1])
+        and "不再出现在这个项目下" in str(step[1])
+        and "no longer appear under this project" in str(step[1]),
+        remove + 1,
+    ) < 0:
+        problems.append("J4 confirms a removal without reading the consequence copy (不再出现在这个项目下 / no longer appear under this project)")
+    if at(lambda step: is_shot(step, "roots-remove-confirm"), remove + 1) < 0:
+        problems.append("J4 takes no roots-remove-confirm shot; the confirmation was asserted but never photographed")
+
+    cancel = at(is_cancel, remove + 1)
+    if cancel < 0:
+        problems.append("J4 never cancels the removal confirmation; the row keeping its place is unproven")
+    else:
+        if at(lambda step: is_confirm_group(step, "gone"), cancel + 1) < 0:
+            problems.append("the removal confirmation never closes after 取消 / Cancel")
+        if at(lambda step: draft_count(step, "3"), cancel + 1) < 0:
+            problems.append("the cancelled removal does not leave the /tmp row in the draft (three rows)")
+
+    confirm = at(is_confirm, max(cancel, remove) + 1)
+    if confirm < 0:
+        problems.append("J4 never presses the confirming 移除 / Remove inside the group")
+        return problems
+    if at(lambda step: draft_count(step, "2"), confirm + 1) < 0:
+        problems.append("the confirmed removal never leaves two draft rows")
+    save2 = at(is_save, confirm + 1)
+    if save2 < 0:
+        problems.append("J4 never saves the two-folder list after the confirm")
+        return problems
+    if at(is_gone_editor, save2 + 1) < 0:
+        problems.append("J4 never proves the editor closed after the remove's save")
+    if at(cover_first_default, save2 + 1) < 0:
+        problems.append("the saved cover never shows alpha first with 默认 / Default after the remove")
+    if at(lambda step: cover_wait(step, "/aaa-config", "last-child"), save2 + 1) < 0:
+        problems.append("the saved cover never shows aaa-config last after the remove")
+    if at(lambda step: cover_count(step, "2"), save2 + 1) < 0:
+        problems.append("the cover never counts two folder rows after the remove")
+
+    # Leave and return once more: the remove must have reached the store.
+    reload2 = at(
+        lambda step: step[0] == "goto" and str(step[1]).rstrip("/") == "/projects",
+        save2 + 1,
+    )
+    if reload2 < 0:
+        problems.append("J4 never leaves the cover (goto /projects) after the remove; the removal's persistence is unproven")
+    else:
+        reopen2 = at(
+            lambda step: step[0] == "click" and step[1] == J4_ALPHA_LINK,
+            reload2 + 1,
+        )
+        if reopen2 < 0:
+            problems.append("J4 never reopens Project Alpha after the remove's reload")
+        else:
+            if at(cover_first_default, reopen2 + 1) < 0:
+                problems.append("the reloaded cover never shows alpha first with 默认 / Default after the remove")
+            if at(lambda step: cover_wait(step, "/aaa-config", "last-child"), reopen2 + 1) < 0:
+                problems.append("the reloaded cover never shows aaa-config last after the remove; the removal did not persist")
+            if at(lambda step: cover_count(step, "2"), reopen2 + 1) < 0:
+                problems.append("the reloaded cover never counts two rows after the remove")
+        if at(lambda step: is_shot(step, "roots-removed-reloaded"), reopen2 + 1) < 0:
+            problems.append("J4 takes no roots-removed-reloaded shot after the remove's reload")
     return problems
 
 
@@ -2845,14 +3184,15 @@ class WalkJ4ContractTest(unittest.TestCase):
 
     def test_j4_contract_rejects_a_route_change_instead_of_a_reload(self) -> None:
         # A client-side return to the cover reads the state the editor just
-        # installed; only `goto` re-reads /api/projects.
+        # installed; only `goto` re-reads /api/projects. The mutation drops the
+        # reload that follows the order-restoring save (the leg's own later
+        # reloads belong to the 添加目录 / 移除 proof).
         def drop_reload(steps: list) -> None:
-            save = max(
-                i for i, step in enumerate(steps)
-                if step[0] == "click" and J4_SAVE in str(step[1])
+            saved = next(
+                i for i, step in enumerate(steps) if step[:2] == ["shot", "roots-saved"]
             )
             at = next(
-                i for i in range(save + 1, len(steps))
+                i for i in range(saved + 1, len(steps))
                 if steps[i][0] == "goto" and str(steps[i][1]).rstrip("/") == "/projects"
             )
             steps.pop(at)
@@ -3033,6 +3373,98 @@ class WalkJ4ContractTest(unittest.TestCase):
 
         problems = self.problems_after(drop_restore)
         self.assertTrue(any("restores the seeded One-Pager" in problem for problem in problems), problems)
+
+    # --- KIN-PROJECT-002: the 添加目录 / 移除 verbs ----------------------
+
+    def test_j4_adds_and_removes_a_folder_with_its_confirmation(self) -> None:
+        journey = load_spec()["journeys"]["J4"]
+        self.assertEqual(j4_roots_verbs_problems(journey["steps"]), [])
+        names = [step[1] for step in journey["steps"] if step[0] == "shot"]
+        order = [
+            "roots-reloaded",
+            "roots-added-reloaded",
+            "roots-remove-confirm",
+            "roots-removed-reloaded",
+        ]
+        self.assertEqual([name for name in names if name in order], order)
+
+    def test_j4_contract_rejects_an_add_without_the_picker_path(self) -> None:
+        # Pressing 添加目录 and then asserting three rows could pass on a leg
+        # that never opens the picker; the typed path is the proof the add went
+        # through the shipped chooser.
+        def drop_picker_fill(steps: list) -> None:
+            steps[:] = [
+                step
+                for step in steps
+                if not (step[0] == "fill" and J4_PICKER_INPUT in str(step[1]))
+            ]
+
+        problems = self.problems_after(drop_picker_fill)
+        self.assertTrue(
+            any(J4_PICKER_INPUT in problem and "never types a path" in problem for problem in problems),
+            problems,
+        )
+
+    def test_j4_contract_rejects_a_remove_without_reading_the_confirm(self) -> None:
+        # The inline group is the whole point of the remove verb: it says the
+        # conversations stay in the list and nothing is deleted. A confirm that
+        # never reads that copy walks the API, not the promise.
+        def drop_consequence(steps: list) -> None:
+            steps[:] = [
+                step
+                for step in steps
+                if not (
+                    step[0] == "wait"
+                    and "[role=group]" in str(step[1])
+                    and "不再出现在这个项目下" in str(step[1])
+                )
+            ]
+
+        problems = self.problems_after(drop_consequence)
+        self.assertTrue(
+            any("without reading the consequence copy" in problem for problem in problems),
+            problems,
+        )
+
+    def test_j4_contract_rejects_a_leg_that_leaves_the_seeded_list_changed(self) -> None:
+        # Phone -> mac -> mac-wide replay from the same seed. A leg that adds
+        # /tmp and stops leaves three roots for the next width; the last cover
+        # read must be the seeded two, alpha first and default.
+        def drop_the_remove_leg(steps: list) -> None:
+            at = self.at(
+                steps,
+                lambda step: step[0] == "click"
+                and "[role=group]" not in str(step[1])
+                and "/tmp" in str(step[1])
+                and J4_REMOVE in str(step[1]),
+            )
+            del steps[at:]
+
+        problems = self.problems_after(drop_the_remove_leg)
+        self.assertTrue(
+            any("the leg's last cover read is not two roots" in problem for problem in problems),
+            problems,
+        )
+
+    def test_j4_contract_rejects_a_remove_without_the_return_trip(self) -> None:
+        # The remove's persistence proof is a fresh document load: the cover
+        # the save just redrew is React state, not the store.
+        def drop_final_reload(steps: list) -> None:
+            save = max(
+                i for i, step in enumerate(steps)
+                if step[0] == "click" and J4_SAVE in str(step[1])
+            )
+            at = next(
+                i for i in range(save + 1, len(steps))
+                if steps[i][0] == "goto" and str(steps[i][1]).rstrip("/") == "/projects"
+            )
+            steps.pop(at)
+
+        problems = self.problems_after(drop_final_reload)
+        self.assertTrue(
+            any("after the remove" in problem for problem in problems),
+            problems,
+        )
 
 
 @unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
