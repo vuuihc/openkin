@@ -381,6 +381,28 @@ class WalkJ2ContractTest(unittest.TestCase):
                 if mine_vp != other_vp:
                     self.assertNotIn(mine, other, "%s's body would match %s's message" % (mine_vp, other_vp))
 
+    def test_j2_reply_waits_are_indexed_past_the_earlier_rounds(self) -> None:
+        # One seeded conversation carries the seed's own answer plus one reply
+        # per width's tray send. A rerun wait indexed from 0 would already be
+        # satisfied at the leg start, so the file could be re-picked before the
+        # round that moves it landed. Pin the three indices to the replies they
+        # actually wait for: the width's own tray reply (nth=2), then the
+        # [seed] shift round (nth=3), then the [seed] rewrite round (nth=4).
+        with open(SPEC, encoding="utf-8") as fh:
+            steps = json.load(fh)["journeys"]["J2"]["steps"]
+        waits = [
+            step
+            for step in steps
+            if step[0] == "wait"
+            and "Fake reply from the journey fake agent." in str(step[1])
+            and "nth=" in str(step[1])
+        ]
+        self.assertEqual(
+            [int(re.search(r"nth=(\d+)", step[1]).group(1)) for step in waits],
+            [2, 3, 4],
+            waits,
+        )
+
     def test_j2_contract_rejects_a_comment_before_the_diff_is_open(self) -> None:
         # Today's shape: the workspace section ends at the diff screenshot, so
         # moving the review block above the file click still reads plausibly.
@@ -452,6 +474,73 @@ class WalkJ2ContractTest(unittest.TestCase):
         code, out = self.check(self.copy_with(drop_send))
         self.assertEqual(code, 1, out)
         self.assertIn("send", out.lower())
+
+    @staticmethod
+    def find(steps: list, pred, what: str) -> int:
+        for i, step in enumerate(steps):
+            if pred(step):
+                return i
+        raise AssertionError("the checked-in J2 spec has no " + what)
+
+    @staticmethod
+    def rerun_fill(steps: list, marker: str) -> int:
+        return WalkJ2ContractTest.find(
+            steps,
+            lambda step: step[0] == "fill" and len(step) > 2 and marker in str(step[2]),
+            "composer fill carrying %s" % marker,
+        )
+
+    def test_j2_contract_rejects_a_rerun_without_the_shift_send(self) -> None:
+        # The re-anchored row is only proof of a rerun if the round that moved
+        # the quoted line was really asked for. Dropping the `[seed] shift`
+        # send leaves a tray that happens to show a new line number for no
+        # reason at all.
+        def drop_shift(steps: list) -> None:
+            at = self.rerun_fill(steps, "[seed] shift")
+            del steps[at : at + 2]  # the fill and the send that follows it
+
+        code, out = self.check(self.copy_with(drop_shift))
+        self.assertEqual(code, 1, out)
+        self.assertIn("[seed] shift", out)
+
+    def test_j2_contract_rejects_a_stale_comment_without_the_badge_wait(self) -> None:
+        # A stale row is the other half of the contract: when the quoted line
+        # is gone the tray must say 该行已变化 and keep the quote. A walk that
+        # sends `[seed] rewrite` and never reads the badge photographs a tray
+        # that may have silently dropped the comment.
+        def drop_stale_wait(steps: list) -> None:
+            at = self.find(
+                steps,
+                lambda step: step[0] == "wait"
+                and ("该行已变化" in str(step[1]) or "This line has changed" in str(step[1])),
+                "stale-row wait naming the badge",
+            )
+            steps.pop(at)
+
+        code, out = self.check(self.copy_with(drop_stale_wait))
+        self.assertEqual(code, 1, out)
+        self.assertIn("该行已变化", out)
+
+    def test_j2_contract_rejects_the_shift_send_before_the_second_comment_is_saved(self) -> None:
+        # The round that moves the line must run after the comment exists: a
+        # shift sent first re-anchors nothing, and the later Save would record
+        # the already-moved line as the saved position — the same row, but the
+        # walk would no longer prove a comment survived a change.
+        def shift_before_save(steps: list) -> None:
+            at = self.rerun_fill(steps, "[seed] shift")
+            pair = steps[at : at + 2]
+            del steps[at : at + 2]
+            saves = [
+                i
+                for i, step in enumerate(steps)
+                if step[0] == "click" and re.search(r"保存|Save", str(step[1]))
+            ]
+            self.assertGreaterEqual(len(saves), 2, "the J2 spec has only one Save")
+            steps[saves[1] : saves[1]] = pair
+
+        code, out = self.check(self.copy_with(shift_before_save))
+        self.assertEqual(code, 1, out)
+        self.assertIn("before the second comment is saved", out)
 
 
 @unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
