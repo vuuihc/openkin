@@ -92,17 +92,22 @@ test_explicit_provenance_recorded() {
     "bash /ctrl/rsi/runtime/ux-gate.sh /wt sendback-prov R-sendback-provenance 242 deadbeef1234 reviewer"
 }
 
-# The #251 false red differed in the journey spec, so the sendback must name the blob revision
-# the UX gate actually walked: the same value rev-parse gives for HEAD:rsi/runtime/ux/journeys.json.
+# The #251 false red differed in the journey spec, so the sendback must name the revision the
+# UX gate actually walked: a 12-hex hash over the index AND every per-journey file, so a J3 edit
+# moves it instead of reusing a cached PASS.
 test_spec_rev_reads_the_journeys_blob() {
   new_case spec_rev
   local repo="$T/spec-repo" want got
-  mkdir -p "$repo/rsi/runtime/ux"
+  mkdir -p "$repo/rsi/runtime/ux/journeys"
+  printf '{"journeys":{"J1":"journeys/J1.json"}}\n' > "$repo/rsi/runtime/ux/journeys.json"
+  printf '{"title":"one","steps":[["goto","/"]]}\n' > "$repo/rsi/runtime/ux/journeys/J1.json"
   "$GIT" -C "$repo" init -q
-  printf '{"journeys":[]}\n' > "$repo/rsi/runtime/ux/journeys.json"
   "$GIT" -C "$repo" add -A
   "$GIT" -C "$repo" -c user.email=owner@example.com -c user.name=provenance -c commit.gpgsign=false commit -qm seed
-  want="$("$GIT" -C "$repo" rev-parse --short=12 HEAD:rsi/runtime/ux/journeys.json)"
+  want="$(printf '%s\n' rsi/runtime/ux/journeys.json rsi/runtime/ux/journeys/J1.json \
+    | LC_ALL=C sort \
+    | while IFS= read -r f; do "$GIT" -C "$repo" rev-parse "HEAD:$f"; done \
+    | shasum -a 1 | cut -c1-12)"
   got="$(RSI_CTRL="$RSI_CTRL" bash "$MERGE" --spec-rev "$repo" 2>&1)"; RC=$?
   [ "$RC" -eq 0 ] || fail "spec-rev: seam exited $RC ($got)"
   [ "$got" = "$want" ] || fail "spec-rev: printed '$got', want '$want'"

@@ -28,6 +28,14 @@ ROOT = os.path.dirname(SCRIPTS)
 SEED = os.path.join(SCRIPTS, "journeys_seed.py")
 JOURNEYS_SPEC = os.path.join(ROOT, "rsi", "runtime", "ux", "journeys.json")
 
+SPECPY = os.path.join(ROOT, "rsi", "runtime", "ux", "spec.py")
+
+
+def load_spec(path: str = JOURNEYS_SPEC) -> dict:
+    """The journey index resolved through rsi/runtime/ux/spec.py, the one reader."""
+    out = subprocess.check_output([sys.executable, SPECPY, "--resolve", path])
+    return json.loads(out)
+
 sys.path.insert(0, SCRIPTS)
 import journeys_seed  # noqa: E402
 # A value the script is never allowed to echo. Deliberately fake: the point is
@@ -51,6 +59,10 @@ CONVERSATIONS = [
     "[seed] Morning planning",
     "[seed] Failed migration",
     "[seed] Last week's review",
+    # J8's own diff: Project Beta's notes.md, which J2's rerun leg never
+    # rewrites. Created before the held fixtures so the approve row J1 opens
+    # stays the newest row.
+    "[seed] Phone review",
     RUNNING_CONVERSATION,
     *HELD_CONVERSATIONS,
 ]
@@ -405,9 +417,11 @@ class SeedTest(unittest.TestCase):
             [body.get("cwd") for body in posts],
             [proj["roots"][0] for proj in self.stub.projects]
             + [
-                # The archived conversation stays in Gamma; the still-working
-                # one is named in Gamma too, so Alpha/Beta row order does not
-                # move for the journeys that read it.
+                # J8's own diff opens on Beta, where the deny/J7 fixtures never
+                # write; the archived conversation stays in Gamma, and the
+                # still-working one is named in Gamma too, so Alpha/Beta row
+                # order does not move for the journeys that read it.
+                self.stub.projects[1]["roots"][0],
                 self.stub.projects[2]["roots"][0],
                 self.stub.projects[1]["roots"][0],
                 self.stub.projects[1]["roots"][0],
@@ -433,6 +447,32 @@ class SeedTest(unittest.TestCase):
         for title in CONVERSATIONS:
             self.assert_report(result, rf"existing conversation {re.escape(title)} \S+")
         self.assert_report(result, rf"existing archive {re.escape(CONVERSATIONS[2])}")
+
+    def test_seeds_a_pristine_review_conversation_for_j8(self) -> None:
+        # J2's rerun leg rewrites [seed] Morning planning's notes.md: [seed]
+        # shift moves the commented line and [seed] rewrite deletes the quoted
+        # text. J8 must read a file no other journey touches, or its tray wait
+        # asks for a line that is gone and the failure is excused as a known
+        # artifact. Beta's root gets this one turn's sentinel and nothing else
+        # writes there (the deny/J7 fixtures hold turns without touching files).
+        morning = next(spec for spec in journeys_seed.CONVERSATIONS if spec["title"] == "[seed] Morning planning")
+        review = next(spec for spec in journeys_seed.CONVERSATIONS if spec["title"] == "[seed] Phone review")
+        self.assertIn(journeys_seed.CHANGE_MARKER, review["prompt"])
+        self.assertEqual(review["prompt"], "[seed] change: review this diff from the phone.")
+        self.assertEqual(review["expect"], ("succeeded",))
+        self.assertIs(review["archive"], False)
+        self.assertEqual(review.get("project"), "Project Beta")
+        # The default is positional, so compare the project the seed will
+        # actually use for Morning planning, not just its absent key.
+        morning_project = morning.get("project") or journeys_seed.PROJECTS[
+            journeys_seed.CONVERSATIONS.index(morning) % len(journeys_seed.PROJECTS)
+        ][0]
+        self.assertNotEqual(review["project"], morning_project)
+        # Created after the archived fixture and before the held ones: the
+        # approve row J1 opens must stay the newest row in the list.
+        titles = [spec["title"] for spec in journeys_seed.CONVERSATIONS]
+        self.assertLess(titles.index("[seed] Last week's review"), titles.index(review["title"]))
+        self.assertLess(titles.index(review["title"]), titles.index(RUNNING_CONVERSATION))
 
     def test_conversations_are_not_created_in_dry_run(self) -> None:
         self.enable_fake_agent()
@@ -762,8 +802,8 @@ class SeedTest(unittest.TestCase):
         result = self.run_seed()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("existing task tsk-1 is running, wanted succeeded", result.stdout)
-        # The other six are still created; the running row is left alone.
-        self.assertEqual(len(self.task_posts()), 6, result.stdout)
+        # Every other fixture is still created; the running row is left alone.
+        self.assertEqual(len(self.task_posts()), len(CONVERSATIONS) - 1, result.stdout)
 
     def test_fake_agent_contract(self) -> None:
         # The shell fake is the only thing standing between a seeded turn and
@@ -905,7 +945,7 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(
             [os.path.basename(body["cwd"]) for body in self.task_posts()],
-            ["alpha", "beta", "gamma", "gamma", "beta", "beta", "alpha"],
+            ["alpha", "beta", "gamma", "beta", "gamma", "beta", "beta", "alpha"],
         )
 
 
@@ -1050,13 +1090,24 @@ class HarnessContractTest(unittest.TestCase):
         self.assertEqual(git(root, "status", "--porcelain").stdout, "")
         self.assertEqual(self.notes(root), before)
 
-    def test_one_conversation_requests_a_workspace_change(self) -> None:
+    def test_two_conversations_request_a_workspace_change(self) -> None:
         marked = [spec for spec in journeys_seed.CONVERSATIONS if journeys_seed.CHANGE_MARKER in spec["prompt"]]
-        self.assertEqual(len(marked), 1, [spec["title"] for spec in marked])
-        # Idempotency matches by title, so the title must not move with the prompt.
+        # Two, on purpose: J2's rerun leg rewrites the first one's file, so J8
+        # reads a second seeded diff nothing else touches. A third diff would
+        # be a fixture nobody walks.
+        self.assertEqual(
+            [spec["title"] for spec in marked],
+            ["[seed] Morning planning", "[seed] Phone review"],
+            [spec["title"] for spec in marked],
+        )
+        # Idempotency matches by title, so the titles must not move with the prompts.
         self.assertEqual(marked[0]["title"], "[seed] Morning planning")
+        self.assertEqual(marked[1]["title"], "[seed] Phone review")
+        # Different roots: the rewrite lands in Alpha, so J8's file must live
+        # elsewhere or the isolation is only on paper.
+        self.assertNotEqual(marked[1].get("project"), "Project Alpha")
         for spec in journeys_seed.CONVERSATIONS:
-            if spec is not marked[0]:
+            if spec is not marked[0] and spec is not marked[1]:
                 self.assertNotIn(journeys_seed.CHANGE_MARKER, spec["prompt"])
 
     def test_three_conversations_hold_approval_turns(self) -> None:
@@ -1084,8 +1135,7 @@ class HarnessContractTest(unittest.TestCase):
                 self.assertNotIn("target", spec)
 
     def test_j2_opens_changes_before_leaving_the_conversation(self) -> None:
-        with open(JOURNEYS_SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         steps = spec["journeys"]["J2"]["steps"]
         panel = next((i for i, step in enumerate(steps) if step[:2] == ["shot", "workspace-panel"]), -1)
         new_chat = next((i for i, step in enumerate(steps) if step[:2] == ["goto", "/new"]), -1)

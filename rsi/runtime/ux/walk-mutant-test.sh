@@ -559,11 +559,13 @@ fi
 
 # Without the mid-run steps the walk proves the hand-off only, and the mid-run
 # mutant would look red for no reason. Say "could not run", not "red".
-python3 - "$WT/rsi/runtime/ux/journeys.json" <<'PY' || unavailable "the J3 spec carries no mid-run follow-up (no midrun-queued shot)"
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$WT/rsi/runtime/ux/spec.py" <<'PY' || unavailable "the J3 spec carries no mid-run follow-up (no midrun-queued shot)"
 import json
+import subprocess
 import sys
 
-steps = json.load(open(sys.argv[1], encoding="utf-8"))["journeys"]["J3"]["steps"]
+steps = json.loads(subprocess.check_output(
+    [sys.executable, sys.argv[2], "--resolve", sys.argv[1]]))["journeys"]["J3"]["steps"]
 if not any(st[0] == "shot" and st[1] == "midrun-queued" for st in steps):
     raise SystemExit("no J3 midrun-queued shot")
 PY
@@ -572,11 +574,13 @@ PY
 # control leaves the screen, and the daemon's discard report names the message
 # queued behind it. Without these steps the Stop mutant would look red for no
 # reason, so say "could not run", not "red".
-python3 - "$WT/rsi/runtime/ux/journeys.json" <<'PY' || unavailable "the J3 spec carries no Stop proof (no stopped shot / discard report wait)"
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$WT/rsi/runtime/ux/spec.py" <<'PY' || unavailable "the J3 spec carries no Stop proof (no stopped shot / discard report wait)"
 import json
+import subprocess
 import sys
 
-steps = json.load(open(sys.argv[1], encoding="utf-8"))["journeys"]["J3"]["steps"]
+steps = json.loads(subprocess.check_output(
+    [sys.executable, sys.argv[2], "--resolve", sys.argv[1]]))["journeys"]["J3"]["steps"]
 if not any(st[0] == "shot" and st[1] == "stopped" for st in steps):
     raise SystemExit("no J3 stopped shot")
 if not any(st[0] == "wait" and "queued prompt(s) discarded with the canceled task" in str(st[1]) for st in steps):
@@ -688,12 +692,13 @@ midrun_rc=$?
 # `sent` shot; the mid-run steps are walk 1's, and the fake still holds the
 # round so the sent shot cannot race the answer.
 mkdir -p "$OUT/handoff"
-python3 - "$WT/rsi/runtime/ux/journeys.json" "$OUT/handoff-spec.json" <<'PY' || unavailable "cannot cut the J3 spec down to its hand-off half"
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$OUT/handoff-spec.json" "$WT/rsi/runtime/ux/spec.py" <<'PY' || unavailable "cannot cut the J3 spec down to its hand-off half"
 import json
+import subprocess
 import sys
 
-src, dst = sys.argv[1], sys.argv[2]
-spec = json.load(open(src, encoding="utf-8"))
+src, dst, specpy = sys.argv[1], sys.argv[2], sys.argv[3]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", src]))
 steps = spec["journeys"]["J3"]["steps"]
 cut = next((i for i, st in enumerate(steps) if st[0] == "shot" and st[1] == "sent"), -1)
 if cut < 0:

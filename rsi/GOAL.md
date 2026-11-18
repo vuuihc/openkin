@@ -64,8 +64,13 @@ does not run on them — item 1's mutant is their verification):
 **Cut rule.** If item 1 is not green by the target, land it alone (it is the lost-review path and the one that
 catches the most), keep 2–4 queued, and say so in the weekly retro. Do not extend the date.
 
-## Current phase (P4) — the last two flows, walked
-<!-- phase: P4-flows-proven target=2026-11-21T20:00 -->
+## Closed phase (P4) — the last two flows, walked
+<!-- closed-phase: P4-flows-proven target=2026-11-21T20:00 -->
+
+Closed 2026-11-18, all four items landed: item 1 F4's typed draft, scroll offset and shell node survived
+chat↔chat and area↔area, mac `4b175773` (#284) and phone `7b929048` (#295), item 2 `d00d19cf` (#288 each
+phone tab returns to its own address after an approval), item 3 `cb345bef` (#285 发布 as the panel's fourth
+tab), item 4 `eb1a3334` (#291 J5's shipped row actions pinned). P4 closed early; the target date is unchanged.
 
 **Why this and not features.** P1/P2/P3 gave F1, F2 and F3 a walk that fails when the flow breaks; F4 and F5
 still rest on DOM suites no person runs as a user. Nothing walks chat↔chat and area↔area to prove the shell
@@ -90,6 +95,34 @@ keep 2–4 queued, and say so in the weekly retro. Do not extend the date.
 
 **Out of scope — parked on Ethan** (one line each in `state/STATUS.md`, "Parked / needs a person"): F3 in-app PR writes (credential and
 permission model), the browser panel tab (Electron `webview` ADR), the agent catalog cut 74 → ≤10.
+
+## Current phase (P5) — projects you can manage, not just open
+<!-- phase: P5-projects-manage target=2026-11-23T20:00 -->
+
+**Why this and not features.** P4 proved the last two daily flows. The next most-used surface with no
+management face is the project: `Project.roots` and `PATCH /api/projects/:id {roots}` already exist and
+`SetProjectRoots` replaces the whole ordered list, but the cover renders `roots[0]` only — a project made
+of several directories looks like a project with one, the default is invisible, and there is no way to
+add, remove or re-order directories without calling the API by hand. The signed `KIN-PROJECT-002`
+(2026-11-18) is the first story; parity §7 names it, and KIN-PROJECT-001 D2 keeps it inline, with no new
+tab and no route change.
+
+**Done means** (throwaway daemon with the fake agent; each item names what proves it):
+1. KIN-PROJECT-002 delivered: the Mac cover lists every root in order with the first badged 默认, and the
+   edit sheet adds / removes / promotes a root through one `PATCH {roots}` (replace-whole-list), with the
+   loading, empty, one, many, saving, failure+retry and offline/read-only states the signed frames draw;
+   390/1100 shots.
+2. The phone cover and bottom sheet do the same at 390 (44px targets, paths wrap, no horizontal scroll),
+   and the first delivery flips `KIN-PROJECT-002` to `approved` with its registered tests in the same PR.
+3. The new-chat landing follows the saved first root (single root → cwd, multiple roots → directory
+   picker), proven by `ui/src/lib/projectChats.test.ts`.
+
+**Cut rule.** If item 1 is not green by the target, land it alone, keep 2–3 queued, and say so in the
+weekly retro. Do not extend the date.
+
+**Out of scope** — §6 MCP config face (needs a security pass; OAuth deferred) and per-project
+instructions (prompt-first, needs its own story); the P4 parked rows (F3 in-app PR writes, browser panel
+tab, agent catalog cut) stay parked on Ethan.
 
 ## Closing phase (P2) — mid-run control made real
 <!-- closing-phase: P2-midrun-control target=2026-11-19T20:00 -->
