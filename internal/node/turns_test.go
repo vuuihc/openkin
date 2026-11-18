@@ -1070,6 +1070,47 @@ func TestAStartedTurnIsNotFailedByTheDeadline(t *testing.T) {
 	}
 }
 
+// The test above finds the deadline's decision-to-ending window by luck: one
+// round in a thousand. This one lands an ack inside it every time. An ack that
+// is accepted there is a lie — the deadline closes the turn moments later, so
+// the device is never told to stop and the machine keeps running work nobody is
+// collecting.
+func TestAnAckThatLosesTheStartRaceHearsTheTurnIsGone(t *testing.T) {
+	turns := NewTurns()
+	// Only the explicit failIfOpen below may end this turn: the start deadline
+	// is the side under test, and it must be the one that decides first.
+	turns.StartTimeout = time.Hour
+	conn := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", "task-1", conn, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The hook runs after the deadline has claimed the turn (answered, failing)
+	// and before it writes the ending — exactly where the ack used to slip in.
+	var ackErr error
+	turns.afterStartDeadline = func(*turn) {
+		ackErr = turns.Started(conn, worker.TurnStarted{TurnID: "turn-1"})
+	}
+	turns.failIfOpen(handle.turn, "device device-1 did not start the turn")
+
+	if ackErr == nil {
+		t.Fatal("the ack was accepted for a turn the deadline had already decided to fail")
+	}
+	if !errors.Is(ackErr, ErrTurnUnknown) {
+		t.Fatalf("ack err = %v, want ErrTurnUnknown so the device is sent a cancel", ackErr)
+	}
+	// And the deadline's outcome is the one that stands: one stated reason,
+	// then a closed transcript and no registry entry.
+	got := drain(t, handle)
+	if len(got) != 1 || got[0].Type != "error" {
+		t.Fatalf("events = %+v", got)
+	}
+	if running := turns.Running(""); len(running) != 0 {
+		t.Fatalf("the turn the deadline failed is still registered: %v", running)
+	}
+}
+
 // A refused duplicate must not take the live turn with it. Its close deletes
 // from the registry by id, and that id is someone else's: a turn that is not in
 // the registry can never be delivered, finished or abandoned, so its task would
