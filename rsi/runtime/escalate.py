@@ -15,7 +15,9 @@ Prints shell assignments:
 Logs decisions and outcomes to $RSI_STATE/escalations.jsonl and escalations.log.
 --outcome stitches the run result onto the same id.
 --weekly writes $RSI_STATE/escalations-weekly.md for the morning brief,
-including a daily "was it worth it" line (strong FAIL + B/M after DeepSeek PASS vs agreed).
+including a daily "was it worth it" line (strong FAIL + B/M after DeepSeek PASS vs agreed)
+and one weekly `Worth it:` line whose Kimi spend is priced by review window from the
+local usage ledger (`volc-budget.py`), never from the day-cumulative fields on a record.
 """
 from __future__ import annotations
 
@@ -721,7 +723,129 @@ def primary_triggers(reason: str) -> list[str]:
     return out
 
 
-def daily_worth_lines(rows: list[dict], state: Path) -> list[str]:
+def record_class(rec: dict) -> str:
+    """Classify one strong review: missed, agreed, unpaired, or error.
+
+    Shared by the daily line and the weekly worth-it line so the two cannot drift.
+    `missed` is the metric that says a strong review added signal: strong FAIL with a
+    substantive blocker/major after DeepSeek already PASSed.
+    """
+    oc = (rec.get("outcome") or "pending").lower()
+    if oc in {"error", "api-error"}:
+        return "error"
+    if oc not in {"pass", "fail"}:
+        return "unpaired"
+    ds = (rec.get("deepseek_verdict") or "").upper()
+    strong = oc.upper()
+    bm = rec.get("has_bm")
+    if bm is None:
+        bm = has_bm_findings(str(rec.get("outcome_note") or ""))
+    if ds == "PASS" and strong == "FAIL" and bm:
+        return "missed"
+    if ds in {"PASS", "FAIL"} and ds == strong:
+        return "agreed"
+    if ds == "FAIL" and strong == "PASS":
+        return "agreed"
+    return "unpaired"
+
+
+def budget_module():
+    """volc-budget.py next door, loaded by path.
+
+    The hyphen in its filename rules out a normal import; the module's top level is
+    constants only, and its `__main__` guard keeps it inert when executed this way.
+    Returns None when the sibling is missing or broken: a report that cannot price
+    must still be written, saying spend is unmeasured.
+    """
+    try:
+        import importlib.util
+
+        path = Path(__file__).with_name("volc-budget.py")
+        spec = importlib.util.spec_from_file_location("rsi_volc_budget", path)
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+def worth_lines(rows: list[dict]) -> list[str]:
+    """The 'was this week worth it' line: caught defects per review and per yuan.
+
+    Cost is window-priced, not copied from the record: each decided review owns
+    [ts, outcome_ts], and the Kimi rows of the local usage ledger inside that window
+    are priced with volc-budget.py's table. The `kimi_cny`/`total` fields on the
+    record are day-cumulative snapshots taken at creation, so summing them would be
+    wrong.
+
+    A record with a PASS/FAIL outcome but no usable ts/outcome_ts has no window: it
+    is counted in `unmeasured` and kept out of the decided denominator rather than
+    priced as ¥0. A ledger file that does not exist (or cannot be read) makes spend
+    unmeasured everywhere, never ¥0.00.
+    """
+    decided = caught = flat = unmeasured = 0
+    windows: list[tuple[datetime, datetime]] = []
+    for rec in rows:
+        if rec.get("kind") in {"reuse", "hold", "outcome-only"}:
+            continue
+        if (rec.get("outcome") or "").lower() not in {"pass", "fail"}:
+            continue
+        ts = parse_ts(str(rec.get("ts") or ""))
+        ots = parse_ts(str(rec.get("outcome_ts") or ""))
+        if ts is None or ots is None:
+            unmeasured += 1
+            continue
+        decided += 1
+        if record_class(rec) == "missed":
+            caught += 1
+        windows.append((ts, ots))
+
+    if decided == 0:
+        return ["Worth it: no decided reviews this week."]
+
+    budget = budget_module()
+    ledger = None
+    if budget is not None:
+        try:
+            path = budget.ledger_path()
+            if path.is_file():
+                ledger = [r for r in budget.read_jsonl(path, min(ts for ts, _ in windows)) if r["fam"].startswith("kimi")]
+        except Exception:
+            ledger = None
+
+    spend = None
+    if ledger is not None:
+        spend = 0.0
+        for ts, ots in windows:
+            window_cny = sum(
+                budget.cny_for(r["fam"], r["inp"], r["out"], r["cache"], budget.is_peak(r["t"]))
+                for r in ledger
+                if ts <= r["t"] <= ots
+            )
+            if window_cny == 0:
+                flat += 1
+            spend += window_cny
+
+    pct = 100.0 * caught / decided
+    head = f"Worth it: caught {caught} of {decided} decided reviews ({pct:.0f}%);"
+    if spend is None:
+        spend_s = "spend unmeasured;"
+        per = "per caught defect: n/a (spend unmeasured);"
+    else:
+        spend_s = f"spend ¥{spend:.2f};"
+        if caught == 0:
+            per = "per caught defect: n/a (none caught);"
+        else:
+            per = f"¥{spend / caught:.2f} per caught defect;"
+    return [
+        f"{head} {spend_s} {per} flat-rate {flat}; unmeasured {unmeasured}.",
+        "Spend is window-priced from the local usage ledger; a concurrent Kimi call inside a review's window is counted in it.",
+    ]
+
+
+def daily_worth_lines(rows: list[dict], state: Path, worth: list[str] | None = None) -> list[str]:
     """One line per Singapore day: counts by trigger, found-what-DeepSeek-missed vs agreed."""
     by_day: dict[str, list[dict]] = {}
     for rec in rows:
@@ -736,6 +860,9 @@ def daily_worth_lines(rows: list[dict], state: Path) -> list[str]:
     if not by_day:
         lines.append("No strong-review decisions this week yet.")
         lines.append("")
+        if worth:
+            lines.extend(worth)
+            lines.append("")
         return lines
     for day in sorted(by_day):
         recs = by_day[day]
@@ -744,30 +871,16 @@ def daily_worth_lines(rows: list[dict], state: Path) -> list[str]:
         for rec in recs:
             for t in primary_triggers(str(rec.get("reason") or "")):
                 trig[t] = trig.get(t, 0) + 1
-            oc = (rec.get("outcome") or "pending").lower()
-            if oc in {"error", "api-error"}:
+            # record_class keeps this line and the weekly worth-it line on one classifier:
+            # DeepSeek FAIL + strong PASS counts as agreed; a strong FAIL without B/M is
+            # not the miss metric.
+            cls = record_class(rec)
+            if cls == "error":
                 errors += 1
-                continue
-            if oc not in {"pass", "fail"}:
-                unpaired += 1
-                continue
-            ds = (rec.get("deepseek_verdict") or "").upper()
-            strong = oc.upper()
-            bm = rec.get("has_bm")
-            if bm is None:
-                bm = has_bm_findings(str(rec.get("outcome_note") or ""))
-            if ds == "PASS" and strong == "FAIL" and bm:
+            elif cls == "missed":
                 missed += 1
-            elif ds in {"PASS", "FAIL"} and ds == strong:
+            elif cls == "agreed":
                 agreed += 1
-            elif ds in {"PASS", "FAIL"} and strong in {"PASS", "FAIL"} and ds != strong:
-                # DeepSeek FAIL + strong PASS (agreement that issues were fixed, or over-reject) — not a "miss".
-                if ds == "FAIL" and strong == "PASS":
-                    agreed += 1
-                elif ds == "PASS" and strong == "FAIL" and not bm:
-                    unpaired += 1  # FAIL without B/M is not the miss metric
-                else:
-                    unpaired += 1
             else:
                 unpaired += 1
         trig_s = ", ".join(f"{k} {v}" for k, v in sorted(trig.items(), key=lambda kv: (-kv[1], kv[0]))) or "none"
@@ -777,6 +890,9 @@ def daily_worth_lines(rows: list[dict], state: Path) -> list[str]:
             f"Agreed: {agreed}. Unpaired/pending: {unpaired}. Errors: {errors}."
         )
     lines.append("")
+    if worth:
+        lines.extend(worth)
+        lines.append("")
     lines.append(
         "Found-what-DeepSeek-missed is the 'was it worth it' metric: a strong-model review only "
         "adds signal when it FAILs with a substantive blocker/major after DeepSeek already PASSed."
@@ -871,7 +987,7 @@ def weekly(state: Path) -> Path:
     else:
         lines.append("None.")
     lines.append("")
-    lines.extend(daily_worth_lines(spend, state))
+    lines.extend(daily_worth_lines(spend, state, worth=worth_lines(spend)))
     out = state / "escalations-weekly.md"
     state.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")

@@ -199,6 +199,13 @@ rsi_budget_apply() {
 }
 rsi_allow_kimi() { python3 "$RSI_DIR/runtime/volc-budget.py" --allow-kimi >/dev/null 2>&1; }
 rsi_allow_workers() { python3 "$RSI_DIR/runtime/volc-budget.py" --allow-workers >/dev/null 2>&1; }
+# Regenerate escalations-weekly.md on the report path the morning brief reads. Quiet and
+# fail-open by design: a report nobody could write must never stop a daily/dream run, and
+# the run has nothing useful to say about it. escalate.py reads the exported RSI_STATE.
+rsi_refresh_weekly_report() {
+  python3 "$RSI_DIR/runtime/escalate.py" --weekly >/dev/null 2>&1 || true
+  return 0
+}
 rsi_budget_apply
 
 # Open-PR backpressure (CEO 2026-11-16): pause NEW slice dispatch when >= RSI_MAX_OPEN_PRS active rsi/* PRs

@@ -1,0 +1,16 @@
+[
+  {
+    "label": "no upper window bound: spend after a review's outcome is charged to it",
+    "file": "rsi/runtime/escalate.py",
+    "test": "bash rsi/runtime/tests/test-escalate.sh",
+    "old": "                if ts <= r[\"t\"] <= ots",
+    "new": "                if ts <= r[\"t\"]"
+  },
+  {
+    "label": "no zero-caught guard: the per-defect rate divides by zero",
+    "file": "rsi/runtime/escalate.py",
+    "test": "bash rsi/runtime/tests/test-escalate.sh",
+    "old": "        if caught == 0:\n            per = \"per caught defect: n/a (none caught);\"\n        else:\n            per = f\"¥{spend / caught:.2f} per caught defect;\"",
+    "new": "        per = f\"¥{spend / caught:.2f} per caught defect;\""
+  }
+]
