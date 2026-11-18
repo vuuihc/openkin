@@ -1736,6 +1736,22 @@ class WalkJ11ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("routines area change", out)
 
+    def test_j11_contract_rejects_a_list_entry_without_the_fold_press(self) -> None:
+        # Conversations another journey created land in the same project
+        # bucket. Past five rows the list draws them behind 展开全部, so the
+        # seeded row is not in the DOM and the click is a hard fail. A spec
+        # that drops the press is green in a standalone walk and red only in
+        # the gate, which is why the contract has to name the missing press.
+        steps = load_spec()["journeys"]["J11"]["steps"]
+        hits = [i for i, step in enumerate(steps)
+                if step[0] == "click" and "展开全部" in str(step[1])]
+        self.assertTrue(hits)
+        for index in hits:
+            with self.subTest(step=index):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("project fold", out)
+
 
 class WalkJ12ContractTest(unittest.TestCase):
     """J12 must walk the phone's three thumb gestures and read each consequence.
@@ -1934,6 +1950,85 @@ class WalkJ12ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("spec red: J12", out)
         self.assertIn("hold", out)
+
+    def test_j12_contract_rejects_a_list_load_without_the_fold_press(self) -> None:
+        # Past five rows the project bucket renders 展开全部 instead of the
+        # seeded row, and every gesture aimed at it fails as "not on the
+        # screen". Each unsearched load needs its own mandatory press, even
+        # when another load in the same journey already opened the fold.
+        steps = load_spec()["journeys"]["J12"]["steps"]
+        hits = [i for i, step in enumerate(steps)
+                if step[0] == "click" and "展开全部" in str(step[1])]
+        self.assertTrue(hits)
+        for index in hits:
+            with self.subTest(step=index):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("project fold", out)
+
+    def test_j12_contract_rejects_a_fold_without_clearing_search(self) -> None:
+        steps = load_spec()["journeys"]["J12"]["steps"]
+        resets = [i for i, step in enumerate(steps)
+                  if step == ["fill", "input[type=search]", ""]]
+        self.assertTrue(resets)
+        for index in resets:
+            with self.subTest(step=index):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("clear the search", out)
+            with self.subTest(clear_after_fold=index):
+                def clear_after_fold(steps: list) -> None:
+                    reset = steps.pop(index)
+                    fold = next(i for i, step in enumerate(steps)
+                                if i >= index and step[0] == "click"
+                                and "展开全部" in str(step[1]))
+                    steps.insert(fold + 1, reset)
+
+                code, out = self.check(self.copy_with(clear_after_fold))
+                self.assertEqual(code, 1, out)
+                self.assertIn("clear the search", out)
+
+    def test_j12_contract_rejects_a_fold_without_a_tall_fixture(self) -> None:
+        def drop_fixture_send(steps: list) -> None:
+            steps.pop(next(i for i, step in enumerate(steps) if step[0] == "send"))
+
+        code, out = self.check(self.copy_with(drop_fixture_send))
+        self.assertEqual(code, 1, out)
+        self.assertIn("four fixture conversations", out)
+
+    def test_j12_contract_rejects_an_optional_fold_press(self) -> None:
+        def optional_fold(steps: list) -> None:
+            for step in steps:
+                if step[0] == "click" and "展开全部" in str(step[1]):
+                    step[1] = "?" + str(step[1]).lstrip("?")
+
+        code, out = self.check(self.copy_with(optional_fold))
+        self.assertEqual(code, 1, out)
+        self.assertIn("project fold", out)
+        self.assertIn("optional", out)
+
+    def test_j12_contract_rejects_a_generic_seeded_row_click(self) -> None:
+        def generic_row(steps: list) -> None:
+            step = next(step for step in steps
+                        if step[0] == "click" and "data-session-row" in str(step[1]))
+            step[1] = "css=[data-session-row]:has-text('[seed]')"
+
+        code, out = self.check(self.copy_with(generic_row))
+        self.assertEqual(code, 1, out)
+        self.assertIn("Morning planning", out)
+
+    def test_j12_contract_still_rejects_an_optional_proof(self) -> None:
+        # An optional chip wait would let a dead reveal pass with every remaining
+        # assertion still green, which is what the ban exists for.
+        def make_the_chip_wait_optional(steps: list) -> None:
+            step = next(step for step in steps
+                        if step[0] == "wait"
+                        and re.search(r"置顶|Pin|改名|Rename", str(step[1])))
+            step[1] = "?" + str(step[1])
+
+        code, out = self.check(self.copy_with(make_the_chip_wait_optional))
+        self.assertEqual(code, 1, out)
+        self.assertIn("is optional", out)
 
     def test_j12_contract_rejects_an_index_without_the_registration(self) -> None:
         # Registration is the point of this row: deleting the one line must be
@@ -3603,4 +3698,6 @@ class WalkMutantManifestTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--check-spec"]:
+        raise SystemExit(subprocess.call([NODE, WALK, "--check-spec", "--spec", SPEC]))
     unittest.main()
