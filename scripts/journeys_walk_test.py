@@ -326,6 +326,14 @@ class WalkJ3ContractTest(unittest.TestCase):
 class WalkJ2ContractTest(unittest.TestCase):
     """J2 must walk the review loop, not stop at the diff screenshot.
 
+    KIN-RESULT-001: the leg opens 文件, picks the seeded notes.md, and waits
+    for the rendered diff (`.monaco-diff-editor`) at mac and mac-wide — the
+    file list → open a file → diff path, not a photograph of the empty panel.
+    KIN-RESULT-003: the comment loop — Alt+C on a changed line, the anchored
+    box, Save into the one-row tray, ⌘Enter to send, and the follow-up in the
+    transcript carrying path, hunk header and quote; then a rerun re-anchors
+    the row to notes.md:6 and a rewrite marks it 该行已变化 without dropping it.
+
     The loop a reviewer actually runs is: open the changed file, comment a
     changed line, save it into the tray, send the tray as one ordinary
     follow-up, and find the comment in the transcript WITH its anchor (path,
@@ -924,6 +932,12 @@ class J2PrPanelContractTest(unittest.TestCase):
 @unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
 class WalkJ8ContractTest(unittest.TestCase):
     """J8 must walk the review loop the way a thumb does, at 390 only.
+
+    KIN-RESULT-001: the phone opens 文件 → taps the seeded notes.md row → the
+    rendered `.monaco-diff-editor`. KIN-RESULT-003: the same loop by thumb —
+    tap the changed line's glyph, write in the sheet, Save, read the tray's
+    one row, tap Send, and find the anchored follow-up as one settled
+    transcript row, with the tray gone and 已发回对话 shown.
 
     J2 proves the same loop from the keyboard (⌥C, ⌘Enter), which a phone does
     not have. J8 is its own journey so the phone path is a contract: tap the
@@ -1723,6 +1737,10 @@ class WalkJ11ContractTest(unittest.TestCase):
 
 class WalkJ5ContractTest(unittest.TestCase):
     """J5 must read the row menu it opens, not only photograph it.
+
+    KIN-MANAGE-001: the walk opens the running row's own menu and asserts the
+    shipped 改名 / Rename, 置顶 / Pin, 归档 / Archive and 删除 / Delete items
+    plus one disabled 运行中 / Running status line, at 390 and 1100.
 
     A menu that quietly lost 改名, or a 运行中 line that became pressable, ships
     green today: the walk hovers a row, clicks the trigger and stops. The
