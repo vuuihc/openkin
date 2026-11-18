@@ -75,13 +75,21 @@ awk -v l="$LOAD" -v m="$MEM" -v lmax="$NAS_LOAD_MAX" -v mmin="$NAS_MEM_MIN_GB" '
 # Even lane 1 stands down if the box is already under severe pressure (load >= 5 or mem < 3 GB).
 awk -v l="$LOAD" -v m="$MEM" 'BEGIN{exit !((l+0)>=5 || (m+0)<3)}' && { log "NAS under pressure (load>=5 or mem<3G); not starting new work"; ALLOWED=0; }
 
-# Running jobs on the NAS (status=running).
+# Running jobs on the NAS (status=running). A lane killed by a container recreate leaves `running`
+# behind and ingest never consumes it, so a record counts only while its stamp is fresh. The lane
+# watchdog kills a worker at 3000 s; two hours is well past that and still frees a leaked slot.
 RUNNING=$(ssh -n -o BatchMode=yes "$NAS_HOST" "python3 - <<'PY'
-import json,os,glob
-n=0
+import json,os,glob,sys,time
+n=0; now=time.time()
 for d in glob.glob('$REMOTE/work/jobs/*/status.json'):
     try:
-        if json.load(open(d)).get('status')=='running': n+=1
+        j=json.load(open(d))
+        if j.get('status')!='running': continue
+        try: ts=float(j.get('updated_at') or j.get('started_at') or 0)
+        except (TypeError,ValueError): ts=0
+        if ts and now-ts <= 7200: n+=1
+        else:
+            print('skip stale running record %s (age %ds)' % (os.path.basename(os.path.dirname(d)), int(now-ts) if ts else -1), file=sys.stderr)
     except Exception:
         pass
 print(n)
@@ -169,11 +177,16 @@ if launched_at is not None:
     payload["launched_at"]=launched_at
 json.dump(payload, open(out,"w"))
 PY
-  ssh -n -o BatchMode=yes "$NAS_HOST" "mkdir -p '$REMOTE/work/jobs/$SLUG' '$REMOTE/work/logs'"
-  scp -O -q "$JOBDIR/job.json" "$BUNDLE" "$NAS_HOST:$REMOTE/work/jobs/$SLUG/"
-  ssh -n -o BatchMode=yes "$NAS_HOST" "mv -f '$REMOTE/work/jobs/$SLUG/origin-main-$SLUG.bundle' '$REMOTE/work/jobs/$SLUG/origin-main.bundle' 2>/dev/null || mv -f '$REMOTE/work/jobs/$SLUG/'*.bundle '$REMOTE/work/jobs/$SLUG/origin-main.bundle'"
-  # Starter status so a crash before nas-lane.sh still looks queued, not stale-running.
-  ssh -n -o BatchMode=yes "$NAS_HOST" "printf '%s\\n' '{\"status\":\"queued\",\"slug\":\"$SLUG\"}' > '$REMOTE/work/jobs/$SLUG/status.json'"
+  # A ship that fails leaves no job.json on the NAS, so ingest never sees a result and the claim burns
+  # the 5 h hold — the same slot leak as a failed start. Hand the brief back before the exec.
+  if ! { ssh -n -o BatchMode=yes "$NAS_HOST" "mkdir -p '$REMOTE/work/jobs/$SLUG' '$REMOTE/work/logs'" &&
+         scp -O -q "$JOBDIR/job.json" "$BUNDLE" "$NAS_HOST:$REMOTE/work/jobs/$SLUG/" &&
+         ssh -n -o BatchMode=yes "$NAS_HOST" "mv -f '$REMOTE/work/jobs/$SLUG/origin-main-$SLUG.bundle' '$REMOTE/work/jobs/$SLUG/origin-main.bundle' 2>/dev/null || mv -f '$REMOTE/work/jobs/$SLUG/'*.bundle '$REMOTE/work/jobs/$SLUG/origin-main.bundle'" &&
+         ssh -n -o BatchMode=yes "$NAS_HOST" "printf '%s\\n' '{\"status\":\"queued\",\"slug\":\"$SLUG\"}' > '$REMOTE/work/jobs/$SLUG/status.json'"; }; then
+    log "ship failed for $SLUG"
+    unclaim "$SLUG" "ship failed"
+    continue
+  fi
 
   # Start the lane detached inside the container. A start that fails must not burn the slot: mark the
   # record failed, hand the brief back, and stop retrying it after MAX_START_FAILS.

@@ -139,6 +139,11 @@ pclaim_as() { # T SLUG ITEM TAKER — a claim already owned by someone else
 }
 running_job() { # T SLUG — a remote record the capacity probe counts as running
   mkdir -p "$1/nas/work/jobs/$2"
+  printf '{"status":"running","slug":"%s","started_at":%s,"updated_at":%s}\n' \
+    "$2" "$(date +%s)" "$(date +%s)" > "$1/nas/work/jobs/$2/status.json"
+}
+running_job_stale() { # T SLUG — a `running` record left behind by a lane the container recreate killed
+  mkdir -p "$1/nas/work/jobs/$2"
   printf '{"status":"running","slug":"%s","started_at":1,"updated_at":1}\n' "$2" > "$1/nas/work/jobs/$2/status.json"
 }
 fhash() { shasum -a 256 "$1" | awk '{print $1}'; }
@@ -619,6 +624,15 @@ t_pulse_capacity() {
   check "P4 load 5 stands the pulse down even with idle slots" grep -q 'under pressure' "$T2/p2.log"
   check "P4 no lane starts under pressure" [ ! -s "$T2/docker-starts" ]
   check "P4 the claim is left under pressure" [ -z "$(jget "$T2/ctrl/rsi/state/cloud/s2.json" taker)" ]
+
+  local T3; sandbox; T3=$T
+  pclaim "$T3" s3 R-P-4c
+  running_job "$T3" fresh
+  running_job_stale "$T3" stale
+  run_pulse "$T3" NAS_MAX_LANES=2 > "$T3/p3.log" 2>&1
+  check "P4 a stale running record does not consume a lane" grep -q 'allowed=2 running=1 idle_slots=1' "$T3/p3.log"
+  check "P4 the stale record is logged" grep -q 'skip stale running record stale' "$T3/p3.log"
+  check "P4 the freed slot starts a lane" [ "$(grep -c 'nas-lane\.sh s3' "$T3/docker-starts")" = 1 ]
 }
 
 # --- P5: a live pulse lock is owned by its pid, not deleted by a second pulse (pulse) ------------
@@ -660,6 +674,23 @@ t_pulse_start_failure() {
   check "P6 the block is logged" grep -q 'blocked after repeated start failures: s1' "$T/p3.log"
 }
 
+# --- P6b: a failed ship never starts the lane and hands the brief back (pulse) --------------------
+# Without job.json on the NAS, ingest can never see this run finish, so the claim would sit taker=nas
+# for the whole 5 h hold. The ship (mkdir + scp + bundle rename + starter status) is checked before
+# the docker exec.
+t_pulse_ship_failure() {
+  local T; sandbox; T=$T
+  pclaim "$T" s1 R-P-6b
+  run_pulse "$T" FAKE_SCP_FAIL=1 > "$T/p1.log" 2>&1
+  check "P6b a failed ship starts no lane" [ ! -s "$T/docker-starts" ]
+  check "P6b a failed ship releases the claim" [ -z "$(jget "$T/ctrl/rsi/state/cloud/s1.json" taker)" ]
+  check "P6b a failed ship counts the failure" [ "$(jget "$T/ctrl/rsi/state/cloud/s1.json" nas_start_failures)" = 1 ]
+  check "P6b the failure reason is kept on the claim" grep -q 'ship failed' "$T/ctrl/rsi/state/cloud/s1.json"
+  check "P6b the failure is logged" grep -q 'ship failed for s1' "$T/p1.log"
+  check "P6b no job.json is left on the NAS" test ! -e "$T/nas/work/jobs/s1/job.json"
+  check "P6b a failed ship writes no starts.log row" [ ! -s "$T/ctrl/rsi/state/nas/starts.log" ]
+}
+
 if [ "${1:-}" = "--sandbox" ]; then sandbox; echo "$T"; SANDBOXES=(); exit 0; fi
 if [ -n "${1:-}" ]; then "$1"; finish; exit $?; fi    # test-nas.sh <function> — one test (mutant runs)
 
@@ -680,4 +711,5 @@ t_pulse_container_down
 t_pulse_capacity
 t_pulse_lock_ownership
 t_pulse_start_failure
+t_pulse_ship_failure
 finish
