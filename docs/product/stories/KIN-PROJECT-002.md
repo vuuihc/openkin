@@ -1,6 +1,6 @@
 # KIN-PROJECT-002 · 项目的工作目录：看清这几个目录为什么在一起，并能增删
 
-状态：approved
+状态：covered
 优先级：P0
 旅程：J4
 归属面：`IA.md`「项目」行（对话列表里的项目标题 → `/projects/:id` 封面上的工作目录块）
@@ -141,10 +141,11 @@
   - 读回顺序 `internal/store/projects_test.go` 的 `TestProjectRootsKeepSavedOrder`（`KIN-PROJECT-002`）：插入 `["/work/zeta","/work/alpha","/work/mid"]` 后 `GetProject` 按提交顺序返回；`SetProjectRoots` 改写后返回新顺序，再次改写再读仍是新顺序。`listProjectRoots` 因此按 `rowid` 读（`SetProjectRoots` 按提交顺序重写行，rowid 即保存顺序）。
   - 视觉：`rsi/state/shots/project-roots-face/` 的 `after-1100-cover.png`、`after-1100-editor.png`、`after-390-cover.png`、`after-390-editor.png`、`after-390-remove-confirm.png`；390 无横滚，点按区 ≥44px。第三轮复检：`r3-1100-cover.png`（默认标签紧贴路径）、`r3-1100-editor.png`、`r3-390-cover.png`（路径单行）、`r3-390-editor.png`（每行只有一个默认指示 + 新帮助文案）；真浏览器里「设为默认 → 保存 → 刷新」后顺序保持。
   - `./scripts/check.sh`：18 项全绿（含 stories、ui-inventory、ui-lint-guard）。
-- 第三轮修复（真浏览器复验）：`listProjectRoots` 改按 `rowid` 读回（`internal/store/projects.go:155-165`；`SetProjectRoots` 按提交顺序重写行，rowid 即保存顺序），「设为默认 → 保存 → 刷新」后顺序与默认保持。故事仍在 `approved`，`covered` 由合并 lane 在独立复检后决定。
+- 第三轮修复（真浏览器复验）：`listProjectRoots` 改按 `rowid` 读回（`internal/store/projects.go:155-165`；`SetProjectRoots` 按提交顺序重写行，rowid 即保存顺序），「设为默认 → 保存 → 刷新」后顺序与默认保持。PR #309 的 J4 真浏览器走查合并后，故事转 `covered`。
 
 ## 变更记录
 
 - 2026-11-18 创建（P5 第一条故事；只写合同，不写代码；状态 draft，等人签字）
 - 2026-11-18 UI 交付（工作目录块、编辑层、增删/默认/保存、双语文案、测试与截图）；发现 daemon 读回顺序为 `ORDER BY path`，顺序默认跨读取不保，故事留在 approved
 - 2026-11-18 第三轮返修：读回改 `ORDER BY rowid` 并加读序测试；封面默认标签紧贴路径、路径单行；编辑器每行只留一个默认指示；帮助文案改为用户语义（双向）
+- 2026-11-18 item 走查（PR #309 `0fae9787`）：J4 真浏览器读封面工作目录块（按保存顺序、只有第一个带「默认」）→ 编辑器把第二个设为默认 → 保存 → 离开再回来顺序与默认不变 → 再切回 /alpha；phone/mac/mac-wide，截图 `rsi/state/shots/roots-j4-walk/`。仍未走查：增加与移除目录（由 `ProjectDetailPage.dom.test.tsx` 与 `projectRoots.test.ts` 覆盖）。

@@ -2269,6 +2269,9 @@ def _j4_roots_problems(steps: list) -> list[str]:
 class WalkJ4ContractTest(unittest.TestCase):
     """J4 must walk the cover's folder editor through a save and a reload.
 
+    KIN-PROJECT-002: the saved working-folder order is what the cover reads
+    back, in both directions, after leaving the document and returning.
+
     Same shape as the other contract tests: the checked-in spec passes the
     guard, and a copy that regresses one rule at a time fails with a message
     naming that rule. Without this, a J4 that photographs the cover and leaves
