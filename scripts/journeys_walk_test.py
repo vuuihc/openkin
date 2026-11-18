@@ -543,6 +543,364 @@ class WalkJ2ContractTest(unittest.TestCase):
         self.assertIn("before the second comment is saved", out)
 
 
+# The read-only Pull Request tab's honest absent-repo state (F3's PR leg).
+# The seeded checkout is a plain git repo with no origin remote, so the daemon
+# reports no repository and no branch; `shouldAskForRead` is false, and opening
+# the tab must ask GitHub nothing and settle on these words instead.
+PR_REFRESH = "button[aria-label='刷新'], button[aria-label='Refresh']"
+PR_UNOBSERVED = ("尚未查询此分支。", "This branch has not been checked yet.")
+PR_NO_REPO = ("此任务不在 GitHub 仓库中", "This task is not in a GitHub repository")
+PR_CHECKING = ("正在查询该分支", "Checking this branch")
+
+
+def pr_tab_click_at(steps: list) -> int | None:
+    """Index of the mandatory click that opens the Pull Request surface.
+
+    The selector names the panel's tab and the task header's toggle, because
+    the side panel is stacked at 1100px (the file view covers the strip) and a
+    peer column at 1280; the header toggle is the control a person can press
+    at both widths.
+    """
+    for index, step in enumerate(steps):
+        if step[0] != "click":
+            continue
+        selector = str(step[1])
+        if selector.startswith("?"):
+            continue
+        if "[role=tab]" in selector and re.search(r"pull request", selector, re.I):
+            return index
+    return None
+
+
+def pr_panel_problems(steps: list) -> list[str]:
+    """What the J2 PR leg must carry to prove the panel is honest and quiet.
+
+    Returns the problems; empty means the checked-in leg holds the contract.
+    A step that went optional (`?`) is a recorded skip, not evidence, so the
+    checks below only read mandatory steps.
+    """
+    click = pr_tab_click_at(steps)
+    if click is None:
+        return ["J2 has no mandatory click on a [role=tab] naming the Pull Request tab"]
+    problems: list[str] = []
+    # The leg must run at every width. Inside a `vp` scope only one width
+    # executes it, so the other width's shot silently disappears from the walk.
+    scope = ""
+    for step in steps[:click]:
+        if step[0] == "vp":
+            scope = str(step[1]).strip() if len(step) > 1 else ""
+    if scope:
+        problems.append(
+            "the Pull Request tab click sits inside the %s-only vp scope; "
+            "both widths must walk the panel" % scope
+        )
+    # Opening the PR surface unmounts the files surface. With a Monaco diff
+    # still mounted that unmount throws `TextModel got disposed before
+    # DiffEditorWidget model got reset`, a page error the walker records as a
+    # hard failure — so the PR leg walks before the diff is opened.
+    diff_at = next(
+        (
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "wait" and ".monaco-diff-editor" in str(step[1])
+        ),
+        None,
+    )
+    if diff_at is not None and diff_at < click:
+        problems.append(
+            "the Pull Request tab click comes after the diff editor is mounted; "
+            "switching surfaces unmounts Monaco and its dispose error reddens the walk"
+        )
+    leg = steps[click + 1 :]
+    # The review loop that follows expects the files surface back in front.
+    if not any(
+        step[0] == "click"
+        and (
+            "button[aria-label='文件']" in str(step[1])
+            or "button[aria-label='Files']" in str(step[1])
+        )
+        for step in leg
+    ):
+        problems.append(
+            "J2 never returns to the files panel after the Pull Request leg "
+            "(the review loop would run against the PR pane)"
+        )
+    waits = [step for step in leg if step[0] == "wait" and not str(step[1]).startswith("?")]
+    if not any(all(needle in str(step[1]) for needle in PR_UNOBSERVED) for step in waits):
+        problems.append(
+            "J2 never waits for the unobserved line in both locales "
+            "('尚未查询此分支。' and 'This branch has not been checked yet.') "
+            "after opening the Pull Request tab"
+        )
+    if not any(all(needle in str(step[1]) for needle in PR_NO_REPO) for step in waits):
+        problems.append(
+            "J2 never waits for the absent-repo header in both locales "
+            "('此任务不在 GitHub 仓库中' and 'This task is not in a GitHub repository') "
+            "after opening the Pull Request tab"
+        )
+    counts = [
+        step
+        for step in leg
+        if step[0] == "count" and len(step) > 2 and not str(step[1]).startswith("?")
+    ]
+    refresh_counts = [step for step in counts if PR_REFRESH in str(step[1])]
+    if not any(str(step[2]) == "1" for step in refresh_counts):
+        problems.append(
+            "J2 never asserts exactly one explicit Refresh control "
+            "(count button[aria-label='刷新'|'Refresh'] 1)"
+        )
+    enabled = [
+        step
+        for step in leg
+        if step[0] == "enabled"
+        and not str(step[1]).startswith("?")
+        and PR_REFRESH in str(step[1])
+    ]
+    if not enabled:
+        problems.append(
+            "J2 never asserts the Refresh control is usable "
+            "(enabled button[aria-label='刷新'|'Refresh'])"
+        )
+    checking = [
+        step
+        for step in counts
+        if all(needle in str(step[1]) for needle in PR_CHECKING)
+    ]
+    if not any(str(step[2]) == "0" for step in checking):
+        problems.append(
+            "J2 never asserts the panel does not read as still checking "
+            "(count '正在查询该分支|Checking this branch' 0)"
+        )
+    shot_at = next(
+        (index for index, step in enumerate(steps) if step[0] == "shot" and step[1] == "pr-panel"),
+        None,
+    )
+    if shot_at is None:
+        problems.append("J2 takes no `pr-panel` shot")
+    elif shot_at < click:
+        problems.append("the `pr-panel` shot is taken before the Pull Request tab is opened")
+    return problems
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class J2PrPanelContractTest(unittest.TestCase):
+    """J2 must walk the read-only PR tab, and opening it must ask GitHub nothing.
+
+    The seeded checkout has no origin remote, so the panel's honest state is
+    the absent-repo header, "This branch has not been checked yet." and exactly
+    one explicit Refresh — with no query in flight. Nothing walked that state:
+    a change that hides Refresh, replaces the honest line with a spinner, or
+    fires an implicit first-look read on open stayed green. Same shape as
+    WalkJ2ContractTest: the checked-in spec passes, and a copy that regresses
+    one rule at a time fails with a message naming that rule.
+    """
+
+    # (op, selector needles, the guard's own words for that proof)
+    PROOFS = (
+        ("wait", PR_UNOBSERVED, "unobserved line"),
+        ("wait", PR_NO_REPO, "absent-repo header"),
+        ("count", (PR_REFRESH,), "Refresh control"),
+        ("enabled", (PR_REFRESH,), "usable"),
+        ("count", PR_CHECKING, "still checking"),
+    )
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j2-pr-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def steps(self) -> list:
+        with open(SPEC, encoding="utf-8") as fh:
+            return json.load(fh)["journeys"]["J2"]["steps"]
+
+    def leg(self) -> list:
+        steps = self.steps()
+        at = pr_tab_click_at(steps)
+        self.assertIsNotNone(
+            at,
+            "J2 has no mandatory click on a [role=tab] naming the Pull Request tab",
+        )
+        return steps[at + 1 :]
+
+    def test_j2_pr_tab_click_is_mandatory(self) -> None:
+        steps = self.steps()
+        at = pr_tab_click_at(steps)
+        self.assertIsNotNone(
+            at,
+            "J2 has no mandatory click on a [role=tab] naming the Pull Request tab",
+        )
+        selector = str(steps[at][1])
+        self.assertIn("[role=tab]", selector)
+        self.assertRegex(selector, r"(?i)pull request")
+        # Adding the leg must not weaken the review-loop contract it joins.
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J2", out)
+
+    def test_j2_pr_panel_asserts_the_honest_unobserved_state(self) -> None:
+        waits = [step for step in self.leg() if step[0] == "wait"]
+        self.assertTrue(
+            any(all(needle in str(step[1]) for needle in PR_UNOBSERVED) for step in waits),
+            "J2 never waits for '尚未查询此分支。' and 'This branch has not been checked yet.' "
+            "in one selector after opening the Pull Request tab",
+        )
+        self.assertTrue(
+            any(all(needle in str(step[1]) for needle in PR_NO_REPO) for step in waits),
+            "J2 never waits for '此任务不在 GitHub 仓库中' and "
+            "'This task is not in a GitHub repository' in one selector after opening the tab",
+        )
+
+    def test_j2_pr_panel_offers_one_explicit_refresh(self) -> None:
+        leg = self.leg()
+        counts = [
+            step
+            for step in leg
+            if step[0] == "count" and len(step) > 2 and PR_REFRESH in str(step[1])
+        ]
+        self.assertTrue(counts, "J2 never counts the Refresh control after opening the Pull Request tab")
+        self.assertEqual(
+            str(counts[0][2]),
+            "1",
+            "the Refresh control must be exactly one; got %r" % (counts[0][2],),
+        )
+        self.assertTrue(
+            any(
+                step[0] == "enabled" and PR_REFRESH in str(step[1]) for step in leg
+            ),
+            "J2 never asserts the Refresh control is enabled; a fired implicit query "
+            "leaves it disabled, so this is the liveness check",
+        )
+
+    def test_j2_pr_panel_does_not_read_as_checking(self) -> None:
+        checking = [
+            step
+            for step in self.leg()
+            if step[0] == "count"
+            and len(step) > 2
+            and all(needle in str(step[1]) for needle in PR_CHECKING)
+        ]
+        self.assertTrue(
+            checking,
+            "J2 never counts '正在查询该分支' / 'Checking this branch' after opening the tab",
+        )
+        self.assertEqual(
+            str(checking[0][2]),
+            "0",
+            "the unobserved state must not read as a query in flight; got %r" % (checking[0][2],),
+        )
+
+    def test_j2_pr_panel_leg_cannot_be_weakened(self) -> None:
+        steps = self.steps()
+        self.assertEqual(pr_panel_problems(steps), [])
+
+        def problems_after(mutate) -> list[str]:
+            copy = json.loads(json.dumps(steps))
+            mutate(copy)
+            return pr_panel_problems(copy)
+
+        def required(op: str, needles: tuple[str, ...]) -> int:
+            return next(
+                index
+                for index, step in enumerate(steps)
+                if step[0] == op
+                and not str(step[1]).startswith("?")
+                and all(needle in str(step[1]) for needle in needles)
+            )
+
+        # The click is the whole leg's entry: without it nothing below runs.
+        def drop_click(copy: list) -> None:
+            copy.pop(pr_tab_click_at(copy))
+
+        problems = problems_after(drop_click)
+        self.assertTrue(any("Pull Request tab" in problem for problem in problems), problems)
+
+        # Each proof, deleted, must redden the guard with its own name.
+        for op, needles, keyword in self.PROOFS:
+            at = required(op, needles)
+
+            def drop_step(copy: list, at: int = at) -> None:
+                copy.pop(at)
+
+            problems = problems_after(drop_step)
+            self.assertTrue(
+                any(keyword in problem for problem in problems),
+                "dropping the %s proof left the guard green: %r" % (keyword, problems),
+            )
+
+        # A proof that went optional is a recorded skip, not evidence.
+        for op, needles, keyword in self.PROOFS:
+            at = required(op, needles)
+
+            def make_optional(copy: list, at: int = at) -> None:
+                copy[at][1] = "?" + str(copy[at][1])
+
+            problems = problems_after(make_optional)
+            self.assertTrue(
+                any(keyword in problem for problem in problems),
+                "an optional %s proof left the guard green: %r" % (keyword, problems),
+            )
+
+        # Inside the mac-wide rerun scope only one width would walk the panel.
+        at = pr_tab_click_at(steps)
+
+        def scope_to_mac_wide(copy: list, at: int = at) -> None:
+            copy.insert(at, ["vp", "mac-wide"])
+
+        problems = problems_after(scope_to_mac_wide)
+        self.assertTrue(any("vp scope" in problem for problem in problems), problems)
+
+        # A live Monaco diff cannot be unmounted by a surface switch: the
+        # dispose error is a page error, which the walker fails on.
+        def after_the_diff(copy: list) -> None:
+            moved = copy.pop(pr_tab_click_at(copy))
+            at = next(
+                index
+                for index, step in enumerate(copy)
+                if step[0] == "wait" and ".monaco-diff-editor" in str(step[1])
+            )
+            copy.insert(at + 1, moved)
+
+        problems = problems_after(after_the_diff)
+        self.assertTrue(
+            any("diff editor is mounted" in problem for problem in problems), problems
+        )
+
+        # Without the return click the review loop that follows runs against
+        # the PR pane, where notes.md has no row.
+        ret = next(
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "click" and "button[aria-label='文件']" in str(step[1])
+        )
+
+        def drop_return(copy: list, at: int = ret) -> None:
+            copy.pop(at)
+
+        problems = problems_after(drop_return)
+        self.assertTrue(any("files panel" in problem for problem in problems), problems)
+
+        # The shot is the stored evidence (TASTE 9), and it names the leg.
+        shot = next(
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "shot" and step[1] == "pr-panel"
+        )
+
+        def drop_shot(copy: list, shot: int = shot) -> None:
+            copy.pop(shot)
+
+        problems = problems_after(drop_shot)
+        self.assertTrue(any("pr-panel" in problem for problem in problems), problems)
+
+
 @unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
 class WalkJ8ContractTest(unittest.TestCase):
     """J8 must walk the review loop the way a thumb does, at 390 only.

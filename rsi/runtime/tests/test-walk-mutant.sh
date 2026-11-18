@@ -5,8 +5,9 @@
 # gate. What the gate *can* check without one is that the committed mutants still
 # point at the real hand-off pair, the row tap, the mid-run follow-up
 # dispatch, the Stop that must cancel the round, the J2 review anchor, the
-# rerun that must keep a comment (re-anchored, then 该行已变化), and the shell
-# that must not remount on a route change; that the runner prints
+# rerun that must keep a comment (re-anchored, then 该行已变化), the shell
+# that must not remount on a route change, and the unchecked PR branch that
+# must not read as still checking; that the runner prints
 # that same manifest; and that the J3 spec carries the mid-run ordering proof
 # (the follow-up on screen before the first answer) and the Stop proof (a held
 # round stopped, its control gone, and the queued message accounted for by the
@@ -36,8 +37,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 7:
-    raise SystemExit("manifest must be exactly seven entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 8:
+    raise SystemExit("manifest must be exactly eight entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -136,9 +137,27 @@ if "key={location.pathname}" not in shell["new"]:
     raise SystemExit("the J9 mutant does not key AppShell on the pathname")
 if "--walk-once J9" not in shell["test"]:
     raise SystemExit("the J9 entry's `test` does not walk J9 (--walk-once J9)")
-print("manifest ok: %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
+# The PR panel mutant must make an unchecked branch read as still checking:
+# the honest unobserved line is replaced by the spinner, so the walk's wait
+# for that line times out. A mutant that hid the tab or the Refresh control
+# would redden a different promise.
+pr = next((e for e in entries
+           if e["file"] == "ui/src/components/pr/PullRequestPanel.tsx"), None)
+if pr is None:
+    raise SystemExit("no PR panel entry for ui/src/components/pr/PullRequestPanel.tsx")
+if "busy ? (" not in pr["old"] or "unobservedLabel(tr)" not in pr["old"]:
+    raise SystemExit("the PR panel mutant does not replace the unobserved branch")
+if "true ? (" not in pr["new"]:
+    raise SystemExit("the PR panel mutant does not render the checking line "
+                     "in place of the unobserved one")
+if "unobservedLabel(tr)" not in pr["new"]:
+    raise SystemExit("the PR panel mutant drops the unobserved line instead "
+                     "of merely hiding it")
+if "--walk-once J2" not in pr["test"]:
+    raise SystemExit("the PR panel entry's `test` does not walk J2 (--walk-once J2)")
+print("manifest ok: %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
       % (j3["file"], j7["file"], follow["file"], review["file"], rerun["file"],
-         stop["file"], shell["file"]))
+         stop["file"], shell["file"], pr["file"]))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
