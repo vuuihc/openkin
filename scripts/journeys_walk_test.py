@@ -381,6 +381,28 @@ class WalkJ2ContractTest(unittest.TestCase):
                 if mine_vp != other_vp:
                     self.assertNotIn(mine, other, "%s's body would match %s's message" % (mine_vp, other_vp))
 
+    def test_j2_reply_waits_are_indexed_past_the_earlier_rounds(self) -> None:
+        # One seeded conversation carries the seed's own answer plus one reply
+        # per width's tray send. A rerun wait indexed from 0 would already be
+        # satisfied at the leg start, so the file could be re-picked before the
+        # round that moves it landed. Pin the three indices to the replies they
+        # actually wait for: the width's own tray reply (nth=2), then the
+        # [seed] shift round (nth=3), then the [seed] rewrite round (nth=4).
+        with open(SPEC, encoding="utf-8") as fh:
+            steps = json.load(fh)["journeys"]["J2"]["steps"]
+        waits = [
+            step
+            for step in steps
+            if step[0] == "wait"
+            and "Fake reply from the journey fake agent." in str(step[1])
+            and "nth=" in str(step[1])
+        ]
+        self.assertEqual(
+            [int(re.search(r"nth=(\d+)", step[1]).group(1)) for step in waits],
+            [2, 3, 4],
+            waits,
+        )
+
     def test_j2_contract_rejects_a_comment_before_the_diff_is_open(self) -> None:
         # Today's shape: the workspace section ends at the diff screenshot, so
         # moving the review block above the file click still reads plausibly.
