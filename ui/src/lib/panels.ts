@@ -88,8 +88,8 @@ export const PANELS: PanelDescriptor[] = [
   {
     // Publishing writes to a repository the Hub holds, and it is only offered for
     // a session running on another machine — the one case where the write is the
-    // local machine's to make. A button that could only ever be refused is worse
-    // than no button, so the gate lives here rather than inside the sheet.
+    // local machine's to make. A control that could only ever be refused is worse
+    // than no control, so the gate lives here rather than inside the pane.
     id: "publish",
     titleKey: "publish.title",
     available: (ctx) => ctx.remote,
@@ -169,7 +169,7 @@ export function closeOpenPanel(open: OpenPanel, view: string): OpenPanel {
 /**
  * The panel to render, given what is open and what is currently offered. A panel
  * that stops being available while it is open (the session moved to a machine
- * whose checkout the Hub holds, so the publish sheet no longer applies) closes
+ * whose checkout the Hub holds, so the publish tab no longer applies) closes
  * itself rather than rendering in a state it is not allowed to be in.
  */
 export function resolvePanel(current: PanelId | null, ctx: PanelContext): PanelId | null {

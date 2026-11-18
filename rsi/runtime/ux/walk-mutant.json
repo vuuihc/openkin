@@ -54,5 +54,12 @@
     "old": "      <AppShell pendingApprovals={pending.data.approvals} routineUnreadCount={routineUnreadCount}>",
     "new": "      {/* R-f4-switch: the shell keyed on the pathname remounts on every switch,\n          which is the page-load flash F4 exists to prevent. */}\n      <AppShell key={location.pathname} pendingApprovals={pending.data.approvals} routineUnreadCount={routineUnreadCount}>",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J9"
+  },
+  {
+    "label": "an unchecked branch reads as still checking, so the honest state is never seen",
+    "file": "ui/src/components/pr/PullRequestPanel.tsx",
+    "old": "            busy ? (\n              <Checking />\n            ) : (\n              <p className=\"text-body text-kin-muted\">{unobservedLabel(tr)}</p>\n            )",
+    "new": "            // R-p3-pr-panel: the unchecked branch reads as still checking on purpose.\n            true ? (\n              <Checking />\n            ) : (\n              <p className=\"text-body text-kin-muted\">{unobservedLabel(tr)}</p>\n            )",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J2"
   }
 ]

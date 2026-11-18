@@ -235,6 +235,17 @@ export default function TaskDetailPage({
   const [queueReload, setQueueReload] = useState(0);
   const [usageLoading, setUsageLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  /**
+   * A send owns one pin of the transcript, not the whole in-flight window.
+   *
+   * `sending` can outlive the moment the reader reads: a queued message on a
+   * round blocked by an approval is answered long after the send. Following
+   * every event for that whole window dragged a reader who had scrolled up
+   * back to the bottom — the transcript lost the place they chose, and a
+   * conversation switch then restored that bottom instead of their line. The
+   * send pins once, when its bubble lands; after that the reader's scroll wins.
+   */
+  const pinAfterSendRef = useRef(false);
   const [awaitingReply, setAwaitingReply] = useState(false);
   /**
    * Sends the transcript has not echoed yet. The composer clears the input the
@@ -451,14 +462,15 @@ export default function TaskDetailPage({
   // while the task loads), and the files panel is offered whenever there is a
   // task, so the store's answer is the panel's.
   const filesPanelOpen = shownPanel?.view === id && shownPanel.id === "files";
-  // The PR is a tab of that same panel, so being on it is not leaving the
-  // files surface: the open file survives the visit and is still open — and
-  // still in the address — when a lens tab (or the header's Files button)
-  // comes back (TASTE 15).
+  // The PR and publish are tabs of that same panel, so being on either is not
+  // leaving the files surface: the open file survives the visit and is still
+  // open — and still in the address — when a lens tab (or the header's Files
+  // button) comes back (TASTE 15).
   const prSurfaceOpen = shownPanel?.view === id && shownPanel.id === "pr";
+  const publishSurfaceOpen = shownPanel?.view === id && shownPanel.id === "publish";
   useEffect(() => {
-    if (!filesPanelOpen && !prSurfaceOpen) setWorkspaceOpenPath(null);
-  }, [filesPanelOpen, prSurfaceOpen]);
+    if (!filesPanelOpen && !prSurfaceOpen && !publishSurfaceOpen) setWorkspaceOpenPath(null);
+  }, [filesPanelOpen, prSurfaceOpen, publishSurfaceOpen]);
   const slow = useSlowHint(loading);
 
   const loadUsage = useCallback(async () => {
@@ -813,12 +825,17 @@ export default function TaskDetailPage({
     };
   }, [active, id, isNearBottom, markScrollReady]);
 
-  // Follow new content only when user was already at bottom, or just sent a message.
-  // Skip while keep-alive-hidden (clientHeight 0); stickToBottomRef keeps intent for restore.
+  // Follow new content only when user was already at bottom, or while the pin a
+  // send is owed has not happened yet. Skip while keep-alive-hidden
+  // (clientHeight 0); stickToBottomRef keeps intent for restore.
   // Instant pin — never smooth-scroll the main transcript.
   useLayoutEffect(() => {
     if (!didInitialScrollRef.current) return;
-    if (!(stickToBottomRef.current || sending)) return;
+    if (!(stickToBottomRef.current || (sending && pinAfterSendRef.current))) return;
+    // The send's pin belongs to the commit that lands its bubble. A pane that
+    // cannot scroll right now (keep-alive-hidden) spends it rather than
+    // deferring it to an unrelated event after the reader comes back.
+    pinAfterSendRef.current = false;
     const el = scrollRef.current;
     if (!el || el.clientHeight <= 0) return;
     el.scrollTop = el.scrollHeight;
@@ -836,8 +853,8 @@ export default function TaskDetailPage({
     seenEventCountRef.current = events.length;
     if (events.length <= previous) return;
     // The opening layout already lands at the end (or is still on its way); a
-    // keep-alive-hidden pane is not being read; a send is about to pin.
-    if (!didInitialScrollRef.current || !active || sending) return;
+    // keep-alive-hidden pane is not being read; a send's pin is still owed.
+    if (!didInitialScrollRef.current || !active || (sending && pinAfterSendRef.current)) return;
     if (stickToBottomRef.current) return;
     setUnseen((count) => count + (events.length - previous));
   }, [events.length, active, sending]);
@@ -1463,8 +1480,9 @@ export default function TaskDetailPage({
     const sent = pendingSend(text, events);
     setPendingSends((current) => [...current, sent]);
     // Sending is choosing the end of the conversation; the pill has nothing
-    // left to offer, and the follow effect below pins the new bubble.
+    // left to offer, and the follow effect below pins the new bubble — once.
     setUnseen(0);
+    pinAfterSendRef.current = true;
     setSending(true);
     setAwaitingReply(true);
     // The draft as the composer left it when it submitted — normally empty,
@@ -1722,7 +1740,7 @@ export default function TaskDetailPage({
 
   const changedFiles = useMemo(() => extractChangedFiles(events), [events]);
 
-  // The agent's last answer, as the publish sheet's opening draft. Recomputed
+  // The agent's last answer, as the publish tab's opening draft. Recomputed
   // only when the stream changes, because it walks the whole transcript.
   const publishDraft = useMemo(() => publishDraftFrom(events), [events]);
 
@@ -1742,20 +1760,20 @@ export default function TaskDetailPage({
 
   function toggleFilesPanel() {
     if (filesPanelOpen) closeFilesPanel();
-    // Coming back from the PR tab is a change of view inside one panel, so it
-    // keeps the file the reader had open (see `showFilesSurface`); opening the
-    // panel from the conversation starts from the list.
-    else if (prSurfaceOpen) showFilesSurface();
+    // Coming back from the PR or publish tab is a change of view inside one
+    // panel, so it keeps the file the reader had open (see `showFilesSurface`);
+    // opening the panel from the conversation starts from the list.
+    else if (prSurfaceOpen || publishSurfaceOpen) showFilesSurface();
     else openFilesPanel();
   }
 
   /**
-   * A lens tab picked while the pull-request tab was in front.
+   * A lens tab picked while the pull-request or publish tab was in front.
    *
-   * The lens and the PR are tabs of one panel, so choosing a lens is choosing
-   * the files surface: the page records it the way a file pick does. Unlike
-   * `openFilesPanel`, this keeps the file the reader had open in the address —
-   * the tab changed the view, not the place (TASTE 15).
+   * The lenses and those surfaces are tabs of one panel, so choosing a lens is
+   * choosing the files surface: the page records it the way a file pick does.
+   * Unlike `openFilesPanel`, this keeps the file the reader had open in the
+   * address — the tab changed the view, not the place (TASTE 15).
    */
   function showFilesSurface() {
     if (!task || routedId !== id) return;
@@ -1779,6 +1797,11 @@ export default function TaskDetailPage({
     togglePanel(id, "pr");
   }
 
+  /**
+   * Publish is the workspace panel's fourth tab, so this only moves the surface
+   * the one panel is showing — nothing is opened beside it, and the panel's one
+   * close still closes it.
+   */
   function openPublishPanel() {
     showPanel(id, "publish");
   }
