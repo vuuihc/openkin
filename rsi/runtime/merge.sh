@@ -70,6 +70,16 @@ sendback_mech() { # slug item title detail-file [source] [spec] [cmd] : mechanic
   SB_FIXLIST="" SB_GATEFAILS="" write_sendback "$slug" "$item" "$title" "$det" "mech-$m" mechanical "$src" "$spec" "$cmd"
   say "mechanical rework $slug (#$m, not counted as a sendback): $title"; KICK=1
 }
+# A sendback must not outlive its PR. After a squash merge the branch commits are not in main, so
+# `git diff origin/main...rsi/<slug>` stays non-empty and lane.sh autofill used to claim a phantom
+# rework round for work already landed (2026-11-19, lane 3: "cancelled: stale sendback"). The
+# merge-success block archives the answered file; lane.sh archives too when it sees a terminal PR.
+archive_sendback() { # slug reason sha8 — move state/sendback/<slug>.md under done/; no-op if absent
+  local slug="$1" reason="$2" sha8="${3:-unknown}"
+  [ -e "$STATE/sendback/$slug.md" ] || return 0
+  mkdir -p "$STATE/sendback/done"
+  mv "$STATE/sendback/$slug.md" "$STATE/sendback/done/$slug-$reason-$sha8.md"
+}
 
 # ------------------------------------------------- generated files (pure functions of the tree)
 # A merge of origin/main can conflict in files nobody wrote by hand: the embedded console entry and
@@ -489,6 +499,12 @@ if [ "${1:-}" != "--one" ]; then
   # file exactly as the verifier does, including the R-<slug> fallback. No state, no gh.
   if [ "${1:-}" = "--item-check" ]; then
     item_id "${2:?slug required}" "$(cat "${3:?body file required}")"
+    exit 0
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-loop-sendback-stale.sh: archive a landed PR's
+  # sendback through the same archive_sendback() the merge-success block calls. No lock, gh or network.
+  if [ "${1:-}" = "--archive-check" ]; then
+    archive_sendback "${2:?slug required}" merged "${3:?sha8 required}"
     exit 0
   fi
   DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
@@ -1092,6 +1108,7 @@ for round in 1 2 3; do
       MSHA="$($GH pr view "$N" --repo "$GH_REPO" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null | cut -c1-8)"
       say "#$N $SLUG: MERGED ($MSHA)"
       echo "$(date '+%F %H:%M') PR #$N $SLUG $ITEM merged ${MSHA:-?} $PRURL" >> "$STATE/merged.log"
+      archive_sendback "$SLUG" merged "${MSHA:-unknown}"
       CREATED="$($GH pr view "$N" --repo "$GH_REPO" --json createdAt --jq .createdAt 2>/dev/null)"
       python3 - "$CREATED" "$N" "$SLUG" >> "$STATE/merge/cycles.log" <<'PY'
 import sys, datetime
