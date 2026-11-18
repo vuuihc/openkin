@@ -1264,11 +1264,10 @@ const J12_CHIP = /改名|Rename|置顶|Pin/;
 function checkJ12Contract(spec) {
   const journey = (((spec || {}).journeys || {}).J12) || {};
   const steps = journey.steps;
-  // The index does not name J12 yet (registration is a later row), and every
-  // reduced spec in the frozen Python tests is built from that index, so an
-  // absent J12 is "this spec does not carry the journey", not a red contract.
-  // A J12 that IS present is held to every rule below.
-  if (!journey.title && !Array.isArray(steps)) return [];
+  // J12 is registered in the index. An index or resolved spec that no longer
+  // names it must be loud: the body is the phone's only gesture walk, and a
+  // one-line deletion would otherwise retire it with every gate still green.
+  if (!journey.title && !Array.isArray(steps)) return ['J12 is not in the spec'];
   if (!Array.isArray(steps) || steps.length === 0) return ['J12 has no steps'];
   const errs = [];
   // Every J12 proof is mandatory. The executor logs a `?`-prefixed step that

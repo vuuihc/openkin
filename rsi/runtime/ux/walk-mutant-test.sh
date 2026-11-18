@@ -2,7 +2,7 @@
 # walk-mutant-test.sh — the one-command red proof for the walk contracts (R-walk-mutant, R-walk-tap-j7).
 #
 #   bash rsi/runtime/ux/walk-mutant-test.sh                    # apply every committed mutant, require red, restore
-#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J5|J7|J2|J8|J9|J10|J11] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
+#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J5|J7|J2|J8|J9|J10|J11|J12] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
 #   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest
 #
 # J3 has two contracts. One: pressing Start on /new must keep the typed message
@@ -80,6 +80,15 @@
 # switch-back and switch-area-back notes to carry the same-shell line and both
 # draft/scroll reads. J9 has no Back step, so this mutant is J11's own.
 #
+# J12: the phone's three thumb gestures as real touch. The manifest disables the
+# edge back at `begin`, so the finger still lands in the strip but no gesture
+# starts and the list never comes back; the journey's `url ^/sessions` then
+# times out and the search/scroll reads behind it fail, so --walk-once J12
+# prints red. The walk starts with the searched and scrolled list, swipes in
+# from the edge and reads the search and the kept offset on the list it
+# returns to, reveals a row and closes it without navigating, then holds a row
+# 500ms, reads the drawn order, reloads and reads it again.
+#
 # Deliberately not wired into ux-gate.sh: the proof builds the UI twice (once
 # for the mutant, once restored), which is too heavy for every PR. This is a
 # one-command verification to run when a journey or its walk changes.
@@ -104,8 +113,8 @@ case "${1:-}" in
   --walk-once)
     JOURNEY="${2:-J3}"
     case "$JOURNEY" in
-      J3|J5|J7|J2|J8|J9|J10|J11) ;;
-      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J5, J7, J2, J8, J9, J10 or J11" ;;
+      J3|J5|J7|J2|J8|J9|J10|J11|J12) ;;
+      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J5, J7, J2, J8, J9, J10, J11 or J12" ;;
     esac
     ;;
   "")
@@ -461,6 +470,74 @@ if again:
     sys.exit(1)
 print("walk-mutant: J11 green: the shell, the scroll and the draft survived "
       "the chat switch and the area round at 390")
+PY
+  exit $?
+fi
+
+if [ "$JOURNEY" = "J12" ]; then
+  bash rsi/runtime/ux-walk.sh "$WT" "$OUT" J12 >"$OUT/ux-walk.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    unavailable "$(cat "$OUT/UNAVAILABLE" 2>/dev/null || tail -c 300 "$OUT/ux-walk.log")"
+  fi
+  [ "$rc" -eq 0 ] || unavailable "ux-walk.sh exited $rc: $(tail -c 300 "$OUT/ux-walk.log")"
+  [ -s "$OUT/walk.json" ] || unavailable "the walker wrote no walk.json"
+
+  python3 - "$OUT/walk.json" <<'PY'
+import json
+import sys
+
+walk = json.load(open(sys.argv[1], encoding="utf-8"))
+screens = [s for s in walk.get("screens", []) if s.get("journey") == "J12"]
+names = [str(s.get("name", "")) for s in screens]
+skips = [n for n in names if "-skipped-" in n]
+if skips:
+    # No seeded list or no fake agent: a gesture on an empty list proves
+    # nothing. Fail closed as "could not run".
+    print("UNAVAILABLE: J12 was skipped (" + ", ".join(skips[:2]) + ")")
+    sys.exit(2)
+
+# Step failures are `J12/…`; screenshot lint is `J12-<vp>-…`. Both are J12's.
+hard = [f for f in walk.get("hardFail", [])
+        if str(f).startswith("J12/") or str(f).startswith("J12-")]
+print("J12 screens: " + (", ".join(names) or "none"))
+for f in hard:
+    print("J12 hardFail: " + str(f))
+
+# The six shots are the evidence and must run in the order a thumb learns the
+# gestures: the searched and scrolled list, the same list back after the edge
+# swipe, the revealed row, then the order before the hold, after it, and after
+# the reload.
+required = ["list-searched-scrolled", "list-restored", "row-revealed",
+            "order-before", "order-after-drag", "order-after-reload"]
+found, missing, order = {}, [], []
+for name in required:
+    at = [i for i, n in enumerate(names) if n.endswith("-" + name)]
+    if not at:
+        missing.append(name)
+        continue
+    found[name] = screens[at[-1]]
+    order.append(at[-1])
+if order != sorted(order):
+    missing.append("the six shots in walk order (got " + ", ".join(names) + ")")
+
+# The edge back's whole promise is the state it keeps: the search text the
+# reader typed and the offset the list was left at, read on the screen the pop
+# came back to. A swiped-and-photographed list proves only that a finger moved.
+if "list-restored" in found:
+    notes = [str(n) for n in found["list-restored"].get("notes", [])]
+    if not any(n.startswith("value input[type=search] is ") and "seed" in n for n in notes):
+        missing.append("the search text on list-restored")
+    if not any(n.startswith("scroll-kept ") and "data-phone-scroll" in n for n in notes):
+        missing.append("the kept scroll offset on list-restored")
+if hard or missing:
+    if hard:
+        print("walk-mutant: J12 red: %d hard failure(s)" % len(hard))
+    if missing:
+        print("walk-mutant: J12 red: the walk never read " + ", ".join(missing))
+    sys.exit(1)
+print("walk-mutant: J12 green: the edge back kept the search and the scroll, the row swipe "
+      "revealed and closed without navigating, and the hold survived a reload")
 PY
   exit $?
 fi

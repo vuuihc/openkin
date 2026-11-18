@@ -27,6 +27,7 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCRIPTS)
 WALK = os.path.join(ROOT, "rsi", "runtime", "ux", "walk.mjs")
 SPEC = os.path.join(ROOT, "rsi", "runtime", "ux", "journeys.json")
+JOURNEYS_DIR = os.path.join(ROOT, "rsi", "runtime", "ux", "journeys")
 NODE = shutil.which("node")
 
 SPECPY = os.path.join(ROOT, "rsi", "runtime", "ux", "spec.py")
@@ -1735,6 +1736,157 @@ class WalkJ11ContractTest(unittest.TestCase):
         self.assertIn("routines area change", out)
 
 
+class WalkJ12ContractTest(unittest.TestCase):
+    """J12 must walk the phone's three thumb gestures and read each consequence.
+
+    #318 landed the body, the `swipe`/`drag`/`rows` verbs and the contract, but
+    the index did not name J12, so the contract returned [] for an absent J12
+    and no gate ever walked a gesture. These cases are the registration's proof:
+    the shipped index resolves J12 and prints its `spec ok` line, a body with a
+    gesture removed is red naming J12, and an index that drops the entry is an
+    error rather than a silently retired walk.
+
+    Same shape as WalkJ11ContractTest: the walker's own `--check-spec` is the
+    reader, so a rule cannot drift between the spec and the gate.
+    """
+
+    # The evidence, in the order a thumb learns the gestures: the searched and
+    # scrolled list, the same list back after the edge swipe, the revealed row,
+    # then the order before the hold, after it, and after the reload.
+    SCREENS = ["list-searched-scrolled", "list-restored", "row-revealed",
+               "order-before", "order-after-drag", "order-after-reload"]
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j12-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec["journeys"]["J12"]["steps"])
+        path = os.path.join(self.tmp, "resolved.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    def index_without_j12(self) -> str:
+        """A copy of the shipped index with only the J12 entry deleted.
+
+        The bodies resolve relative to the index, so the fixture copies the
+        directory too. It is a temp spec, not the committed index: the real
+        index is hand-edited, never round-tripped through ``json.dump``.
+        """
+        shutil.copytree(JOURNEYS_DIR, os.path.join(self.tmp, "journeys"))
+        with open(SPEC, encoding="utf-8") as fh:
+            index = json.load(fh)
+        self.assertIn("J12", index["journeys"],
+                      "the shipped index does not register J12")
+        del index["journeys"]["J12"]
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(index, fh, ensure_ascii=False)
+        return path
+
+    def test_j12_spec_pins_the_thumb_gestures(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J12 walks the phone's edge back, row reveal", out)
+        spec = load_spec()
+        journey = spec["journeys"]["J12"]
+        steps = journey["steps"]
+        # Phone only: every leg is real touch, and a width without a touch
+        # context refuses the sequence.
+        self.assertEqual(journey["viewports"], ["phone"])
+
+        def at(pred, start: int = 0) -> int:
+            return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+        # Leg 1 — the edge back. The finger starts inside the 20px strip and
+        # travels past the 64px commit distance; the search text and the scroll
+        # offset are set before it and read after it, with no reload between.
+        edge = at(lambda step: step[0] == "swipe" and isinstance(step[1], int)
+                  and isinstance(step[2], int) and step[1] <= 20 and step[2] - step[1] > 64)
+        fill = at(lambda step: step[0] == "fill" and "input[type=search]" in str(step[1]))
+        scroll = at(lambda step: step[0] == "scroll" and "data-phone-scroll" in str(step[1])
+                    and int(step[2]) > 0)
+        self.assertLess(fill, edge)
+        self.assertLess(scroll, edge)
+        value = at(lambda step: step[0] == "value" and "input[type=search]" in str(step[1]), edge + 1)
+        kept = at(lambda step: step[0] == "scroll-kept" and "data-phone-scroll" in str(step[1]),
+                  edge + 1)
+        self.assertEqual(steps[value][2], steps[fill][2])
+        self.assertEqual(int(steps[kept][2]), int(steps[scroll][2]))
+        self.assertFalse(any(step[0] == "goto" for step in steps[edge:value]),
+                         "the edge back must survive the pop, not a fresh load")
+
+        # Leg 2 — the row swipe. Past the 152px reveal width the chip is read,
+        # the rightward close takes it away, and the route stays on /sessions.
+        left = at(lambda step: step[0] == "swipe" and isinstance(step[1], int)
+                  and isinstance(step[2], int) and step[1] - step[2] > 152)
+        chip = at(lambda step: step[0] == "wait" and re.search(r"置顶|Pin|改名|Rename", str(step[1])),
+                  left + 1)
+        closed = at(lambda step: step[0] == "swipe" and isinstance(step[1], int)
+                    and isinstance(step[2], int) and step[2] > step[1], chip + 1)
+        gone = at(lambda step: step[0] == "gone"
+                  and re.search(r"置顶|Pin|改名|Rename", str(step[1])), closed + 1)
+        url = at(lambda step: step[0] == "url" and str(step[1]).startswith("^/sessions"), closed + 1)
+        self.assertLess(left, chip)
+        self.assertLess(chip, closed)
+        self.assertLess(closed, gone)
+        self.assertLess(closed, url)
+
+        # Leg 3 — hold-to-reorder. A real 500ms hold, the new order read from
+        # the drawn DOM, then the same read after a reload: a reorder that
+        # lives only in React state must not pass.
+        drag = at(lambda step: step[0] == "drag" and "data-session-row" in str(step[1])
+                  and int(step[3]) >= 500)
+        before = max(i for i, step in enumerate(steps)
+                     if i < drag and step[0] == "rows")
+        after = at(lambda step: step[0] == "rows", drag + 1)
+        reload = at(lambda step: step[0] == "goto" and step[1] == "/sessions", after + 1)
+        post = at(lambda step: step[0] == "rows", reload + 1)
+        self.assertLess(before, drag)
+        self.assertLess(drag, after)
+        self.assertLess(after, reload)
+        self.assertLess(reload, post)
+        self.assertNotEqual(steps[before][2], steps[after][2])
+        self.assertEqual(steps[after][2], steps[post][2])
+
+        # The six screens are the walk's evidence and run in this order.
+        shots = [step[1] for step in steps if step[0] == "shot"]
+        self.assertEqual([name for name in shots if name in self.SCREENS], self.SCREENS, shots)
+
+    def test_j12_contract_rejects_a_spec_without_the_reorder(self) -> None:
+        # A J12 that dropped the hold still passes every earlier leg, so the
+        # contract has to name the absent gesture rather than return [] for a
+        # body that merely exists.
+        def drop_the_drag(steps: list) -> None:
+            hits = [i for i, step in enumerate(steps) if step[0] == "drag"]
+            for i in reversed(hits):
+                steps.pop(i)
+
+        code, out = self.check(self.copy_with(drop_the_drag))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J12", out)
+        self.assertIn("hold", out)
+
+    def test_j12_contract_rejects_an_index_without_the_registration(self) -> None:
+        # Registration is the point of this row: deleting the one line must be
+        # loud, or the walk can be retired by an index edit no gate notices.
+        code, out = self.check(self.index_without_j12())
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J12", out)
+        self.assertIn("J12 is not in the spec", out)
+
+
 class WalkJ5ContractTest(unittest.TestCase):
     """J5 must read the row menu it opens, not only photograph it.
 
@@ -2635,6 +2787,37 @@ class WalkMutantManifestTest(unittest.TestCase):
         pinned = re.search(r"len\(entries\)\s*!=\s*(\d+)", shell)
         self.assertIsNotNone(pinned, "test-walk-mutant.sh no longer pins the entry count")
         self.assertEqual(int(pinned.group(1)), len(entries), "the manifest grew without bumping the pinned count")
+
+    def test_walk_mutant_manifest_pins_the_j12_thumb_gestures(self) -> None:
+        """J12's red proof: the edge back stops following the finger.
+
+        J12 must have its own mutant: a manifest entry whose `test` walks J12.
+        The edge back disabled at `begin` leaves the list a swipe away with no
+        way back, so the leg's `url ^/sessions` (and the reads behind it) fail.
+        The break is on the hook's own entry point, so the row swipe and the
+        hold still work and the failure names the gesture that died.
+        """
+        with open(self.MANIFEST, encoding="utf-8") as fh:
+            entries = json.load(fh)
+        matching = [entry for entry in entries
+                    if entry["file"].endswith("ui/src/hooks/useEdgeSwipeBack.ts")
+                    and "--walk-once J12" in entry["test"]]
+        self.assertEqual(len(matching), 1, matching)
+        entry = matching[0]
+        # The gesture is turned off before it can capture a pointer; the old
+        # guard and both refs stay referenced so the mutant build typechecks.
+        self.assertIn("if (!enabledRef.current || gesture.current) return;", entry["old"])
+        self.assertIn("if (true || !enabledRef.current || gesture.current) return;", entry["new"])
+        with open(os.path.join(ROOT, entry["file"]), encoding="utf-8") as fh:
+            source = fh.read()
+        self.assertEqual(source.count(entry["old"]), 1,
+                         "the mutant's `old` no longer occurs exactly once")
+        with open(self.SHELL, encoding="utf-8") as fh:
+            shell = fh.read()
+        pinned = re.search(r"len\(entries\)\s*!=\s*(\d+)", shell)
+        self.assertIsNotNone(pinned, "test-walk-mutant.sh no longer pins the entry count")
+        self.assertEqual(int(pinned.group(1)), len(entries),
+                         "the manifest grew without bumping the pinned count")
 
 
 if __name__ == "__main__":

@@ -145,7 +145,8 @@
         ["shot", "diff-comment-sent"]] },
     "J9": "journeys/J9.json",
     "J10": "journeys/J10.json",
-    "J11": "journeys/J11.json"
+    "J11": "journeys/J11.json",
+    "J12": "journeys/J12.json"
   },
   "paths": [
     ["ui/src/components/layout/", ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8", "J9", "J10", "J11"]],

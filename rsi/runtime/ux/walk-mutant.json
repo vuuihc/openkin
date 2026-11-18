@@ -75,5 +75,12 @@
     "old": "  if ((window.history.state?.idx ?? 0) > 0) navigate(-1);",
     "new": "  // R-f4-switch-phone: the phone's Back reloads the document on purpose —\n  // a page load throws away the shell, the kept-alive panes and the transcript\n  // position, which is exactly the flash F4 exists to prevent. `navigate` stays\n  // used on the cold-deep-link branch so tsc accepts the mutant.\n  if ((window.history.state?.idx ?? 0) > 0) window.location.assign(\"/sessions\");",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J11"
+  },
+  {
+    "label": "the edge back stops following the finger, so the list never comes back",
+    "file": "ui/src/hooks/useEdgeSwipeBack.ts",
+    "old": "    if (!enabledRef.current || gesture.current) return;",
+    "new": "    // R-j12-register: the edge back disabled at its entry point on purpose.\n    // The finger still lands in the strip, but `begin` returns before it can\n    // capture the pointer, so the swipe never starts and the list never comes\n    // back. The refs stay referenced so tsc's noUnusedLocals accepts the\n    // mutant build; esbuild drops the dead branch.\n    if (true || !enabledRef.current || gesture.current) return;",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J12"
   }
 ]
