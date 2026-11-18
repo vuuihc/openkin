@@ -1056,6 +1056,37 @@ class WalkJ8ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("carrying its own comment body", out)
 
+    def test_j8_contract_rejects_an_unsettled_or_unanchored_count(self) -> None:
+        # The pending echo is also a `data-message-key` row and carries the
+        # whole composed comment, so a count without the `pending-` exclusion
+        # is satisfied before the daemon's message exists; one that keeps the
+        # exclusion but counts the body alone lets a projection that dropped
+        # the path/hunk/quote walk green. Both must fail the contract.
+        def mutate_count(selector: str) -> None:
+            def mutate(journey: dict) -> None:
+                steps = journey["steps"]
+                at = next(
+                    i
+                    for i, step in enumerate(steps)
+                    if step[0] == "count" and "data-message-key" in str(step[1])
+                )
+                steps[at][1] = selector
+
+            code, out = self.check(self.copy_with(mutate))
+            self.assertEqual(code, 1, out)
+            self.assertIn("carrying its own comment body", out)
+
+        # Dropping the exclusion makes the echo countable.
+        mutate_count(
+            "css=[role=region][tabindex='-1'] [data-message-key]:has-text('%s')"
+            % self.BODY
+        )
+        # Keeping it but dropping the anchor proves only that the words exist.
+        mutate_count(
+            "css=[role=region][tabindex='-1'] [data-message-key]:not([data-message-key^='pending-']):has-text('%s')"
+            % self.BODY
+        )
+
     def test_j8_contract_rejects_a_desktop_viewport(self) -> None:
         # J2 already walks the Mac keyboard path; a J8 that also walks mac
         # would replay the chords and prove nothing about the tap.
@@ -1106,16 +1137,22 @@ class WalkJ8ContractTest(unittest.TestCase):
         # path/hunk/quote. A body-only wait must not satisfy the contract.
         def body_only(journey: dict) -> None:
             steps = journey["steps"]
-            at = self.at(
-                steps,
-                lambda step: step[0] == "wait"
+            # Both anchored region waits (the transcript wait and the settled-
+            # row wait) must lose the anchor; leaving either one would keep the
+            # contract green and the mutant would prove nothing.
+            at = [
+                i
+                for i, step in enumerate(steps)
+                if step[0] == "wait"
                 and "[role=region]" in str(step[1])
-                and "notes.md:5" in str(step[1]),
-            )
-            steps[at] = [
-                "wait",
-                "css=[role=region][tabindex='-1']:has-text('%s')" % self.BODY,
+                and "notes.md:5" in str(step[1])
             ]
+            self.assertEqual(len(at), 2, steps)
+            for i in at:
+                steps[i] = [
+                    "wait",
+                    "css=[role=region][tabindex='-1']:has-text('%s')" % self.BODY,
+                ]
 
         code, out = self.check(self.copy_with(body_only))
         self.assertEqual(code, 1, out)

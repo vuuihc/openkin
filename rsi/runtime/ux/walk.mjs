@@ -465,14 +465,20 @@ function checkJ8Contract(spec) {
   if (sendAt >= 0 && transcriptAt < 0) {
     errs.push('J8 never asserts the sent follow-up carries the path, hunk header and quote in the transcript');
   }
-  // The follow-up is exactly one of J8's own messages. The transcript wait can
-  // pass on the local pending bubble before the daemon's message row exists,
-  // so the count names the settled message rows: words that appear twice, or
-  // only in the console's own echo, do not prove the send.
+  // The follow-up is exactly one of J8's own *settled* messages, and it still
+  // carries the whole anchor. The pending echo is also a `data-message-key`
+  // row and carries the full composed comment, so the count must exclude
+  // `pending-*` and re-assert path/hunk/quote on the settled row itself:
+  // otherwise a spec that drops the exclusion, or a daemon event that keeps
+  // the words but drops the anchor, still walks green.
   const ownMessageCountAt = after(transcriptAt, (st) => st[0] === 'count'
-    && /data-message-key/.test(sel(st, 1)) && body !== '' && sel(st, 1).includes(body) && String(st[2]) === '1');
+    && /data-message-key/.test(sel(st, 1)) && sel(st, 1).includes(':not([data-message-key^=')
+    && body !== '' && sel(st, 1).includes(body)
+    && /notes\.md:5/.test(sel(st, 1)) && sel(st, 1).includes(J8_QUOTE)
+    && /@@\s*-\d+,\d+\s*\+\d+,\d+\s*@@/.test(sel(st, 1))
+    && String(st[2]) === '1');
   if (transcriptAt >= 0 && ownMessageCountAt < 0) {
-    errs.push('J8 never counts exactly one message carrying its own comment body (count [data-message-key] … = 1); the transcript wait can pass on the pending bubble');
+    errs.push('J8 never counts exactly one settled message carrying its own comment body and the whole anchor (count [data-message-key]:not([data-message-key^=\'pending-\']) … notes.md:5 … hunk header … quoted line = 1); the transcript wait can pass on the pending bubble');
   }
   // The loop closes: the tray is empty again (or says it was sent), otherwise
   // the send is unproven and the comments are still waiting.
