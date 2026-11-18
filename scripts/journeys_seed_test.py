@@ -60,6 +60,8 @@ J1_TARGETS = re.compile(
 )
 # J7's line names its own card and the title the walk clicks after Back.
 J7_TARGET = re.compile(r"^j7 target conversation=(\S+) focus=(\S+) title=(.+)$", re.M)
+# J5's line names the still-running row it must open the menu of.
+J5_TARGET = re.compile(r"^j5 target conversation=(\S+) title=(.+)$", re.M)
 # The path the seed must see when it asks the daemon which claude it would run.
 # The directory name is what the seed checks; the script itself only has to be
 # named `claude` for the stub.
@@ -485,6 +487,9 @@ class SeedTest(unittest.TestCase):
         self.assertNotIn(row["id"], approval_tasks, "a card would turn the row into waiting_approval")
         self.assertIn(f"create conversation {RUNNING_CONVERSATION}", result.stdout)
         self.assertNotIn("skip conversation-running:", result.stdout)
+        hits = J5_TARGET.findall(result.stdout)
+        self.assertEqual(len(hits), 1, result.stdout)
+        self.assertEqual(hits[0], (row["id"], RUNNING_CONVERSATION))
 
     def test_running_conversation_does_not_wait_for_a_terminal_status(self) -> None:
         # The turn is held open on purpose. Waiting for it to settle would

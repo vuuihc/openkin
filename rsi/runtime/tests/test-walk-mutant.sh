@@ -7,8 +7,9 @@
 # dispatch, the Stop that must cancel the round, the J2 review anchor, the
 # rerun that must keep a comment (re-anchored, then 该行已变化), the shell
 # that must not remount on a route change, the phone footer that must reopen the
-# URL the reader left in each area, and the unchecked PR branch that must not
-# read as still checking; that the runner prints
+# URL the reader left in each area, the unchecked PR branch that must not
+# read as still checking, and the row menu that must keep its disabled 运行中
+# line; that the runner prints
 # that same manifest; and that the J3 spec carries the mid-run ordering proof
 # (the follow-up on screen before the first answer) and the Stop proof (a held
 # round stopped, its control gone, and the queued message accounted for by the
@@ -38,8 +39,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 9:
-    raise SystemExit("manifest must be exactly nine entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 10:
+    raise SystemExit("manifest must be exactly ten entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -169,9 +170,26 @@ if "unobservedLabel(tr)" not in pr["new"]:
                      "of merely hiding it")
 if "--walk-once J2" not in pr["test"]:
     raise SystemExit("the PR panel entry's `test` does not walk J2 (--walk-once J2)")
-print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
+# The J5 mutant must drop the running status line from the row menu, not the
+# menu's actions: J5's rename/pin/archive/delete waits would stay green if only
+# a render detail changed. `runningNow && false` keeps the tone test referenced
+# so the mutant build passes noUnusedLocals while esbuild drops the branch.
+rowmenu = next((e for e in entries
+                if e["file"] == "ui/src/components/sessions/SessionRow.tsx"), None)
+if rowmenu is None:
+    raise SystemExit("no J5 entry for ui/src/components/sessions/SessionRow.tsx")
+if "runningNow" not in rowmenu["old"] or '"running"' not in rowmenu["old"]:
+    raise SystemExit("the J5 mutant does not select the running status item")
+if "runningNow && false" not in rowmenu["new"]:
+    raise SystemExit("the J5 mutant does not make the running item unreachable "
+                     "while keeping the tone test used")
+if 'id: "running"' not in rowmenu["new"]:
+    raise SystemExit("the J5 mutant removes more than the branch condition")
+if "--walk-once J5" not in rowmenu["test"]:
+    raise SystemExit("the J5 entry's `test` does not walk J5 (--walk-once J5)")
+print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
       % (j3["file"], j7["file"], j10["file"], follow["file"], review["file"],
-         rerun["file"], stop["file"], shell["file"], pr["file"]))
+         rerun["file"], stop["file"], shell["file"], pr["file"], rowmenu["file"]))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"

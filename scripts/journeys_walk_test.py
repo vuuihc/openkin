@@ -1473,5 +1473,192 @@ class WalkJ10ContractTest(unittest.TestCase):
         self.assertIn("stayed gone", out)
 
 
+class WalkJ5ContractTest(unittest.TestCase):
+    """J5 must read the row menu it opens, not only photograph it.
+
+    A menu that quietly lost 改名, or a 运行中 line that became pressable, ships
+    green today: the walk hovers a row, clicks the trigger and stops. The
+    checked-in spec must open the *running* row's menu (the only one with a
+    status line) and assert the shipped contents in both languages at both
+    viewports. Each rule is broken in a copy below, so the gate fails before a
+    browser starts.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j5-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J5"]["steps"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred, start: int = 0) -> int:
+        return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+    def test_j5_spec_pins_the_row_menu(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J5 ", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            journey = json.load(fh)["journeys"]["J5"]
+        self.assertEqual(journey["viewports"], ["phone", "mac"])
+        steps = journey["steps"]
+
+        # The running row's own trigger: a menu opened on whichever row is
+        # first has no 运行中 line to pin. aria-describedby is the trigger's
+        # existing accessible description, not new scaffolding.
+        clicks = [step for step in steps if step[0] == "click"]
+        self.assertEqual(len(clicks), 1, steps)
+        self.assertFalse(clicks[0][1].startswith("?"), "the row-menu click is optional")
+        self.assertIn("[data-row-actions]", clicks[0][1])
+        self.assertIn("{j5.conversation}", clicks[0][1])
+
+        # The shipped actions, in both languages, as required steps.
+        for zh, en in (("改名", "Rename"), ("置顶", "Pin"), ("归档", "Archive"), ("删除", "Delete")):
+            hits = [
+                step
+                for step in steps
+                if step[0] in ("wait", "count")
+                and not str(step[1]).startswith("?")
+                and zh in str(step[1])
+                and en in str(step[1])
+            ]
+            self.assertTrue(hits, f"J5 never asserts {zh} / {en}: {steps}")
+
+        # The status line: present AND disabled, pinned by one visible element
+        # carrying the label and either disabled marker (Mac aria-disabled,
+        # phone native disabled). A wait alone would pass on an enabled item.
+        counts = [step for step in steps if step[0] == "count" and "运行中" in str(step[1])]
+        self.assertEqual(len(counts), 1, steps)
+        self.assertIn("Running", counts[0][1])
+        self.assertEqual(counts[0][2], "1")
+        self.assertIn("aria-disabled", counts[0][1])
+        self.assertIn("[disabled]", counts[0][1])
+
+        # The photograph is of a menu that was read, not one that might be.
+        running_at = steps.index(counts[0])
+        self.assertGreater(running_at, steps.index(clicks[0]))
+        shot_at = steps.index(next(step for step in steps if step[0] == "shot" and step[1] == "row-actions"))
+        self.assertGreater(shot_at, running_at)
+
+    def test_j5_contract_rejects_a_menu_without_the_rename_item(self) -> None:
+        def drop_the_rename(steps: list) -> None:
+            steps.pop(self.at(steps, lambda step: step[0] == "wait" and "改名" in str(step[1])))
+
+        code, out = self.check(self.copy_with(drop_the_rename))
+        self.assertEqual(code, 1, out)
+        self.assertIn("rename", out)
+
+    def test_j5_contract_rejects_a_running_line_that_is_only_present(self) -> None:
+        # Flipping the disabled assertion to a plain presence wait is the
+        # regression: the label stays, a pressable status item ships.
+        def enable_the_running_line(steps: list) -> None:
+            at = self.at(steps, lambda step: step[0] == "count" and "运行中" in str(step[1]))
+            steps[at] = ["wait", "css=[role=menuitem]:has-text('运行中'), button:has-text('运行中')"]
+
+        code, out = self.check(self.copy_with(enable_the_running_line))
+        self.assertEqual(code, 1, out)
+        self.assertIn("运行中", out)
+        self.assertIn("disabled", out)
+
+    def test_j5_contract_rejects_a_viewport_scoped_menu(self) -> None:
+        # A `vp` scope would leave one width's menu unread while the walk still
+        # reports green.
+        def scope_to_mac(steps: list) -> None:
+            steps.insert(0, ["vp", "mac"])
+
+        code, out = self.check(self.copy_with(scope_to_mac))
+        self.assertEqual(code, 1, out)
+        self.assertIn("scopes steps to one viewport", out)
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class WalkJ5ResolveTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j5-resolve-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def resolve(self, seed: str | None) -> tuple[int, str]:
+        seed_path = os.path.join(self.tmp, "seed.log")
+        if seed is not None:
+            with open(seed_path, "w", encoding="utf-8") as fh:
+                fh.write(seed)
+        done = subprocess.run(
+            [NODE, WALK, "--resolve-j5", seed_path, "--spec", SPEC],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, (done.stdout + done.stderr).strip()
+
+    def test_the_seeded_target_resolves_the_running_rows_trigger(self) -> None:
+        code, out = self.resolve(
+            "journeys seed: base http://127.0.0.1:<port>\n"
+            "j5 target conversation=task-9 title=[seed] Running the migration\n"
+            "summary: created 1, existing 0, skipped 0\n"
+        )
+        self.assertEqual(code, 0, out)
+        self.assertEqual(
+            out, "J5 css=[data-row-actions][aria-describedby='session-row-title-task-9']"
+        )
+
+    def test_absent_target_line_skips(self) -> None:
+        code, out = self.resolve("journeys seed: base http://127.0.0.1:<port>\nsummary: created 0, existing 1, skipped 0\n")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out, "J5 skip: no seeded running conversation")
+
+    def test_failed_seed_skips(self) -> None:
+        code, out = self.resolve("seed failed (walk continues on what exists)\n")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out, "J5 skip: seed failed or empty daemon")
+
+
+class WalkMutantManifestTest(unittest.TestCase):
+    """The J5 red proof is only real while the manifest still points at the menu.
+
+    `rsi/runtime/tests/test-walk-mutant.sh` pins the count and the shape; this
+    test is the Python-side half that runs with the rest of the walk suite, and
+    compares the shell's literal count with the manifest it reads.
+    """
+
+    MANIFEST = os.path.join(ROOT, "rsi", "runtime", "ux", "walk-mutant.json")
+    SHELL = os.path.join(ROOT, "rsi", "runtime", "tests", "test-walk-mutant.sh")
+
+    def test_walk_mutant_manifest_pins_the_j5_row_actions(self) -> None:
+        with open(self.MANIFEST, encoding="utf-8") as fh:
+            entries = json.load(fh)
+        matching = [entry for entry in entries if entry["file"].endswith("SessionRow.tsx")]
+        self.assertEqual(len(matching), 1, matching)
+        entry = matching[0]
+        self.assertIn("--walk-once J5", entry["test"])
+        self.assertIn("runningNow", entry["old"])
+        # `runningNow && false` keeps the tone test referenced, so the mutant
+        # build still passes tsc's noUnusedLocals while rendering no line.
+        self.assertIn("runningNow && false", entry["new"])
+        with open(os.path.join(ROOT, entry["file"]), encoding="utf-8") as fh:
+            source = fh.read()
+        self.assertEqual(source.count(entry["old"]), 1, "the mutant's `old` no longer occurs exactly once")
+        with open(self.SHELL, encoding="utf-8") as fh:
+            shell = fh.read()
+        pinned = re.search(r"len\(entries\)\s*!=\s*(\d+)", shell)
+        self.assertIsNotNone(pinned, "test-walk-mutant.sh no longer pins the entry count")
+        self.assertEqual(int(pinned.group(1)), len(entries), "the manifest grew without bumping the pinned count")
+
+
 if __name__ == "__main__":
     unittest.main()

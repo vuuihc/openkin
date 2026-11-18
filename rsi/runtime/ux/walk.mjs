@@ -2,9 +2,10 @@
 // Journey walk of the REAL console. Usage:
 //   node walk.mjs --base http://127.0.0.1:PORT --token T --out DIR [--journeys J1,J2] [--files changed-files.txt] [--spec path/to/journeys.json] [--delay-tasks MS]
 //   node walk.mjs --resolve-j1 DIR/seed.log [--spec path/to/journeys.json]   (print the J1 approve/deny URLs or skip; no browser)
+//   node walk.mjs --resolve-j5 DIR/seed.log [--spec path/to/journeys.json]   (print the resolved J5 row-menu step or skip; no browser)
 //   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
 //   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
-//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J2/J8's review loop, J3's send + mid-run follow-up, and J7's landing contract; no browser)
+//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J7's landing contract; no browser)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
 // Exit 0 always when the walk ran (verdicts are the reviewer's and walk.json's `hardFail`); exit 2 when it could not run (no chrome, daemon unreachable).
 import { createRequire } from 'node:module';
@@ -820,16 +821,89 @@ function checkJ7Contract(spec) {
   }
   return errs;
 }
+// J5's contract: the row menu is a shipped list of actions, and one of them is
+// a status line. Opening the menu and photographing it proves neither: a
+// rename that left the active scope, a pin/archive/delete that vanished, or a
+// 运行中 line that became pressable all ship green today. The walk must open
+// the *running* row's menu — any other row has no 运行中 line — and assert the
+// list in both languages, at both viewports. The running line is pinned by a
+// required count of exactly one element that carries the label AND the
+// disabled marker (the Mac menu item uses aria-disabled, the phone ActionSheet
+// row is a <button disabled>), so dropping either half is red.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ5Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J5) || {};
+  const steps = journey.steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J5 has no steps'];
+  const errs = [];
+  const required = (v) => typeof v === 'string' && !v.startsWith('?');
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+
+  // The menu is one list on both surfaces. A `vp` scope would leave one
+  // width's menu unread while the walk still reported green.
+  if (steps.some((st) => Array.isArray(st) && st[0] === 'vp')) {
+    errs.push('J5 scopes steps to one viewport; the row menu is the same list on the phone and the Mac, so its assertions must run at every viewport J5 claims');
+  }
+  const viewports = Array.isArray(journey.viewports) ? journey.viewports : [];
+  for (const vp of ['phone', 'mac']) {
+    if (!viewports.includes(vp)) errs.push(`J5 does not claim the ${vp} viewport; the row menu ships on both`);
+  }
+
+  // The menu under test is the seeded running row's. Opening whichever trigger
+  // the list renders first photographs a menu that may have no 运行中 line.
+  const listAt = idx((st) => st[0] === 'goto' && required(sel(st, 1)) && /sessions/.test(sel(st, 1)));
+  const openAt = idx((st) => st[0] === 'click' && required(sel(st, 1))
+    && sel(st, 1).includes('[data-row-actions]') && sel(st, 1).includes('{j5.conversation}'));
+  if (listAt < 0) errs.push('J5 never opens the conversation list (goto /sessions)');
+  if (openAt < 0) {
+    errs.push('J5 never opens the seeded running row\'s menu (click [data-row-actions][aria-describedby="session-row-title-{j5.conversation}"])');
+  } else if (listAt >= 0 && openAt < listAt) {
+    errs.push('J5 opens a row menu before it is on the conversation list');
+  }
+
+  // The shipped contents, named in both languages. Every item is a required
+  // step: an optional one records a skip when the action is gone, which is the
+  // regression this journey exists to catch.
+  const named = (zh, en) => (st) => (st[0] === 'wait' || st[0] === 'count')
+    && required(sel(st, 1)) && sel(st, 1).includes(zh) && sel(st, 1).includes(en);
+  let previous = openAt;
+  for (const [zh, en, name] of [['改名', 'Rename', 'rename'], ['置顶', 'Pin', 'pin'], ['归档', 'Archive', 'archive'], ['删除', 'Delete', 'delete']]) {
+    const at = previous < 0 ? -1 : idx(named(zh, en), previous + 1);
+    if (at < 0) errs.push(`J5 never asserts the ${name} item (${zh} / ${en}) after opening the row menu`);
+    else previous = at;
+  }
+
+  // The running line is a state, not an action: present and unusable. Both
+  // halves are in the selector, and the count is exactly one, so a label that
+  // stayed while the disable was dropped is red at both surfaces.
+  const runningAt = previous < 0 ? -1 : idx((st) => st[0] === 'count' && required(sel(st, 1))
+    && sel(st, 1).includes('运行中') && sel(st, 1).includes('Running')
+    && (sel(st, 1).includes('aria-disabled') || sel(st, 1).includes('[disabled]'))
+    && String(st[2]) === '1', previous + 1);
+  if (runningAt < 0) {
+    errs.push('J5 never asserts the 运行中 / Running line is present and disabled after opening the row menu (a required count … 1 naming the label and the disabled marker)');
+  }
+
+  const shotAt = idx((st) => st[0] === 'shot' && sel(st, 1) === 'row-actions');
+  if (shotAt < 0) errs.push('J5 takes no `row-actions` shot');
+  else if (runningAt >= 0 && shotAt < runningAt) {
+    errs.push('the `row-actions` shot must follow the 运行中 assertion, so the photograph is of a menu whose contents were read');
+  }
+  return errs;
+}
 if (process.argv.includes('--check-spec')) {
   const j2 = checkJ2Contract(spec);
   const j3 = checkJ3Contract(spec);
+  const j5 = checkJ5Contract(spec);
   const j7 = checkJ7Contract(spec);
   const j8 = checkJ8Contract(spec);
   const j9 = checkJ9Contract(spec);
   const j10 = checkJ10Contract(spec);
-  if (j2.length || j3.length || j7.length || j8.length || j9.length || j10.length) {
+  if (j2.length || j3.length || j5.length || j7.length || j8.length || j9.length || j10.length) {
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
+    if (j5.length) { console.log('spec red: J5'); j5.forEach((e) => console.log(' - ' + e)); }
     if (j7.length) { console.log('spec red: J7'); j7.forEach((e) => console.log(' - ' + e)); }
     if (j8.length) { console.log('spec red: J8'); j8.forEach((e) => console.log(' - ' + e)); }
     if (j9.length) { console.log('spec red: J9'); j9.forEach((e) => console.log(' - ' + e)); }
@@ -840,6 +914,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J2 keeps a saved comment across a rerun — re-anchored to its new line, then 该行已变化 when the quoted line is gone');
   console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
   console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
+  console.log('spec ok: J5 opens the running row\'s menu and pins rename, pin, archive, delete and a disabled 运行中 line');
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
   console.log('spec ok: J8 taps a changed line at 390, saves the sheet, sends the tray, and proves path, hunk and quote');
   console.log('spec ok: J9 keeps the shell, the scroll and the draft across a switch');
@@ -856,6 +931,13 @@ if (process.argv.includes('--check-spec')) {
       console.log('J7 ' + applyJ7Target(gotoStep[1], target));
       console.log('J7 assert ' + resolvedCardSelector(target));
     }
+    // J5's row: the trigger the spec clicks, resolved to the seeded task id,
+    // so the reviewer reads the row the walk really acts on.
+    const j5Target = readJ5Target(fs.existsSync(seedPath) ? fs.readFileSync(seedPath, 'utf8') : '');
+    const j5Click = ((spec.journeys.J5 || {}).steps || []).find((st) => st[0] === 'click'
+      && String(st[1]).includes('[data-row-actions]'));
+    if (j5Target.skip || !j5Click) console.log('J5 skip: ' + (j5Target.skip || 'the spec has no J5 row-menu click'));
+    else console.log('J5 ' + applyJ5Fields(j5Click[1], j5Target));
   }
   process.exit(0);
 }
@@ -893,6 +975,29 @@ function applyJ7Fields(value, target) {
 }
 function applyJ7Step(step, target) {
   return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? applyJ7Fields(part, target) : part)) : step;
+}
+// J5 must open the row menu of the conversation the seed left running. The
+// seed prints one `j5 target conversation=<task> title=<title>` line when that
+// fixture really reached `running`; without it J5 is a skip, never a walk
+// against an invented id. The row's trigger carries the row title's id as its
+// description (`aria-describedby`), so the id selects one specific row's
+// menu instead of whichever trigger the list happens to render first.
+function readJ5Target(seedText) {
+  const J5_TARGET = /^j5 target conversation=(\S+)(?: title=(.+))?$/m;
+  const seed = typeof seedText === 'string' ? seedText : '';
+  if (/no scripts\/journeys_seed|seed failed|empty daemon/i.test(seed)) return { skip: 'seed failed or empty daemon' };
+  if (!seed.trim()) return { skip: 'no seeded running conversation' };
+  const match = J5_TARGET.exec(seed);
+  if (!match) return { skip: 'no seeded running conversation' };
+  return { conversation: match[1], title: (match[2] || '').trim() };
+}
+function applyJ5Fields(value, target) {
+  return String(value)
+    .replace(/\{j5\.conversation\}/g, target.conversation)
+    .replace(/\{j5\.title\}/g, target.title);
+}
+function applyJ5Step(step, target) {
+  return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? applyJ5Fields(part, target) : part)) : step;
 }
 // `{vp}` makes a step's own words viewport-specific: two widths walk the same
 // seeded conversation against one daemon, so an identical comment body would
@@ -958,6 +1063,20 @@ if (resolveJ7 || resolveJ7Plan) {
     const steps = (spec.journeys.J7.steps || []).map((st) => applyJ7Step(st, target));
     console.log(JSON.stringify({ journey: 'J7', steps, title: target.title }, null, 1));
   } else console.log('J7 ' + applyJ7Target(gotoStep[1], target));
+  process.exit(0);
+}
+// `--resolve-j5 <seed.log>` answers J5's question without a browser: the
+// trigger the walk clicks, resolved from the seed's `j5 target` line, or the
+// skip. The selector is printed through the same field replacement the walk
+// uses, so a placeholder that stopped substituting is red here.
+const resolveJ5 = arg('resolve-j5');
+if (resolveJ5) {
+  const target = readJ5Target(fs.existsSync(resolveJ5) ? fs.readFileSync(resolveJ5, 'utf8') : '');
+  const clickStep = ((spec.journeys.J5 || {}).steps || []).find((st) => st[0] === 'click'
+    && String(st[1]).includes('[data-row-actions]'));
+  if (target.skip) console.log('J5 skip: ' + target.skip);
+  else if (!clickStep) console.log('J5 skip: the spec has no J5 row-menu click');
+  else console.log('J5 ' + applyJ5Fields(clickStep[1], target));
   process.exit(0);
 }
 let want = arg('journeys', '') ? arg('journeys').split(',') : null;
@@ -1170,12 +1289,14 @@ async function fakeAgentVerdict() {
   return '';
 }
 for (const j of want) {
-  const seed = (j === 'J1' || j === 'J7' || j === 'J10') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
+  const seed = (j === 'J1' || j === 'J5' || j === 'J7' || j === 'J10') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
   const j1 = j === 'J1' ? readJ1Target(seed) : null;
+  const j5 = j === 'J5' ? readJ5Target(seed) : null;
   // J10 answers the same seeded card J7 only looks at. Both must resolve the
   // target the same way, and both skip rather than walk invented ids.
   const j7 = (j === 'J7' || j === 'J10') ? readJ7Target(seed) : null;
   if (j1 && j1.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J1-skipped-no-approval-target', url: '', lint: {}, notes: ['skipped J1: ' + j1.skip] }); continue; }
+  if (j5 && j5.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J5-skipped-no-running-conversation', url: '', lint: {}, notes: ['skipped J5: ' + j5.skip] }); continue; }
   if (j7 && j7.skip) { screens.push({ journey: j, viewport: 'n/a', name: j + '-skipped-no-fixtures', url: '', lint: {}, notes: ['skipped ' + j + ': no seeded notification target'] }); continue; }
   const J = spec.journeys[j];
   for (const vpName of J.viewports) {
@@ -1216,7 +1337,7 @@ for (const j of want) {
     // the second width ran it.
     let vpOnly = '';
     for (const rawStep of J.steps) {
-      const preStep = (j === 'J7' || j === 'J10') && j7 ? applyJ7Step(rawStep, j7) : rawStep;
+      const preStep = j === 'J5' && j5 ? applyJ5Step(rawStep, j5) : (j === 'J7' || j === 'J10') && j7 ? applyJ7Step(rawStep, j7) : rawStep;
       const st = applyVpStep(preStep, vpName);
       const [op, a, b] = st;
       if (op === 'vp') {

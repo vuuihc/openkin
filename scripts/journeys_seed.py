@@ -38,6 +38,10 @@ notification would reveal, and the row title a reader clicks after Back:
 
     j7 target conversation=<task-id> focus=<approval-id> title=<title>
 
+The still-running conversation J5 opens prints the row it must act on:
+
+    j5 target conversation=<task-id> title=<title>
+
 With no J7 card that line is absent and J7 stays a skip; with no deny card the
 `j1 targets` line is absent, because a half pair would point 拒絕 at nothing.
 States the fake cannot produce — a failed routine run — still print `skip`.
@@ -662,7 +666,8 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
 
     Returns {role: (conversation id, approval id, title)} for each held
     conversation that really produced a card — the `j1 targets` / `j7 target`
-    pairs — or {}.
+    pairs — plus `j5`, whose approval id is empty: it names the still-running
+    row J5 opens. Absent roles mean the walker skips that journey.
     """
     agent, why = _fake_agent(api)
     if agent is None:
@@ -705,6 +710,11 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             state = str(row.get("status") or "unknown")
             if state not in spec["expect"]:
                 report.skip(spec["slug"], f"existing task {ident} is {state}, wanted {'/'.join(spec['expect'])}")
+                continue
+            if spec.get("running"):
+                # The still-working row J5 acts on. A second run names it
+                # again and expects no card: this fixture never asks for one.
+                targets["j5"] = (ident, "", title)
                 continue
             if spec.get("hold"):
                 # An earlier run can leave the task running because its
@@ -772,6 +782,8 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             state, last = _wait_status(api, ident, ("running",), timeout)
             if state is None:
                 report.skip(spec["slug"], f"task {ident} still {last} after {timeout:g}s of polling; not waiting forever")
+            else:
+                targets["j5"] = (ident, "", title)
             continue
 
         if spec.get("hold"):
@@ -854,6 +866,11 @@ def main(argv: list[str] | None = None) -> int:
     # J7 a skip rather than a walk against a made-up id.
     if j7:
         print(f"j7 target conversation={j7[0]} focus={j7[1]} title={j7[2]}")
+    # The row J5 opens: by id, so the walk acts on the conversation that is
+    # really still running instead of whichever row happens to be first.
+    j5 = targets.get("j5")
+    if j5:
+        print(f"j5 target conversation={j5[0]} title={j5[2]}")
     report_unproducible(report)
     report.summary()
     return 0
