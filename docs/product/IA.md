@@ -28,7 +28,7 @@
 ```
 
 - 设备名一直显示，单设备也不收起（2026-10-30 改；原规则"只有一台设备时收起"作废，`showMachineLabels` 随之改掉）。
-- 左栏现在已经是这个结构；手机列表现在只有"项目 → 对话"两层，缺设备层。
+- 左栏现在已经是这个结构；手机列表现在也是这个三层结构（`DeviceSection`，见下表「手机对话列表」行）。
 - 归档页和搜索结果是同一份列表的另一种范围，层级相同。
 - 手机整页与 Mac 左栏共用同一个列表组件（`SessionList`）：数据、搜索、过滤、排序、折叠、行操作一致，宽度只决定容器和溢出的触发方式（左栏悬停按钮 / 手机滑动与长按；行操作与长按入口归 KIN-MANAGE-001）。项目标题是项目封面（`/projects/:id`）的入口，折叠是它前面的箭头。`/projects` 是「项目」区域的根 URL（四区域导航，N1/N2，2026-11-15）：路由、通知落点、⌘K 都从 `ui/src/lib/areas.ts` 这一张表读它，页面渲染项目集合；集合行是带 mode 与主目录、尾部 `>` 的 drill-in 链接，点进 `/projects/:id` 封面；手机四个底部入口的接线留给 N3/S2。R0b-2d 曾删掉这个索引页，四区域模型把 `/projects` 作为区域根恢复。
 - 项目封面没有「对话」tab：概览的最近活动只放最近一段对话的入口，更早的对话回列表按项目找；封面不复制第二份对话列表（2026-11-11，KIN-PROJECT-001 签字）。摘要编辑 One-Pager 的 `Current Focus`，热力图固定两周，例行任务只读并链到 `/routines`；项目记录、摘要、pulse、活动、例行任务各自失败、各自保留上次结果（2026-11-11 交付）。
@@ -42,7 +42,7 @@
 | Mac 右边 `/sessions` 页 | 不再显示列表，跳到新建页；归档页保留 | 和左边重复 |
 | ⌘K 里的"任务"表格 `/tasks` | 删除 | 第三份，而且只能从 ⌘K 进 |
 | 手机 K 抽屉 / dock | 删除；入口并进列表页底部四个入口，导入进 Agent 运维 | 手机上只能有一个导航面 |
-| 手机对话列表 | 补上设备层：设备 → 项目 → 对话 | 现在只有两层，和左栏不一致 |
+| 手机对话列表 | 补上设备层：设备 → 项目 → 对话 | 已落地：`ui/src/components/sessions/SessionList.tsx` 的 `DeviceSection` 渲染「设备 → 项目 → 行」，Mac 左栏的 `data-sidebar-indent` 标出层级，分组由 `groupProjectBucketsByDevice` 提供；测试 `ui/src/lib/phoneSessionBuckets.test.ts`（`describe("groupProjectBucketsByDevice")`），J1 走查即按（设备 → 项目 → 对话）打开（`docs/plans/2026-11-14-ux-unification.md` §1 J1 行） |
 | 归档 `/sessions?scope=archived` | 保留为同一份对话列表的筛选；Mac 入口在左栏，手机不占一级入口 | 归档不是独立的导航面 |
 | Mac 点"权限" | 改成 Mac 的小菜单 | 现在弹 iPhone 式底部面板 |
 | Mac 点"模型" | 改成带目录和分组的桌面面板 | 现在 288px，只有两行 |
