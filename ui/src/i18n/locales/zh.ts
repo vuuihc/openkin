@@ -674,6 +674,17 @@ const zh = {
     rootsOffline: "离线，暂时不能编辑工作目录。",
     rootsForbidden: "没有权限修改这个项目的工作目录。",
     rootsEditorHelp: "第一个目录就是新对话开始的地方；改动在你点「保存」之后才生效。",
+    instructionsTitle: "工作方式",
+    instructionsLead: "新对话开始时，Kin 会收到这段",
+    instructionsEmpty: "还没写工作说明",
+    instructionsAsk: "让 Kin 改…",
+    instructionsWrite: "让 Kin 写…",
+    instructionsFootnote: "新对话会收到这段原文",
+    instructionsTruncated: "已截断：新对话只收到前 400 字，其余留在 ONE_PAGER.md",
+    instructionsNotSent: "新对话不会收到这一段",
+    instructionsOffline: "上次结果",
+    instructionsPrompt:
+      "读 ONE_PAGER.md 的「工作方式」一节：先复述现在写了什么，再按我说的改；只改这一节，其他内容保持原样。",
   },
   artifacts: {
     title: "产物库",

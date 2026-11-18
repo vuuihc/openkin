@@ -240,12 +240,13 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     expect(screen.queryByRole("tablist")).toBeNull();
   });
 
-  it("names its four sections with headings", async () => {
+  it("names its five sections with headings", async () => {
     renderPage();
     await screen.findByText("alpha");
 
     for (const name of [
       "One-line summary",
+      "How to work here",
       "Recent activity",
       "Last two weeks",
       "Routines in this project",
@@ -322,6 +323,24 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     expect(link.getAttribute("href")).toBe("/new?cwd=%2Fwork%2Falpha");
   });
 
+  it("KIN-PROJECT-003: shows the work instructions and launches a pre-filled chat", async () => {
+    client.getOnePager.mockResolvedValue({
+      ...onePager,
+      markdown: `${onePager.markdown}\n## 工作方式\n先跑 make test\n不要手改 generated/\n`,
+    });
+    renderPage();
+
+    expect(await screen.findByText(/先跑 make test 不要手改 generated\//)).toBeTruthy();
+    expect(screen.getByText("New chats receive this text as written")).toBeTruthy();
+
+    const href = screen.getByRole("link", { name: /Ask Kin to edit…/ }).getAttribute("href") ?? "";
+    expect(href).toContain("/new?");
+    expect(href).toContain("cwd=");
+    expect(href).toContain("q=");
+    // Read-only: the cover gained no second editor.
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
   it("keeps the cover when the overview feed fails", async () => {
     client.getProjectPulse.mockRejectedValue(new Error("pulse down"));
     renderPage();
@@ -350,7 +369,9 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     client.getOnePager.mockRejectedValue(new Error("summary down"));
     renderPage();
 
-    expect(await screen.findByText("The summary is unavailable right now")).toBeTruthy();
+    // The summary and the work-instructions block read the same document, so
+    // one failed read is reported in both places.
+    expect((await screen.findAllByText("The summary is unavailable right now")).length).toBeGreaterThan(0);
     expect(await screen.findByRole("heading", { level: 1, name: "alpha" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /newest chat/ })).toBeTruthy();
   });

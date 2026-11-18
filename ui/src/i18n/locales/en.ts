@@ -695,6 +695,18 @@ const en: MessageTree = {
     rootsOffline: "Offline — folder editing is disabled.",
     rootsForbidden: "You do not have permission to change this project's folders.",
     rootsEditorHelp: "The first folder is where new chats start; changes apply when you save.",
+    instructionsTitle: "How to work here",
+    instructionsLead: "Kin receives this when a new chat starts",
+    instructionsEmpty: "No working instructions yet",
+    instructionsAsk: "Ask Kin to edit…",
+    instructionsWrite: "Ask Kin to write…",
+    instructionsFootnote: "New chats receive this text as written",
+    instructionsTruncated:
+      "Truncated: new chats receive the first 400 characters; the rest stays in ONE_PAGER.md",
+    instructionsNotSent: "New chats will not receive this section",
+    instructionsOffline: "Last known text",
+    instructionsPrompt:
+      "Read the “How to work here” section of ONE_PAGER.md: first restate what it says now, then change it as I describe; change only that section and leave the rest untouched.",
   },
   artifacts: {
     title: "Artifacts",
