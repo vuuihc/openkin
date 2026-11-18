@@ -1,6 +1,6 @@
 # KIN-PROJECT-002 · 项目的工作目录：看清这几个目录为什么在一起，并能增删
 
-状态：approved
+状态：covered
 优先级：P0
 旅程：J4
 归属面：`IA.md`「项目」行（对话列表里的项目标题 → `/projects/:id` 封面上的工作目录块）
@@ -141,7 +141,25 @@
   - 读回顺序 `internal/store/projects_test.go` 的 `TestProjectRootsKeepSavedOrder`（`KIN-PROJECT-002`）：插入 `["/work/zeta","/work/alpha","/work/mid"]` 后 `GetProject` 按提交顺序返回；`SetProjectRoots` 改写后返回新顺序，再次改写再读仍是新顺序。`listProjectRoots` 因此按 `rowid` 读（`SetProjectRoots` 按提交顺序重写行，rowid 即保存顺序）。
   - 视觉：`rsi/state/shots/project-roots-face/` 的 `after-1100-cover.png`、`after-1100-editor.png`、`after-390-cover.png`、`after-390-editor.png`、`after-390-remove-confirm.png`；390 无横滚，点按区 ≥44px。第三轮复检：`r3-1100-cover.png`（默认标签紧贴路径）、`r3-1100-editor.png`、`r3-390-cover.png`（路径单行）、`r3-390-editor.png`（每行只有一个默认指示 + 新帮助文案）；真浏览器里「设为默认 → 保存 → 刷新」后顺序保持。
   - `./scripts/check.sh`：18 项全绿（含 stories、ui-inventory、ui-lint-guard）。
-- 第三轮修复（真浏览器复验）：`listProjectRoots` 改按 `rowid` 读回（`internal/store/projects.go:155-165`；`SetProjectRoots` 按提交顺序重写行，rowid 即保存顺序），「设为默认 → 保存 → 刷新」后顺序与默认保持。PR #309 的 J4 真浏览器走查证明了「设为默认 → 保存 → 离开再回来」这一段；增加与移除目录仍未在真浏览器走查，故事因此保持 `approved`。
+- 第三轮修复（真浏览器复验）：`listProjectRoots` 改按 `rowid` 读回（`internal/store/projects.go:155-165`；`SetProjectRoots` 按提交顺序重写行，rowid 即保存顺序），「设为默认 → 保存 → 刷新」后顺序与默认保持。PR #309 的 J4 真浏览器走查证明了「设为默认 → 保存 → 离开再回来」这一段；当时的结论是增加与移除目录仍未在真浏览器走查，故事保持 `approved`——2026-11-18 的 P8 走查补上了这两条，见下。
+
+## P8 走查（2026-11-18）
+
+结论：验收表全部绿（第 1–3 行由既有组件 / 单元 / 回归测试承担并在本轮重跑，第 4 行由真浏览器走查整条走通，第 5 行截图已逐张看过），状态改为 `covered`。
+
+走通的（`rsi/runtime/ux/journeys.json` 的 J4，`bash rsi/runtime/ux-walk.sh <worktree> <outdir> J4`：60 屏、0 硬失败、0 跳过；phone 390 / mac 1100 / mac-wide 1280 各走一遍）：
+
+- 验收 4（真浏览器，390 / 1100）：封面读全部目录（按保存顺序、第一行带「默认」）→「编辑」→「＋ 添加目录」→ 机器 / 目录选择器「改为手动输入」→ 输入 `/tmp` 回车 → 草稿 3 行、`/tmp` 最后、保存按钮可用 → 保存关闭 sheet → 封面 3 行（`/alpha` 第一带默认、`/tmp` 最后）→ `goto /projects` 重新打开 → 仍是 3 行、同序、同默认 →「编辑」→ `/tmp` 行「移除」→ 行内确认组出现（`aria-label` 为「移除 {path}？」）并读到后果文案（目录下的对话不再出现在这个项目下、仍在会话列表、没有对话被删除）→「取消」→ 确认组消失、`/tmp` 行仍在（草稿仍 3 行）→ 再「移除」并在组内确认 → 草稿 2 行 → 保存 → 封面 2 行（`/alpha` 第一带默认、`/aaa-config` 最后）→ `goto /projects` 重新打开 → 仍是 2 行、同序、同默认。走查结束时种子列表原样，下一个宽度从同一份种子重放（契约用例 `test_j4_contract_rejects_a_leg_that_leaves_the_seeded_list_changed` 钉住）。
+- 第 1、2 步（看清列表、顺序与默认）：封面只读块与编辑器草稿都在走查里读过；长路径的中间省略仍由 `title` 属性承载。
+- 第 3、4、5、6、7 步的主路径：增加 / 移除 / 取消 / 确认 / 保存 / 再次编辑 / 离开再回来都在上面这条里。第 6 步「重开是服务器列表而不是已取消的草稿」由「取消后 `/tmp` 仍在，再确认移除」直接证明；第 5 步「成功后封面立即显示新列表」与第 7 步「再打开是保存后的列表」各由一次 `goto /projects` 后的封面读取证明。
+
+截图（`rsi/state/shots/project-002-verbs/walk-j4/`，390 / 1100 / 1280）：`J4-*-13-roots-added-reloaded.png`（3 个目录、`/tmp` 最后）、`J4-*-14-roots-remove-confirm.png`（行内确认条与后果文案、焦点在「取消」）、`J4-*-15-roots-removed-reloaded.png`（2 个目录、`/alpha` 第一带默认、`/aaa-config` 最后）。截图里另有一张种子对话的「需要权限」浮层，与本故事无关。
+
+仍未由走查覆盖、仍由测试承担（不在此声明为 walk-covered）：
+
+- 第 1 步的加载 / 空 / 读取失败 / 离线；第 2 步的只有一个目录与重复目录；第 3 步的选择器加载中、重复目录就地提示、离线禁用、选择器焦点与 Esc、未保存关闭确认；第 4 步的移除最后一个目录、离线禁用、Esc；第 5 步的保存中 / 慢 / 失败重试 / 403 / 项目已不存在；第 6 步的服务端已在别处改过；第 7 步的骨架不二次出现。这些由 `ProjectDetailPage.dom.test.tsx`、`projectRoots.test.ts`、`projectChats.test.ts` 覆盖（验收表第 1–3 行）。
+- 验收表第 1–3 行本轮重跑：`npx vitest run src/lib/projectRoots.test.ts src/lib/projectChats.test.ts src/pages/ProjectDetailPage.dom.test.tsx` → 3 个文件、75 个用例全绿。
+- 契约：`scripts/journeys_walk_test.py` 的 `WalkJ4ContractTest` 新增 5 个用例（1 接受 + 4 拒绝，文件内含 `KIN-PROJECT-002`）：加目录必须落进 `input[list='kin-cwd-suggestions']`、移除必须读到 `role=group` 与后果文案、移除后必须离开再回来、最后一眼必须是种子的 2 个目录且 `/alpha` 第一带默认。删掉确认组 / 后果文案的读取 → 契约红（`test_j4_contract_rejects_a_remove_without_reading_the_confirm`）；删掉移除后的 `goto /projects` → 契约红（`test_j4_contract_rejects_a_remove_without_the_return_trip`）；恢复后 102 个走查用例全绿。
 
 ## 变更记录
 
@@ -149,3 +167,4 @@
 - 2026-11-18 UI 交付（工作目录块、编辑层、增删/默认/保存、双语文案、测试与截图）；发现 daemon 读回顺序为 `ORDER BY path`，顺序默认跨读取不保，故事留在 approved
 - 2026-11-18 第三轮返修：读回改 `ORDER BY rowid` 并加读序测试；封面默认标签紧贴路径、路径单行；编辑器每行只留一个默认指示；帮助文案改为用户语义（双向）
 - 2026-11-18 item 走查（PR #309 `0fae9787`）：J4 真浏览器读封面工作目录块（按保存顺序，第一行带「默认」，共 2 行；「只有第一行带默认」由 `ProjectDetailPage.dom.test.tsx` 证明）→ 编辑器把第二个设为默认 → 保存 → 离开再回来顺序与默认不变 → 再切回 /alpha；phone/mac/mac-wide，截图 `rsi/state/shots/roots-j4-walk/`。仍未走查：增加与移除目录（由 `ProjectDetailPage.dom.test.tsx` 与 `projectRoots.test.ts` 覆盖），故事保持 `approved`。
+- 2026-11-18 P8 走查：J4 补上「添加目录 → 保存 → 离开再回来 → 移除并读确认 → 取消 → 确认 → 保存 → 离开再回来」，0 硬失败、0 跳过，截图 390/1100/1280 已看过；验收表第 1–3 行重跑 75 个用例全绿。故事 `approved` → `covered`，registry 与 COVERAGE 同提交更新。
