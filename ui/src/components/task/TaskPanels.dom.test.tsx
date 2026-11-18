@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import type { Task, TaskEvent, TaskUsage } from "../../api/client";
@@ -39,7 +39,8 @@ vi.mock("../../api/client", async () => {
 Element.prototype.scrollIntoView = vi.fn();
 
 /**
- * The session's three floating surfaces, extracted from `TaskDetailPage`.
+ * The session's floating surfaces, extracted from `TaskDetailPage`. The pull
+ * request is the workspace panel's third tab now, not a surface beside it.
  *
  * What is pinned here is the contract the extraction must not blur: the page
  * owns state and handlers, this component only decides which surface is open
@@ -86,6 +87,8 @@ function setup(overrides: Partial<TaskPanelsProps> = {}) {
     onSelectWorkspace: vi.fn(),
     onOpenPath: vi.fn(),
     onOpenFilesPanel: vi.fn(),
+    onOpenPr: vi.fn(),
+    onShowFiles: vi.fn(),
     onKeepAll: vi.fn(),
     onDiscardAll: vi.fn(),
     onPublish: vi.fn(),
@@ -151,6 +154,47 @@ describe("TaskPanels", () => {
     setup({ panel: null });
     expect(screen.queryByRole("complementary", { name: t("pr.title") })).toBeNull();
     expect(screen.queryByText(t("pr.title"))).toBeNull();
+  });
+
+  it("renders the pull request body inside the workspace container, not a second surface", () => {
+    setup({ panel: "pr" });
+
+    // One container, named for the surface in front: the PR is a tab of the
+    // workspace panel, not a sheet of its own.
+    const regions = screen.getAllByRole("complementary");
+    expect(regions).toHaveLength(1);
+    expect(regions[0]!.getAttribute("aria-label")).toBe(t("pr.title"));
+
+    // …and the panel's one tab strip lives inside it, with PR selected.
+    const strip = within(regions[0]!).getByRole("tablist");
+    expect(within(strip).getAllByRole("tab")).toHaveLength(3);
+    expect(
+      within(strip)
+        .getByRole("tab", { name: t("pr.title") })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("names the container by the surface in front", () => {
+    const pr = setup({ panel: "pr" });
+    expect(screen.getByRole("complementary", { name: t("pr.title") })).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: t("workspace.title") })).toBeNull();
+    pr.utils.unmount();
+
+    setup({ panel: "files" });
+    expect(screen.getByRole("complementary", { name: t("workspace.title") })).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: t("pr.title") })).toBeNull();
+  });
+
+  it("closes the PR surface through the container's one close button", () => {
+    const { props } = setup({ panel: "pr" });
+
+    // The container owns the close. The PR body draws no second one, so the
+    // label the reader gets is the PR's own.
+    const closes = screen.getAllByRole("button", { name: t("pr.close") });
+    expect(closes).toHaveLength(1);
+    fireEvent.click(closes[0]!);
+    expect(props.onClosePanel).toHaveBeenCalledTimes(1);
   });
 
   it("forwards the page's close to the open surface", () => {

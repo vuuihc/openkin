@@ -97,6 +97,21 @@ describe("PullRequestPanel", () => {
     expect(screen.getByText(t("pr.ciSuccess", { total: "3" }))).toBeTruthy();
   });
 
+  it("renders no second surface when embedded", async () => {
+    mocked.getTaskPullRequest.mockResolvedValue(snapshot());
+    const onClose = vi.fn();
+    render(<PullRequestPanel taskId="task-1" onClose={onClose} embedded />);
+
+    // The workspace panel is the container: this pane draws no landmark of its
+    // own and no second close affordance.
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(screen.queryByRole("button", { name: t("pr.close") })).toBeNull();
+
+    // The body is still the whole panel: its own action stays.
+    expect(screen.getByRole("button", { name: t("pr.refresh") })).toBeTruthy();
+    expect(await screen.findByText(PR_NUMBER)).toBeTruthy();
+  });
+
   it("the close button keeps a 44px touch target on the phone", () => {
     mocked.getTaskPullRequest.mockResolvedValue(snapshot());
     setup();
