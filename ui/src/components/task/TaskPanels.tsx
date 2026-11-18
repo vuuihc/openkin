@@ -11,8 +11,9 @@ import WorkspacePanel from "../workspace/WorkspacePanel";
 import TaskUsageSummary from "../usage/TaskUsageSummary";
 
 /**
- * The session's floating surfaces: the side rail, the files panel, the
- * read-only pull-request panel and the publish sheet.
+ * The session's floating surfaces: the side rail, the workspace panel (the
+ * files lenses, with the read-only pull request as its third tab) and the
+ * publish sheet.
  *
  * Extracted from `TaskDetailPage` unchanged so the page's state, handlers and
  * lifecycle logic can be read — and later edited — without scrolling past the
@@ -57,6 +58,16 @@ export type TaskPanelsProps = {
   /** A file picked inside the panel; the page writes the address. */
   onPanelSelectPath?: (path: string) => void;
   onOpenFilesPanel: () => void;
+  /**
+   * The workspace panel's PR tab was picked. The page owns the address, so the
+   * tab asks for the surface instead of flipping anything here.
+   */
+  onOpenPr: () => void;
+  /**
+   * A lens tab was picked while the PR tab was in front: the page returns the
+   * panel to its files surface and keeps the remembered file and lens.
+   */
+  onShowFiles: () => void;
   onKeepAll: () => void | Promise<void>;
   onDiscardAll: () => void | Promise<void>;
   onPublish: () => void;
@@ -93,6 +104,8 @@ export default function TaskPanels({
   onOpenPath,
   onPanelSelectPath,
   onOpenFilesPanel,
+  onOpenPr,
+  onShowFiles,
   onKeepAll,
   onDiscardAll,
   onPublish,
@@ -104,6 +117,7 @@ export default function TaskPanels({
 }: TaskPanelsProps) {
   const tr = useT();
   const filesOpen = panel === "files";
+  const prOpen = panel === "pr";
   const publishOpen = panel === "publish";
 
   return (
@@ -133,8 +147,8 @@ export default function TaskPanels({
         </aside>
       )}
 
-      {filesOpen && (
-        <PanelSurface label={tr("workspace.title")} shape="column">
+      {(filesOpen || prOpen) && (
+        <PanelSurface label={prOpen ? tr("pr.title") : tr("workspace.title")} shape="column">
           <div className="h-full w-full">
             <WorkspacePanel
               taskId={task.id}
@@ -160,21 +174,30 @@ export default function TaskPanels({
               onFindFile={onFindFile}
               onSendFollowUp={onSendFollowUp}
               onClose={onClosePanel}
+              // The PR is this panel's third tab, drawn by the same container
+              // and the same strip. The page still owns the surface address,
+              // which is why the tab asks rather than flipping anything here.
+              surface={prOpen ? "pr" : "files"}
+              prPane={
+                prOpen ? (
+                  <PullRequestPanel
+                    taskId={task.id}
+                    active={active}
+                    // The machine holding the checkout, when that is not this
+                    // one: it is what the panel falls back to before anything
+                    // has been read, and what tells it a branchless task
+                    // still has something to ask about.
+                    elsewhere={machine}
+                    onClose={onClosePanel}
+                    embedded
+                  />
+                ) : undefined
+              }
+              onOpenPr={onOpenPr}
+              onShowFiles={onShowFiles}
             />
           </div>
         </PanelSurface>
-      )}
-
-      {panel === "pr" && (
-        <PullRequestPanel
-          taskId={task.id}
-          active={active}
-          // The machine holding the checkout, when that is not this one: it is
-          // what the panel falls back to before anything has been read, and
-          // what tells it a branchless task still has something to ask about.
-          elsewhere={machine}
-          onClose={onClosePanel}
-        />
       )}
 
       {publishOpen && machine && (
