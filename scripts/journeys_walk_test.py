@@ -2288,6 +2288,108 @@ class WalkJ13ContractTest(unittest.TestCase):
         self.assertIn("spec red: J13", out)
         self.assertIn("Back", out)
 
+    def test_j13_pins_the_system_back_queue(self) -> None:
+        """KIN-RESULT-002's history queue is a promise to the system Back.
+
+        The walker's contract is the reader; this pins the evidence in the
+        order the phone meets it. Three browser Backs from a cold file link:
+        file list, conversation, session list. Then Files, reopened from the
+        conversation through the action sheet, must show the list — the file
+        the reader left belongs to a history entry, not to the panel's memory.
+        """
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J13", out)
+        steps = load_spec()["journeys"]["J13"]["steps"]
+
+        history = [i for i, step in enumerate(steps) if step[0] == "history-back"]
+        self.assertEqual(len(history), 3, "J13 must press the system Back three times")
+        first, second, third = history
+        self.assertTrue(
+            any(step[0] == "search" and "panel=files" in str(step[1])
+                and "file=" not in str(step[1]) for step in steps[first:second]),
+            "the first system Back must land on the file list address",
+        )
+        self.assertTrue(
+            any(step[0] == "wait" and "data-phone-view" in str(step[1])
+                for step in steps[first:second]),
+            "the first system Back must prove the list is the pane on screen",
+        )
+        self.assertTrue(
+            any(step[0] == "gone" and "data-pane" in str(step[1])
+                for step in steps[first:second]),
+            "the first system Back must prove the viewer left the screen",
+        )
+        self.assertTrue(
+            any(step[0] == "url" and "/tasks/" in str(step[1]) for step in steps[second:third]),
+            "the second system Back must land on the conversation",
+        )
+        self.assertTrue(
+            any(step[0] == "search" and str(step[1]) == "^$" for step in steps[second:third]),
+            "the second system Back must clear panel/file from the address",
+        )
+        self.assertTrue(
+            any(step[0] == "url" and "sessions" in str(step[1]) for step in steps[third:]),
+            "the third system Back must reach the session list",
+        )
+
+        shots = [step[1] for step in steps if step[0] == "shot"]
+        for name in ("history-back-file", "history-back-list", "history-back-conversation",
+                     "history-back-sessions", "files-no-replay"):
+            self.assertIn(name, shots)
+
+        # Files, reopened from the conversation through the action sheet, is
+        # the list: a file replayed from the earlier leg fails the pane proof.
+        sheet = self.at(steps, lambda step: step[0] == "click"
+                        and ("会话操作" in str(step[1]) or "Session actions" in str(step[1])))
+        files = self.at(steps, lambda step: step[0] == "click"
+                        and ("text-is" in str(step[1]) or "^(文件|Files)$" in str(step[1])),
+                        sheet + 1)
+        self.assertTrue(
+            any(step[0] == "search" and "panel=files" in str(step[1])
+                and "file=" not in str(step[1]) for step in steps[files:]),
+            "opening Files must name the list address, not a file",
+        )
+        self.assertTrue(
+            any(step[0] == "wait" and "data-phone-view" in str(step[1])
+                for step in steps[files:]),
+            "opening Files must prove the panel shows the list",
+        )
+        self.assertTrue(
+            any(step[0] == "gone" and "data-pane" in str(step[1]) for step in steps[files:]),
+            "opening Files must prove the earlier file did not replay",
+        )
+
+    def test_j13_contract_rejects_a_body_without_the_system_back_queue(self) -> None:
+        # `back` may press the panel's own Return control; the queue the story
+        # promises is what the browser itself pops. Dropping the first
+        # `history-back` leaves a walk that never proves the conversation stop.
+        def drop_the_first_history_back(steps: list) -> None:
+            steps.pop(self.at(steps, lambda step: step[0] == "history-back"))
+
+        code, out = self.check(self.copy_with(drop_the_first_history_back))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J13", out)
+        self.assertIn("system Back", out)
+
+    def test_j13_contract_rejects_reopening_files_on_the_old_file(self) -> None:
+        # A walk that opens Files without reading the pane proves only that the
+        # sheet row was delivered; the stale file could still be on screen.
+        def drop_the_replay_proof(steps: list) -> None:
+            sheet = self.at(steps, lambda step: step[0] == "click"
+                            and "会话操作" in str(step[1]))
+            files = self.at(steps, lambda step: step[0] == "click"
+                            and ("text-is" in str(step[1]) or "^(文件|Files)$" in str(step[1])),
+                            sheet + 1)
+            gone = self.at(steps, lambda step: step[0] == "gone"
+                           and "data-pane" in str(step[1]), files + 1)
+            steps.pop(gone)
+
+        code, out = self.check(self.copy_with(drop_the_replay_proof))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J13", out)
+        self.assertIn("replay", out)
+
     def test_j13_contract_rejects_the_source_switch_without_its_consequence(self) -> None:
         # Pressing 源码 and moving on proves the click was delivered, not that
         # the page changed. `gone` on the iframe is the consequence.
