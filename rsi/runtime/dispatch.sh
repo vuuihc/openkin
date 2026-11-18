@@ -309,7 +309,16 @@ PY
 
 run_codex() {
   command -v codex >/dev/null 2>&1 || return 2
-  ( cd "$CWD" && codex exec -m gpt-6.1-sol -s read-only "$PROMPT" < /dev/null > "$LOG.txt" 2>&1 )
+  # Same watchdog as run_claude: on 2026-11-15 two silent `codex exec` reviews
+  # held both verifier slots for an hour. A killed call is a failed call, so the
+  # reviewer-alt fallback to claude -p still runs.
+  ( cd "$CWD" && codex exec -m gpt-6.1-sol -s read-only "$PROMPT" < /dev/null > "$LOG.txt" 2>&1 ) &
+  local pid=$!
+  ( sleep "${DISPATCH_MAX_SECS:-3000}"; rsi_kill_tree "$pid"; kill -TERM -"$pid" 2>/dev/null ) & local wd=$!
+  wait "$pid"; local rc=$?
+  kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+  rsi_kill_tree "$pid"
+  return $rc
 }
 
 stamp_review() { # file: persist DeepSeek / strong verdict against this SHA so the next cycle can reuse it
