@@ -497,7 +497,7 @@
     },
     {
       "id": "KIN-RESULT-002",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J4"
@@ -517,7 +517,15 @@
       ],
       "tests": [
         "ui/src/components/workspace/htmlPreview.test.ts",
-        "ui/src/components/workspace/FilePreview.dom.test.tsx"
+        "ui/src/components/workspace/FilePreview.dom.test.tsx",
+        "ui/src/components/workspace/WorkspacePanel.preview.dom.test.tsx",
+        "ui/src/components/workspace/WorkspacePanel.paths.dom.test.tsx",
+        "ui/src/components/workspace/WorkspacePanel.selectLink.dom.test.tsx",
+        "ui/src/pages/TaskDetailPage.workspaceLink.dom.test.tsx",
+        "ui/src/lib/workspaceDeepLink.test.ts",
+        "ui/src/lib/phoneDeepLinkParent.test.ts",
+        "ui/src/lib/returnTo.test.ts",
+        "ui/src/components/AccountScreen.test.tsx"
       ],
       "blockedReason": null
     },
