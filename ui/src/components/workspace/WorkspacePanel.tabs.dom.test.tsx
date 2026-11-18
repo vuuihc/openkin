@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { t } from "../../i18n";
@@ -270,6 +270,45 @@ describe("one shared tab set", () => {
     // The PR tab is how the page is asked for that surface.
     fireEvent.click(pr!);
     expect(onOpenPr).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the keyboard on the selected tab when a surface switch rebuilds the strip", async () => {
+    // The strip moves to a different parent on the PR surface, so the tab that
+    // had focus is unmounted. A keyboard user must land on the tab that is now
+    // selected — otherwise the panel has lost them and Escape no longer closes.
+    const onClose = vi.fn();
+    function SurfaceSwitch() {
+      const [surface, setSurface] = useState<"files" | "pr">("files");
+      return (
+        <AstryxProvider>
+          <WorkspacePanel
+            taskId="task-1"
+            cwd={CWD}
+            changedFiles={SEVEN}
+            events={[]}
+            surface={surface}
+            prPane={<div data-testid="pr-pane" />}
+            onOpenPr={() => setSurface("pr")}
+            onShowFiles={() => setSurface("files")}
+            onClose={onClose}
+          />
+        </AstryxProvider>
+      );
+    }
+    render(<SurfaceSwitch />);
+
+    const tree = tabs()[1]!;
+    tree.focus();
+    fireEvent.keyDown(tree, { key: "ArrowRight" });
+
+    await waitFor(() => expect(screen.getByTestId("pr-pane")).toBeTruthy());
+    const prTab = tabs().find((tab) => tab.getAttribute("aria-selected") === "true");
+    expect(prTab?.textContent).toContain(t("pr.title"));
+    await waitFor(() => expect(document.activeElement).toBe(prTab));
+
+    // Focus is inside the panel again, so Escape still unwinds it.
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
 

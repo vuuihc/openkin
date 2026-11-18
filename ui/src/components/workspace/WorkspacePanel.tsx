@@ -401,6 +401,10 @@ export default function WorkspacePanel({
   // layout effect corrects it before the first paint.
   const [panesWide, setPanesWide] = useState(true);
   useLayoutEffect(() => {
+    // The PR surface draws no panes, so the first files render has to measure
+    // then — measuring only on mount would leave a panel that opened on PR
+    // claiming a split layout it never had.
+    if (surface === "pr") return;
     const el = panesRef.current;
     if (!el) return;
     const apply = () => {
@@ -414,7 +418,7 @@ export default function WorkspacePanel({
     const observer = new ResizeObserver(apply);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [surface]);
 
   sidebarWidthRef.current = sidebarWidth;
 
@@ -985,6 +989,26 @@ export default function WorkspacePanel({
     onClose?.();
     restoreTriggerFocus();
   }, [onClose, restoreTriggerFocus]);
+
+  // The strip is drawn in a different parent on each surface, so a switch
+  // unmounts the tab that had focus and the browser drops focus to <body>:
+  // the keyboard loses the panel, and Escape (which needs focus inside it)
+  // stops closing. When that happened, put focus back on the selected tab;
+  // a switch made from a control outside the panel keeps the reader there,
+  // and so does the first mount.
+  const surfaceRef = useRef(surface);
+  useEffect(() => {
+    if (surfaceRef.current === surface) return;
+    surfaceRef.current = surface;
+    if (document.activeElement !== document.body) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (document.activeElement !== document.body) return;
+      rootRef.current
+        ?.querySelector<HTMLElement>("[role=tab][aria-selected=true]")
+        ?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [surface]);
 
   // Escape unwinds exactly one layer, and only from inside this one: the panel
   // is an inspector column, not a modal, so a handler on its root is the
