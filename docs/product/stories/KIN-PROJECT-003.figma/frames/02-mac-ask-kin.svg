@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="10"/>
+<rect width="1100" height="32" fill="#f0f0f0" rx="10"/><rect y="10" width="1100" height="22" fill="#f0f0f0"/>
+<line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/>
+<text x="12" y="21" font-size="12" fill="#555">Mac 1100×760 · 让 Kin 改 · 新建对话（KIN-PROJECT-003）</text>
+<text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">预填、可改、不自动发送</text>
+<!-- 侧栏 -->
+<rect x="1" y="32" width="329" height="728" fill="#fbfbfb"/><line x1="330" y1="32" x2="330" y2="760" stroke="#e3e3e3"/>
+<text x="20" y="62" font-size="13" fill="#1a1a1a" font-weight="600">K</text>
+<rect x="16" y="76" width="298" height="30" rx="6" fill="#f0f0f0"/><text x="28" y="96" font-size="12" fill="#888">搜索对话…</text>
+<text x="28" y="132" font-size="12" fill="#666" font-weight="600">本机</text>
+<text x="40" y="160" font-size="12" fill="#666">▾ alpha</text><rect x="16" y="146" width="298" height="24" rx="5" fill="#eef2ff"/>
+<text x="56" y="162" font-size="12.5" fill="#1f6feb" font-weight="600">alpha</text>
+<text x="72" y="186" font-size="12" fill="#666">对话 A</text><text x="72" y="208" font-size="12" fill="#666">对话 B</text>
+<text x="40" y="238" font-size="12" fill="#666">▸ beta</text>
+<text x="28" y="700" font-size="12" fill="#888">导入 · 归档 · 设置</text>
+<!-- 主区 -->
+<text x="358" y="70" font-size="11" fill="#999">新建对话</text>
+<text x="358" y="102" font-size="22" fill="#1a1a1a" font-weight="600">新建一段对话</text>
+<text x="358" y="128" font-size="12" fill="#6b6b6b">从封面的「让 Kin 改…」到达；项目已选中，提示词已预填。</text>
+<!-- 项目与设备 -->
+<text x="358" y="166" font-size="11" fill="#999">项目</text>
+<rect x="358" y="176" width="180" height="32" rx="8" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="374" y="197" font-size="12.5" fill="#1f6feb" font-weight="600">alpha ▾</text>
+<text x="556" y="166" font-size="11" fill="#999">设备</text>
+<rect x="556" y="176" width="150" height="32" rx="8" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="572" y="197" font-size="12.5" fill="#444">本机 ▾</text>
+<!-- 预填输入框 -->
+<rect x="358" y="230" width="724" height="280" rx="12" fill="#ffffff" stroke="#1f6feb"/>
+<text x="374" y="256" font-size="11" fill="#1f6feb" font-weight="600">预填的提示词（已选中，可改可删）</text>
+<rect x="374" y="268" width="692" height="192" rx="8" fill="#eef2ff"/>
+<text x="388" y="294" font-size="12.5" fill="#1a1a1a">读一下这个项目 ONE_PAGER.md 的「工作方式」一节，先告诉我它现在写了什么；</text>
+<text x="388" y="318" font-size="12.5" fill="#1a1a1a">然后按我下面说的改，只改这一节，不要动其他小节：</text>
+<text x="388" y="350" font-size="12.5" fill="#6b6b6b">（在这里补你想让 Kin 记住的规则，例如：先跑 make test；不要手改生成文件。）</text>
+<text x="388" y="382" font-size="12.5" fill="#1a1a1a">改完在对话里说改了哪几句，并让我看 diff。</text>
+<text x="388" y="424" font-size="11" fill="#6b6b6b">示意文案：措辞会在交付时定稿，语义是「先复述、再改、只改这一节」。</text>
+<text x="374" y="486" font-size="11" fill="#999">没有任务开始跑；没有保存发生；发送要等用户按。</text>
+<!-- 运行配置 -->
+<rect x="358" y="530" width="150" height="32" rx="8" fill="#ffffff" stroke="#c4c4c4"/><text x="374" y="551" font-size="12" fill="#444">agent ▾</text>
+<rect x="520" y="530" width="150" height="32" rx="8" fill="#ffffff" stroke="#c4c4c4"/><text x="536" y="551" font-size="12" fill="#444">model ▾</text>
+<rect x="682" y="530" width="170" height="32" rx="8" fill="#ffffff" stroke="#c4c4c4"/><text x="698" y="551" font-size="12" fill="#444">permissions ▾</text>
+<rect x="1000" y="530" width="82" height="32" rx="16" fill="#1f6feb"/>
+<text x="1041" y="551" font-size="12" fill="#ffffff" text-anchor="middle">发送</text>
+<text x="358" y="596" font-size="11" fill="#999">焦点在输入框文本末尾；Esc 不清空预填；返回封面时焦点回「让 Kin 改…」。</text>
+<!-- 说明 -->
+<rect x="358" y="626" width="724" height="104" rx="10" fill="#fbfbfb" stroke="#e3e3e3" stroke-dasharray="4 4"/>
+<text x="374" y="652" font-size="11.5" fill="#888">这一步不新增任何界面：它是现有新建对话页，带着项目与预填文本打开（ADR 0013 的 recipe 形状）。</text>
+<text x="374" y="676" font-size="11.5" fill="#888">预填文本不落库、不占草稿状态；离开即丢，封面块不会因为这次导航改变。</text>
+<text x="374" y="700" font-size="11.5" fill="#888">离线或只读时，封面上的启动器已禁用，不会到这里。</text>
+</g>
+</svg>
