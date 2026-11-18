@@ -83,7 +83,7 @@ does not run on them — each item's mutant is its verification):
 **Cut rule.** If item 1 is not green by the target, land it alone (lost drafts are what people notice first),
 keep 2–4 queued, and say so in the weekly retro. Do not extend the date.
 
-**Out of scope — parked on Ethan** (one line each in `state/needs-ceo.md`): F3 in-app PR writes (credential and
+**Out of scope — parked on Ethan** (one line each in `state/STATUS.md`, "Parked / needs a person"): F3 in-app PR writes (credential and
 permission model), the browser panel tab (Electron `webview` ADR), the agent catalog cut 74 → ≤10.
 
 **Marker.** The `<!-- phase: … -->` marker stays on P3 until its item 4 lands; then this block takes it and P3
