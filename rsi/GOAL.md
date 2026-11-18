@@ -212,42 +212,40 @@ exactly as in P7 item 3.
 **Out of scope** — `KIN-NOTIFY-001` (its last acceptance row needs a real iPhone), `KIN-SETTINGS-002` (needs
 a packaged build), `KIN-CONTINUE-003` (its own surface; next phase), and every parked row above.
 
-## Queued phase (P9) — 看一眼不用离开会话
-<!-- queued-phase: P9-read-in-place target=2026-11-25T20:00 -->
+## Queued phase (P9) — 把评审读进来，不用回 GitHub
+<!-- queued-phase: P9-review-in-place target=2026-11-25T20:00 -->
 
-**Why this and not features.** P7/P8 settle the signed ledger; the two reads a person still leaves the app for are
-both in a panel that is already open. The files panel files `pdf` and every Office container under
-`BINARY_EXTENSIONS` (`ui/src/components/workspace/workspacePreview.ts`) and hands them to a download card, so
-reading a report the agent wrote means leaving the conversation, finding the file, and opening it elsewhere. The
-PR panel knows the state and draws one CI label (`ui/src/components/pr/PullRequestPanel.tsx:451`) and nothing
-about the review it is showing — no author, no body, no failing check name — so "is this review asking me for
-something?" is answered on GitHub, not here. Both are reads: no schema, no new token scope, no write path, and
-the walker, the throwaway daemon and the PR panel's cached read with its J2 leg already exist.
+**Why this and not features.** P7/P8 settle the signed ledger, and the one read a person still leaves the app
+for — on the flow where T3 Code is strongest — is the review itself. The PR panel knows the pull request's
+state and draws one CI label (`ui/src/components/pr/PullRequestPanel.tsx:451`); it has no author, no body and
+no failing check name, so "is this review asking me for something?" is answered on GitHub, not in the
+conversation that produced the change. The panel already caches a snapshot and refreshes it by hand, so the
+same read can carry the reviews the token already has permission to read, as an additive field.
 
-**Done means** (throwaway daemon with the fake agent; each item names what proves it):
-1. A PDF the agent wrote opens from the files panel at 1100 and 390 without a download first: the panel hands it
-to the platform's own reader as a local `blob:` of the raw read it already makes (a new window at first; the
-in-pane viewer is a separate call, see Out of scope) and the download card stays as the fallback that says why
-when the file is over the existing preview cap. Neither the console CSP nor `rawFileType` changes. The seed
-writes one small `report.pdf`; a mutant that routes `.pdf` back to the download card turns the J13 file leg red,
-and the 390/1100 shots show the reader open on that file.
-2. The PR panel shows the review it already has permission to read: each review's author, state and body, and for
-a red CI the names of the failing checks — from the same cached snapshot the panel already refreshes by hand,
-with no live GitHub call on open. The snapshot field is additive, a review the panel cannot read is said in one
-line rather than dropped, and a mutant that drops the reviews from the cached snapshot turns the J2 PR leg red.
+**Done means** (throwaway daemon with the fake agent; the J2 PR leg and the seeded branch already exist):
+1. The PR panel renders, from the cached snapshot and only after the explicit refresh: each review's author,
+   state and body (submitted / approved / changes requested / commented), and for a red CI the names of the
+   failing checks. A snapshot the panel cannot read says so in one line instead of looking empty; opening the
+   panel still costs no GitHub call. `api/openapi.yaml` documents the additive fields next to the ones they
+   extend. A mutant that drops the reviews from the cached snapshot turns the J2 PR leg red, and 1100/390
+   shots show a PR with one review and one failing check.
 
 **Mechanism rows (rent, not phase items).** The two follow-ups measured on 2026-11-19 stay claimable by a free
 lane as `rsi/loop-guards`: `walk-mutant-test.sh`'s EXIT-only trap (restore `web/dist/index.html` on TERM/HUP
 too), and archiving a merged PR's sendback (`merge.sh` moves `state/sendback/<slug>.md` into `done/`, and
 `lane.sh autofill` skips a slug with no open PR).
 
-**Cut rule.** At 11-25 20:00 land whatever is green and queue the rest with its reason; do not extend the date. If
-item 1 is the only one green it lands alone. No `registry.json` row moves: both items sit outside the signed 16.
+**Cut rule.** At 11-25 20:00 land what is green and queue the rest with its reason; if only the snapshot field
+lands, say so in the weekly retro and queue the UI. No `registry.json` row moves: this item sits outside the
+signed 16.
 
-**Out of scope** — the in-pane PDF viewer (needs a `frame-src`/`object-src` CSP decision and a `rawFileType`
-change: an ADR first, then one PR), queue reordering (needs a queue-order endpoint), 清空已结束 (needs a DELETE
-plus ADR), native steer (an agent capability, not a UI call), the browser panel (`webview` ADR),
-`KIN-NOTIFY-001` and `KIN-SETTINGS-002` (Ethan), and every parked row above.
+**Out of scope** — PDF and Office preview, because every in-app path crosses a boundary somebody has to decide
+first: `internal/api/secure.go` sets `object-src 'none'` with no `frame-src` (so `<object>`/`<iframe>` need a CSP
+change), a PDF parser is a new dependency, and `window.open(blob:)` is denied by the window-open handler in
+`desktop/src/window.ts` and would land in the OS browser with an unresolvable URL. One ADR, then one PR — not a
+lane's call. Also out: queue reordering (needs a queue-order endpoint), 清空已结束 (needs a DELETE plus ADR),
+native steer (an agent capability), the browser panel (`webview` ADR), `KIN-NOTIFY-001` and `KIN-SETTINGS-002`
+(Ethan), and every parked row above.
 
 ## Closed phase (P5) — projects you can manage, not just open
 <!-- closed-phase: P5-projects-manage target=2026-11-23T20:00 -->
