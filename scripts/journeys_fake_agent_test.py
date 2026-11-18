@@ -202,6 +202,75 @@ class FakeAgentSlowTest(FakeAgentCase):
         self.assertLess(time.monotonic() - started, 3.0, "a plain prompt must answer without a hold")
 
 
+HOLD_PROMPT = "Keep the migration going [seed] hold"
+
+
+class FakeAgentHoldTest(FakeAgentCase):
+    """The still-working branch J5's row menu is photographed against.
+
+    `[seed] hold` must never print a result: the moment one arrives the task
+    leaves `running` and the shipped 运行中 line disappears from the menu. It
+    prints one assistant line so the transcript is not empty, and it must ask
+    for no tool_use — a tool_use in a non-yolo mode would produce an approval
+    card and turn the row into `waiting_approval`, which is the tone this
+    fixture exists to avoid.
+    """
+
+    def test_hold_prints_no_result_and_exits_at_the_hold_bound(self) -> None:
+        proc = self.start(HOLD_PROMPT, RSI_FAKE_HOLD_SECS="2")
+        first = self.collect(proc, 1.0)
+        self.assertTrue(
+            any('"type":"system"' in line and '"init"' in line for line in first),
+            f"the init line must appear immediately, got {first!r}",
+        )
+        self.assertTrue(
+            any("still working" in line for line in first),
+            f"the one assistant line must appear before the hold, got {first!r}",
+        )
+        self.assertFalse(
+            any('"type":"result"' in line for line in first),
+            f"a result inside the hold would end the running state: {first!r}",
+        )
+        self.assertFalse(
+            any("tool_use" in line for line in first),
+            f"a tool_use could ask for an approval card: {first!r}",
+        )
+        rest = self.collect(proc, 10)
+        self.assertEqual(proc.wait(timeout=15), 0)
+        self.assertFalse(
+            any('"type":"result"' in line for line in rest),
+            f"the hold branch must never print a result, got {rest!r}",
+        )
+
+    def test_hold_sleep_is_bounded(self) -> None:
+        # 0 releases at once (a person debugging by hand waits for nothing).
+        immediate = time.monotonic()
+        done = subprocess.run(
+            [FAKE, "-p", HOLD_PROMPT],
+            capture_output=True,
+            text=True,
+            env=fake_env(RSI_FAKE_HOLD_SECS="0"),
+            timeout=15,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertLess(time.monotonic() - immediate, 2.0, "RSI_FAKE_HOLD_SECS=0 must not sleep")
+        self.assertNotIn('"type":"result"', done.stdout)
+
+        # A malformed value falls back to the 600s default, and an oversized
+        # one clamps to 900: both are far longer than this window, so "still
+        # alive" is the observable proof that neither became 0.
+        for label, value in (("malformed", "soon"), ("oversized", "99999")):
+            with self.subTest(value=label):
+                proc = self.start(HOLD_PROMPT, RSI_FAKE_HOLD_SECS=value)
+                time.sleep(1.5)
+                self.assertIsNone(proc.poll(), f"{value} must hold the turn, not release it")
+                self.assertNotIn(
+                    '"type":"result"',
+                    "".join(self.collect(proc, 0.2)),
+                    "the hold branch must not print a result",
+                )
+
+
 class FakeAgentWorkspaceWriteTest(FakeAgentCase):
     """The rerun fixtures: `[seed] shift` and `[seed] rewrite` edit notes.md.
 

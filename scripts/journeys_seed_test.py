@@ -43,10 +43,15 @@ HELD_CONVERSATION = "[seed] Approve the migration"
 DENY_CONVERSATION = "[seed] Deny the migration"
 J7_CONVERSATION = "[seed] Answer the deploy"
 HELD_CONVERSATIONS = [DENY_CONVERSATION, J7_CONVERSATION, HELD_CONVERSATION]
+# The one conversation that is still working when J5 opens its row menu. It
+# carries the `[seed] hold` marker, asks for no approval card, and stays
+# `running` — the state the shipped 运行中 / Running line is drawn for.
+RUNNING_CONVERSATION = "[seed] Running the migration"
 CONVERSATIONS = [
     "[seed] Morning planning",
     "[seed] Failed migration",
     "[seed] Last week's review",
+    RUNNING_CONVERSATION,
     *HELD_CONVERSATIONS,
 ]
 # The one line the next slice targets both cards from.
@@ -160,6 +165,10 @@ class _Handler(BaseHTTPRequestHandler):
             elif "[seed] approve" in prompt:
                 # The held turn never prints a result: it stays running until
                 # an approval is requested.
+                status = "running"
+            elif "[seed] hold" in prompt:
+                # The still-working turn never prints a result and never asks
+                # for an approval: it stays `running` for the whole walk.
                 status = "running"
             else:
                 # The fake agent fails exactly the prompts carrying its marker.
@@ -394,6 +403,10 @@ class SeedTest(unittest.TestCase):
             [body.get("cwd") for body in posts],
             [proj["roots"][0] for proj in self.stub.projects]
             + [
+                # The archived conversation stays in Gamma; the still-working
+                # one is named in Gamma too, so Alpha/Beta row order does not
+                # move for the journeys that read it.
+                self.stub.projects[2]["roots"][0],
                 self.stub.projects[1]["roots"][0],
                 self.stub.projects[1]["roots"][0],
                 self.stub.projects[0]["roots"][0],
@@ -457,6 +470,34 @@ class SeedTest(unittest.TestCase):
         self.assertNotIn("skip waiting-approval:", result.stdout)
         self.assertNotIn("skip waiting-approval-deny:", result.stdout)
         self.assertNotIn("skip waiting-approval-j7:", result.stdout)
+
+    def test_seeds_one_running_conversation_with_no_approval_card(self) -> None:
+        # J5 opens this row's menu while the turn is still going. The row must
+        # be `running` — `waiting_approval` reads as an approval card, not a
+        # run — and the seed must not ask the bridge for a card for it.
+        self.enable_fake_agent()
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        row = next(row for row in self.stub.tasks if row["title"] == RUNNING_CONVERSATION)
+        self.assertEqual(row["status"], "running", self.stub.tasks)
+        self.assertIn("[seed] hold", row["prompt"])
+        approval_tasks = {post.get("task_id") for post in self.approval_posts()}
+        self.assertNotIn(row["id"], approval_tasks, "a card would turn the row into waiting_approval")
+        self.assertIn(f"create conversation {RUNNING_CONVERSATION}", result.stdout)
+        self.assertNotIn("skip conversation-running:", result.stdout)
+
+    def test_running_conversation_does_not_wait_for_a_terminal_status(self) -> None:
+        # The turn is held open on purpose. Waiting for it to settle would
+        # turn the one fixture J5's menu assertion needs into a skip (or a
+        # 15-second stall on every seed).
+        self.enable_fake_agent()
+        started = time.monotonic()
+        result = self.run_seed(extra_env={"KIN_SEED_TASK_TIMEOUT_SECS": "0.2"})
+        elapsed = time.monotonic() - started
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        row = next(row for row in self.stub.tasks if row["title"] == RUNNING_CONVERSATION)
+        self.assertEqual(row["status"], "running", self.stub.tasks)
+        self.assertLess(elapsed, 60, "the seed must not poll a deliberately open turn to its deadline")
 
     def test_approval_conversation_does_not_wait_for_terminal(self) -> None:
         # The held task is running forever by design. Waiting for a terminal
@@ -716,8 +757,8 @@ class SeedTest(unittest.TestCase):
         result = self.run_seed()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("existing task tsk-1 is running, wanted succeeded", result.stdout)
-        # The other five are still created; the running row is left alone.
-        self.assertEqual(len(self.task_posts()), 5, result.stdout)
+        # The other six are still created; the running row is left alone.
+        self.assertEqual(len(self.task_posts()), 6, result.stdout)
 
     def test_fake_agent_contract(self) -> None:
         # The shell fake is the only thing standing between a seeded turn and
@@ -859,7 +900,7 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(
             [os.path.basename(body["cwd"]) for body in self.task_posts()],
-            ["alpha", "beta", "gamma", "beta", "beta", "alpha"],
+            ["alpha", "beta", "gamma", "gamma", "beta", "beta", "alpha"],
         )
 
 
