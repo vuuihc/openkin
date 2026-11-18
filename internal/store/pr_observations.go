@@ -47,7 +47,15 @@ type PRObservation struct {
 	HeadOID    string `json:"head_oid,omitempty"`
 	CIState    string `json:"ci_state,omitempty"`   // none | pending | success | failure
 	CISummary  string `json:"ci_summary,omitempty"` // JSON: counts + failing check names
-	Source     string `json:"source,omitempty"`     // gh | anonymous
+	// Reviews is the JSON array of {author, state, body} the last successful
+	// reviews read returned, oldest first. The empty string means never read --
+	// including every row written before the column existed. `[]` means read,
+	// and the pull request carries none. The two are not interchangeable: a
+	// failed read never writes `[]` (it leaves '' alone, or a newer successful
+	// observation keeps the previous array), because "could not ask" would
+	// otherwise render as "nobody reviewed this".
+	Reviews string `json:"reviews,omitempty"`
+	Source  string `json:"source,omitempty"` // gh | anonymous
 
 	// CommentsSeen is the highest comment id already handed to the session, so
 	// feeding comments back is idempotent. It is a cursor, not an observation,
@@ -62,7 +70,7 @@ type PRObservation struct {
 	LastError   string `json:"last_error,omitempty"`
 }
 
-const prObservationColumns = `repo, head_branch, task_id, number, url, title, state, is_draft, base_branch, head_oid, ci_state, ci_summary, comments_seen, source, observed_at, attempted_at, last_error`
+const prObservationColumns = `repo, head_branch, task_id, number, url, title, state, is_draft, base_branch, head_oid, ci_state, ci_summary, comments_seen, source, observed_at, attempted_at, last_error, reviews`
 
 // observationColumnsOn qualifies the column list with a table alias, for the
 // queries that join another table. It is derived rather than written out: `title`
@@ -81,7 +89,7 @@ func scanPRObservation(row interface{ Scan(...any) error }) (PRObservation, erro
 	)
 	err := row.Scan(&o.Repo, &o.HeadBranch, &o.TaskID, &number, &o.URL, &o.Title,
 		&o.State, &o.IsDraft, &o.BaseBranch, &o.HeadOID, &o.CIState, &o.CISummary,
-		&o.CommentsSeen, &o.Source, &observedAt, &o.AttemptedAt, &o.LastError)
+		&o.CommentsSeen, &o.Source, &observedAt, &o.AttemptedAt, &o.LastError, &o.Reviews)
 	if err != nil {
 		return PRObservation{}, err
 	}
@@ -135,7 +143,7 @@ func (s *Store) RecordPRObservation(ctx context.Context, o PRObservation) error 
 	}
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO pr_observations (`+prObservationColumns+`)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?)
 ON CONFLICT(repo, head_branch) DO UPDATE SET
   task_id      = excluded.task_id,
   number       = excluded.number,
@@ -151,11 +159,15 @@ ON CONFLICT(repo, head_branch) DO UPDATE SET
   observed_at  = excluded.observed_at,
   attempted_at = MAX(excluded.attempted_at, pr_observations.attempted_at),
   last_error   = CASE WHEN excluded.attempted_at >= pr_observations.attempted_at
-                      THEN '' ELSE pr_observations.last_error END
+                      THEN '' ELSE pr_observations.last_error END,
+  -- A refresh whose reviews read failed carries '' and must not erase the last
+  -- array; a successful empty answer is "[]", never '', so it replaces it.
+  reviews      = CASE WHEN excluded.reviews = ''
+                      THEN pr_observations.reviews ELSE excluded.reviews END
 WHERE excluded.observed_at >= COALESCE(pr_observations.observed_at, 0)`,
 		o.Repo, o.HeadBranch, o.TaskID, o.Number, o.URL, o.Title, o.State,
 		o.IsDraft, o.BaseBranch, o.HeadOID, o.CIState, o.CISummary,
-		o.CommentsSeen, o.Source, o.ObservedAt, o.AttemptedAt)
+		o.CommentsSeen, o.Source, o.ObservedAt, o.AttemptedAt, o.Reviews)
 	if err != nil {
 		return fmt.Errorf("record pr observation: %w", err)
 	}
