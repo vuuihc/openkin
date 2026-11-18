@@ -196,20 +196,27 @@ const NOTICE_ROLE: Record<FilePaneNoticeKind, "status" | "alert" | undefined> = 
  * The text a preview pane shows when it has no body to draw: waiting, refused,
  * empty, or cut short. One primitive so the table and HTML panes say these the
  * same way, with the same calm weight and the same live-region contract.
+ *
+ * `action` is the one thing the reader can do about the state — today only a
+ * failed read's "try again". It sits under the sentence rather than beside it,
+ * so a narrow phone column keeps the reason readable at full width.
  */
 export function FilePaneNotice({
   kind,
   children,
+  action,
 }: {
   kind: FilePaneNoticeKind;
   children: ReactNode;
+  action?: ReactNode;
 }) {
   return (
     <div
       role={NOTICE_ROLE[kind]}
-      className="flex-1 flex items-center justify-center px-6 text-center text-strong text-kin-muted"
+      className="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center text-strong text-kin-muted"
     >
-      {children}
+      <div className="min-w-0">{children}</div>
+      {action}
     </div>
   );
 }

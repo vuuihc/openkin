@@ -842,6 +842,7 @@ const en: MessageTree = {
       unavailable: "File preview unavailable.",
       truncated: "Truncated",
       readFailed: "Unable to read file",
+      retry: "Try again",
       diff: "diff",
       diffNav: "Navigate diff hunks",
       diffLayout: "Diff layout",
