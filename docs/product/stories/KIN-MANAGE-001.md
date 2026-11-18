@@ -1,6 +1,6 @@
 # KIN-MANAGE-001 · 整理一段对话
 
-状态：approved
+状态：covered
 优先级：P1
 旅程：J5
 归属面：`IA.md`「Mac 上接着问」「手机上接着问」的列表部分
@@ -160,3 +160,4 @@
 - 2026-11-17 补多选一步（入口、工具条、Esc 退出），长按改开行菜单，删除与改名/置顶的入口对齐；补 Figma 帧与审阅页
 - 2026-11-17 CEO 已读设计页并签字；registry → approved，产品步骤 3–5 另行排期
 - 2026-11-17 CEO 否决 D2（两行、保留文字标签的工具条），保留 PR #62 已合入的 44px 图标工具条（390 一行放得下，248px 折行）；第 4 步与各面差异按签字版更新
+- 2026-11-18 走查（J5，#291 eb1a3334）：J5 在 phone 和 mac 两个宽度打开正在运行那一行自己的 `[data-row-actions][aria-describedby='session-row-title-{j5.conversation}']` 菜单，逐步断言 `wait css=[role=menuitem]:has-text('改名'), [role=menuitem]:has-text('Rename') …`（置顶 / 归档 / 删除同形），并用 `count css=[role=menuitem][aria-disabled='true']:has-text('运行中'), … button[disabled]:has-text('运行中') … 1` 证明「运行中」行存在且不可按。仍未走查：菜单动作真正执行（改名提交、置顶换组、归档、删除确认）、多选工具条与长按开菜单——这些仍由第 3–4 步的组件测试覆盖，不在这一走查内。
