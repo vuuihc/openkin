@@ -22,6 +22,19 @@
 - 做：打开设置 → 找到分组 → 看当前值和影响 → 改 agent / 模型 / 设备 / 权限默认 → 保存或测试连接 → 返回后新建对话用上新值。
 - 不做：新增 provider 类型；账号体系；OAuth scope 变更；推送和手机配对（控制台不再有这两个面，见 `KIN-NOTIFY-001`）；存储 schema 变更。
 
+## P8 结算（2026-11-18）
+
+| 默认 | 今天存在哪 | 新建对话怎么用上 | 证据 |
+|---|---|---|---|
+| agent | 服务端 settings 键 `agent.default`（设置 → Providers） | `/new` 通过共享机器快照读到被标记为 default 的 agent | `SettingsPage.defaultAgent.dom.test.tsx` 第 3 例 |
+| 模型 | 客户端 `localStorage` 键 `kin_draft_model`（`ui/src/lib/draftChat.ts`） | `NewChatPage.tsx:168` 播种 | `NewChatPage.dom.test.tsx` 的 “keeps the chosen model when the page is left and opened again” |
+| 设备 | 客户端 `localStorage` 键 `kin_draft_machine`（`draftChat.ts`） | `NewChatPage.tsx:170` 播种 | `NewChatPage.dom.test.tsx` 的 “starts a remote run with that machine and its own directory” |
+| 权限 | 客户端 `localStorage` 键 `kin_permission_mode`（`ui/src/lib/permissionMode.ts`） | `NewChatPage.tsx:154` 播种 | `permissionMode.test.ts` 的 “keeps the last chosen mode for the next draft” |
+
+后三项今天不是设置页的行，与本故事「范围」和 `IA.md` 设置与环境一行不符。若把它们提升为设置项，最小增量形状是三个服务端 settings 键加三行（Providers / 通用），由 `NewChatPage` 走现有 settings 读取播种——本次不建。
+
+故事保持 `approved`；等 P8 item 2 的走查改名并点名步骤后再翻 `covered`。
+
 ## 每一步的预期
 
 ### 1. 定义 / 打开：我要改一个默认
@@ -148,3 +161,4 @@
 - 2026-10-30 从"设置与环境"意图写成第一条故事
 - 2026-11-11 R0b-3 删掉远程与通知两个 tab；本合同的目录与验收随之只覆盖保留下来的五组
 - 2026-11-17 CEO 代签（D1–D8 已定）；设计页 5 帧；验收改指真实套件
+- 2026-11-18 P8 结算：四个默认各自的落点入档；模型 / 设备 / 权限仍是客户端草稿键，不建设置行

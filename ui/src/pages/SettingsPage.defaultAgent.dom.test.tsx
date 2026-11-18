@@ -303,3 +303,56 @@ describe("a saved default agent reaches the shared snapshot", () => {
     expect(screen.queryByText("Host agent · Claude Code")).toBeNull();
   });
 });
+
+// P8 item 2a: the one settings row that exists has to say what it affects, and
+// the story — not an invented surface — records where the other three defaults
+// live. The negative case is deliberate: a later slice that adds a model,
+// machine or permission row here must do it through a signed story.
+const EN_EFFECT = "A new chat starts with this agent until you pick another one in the composer.";
+const ZH_EFFECT = "新建对话默认用它，除非你在输入框里另选。";
+
+describe("KIN-SETTINGS-001 · the default agent row says what it affects", () => {
+  it("KIN-SETTINGS-001 the default agent row says a new chat starts with it (en + zh)", async () => {
+    const user = userEvent.setup();
+    pageOnly();
+    await openProviders(user);
+
+    // The sentence under the picker says what the saved value does on the next
+    // chat; the hint above it only says which agents can be selected.
+    expect(await screen.findByText(EN_EFFECT)).toBeTruthy();
+    const described = document.getElementById("default-agent-desc");
+    expect(described?.textContent).toContain(t("settings.provider.defaultAgentHint"));
+    expect(described?.textContent).toContain(EN_EFFECT);
+
+    const trigger = document.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]');
+    expect(trigger?.getAttribute("aria-describedby")).toBe("default-agent-desc");
+
+    setLocale("zh");
+    expect(await screen.findByText(ZH_EFFECT)).toBeTruthy();
+    expect(screen.queryByText(EN_EFFECT)).toBeNull();
+    const zhDescribed = document.getElementById("default-agent-desc");
+    expect(zhDescribed?.textContent).toContain(t("settings.provider.defaultAgentHint"));
+    expect(zhDescribed?.textContent).toContain(ZH_EFFECT);
+  });
+
+  it("KIN-SETTINGS-001 the other three defaults are recorded in the story, not invented in settings", async () => {
+    const user = userEvent.setup();
+    pageOnly();
+    await openProviders(user);
+    await screen.findByText(t("settings.provider.defaultAgentHint"));
+
+    // Settings owns one default row today: the agent. Model, machine and
+    // permission are composer drafts (`kin_draft_model`, `kin_draft_machine`,
+    // `kin_permission_mode`); promoting them is a story change, not a row this
+    // slice may add quietly. Hidden panels are included so the row cannot be
+    // waiting on another tab either.
+    for (const name of [
+      /default model/i,
+      /default (device|machine)/i,
+      /default (permission|mode)/i,
+    ]) {
+      expect(screen.queryByRole("button", { name, hidden: true })).toBeNull();
+      expect(screen.queryByRole("combobox", { name, hidden: true })).toBeNull();
+    }
+  });
+});
