@@ -101,3 +101,8 @@ relay/.wrangler/
 
 # Local-only review pages with embedded screenshots (contain real machine data)
 docs/plans/*.review.local.html
+
+# The box lane's live provider config: a real gateway host and key live here.
+# The repo carries `rsi/runtime/box/box-side/litellm.yaml.example`; a reactivated
+# operator copies that example, and the copy must never be committable.
+rsi/runtime/box/box-side/litellm.yaml
