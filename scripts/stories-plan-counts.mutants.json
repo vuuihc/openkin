@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the typed counts drift again",
+    "file": "docs/product/stories/PLAN.md",
+    "test": "python3 scripts/stories.py --check",
+    "old": "14 条 `covered`、2 条 `approved`、0 条 `draft`",
+    "new": "4 条 `covered`、10 条 `approved`、2 条 `draft`"
+  },
+  {
+    "label": "the count sentence is deleted",
+    "file": "docs/product/stories/PLAN.md",
+    "test": "python3 scripts/stories.py --check",
+    "old": "（14 条 `covered`、2 条 `approved`、0 条 `draft`）",
+    "new": ""
+  }
+]

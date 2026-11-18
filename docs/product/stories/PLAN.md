@@ -1,6 +1,6 @@
 # 用户故事方案
 
-状态：十六条合同已写，十四条已签字（4 条 `covered`、10 条 `approved`、2 条 `draft`）；七条意图已于 2026-11-11 全部签字。逐条签字、逐条交付，不分阶段。
+状态：16 条合同已写，16 条已签字（14 条 `covered`、2 条 `approved`、0 条 `draft`）；七条意图已于 2026-11-11 全部签字。逐条签字、逐条交付，不分阶段。
 配套：[`IA.md`](../IA.md)（哪个面归谁）、[`TASTE.md`](../TASTE.md)（所有面长什么样）、[`stories/README.md`](README.md)（怎么写、怎么签、怎么交付）、[`LESSONS.md`](../LESSONS.md)（规则从真实缺陷长出来）。
 
 ## 一句话
@@ -68,8 +68,6 @@
 
 2026-11-11：R0b 补故事只写合同，不写产品代码；PROJECT / AGENTS / ROUTINE / START 四条当时签字，现已全部交付。
 
-- `covered`（4 条，验收全绿、已交付）：`KIN-START-001`、`KIN-PROJECT-001`、`KIN-AGENTS-001`、`KIN-ROUTINE-001`。
-- `approved`（10 条，已签字、可开工）：`KIN-CONTINUE-001`、`KIN-CONTINUE-002`、`KIN-CONTINUE-003`、`KIN-NOTIFY-001`、`KIN-RESULT-001`、`KIN-RESULT-002`、`KIN-RESULT-003`、`KIN-MANAGE-001`、`KIN-SETTINGS-001`、`KIN-SETTINGS-002`。
-- `draft`（2 条，只写了合同与设计稿、等人签字）：`KIN-PROJECT-002`（2026-11-18 创建，P5 第一条）、`KIN-PROJECT-003`（2026-11-18 创建，P5 第二条）。
+- 逐条状态与故事编号见 [`COVERAGE.md`](COVERAGE.md)；本节不再手写条数，避免与 `registry.json` 漂移。
 - 设计页：16 条都有 `<编号>.review.html`；其中 15 条另有 `<编号>.figma/frames/`，`KIN-CONTINUE-001` 是旧格式，只有审阅页。
 - 第七条意图「让它按时跑」已于 2026-11-11 签字，成为正式一条；签字页在 `KIN-ROUTINE-001.review.html` 的 D1。
