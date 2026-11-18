@@ -17,6 +17,45 @@
       "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"
     ],
     [
+      "count",
+      "css=[data-phone-dock]",
+      "0"
+    ],
+    [
+      "count",
+      "css=[aria-label='Open menu'], [aria-label='打开菜单']",
+      "0"
+    ],
+    [
+      "count",
+      "css=input[type=search]",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer]",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a",
+      "4"
+    ],
+    [
+      "count",
+      "css=[data-phone-scroll]",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-session-row]:has-text(\"[seed] Morning planning\")",
+      "1"
+    ],
+    [
+      "shot",
+      "one-list"
+    ],
+    [
       "click",
       "[data-session-row]:has-text('[seed] Morning planning')"
     ],

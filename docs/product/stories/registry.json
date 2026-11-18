@@ -409,7 +409,7 @@
     },
     {
       "id": "KIN-CONTINUE-002",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J1",
