@@ -33,7 +33,7 @@ if [ "$CMD" = autofill ]; then
     # deleted 879 lines of a signed story before it was killed; #299 was waived before a lane
     # claimed it). See state/merge/<slug>.size-ok.
     src="$(sed -n 's/^source: *//p' "$sb" | head -1)"
-    if [ "$src" = "hold-size" ] && [ -e "$STATE/merge/$slug.size-ok" ]; then
+    if [ "$src" = "hold-size" ] && [ -f "$STATE/merge/$slug.size-ok" ]; then
       echo "autofill: $slug: hold-size waived (merge/$slug.size-ok), not opening a rework lane"
       continue
     fi

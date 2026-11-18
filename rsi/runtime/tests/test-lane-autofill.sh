@@ -20,7 +20,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 LANE="$(cd "$HERE/.." && pwd)/lane.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 SLUG="waiver-guard"
-ITEM="R-waiver-guard"
+# Sorts after waiver-guard in the sendback glob, so a waiver for SLUG is seen first. Used to pin
+# that a waiver `continue`s the loop instead of stopping autofill for every other rework.
+SLUG2="waiver-two"
 CASE=""; RC=0
 ONLY="${RSI_TEST_ONLY:-}"
 
@@ -60,7 +62,7 @@ if args[:1] == ["claim"]:
 sys.exit(0)
 PY
   printf 'import sys\nsys.exit(0)\n' > "$RSI_CTRL/rsi/runtime/volc-budget.py"
-  [ "${2:-}" = repo ] && make_repo
+  if [ "${2:-}" = repo ]; then make_repo || fail "$CASE: repo setup failed"; fi
   return 0
 }
 
@@ -76,14 +78,24 @@ make_repo() {
   echo two >> "$RSI_CTRL/file.txt"
   git -C "$RSI_CTRL" commit -qam change
   git -C "$RSI_CTRL" push -q origin "rsi/$SLUG"
+  # A second, independent rework branch: only test_waiver_continues_to_next_sendback writes its
+  # sendback, but every repo case may carry it harmlessly.
+  git -C "$RSI_CTRL" checkout -q main
+  git -C "$RSI_CTRL" checkout -q -b "rsi/$SLUG2"
+  echo three > "$RSI_CTRL/other.txt"
+  git -C "$RSI_CTRL" add other.txt
+  git -C "$RSI_CTRL" commit -qm change-two
+  git -C "$RSI_CTRL" push -q origin "rsi/$SLUG2"
 }
 
-write_sb() { # source
+write_sb() { write_sb_for "$SLUG" "$1"; }
+
+write_sb_for() { # slug source
   {
-    echo "item: $ITEM"; echo "attempt: 1"; echo "kind: targeted"
-    echo "source: $1"; echo "spec: -"; echo "cmd: -"
+    echo "item: R-$1"; echo "attempt: 1"; echo "kind: targeted"
+    echo "source: $2"; echo "spec: -"; echo "cmd: -"
     echo "# Sent back by the merge lane: diff is 1201 changed lines (>1000): split it"
-  } > "$(st)/sendback/$SLUG.md"
+  } > "$(st)/sendback/$1.md"
 }
 
 run_autofill() {
@@ -112,6 +124,24 @@ test_hold_size_waiver_skips_rework() {
     || fail "hold_size_waiver: the waiver line does not name the slug ($(out))"
   grep -q "merge/$SLUG.size-ok" "$T/$CASE.out" \
     || fail "hold_size_waiver: the waiver line does not name the waiver file ($(out))"
+}
+
+# The skip must be `continue`, not `break`/`exit`: a waived sendback seen first must not stop the
+# pulse from filling every other pending rework (a silent stall — the incident class this loop has
+# been burned by). One claimed slug, and it must be the unwaived one.
+test_waiver_continues_to_next_sendback() {
+  new_case waiver_then_next repo
+  write_sb hold-size                      # first in glob order
+  : > "$(st)/merge/$SLUG.size-ok"
+  write_sb_for "$SLUG2" 'gate+review'     # sorts after $SLUG, no waiver
+  run_autofill
+  [ "$RC" -eq 0 ] || fail "waiver_then_next: autofill exited $RC ($(out))"
+  [ "$(grep -c . "$(claim_log)" 2>/dev/null || true)" = 1 ] \
+    || fail "waiver_then_next: expected exactly one claim, got: $(cat "$(claim_log)" 2>/dev/null)"
+  grep -q -- "--slug $SLUG2 " "$(claim_log)" \
+    || fail "waiver_then_next: the waived sendback stopped the loop before $SLUG2 ($(out))"
+  ! grep -q -- "--slug $SLUG " "$(claim_log)" \
+    || fail "waiver_then_next: claimed the waived slug: $(cat "$(claim_log)")"
 }
 
 # No waiver, same sendback: the size cap still stands and a rework lane must be claimed.
@@ -173,6 +203,7 @@ run() {
 
 RAN=0
 run test_hold_size_waiver_skips_rework
+run test_waiver_continues_to_next_sendback
 run test_hold_size_without_waiver_reaches_claim
 run test_waiver_does_not_skip_other_sources
 run test_waiver_is_per_slug
