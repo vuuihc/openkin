@@ -301,7 +301,10 @@ class SeedTest(unittest.TestCase):
             {"id": "prj-beta", "name": PROJECTS[1]},
             {"id": "prj-gamma", "name": PROJECTS[2]},
         ]
-        self.stub.one_pagers = {"prj-alpha": f"# Alpha\n## Current Focus\n{journeys_seed.FOCUS_SENTINEL}\n"}
+        self.stub.one_pagers = {
+            "prj-alpha": f"# Alpha\n## Current Focus\n{journeys_seed.FOCUS_SENTINEL}\n",
+            "prj-gamma": f"# Gamma\n## 工作方式\n{journeys_seed.GAMMA_INSTRUCTIONS}\n",
+        }
         self.stub.routines = [
             {"id": "rtn-1", "title": ROUTINES[0]},
             {"id": "rtn-2", "title": ROUTINES[1]},
@@ -927,6 +930,78 @@ class SeedTest(unittest.TestCase):
         result = self.run_seed()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(len(self.task_posts()), len(CONVERSATIONS), result.stdout)
+
+    def test_alpha_one_pager_carries_the_work_instructions_section(self) -> None:
+        """KIN-PROJECT-003: Alpha's document is the cover's 工作方式 source.
+
+        The section sits after Current Focus and before Next, the one line is
+        the text the journey fake echoes back, and the edit the J4 walk PUTs
+        shares no words with it so the post-edit `count text=<old> 0` cannot
+        pass on a substring.
+        """
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        markdown = self.stub.one_pagers.get("prj-1", "")
+        self.assertIn("## 工作方式\n" + journeys_seed.ALPHA_INSTRUCTIONS + "\n", markdown)
+        self.assertLess(markdown.index("## Current Focus"), markdown.index("## 工作方式"))
+        self.assertLess(markdown.index("## 工作方式"), markdown.index("## Next"))
+        self.assertIn(journeys_seed.FOCUS_SENTINEL, markdown)
+        self.assertNotIn(
+            journeys_seed.ALPHA_INSTRUCTIONS,
+            journeys_seed.ALPHA_INSTRUCTIONS_EDITED,
+            "the edited line must not contain the seeded line; a substring would defeat the old-line count",
+        )
+        edited = journeys_seed.FOCUS_MARKDOWN_EDITED
+        self.assertIn(journeys_seed.ALPHA_INSTRUCTIONS_EDITED, edited)
+        self.assertNotIn(journeys_seed.ALPHA_INSTRUCTIONS, edited)
+        self.assertNotIn("## 工作方式\n" + journeys_seed.ALPHA_INSTRUCTIONS + "\n", edited)
+
+    def test_gamma_one_pager_is_longer_than_the_digest_cut(self) -> None:
+        """The truncation fixture: > 400 runes, cut inside a known phrase.
+
+        Both the cover and the digest cut at 400 runes and append `…`; the
+        phrase straddling the boundary is what a walk reads on both surfaces,
+        and the tail beyond it is what must appear on neither.
+        """
+        body = journeys_seed.GAMMA_INSTRUCTIONS
+        self.assertGreater(len(body), 400)
+        cut = body[:400] + "…"
+        self.assertTrue(cut.endswith("CUT-BOUNDARY…"), cut[-24:])
+        self.assertNotIn(journeys_seed.GAMMA_SENTINEL, cut)
+        self.assertIn(journeys_seed.GAMMA_SENTINEL, body)
+        self.assertIn(journeys_seed.GAMMA_SENTINEL, journeys_seed.GAMMA_MARKDOWN)
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("## 工作方式\n" + body + "\n", self.stub.one_pagers.get("prj-3", ""))
+
+    def test_beta_one_pager_is_left_alone(self) -> None:
+        """Beta's empty state is the template's own empty section, not a write."""
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        puts = [path for method, path, _ in self.stub.requests if method == "PUT" and path.endswith("/one-pager")]
+        self.assertEqual(puts, ["/api/projects/prj-1/one-pager", "/api/projects/prj-3/one-pager"], puts)
+        self.assertNotIn("prj-2", self.stub.one_pagers)
+
+    def test_j4_target_line_names_the_project_it_edited(self) -> None:
+        """J4's api step resolves `{project}` from this line, never from a guess."""
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("j4 target project=prj-1", result.stdout)
+
+        # A daemon that already has the document names the id it found.
+        self.preload()
+        self.stub.requests.clear()
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("j4 target project=prj-alpha", result.stdout)
+
+    def test_j4_target_is_absent_when_the_document_cannot_be_written(self) -> None:
+        # A journey that edits a One-Pager must skip, not PUT against a
+        # document this seed could not put in place.
+        self.stub.fail = [(("PUT", "/api/projects/prj-1/one-pager"), 409)]
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("j4 target project=", result.stdout)
 
     def test_alpha_has_two_roots_in_non_sorted_order(self) -> None:
         """J4's reload proof needs a saved order that sorting would change.
