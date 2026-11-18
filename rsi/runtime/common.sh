@@ -5,7 +5,7 @@ export HOME="${HOME:-/Users/$(id -un)}"
 RSI_CTRL="${RSI_CTRL:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 RSI_DIR="$RSI_CTRL/rsi"
 STATE="$RSI_DIR/state"
-RUNS="$RSI_DIR/runtime/runs"
+RUNS="${RSI_RUNS:-$RSI_DIR/runtime/runs}"
 GH_REPO="vuuihc/openkin"
 WT_ROOT="$HOME/.kin/worktrees"
 MAIN_CHECKOUT="$HOME/Workspace/study/kin-multidevice"   # primary checkout
@@ -27,8 +27,13 @@ KIN_BIN="$HOME/.kin/node/kin"
 export GIT_AUTHOR_NAME=vuuihc GIT_AUTHOR_EMAIL=vuuihc@users.noreply.github.com
 export GIT_COMMITTER_NAME=vuuihc GIT_COMMITTER_EMAIL=vuuihc@users.noreply.github.com
 export GIT_TERMINAL_PROMPT=0
-# Let the Bash tool wait for long builds/tests inside a claude -p run.
-export BASH_DEFAULT_TIMEOUT_MS=3300000 BASH_MAX_TIMEOUT_MS=3600000
+# Let the Bash tool wait for long builds/tests inside a claude -p run, but keep the
+# DEFAULT well under LANE_WORKER_SECS (3000 s = 50 min watchdog, below): a default
+# longer than the watchdog turns one stuck call into a lost round (2026-11-18, lane 2:
+# a nested heredoc swallowed its closing `)` and hung on stdin for 2,400 s). Known-long
+# builds/tests (walk and mutant suites, check.sh) must pass an explicit `timeout`, up
+# to the 30-min max.
+export BASH_DEFAULT_TIMEOUT_MS=600000 BASH_MAX_TIMEOUT_MS=1800000
 # Every loop process resolves "opus" to DeepSeek, never to Kimi (CEO 2026-11-17, ROUTING.md):
 # worker lanes pass --model explicitly, but Claude Code's own sub-agents and any internal
 # "opus" resolution read this env first, and the global ~/.claude mapping points at Kimi.
