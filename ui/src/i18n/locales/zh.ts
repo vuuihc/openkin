@@ -456,6 +456,7 @@ const zh = {
     loadFailed: "加载失败",
     home: "← 首页",
     running: "运行中",
+    subagentCount: "子代理：{count}",
     reconnect: "重连中…",
     statusRunning: "运行中",
     statusQueued: "排队中",
