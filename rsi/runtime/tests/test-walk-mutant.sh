@@ -7,9 +7,9 @@
 # dispatch, the Stop that must cancel the round, the J2 review anchor, the
 # rerun that must keep a comment (re-anchored, then 该行已变化), the shell
 # that must not remount on a route change, the phone footer that must reopen the
-# URL the reader left in each area, the unchecked PR branch that must not
-# read as still checking, and the row menu that must keep its disabled 运行中
-# line; that the runner prints
+# URL the reader left in each area, the phone's Back that must not reload the
+# document, the unchecked PR branch that must not read as still checking, and
+# the row menu that must keep its disabled 运行中 line; that the runner prints
 # that same manifest; and that the J3 spec carries the mid-run ordering proof
 # (the follow-up on screen before the first answer) and the Stop proof (a held
 # round stopped, its control gone, and the queued message accounted for by the
@@ -39,7 +39,7 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 10:
+if not isinstance(entries, list) or len(entries) != 11:
     raise SystemExit("manifest must be exactly ten entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
@@ -187,9 +187,26 @@ if 'id: "running"' not in rowmenu["new"]:
     raise SystemExit("the J5 mutant removes more than the branch condition")
 if "--walk-once J5" not in rowmenu["test"]:
     raise SystemExit("the J5 entry's `test` does not walk J5 (--walk-once J5)")
-print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
+# The J11 mutant must make the phone's Back a page load: a full document
+# navigation throws away the shell and the kept-alive panes, which is the flash
+# F4 exists to prevent, and J11's `node` assertion is what names it. The break
+# sits on the phone's own Back helper, so J9 (no Back steps) stays green and
+# the phone claim has its own proof. Leaving client-side history back reachable
+# would let the walk stay green, so `navigate(-1)` must be gone from `new`.
+phone = next((e for e in entries if e["file"].endswith("ui/src/lib/phoneBack.ts")
+              and "--walk-once J11" in e["test"]), None)
+if phone is None:
+    raise SystemExit("no J11 entry for ui/src/lib/phoneBack.ts")
+if "navigate(-1)" not in phone["old"]:
+    raise SystemExit("the J11 mutant does not select the phone's history Back")
+if 'window.location.assign("/sessions")' not in phone["new"] or "navigate(-1)" in phone["new"]:
+    raise SystemExit("the J11 mutant does not turn the phone's Back into a document load")
+if "R-f4-switch-phone" not in phone["new"]:
+    raise SystemExit("the J11 mutant does not name the item it breaks (no R-f4-switch-phone marker)")
+print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
       % (j3["file"], j7["file"], j10["file"], follow["file"], review["file"],
-         rerun["file"], stop["file"], shell["file"], pr["file"], rowmenu["file"]))
+         rerun["file"], stop["file"], shell["file"], pr["file"], rowmenu["file"],
+         phone["file"]))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
