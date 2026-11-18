@@ -570,7 +570,9 @@
       "tests": [
         "ui/src/lib/projectRoots.test.ts",
         "ui/src/lib/projectChats.test.ts",
-        "ui/src/pages/ProjectDetailPage.dom.test.tsx"
+        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
+        "internal/store/projects_test.go",
+        "scripts/journeys_walk_test.py"
       ],
       "blockedReason": null
     },
