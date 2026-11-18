@@ -42,8 +42,10 @@ mkdir -p "$CTRL/rsi/runtime"
 cp "$REPO/rsi/runtime/common.sh" "$CTRL/rsi/runtime/common.sh"
 cp "$UXWALK" "$CTRL/rsi/runtime/ux-walk.sh"
 chmod +x "$CTRL/rsi/runtime/"*.sh   # no +x heal message from common.sh
-# Staged before any case runs: a seam that acquired the heavy slot would create
-# $CTRL/rsi/state/heavy/slot1, and case 1 below must be able to see it.
+# Staged before any case runs: heavy.sh creates $CTRL/rsi/state/heavy (line 8)
+# and its EXIT trap removes only the slot dir, so the parent survives. Case 1
+# below watches for that parent: a live slot dir would be gone by the time the
+# seam returns, and could not tell a taking seam from a leak-free one.
 cp "$REPO/rsi/runtime/heavy.sh" "$CTRL/rsi/runtime/heavy.sh"
 chmod +x "$CTRL/rsi/runtime/heavy.sh"
 SEAM="$CTRL/rsi/runtime/ux-walk.sh"
@@ -55,7 +57,9 @@ case_name="test_walker_for_is_a_build_free_seam"
 ( npm ) >/dev/null 2>&1; [ $? -eq 97 ] || fail "$case_name: the npm booby trap is not live"
 WT1="$T/wt-build-free"; mkdir -p "$WT1"
 OUT1="$T/never-created/out"
-out="$(bash "$SEAM" --walker-for "$WT1" "$OUT1" 2>"$T/seam1.err")"
+# Unset the ambient heavy vars so a seam that reached heavy.sh cannot be
+# excused as re-entrant or fail-closed: case 1 must see the invocation itself.
+out="$(env -u RSI_HEAVY_HELD -u RSI_NO_HEAVY bash "$SEAM" --walker-for "$WT1" "$OUT1" 2>"$T/seam1.err")"
 rc=$?
 [ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/seam1.err"))"
 [ -n "$out" ] || fail "$case_name: printed nothing"
@@ -68,8 +72,8 @@ grep -q 'booby trap' "$T/seam1.err" && fail "$case_name: reached a build/walk co
 pass "$case_name"
 # The seam is the build-free answer a caller uses to inspect a branch; it must
 # not take (or wait for) the machine-wide heavy slot either.
-[ ! -d "$CTRL/rsi/state/heavy/slot1" ] \
-  || fail "test_walker_for_takes_no_slot: the seam took the heavy slot"
+[ ! -d "$CTRL/rsi/state/heavy" ] \
+  || fail "test_walker_for_takes_no_slot: the seam reached heavy.sh (its state dir exists)"
 pass "test_walker_for_takes_no_slot"
 
 # --- 2: a worktree with its own walker wins (this is the #251 regression) --------
