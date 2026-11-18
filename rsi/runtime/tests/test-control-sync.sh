@@ -2,6 +2,7 @@
 # test-control-sync.sh — run.sh's control-tree sync must adopt origin/main even when the
 # tracked worktree is dirty but already byte-identical to it (the state a landed loop PR
 # leaves behind), while a real local change or an unpublished local commit still blocks.
+# A tree it cannot move is never silent: `--sync-check` exits 1 and names the lag and the paths.
 #
 # Hermetic: temp bare origin + work clone per case, fixed git identities, temp HOME,
 # RSI_CTRL points at the work clone, and run.sh is invoked as `--sync-check` so no
@@ -56,18 +57,23 @@ sync
 [ -z "$ERR" ] || fail "clean-behind: expected silence, got: $ERR"
 pass "clean-behind-ff"
 
-# 2. An unpublished local loop commit survives: HEAD is not an ancestor of origin/main.
+# 2. An unpublished local loop commit while origin/main moved on: the commit survives, and the tree
+#    is behind, so the sync pins loudly instead of pretending to be synced.
 pair local-commit
 ( cd "$WORK" && echo mine > mine.txt && git add mine.txt && git commit -q -m "fix: local loop commit" )
 before="$(head_now)"
 sync
-[ "$RC" = 0 ] || fail "local-commit: expected exit 0, got $RC"
+[ "$RC" = 1 ] || fail "local-commit: expected exit 1 from a diverged tree, got $RC"
 [ "$(head_now)" = "$before" ] || fail "local-commit: HEAD moved and lost the unpublished commit"
 [ -f "$WORK/mine.txt" ] || fail "local-commit: the local commit's file disappeared"
+grep -q 'local loop commits are unpublished; land or merge them to resume syncing' <<<"$ERR" \
+  || fail "local-commit: the pin did not name the unpublished commits: $ERR"
+grep -q 'commits behind origin/main' <<<"$ERR" || fail "local-commit: the pin did not name the lag: $ERR"
 pass "local-commit-survives"
 
 # 2b. Dirty and content-equal to origin/main, but HEAD carries an unpublished commit: the
-#     adopt must not run, or the commit (not just its content) would be discarded.
+#     adopt must not run, or the commit (not just its content) would be discarded. It is behind,
+#     so it is pinned like case 2.
 pair local-same-content
 ( cd "$WORK" && echo wrong > tracked.txt && git add tracked.txt \
   && git commit -q -m "fix: unpublished local edit" )
@@ -79,19 +85,42 @@ git -C "$WORK" fetch -q origin main
 git -C "$WORK" diff --quiet origin/main || fail "local-same: setup content does not match origin/main"
 before="$(head_now)"
 sync
-[ "$RC" = 0 ] || fail "local-same: expected exit 0, got $RC"
+[ "$RC" = 1 ] || fail "local-same: expected exit 1 from a diverged tree, got $RC"
 [ "$(head_now)" = "$before" ] || fail "local-same: HEAD moved and discarded an unpublished commit"
+grep -q 'local loop commits are unpublished; land or merge them to resume syncing' <<<"$ERR" \
+  || fail "local-same: the pin did not name the unpublished commits: $ERR"
+grep -q 'commits behind origin/main' <<<"$ERR" || fail "local-same: the pin did not name the lag: $ERR"
 pass "local-commit-same-content-survives"
 
-# 3. A real local edit blocks the sync and stays intact.
+# 3. A real local edit blocks the sync, stays intact, and is reported: the tree is one commit behind,
+#    so --sync-check names the lag and the path in the way and exits non-zero. (2026-11-18: a draft of
+#    rsi/GOAL.md pinned the live tree 7 commits behind main while --sync-check printed nothing, exit 0.)
 pair dirty-real
 echo "local edit" >> "$WORK/tracked.txt"
 before="$(head_now)"
 sync
-[ "$RC" = 0 ] || fail "dirty-real: expected exit 0, got $RC"
+[ "$RC" = 1 ] || fail "dirty-real: expected exit 1 from a pinned tree, got $RC"
 [ "$(head_now)" = "$before" ] || fail "dirty-real: HEAD moved over a real local change"
 grep -q "local edit" "$WORK/tracked.txt" || fail "dirty-real: the local edit was discarded"
-pass "dirty-real-change-blocks"
+grep -q 'control tree pinned at .* (1 commits behind origin/main): uncommitted tracked changes differ' <<<"$ERR" \
+  || fail "dirty-real: the pin did not name the lag: $ERR"
+grep -q 'tracked\.txt' <<<"$ERR" || fail "dirty-real: the pin did not name the path in the way: $ERR"
+pass "dirty-real-change-blocks-loudly"
+
+# 3b. Dirty with content differing from origin/main but HEAD level with it: the in-place hotfix shape.
+#     Nothing is behind, so it is not a pin: --sync-check exits 0, names the sha, and never resets.
+pair dirty-level
+git -C "$WORK" fetch -q origin main && git -C "$WORK" reset -q --hard origin/main
+echo "hotfix in place" >> "$WORK/tracked.txt"
+before="$(head_now)"
+sync
+[ "$RC" = 0 ] || { printf '%s\n' "$ERR" >&2; fail "dirty-level: expected exit 0, got $RC"; }
+[ "$(head_now)" = "$before" ] || fail "dirty-level: HEAD moved under an in-place hotfix"
+grep -q "hotfix in place" "$WORK/tracked.txt" || fail "dirty-level: the hotfix was reverted"
+grep -q 'control tree dirty at .* (at origin/main); leaving it alone' <<<"$ERR" \
+  || fail "dirty-level: the non-pin line was missing: $ERR"
+! grep -q 'control tree pinned' <<<"$ERR" || fail "dirty-level: a level tree was reported as pinned: $ERR"
+pass "dirty-level-at-origin-main-left-alone"
 
 # 4. Dirty but every tracked path already equals origin/main: adopt it. This is the shape a
 #    landed loop PR leaves in the control tree (a staged runtime file matching main, HEAD behind).
@@ -147,7 +176,7 @@ pair untracked-diff
 ( cd "$WORK" && echo "my draft" > next.txt )
 before="$(head_now)"
 sync
-[ "$RC" = 0 ] || fail "untracked-diff: expected exit 0, got $RC"
+[ "$RC" = 1 ] || fail "untracked-diff: expected exit 1 from a pinned tree, got $RC"
 [ "$(head_now)" = "$before" ] || fail "untracked-diff: HEAD moved over a differing untracked draft"
 grep -q 'my draft' "$WORK/next.txt" || fail "untracked-diff: the untracked draft was discarded"
 grep -q 'untracked next.txt differs' <<<"$ERR" || fail "untracked-diff: the pin was silent: $ERR"
@@ -162,10 +191,11 @@ pair untracked-diff-dirty other.txt
 git -C "$WORK" fetch -q origin main
 before="$(head_now)"
 sync
-[ "$RC" = 0 ] || fail "untracked-diff-dirty: expected exit 0, got $RC"
+[ "$RC" = 1 ] || fail "untracked-diff-dirty: expected exit 1 from a pinned tree, got $RC"
 [ "$(head_now)" = "$before" ] || fail "untracked-diff-dirty: HEAD moved and overwrote the draft"
 [ "$(cat "$WORK/other.txt")" = "my other draft" ] || fail "untracked-diff-dirty: other.txt was clobbered"
 grep -q 'untracked other.txt differs' <<<"$ERR" || fail "untracked-diff-dirty: the pin was silent: $ERR"
+[ "$RC" = 1 ] || fail "untracked-diff-dirty: expected exit 1 from a pinned tree, got $RC"
 pass "untracked-collision-blocks-adopt"
 
 # 10. A clean tracked tree whose fast-forward still fails for another reason must say so. A broken
@@ -175,7 +205,7 @@ pair untracked-symlink
 ln -s /nonexistent-target "$WORK/next.txt"
 before="$(head_now)"
 sync
-[ "$RC" = 0 ] || fail "untracked-symlink: expected exit 0, got $RC"
+[ "$RC" = 1 ] || fail "untracked-symlink: expected exit 1 from a pinned tree, got $RC"
 [ "$(head_now)" = "$before" ] || fail "untracked-symlink: HEAD moved over the broken symlink"
 grep -q 'fast-forward to origin/main failed' <<<"$ERR" || fail "untracked-symlink: the ff failure was silent: $ERR"
 pass "fast-forward-failure-is-loud"
