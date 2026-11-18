@@ -79,7 +79,18 @@ vi.mock("../api/useLiveResources", () => {
       useSyncExternalStore(store.subscribe, store.version, store.version);
       let data = dataById.get(id);
       if (!data) {
-        data = { task: { ...task, id }, events: [], deleted: false };
+        data = {
+          task: {
+            ...task,
+            id,
+            // A `remote-*` id stands for a session whose checkout lives on
+            // another machine: that is what offers the publish tab and keeps
+            // the files surface's own tabs beside it.
+            ...(id.startsWith("remote-") ? { executing_device_id: "node-other" } : {}),
+          },
+          events: [],
+          deleted: false,
+        };
         dataById.set(id, data);
       }
       return { loaded: true, error: null, data, id };
@@ -158,7 +169,7 @@ vi.mock("../components/workspace/WorkspacePanel", () => ({
     selectedWorkspaceId?: string | null;
     onSelectPath?: (path: string) => void;
     onSelectWorkspace?: (id: string | null) => void;
-    surface?: "files" | "pr";
+    surface?: "files" | "pr" | "publish";
     onShowFiles?: () => void;
   }) => {
     panelProbe.selectPath = onSelectPath ?? null;
@@ -342,6 +353,42 @@ describe("the files panel's address", () => {
     // still names it (TASTE 15).
     expect(panel()?.getAttribute("data-open-path")).toBe("notes.md");
     expect(address()).toBe("/tasks/task-1?panel=files&file=notes.md");
+  });
+
+  it("a visit to the publish tab keeps the open file in the panel and in the address", async () => {
+    // A `remote-*` task is one whose checkout is on another machine, which is
+    // the only case publish is offered for.
+    render(
+      <MemoryRouter initialEntries={["/tasks/remote-1?panel=files&file=notes.md"]}>
+        <HistoryProbe />
+        <TaskDetailPage taskId="remote-1" fallbackTask={task} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(panel()?.getAttribute("data-open-path")).toBe("notes.md"));
+
+    // Picking 发布 moves the panel's surface — the page's `openPublishPanel`
+    // does exactly this — and does not unmake the place the reader was in.
+    act(() => {
+      useAppStore.getState().showPanel("remote-1", "publish");
+    });
+    await waitFor(() =>
+      expect(useAppStore.getState().shownPanel).toEqual({ view: "remote-1", id: "publish" }),
+    );
+    expect(panel()?.getAttribute("data-surface")).toBe("publish");
+    expect(panel()?.getAttribute("data-open-path")).toBe("notes.md");
+
+    // A lens tab picked from publish asks the page for files (the panel's own
+    // suite covers the tab; this is the page's answer). The open file survives
+    // the visit and the address still names it (TASTE 15).
+    act(() => {
+      panelProbe.showFiles?.();
+    });
+
+    await waitFor(() =>
+      expect(useAppStore.getState().shownPanel).toEqual({ view: "remote-1", id: "files" }),
+    );
+    expect(panel()?.getAttribute("data-open-path")).toBe("notes.md");
+    expect(address()).toBe("/tasks/remote-1?panel=files&file=notes.md");
   });
 
   it("an unsafe file link opens the list and the address loses only the file", async () => {

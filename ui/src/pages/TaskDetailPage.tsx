@@ -451,14 +451,15 @@ export default function TaskDetailPage({
   // while the task loads), and the files panel is offered whenever there is a
   // task, so the store's answer is the panel's.
   const filesPanelOpen = shownPanel?.view === id && shownPanel.id === "files";
-  // The PR is a tab of that same panel, so being on it is not leaving the
-  // files surface: the open file survives the visit and is still open — and
-  // still in the address — when a lens tab (or the header's Files button)
-  // comes back (TASTE 15).
+  // The PR and publish are tabs of that same panel, so being on either is not
+  // leaving the files surface: the open file survives the visit and is still
+  // open — and still in the address — when a lens tab (or the header's Files
+  // button) comes back (TASTE 15).
   const prSurfaceOpen = shownPanel?.view === id && shownPanel.id === "pr";
+  const publishSurfaceOpen = shownPanel?.view === id && shownPanel.id === "publish";
   useEffect(() => {
-    if (!filesPanelOpen && !prSurfaceOpen) setWorkspaceOpenPath(null);
-  }, [filesPanelOpen, prSurfaceOpen]);
+    if (!filesPanelOpen && !prSurfaceOpen && !publishSurfaceOpen) setWorkspaceOpenPath(null);
+  }, [filesPanelOpen, prSurfaceOpen, publishSurfaceOpen]);
   const slow = useSlowHint(loading);
 
   const loadUsage = useCallback(async () => {
@@ -1722,7 +1723,7 @@ export default function TaskDetailPage({
 
   const changedFiles = useMemo(() => extractChangedFiles(events), [events]);
 
-  // The agent's last answer, as the publish sheet's opening draft. Recomputed
+  // The agent's last answer, as the publish tab's opening draft. Recomputed
   // only when the stream changes, because it walks the whole transcript.
   const publishDraft = useMemo(() => publishDraftFrom(events), [events]);
 
@@ -1742,20 +1743,20 @@ export default function TaskDetailPage({
 
   function toggleFilesPanel() {
     if (filesPanelOpen) closeFilesPanel();
-    // Coming back from the PR tab is a change of view inside one panel, so it
-    // keeps the file the reader had open (see `showFilesSurface`); opening the
-    // panel from the conversation starts from the list.
-    else if (prSurfaceOpen) showFilesSurface();
+    // Coming back from the PR or publish tab is a change of view inside one
+    // panel, so it keeps the file the reader had open (see `showFilesSurface`);
+    // opening the panel from the conversation starts from the list.
+    else if (prSurfaceOpen || publishSurfaceOpen) showFilesSurface();
     else openFilesPanel();
   }
 
   /**
-   * A lens tab picked while the pull-request tab was in front.
+   * A lens tab picked while the pull-request or publish tab was in front.
    *
-   * The lens and the PR are tabs of one panel, so choosing a lens is choosing
-   * the files surface: the page records it the way a file pick does. Unlike
-   * `openFilesPanel`, this keeps the file the reader had open in the address —
-   * the tab changed the view, not the place (TASTE 15).
+   * The lenses and those surfaces are tabs of one panel, so choosing a lens is
+   * choosing the files surface: the page records it the way a file pick does.
+   * Unlike `openFilesPanel`, this keeps the file the reader had open in the
+   * address — the tab changed the view, not the place (TASTE 15).
    */
   function showFilesSurface() {
     if (!task || routedId !== id) return;
@@ -1779,6 +1780,11 @@ export default function TaskDetailPage({
     togglePanel(id, "pr");
   }
 
+  /**
+   * Publish is the workspace panel's fourth tab, so this only moves the surface
+   * the one panel is showing — nothing is opened beside it, and the panel's one
+   * close still closes it.
+   */
   function openPublishPanel() {
     showPanel(id, "publish");
   }
