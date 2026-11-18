@@ -675,6 +675,61 @@ seen: 2
 
 证据：`7c8ff82e`（#145）、`4c8a21e9`（#152）；`rsi/state/decisions-pending.md` 2026-11-16 22:40 / 2026-11-17 00:12
 
+## 2026-11-18 · 浮层盖住列表根页时，用真实指针点一次种子行
+seen: 1
+
+发生了什么：390×844 的四个 tab 根页上，浮动的 `ApprovalCard` 盖住会话行；`elementFromPoint` 在种子上返回面板的「打开任务」按钮，列表行根本点不开（needs-ceo 02:10）。`#252` 把根页改成一条 ≥44px 的「等待处理」横条，完整卡片留在被推入的对话里。
+
+为什么没拦住：J7 走查用 focus+Enter 打开行，键盘绕过了命中测试；DOM 测试只证明卡片存在，没有断言被盖住的行仍然可点。
+
+规则：覆盖在列表根页上的浮层，必须在 390 宽用真实指针点一次被盖住的行（或 `elementFromPoint` 断言它返回行本身），并把「行可点」写成验收表的一行；只证明浮层存在不算通过。
+
+证据：`04cac378`（#252）；`rsi/state/needs-ceo.md` 2026-11-18 02:10
+
+## 2026-11-18 · `--no-build` 走查先校验 `index.html` 与 `assets/` 同源
+seen: 1
+
+发生了什么：`web/dist/index.html` 指向 `index-CsUU5Pwd.js`，而 `web/dist/assets/` 里是 `index-8W_FasJ4.js`；走查打开空白页，报出约 20 个 J3 硬失败，正好落在修 J3 的 PR 上。同一类假红在此前让 #251 白走两次。
+
+为什么没拦住：runner 信任 `index.html`，不检查它命名的资源是否存在；上一次构建与后一次 dist 更新不同步是正常状态，静默地变成了产品缺陷。
+
+规则：任何复用已有 `web/dist` 的走查或冒烟，在启动前校验 `index.html` 里的每个 `assets/*.js|css` 都存在，缺一个就报 unavailable 并提示重建；正反两例放进套件。
+
+证据：`4a2bd127`（#268）；`rsi/state/needs-ceo.md` 2026-11-18 05:50
+
+## 2026-11-18 · 仓库自带的冒烟要自己 pin 它需要的环境变量
+seen: 1
+
+发生了什么：`scripts/journeys-smoke.sh` 从未导出 `RSI_FAKE_SLOW_SECS`，J3 的排队步骤在 3 秒窗口里全部失败，#264 因此被返工一轮。
+
+为什么没拦住：单测与本地走查各自 export 了变量，仓库自己的 smoke 没有跑过一次完整 J3；缺变量时表现为产品超时，不是配置错误。
+
+规则：冒烟脚本自己 export 所需变量，或断言默认值存在；新增依赖时间窗的步骤时，在同一 PR 里让 smoke 跑一次完整旅程，并把变量写进脚本头部。
+
+证据：`5a4f97df`（#264）；`scripts/journeys-smoke.sh`
+
+## 2026-11-18 · 新增可执行脚本必须以 100755 进 git
+seen: 1
+
+发生了什么：#254 的两个新测试脚本在工作区可执行，但提交为 644；fresh checkout 直接失败，评审因此给了 blocker。
+
+为什么没拦住：只在当前工作区跑过，没有在干净检出上执行；`core.fileMode` 的本地配置会掩盖 mode 差异。
+
+规则：新脚本用 `git add --chmod=+x`，测试断言 `git ls-files -s <path>` 的 mode 是 100755；只测当前工作区不算验证。
+
+证据：`9d34c20e`（#254）；`rsi/state/needs-ceo.md` 2026-11-18 03:20
+
+## 2026-11-18 · 同步/快进失败不得吞掉
+seen: 1
+
+发生了什么：`sync_control_tree` 把 `merge --ff-only` 的错误送进 `/dev/null`，活动控制树停在 main 之前 5–6 个提交，合并与闸门连续跑了旧脚本；根因是一个未跟踪的旧草稿会被合入覆盖。
+
+为什么没拦住：失败路径静默，`run.sh --sync-check` 不打印 SHA 也退出 0；「未跟踪文件」被当成无害噪音。
+
+规则：快进失败必须打印原因并 pin 住冲突路径；未跟踪文件只在字节与 main 一致时采纳，否则显式列名；同步后打印实际 SHA。
+
+证据：`b4ee0d5b`（#263）；`rsi/state/needs-ceo.md` 2026-11-18 04:55
+
 ---
 
 ## 升级记录
@@ -725,6 +780,11 @@ seen: 2
 | 测量必须在 `origin/main` 的导出树上做 | 2 | 未升级；DREAM 夜报与 planner 卡已写抗体，下一次测量前先 `git archive` |
 | 只读评审者的搜索要限定在 state 目录 | 2 | 未升级；`reviewer.md` 与 `merge.sh` 的 `$RB` 已写死路径与禁令 |
 | 同一份共享文件一轮只能有一个写者 | 2 | 未升级；baseline / locale 的单写者规则已进 DECISIONS，第三次时进 AGENTS.md |
+| 浮层盖住列表根页时，用真实指针点一次种子行 | 1 | 未升级；`FloatingApproval` 已改横条，下一次在根页加浮层先写 `elementFromPoint` 断言 |
+| `--no-build` 走查先校验 `index.html` 与 `assets/` 同源 | 1 | 未升级；`journeys-smoke.sh` 已 fail closed，下一次复用 dist 的走查先跑正反两例 |
+| 仓库自带的冒烟要自己 pin 它需要的环境变量 | 1 | 未升级；`RSI_FAKE_SLOW_SECS` 已进 smoke，下一次加时间窗步骤先补 export 与完整旅程 |
+| 新增可执行脚本必须以 100755 进 git | 1 | 未升级；#254 的脚本已修正，下一次新脚本用 `--chmod=+x` 并断言 `ls-files -s` |
+| 同步/快进失败不得吞掉 | 1 | 未升级；`adopt_untracked_collision` 已 fail closed，第三次出现时进 `AGENTS.md` |
 
 ## 评审复盘与协议
 
