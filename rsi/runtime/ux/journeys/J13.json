@@ -1,0 +1,60 @@
+{
+  "title": "Phone: a file link opens the source file, Back stops at the file list, closing the panel returns to the conversation, and a self-contained HTML file switches between page and source",
+  "viewports": [
+    "phone"
+  ],
+  "steps": [
+    ["goto", "/sessions"],
+    ["wait", "css=[data-session-row=\"{conversation}\"]"],
+    ["click", "css=[data-session-row=\"{conversation}\"]"],
+    ["url", "^/tasks/{conversation}"],
+    ["wait", "css=[role=region][tabindex='-1']"],
+    ["shot", "conversation"],
+
+    ["goto", "/tasks/{conversation}?panel=files&file=notes.md"],
+    ["search", "^\\?panel=files&file=notes\\.md$"],
+    ["wait", "css=[data-pane='viewer']"],
+    ["wait", "text=Seeded for the journey walk."],
+    ["shot", "file-source"],
+
+    ["back"],
+    ["url", "^/tasks/{conversation}$"],
+    ["search", "^\\?panel=files$"],
+    ["click", "css=[role='tab']:has-text('目录树'), [role='tab']:has-text('Tree')"],
+    ["wait", "css=[data-workspace-row=\"notes.md\"]"],
+    ["shot", "file-back-list"],
+    ["click", "css=button[aria-label='关闭文件面板'], button[aria-label='Close files panel']"],
+    ["url", "^/tasks/{conversation}$"],
+    ["search", "^$"],
+    ["gone", "css=[data-phone-view]"],
+    ["wait", "css=[role=region][tabindex='-1']"],
+    ["shot", "file-back-conversation"],
+
+    ["goto", "/tasks/{conversation}?panel=files"],
+    ["search", "^\\?panel=files$"],
+    ["click", "css=[role='tab']:has-text('目录树'), [role='tab']:has-text('Tree')"],
+    ["wait", "css=[data-workspace-row$=\"preview.html\"]"],
+    ["click", "css=[data-workspace-row$=\"preview.html\"]"],
+    ["wait", "css=[data-testid='html-preview-header'] + iframe"],
+    ["count", "css=[role='group'][aria-label='HTML 视图'] button[aria-pressed='true']:has-text('预览'), [role='group'][aria-label='HTML view'] button[aria-pressed='true']:has-text('Preview')", "1"],
+    ["search", "^\\?panel=files&file=preview\\.html$"],
+    ["shot", "html-preview"],
+    ["click", "css=[role='group'][aria-label='HTML 视图'] button:has-text('源码'), [role='group'][aria-label='HTML view'] button:has-text('Code')"],
+    ["gone", "css=[data-testid='html-preview-header'] + iframe"],
+    ["count", "css=[role='group'][aria-label='HTML 视图'] button[aria-pressed='true']:has-text('源码'), [role='group'][aria-label='HTML view'] button[aria-pressed='true']:has-text('Code')", "1"],
+    ["wait", "text=Seed preview page"],
+    ["search", "^\\?panel=files&file=preview\\.html$"],
+    ["shot", "html-source"],
+    ["click", "css=[role='group'][aria-label='HTML 视图'] button:has-text('预览'), [role='group'][aria-label='HTML view'] button:has-text('Preview')"],
+    ["wait", "css=[data-testid='html-preview-header'] + iframe"],
+    ["count", "css=[role='group'][aria-label='HTML 视图'] button[aria-pressed='true']:has-text('预览'), [role='group'][aria-label='HTML view'] button[aria-pressed='true']:has-text('Preview')", "1"],
+    ["search", "^\\?panel=files&file=preview\\.html$"],
+    ["shot", "html-preview-again"],
+
+    ["goto", "/tasks/{conversation}?panel=files&file=notes.md"],
+    ["search", "^\\?panel=files&file=notes\\.md$"],
+    ["wait", "css=[data-pane='viewer']"],
+    ["wait", "text=Seeded for the journey walk."],
+    ["shot", "file-source-again"]
+  ]
+}
