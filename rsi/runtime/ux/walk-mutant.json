@@ -40,5 +40,12 @@
     "old": "  async function onStop() {\n    if (!task || isTerminal(task.status)) return;",
     "new": "  async function onStop() {\n    if (!task || isTerminal(task.status)) return;\n    // R-midrun-stop: the cancel removed on purpose.\n    if (!isTerminal(task.status)) return;",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once"
+  },
+  {
+    "label": "every route change remounts the shell, throwing away the panes, the scroll and the draft",
+    "file": "ui/src/App.tsx",
+    "old": "      <AppShell pendingApprovals={pending.data.approvals} routineUnreadCount={routineUnreadCount}>",
+    "new": "      {/* R-f4-switch: the shell keyed on the pathname remounts on every switch,\n          which is the page-load flash F4 exists to prevent. */}\n      <AppShell key={location.pathname} pendingApprovals={pending.data.approvals} routineUnreadCount={routineUnreadCount}>",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J9"
   }
 ]
