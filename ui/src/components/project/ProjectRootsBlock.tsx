@@ -348,7 +348,7 @@ export default function ProjectRootsBlock({
             <li key={root} className="py-1.5">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span
-                  className="min-w-0 flex-1 break-all font-mono text-body leading-ui text-kin-text"
+                  className="min-w-0 flex-initial truncate font-mono text-body leading-ui text-kin-text"
                   title={root}
                 >
                   {middleEllipsis(root)}
