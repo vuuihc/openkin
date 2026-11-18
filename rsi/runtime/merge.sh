@@ -311,6 +311,58 @@ queue_carry_step() { # <wt> <old-head> <incoming> <new-sha> <pr-changed> <gate-f
   queue_carry "$1" "$2" "$4" "$3" "$5" "$6" "$7" "${8:-$(cut -d' ' -f3 "$6" 2>/dev/null | head -1)}"
 }
 
+# ------------------------------------------------------------------ CI-first hold
+CI_HOLD_MAX_SECS=2700   # 45 min: a pending CI may defer the step-1 sync at most this long
+ci_first_decision() { # <wt> <branch> <gate-file> <reviewed-file> <ci-state> <marker-file>
+  # The one call site step 1 and --ci-first-check share. Step 1 merges origin/main into the branch
+  # on EVERY verifier start; while CI is still running on a head whose gate and review are already
+  # cached, that merge moves the head, cancels the in-flight CI run and buys a fresh gate for
+  # nothing — one PR paid four full gates and took 90 minutes to merge this way.
+  # 0 = HOLD (skip sync_main; the marker is written on the first hold so the window ages out),
+  # 1 = SYNC (today's behaviour). Sets CI_FIRST_REASON for the caller's one additive log line.
+  # Bias: every unknown (unreadable head, missing cache, failed CI probe, unparsable marker) syncs;
+  # holding is only ever justified by positive evidence.
+  local wt="$1" br="$2" gatefile="$3" reviewed="$4" cis="$5" marker="$6"
+  local hd remote gsha="" gpass="" rdh="" rver="" now at age
+  CI_FIRST_REASON=""
+  hd="$($GIT -C "$wt" rev-parse HEAD 2>/dev/null)" || hd=""
+  remote="$($GIT -C "$wt" rev-parse "origin/$br" 2>/dev/null)" || remote=""
+  [ -n "$hd" ] || { CI_FIRST_REASON="cannot read HEAD in the worktree"; return 1; }
+  [ -s "$gatefile" ] && { read -r gsha gpass _ < "$gatefile" 2>/dev/null || true; }
+  if [ "$gsha" != "$hd" ] || [ "$gpass" != PASS ]; then
+    CI_FIRST_REASON="no cached gate PASS for ${hd:0:8} (gate names ${gsha:0:8} ${gpass:-none})"
+    return 1
+  fi
+  [ -s "$reviewed" ] && { read -r rdh rver _ < "$reviewed" 2>/dev/null || true; }
+  if [ "$rver" != PASS ] || [ "$rdh" != "$(pr_diff_hash "$wt")" ]; then
+    CI_FIRST_REASON="no cached review PASS for this diff (review names ${rdh:-none} ${rver:-none})"
+    return 1
+  fi
+  if [ "$hd" != "$remote" ]; then
+    CI_FIRST_REASON="the local head ${hd:0:8} is not origin/$br (${remote:0:8}): rework not pushed yet"
+    return 1
+  fi
+  if [ "$cis" != pending ]; then
+    CI_FIRST_REASON="CI is ${cis:-unknown} on ${hd:0:8}: the land path needs the main sync"
+    return 1
+  fi
+  now="$(date +%s)"
+  if [ -s "$marker" ]; then
+    at="$(tr -dc '0-9' < "$marker" 2>/dev/null)"
+    [ -n "$at" ] || { CI_FIRST_REASON="the hold marker is unreadable: failing open to the sync"; return 1; }
+    age=$(( now - at ))
+    if [ "$age" -ge "$CI_HOLD_MAX_SECS" ]; then
+      CI_FIRST_REASON="the CI hold expired after ${age}s (max ${CI_HOLD_MAX_SECS}s): syncing and re-gating"
+      return 1
+    fi
+  else
+    date +%s > "$marker" 2>/dev/null \
+      || { CI_FIRST_REASON="cannot write the hold marker: failing open to the sync"; return 1; }
+  fi
+  CI_FIRST_REASON="CI pending on ${hd:0:8}"
+  return 0
+}
+
 # ------------------------------------------------------------------ dispatcher
 if [ "${1:-}" != "--one" ]; then
   [ "${1:-}" = "--resolve-generated" ] && { gen_resolve "${2:?worktree required}"; exit $?; }
@@ -324,6 +376,18 @@ if [ "${1:-}" != "--one" ]; then
       echo "CARRY $QUEUE_CARRY_REASON"; exit 0
     fi
     echo "REGATE $QUEUE_CARRY_REASON"; exit 1
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-verifier-ci-hold.sh: run the same ci_first_decision()
+  # step 1 calls, with the non-waiting CI read passed in. No lock, fetch, gate, review or dispatch.
+  if [ "${1:-}" = "--ci-first-check" ]; then
+    [ $# -ge 7 ] || {
+      echo "usage: merge.sh --ci-first-check <worktree> <branch> <gate-file> <reviewed-file> <ci-state> <marker-file>" >&2
+      exit 2
+    }
+    if ci_first_decision "$2" "$3" "$4" "$5" "$6" "$7"; then
+      echo "HOLD $CI_FIRST_REASON"; exit 0
+    fi
+    echo "SYNC $CI_FIRST_REASON"; exit 1
   fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: run the same carry_forward() the land
   # loop calls, with lists of paths on disk. No gate, no review, no relaunch.
@@ -456,6 +520,9 @@ say "#$N $SLUG ($ITEM) verifier start$QW"; [ -n "$QW" ] && echo "$(date '+%F %H:
 
 mklock() { local d="$1" max="$2" w=0; while ! mkdir "$d" 2>/dev/null; do o="$(cat "$d/pid" 2>/dev/null)"; if [ -n "$o" ] && ! kill -0 "$o" 2>/dev/null; then rm -rf "$d"; continue; fi; sleep 15; w=$((w+15)); [ $w -gt "$max" ] && return 1; done; echo $$ > "$d/pid"; }
 sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 transient failure
+  # Any sync ends a CI-first hold: the head this marker bounded is gone, so a later pending CI
+  # starts its own fresh window instead of inheriting an expired one.
+  rm -f "$STATE/merge/$SLUG.ci-hold"
   if $GIT -C "$WT" merge-base --is-ancestor origin/main HEAD; then
     if [ "$($GIT -C "$WT" rev-parse HEAD)" != "$($GIT -C "$WT" rev-parse "origin/$BR" 2>/dev/null)" ]; then
       with_timeout 120 "$GIT" -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push of prior local merge failed"; return 2; }
@@ -476,6 +543,23 @@ check_buckets() { # gh's `pr checks --json name,bucket,link` on stdin -> space-s
   python3 -c 'import json,sys
 try: print(" ".join(c.get("bucket","") for c in json.load(sys.stdin)))
 except Exception: pass' 2>/dev/null
+}
+ci_probe_once() { # one NON-waiting CI read: prints green|pending|fail, nothing when the read failed
+  # Step 1's hold decision needs only to know whether CI is still running; it must never pay
+  # ci_state's 25-minute pending wait (that wait belongs to the land loop, after verification).
+  # Empty output is the fail-open signal: ci_first_decision then syncs as before.
+  local out buckets
+  out="$($GH pr checks "$N" --repo "$GH_REPO" --json name,bucket,link 2>&1)"
+  echo "$out" | grep -qi 'no checks reported' && { echo green; return 0; }
+  buckets="$(printf '%s' "$out" | check_buckets)"
+  [ -n "$buckets" ] || return 0
+  case " $buckets " in
+    *" fail "*) echo fail ;;
+    *" pending "*) echo pending ;;
+    *" pass "*) echo green ;;
+    *" cancel "*) echo pending ;;
+    *) echo green ;;
+  esac
 }
 ci_state() { # prints green|pending|fail ; waits (bounded) while pending
   local tries=0 out buckets
@@ -555,10 +639,18 @@ fi
 [ -n "$($GIT -C "$WT" status --porcelain --untracked-files=no)" ] && { say "#$N $SLUG: worktree has uncommitted tracked edits, skip"; exit 0; }
 $GIT -C "$WT" merge -q --ff-only "origin/$BR" >/dev/null 2>&1 || { say "#$N $SLUG: local branch diverged from origin, skip"; exit 0; }
 
-# 1. sync main
+# 1. sync main — unless CI is still running on a head whose gate and review are already cached.
+# Merging origin/main now would move the head, cancel that in-flight CI run and buy a fresh gate
+# for nothing (GitHub cancels the superseded run, so the wait never converges). The hold rules
+# below still read origin/main...HEAD, the PR's own diff, which skipping the sync does not change.
 OLDHEAD="$($GIT -C "$WT" rev-parse HEAD)"
 OLDBASE="$($GIT -C "$WT" merge-base HEAD origin/main)"
-sync_main; rc=$?; [ $rc -ne 0 ] && exit 0
+if ci_first_decision "$WT" "$BR" "$V" "$RV" "$(ci_probe_once)" "$STATE/merge/$SLUG.ci-hold"; then
+  say "#$N $SLUG: $CI_FIRST_REASON — holding the main sync (cached gate+review); sync deferred"
+else
+  say "#$N $SLUG: $CI_FIRST_REASON — syncing main"
+  sync_main; rc=$?; [ $rc -ne 0 ] && exit 0
+fi
 bash "$RSI_DIR/runtime/prep-worktree.sh" "$WT" 2>&1 | tail -2
 SHA="$($GIT -C "$WT" rev-parse HEAD)"
 
