@@ -626,14 +626,17 @@ fi
 # resolve an index entry relative to the index. Bodies the real index already
 # names are carried over too, so this case keeps working as more journeys move.
 tmp="$(mktemp -d "$tmpbase/walk-mutant-spec-split.XXXXXX")"
-python3 - "$SPEC_INDEX" "$tmp" <<'PY' || { rm -rf "$tmp"; rm -f "$log"; fail "$case_name: cannot build the moved-J1 fixture"; }
+python3 - "$SPEC_INDEX" "$tmp" "$SPECPY" <<'PY' || { rm -rf "$tmp"; rm -f "$log"; fail "$case_name: cannot build the moved-J1 fixture"; }
 import json
 import os
 import shutil
+import subprocess
 import sys
 
-src, out = sys.argv[1], sys.argv[2]
-spec = json.load(open(src, encoding="utf-8"))
+src, out, specpy = sys.argv[1], sys.argv[2], sys.argv[3]
+# Read the shipped J1 through the loader: it may already be a body file, and
+# this fixture must not carry a second reader that assumes an inline copy.
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", src]))
 os.makedirs(os.path.join(out, "journeys"), exist_ok=True)
 bodies = os.path.join(os.path.dirname(os.path.abspath(src)), "journeys")
 if os.path.isdir(bodies):
@@ -644,9 +647,11 @@ if os.path.isdir(bodies):
 body = spec["journeys"]["J1"]
 with open(os.path.join(out, "journeys", "J1.json"), "w", encoding="utf-8") as fh:
     json.dump(body, fh, ensure_ascii=False)
-spec["journeys"]["J1"] = "journeys/J1.json"
+index = json.load(open(src, encoding="utf-8"))
+index["journeys"] = dict(index["journeys"])
+index["journeys"]["J1"] = "journeys/J1.json"
 with open(os.path.join(out, "journeys.json"), "w", encoding="utf-8") as fh:
-    json.dump(spec, fh, ensure_ascii=False)
+    json.dump(index, fh, ensure_ascii=False)
 PY
 ( cd "$WT" && node rsi/runtime/ux/walk.mjs --check-spec --spec "$tmp/journeys.json" ) >"$log" 2>&1
 rc=$?
@@ -696,14 +701,15 @@ dash="$(RSI_CTRL="$WT" bash "$MERGE" --spec-rev "$empty" 2>&1)"
 rm -rf "$tmp" "$empty"
 pass "$case_name"
 
-# The fixtures above prove the loader; this case pins the shipped index, so the
-# first body move cannot be faked by a stale inline copy or a body that drifted
-# from it. J2 gains legs, so the step count is deliberately not asserted. Batch
-# 3 generalises this into test_spec_split_every_journey_resolves; keep the body
-# checks here reusable for that.
-case_name="test_spec_real_index_j2_is_a_file"
+# The fixtures above prove the loader; this case pins the shipped index, so a
+# body move cannot be faked by a stale inline copy or a body that drifted from
+# it. Every string entry must be exactly `journeys/<id>.json` and resolve
+# verbatim with a title and steps; J4 and J8 are still inline objects and stay
+# out of the moved set until their own slices. J2 gains legs, so the step count
+# is deliberately not asserted.
+case_name="test_spec_real_index_moved_bodies_resolve"
 [ -f "$SPECPY" ] || fail "$case_name: $SPECPY is missing"
-python3 - "$SPEC_INDEX" "$SPECPY" "$JOURNEYS_DIR" <<'PY' || fail "$case_name: the shipped index still has J2 inline or the body drifted"
+python3 - "$SPEC_INDEX" "$SPECPY" "$JOURNEYS_DIR" <<'PY' || fail "$case_name: a moved journey body is still inline, missing on disk or drifted from the index"
 import json
 import os
 import subprocess
@@ -711,22 +717,56 @@ import sys
 
 index_path, specpy, journeys_dir = sys.argv[1], sys.argv[2], sys.argv[3]
 index = json.load(open(index_path, encoding="utf-8"))
-entry = (index.get("journeys") or {}).get("J2")
-assert entry == "journeys/J2.json", "J2 is not a file entry: %r" % (entry,)
-body_path = os.path.join(journeys_dir, "J2.json")
-body = json.load(open(body_path, encoding="utf-8"))
-steps = body.get("steps")
-assert isinstance(steps, list) and steps, "J2.json has no steps"
-assert isinstance(body.get("title"), str) \
-    and body["title"].startswith("Mac: search last week's chat"), \
-    "J2.json title drifted: %r" % (body.get("title"),)
-assert body.get("viewports") == ["mac", "mac-wide"], \
-    "J2.json viewports drifted: %r" % (body.get("viewports"),)
+journeys = index.get("journeys") or {}
+MOVED = ["J1", "J2", "J3", "J5", "J6", "J7", "J9", "J10", "J11"]
+for jid in MOVED:
+    entry = journeys.get(jid)
+    assert entry == "journeys/%s.json" % jid, \
+        "%s is still inline in the index (or names another path): %r" % (jid, entry)
 resolved = json.loads(subprocess.check_output(
     [sys.executable, specpy, "--resolve", index_path]))
-assert resolved["journeys"]["J2"] == body, "the resolved J2 is not the body file"
-print("real index ok: J2 resolves verbatim from journeys/J2.json")
+moved = []
+for jid, entry in journeys.items():
+    if not isinstance(entry, str):
+        continue
+    body_path = os.path.join(journeys_dir, os.path.basename(entry))
+    body = json.load(open(body_path, encoding="utf-8"))
+    steps = body.get("steps")
+    assert isinstance(steps, list) and steps, "%s has no steps" % body_path
+    title = body.get("title")
+    assert isinstance(title, str) and title.strip(), "%s has no title" % body_path
+    assert resolved["journeys"][jid] == body, \
+        "the resolved %s is not the body file %s" % (jid, body_path)
+    moved.append(jid)
+j2 = json.load(open(os.path.join(journeys_dir, "J2.json"), encoding="utf-8"))
+assert j2["title"].startswith("Mac: search last week's chat"), \
+    "J2.json title drifted: %r" % (j2.get("title"),)
+assert j2.get("viewports") == ["mac", "mac-wide"], \
+    "J2.json viewports drifted: %r" % (j2.get("viewports"),)
+assert resolved.get("viewports") == index.get("viewports"), "top-level viewports changed"
+assert resolved.get("paths") == index.get("paths"), "top-level paths changed"
+print("real index ok: %s resolve verbatim from their own files"
+      % " ".join(sorted(moved, key=lambda jid: int(jid[1:]))))
 PY
 pass "$case_name"
 
-echo "walk-mutant contract: 15/15 cases passed"
+# A newly moved body must be loud when its file disappears, not a skipped
+# journey: the real index is copied with only J9's body removed.
+case_name="test_spec_real_index_missing_moved_body_names_the_path"
+tmp="$(mktemp -d "$tmpbase/walk-mutant-missing.XXXXXX")"
+mkdir -p "$tmp/journeys"
+cp "$SPEC_INDEX" "$tmp/journeys.json"
+cp "$JOURNEYS_DIR"/*.json "$tmp/journeys/"
+rm -f "$tmp/journeys/J9.json"
+err="$(python3 "$SPECPY" --ids "$tmp/journeys.json" 2>&1 >/dev/null)"
+rc=$?
+if [ "$rc" -ne 2 ] || [ -z "$err" ]; then
+  rm -rf "$tmp"
+  fail "$case_name: --ids exited $rc (want 2 with stderr) for a missing J9: $err"
+fi
+case "$err" in *J9*) ;; *) rm -rf "$tmp"; fail "$case_name: --ids stderr does not name J9: $err" ;; esac
+case "$err" in *"$tmp/journeys/J9.json"*) ;; *) rm -rf "$tmp"; fail "$case_name: --ids stderr does not name $tmp/journeys/J9.json: $err" ;; esac
+rm -rf "$tmp"
+pass "$case_name"
+
+echo "walk-mutant contract: 16/16 cases passed"
