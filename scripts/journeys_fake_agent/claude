@@ -57,6 +57,15 @@
 # row; without a deterministic hold that window is a race against the answer.
 # The hold is bounded so a crashed walk can never leave a turn running for
 # minutes, and it changes nothing for any other prompt.
+#
+# One prompt never answers. A prompt containing "[seed] hold" prints the init
+# line and one assistant message, then stays alive for RSI_FAKE_HOLD_SECS
+# (default 600, clamped 0..900, a malformed value falls back to the default)
+# without ever printing a result. The task therefore stays `running`, not
+# `waiting_approval`: scripts/journeys_seed.py uses it for the one conversation
+# whose row menu J5 opens while the turn is still working. It exits as soon as
+# its parent (the daemon) is gone, so a torn-down walk leaves no sleeper, and
+# the cap bounds even a parent that never dies.
 set -u
 
 prompt=""
@@ -177,6 +186,32 @@ case "$prompt" in
         ;;
     esac
     sleep "$secs"
+    ;;
+esac
+
+case "$prompt" in
+  *"[seed] hold"*)
+    raw="${RSI_FAKE_HOLD_SECS:-600}"
+    case "$raw" in
+      '' | *[!0-9]*) secs=600 ;;
+      *)
+        # Compare by length first so an arbitrarily large number is never
+        # parsed by `test -gt`; 900 is the hard cap, and "900" is three digits.
+        if [ "${#raw}" -gt 3 ] || [ "$raw" -gt 900 ]; then secs=900; else secs="$raw"; fi
+        ;;
+    esac
+    # One assistant line so the transcript is not empty while the row works.
+    # No tool_use: this task must never ask for an approval card.
+    cat <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Fake turn still working; no result will arrive."}]}}
+EOF
+    i=0
+    while [ "$i" -lt "$secs" ]; do
+      kill -0 "$PPID" 2>/dev/null || exit 0
+      sleep 1
+      i=$((i + 1))
+    done
+    exit 0
     ;;
 esac
 

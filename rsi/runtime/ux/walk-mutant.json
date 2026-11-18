@@ -61,5 +61,12 @@
     "old": "            busy ? (\n              <Checking />\n            ) : (\n              <p className=\"text-body text-kin-muted\">{unobservedLabel(tr)}</p>\n            )",
     "new": "            // R-p3-pr-panel: the unchecked branch reads as still checking on purpose.\n            true ? (\n              <Checking />\n            ) : (\n              <p className=\"text-body text-kin-muted\">{unobservedLabel(tr)}</p>\n            )",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J2"
+  },
+  {
+    "label": "a working conversation's row menu loses its 运行中 status line",
+    "file": "ui/src/components/sessions/SessionRow.tsx",
+    "old": "        ...(runningNow\n          ? [\n              {\n                id: \"running\",",
+    "new": "        // R-j5-row-actions-proof: the running status line dropped on purpose.\n        // `runningNow &&` keeps the tone test referenced so tsc's noUnusedLocals\n        // accepts the mutant build; esbuild drops the dead branch.\n        ...(runningNow && false\n          ? [\n              {\n                id: \"running\",",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J5"
   }
 ]
