@@ -1299,14 +1299,6 @@ function checkJ12Contract(spec) {
   if (!journey.title && !Array.isArray(steps)) return ['J12 is not in the spec'];
   if (!Array.isArray(steps) || steps.length === 0) return ['J12 has no steps'];
   const errs = [];
-  // The project fold is `?`-optional because it only exists once a bucket holds
-  // more rows than the page draws: a standalone J12's fullest bucket holds four
-  // conversations
-  // per project and the button is not in the DOM at all, while the gate's walk
-  // (another journey's conversations land in the same bucket) hides the seeded
-  // row behind it. It is the one permitted optional step, and only because the
-  // row read that follows stays mandatory: a press that silently fails leaves
-  // the row unrendered and reddens the next wait/swipe/rows.
   const isFoldClick = (st) => Array.isArray(st) && st[0] === 'click'
     && /展开全部|Show all/.test(String(st[1] ?? ''));
   // Every J12 proof is mandatory. The executor logs a `?`-prefixed step that
@@ -1315,7 +1307,7 @@ function checkJ12Contract(spec) {
   // dead — the failure this contract exists to catch.
   steps.forEach((st) => {
     if (Array.isArray(st) && st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'))) {
-      if (!isFoldClick(st)) errs.push('J12 step ' + JSON.stringify(st) + ' is optional; every J12 proof must be mandatory');
+      errs.push('J12 ' + (isFoldClick(st) ? 'project fold ' : 'step ') + JSON.stringify(st) + ' is optional; every J12 proof must be mandatory');
     }
   });
   const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
@@ -1337,26 +1329,36 @@ function checkJ12Contract(spec) {
   // first. Past five rows the seeded row is not rendered until 展开全部 is
   // pressed, and a gesture aimed at it fails as "not on the screen". A load
   // followed by a non-empty search is exempt: `searching` force-opens every
-  // bucket, so the row is drawn without the disclosure. The press itself may
-  // be `?` (the button exists only on a tall bucket); the row read after it is
-  // mandatory, which is what keeps a dead press from being invisible.
+  // bucket, so the row is drawn without the disclosure. The press must be
+  // mandatory: an optional click would never prove the fold was exercised.
   const rowRead = (st) => Array.isArray(st)
-    && ['wait', 'swipe', 'drag', 'rows'].includes(st[0])
+    && ['click', 'wait', 'swipe', 'drag', 'rows'].includes(st[0])
     && /Morning planning/.test(JSON.stringify(st));
   let missingFold = false;
   steps.forEach((st, g) => {
     if (!Array.isArray(st) || st[0] !== 'goto' || st[1] !== '/sessions') return;
-    const readAt = steps.findIndex((cand, i) => i > g && rowRead(cand));
-    if (readAt < 0) return; // this load is not read by the walk
-    const searched = steps.some((cand, i) => i > g && i < readAt && Array.isArray(cand)
-      && cand[0] === 'fill' && /input\[type=search\]/.test(sel(cand, 1)) && String(cand[2] ?? '').trim() !== '');
-    if (searched) return;
-    const pressed = steps.findIndex((cand, i) => i > g && i < readAt && isFoldClick(cand));
+    const nextLoad = idx((cand) => cand[0] === 'goto', g + 1);
+    const end = nextLoad < 0 ? steps.length : nextLoad;
+    const readAt = steps.findIndex((cand, i) => i > g && i < end && rowRead(cand));
+    if (readAt < 0) return;
+    const fillAt = steps.findLastIndex((cand, i) => i > g && i < readAt && Array.isArray(cand)
+      && cand[0] === 'fill' && /input\[type=search\]/.test(sel(cand, 1)));
+    if (fillAt >= 0 && sel(steps[fillAt], 2).trim() !== '') return;
+    const pressed = steps.findIndex((cand, i) => i > g && i < readAt && isFoldClick(cand) && !sel(cand, 1).startsWith('?'));
     if (pressed < 0) missingFold = true;
+    if (fillAt < 0 || (pressed >= 0 && fillAt > pressed)) {
+      errs.push('J12 must clear the search after each unsearched list load before pressing the project fold');
+    }
   });
   if (missingFold) {
-    errs.push('J12 never presses the project fold after a list load (click … 展开全部|Show all) before reading the seeded row; a bucket past five rows does not render it');
+    errs.push('J12 never presses the project fold after a list load (click … 展开全部|Show all, not optional) before reading the seeded row');
   }
+
+  // The standalone seed has only two Alpha rows. Create four conversations
+  // through the fake-agent-gated UI so this walk exercises a real disclosure.
+  const firstFoldAt = idx(isFoldClick);
+  const fixtureSends = steps.filter((st, i) => i < firstFoldAt && Array.isArray(st) && st[0] === 'send');
+  if (fixtureSends.length < 4) errs.push('J12 needs four fixture conversations before the project fold; the standalone seed does not fold');
 
   // Every gesture must be followed by the assertion it feeds before the next
   // gesture starts. A swipe nobody reads proves only that the event was sent.
@@ -1386,6 +1388,10 @@ function checkJ12Contract(spec) {
     const scrollAt = idx((st) => st[0] === 'scroll' && /data-phone-scroll/.test(sel(st, 1)) && num(st, 2) > 0);
     if (fillAt < 0 || fillAt > edgeAt) errs.push('J12 must type a search term before the edge swipe; a search restored from nothing proves nothing');
     if (scrollAt < 0 || scrollAt > edgeAt) errs.push('J12 must scroll the list before the edge swipe; a kept offset of 0 is not a kept offset');
+    const openAt = idx((st) => st[0] === 'click' && /data-session-row/.test(sel(st, 1)));
+    if (openAt < 0 || openAt > edgeAt || !/Morning planning/.test(sel(steps[openAt], 1))) {
+      errs.push('J12 must open the named [seed] Morning planning row before the edge swipe');
+    }
     const valueAt = after(edgeAt, (st) => st[0] === 'value' && searchSel(st));
     const keptAt = after(edgeAt, (st) => st[0] === 'scroll-kept' && /data-phone-scroll/.test(sel(st, 1)));
     if (valueAt < 0) errs.push('J12 never reads the search text back after the edge swipe (value input[type=search] …)');
