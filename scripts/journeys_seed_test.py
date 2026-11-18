@@ -28,6 +28,14 @@ ROOT = os.path.dirname(SCRIPTS)
 SEED = os.path.join(SCRIPTS, "journeys_seed.py")
 JOURNEYS_SPEC = os.path.join(ROOT, "rsi", "runtime", "ux", "journeys.json")
 
+SPECPY = os.path.join(ROOT, "rsi", "runtime", "ux", "spec.py")
+
+
+def load_spec(path: str = JOURNEYS_SPEC) -> dict:
+    """The journey index resolved through rsi/runtime/ux/spec.py, the one reader."""
+    out = subprocess.check_output([sys.executable, SPECPY, "--resolve", path])
+    return json.loads(out)
+
 sys.path.insert(0, SCRIPTS)
 import journeys_seed  # noqa: E402
 # A value the script is never allowed to echo. Deliberately fake: the point is
@@ -1127,8 +1135,7 @@ class HarnessContractTest(unittest.TestCase):
                 self.assertNotIn("target", spec)
 
     def test_j2_opens_changes_before_leaving_the_conversation(self) -> None:
-        with open(JOURNEYS_SPEC, encoding="utf-8") as fh:
-            spec = json.load(fh)
+        spec = load_spec()
         steps = spec["journeys"]["J2"]["steps"]
         panel = next((i for i, step in enumerate(steps) if step[:2] == ["shot", "workspace-panel"]), -1)
         new_chat = next((i for i, step in enumerate(steps) if step[:2] == ["goto", "/new"]), -1)

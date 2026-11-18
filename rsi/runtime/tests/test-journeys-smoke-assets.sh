@@ -37,6 +37,7 @@ tree() {
   local dir="$T/$1"
   mkdir -p "$dir/scripts" "$dir/rsi/runtime/ux" "$dir/web/dist"
   cp "$SCRIPT_SRC" "$dir/scripts/journeys-smoke.sh"
+  cp "$REPO/rsi/runtime/ux/spec.py" "$dir/rsi/runtime/ux/spec.py"
   cat > "$dir/rsi/runtime/ux/journeys.json" <<'JSON'
 {"journeys": {"J1": {"viewports": ["phone"]}}, "viewports": {"phone": "390x844"}}
 JSON
