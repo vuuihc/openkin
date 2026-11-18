@@ -1777,6 +1777,14 @@ class WalkJ12ContractTest(unittest.TestCase):
             json.dump(spec, fh)
         return path
 
+    def copy_spec_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec)
+        path = os.path.join(self.tmp, "paths.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
     def index_without_j12(self) -> str:
         """A copy of the shipped index with only the J12 entry deleted.
 
@@ -1864,6 +1872,15 @@ class WalkJ12ContractTest(unittest.TestCase):
         shots = [step[1] for step in steps if step[0] == "shot"]
         self.assertEqual([name for name in shots if name in self.SCREENS], self.SCREENS, shots)
 
+        # The shell, list, conversation and locale diffs must select J12, or a
+        # dead gesture passes on a PR the UX gate never walks.
+        for row_needle in ("ui/src/components/layout/", "ui/src/components/sessions/",
+                           "ui/src/components/mobile/", "ui/src/pages/TaskDetail",
+                           "ui/src/i18n/locales/"):
+            row = next((row for row in spec["paths"] if row_needle in row[0]), None)
+            self.assertIsNotNone(row, row_needle)
+            self.assertIn("J12", row[1], row_needle)
+
     def test_j12_contract_rejects_a_spec_without_the_reorder(self) -> None:
         # A J12 that dropped the hold still passes every earlier leg, so the
         # contract has to name the absent gesture rather than return [] for a
@@ -1885,6 +1902,26 @@ class WalkJ12ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("spec red: J12", out)
         self.assertIn("J12 is not in the spec", out)
+
+    def test_j12_contract_requires_the_gesture_paths_rows(self) -> None:
+        # `--files` selects the journeys from the paths table, first match
+        # wins. A shell, list, conversation or locale row that drops J12 would
+        # let the thumb gestures rot without any gate ever walking them.
+        def drop_j12_rows(spec: dict) -> None:
+            for row in spec["paths"]:
+                if any(needle in row[0] for needle in (
+                    "ui/src/components/layout/", "ui/src/components/sessions/",
+                    "ui/src/components/mobile/", "ui/src/pages/TaskDetail",
+                    "ui/src/i18n/locales/",
+                )):
+                    row[1] = [journey for journey in row[1] if journey != "J12"]
+
+        code, out = self.check(self.copy_spec_with(drop_j12_rows))
+        self.assertEqual(code, 1, out)
+        self.assertIn("paths table", out)
+        for file in ("AppShell.tsx", "SessionList.tsx", "SessionRow.tsx", "MobileList.tsx",
+                     "TaskDetailPage.tsx", "locales/zh.ts", "locales/en.ts"):
+            self.assertIn(file, out)
 
 
 class WalkJ5ContractTest(unittest.TestCase):

@@ -1374,6 +1374,20 @@ function checkJ12Contract(spec) {
   // about which gesture the later assertions belong to.
   if (edgeAt >= 0 && leftAt >= 0 && edgeAt > leftAt) errs.push('J12 runs the row swipe before the edge back; the edge leg is first');
   if (leftAt >= 0 && dragAt >= 0 && leftAt > dragAt) errs.push('J12 runs the hold-to-reorder before the row swipe; the row reveal is the middle leg');
+
+  // A shell, list or locale diff that no longer selects J12 would let the
+  // thumb gestures rot without the gate ever walking them: `--files` picks
+  // the journeys from this table, first match wins.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ12 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J12');
+  };
+  for (const file of ['ui/src/components/layout/AppShell.tsx', 'ui/src/components/sessions/SessionList.tsx', 'ui/src/components/sessions/SessionRow.tsx', 'ui/src/components/mobile/MobileList.tsx', 'ui/src/pages/TaskDetailPage.tsx', 'ui/src/i18n/locales/zh.ts', 'ui/src/i18n/locales/en.ts']) {
+    if (!mapsToJ12(file)) {
+      errs.push(`the paths table does not map ${file} to J12; a diff there would not walk the thumb gestures`);
+    }
+  }
   return errs;
 }
 if (process.argv.includes('--check-spec')) {
