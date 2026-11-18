@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the disjoint hold never holds (green CI always syncs), so the skip buys nothing",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_pass_disjoint_move_holds bash rsi/runtime/tests/test-merge-sync-skip.sh",
+    "old": "      CARRY|CARRY-UI)",
+    "new": "      NEVER)"
+  },
+  {
+    "label": "the disjoint hold ignores the gate cache, so a gate verified on another head is trusted",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_pass_no_gate_cache_syncs bash rsi/runtime/tests/test-merge-sync-skip.sh",
+    "old": "  if [ \"$gsha\" != \"$hd\" ] || [ \"$gpass\" != PASS ]; then",
+    "new": "  if false; then"
+  }
+]

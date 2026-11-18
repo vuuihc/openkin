@@ -182,20 +182,20 @@ gen_resolve() { # worktree -> 0 resolved and committed; 1 anything else (caller 
   $GIT -C "$wt" commit -q --no-edit || return 1
 }
 
-carry_forward() { # <worktree> <incoming-paths> <pr-changed-paths> <gate-file> <new-sha> <role>
-  # origin/main moved under a verified PR. Carry the verified gate to <new-sha> only when every
-  # incoming path is disjoint from the PR's own files and packages and from the shared surfaces;
-  # otherwise drop the gate file and let the caller re-gate. Sets CARRY_REASON for the log line.
-  # 0 = carried (gate file now names <new-sha>), 1 = needs a fresh gate (gate file removed).
-  # Bias: every path this cannot positively classify re-gates. CI still runs on the merged head.
-  local wt="$1" incoming="$2" changed="$3" gatefile="$4" newsha="$5" role="$6"
-  local dfile tag reason
-  CARRY_REASON=""
+main_move_verdict() { # <incoming-paths> <pr-changed-paths> — sets MOVE_TAG (CARRY|CARRY-UI|REGATE)
+  # and MOVE_REASON. The one disjoint classifier: origin/main moved under a verified PR. CARRY when
+  # every incoming path is disjoint from the PR's own files and packages and from the shared
+  # surfaces, CARRY-UI when only ui leaves moved, REGATE otherwise. The callers decide what a CARRY
+  # means (carry the gate across a merge, or skip the step-1 sync entirely). Bias: every path this
+  # cannot positively classify re-gates.
   # A here-document inside $( ) is mis-parsed by the macOS /bin/bash 3.2 this script runs on
   # (it quote-scans the body while looking for the closing paren), so the verdict goes through a
   # temp file, like gate.sh's changed-path listing.
-  dfile="$(mktemp "${TMPDIR:-/tmp}/rsi-carry.XXXXXX")" || { CARRY_REASON="cannot create a temp file for the carry predicate"; rm -f "$gatefile"; return 1; }
-  python3 - "$incoming" "$changed" > "$dfile" <<'PY'
+  local dfile tag reason
+  MOVE_TAG=""; MOVE_REASON=""
+  dfile="$(mktemp "${TMPDIR:-/tmp}/rsi-carry.XXXXXX")" \
+    || { MOVE_TAG="REGATE"; MOVE_REASON="cannot create a temp file for the main-move predicate"; return 1; }
+  python3 - "$1" "$2" > "$dfile" <<'PY'
 import sys
 
 incoming = [p for p in sys.argv[1].splitlines() if p]
@@ -257,9 +257,23 @@ else:
 PY
   { read -r tag reason; } < "$dfile"
   rm -f "$dfile"
-  case "$tag" in
+  MOVE_TAG="${tag:-REGATE}"
+  MOVE_REASON="${reason:-the main-move predicate produced no decision}"
+  return 0
+}
+
+carry_forward() { # <worktree> <incoming-paths> <pr-changed-paths> <gate-file> <new-sha> <role>
+  # origin/main moved under a verified PR. Carry the verified gate to <new-sha> only when every
+  # incoming path is disjoint from the PR's own files and packages and from the shared surfaces;
+  # otherwise drop the gate file and let the caller re-gate. Sets CARRY_REASON for the log line.
+  # 0 = carried (gate file now names <new-sha>), 1 = needs a fresh gate (gate file removed).
+  # Bias: every path this cannot positively classify re-gates. CI still runs on the merged head.
+  local wt="$1" incoming="$2" changed="$3" gatefile="$4" newsha="$5" role="$6"
+  CARRY_REASON=""
+  main_move_verdict "$incoming" "$changed"
+  case "$MOVE_TAG" in
     CARRY)
-      CARRY_REASON="$reason"
+      CARRY_REASON="$MOVE_REASON"
       echo "$newsha PASS $role" > "$gatefile"; return 0 ;;
     CARRY-UI)
       # Leaf ui paths disjoint from the PR's own files. Prove the merged tree still holds the two
@@ -268,14 +282,14 @@ PY
       if ( cd "$wt" && bash -c "$INV_CHECK" ) >/dev/null 2>&1 \
          && ( cd "$wt/ui" && bash -c "$DIST_BUILD" ) >/dev/null 2>&1 \
          && $GIT -C "$wt" diff --quiet -- web/dist/index.html; then
-        CARRY_REASON="$reason; inventory+build green, web/dist/index.html unchanged"
+        CARRY_REASON="$MOVE_REASON; inventory+build green, web/dist/index.html unchanged"
         echo "$newsha PASS $role" > "$gatefile"; return 0
       fi
       $GIT -C "$wt" checkout -q -- web/dist/index.html 2>/dev/null || true
-      CARRY_REASON="ui safety step failed (inventory/build/dist) after: $reason"
+      CARRY_REASON="ui safety step failed (inventory/build/dist) after: $MOVE_REASON"
       rm -f "$gatefile"; return 1 ;;
     *)
-      CARRY_REASON="${reason:-carry predicate produced no decision}"
+      CARRY_REASON="${MOVE_REASON:-carry predicate produced no decision}"
       rm -f "$gatefile"; return 1 ;;
   esac
 }
@@ -328,19 +342,44 @@ queue_carry_step() { # <wt> <old-head> <incoming> <new-sha> <pr-changed> <gate-f
 }
 
 # ------------------------------------------------------------------ CI-first hold
-CI_HOLD_MAX_SECS=2700   # 45 min: a pending CI may defer the step-1 sync at most this long
-ci_first_decision() { # <wt> <branch> <gate-file> <reviewed-file> <ci-state> <marker-file>
+CI_HOLD_MAX_SECS=2700   # 45 min: a hold may defer the step-1 sync at most this long
+ci_hold_window() { # <marker-file> -> 0 when a hold may continue (fresh marker, or one just written)
+  # The one expiry clock both holds share: a PR can never be held away from main for more than
+  # CI_HOLD_MAX_SECS, whichever reason (pending CI or a disjoint main move) opened the window.
+  # 1 = unusable or expired marker; CI_FIRST_REASON then carries the fail-open detail.
+  local marker="$1" now at age
+  now="$(date +%s)"
+  if [ -s "$marker" ]; then
+    at="$(tr -dc '0-9' < "$marker" 2>/dev/null)"
+    [ -n "$at" ] || { CI_FIRST_REASON="the hold marker is unreadable: failing open to the sync"; return 1; }
+    age=$(( now - at ))
+    if [ "$age" -ge "$CI_HOLD_MAX_SECS" ]; then
+      CI_FIRST_REASON="the CI hold expired after ${age}s (max ${CI_HOLD_MAX_SECS}s): syncing and re-gating"
+      return 1
+    fi
+  else
+    date +%s > "$marker" 2>/dev/null \
+      || { CI_FIRST_REASON="cannot write the hold marker: failing open to the sync"; return 1; }
+  fi
+  return 0
+}
+ci_first_decision() { # <wt> <branch> <gate-file> <reviewed-file> <ci-state> <marker-file> [incoming-paths] [pr-changed-paths]
   # The one call site step 1 and --ci-first-check share. Step 1 merges origin/main into the branch
   # on EVERY verifier start; while CI is still running on a head whose gate and review are already
   # cached, that merge moves the head, cancels the in-flight CI run and buys a fresh gate for
   # nothing — one PR paid four full gates and took 90 minutes to merge this way.
+  # A green CI with both caches valid is held the same way when main moved only paths this PR does
+  # not verify (main_move_verdict says CARRY/CARRY-UI): the gate and review are keyed to the PR's
+  # own diff, which such a move does not change, so merging would only cancel a green run.
   # 0 = HOLD (skip sync_main; the marker is written on the first hold so the window ages out),
-  # 1 = SYNC (today's behaviour). Sets CI_FIRST_REASON for the caller's one additive log line.
-  # Bias: every unknown (unreadable head, missing cache, failed CI probe, unparsable marker) syncs;
-  # holding is only ever justified by positive evidence.
+  # 1 = SYNC (today's behaviour). Sets CI_FIRST_REASON and CI_FIRST_KIND (hold-ci|hold-disjoint|
+  # sync) for the caller's one additive log line.
+  # Bias: every unknown (unreadable head, missing cache, failed CI probe, unparsable marker,
+  # missing/empty path lists) syncs; holding is only ever justified by positive evidence.
   local wt="$1" br="$2" gatefile="$3" reviewed="$4" cis="$5" marker="$6"
-  local hd remote gsha="" gpass="" rdh="" rver="" now at age
-  CI_FIRST_REASON=""
+  local incoming="${7:-}" changed="${8:-}"
+  local hd remote gsha="" gpass="" rdh="" rver=""
+  CI_FIRST_REASON=""; CI_FIRST_KIND="sync"
   hd="$($GIT -C "$wt" rev-parse HEAD 2>/dev/null)" || hd=""
   remote="$($GIT -C "$wt" rev-parse "origin/$br" 2>/dev/null)" || remote=""
   [ -n "$hd" ] || { CI_FIRST_REASON="cannot read HEAD in the worktree"; return 1; }
@@ -358,25 +397,24 @@ ci_first_decision() { # <wt> <branch> <gate-file> <reviewed-file> <ci-state> <ma
     CI_FIRST_REASON="the local head ${hd:0:8} is not origin/$br (${remote:0:8}): rework not pushed yet"
     return 1
   fi
-  if [ "$cis" != pending ]; then
-    CI_FIRST_REASON="CI is ${cis:-unknown} on ${hd:0:8}: the land path needs the main sync"
-    return 1
+  if [ "$cis" = pending ]; then
+    ci_hold_window "$marker" || return 1
+    CI_FIRST_KIND="hold-ci"
+    CI_FIRST_REASON="CI pending on ${hd:0:8}"
+    return 0
   fi
-  now="$(date +%s)"
-  if [ -s "$marker" ]; then
-    at="$(tr -dc '0-9' < "$marker" 2>/dev/null)"
-    [ -n "$at" ] || { CI_FIRST_REASON="the hold marker is unreadable: failing open to the sync"; return 1; }
-    age=$(( now - at ))
-    if [ "$age" -ge "$CI_HOLD_MAX_SECS" ]; then
-      CI_FIRST_REASON="the CI hold expired after ${age}s (max ${CI_HOLD_MAX_SECS}s): syncing and re-gating"
-      return 1
-    fi
-  else
-    date +%s > "$marker" 2>/dev/null \
-      || { CI_FIRST_REASON="cannot write the hold marker: failing open to the sync"; return 1; }
+  if [ "$cis" = green ] && [ -n "$incoming" ] && [ -n "$changed" ]; then
+    main_move_verdict "$incoming" "$changed"
+    case "$MOVE_TAG" in
+      CARRY|CARRY-UI)
+        ci_hold_window "$marker" || return 1
+        CI_FIRST_KIND="hold-disjoint"
+        CI_FIRST_REASON="main's new commits touch no path this PR verifies ($MOVE_TAG)"
+        return 0 ;;
+    esac
   fi
-  CI_FIRST_REASON="CI pending on ${hd:0:8}"
-  return 0
+  CI_FIRST_REASON="CI is ${cis:-unknown} on ${hd:0:8}: the land path needs the main sync"
+  return 1
 }
 
 # ------------------------------------------------------------------ dispatcher
@@ -397,10 +435,13 @@ if [ "${1:-}" != "--one" ]; then
   # step 1 calls, with the non-waiting CI read passed in. No lock, fetch, gate, review or dispatch.
   if [ "${1:-}" = "--ci-first-check" ]; then
     [ $# -ge 7 ] || {
-      echo "usage: merge.sh --ci-first-check <worktree> <branch> <gate-file> <reviewed-file> <ci-state> <marker-file>" >&2
+      echo "usage: merge.sh --ci-first-check <worktree> <branch> <gate-file> <reviewed-file> <ci-state> <marker-file> [incoming-paths file] [pr-changed-paths file]" >&2
       exit 2
     }
-    if ci_first_decision "$2" "$3" "$4" "$5" "$6" "$7"; then
+    CF_IN=""; CF_CH=""
+    [ -n "${8:-}" ] && [ -r "$8" ] && CF_IN="$(cat "$8" 2>/dev/null)"
+    [ -n "${9:-}" ] && [ -r "$9" ] && CF_CH="$(cat "$9" 2>/dev/null)"
+    if ci_first_decision "$2" "$3" "$4" "$5" "$6" "$7" "$CF_IN" "$CF_CH"; then
       echo "HOLD $CI_FIRST_REASON"; exit 0
     fi
     echo "SYNC $CI_FIRST_REASON"; exit 1
@@ -659,9 +700,19 @@ $GIT -C "$WT" merge -q --ff-only "origin/$BR" >/dev/null 2>&1 || { say "#$N $SLU
 # Merging origin/main now would move the head, cancel that in-flight CI run and buy a fresh gate
 # for nothing (GitHub cancels the superseded run, so the wait never converges). The hold rules
 # below still read origin/main...HEAD, the PR's own diff, which skipping the sync does not change.
+# A green CI is held the same way when main moved only paths this PR does not verify: the gate and
+# review are keyed to the PR's own diff, so the merge would only cancel a green run for nothing.
 OLDHEAD="$($GIT -C "$WT" rev-parse HEAD)"
 OLDBASE="$($GIT -C "$WT" merge-base HEAD origin/main)"
-if ci_first_decision "$WT" "$BR" "$V" "$RV" "$(ci_probe_once)" "$STATE/merge/$SLUG.ci-hold"; then
+# Both path lists are needed by the skip decision, and both are stable across a sync: CH is the
+# PR's own three-dot diff, QUEUE_INCOMING is main's move since the pre-sync merge base.
+CH="$($GIT -C "$WT" -c core.fileMode=false diff --no-renames --raw origin/main...HEAD | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}')"
+QUEUE_INCOMING="$($GIT -C "$WT" diff --name-only "$OLDBASE" origin/main 2>/dev/null)"
+ci_first_decision "$WT" "$BR" "$V" "$RV" "$(ci_probe_once)" "$STATE/merge/$SLUG.ci-hold" "$QUEUE_INCOMING" "$CH"
+CI_FIRST_RC=$?
+# The measurement line: the next retro compares skip vs sync per verifier start.
+echo "$(date '+%F %H:%M') #$N $SLUG sync_decision=$CI_FIRST_KIND" >> "$STATE/merge/cycles.log"
+if [ $CI_FIRST_RC -eq 0 ]; then
   say "#$N $SLUG: $CI_FIRST_REASON — holding the main sync (cached gate+review); sync deferred"
 else
   say "#$N $SLUG: $CI_FIRST_REASON — syncing main"
@@ -671,7 +722,6 @@ bash "$RSI_DIR/runtime/prep-worktree.sh" "$WT" 2>&1 | tail -2
 SHA="$($GIT -C "$WT" rev-parse HEAD)"
 
 # 2. hold rules (MANDATE): never auto-merge these
-CH="$($GIT -C "$WT" -c core.fileMode=false diff --no-renames --raw origin/main...HEAD | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}')"
 # A main move that is disjoint from the PR's own files and the shared surfaces does not invalidate
 # the gate: carry it to the merged head instead of paying for a full fresh gate. carry_forward owns
 # the predicate and removes the gate on a re-gate; NEED_GATE below then sees the carried head and

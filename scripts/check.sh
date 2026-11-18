@@ -211,6 +211,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
   bash rsi/runtime/tests/test-gate-carry.sh || return 1
   bash rsi/runtime/tests/test-verifier-ci-hold.sh || return 1
+  bash rsi/runtime/tests/test-merge-sync-skip.sh || return 1
   # The walk mutant's red proof builds the UI twice, so the gate runs only the
   # runner's hermetic mode here; the browser proof itself is one command by hand
   # (rsi/runtime/ux/walk-mutant-test.sh).
