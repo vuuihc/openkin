@@ -59,10 +59,12 @@ refresh that writes `ci_summary`.
   at most 100 runes, `body` at most 4000 runes, truncated at a rune boundary and
   keeping the head. The read asks for the newest page it can — `per_page=100`, then
   the response's `rel="last"` link when one exists — so "the newest 20" is the newest
-  the API will hand back in one page, never the oldest twenty of a long list. The
-  panel may clamp the visible body (for example to eight lines with an expand
-  affordance); it must not drop a review or misreport a clamped body as a complete
-  one.
+  the API will hand back in one page, never the oldest twenty of a long list.
+  `apiRunner` returns only a JSON body today, so this read also needs the response's
+  `Link` header from both transports; without it the honest bound is the first page
+  returned. The panel may clamp the visible body (for example to eight lines with an
+  expand affordance); it must not drop a review or misreport a clamped body as a
+  complete one.
 
 ### The write path
 
