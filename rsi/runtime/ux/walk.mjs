@@ -1264,11 +1264,10 @@ const J12_CHIP = /改名|Rename|置顶|Pin/;
 function checkJ12Contract(spec) {
   const journey = (((spec || {}).journeys || {}).J12) || {};
   const steps = journey.steps;
-  // The index does not name J12 yet (registration is a later row), and every
-  // reduced spec in the frozen Python tests is built from that index, so an
-  // absent J12 is "this spec does not carry the journey", not a red contract.
-  // A J12 that IS present is held to every rule below.
-  if (!journey.title && !Array.isArray(steps)) return [];
+  // J12 is registered in the index. An index or resolved spec that no longer
+  // names it must be loud: the body is the phone's only gesture walk, and a
+  // one-line deletion would otherwise retire it with every gate still green.
+  if (!journey.title && !Array.isArray(steps)) return ['J12 is not in the spec'];
   if (!Array.isArray(steps) || steps.length === 0) return ['J12 has no steps'];
   const errs = [];
   // Every J12 proof is mandatory. The executor logs a `?`-prefixed step that
@@ -1375,6 +1374,20 @@ function checkJ12Contract(spec) {
   // about which gesture the later assertions belong to.
   if (edgeAt >= 0 && leftAt >= 0 && edgeAt > leftAt) errs.push('J12 runs the row swipe before the edge back; the edge leg is first');
   if (leftAt >= 0 && dragAt >= 0 && leftAt > dragAt) errs.push('J12 runs the hold-to-reorder before the row swipe; the row reveal is the middle leg');
+
+  // A shell, list or locale diff that no longer selects J12 would let the
+  // thumb gestures rot without the gate ever walking them: `--files` picks
+  // the journeys from this table, first match wins.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ12 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J12');
+  };
+  for (const file of ['ui/src/components/layout/AppShell.tsx', 'ui/src/components/sessions/SessionList.tsx', 'ui/src/components/sessions/SessionRow.tsx', 'ui/src/components/mobile/MobileList.tsx', 'ui/src/pages/TaskDetailPage.tsx', 'ui/src/i18n/locales/zh.ts', 'ui/src/i18n/locales/en.ts']) {
+    if (!mapsToJ12(file)) {
+      errs.push(`the paths table does not map ${file} to J12; a diff there would not walk the thumb gestures`);
+    }
+  }
   return errs;
 }
 if (process.argv.includes('--check-spec')) {
@@ -1434,6 +1447,26 @@ if (process.argv.includes('--check-spec')) {
     else console.log('J5 ' + applyJ5Fields(j5Click[1], j5Target));
   }
   process.exit(0);
+}
+// `--rows-match --got <json rows> --want <json tokens>`: the `rows` op's
+// comparison without a browser, so the walk-contract tests can prove that an
+// order read tolerates rows another journey created while still rejecting a
+// wrong order. Exit 0 = match, 1 = no match, 2 = bad arguments.
+if (process.argv.includes('--rows-match')) {
+  let got, wanted;
+  try {
+    got = JSON.parse(arg('got', ''));
+    wanted = JSON.parse(arg('want', ''));
+  } catch (e) {
+    got = wanted = null;
+  }
+  if (!Array.isArray(got) || !Array.isArray(wanted) || wanted.length === 0) {
+    console.error('usage: walk.mjs --rows-match --got <json rows> --want <json tokens>');
+    process.exit(2);
+  }
+  const match = rowsMatch(got.map(String), wanted.map(String));
+  console.log(match ? 'match' : 'no match');
+  process.exit(match ? 0 : 1);
 }
 // J7 must land on the conversation and card a notification would name. The
 // seed prints one `j7 target conversation=<task> focus=<approval> title=<title>`
@@ -1875,6 +1908,22 @@ async function performDrag(page, cdp, selector, dy, holdMs) {
   }
   await touchPoint(cdp, 'touchEnd', x, endY);
   await page.waitForTimeout(350);
+}
+/** Whether `wanted` appears in `got` as an ordered subsequence, one token per row.
+ *
+ * The `rows` op reads an order, not a census. Another journey walked against
+ * the same daemon can leave extra conversations in the same project (J3's two
+ * viewports each send `[seed] slow`, and the project label keeps them under the
+ * "seed" search), so requiring the exact row list would fail J12 on every
+ * combined walk. The wanted order is still the proof: a drag that did not
+ * reorder the seeded rows leaves them in the old order and matches nothing.
+ */
+function rowsMatch(got, wanted) {
+  let at = 0;
+  for (const text of got) {
+    if (at < wanted.length && text.includes(wanted[at])) at++;
+  }
+  return at === wanted.length;
 }
 /** The conversation rows with a layout box under a scope, in drawn order. */
 async function readRows(page, scope) {
@@ -2387,9 +2436,12 @@ for (const j of want) {
         } else if (op === 'rows') {
           // `["rows", "css=<scope>", "<token>|<token>"]`: the visible
           // conversation rows under the first visible match of `<scope>`
-          // appear exactly in this order and number, each containing its
-          // token. A reorder (and its restore after a reload) is a fact about
-          // drawn order, so it is read, not photographed.
+          // contain the tokens in this order, each in its own row. Other rows
+          // may sit between or after them — a journey walked earlier in the
+          // same daemon creates its own conversations, and a census would turn
+          // that into a phantom failure — but the order itself is the proof:
+          // a drag that did not reorder the rows fails, and so does a reorder
+          // that did not survive the reload.
           const { optional, value } = optionalOf(a);
           const wanted = String(b ?? '').split('|').map((token) => token.trim()).filter(Boolean);
           if (!value.startsWith('css=') || wanted.length === 0) {
@@ -2401,7 +2453,7 @@ for (const j of want) {
             if (optional) { log.push('skipped rows ' + value); continue; }
             hardFail.push(`${j}/${vpName}: rows scope ${value} is not on screen`); continue;
           }
-          const same = got.length === wanted.length && wanted.every((token, i) => got[i].includes(token));
+          const same = rowsMatch(got, wanted);
           if (same) log.push('rows ' + value + ' = ' + wanted.join(' | '));
           else if (optional) log.push('skipped rows ' + value + ' (is ' + got.join(' | ') + ')');
           else hardFail.push(`${j}/${vpName}: rows ${value} are ${JSON.stringify(got)}, want ${JSON.stringify(wanted)}`);
