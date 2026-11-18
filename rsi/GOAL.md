@@ -177,8 +177,10 @@ model), the browser panel tab (Electron `webview` ADR), the agent catalog cut 74
 folder block shipped in #296 and its J4 walk already proved default → save → return, yet #315 deliberately
 kept it `approved`, because the two verbs its acceptance names — 添加目录 and 移除 — were never pressed in a
 real browser. `KIN-SETTINGS-001` promises four defaults (agent / 模型 / 设备 / 权限); the settings tabs
-(通用 / Agents / Providers / 路由 / 高级) already ship, but the only default the store holds is
-`agent.default` (`internal/server/server.go:343`), and the sentence the story asks for —
+(通用 / Agents / Providers / 路由 / 高级) already ship, but the server settings store holds only
+`agent.default` (`internal/server/server.go:343`); the other three are client-side keys (`kin_draft_model` /
+`kin_draft_machine` in `ui/src/lib/draftChat.ts`, `kin_permission_mode` in `ui/src/lib/permissionMode.ts`)
+that `NewChatPage` seeds a new chat from, and the sentence the story asks for —
 "下一次新建对话会用上" — has no string in either locale. `KIN-CONTINUE-001` and `-002` each carry a walk in
 J1/J2, but not the specific sentences they are made of. The gate runs tests; it does not run promises, so
 these four stories stay `approved` forever unless someone walks the sentences themselves. Every item below
@@ -198,9 +200,9 @@ false is fixed in the same delivery.
    copy), and Back from a conversation restores the search word and the scroll offset; the flip names the
    step.
 4. `KIN-CONTINUE-001` is walked on four sentences: switching conversations leaves the shell and the composer
-   nodes un-rebuilt (no full-page skeleton), a cold start at `/` returns to the last conversation, the phone
-   list is 设备 → 项目 → 对话, and ⌘K lists actions and places but no conversation rows. Anything false is
-   fixed in the same delivery.
+   nodes un-rebuilt (no full-page skeleton); a cold start at `/` on Mac returns to the last conversation,
+   while at 390 it lands on the list (`KIN-CONTINUE-002` step 1); the phone list is 设备 → 项目 → 对话,
+   and ⌘K lists actions and places but no conversation rows. Anything false is fixed in the same delivery.
 
 **Cut rule.** At 11-21 20:00 land whatever is green, queue the rest with the reason, and do not extend the
 number. The date assumes P7 closes by 11-19; if P7 lands on its own deadline (11-23), re-state this date when the
