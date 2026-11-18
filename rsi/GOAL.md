@@ -257,11 +257,29 @@ GitHub, not in the conversation that produced the change.
    a review. The PR says which seam it used (a dev-only seed route, or a DOM suite on the panel plus a Go test
    on the snapshot) and why that proves the same thing; faking it inside the walk is not allowed.
 
-**Mechanism rows (rent, not phase items).** The two follow-ups measured on 2026-11-19 stay claimable by a free
-lane as `rsi/loop-guards`: `walk-mutant-test.sh`'s EXIT-only trap (change it to restore `web/dist/index.html`
-on TERM/HUP too), and archiving a merged PR's sendback (make `merge.sh` move `state/sendback/<slug>.md` into
-`done/` after a merge, not only a stale one, and make `lane.sh autofill` skip a slug with no open PR rather than
-only a no-diff one).
+**Mechanism rows (rent, not phase items).** Claimable by a free lane as `rsi/loop-guards`, in this order.
+The two 2026-11-19 follow-ups are **done** and must not be re-derived: the walk-mutant restore runs on
+TERM/HUP/INT (`rsi/runtime/ux/walk-mutant-test.sh` `trap_restore_dist`, plus `scripts/mutants.py`'s signal
+handler from #338) and a merge archives its sendback (#346 `6ea5b433`).
+
+1. **The escalation ledger cannot say what it bought.** Measured 2026-11-19 06:35 on `rsi/state/escalations.jsonl`
+   (400 records): `has_bm` is **false in all 359** records that carry the field and absent in 41, and every one of
+   the 86 `FAIL` records stores the note `VERDICT: FAIL` with no findings — because `dispatch.sh:421-422` records
+   the verdict and never the review's blocker/major lines, so `has_bm_findings()` reads a string that cannot
+   contain them. 233 records also carry no `deepseek_verdict` to compare against. Net: "did the strong reviewer
+   catch something the DeepSeek review missed?" is unanswerable, and that is the one question that decides
+   whether the escalated reviews in the week to 11-18 (hydrogen 213 / hydrogen-high 50 / codex 29) are worth
+   their cost. Smallest shape: at that call site set `has_bm` from the review log (or pass its blocker/major lines
+   as the note) and print caught-defects per review and per yuan in the weekly escalation report. Red proof: a
+   stub log whose review names a blocker → `has_bm` true; a log that only says `VERDICT: PASS` → false; and the
+   weekly line for those two records counts one miss, not zero. Do not widen this into a new store or a schema
+   change.
+2. **A number a person typed drifts.** `docs/product/stories/PLAN.md` line 3 still says "4 条 `covered`、10 条
+   `approved`、2 条 `draft`" while `python3 scripts/stories.py --check` prints `16 (approved 2, covered 14)` —
+   measured 2026-11-19 06:30 — and `--check` exits `ok`, so nothing compares the two. Smallest shape: have
+   `stories.py` write that status line from the registry (it already writes `COVERAGE.md`) and make `--check`
+   fail when the line disagrees; hermetic case = today's mismatched line is red, the regenerated line is green.
+   The same guard should cover the covered/approved counts the morning report quotes.
 
 **Cut rule.** At 11-25 20:00 land what is green and queue the rest with its reason. If Ethan has not answered the
 schema question by then, the phase's shipped part is the ADR and the queue says so; do not extend the date and
