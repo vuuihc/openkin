@@ -938,11 +938,10 @@ const en: MessageTree = {
   },
   publish: {
     title: "Publish",
-    hint: "Push this session's branch and open a pull request, on the machine holding it",
     action: "Publish",
     on: "on {name}",
     onUnknown: "on {name} (not in the machine list)",
-    close: "Close the publish sheet",
+    close: "Close the publish panel",
     repoLabel: "Repository",
     branchLabel: "Branch",
     unknown: "unknown",

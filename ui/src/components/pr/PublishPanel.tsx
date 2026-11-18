@@ -6,19 +6,20 @@ import {
   type PublishReport,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { isImeKeyEvent } from "../../lib/ime";
 import { shortRepo } from "../../lib/prObservation";
 import { blockedHeadline, isSessionRunsHere } from "../../lib/publishBlocked";
 import type { PublishDraft } from "../../lib/publishDraft";
 import { MAX_TITLE_CHARS, publishWordsRefusal } from "../../lib/publishWords";
 import { IconAlert, IconExternal, IconPullRequest, IconSend, IconSpinner, IconX } from "../icons";
-import PanelSurface, { type PanelShape } from "../layout/PanelSurface";
+import PanelSurface from "../layout/PanelSurface";
 import Button from "../ui/Button";
 
 type Props = {
   taskId: string;
   /**
-   * The machine this session runs on. The sheet is only ever opened for one:
-   * publishing a checkout this daemon holds is refused by the Hub, so a sheet
+   * The machine this session runs on. The pane is only ever opened for one:
+   * publishing a checkout this daemon holds is refused by the Hub, so a pane
    * for a local session would be a confirmation of something that cannot happen.
    */
   machine: { text: string; known: boolean };
@@ -31,38 +32,42 @@ type Props = {
   /**
    * The Hub's row for this task has changed, so the page should read it again.
    *
-   * Two of this sheet's answers change it: a publish (which records the branch
+   * Two of this pane's answers change it: a publish (which records the branch
    * on the remote and the repository it landed in) and the escape below (which
-   * moves the checkout and moves the row with it). The row is what this sheet
+   * moves the checkout and moves the row with it). The row is what this pane
    * opens with — 仓库 and 分支, before anything has been asked — so without this
-   * a reopened sheet goes back to naming the branch the session started on.
+   * a reopened pane goes back to naming the branch the session started on.
    */
   onRowChanged?: () => void;
   /**
-   * How the sheet takes its space. The page passes `column` so a publish and
-   * the conversation can be read together from `lg` up; below that it is the
-   * overlay it has always been.
+   * Drawn as the publish tab of the workspace panel rather than as a surface of
+   * its own.
+   *
+   * The container then owns the skin, the tab strip and the one close button,
+   * so this pane renders its body only: a second `PanelSurface` inside the
+   * workspace panel would be two landmarks at one z-index, and a second close
+   * would be two controls for one act.
    */
-  shape?: PanelShape;
+  embedded?: boolean;
 };
 
 /**
- * The publish sheet: the confirmation between a person and a branch appearing on
+ * The publish pane: the confirmation between a person and a branch appearing on
  * a forge under their name.
  *
- * It is a sheet rather than a button because the tap is irreversible in the way
+ * It is a form rather than a button because the tap is irreversible in the way
  * that matters — a branch pushed and a pull request opened are public, and the
- * person's GitHub identity is on them. So the sheet says what will happen, in
+ * person's GitHub identity is on them. So the pane says what will happen, in
  * whose words, on which machine, and takes an edit before it does.
  *
  * Everything hard about publishing happens on that machine (see internal/github
  * and internal/workspace): the boundary, the default branch, the uncommitted
  * work, the push that is never forced. The one of those the person can act on
- * from here is the default branch, and it is the one this sheet offers a way out
+ * from here is the default branch, and it is the one this pane offers a way out
  * of.
  *
  * The report is drawn in place rather than as a toast, and a refusal is drawn
- * exactly like a success: both are answers to the question the sheet asked.
+ * exactly like a success: both are answers to the question the pane asked.
  */
 export default function PublishPanel({
   taskId,
@@ -72,7 +77,7 @@ export default function PublishPanel({
   draft,
   onClose,
   onRowChanged,
-  shape,
+  embedded = false,
 }: Props) {
   const tr = useT();
   const [title, setTitle] = useState(draft.title);
@@ -96,7 +101,12 @@ export default function PublishPanel({
   useEffect(() => {
     if (!onClose) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      // Embedded, the workspace panel's container answers Escape and passes no
+      // `onClose`, so this listener is not installed. Standalone, a handled
+      // Escape belongs to the control that claimed it, and an IME's Escape is
+      // not a dismissal.
+      if (event.key !== "Escape" || event.defaultPrevented || isImeKeyEvent(event)) return;
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -185,8 +195,8 @@ export default function PublishPanel({
   const canPublish = wordsRefusal === "" && !busy && !escaping;
   const working = busy || escaping;
 
-  return (
-    <PanelSurface label={tr("publish.title")} className="flex flex-col" shape={shape}>
+  const pane = (
+    <>
       {/* Header — matches the workspace and pull-request panels */}
       <div className="flex flex-none items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
         <IconSend size={14} className="flex-none text-kin-muted" />
@@ -200,7 +210,7 @@ export default function PublishPanel({
               : tr("publish.onUnknown", { name: machine.text })}
           </div>
         </div>
-        {onClose && (
+        {onClose && !embedded && (
           <Button
             variant="quiet"
             onClick={onClose}
@@ -355,6 +365,17 @@ export default function PublishPanel({
           </div>
         </div>
       </div>
+    </>
+  );
+
+  // Embedded is the workspace panel's publish tab: the container draws the
+  // skin, the strip and the one close, so this pane draws neither. Still a flex
+  // column, so the header holds still and the form is what scrolls.
+  if (embedded) return <div className="h-full min-h-0 flex flex-col">{pane}</div>;
+
+  return (
+    <PanelSurface label={tr("publish.title")} className="flex flex-col" shape="column">
+      {pane}
     </PanelSurface>
   );
 }
