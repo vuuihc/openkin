@@ -1,6 +1,6 @@
 # KIN-RESULT-002 · 读懂文件、预览并返回原对话
 
-状态：approved
+状态：covered
 优先级：P0
 旅程：J4
 归属面：`IA.md`「对话详情 → 文件工作区」
@@ -124,7 +124,7 @@ Job map：定义/定位＝状态机与深链；准备/确认＝文件读取与�
 
 ## P7 走查（2026-11-18）
 
-结论：验收表**未被整表走查覆盖**，状态保持 `approved`。J13 在 390×844 真浏览器走通了下面「已证」的五条；「未证」的条目仍只由既有测试或契约文字承担，registry 与 COVERAGE 不变。
+结论：验收表**未被整表走查覆盖**，本轮（P7）状态保持 `approved`。J13 在 390×844 真浏览器走通了下面「已证」的五条；「未证」的条目仍只由既有测试或契约文字承担，registry 与 COVERAGE 不变。**2026-11-19 的 P8 走查补上了下面第一条硬阻塞（#340 实现 replace+push 队列）并整表结算，见下；状态以 P8 的 `covered` 为准。**
 
 已证（`rsi/runtime/ux/journeys/J13.json`，`./scripts/journeys-smoke.sh --journeys J13`：8 屏、0 硬失败）：
 
@@ -141,6 +141,29 @@ Job map：定义/定位＝状态机与深链；准备/确认＝文件读取与�
 - Mac 双栏、登录回跳、`truncated`、空/失败/断线，以及 ≥44px 触达与焦点恢复，J13 不断言，仍由既有 DOM 测试与验收表文字承担。
 - 走查顺带修的两处：面板「返回文件」原本只改组件状态、不写地址，现在经 `onSelectPath(cwd)` 把列表地址 replace 回来；预览文档 CSP 里的 `frame-ancestors` 在 `<meta>` 中无效并抛出控制台错误，已移除（`htmlPreview.ts`，沙盒与 `default-src 'none'` 仍在）。
 
+## P8 走查（2026-11-19）
+
+结论：验收表九行全部有证据，状态 `approved` → `covered`。手机上的文件深链、返回队列与 HTML 预览/源码切换由 J13 在 390×844 真浏览器整条走通（`hardFail: []`），其余行由带 `KIN-RESULT-002` 的已登记测试承担。P7 记的硬阻塞「replace+push 队列尚未实现」已由 #340 `106995e8` 实现：冷启动深链现在合成 `/sessions → 对话 → 文件列表 → 文件详情` 四级队列，J13 的三次系统 Back 依次回到文件列表、对话、会话列表（截图 `history-back-*`）。P8 另补了验收表要求、此前缺失的读取失败「重试」按钮（`WorkspacePanel.tsx`：错误态就地重读同一文件；不可请求的路径不给假重试）。
+
+走查命令：`bash rsi/runtime/ux-walk.sh "$PWD" <out> J13`（throwaway daemon、seeded fake agent、390×844），`walk.json` 的 `hardFail` 为空，13 张截图；本文引用的截图在 `rsi/state/shots/result-002-covered/walk/`。
+
+| 验收行 | 证据 |
+|---|---|
+| 路由 | `ui/src/lib/workspaceDeepLink.test.ts`（对话/列表/详情三态解析、生成与清理；绝对路径、`..` 逃逸、URI、反斜线与空白拒绝）；`ui/src/pages/TaskDetailPage.workspaceLink.dom.test.tsx`（到达只读地址、不加 history entry；不安全 link 只丢 `file`、保留列表） |
+| 历史 | J13 三次 `history-back`：`history-back-file` → `history-back-list`（`?panel=files`）→ `history-back-conversation`（`/tasks/<id>`）→ `history-back-sessions`（`/sessions`）；`ui/src/lib/phoneDeepLinkParent.test.ts`（冷启动合成整条队列）；`ui/src/pages/TaskDetailPage.workspaceLink.dom.test.tsx`（Back/Forward 按 URL 恢复、连续两次 Back 各自生效、开关面板各恰好一个 entry） |
+| 登录 | `ui/src/components/AccountScreen.test.tsx` 与 `ui/src/lib/returnTo.test.ts`（`/tasks/id?panel=files&file=a%20b.html#frag` 原样往返；外部 origin 拒绝） |
+| 手机 | `ui/src/components/workspace/WorkspacePanel.paths.dom.test.tsx`（两个出口 `h-11 w-11` = 44px；开文件后焦点到返回、回列表后焦点回原行）；`ui/src/components/workspace/WorkspacePanel.preview.dom.test.tsx`（读取失败显示原因与「重试」，重试重读同一文件；不可请求的路径不给重试）；`ui/src/components/workspace/FilePreview.dom.test.tsx`（预览/源码切换 44px） |
+| HTML | `ui/src/components/workspace/FilePreview.dom.test.tsx`（sandbox 无脚本/同源；预览→源码→预览；空文件与截断不画页面）；J13 的 `html-preview` / `html-source` / `html-preview-again` |
+| 资源 | `ui/src/components/workspace/htmlPreview.test.ts`（inline CSS 与 data 图保留；script/link/form/iframe、meta refresh、远程 URL 移除；严格 CSP） |
+| 截断 | `ui/src/components/workspace/FilePreview.dom.test.tsx`（`truncated=true` 的 HTML 只给提示与源码）；`ui/src/components/workspace/WorkspacePanel.preview.dom.test.tsx`（表格被读取截断时明说可能缺行） |
+| 回归 | `ui/src/components/workspace/WorkspacePanel.selectLink.dom.test.tsx`（到达脉冲不写地址；面板内选择只写一次）；`ui/src/pages/TaskDetailPage.workspaceLink.dom.test.tsx`（隐藏/keep-alive pane 不消费别的对话的 link；`focus` 参数原样保留；PR/发布切面保留打开的文件） |
+| 真浏览器 | 390：J13 全条（13 张截图，含三次 `history-back`、Files 不重放旧文件、HTML 三态）；1100 半边：`ui/src/components/workspace/WorkspacePanel.paths.dom.test.tsx` 的「shows both panes when the container is wide enough」（列表与详情同屏、手机返回控件不画）。J13 的契约明确只跑 phone，不加 mac 宽度 |
+
+红证（`scripts/mutants.py`，逐字节还原）：把 `ui/src/lib/phoneDeepLinkParent.ts` 的 `trail.forEach` 改成 `trail.slice(0, 0).forEach`，冷启动只合成 `[/sessions, 文件]`，丢掉对话与列表两级 → J13 第一次 Back 直接落到 `/sessions`，`search ^\?panel=files$` 断言变红；还原后 `shasum -a 256` 与改动前一致。日志与 shasum 见 PR body。
+
+仍未由走查覆盖、仍由测试承担：Mac 1100 没有真浏览器走查（J13 契约 `test_j13_contract_rejects_a_mac_width` 明确拒绝 mac 宽度），双栏证据是上面的容器宽度测试；登录回跳、资源白名单、离线/断线、焦点与滚动恢复由各自 DOM/单元测试承担，不在本轮走查结论内。
+
 ## 变更记录
 
 - 2026-11-14 创建为独立文件工作区故事，不启动全局 IA；按独立复审补齐导航、登录、安全与范围合同。
+- 2026-11-19 P8 结算：J13 三次 `history-back`、Files 不重放、HTML 三态走通，九行验收表逐行映射到走查步骤或已登记测试；补上读取失败的重试按钮与两条 DOM 测试；`registry.json` 登记 10 个带 `KIN-RESULT-002` 的测试并翻 `covered`，`COVERAGE.md` 由脚本重生成。

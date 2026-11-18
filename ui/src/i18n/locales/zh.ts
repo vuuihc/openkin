@@ -818,6 +818,7 @@ const zh = {
       unavailable: "文件预览不可用。",
       truncated: "已截断",
       readFailed: "无法读取文件",
+      retry: "重试",
       diff: "差异",
       diffNav: "在差异块之间跳转",
       diffLayout: "差异布局",
