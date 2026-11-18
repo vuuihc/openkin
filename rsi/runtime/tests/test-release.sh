@@ -206,20 +206,39 @@ pass "release: the node rebuild is asked to detach"
 #     transient github.com SSL error made release.sh log an empty SHA, rebuild and restart
 #     the live node, and only then abort at the Hub with `git archive ""`, leaving a
 #     `node=` line with no SHA in the marker.
+#
+#     A git wrapper on PATH fails exactly the second fetch — release-check's probe is (1)
+#     and the pre-flight capture is (2) — so a counter that reaches 3 would mean the run
+#     went on to the integration fetch, i.e. the pre-flight guard did not fire.
 start_node '[]'
 printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
 git -C "$SECOND" reset -q --hard "$BASE2"
-git -C "$SECOND" remote set-url origin "$T/no-such-remote"
+REALGIT="$(command -v git)"
+WRAP1="$T/wrap-fail"; mkdir -p "$WRAP1"
+COUNT1="$T/fetch-count"; echo 0 > "$COUNT1"
+cat > "$WRAP1/git" <<SH
+#!/bin/bash
+case " \$* " in
+  *" fetch "*"origin main"*)
+    n=\$(( \$(cat "$COUNT1") + 1 )); echo "\$n" > "$COUNT1"
+    if [ "\$n" = 2 ]; then
+      echo "fatal: unable to access 'https://github.com/example/kin.git/': SSL_ERROR_SYSCALL" >&2
+      exit 128
+    fi ;;
+esac
+exec "$REALGIT" "\$@"
+SH
+chmod +x "$WRAP1/git"
 RAN="$T/node-ran"; rm -f "$RAN"
 STUB2="$T/node-cmd-nofetch.sh"; printf '#!/bin/bash\ntouch %s\n' "$RAN" > "$STUB2"; chmod +x "$STUB2"
-out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+out="$(env PATH="$WRAP1:$PATH" RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
   RSI_RELEASE_NODE_CMD="$STUB2" bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
 [ "$rc" = 1 ] || { printf '%s\n' "$out" >&2; fail "release: a failed fetch must abort (got exit $rc)"; }
 grep -qi 'fetch origin main failed' <<<"$out" || fail "release: the abort did not name the failed fetch"
+[ "$(cat "$COUNT1")" = 2 ] || fail "release: the run reached the integration fetch; the pre-flight guard did not fire"
 [ -e "$RAN" ] && fail "release: the node was rebuilt after a failed fetch"
 grep -q "^node=$ROOT$" "$STATE/last_release" || fail "release: a failed fetch moved the node marker"
 pass "release: a failed fetch stops before the node rebuild (marker untouched)"
-git -C "$SECOND" remote set-url origin "$REPO"
 
 # 9b. A second release on the same checkout must not keep stacking merge commits, and
 #     the script must carry its own KIN_API default: `set -u` turns a missing one into an
@@ -310,5 +329,44 @@ for _ in $(seq 1 100); do [ -s "$T/dev.pid" ] && break; sleep 0.05; done   # the
   || fail "desktop-rebuild detach: the desktop process did not survive the script"
 kill "$(cat "$T/dev.pid")" 2>/dev/null || true
 pass "desktop-rebuild: KIN_REBUILD_DETACH=1 returns and leaves the app running"
+
+# 13. A merge landing between the pre-flight fetch and the integration fetch must not split
+#     the record from the shipped tree: the marker, the built node and the archived commit
+#     all have to name the same SHA. A wrapper advances origin immediately before the
+#     integration fetch — matching fetch number 3 — and the node stub records the HEAD it
+#     was built from. Placed last because it adds a commit to $REPO.
+start_node '[]'
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+git -C "$SECOND" reset -q --hard "$BASE2"
+WRAP3="$T/wrap-advance"; mkdir -p "$WRAP3"
+COUNT3="$T/fetch-count-advance"; echo 0 > "$COUNT3"
+cat > "$WRAP3/git" <<SH
+#!/bin/bash
+case " \$* " in
+  *" fetch "*"origin main"*)
+    n=\$(( \$(cat "$COUNT3") + 1 )); echo "\$n" > "$COUNT3"
+    if [ "\$n" = 3 ]; then
+      "$REALGIT" -C "$REPO" commit -q --allow-empty -m 'feat(x): advance origin mid-release (#999)'
+      "$REALGIT" -C "$REPO" update-ref refs/remotes/origin/main HEAD
+    fi ;;
+esac
+exec "$REALGIT" "\$@"
+SH
+chmod +x "$WRAP3/git"
+BUILT="$T/built-sha"; rm -f "$BUILT"
+STUB3="$T/node-cmd-sha.sh"
+cat > "$STUB3" <<SH
+#!/bin/bash
+"$REALGIT" -C "$SECOND" rev-parse HEAD > "$BUILT"
+SH
+chmod +x "$STUB3"
+out="$(env PATH="$WRAP3:$PATH" RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD="$STUB3" bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "mid-release: expected exit 0, got $rc"; }
+[ -s "$BUILT" ] || fail "mid-release: the node stub did not run"
+[ "$(cat "$BUILT")" != "$HEAD_SHA" ] || fail "mid-release: origin did not advance mid-release"
+grep -q "^node=$(cat "$BUILT")$" "$STATE/last_release" \
+  || fail "mid-release: the marker must name the commit the node built"
+pass "release: the marker records the commit the node built when origin moved mid-release"
 
 echo "all cases passed"
