@@ -21,7 +21,7 @@ file no other journey rewrites, so it quotes a line that still exists.
 
 Conversations are seedable because the harness (rsi/runtime/ux-walk.sh and
 scripts/journeys-smoke.sh) puts scripts/journeys_fake_agent first on the
-throwaway daemon's PATH: the seed creates two succeeded, one failed, one
+throwaway daemon's PATH: the seed creates four succeeded, one failed, one
 archived, one still-running and three held-open conversations, and refuses to
 create any unless /api/agents names a `claude` inside that directory as the
 binary the daemon would launch. The still-running fixture is the one whose row
@@ -252,6 +252,28 @@ CONVERSATIONS = (
         "expect": ("succeeded",),
         "archive": False,
         "project": "Project Beta",
+    },
+    {
+        # Two more succeeded rows in Gamma, so the phone list is taller than
+        # the 390x844 viewport with a search active by more than scroll-kept's
+        # 48px tolerance: J12 scrolls the list before its edge-back gesture
+        # and reads the same offset back (a top-of-list restore must not pass).
+        # Created after J8's Beta diff and before the held trio, so the approve
+        # row J1 opens stays the newest row and Alpha/Beta order does not move.
+        "slug": "conversation-gamma-planning",
+        "title": PREFIX + "Gamma planning",
+        "prompt": PREFIX + "plan the next experiment for Gamma.",
+        "expect": ("succeeded",),
+        "archive": False,
+        "project": "Project Gamma",
+    },
+    {
+        "slug": "conversation-gamma-review",
+        "title": PREFIX + "Gamma review",
+        "prompt": PREFIX + "review what Gamma has learned so far.",
+        "expect": ("succeeded",),
+        "archive": False,
+        "project": "Project Gamma",
     },
     {
         # J5's fixture: the one conversation that is genuinely still working
