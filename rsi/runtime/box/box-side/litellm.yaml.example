@@ -1,0 +1,42 @@
+# Example only: copy this file to litellm.yaml next to this one and put your own gateway host in api_base.
+model_list:
+  - model_name: "volcengine-gw/volcengine/deepseek-v4.1-flash"
+    litellm_params:
+      model: openai/volcengine/deepseek-v4.1-flash
+      api_base: https://example.apigateway-cn-beijing.volceapi.com/v1
+      api_key: os.environ/VOLCENGINE_API_KEY
+      additional_drop_params: ["user","metadata","store","parallel_tool_calls"]
+  - model_name: "volcengine-gw/volcengine/deepseek-v4.1-flash[1m]"
+    litellm_params:
+      model: openai/volcengine/deepseek-v4.1-flash
+      api_base: https://example.apigateway-cn-beijing.volceapi.com/v1
+      api_key: os.environ/VOLCENGINE_API_KEY
+      additional_drop_params: ["user","metadata","store","parallel_tool_calls"]
+  - model_name: "volcengine-gw/kimi-k3.1-pro"
+    litellm_params:
+      model: openai/kimi-k3.1-pro
+      api_base: https://example.apigateway-cn-beijing.volceapi.com/v1
+      api_key: os.environ/VOLCENGINE_API_KEY
+      additional_drop_params: ["user","metadata","store","parallel_tool_calls"]
+  - model_name: "volcengine-gw/kimi-k3.1-pro[1m]"
+    litellm_params:
+      model: openai/kimi-k3.1-pro
+      api_base: https://example.apigateway-cn-beijing.volceapi.com/v1
+      api_key: os.environ/VOLCENGINE_API_KEY
+      additional_drop_params: ["user","metadata","store","parallel_tool_calls"]
+  - model_name: "volcengine-gw/deepseek-v4.1-flash"
+    litellm_params:
+      model: openai/deepseek-v4.1-flash
+      api_base: https://example.apigateway-cn-beijing.volceapi.com/v1
+      api_key: os.environ/VOLCENGINE_API_KEY
+      additional_drop_params: ["user","metadata","store","parallel_tool_calls"]
+  - model_name: "volcengine-gw/deepseek-v4.1-flash[1m]"
+    litellm_params:
+      model: openai/deepseek-v4.1-flash
+      api_base: https://example.apigateway-cn-beijing.volceapi.com/v1
+      api_key: os.environ/VOLCENGINE_API_KEY
+      additional_drop_params: ["user","metadata","store","parallel_tool_calls"]
+litellm_settings:
+  drop_params: true
+  request_timeout: 3000
+  telemetry: false
