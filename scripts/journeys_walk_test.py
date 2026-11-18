@@ -5,11 +5,12 @@ Run directly: `python3 -B scripts/journeys_walk_test.py`. Pure: fixture
 seed.log and spec files, no browser, no daemon, no network. The walker's
 `--resolve-j1` / `--resolve-j7` modes run the same read/apply functions the
 real walk uses, so a green case here is the resolution that walk would take.
-`--check-spec` runs the J2 review-loop, J3 send, J8 phone-tap, J9 Mac switch
-and J11 phone switch contracts through the same parser, so a spec that
-regressed to photographing the diff, to merely asserting Start is usable, to
-pressing a desktop chord on the phone, or to leaving the shell, the scroll and
-the draft unread, fails before a browser starts.
+`--check-spec` runs the J2 review-loop, J3 send, J8 phone-tap, J9 Mac switch,
+J11 phone switch, J12 thumb gesture and J13 phone file-link contracts through
+the same parser, so a spec that regressed to photographing the diff, to merely
+asserting Start is usable, to pressing a desktop chord on the phone, to leaving
+the shell, the scroll and the draft unread, or to pressing a file link without
+reading where Back lands, fails before a browser starts.
 """
 
 from __future__ import annotations
@@ -1961,6 +1962,279 @@ class WalkJ12ContractTest(unittest.TestCase):
         for file in ("AppShell.tsx", "SessionList.tsx", "SessionRow.tsx", "MobileList.tsx",
                      "TaskDetailPage.tsx", "locales/zh.ts", "locales/en.ts"):
             self.assertIn(file, out)
+
+
+class WalkJ13ContractTest(unittest.TestCase):
+    """KIN-RESULT-002's phone leg: the file link, its two Back stops and the
+    preview/source switch must be walked, not photographed.
+
+    The shipped index resolves J13 and prints its `spec ok` line; a body that
+    drops the Back after the deep link, or the source switch's consequence, is
+    red naming J13; an index without the entry is an error rather than a
+    silently retired walk; and the two ``paths`` rows that own the page and the
+    locale strings select J13, or a diff there never runs the walk.
+
+    Same shape as WalkJ12ContractTest: the walker's own ``--check-spec`` is the
+    reader, so a rule cannot drift between the spec and the gate.
+    """
+
+    # The evidence, in the order the phone meets it: the conversation the link
+    # starts from, the source file the address names, the list Back leaves the
+    # file for, the conversation the second Back reaches, the HTML page, its
+    # source, the page again, and the source restored by a reload.
+    SCREENS = ["conversation", "file-source", "file-back-list",
+               "file-back-conversation", "html-preview", "html-source",
+               "html-preview-again", "file-source-again"]
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j13-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec["journeys"]["J13"]["steps"])
+        path = os.path.join(self.tmp, "resolved.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    def copy_spec_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec)
+        path = os.path.join(self.tmp, "paths.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    def index_without_j13(self) -> str:
+        """A copy of the shipped index with only the J13 entry deleted."""
+        shutil.copytree(JOURNEYS_DIR, os.path.join(self.tmp, "journeys"))
+        with open(SPEC, encoding="utf-8") as fh:
+            index = json.load(fh)
+        self.assertIn("J13", index["journeys"],
+                      "the shipped index does not register J13")
+        del index["journeys"]["J13"]
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(index, fh, ensure_ascii=False)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred, start: int = 0) -> int:
+        return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+    def test_j13_spec_pins_the_phone_file_deep_link(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J13", out)
+        spec = load_spec()
+        journey = spec["journeys"]["J13"]
+        steps = journey["steps"]
+        # The files panel's phone answer is a page stack; a Mac width would
+        # draw the split and walk a different surface.
+        self.assertEqual(journey["viewports"], ["phone"])
+
+        # Leg 1 — the cold-start link names the seeded conversation and the
+        # seeded source file, and the file is read before Back.
+        deep = self.at(steps, lambda step: step[0] == "goto"
+                       and "panel=files&file=" in str(step[1])
+                       and "{conversation}" in str(step[1]))
+        self.assertIn("notes.md", steps[deep][1])
+        self.assertEqual(steps[deep][1].count("file=notes.md"), 1)
+        back = self.at(steps, lambda step: step[0] == "back", deep + 1)
+        self.assertTrue(
+            any(step[0] == "wait" and "Seeded for the journey walk" in str(step[1])
+                for step in steps[deep:back]),
+            "the deep link must be read before Back; a link that only changed the URL proves nothing",
+        )
+
+        # Back leaves the file for the list's own address, then a second Back
+        # leaves the panel for the conversation. The URL is the evidence, and
+        # `url` only sees the pathname: `search` is what names the query.
+        url = self.at(steps, lambda step: step[0] == "url", back + 1)
+        list_address = self.at(
+            steps,
+            lambda step: step[0] == "search"
+            and "panel=files" in str(step[1])
+            and "file=" not in str(step[1]),
+            back + 1,
+        )
+        self.assertLess(back, url)
+        self.assertLess(back, list_address)
+        # The way out of the list is the panel's own close: a cold deep link's
+        # history parent is the session list, not the conversation it was
+        # pasted from, so the walk proves the app's exit rather than a second
+        # browser Back the product does not promise here.
+        close = self.at(
+            steps,
+            lambda step: step[0] == "click" and "关闭" in str(step[1])
+            and "Close" in str(step[1]),
+            list_address + 1,
+        )
+        conversation_url = self.at(
+            steps,
+            lambda step: step[0] == "url" and "/tasks/" in str(step[1]),
+            close + 1,
+        )
+        clean_address = self.at(
+            steps,
+            lambda step: step[0] == "search" and str(step[1]).strip() == "^$",
+            close + 1,
+        )
+        panel_gone = self.at(
+            steps,
+            lambda step: step[0] == "gone" and "data-phone-view" in str(step[1]),
+            close + 1,
+        )
+        self.assertLess(back, close)
+        self.assertLess(close, conversation_url)
+        self.assertLess(close, clean_address)
+        self.assertLess(close, panel_gone)
+
+        # Leg 2 — the self-contained HTML file. The preview is pressed, 源码
+        # takes the iframe away and shows the seeded source, and 预览 brings the
+        # page back; every press reads its consequence and the address stays on
+        # the file (the switch is component state, not history).
+        source = self.at(
+            steps,
+            lambda step: step[0] == "click" and "源码" in str(step[1])
+            and "Code" in str(step[1]),
+        )
+        # The file opens on the page, so the first preview proof is the pressed
+        # segment; the preview *press* is the way back from the source.
+        pressed_preview = self.at(
+            steps,
+            lambda step: step[0] == "count" and "aria-pressed" in str(step[1])
+            and "预览" in str(step[1]),
+        )
+        preview = self.at(
+            steps,
+            lambda step: step[0] == "click" and "预览" in str(step[1])
+            and "Preview" in str(step[1]),
+            source + 1,
+        )
+        self.assertLess(pressed_preview, source)
+        self.assertLess(source, preview)
+        iframe_gone = self.at(
+            steps,
+            lambda step: step[0] == "gone" and "iframe" in str(step[1]),
+            source + 1,
+        )
+        pressed_source = self.at(
+            steps,
+            lambda step: step[0] == "count" and "aria-pressed" in str(step[1])
+            and "源码" in str(step[1]),
+            source + 1,
+        )
+        source_text = self.at(
+            steps,
+            lambda step: step[0] == "wait" and "Seed preview page" in str(step[1]),
+            source + 1,
+        )
+        iframe_back = self.at(
+            steps,
+            lambda step: step[0] in ("wait", "count") and "iframe" in str(step[1]),
+            source + 1,
+        )
+        self.assertLess(pressed_preview, source)
+        self.assertLess(source, iframe_gone)
+        self.assertLess(source, pressed_source)
+        self.assertLess(source, source_text)
+        self.assertLess(source, iframe_back)
+        self.assertTrue(
+            any(step[0] == "search" and "file=" in str(step[1])
+                for step in steps[source:preview]),
+            "the switch must assert the address stayed on the file",
+        )
+
+        # Leg 3 — the URL is the address: reloading it restores the file, not
+        # the list (the arrival pulse is the thing a refresh exercises).
+        refresh = self.at(
+            steps,
+            lambda step: step[0] == "goto" and "panel=files&file=" in str(step[1]),
+            preview + 1,
+        )
+        self.assertTrue(
+            any(step[0] in ("wait", "count") and "Seeded for the journey walk" in str(step[1])
+                for step in steps[refresh + 1:]),
+            "the reload leg must read the restored source file",
+        )
+
+        # The evidence runs in the order the phone meets it.
+        shots = [step[1] for step in steps if step[0] == "shot"]
+        self.assertEqual([name for name in shots if name in self.SCREENS], self.SCREENS, shots)
+
+        # `--files` picks journeys from the paths table, first match wins: a
+        # page or locale diff that drops J13 would never walk the file panel.
+        for row_needle in ("ui/src/pages/TaskDetail", "ui/src/components/workspace/",
+                           "ui/src/i18n/locales/"):
+            row = next((row for row in spec["paths"] if row_needle in row[0]), None)
+            self.assertIsNotNone(row, row_needle)
+            self.assertIn("J13", row[1], row_needle)
+
+    def test_j13_contract_rejects_a_body_without_the_back_to_the_list(self) -> None:
+        # Browser Back at the deep link is the only proof that the panel's
+        # address is a place and not a moment. A body without it still opens
+        # the file, so the contract has to name the missing press.
+        def drop_the_first_back(steps: list) -> None:
+            steps.pop(self.at(steps, lambda step: step[0] == "back"))
+
+        code, out = self.check(self.copy_with(drop_the_first_back))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J13", out)
+        self.assertIn("Back", out)
+
+    def test_j13_contract_rejects_the_source_switch_without_its_consequence(self) -> None:
+        # Pressing 源码 and moving on proves the click was delivered, not that
+        # the page changed. `gone` on the iframe is the consequence.
+        def drop_the_iframe_gone(steps: list) -> None:
+            steps.pop(self.at(steps, lambda step: step[0] == "gone" and "iframe" in str(step[1])))
+
+        code, out = self.check(self.copy_with(drop_the_iframe_gone))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J13", out)
+        self.assertIn("iframe", out)
+
+    def test_j13_contract_rejects_an_index_without_the_registration(self) -> None:
+        code, out = self.check(self.index_without_j13())
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J13", out)
+        self.assertIn("J13 is not in the spec", out)
+
+    def test_j13_contract_rejects_a_mac_width(self) -> None:
+        # The split draws both panes; a walk that claims it covered the phone
+        # stack at a Mac width is not the surface KIN-RESULT-002 promises.
+        def add_mac(spec: dict) -> None:
+            spec["journeys"]["J13"]["viewports"] = ["phone", "mac"]
+
+        code, out = self.check(self.copy_spec_with(add_mac))
+        self.assertEqual(code, 1, out)
+        self.assertIn("viewports", out)
+
+    def test_j13_contract_requires_the_workspace_and_locale_paths_rows(self) -> None:
+        def drop_j13_rows(spec: dict) -> None:
+            for row in spec["paths"]:
+                if any(needle in row[0] for needle in (
+                    "ui/src/pages/TaskDetail", "ui/src/components/workspace/",
+                    "ui/src/i18n/locales/",
+                )):
+                    row[1] = [journey for journey in row[1] if journey != "J13"]
+
+        code, out = self.check(self.copy_spec_with(drop_j13_rows))
+        self.assertEqual(code, 1, out)
+        self.assertIn("paths table", out)
+        self.assertIn("TaskDetailPage.tsx", out)
+        self.assertIn("locales/zh.ts", out)
+        self.assertIn("locales/en.ts", out)
 
 
 class WalkJ5ContractTest(unittest.TestCase):

@@ -16,9 +16,16 @@ import { fileExtension } from "./workspacePreview";
  * is allowed to fetch.
  */
 
-/** The policy that opens every preview document. Tests pin the exact string. */
+/**
+ * The policy that opens every preview document. Tests pin the exact string.
+ *
+ * No `frame-ancestors`: it only governs a document served as a response, a
+ * `<meta>` delivery is ignored by the browser and logs a console error. The
+ * iframe's empty `sandbox` already gives the page an opaque origin, and
+ * `default-src 'none'` is what keeps it from framing or fetching anything.
+ */
 export const PREVIEW_CSP =
-  "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+  "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'";
 
 /**
  * Elements a static page may keep. Everything absent is removed with its

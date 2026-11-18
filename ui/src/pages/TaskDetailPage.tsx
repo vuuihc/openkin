@@ -1700,7 +1700,14 @@ export default function TaskDetailPage({
     if (!task || routedId !== id) return;
     const next = toWorkspaceRelativePath(task.cwd, filePath);
     const file = !next || next === "." || selectedWorkspaceId ? null : next;
-    writeWorkspaceSearch(patchWorkspaceLink(locationRef.current.search, { panel: "files", file }));
+    // The workspace root is the panel's Back-to-files, not a new selection:
+    // it names the list, and replacing the file entry is what makes Back
+    // leave the panel for the conversation instead of cycling between list
+    // and file. Any real path pushes one entry, as a pick always did.
+    writeWorkspaceSearch(
+      patchWorkspaceLink(locationRef.current.search, { panel: "files", file }),
+      next === "." ? { replace: true } : undefined,
+    );
     // No nonce bump: the panel loaded the file it just reported. Recording the
     // path is what keeps the arrival effect from pulsing it again.
     if (file) setWorkspaceOpenPath(file);
