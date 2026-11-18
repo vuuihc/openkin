@@ -21,6 +21,13 @@
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once"
   },
   {
+    "label": "a saved diff comment whose quoted line disappeared reads as live instead of 该行已变化",
+    "file": "ui/src/components/workspace/diffCommentAnchor.ts",
+    "old": "  return comments\n    .filter((comment) => comment.path === path)",
+    "new": "  return comments\n    // R-p3-rerun-comment: the stale report dropped on purpose — a comment\n    // whose quoted line is gone is filtered out of the report, so the tray\n    // keeps its last anchor and shows the row as live, never 该行已变化.\n    .filter((comment) => comment.path === path && matchingLines(comment.quote, lineChanges, lines).length > 0)",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J2"
+  },
+  {
     "label": "the sent review loses its anchor: the hunk header and quoted line are dropped",
     "file": "ui/src/components/workspace/diffCommentAnchor.ts",
     "old": "export function formatCommentBlock(comment: DiffComment): string {\n  return [\n    `${comment.path}:${comment.line}`,\n    comment.hunkHeader,\n    `> ${comment.quote}`,\n    \"\",\n    comment.text,\n  ].join(\"\\n\");\n}",
@@ -33,5 +40,12 @@
     "old": "  async function onStop() {\n    if (!task || isTerminal(task.status)) return;",
     "new": "  async function onStop() {\n    if (!task || isTerminal(task.status)) return;\n    // R-midrun-stop: the cancel removed on purpose.\n    if (!isTerminal(task.status)) return;",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once"
+  },
+  {
+    "label": "every route change remounts the shell, throwing away the panes, the scroll and the draft",
+    "file": "ui/src/App.tsx",
+    "old": "      <AppShell pendingApprovals={pending.data.approvals} routineUnreadCount={routineUnreadCount}>",
+    "new": "      {/* R-f4-switch: the shell keyed on the pathname remounts on every switch,\n          which is the page-load flash F4 exists to prevent. */}\n      <AppShell key={location.pathname} pendingApprovals={pending.data.approvals} routineUnreadCount={routineUnreadCount}>",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J9"
   }
 ]

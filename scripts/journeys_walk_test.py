@@ -381,6 +381,28 @@ class WalkJ2ContractTest(unittest.TestCase):
                 if mine_vp != other_vp:
                     self.assertNotIn(mine, other, "%s's body would match %s's message" % (mine_vp, other_vp))
 
+    def test_j2_reply_waits_are_indexed_past_the_earlier_rounds(self) -> None:
+        # One seeded conversation carries the seed's own answer plus one reply
+        # per width's tray send. A rerun wait indexed from 0 would already be
+        # satisfied at the leg start, so the file could be re-picked before the
+        # round that moves it landed. Pin the three indices to the replies they
+        # actually wait for: the width's own tray reply (nth=2), then the
+        # [seed] shift round (nth=3), then the [seed] rewrite round (nth=4).
+        with open(SPEC, encoding="utf-8") as fh:
+            steps = json.load(fh)["journeys"]["J2"]["steps"]
+        waits = [
+            step
+            for step in steps
+            if step[0] == "wait"
+            and "Fake reply from the journey fake agent." in str(step[1])
+            and "nth=" in str(step[1])
+        ]
+        self.assertEqual(
+            [int(re.search(r"nth=(\d+)", step[1]).group(1)) for step in waits],
+            [2, 3, 4],
+            waits,
+        )
+
     def test_j2_contract_rejects_a_comment_before_the_diff_is_open(self) -> None:
         # Today's shape: the workspace section ends at the diff screenshot, so
         # moving the review block above the file click still reads plausibly.
@@ -452,6 +474,73 @@ class WalkJ2ContractTest(unittest.TestCase):
         code, out = self.check(self.copy_with(drop_send))
         self.assertEqual(code, 1, out)
         self.assertIn("send", out.lower())
+
+    @staticmethod
+    def find(steps: list, pred, what: str) -> int:
+        for i, step in enumerate(steps):
+            if pred(step):
+                return i
+        raise AssertionError("the checked-in J2 spec has no " + what)
+
+    @staticmethod
+    def rerun_fill(steps: list, marker: str) -> int:
+        return WalkJ2ContractTest.find(
+            steps,
+            lambda step: step[0] == "fill" and len(step) > 2 and marker in str(step[2]),
+            "composer fill carrying %s" % marker,
+        )
+
+    def test_j2_contract_rejects_a_rerun_without_the_shift_send(self) -> None:
+        # The re-anchored row is only proof of a rerun if the round that moved
+        # the quoted line was really asked for. Dropping the `[seed] shift`
+        # send leaves a tray that happens to show a new line number for no
+        # reason at all.
+        def drop_shift(steps: list) -> None:
+            at = self.rerun_fill(steps, "[seed] shift")
+            del steps[at : at + 2]  # the fill and the send that follows it
+
+        code, out = self.check(self.copy_with(drop_shift))
+        self.assertEqual(code, 1, out)
+        self.assertIn("[seed] shift", out)
+
+    def test_j2_contract_rejects_a_stale_comment_without_the_badge_wait(self) -> None:
+        # A stale row is the other half of the contract: when the quoted line
+        # is gone the tray must say 该行已变化 and keep the quote. A walk that
+        # sends `[seed] rewrite` and never reads the badge photographs a tray
+        # that may have silently dropped the comment.
+        def drop_stale_wait(steps: list) -> None:
+            at = self.find(
+                steps,
+                lambda step: step[0] == "wait"
+                and ("该行已变化" in str(step[1]) or "This line has changed" in str(step[1])),
+                "stale-row wait naming the badge",
+            )
+            steps.pop(at)
+
+        code, out = self.check(self.copy_with(drop_stale_wait))
+        self.assertEqual(code, 1, out)
+        self.assertIn("该行已变化", out)
+
+    def test_j2_contract_rejects_the_shift_send_before_the_second_comment_is_saved(self) -> None:
+        # The round that moves the line must run after the comment exists: a
+        # shift sent first re-anchors nothing, and the later Save would record
+        # the already-moved line as the saved position — the same row, but the
+        # walk would no longer prove a comment survived a change.
+        def shift_before_save(steps: list) -> None:
+            at = self.rerun_fill(steps, "[seed] shift")
+            pair = steps[at : at + 2]
+            del steps[at : at + 2]
+            saves = [
+                i
+                for i, step in enumerate(steps)
+                if step[0] == "click" and re.search(r"保存|Save", str(step[1]))
+            ]
+            self.assertGreaterEqual(len(saves), 2, "the J2 spec has only one Save")
+            steps[saves[1] : saves[1]] = pair
+
+        code, out = self.check(self.copy_with(shift_before_save))
+        self.assertEqual(code, 1, out)
+        self.assertIn("before the second comment is saved", out)
 
 
 @unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
@@ -794,6 +883,108 @@ class WalkJ7ContractTest(unittest.TestCase):
         self.assertNotIn("{conversation}", rendered)
         self.assertNotIn("{title}", rendered)
         self.assertNotIn("demo-item", rendered)
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class WalkJ9ContractTest(unittest.TestCase):
+    """J9 must prove a switch keeps the shell, the scroll and the draft.
+
+    The keep-alive host ships and pieces of it are pinned in DOM tests, but no
+    walk ever leaves a conversation and comes back, so a regression that
+    remounts the shell, resets the transcript scroller, or drops an unsent
+    draft is invisible to the gate. Same shape as WalkJ2ContractTest: the
+    checked-in spec passes the walker's own contract check, and a copy that
+    regresses one rule at a time fails with a message naming that rule.
+    """
+
+    DRAFT = "F4 draft [seed]"
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j9-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J9"]["steps"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred, start: int = 0) -> int:
+        return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+    @staticmethod
+    def is_click_title(step: list, title: str) -> bool:
+        return step[0] == "click" and title in str(step[1])
+
+    def test_j9_walks_the_switch(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J9 keeps the shell, the scroll and the draft across a switch", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        journey = spec["journeys"]["J9"]
+        steps = journey["steps"]
+        self.assertEqual(journey["viewports"], ["mac"])
+        # The evidence the reviewer reads: the shell tagged before the switch
+        # and asserted again after it, a scroll left behind, a draft typed, and
+        # all three read back after the return.
+        self.assertIn(["node", "css=#root .touch-lg", "shell"], steps)
+        self.assertIn(["scroll-kept", "css=[role=region][tabindex='-1']", "320"], steps)
+        self.assertIn(["value", "textarea", self.DRAFT], steps)
+        names = [step[1] for step in steps if step[0] == "shot"]
+        self.assertLess(names.index("switch-chat"), names.index("switch-back"), names)
+        # A diff to the shell or the conversation pane must select J9.
+        for row_needle in ("ui/src/components/layout/", "ui/src/pages/TaskDetail"):
+            row = next((row for row in spec["paths"] if row_needle in row[0]), None)
+            self.assertIsNotNone(row, row_needle)
+            self.assertIn("J9", row[1], row_needle)
+
+    def test_j9_contract_rejects_a_switch_without_the_same_shell_assertion(self) -> None:
+        # A shell remounted on the new pathname is a page load wearing the same
+        # markup. Dropping the assertion after the switch must redden the spec.
+        def drop_the_switch_node(steps: list) -> None:
+            switch = self.at(steps, lambda step: self.is_click_title(step, "Failed migration"))
+            node = self.at(steps, lambda step: step[0] == "node", switch + 1)
+            steps.pop(node)
+
+        code, out = self.check(self.copy_with(drop_the_switch_node))
+        self.assertEqual(code, 1, out)
+        self.assertIn("same shell node", out)
+
+    def test_j9_contract_rejects_a_return_without_the_draft_value(self) -> None:
+        # The half-typed message is the thing keep-alive exists for. A return
+        # that never reads the composer back proves only that the route works.
+        def drop_the_draft_value(steps: list) -> None:
+            at = self.at(steps, lambda step: step[0] == "value" and "textarea" in str(step[1]))
+            steps.pop(at)
+
+        code, out = self.check(self.copy_with(drop_the_draft_value))
+        self.assertEqual(code, 1, out)
+        self.assertIn("draft survived the return", out)
+
+    def test_j9_contract_rejects_a_return_without_the_scroll_assertion(self) -> None:
+        # A resumed conversation that snapped back to the bottom (or the top)
+        # is the regression this journey exists to catch.
+        def drop_the_scroll_kept(steps: list) -> None:
+            at = self.at(steps, lambda step: step[0] == "scroll-kept")
+            steps.pop(at)
+
+        code, out = self.check(self.copy_with(drop_the_scroll_kept))
+        self.assertEqual(code, 1, out)
+        self.assertIn("scroll-kept", out)
 
 
 if __name__ == "__main__":
