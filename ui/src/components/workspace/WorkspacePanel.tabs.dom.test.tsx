@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { t } from "../../i18n";
@@ -108,9 +109,19 @@ function renderPanel(
     changedFiles?: ChangedFile[];
     events?: TaskEvent[];
     selectedWorkspaceId?: string | null;
+    /** Which of the panel's surfaces is in front. */
+    surface?: "files" | "pr";
+    /** The pull-request body the panel shows when `surface` is `"pr"`. */
+    prPane?: ReactNode;
+    onOpenPr?: () => void;
+    onShowFiles?: () => void;
+    onClose?: () => void;
   } = {},
-): ReturnType<typeof render> {
-  return render(
+) {
+  // Spies the assertions can read; an injected handler still wins.
+  const onOpenPr = vi.fn(props.onOpenPr ?? (() => {}));
+  const onShowFiles = vi.fn(props.onShowFiles ?? (() => {}));
+  const view = render(
     // The tab strip is Astryx's surface behind the Kin facade, the way the
     // console mounts it.
     <AstryxProvider>
@@ -120,9 +131,15 @@ function renderPanel(
         changedFiles={props.changedFiles ?? SEVEN}
         events={props.events ?? []}
         selectedWorkspaceId={props.selectedWorkspaceId}
+        onClose={props.onClose}
+        surface={props.surface}
+        prPane={props.prPane}
+        onOpenPr={onOpenPr}
+        onShowFiles={onShowFiles}
       />
     </AstryxProvider>,
   );
+  return { ...view, onOpenPr, onShowFiles };
 }
 
 const tabs = () => screen.getAllByRole("tab");
@@ -136,15 +153,17 @@ beforeEach(() => {
 });
 
 describe("one shared tab set", () => {
-  it("renders one tab set: two tabs and no second strip", () => {
+  it("renders one tab set: changes, files and PR, and no second strip", () => {
     renderPanel();
 
-    // One tablist for the panel: the lenses are the only things that are tabs.
+    // One tablist for the panel: the lenses and the pull request are the only
+    // things that are tabs — the PR is a tab of this panel, not a second sheet.
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
     const rows = tabs();
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0]?.textContent).toContain(t("workspace.tabChanges"));
     expect(rows[1]?.textContent).toContain(t("workspace.tabFiles"));
+    expect(rows[2]?.textContent).toContain(t("pr.title"));
 
     // The strip is `ui/Tabs`, not another hand-written one: the facade's own
     // class contract sits on the tablist (or its own wrapper) inside the
@@ -199,6 +218,58 @@ describe("one shared tab set", () => {
     fireEvent.click(changes!);
     expect(useAppStore.getState().lensPick).toBeNull();
     expect(tree?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("shows the PR pane and marks the PR tab selected when the surface is the pull request", () => {
+    renderPanel({
+      surface: "pr",
+      prPane: <div data-testid="pr-pane">pull request body</div>,
+    });
+
+    // The PR body is the panel's content, in the same container as the lenses.
+    expect(screen.getByTestId("pr-pane")).toBeTruthy();
+    // …and the strip says where the reader is.
+    const [changes, tree, pr] = tabs();
+    expect(pr?.getAttribute("aria-selected")).toBe("true");
+    expect(changes?.getAttribute("aria-selected")).not.toBe("true");
+    expect(tree?.getAttribute("aria-selected")).not.toBe("true");
+    // The lens strip is still the one strip; no second one appears for PR.
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
+  });
+
+  it("asks for the files surface and keeps the remembered lens when a lens tab is picked from PR", () => {
+    // A lens was picked earlier in this place; going through PR must not erase
+    // it — the tabs are views of one panel, and the pick is the place's memory.
+    useAppStore.setState({
+      lensPick: { taskId: "task-1", view: "source", lens: "files" },
+    });
+    const { onShowFiles } = renderPanel({
+      surface: "pr",
+      prPane: <div data-testid="pr-pane" />,
+    });
+
+    fireEvent.click(tabs()[0]!);
+
+    // The page owns the panel address, so the panel asks rather than flips it.
+    expect(onShowFiles).toHaveBeenCalledTimes(1);
+    // The new lens is the one remembered for this place, not a per-tab map.
+    expect(useAppStore.getState().lensPick).toEqual({
+      taskId: "task-1",
+      view: "source",
+      lens: "changes",
+    });
+  });
+
+  it("keeps PR available when there are no changes, and the Changes tab disabled", () => {
+    const { onOpenPr } = renderPanel({ changedFiles: [] });
+
+    const [changes, , pr] = tabs();
+    expect(changes?.getAttribute("aria-disabled")).toBe("true");
+    expect(pr?.getAttribute("aria-disabled")).not.toBe("true");
+
+    // The PR tab is how the page is asked for that surface.
+    fireEvent.click(pr!);
+    expect(onOpenPr).toHaveBeenCalledTimes(1);
   });
 });
 

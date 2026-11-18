@@ -9,6 +9,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import {
   getTaskSourceChanges,
@@ -138,6 +139,30 @@ type Props = {
    * toast); the tray never calls the API itself.
    */
   onSendFollowUp?: (text: string) => Promise<void>;
+  /**
+   * Which of the panel's surfaces is in front.
+   *
+   * The pull request is the panel's third tab, not a sheet of its own: it is
+   * drawn in this same container, under this same strip, behind this same
+   * close. The page owns that address (`panel: "pr"`), so this is read here
+   * and never written.
+   */
+  surface?: "files" | "pr";
+  /**
+   * The pull-request body, drawn when `surface` is `"pr"`.
+   *
+   * Passed in rather than imported so this panel stays about files; the page
+   * hands it the read-only pane it already owns.
+   */
+  prPane?: ReactNode;
+  /** The PR tab was picked: the page opens the pull-request surface. */
+  onOpenPr?: () => void;
+  /**
+   * A lens tab was picked while the PR was in front: the page returns the
+   * panel to its files surface. The lens pick is already recorded; this only
+   * moves the address.
+   */
+  onShowFiles?: () => void;
 };
 
 /** One comment box draft per file line, kept while the panel lives. */
@@ -225,6 +250,10 @@ export default function WorkspacePanel({
   onPublish,
   onFindFile,
   onSendFollowUp,
+  surface = "files",
+  prPane,
+  onOpenPr,
+  onShowFiles,
 }: Props) {
   useT();
   const tr = useT();
@@ -968,7 +997,9 @@ export default function WorkspacePanel({
     if (isImeKeyEvent(event.nativeEvent)) return;
     if (event.defaultPrevented) return;
     if (overlayOwnsKeyboard()) return;
-    if (phoneView === "file" && !panesWide && selectedPath) {
+    // The stacked file pane's Escape belongs to the file view; the PR tab has
+    // no list behind it, so there Escape is the panel's close.
+    if (surface !== "pr" && phoneView === "file" && !panesWide && selectedPath) {
       event.preventDefault();
       goBackToFiles();
       return;
@@ -998,6 +1029,89 @@ export default function WorkspacePanel({
     setPhoneView("list");
     if (focusLost) focusFileList();
   }, [showingTurn, turnFiles, selectedPath, focusFileList]);
+
+  // One strip, drawn by whichever surface is in front: beside the list under
+  // the files surface, above the PR body under the PR tab. The finder is an
+  // action beside the tabs and never a fourth tab; the close is the
+  // container's one close, and it says what it closes.
+  const strip = (
+    <Tabs
+      items={[
+        {
+          id: "changes",
+          label: hasChanges
+            ? tr("workspace.tabChangesCount", { count: summaryFiles.length })
+            : tr("workspace.tabChanges"),
+          disabled: !hasChanges,
+        },
+        { id: "files", label: tr("workspace.tabFiles") },
+        // The pull request is a surface of this panel, so it is a tab of the
+        // one strip — not a control beside it and not a second sheet.
+        { id: "pr", label: tr("pr.title"), disabled: !onOpenPr },
+      ]}
+      value={surface === "pr" ? "pr" : lens}
+      onChange={(id) => {
+        if (id === "pr") {
+          onOpenPr?.();
+          return;
+        }
+        if (id === "changes" || id === "files") {
+          pickWorkspaceLens(taskId, viewKey, id);
+          // Choosing a lens while PR is in front is also choosing the files
+          // surface, and only the page can move the address to agree. The
+          // pick above is what the panel opens on (TASTE 15).
+          if (surface === "pr") onShowFiles?.();
+        }
+      }}
+      ariaLabel={tr("workspace.sidebarTabs")}
+      className="flex-1"
+    />
+  );
+
+  const finderAction = onFindFile && (
+    <Button
+      variant="quiet"
+      onClick={onFindFile}
+      title={tr("workspace.find.actionHint")}
+      aria-label={tr("workspace.find.action")}
+      className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted! sm:h-6 sm:w-6"
+    >
+      <IconSearch size={13} />
+    </Button>
+  );
+
+  const closeAction = onClose && (
+    <Button
+      variant="quiet"
+      onClick={closePanel}
+      className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted sm:h-6 sm:w-6"
+      aria-label={surface === "pr" ? tr("pr.close") : tr("workspace.close")}
+    >
+      <IconX size={14} />
+    </Button>
+  );
+
+  // The PR surface: the same container, strip and close as the lenses, with
+  // the page's read-only pane as the content. An early return rather than a
+  // branch inside the markup, so the files surface below stays exactly the
+  // markup it was: one tab switch is a different surface, not a different
+  // panel.
+  if (surface === "pr") {
+    return (
+      <div
+        ref={rootRef}
+        onKeyDown={handlePanelKeyDown}
+        className="h-full min-h-0 flex flex-col bg-[var(--kin-inspector)]"
+      >
+        <div className="flex-none flex items-center gap-1 border-b border-[var(--kin-hairline)] px-2 py-1.5">
+          {strip}
+          {finderAction}
+          {closeAction}
+        </div>
+        <div className="min-w-0 flex-1 min-h-0">{prPane}</div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1068,16 +1182,7 @@ export default function WorkspacePanel({
             {tr("workspace.changed.discardAll")}
           </Button>
         )}
-        {onClose && (
-          <Button
-            variant="quiet"
-            onClick={closePanel}
-            className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted sm:h-6 sm:w-6"
-            aria-label={tr("workspace.close")}
-          >
-            <IconX size={14} />
-          </Button>
-        )}
+        {closeAction}
       </div>
 
       {/* Dual pane: sidebar (list/tree) | resizer | viewer. Side-by-side while
@@ -1111,40 +1216,10 @@ export default function WorkspacePanel({
           }
         >
           <div className="flex-none flex items-center gap-1 px-2 py-1.5 border-b border-[var(--kin-hairline)]">
-            {/*
-              The shared tab strip holds the two lenses and nothing else: an
-              action inside it would be announced as a third tab that selects
-              nothing. The finder is that action, so it sits beside the list.
-            */}
-            <Tabs
-              items={[
-                {
-                  id: "changes",
-                  label: hasChanges
-                    ? tr("workspace.tabChangesCount", { count: summaryFiles.length })
-                    : tr("workspace.tabChanges"),
-                  disabled: !hasChanges,
-                },
-                { id: "files", label: tr("workspace.tabFiles") },
-              ]}
-              value={lens}
-              onChange={(id) => {
-                if (id === "changes" || id === "files") pickWorkspaceLens(taskId, viewKey, id);
-              }}
-              ariaLabel={tr("workspace.sidebarTabs")}
-              className="flex-1"
-            />
-            {onFindFile && (
-              <Button
-                variant="quiet"
-                onClick={onFindFile}
-                title={tr("workspace.find.actionHint")}
-                aria-label={tr("workspace.find.action")}
-                className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted! sm:h-6 sm:w-6"
-              >
-                <IconSearch size={13} />
-              </Button>
-            )}
+            {/* The one strip: the lenses and the PR tab, with the finder as an
+                action beside them — never a fourth tab that selects nothing. */}
+            {strip}
+            {finderAction}
           </div>
           {/*
             The answer to "what did this round do?", before any scrolling: how
