@@ -1,6 +1,6 @@
 # KIN-SETTINGS-001 · 改默认设置
 
-状态：approved
+状态：covered
 签字：2026-11-17 CEO 代签（用户授权见 rsi/DECISIONS.md 2026-11-15；决定见 rsi/state/decisions-pending.md 2026-11-17 18:05 行）。设计页与 5 张帧已读；登记的可执行测试见 registry。
 优先级：P1
 旅程：J6
@@ -26,14 +26,14 @@
 
 | 默认 | 今天存在哪 | 新建对话怎么用上 | 证据 |
 |---|---|---|---|
-| agent | 服务端 settings 键 `agent.default`（设置 → Providers） | `/new` 通过共享机器快照读到被标记为 default 的 agent | `SettingsPage.defaultAgent.dom.test.tsx` 第 3 例 |
+| agent | 服务端 settings 键 `agent.default`（设置 → Providers） | `/new` 通过共享机器快照读到被标记为 default 的 agent | `SettingsPage.defaultAgent.dom.test.tsx` 第 3 例；J6 走查：`/settings?tab=providers` 选中含 `(codex)` 的选项 → 保存 → `/new` 的运行设置 `aria-label` 读出 `Codex`（两个宽度），再改回 `claude-code` 并读回 `Claude Code`。红证：把 `NewChatPage.tsx:358` 临时改成 `available[0]`，只有 `/new` 的 Codex 断言变红 |
 | 模型 | 客户端 `localStorage` 键 `kin_draft_model`（`ui/src/lib/draftChat.ts`） | `NewChatPage.tsx:168` 播种 | `NewChatPage.dom.test.tsx` 的 “keeps the chosen model when the page is left and opened again” |
 | 设备 | 客户端 `localStorage` 键 `kin_draft_machine`（`draftChat.ts`） | `NewChatPage.tsx:170` 播种 | `NewChatPage.dom.test.tsx` 的 “starts a remote run with that machine and its own directory” |
 | 权限 | 客户端 `localStorage` 键 `kin_permission_mode`（`ui/src/lib/permissionMode.ts`） | `NewChatPage.tsx:154` 播种 | `permissionMode.test.ts` 的 “keeps the last chosen mode for the next draft” |
 
 后三项今天不是设置页的行，与本故事「范围」和 `IA.md` 设置与环境一行不符。若把它们提升为设置项，最小增量形状是三个服务端 settings 键加三行（Providers / 通用），由 `NewChatPage` 走现有 settings 读取播种——本次不建。
 
-故事保持 `approved`；等 P8 item 2 的走查改名并点名步骤后再翻 `covered`。
+2026-11-19 J6 真机走查补齐 agent 行的「新建对话怎么用上」并按上面的红证转红：故事翻 `covered`。模型 / 设备 / 权限三行仍是客户端草稿键，不因此建设置行。
 
 ## 每一步的预期
 
@@ -154,7 +154,7 @@
 ## 证据
 
 - 之前：`07-settings-1280.png`、`12-settings-390.png`
-- 之后：交付时补
+- 之后：`J6` 真机走查（`bash rsi/runtime/ux-walk.sh <worktree> <out> J6`，phone 390×844 / mac 1100×760）：`J6-{phone,mac}-04-default-agent-row`、`J6-{phone,mac}-05-new-chat-host`，`walk.json` 的 `hardFail` 为空
 
 ## 变更记录
 
@@ -162,3 +162,4 @@
 - 2026-11-11 R0b-3 删掉远程与通知两个 tab；本合同的目录与验收随之只覆盖保留下来的五组
 - 2026-11-17 CEO 代签（D1–D8 已定）；设计页 5 帧；验收改指真实套件
 - 2026-11-18 P8 结算：四个默认各自的落点入档；模型 / 设备 / 权限仍是客户端草稿键，不建设置行
+- 2026-11-19 J6 补 agent 默认的保存 → `/new` 走查（含改回 `claude-code` 的还原步骤），红证只红 `/new` 断言；故事翻 `covered`

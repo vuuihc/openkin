@@ -1736,6 +1736,22 @@ class WalkJ11ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("routines area change", out)
 
+    def test_j11_contract_rejects_a_list_entry_without_the_fold_press(self) -> None:
+        # Conversations another journey created land in the same project
+        # bucket. Past five rows the list draws them behind 展开全部, so the
+        # seeded row is not in the DOM and the click is a hard fail. A spec
+        # that drops the press is green in a standalone walk and red only in
+        # the gate, which is why the contract has to name the missing press.
+        steps = load_spec()["journeys"]["J11"]["steps"]
+        hits = [i for i, step in enumerate(steps)
+                if step[0] == "click" and "展开全部" in str(step[1])]
+        self.assertTrue(hits)
+        for index in hits:
+            with self.subTest(step=index):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("project fold", out)
+
 
 class WalkJ12ContractTest(unittest.TestCase):
     """J12 must walk the phone's three thumb gestures and read each consequence.
@@ -1934,6 +1950,85 @@ class WalkJ12ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("spec red: J12", out)
         self.assertIn("hold", out)
+
+    def test_j12_contract_rejects_a_list_load_without_the_fold_press(self) -> None:
+        # Past five rows the project bucket renders 展开全部 instead of the
+        # seeded row, and every gesture aimed at it fails as "not on the
+        # screen". Each unsearched load needs its own mandatory press, even
+        # when another load in the same journey already opened the fold.
+        steps = load_spec()["journeys"]["J12"]["steps"]
+        hits = [i for i, step in enumerate(steps)
+                if step[0] == "click" and "展开全部" in str(step[1])]
+        self.assertTrue(hits)
+        for index in hits:
+            with self.subTest(step=index):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("project fold", out)
+
+    def test_j12_contract_rejects_a_fold_without_clearing_search(self) -> None:
+        steps = load_spec()["journeys"]["J12"]["steps"]
+        resets = [i for i, step in enumerate(steps)
+                  if step == ["fill", "input[type=search]", ""]]
+        self.assertTrue(resets)
+        for index in resets:
+            with self.subTest(step=index):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("clear the search", out)
+            with self.subTest(clear_after_fold=index):
+                def clear_after_fold(steps: list) -> None:
+                    reset = steps.pop(index)
+                    fold = next(i for i, step in enumerate(steps)
+                                if i >= index and step[0] == "click"
+                                and "展开全部" in str(step[1]))
+                    steps.insert(fold + 1, reset)
+
+                code, out = self.check(self.copy_with(clear_after_fold))
+                self.assertEqual(code, 1, out)
+                self.assertIn("clear the search", out)
+
+    def test_j12_contract_rejects_a_fold_without_a_tall_fixture(self) -> None:
+        def drop_fixture_send(steps: list) -> None:
+            steps.pop(next(i for i, step in enumerate(steps) if step[0] == "send"))
+
+        code, out = self.check(self.copy_with(drop_fixture_send))
+        self.assertEqual(code, 1, out)
+        self.assertIn("four fixture conversations", out)
+
+    def test_j12_contract_rejects_an_optional_fold_press(self) -> None:
+        def optional_fold(steps: list) -> None:
+            for step in steps:
+                if step[0] == "click" and "展开全部" in str(step[1]):
+                    step[1] = "?" + str(step[1]).lstrip("?")
+
+        code, out = self.check(self.copy_with(optional_fold))
+        self.assertEqual(code, 1, out)
+        self.assertIn("project fold", out)
+        self.assertIn("optional", out)
+
+    def test_j12_contract_rejects_a_generic_seeded_row_click(self) -> None:
+        def generic_row(steps: list) -> None:
+            step = next(step for step in steps
+                        if step[0] == "click" and "data-session-row" in str(step[1]))
+            step[1] = "css=[data-session-row]:has-text('[seed]')"
+
+        code, out = self.check(self.copy_with(generic_row))
+        self.assertEqual(code, 1, out)
+        self.assertIn("Morning planning", out)
+
+    def test_j12_contract_still_rejects_an_optional_proof(self) -> None:
+        # An optional chip wait would let a dead reveal pass with every remaining
+        # assertion still green, which is what the ban exists for.
+        def make_the_chip_wait_optional(steps: list) -> None:
+            step = next(step for step in steps
+                        if step[0] == "wait"
+                        and re.search(r"置顶|Pin|改名|Rename", str(step[1])))
+            step[1] = "?" + str(step[1])
+
+        code, out = self.check(self.copy_with(make_the_chip_wait_optional))
+        self.assertEqual(code, 1, out)
+        self.assertIn("is optional", out)
 
     def test_j12_contract_rejects_an_index_without_the_registration(self) -> None:
         # Registration is the point of this row: deleting the one line must be
@@ -2192,6 +2287,108 @@ class WalkJ13ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("spec red: J13", out)
         self.assertIn("Back", out)
+
+    def test_j13_pins_the_system_back_queue(self) -> None:
+        """KIN-RESULT-002's history queue is a promise to the system Back.
+
+        The walker's contract is the reader; this pins the evidence in the
+        order the phone meets it. Three browser Backs from a cold file link:
+        file list, conversation, session list. Then Files, reopened from the
+        conversation through the action sheet, must show the list — the file
+        the reader left belongs to a history entry, not to the panel's memory.
+        """
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J13", out)
+        steps = load_spec()["journeys"]["J13"]["steps"]
+
+        history = [i for i, step in enumerate(steps) if step[0] == "history-back"]
+        self.assertEqual(len(history), 3, "J13 must press the system Back three times")
+        first, second, third = history
+        self.assertTrue(
+            any(step[0] == "search" and "panel=files" in str(step[1])
+                and "file=" not in str(step[1]) for step in steps[first:second]),
+            "the first system Back must land on the file list address",
+        )
+        self.assertTrue(
+            any(step[0] == "wait" and "data-phone-view" in str(step[1])
+                for step in steps[first:second]),
+            "the first system Back must prove the list is the pane on screen",
+        )
+        self.assertTrue(
+            any(step[0] == "gone" and "data-pane" in str(step[1])
+                for step in steps[first:second]),
+            "the first system Back must prove the viewer left the screen",
+        )
+        self.assertTrue(
+            any(step[0] == "url" and "/tasks/" in str(step[1]) for step in steps[second:third]),
+            "the second system Back must land on the conversation",
+        )
+        self.assertTrue(
+            any(step[0] == "search" and str(step[1]) == "^$" for step in steps[second:third]),
+            "the second system Back must clear panel/file from the address",
+        )
+        self.assertTrue(
+            any(step[0] == "url" and "sessions" in str(step[1]) for step in steps[third:]),
+            "the third system Back must reach the session list",
+        )
+
+        shots = [step[1] for step in steps if step[0] == "shot"]
+        for name in ("history-back-file", "history-back-list", "history-back-conversation",
+                     "history-back-sessions", "files-no-replay"):
+            self.assertIn(name, shots)
+
+        # Files, reopened from the conversation through the action sheet, is
+        # the list: a file replayed from the earlier leg fails the pane proof.
+        sheet = self.at(steps, lambda step: step[0] == "click"
+                        and ("会话操作" in str(step[1]) or "Session actions" in str(step[1])))
+        files = self.at(steps, lambda step: step[0] == "click"
+                        and ("text-is" in str(step[1]) or "^(文件|Files)$" in str(step[1])),
+                        sheet + 1)
+        self.assertTrue(
+            any(step[0] == "search" and "panel=files" in str(step[1])
+                and "file=" not in str(step[1]) for step in steps[files:]),
+            "opening Files must name the list address, not a file",
+        )
+        self.assertTrue(
+            any(step[0] == "wait" and "data-phone-view" in str(step[1])
+                for step in steps[files:]),
+            "opening Files must prove the panel shows the list",
+        )
+        self.assertTrue(
+            any(step[0] == "gone" and "data-pane" in str(step[1]) for step in steps[files:]),
+            "opening Files must prove the earlier file did not replay",
+        )
+
+    def test_j13_contract_rejects_a_body_without_the_system_back_queue(self) -> None:
+        # `back` may press the panel's own Return control; the queue the story
+        # promises is what the browser itself pops. Dropping the first
+        # `history-back` leaves a walk that never proves the conversation stop.
+        def drop_the_first_history_back(steps: list) -> None:
+            steps.pop(self.at(steps, lambda step: step[0] == "history-back"))
+
+        code, out = self.check(self.copy_with(drop_the_first_history_back))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J13", out)
+        self.assertIn("system Back", out)
+
+    def test_j13_contract_rejects_reopening_files_on_the_old_file(self) -> None:
+        # A walk that opens Files without reading the pane proves only that the
+        # sheet row was delivered; the stale file could still be on screen.
+        def drop_the_replay_proof(steps: list) -> None:
+            sheet = self.at(steps, lambda step: step[0] == "click"
+                            and "会话操作" in str(step[1]))
+            files = self.at(steps, lambda step: step[0] == "click"
+                            and ("text-is" in str(step[1]) or "^(文件|Files)$" in str(step[1])),
+                            sheet + 1)
+            gone = self.at(steps, lambda step: step[0] == "gone"
+                           and "data-pane" in str(step[1]), files + 1)
+            steps.pop(gone)
+
+        code, out = self.check(self.copy_with(drop_the_replay_proof))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J13", out)
+        self.assertIn("replay", out)
 
     def test_j13_contract_rejects_the_source_switch_without_its_consequence(self) -> None:
         # Pressing 源码 and moving on proves the click was delivered, not that
@@ -3603,4 +3800,6 @@ class WalkMutantManifestTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--check-spec"]:
+        raise SystemExit(subprocess.call([NODE, WALK, "--check-spec", "--spec", SPEC]))
     unittest.main()

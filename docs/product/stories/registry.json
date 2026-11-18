@@ -179,7 +179,7 @@
     },
     {
       "id": "KIN-SETTINGS-001",
-      "state": "approved",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J6"
@@ -197,6 +197,7 @@
         "ui/src/components/settings/LocalAgentSettingsSection.tsx"
       ],
       "tests": [
+        "ui/src/pages/SettingsPage.defaultAgent.dom.test.tsx",
         "ui/src/pages/SettingsPage.facade.dom.test.tsx",
         "ui/src/pages/SettingsPage.readFailure.dom.test.tsx",
         "ui/src/pages/SettingsPage.notificationTab.dom.test.tsx",

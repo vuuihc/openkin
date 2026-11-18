@@ -7,6 +7,11 @@
 //   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
 //   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J7's landing contract, J9's Mac switch, J11's phone switch and J12's thumb gestures; no browser)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
+// Ops are documented in journeys.json `_doc`. One op is not listed there
+// because it belongs to one story: `history-back` is the browser's own Back
+// (`page.goBack`), for legs where the app draws a Back button of its own and
+// the promise under test is the system Back / edge gesture. `back` presses
+// that button when it is reachable; `history-back` never does.
 // Exit 0 always when the walk ran (verdicts are the reviewer's and walk.json's `hardFail`); exit 2 when it could not run (no chrome, daemon unreachable).
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -736,6 +741,35 @@ function checkJ11Contract(spec) {
   if (backAt < 0) errs.push('J11 never leaves the second conversation for the list (back again)');
   if (returnAt < 0) errs.push('J11 never returns to the conversation it left (click … Morning planning again)');
 
+  // The list grows past the page: conversations another journey created land
+  // in the same project bucket, and past five rows the seeded row is folded
+  // behind 展开全部, so a click aimed at it never lands. Every list entry that
+  // opens the seeded row must press that fold first. The press is optional
+  // (`?`) because the disclosure exists only when the bucket is taller than
+  // five rows and a standalone walk's fullest bucket holds four; the row clicks stay required
+  // and named, so a press that silently fails cannot hide a list that lost it.
+  const foldClick = (st) => st[0] === 'click' && /展开全部|Show all/.test(sel(st, 1));
+  const listEntryBefore = (at) => {
+    let entry = -1;
+    steps.forEach((st, i) => {
+      if (i >= at || !Array.isArray(st)) return;
+      if ((st[0] === 'goto' && sel(st, 1) === '/sessions')
+        || st[0] === 'back'
+        || (st[0] === 'click' && sel(st, 1).includes('[data-phone-return="sessions"]'))) entry = i;
+    });
+    return entry;
+  };
+  let missingFold = false;
+  steps.forEach((st, i) => {
+    if (!Array.isArray(st) || st[0] !== 'click' || !/Morning planning/.test(sel(st, 1))) return;
+    const entry = listEntryBefore(i);
+    const pressed = steps.findIndex((cand, j) => j > entry && j < i && Array.isArray(cand) && foldClick(cand));
+    if (pressed < 0) missingFold = true;
+  });
+  if (missingFold) {
+    errs.push('J11 never presses the project fold before opening the seeded row from the list (click … 展开全部|Show all)');
+  }
+
   // A `goto` reloads the document. The shell claim is about client-side
   // navigation, so nothing after the first open may replace the page.
   if (openAt >= 0 && steps.findIndex((st, i) => i > openAt && Array.isArray(st) && st[0] === 'goto') >= 0) {
@@ -1270,13 +1304,15 @@ function checkJ12Contract(spec) {
   if (!journey.title && !Array.isArray(steps)) return ['J12 is not in the spec'];
   if (!Array.isArray(steps) || steps.length === 0) return ['J12 has no steps'];
   const errs = [];
+  const isFoldClick = (st) => Array.isArray(st) && st[0] === 'click'
+    && /展开全部|Show all/.test(String(st[1] ?? ''));
   // Every J12 proof is mandatory. The executor logs a `?`-prefixed step that
   // does not match as `skipped …` with no hard failure, so one optional chip
   // wait or post-reload `rows` would leave the walk green while the gesture is
   // dead — the failure this contract exists to catch.
   steps.forEach((st) => {
     if (Array.isArray(st) && st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'))) {
-      errs.push('J12 step ' + JSON.stringify(st) + ' is optional; every J12 proof must be mandatory');
+      errs.push('J12 ' + (isFoldClick(st) ? 'project fold ' : 'step ') + JSON.stringify(st) + ' is optional; every J12 proof must be mandatory');
     }
   });
   const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
@@ -1293,6 +1329,41 @@ function checkJ12Contract(spec) {
   if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'phone') {
     errs.push('J12 is the phone thumb walk: its viewports must be exactly ["phone"]');
   }
+
+  // Every unsearched list load whose rows the walk reads must press the fold
+  // first. Past five rows the seeded row is not rendered until 展开全部 is
+  // pressed, and a gesture aimed at it fails as "not on the screen". A load
+  // followed by a non-empty search is exempt: `searching` force-opens every
+  // bucket, so the row is drawn without the disclosure. The press must be
+  // mandatory: an optional click would never prove the fold was exercised.
+  const rowRead = (st) => Array.isArray(st)
+    && ['click', 'wait', 'swipe', 'drag', 'rows'].includes(st[0])
+    && /Morning planning/.test(JSON.stringify(st));
+  let missingFold = false;
+  steps.forEach((st, g) => {
+    if (!Array.isArray(st) || st[0] !== 'goto' || st[1] !== '/sessions') return;
+    const nextLoad = idx((cand) => cand[0] === 'goto', g + 1);
+    const end = nextLoad < 0 ? steps.length : nextLoad;
+    const readAt = steps.findIndex((cand, i) => i > g && i < end && rowRead(cand));
+    if (readAt < 0) return;
+    const fillAt = steps.findLastIndex((cand, i) => i > g && i < readAt && Array.isArray(cand)
+      && cand[0] === 'fill' && /input\[type=search\]/.test(sel(cand, 1)));
+    if (fillAt >= 0 && sel(steps[fillAt], 2).trim() !== '') return;
+    const pressed = steps.findIndex((cand, i) => i > g && i < readAt && isFoldClick(cand) && !sel(cand, 1).startsWith('?'));
+    if (pressed < 0) missingFold = true;
+    if (fillAt < 0 || (pressed >= 0 && fillAt > pressed)) {
+      errs.push('J12 must clear the search after each unsearched list load before pressing the project fold');
+    }
+  });
+  if (missingFold) {
+    errs.push('J12 never presses the project fold after a list load (click … 展开全部|Show all, not optional) before reading the seeded row');
+  }
+
+  // The standalone seed has only two Alpha rows. Create four conversations
+  // through the fake-agent-gated UI so this walk exercises a real disclosure.
+  const firstFoldAt = idx(isFoldClick);
+  const fixtureSends = steps.filter((st, i) => i < firstFoldAt && Array.isArray(st) && st[0] === 'send');
+  if (fixtureSends.length < 4) errs.push('J12 needs four fixture conversations before the project fold; the standalone seed does not fold');
 
   // Every gesture must be followed by the assertion it feeds before the next
   // gesture starts. A swipe nobody reads proves only that the event was sent.
@@ -1322,6 +1393,10 @@ function checkJ12Contract(spec) {
     const scrollAt = idx((st) => st[0] === 'scroll' && /data-phone-scroll/.test(sel(st, 1)) && num(st, 2) > 0);
     if (fillAt < 0 || fillAt > edgeAt) errs.push('J12 must type a search term before the edge swipe; a search restored from nothing proves nothing');
     if (scrollAt < 0 || scrollAt > edgeAt) errs.push('J12 must scroll the list before the edge swipe; a kept offset of 0 is not a kept offset');
+    const openAt = idx((st) => st[0] === 'click' && /data-session-row/.test(sel(st, 1)));
+    if (openAt < 0 || openAt > edgeAt || !/Morning planning/.test(sel(steps[openAt], 1))) {
+      errs.push('J12 must open the named [seed] Morning planning row before the edge swipe');
+    }
     const valueAt = after(edgeAt, (st) => st[0] === 'value' && searchSel(st));
     const keptAt = after(edgeAt, (st) => st[0] === 'scroll-kept' && /data-phone-scroll/.test(sel(st, 1)));
     if (valueAt < 0) errs.push('J12 never reads the search text back after the edge swipe (value input[type=search] …)');
@@ -1487,6 +1562,58 @@ function checkJ13Contract(spec) {
         if (closedAt < 0) errs.push('J13 never proves the files pane left the screen when it returned to the conversation (gone …)');
       }
     }
+  }
+
+  // Leg 1b — the queue KIN-RESULT-002 promises to the system Back. The cold
+  // files link is four entries (list → conversation → file list → file); the
+  // browser's own Back has to pop them in that order. `back` may press the
+  // panel's own Return control, which is a different promise, so the queue is
+  // pinned to `history-back`. And the list has to be SHOWN as the list: an
+  // address change over a still-open viewer would pass a `search`-only pin.
+  const sysBackAt = idx((st) => st[0] === 'history-back');
+  if (sysBackAt < 0) {
+    errs.push('J13 never presses the system Back (history-back) from the file deep link');
+  } else {
+    const listAddressAt = after(sysBackAt, (st) => st[0] === 'search' && /panel=files/.test(sel(st, 1)) && !/file=/.test(sel(st, 1)));
+    const listShownAt = after(sysBackAt, (st) => st[0] === 'wait' && /data-phone-view/.test(sel(st, 1)) && /list/.test(sel(st, 1)));
+    const viewerGoneAt = after(sysBackAt, (st) => st[0] === 'gone' && /data-pane/.test(sel(st, 1)) && /viewer/.test(sel(st, 1)));
+    if (listAddressAt < 0) errs.push('J13 never proves the first system Back reached the file list (?panel=files with no file=)');
+    if (listShownAt < 0) errs.push("J13 never proves the file list is the pane on screen after the first system Back (wait [data-phone-view='list'])");
+    if (viewerGoneAt < 0) errs.push('J13 never proves the file viewer left the screen after the first system Back (gone [data-pane=viewer])');
+
+    const conversationBackAt = after(listAddressAt >= 0 ? listAddressAt : sysBackAt, (st) => st[0] === 'history-back');
+    const conversationAt = after(conversationBackAt, (st) => st[0] === 'url' && /\/tasks\//.test(sel(st, 1)));
+    const cleanAddressAt = after(conversationBackAt, (st) => st[0] === 'search' && sel(st, 1).replace(/\s/g, '') === '^$');
+    const panelGoneAt = after(conversationBackAt, (st) => st[0] === 'gone');
+    if (conversationBackAt < 0) errs.push('J13 never presses a second system Back from the file list');
+    if (conversationAt < 0) errs.push('J13 never proves the second system Back reached the conversation (url ^/tasks/…)');
+    if (cleanAddressAt < 0) errs.push('J13 never proves the second system Back cleared panel/file from the address (search ^$)');
+    if (panelGoneAt < 0) errs.push('J13 never proves the files pane left the screen when the second system Back reached the conversation (gone …)');
+
+    const sessionsBackAt = after(cleanAddressAt >= 0 ? cleanAddressAt : conversationBackAt, (st) => st[0] === 'history-back');
+    const sessionsAt = after(sessionsBackAt, (st) => st[0] === 'url' && /sessions/.test(sel(st, 1)));
+    if (sessionsBackAt < 0) errs.push('J13 never presses the third system Back from the conversation');
+    if (sessionsAt < 0) errs.push('J13 never proves the third system Back reached the session list (url ^/sessions)');
+
+    // Leg 1c — reopening Files from the conversation starts at the list. The
+    // file the reader left belongs to a history entry, not to the panel's
+    // memory; a panel that replays it opens a file nobody chose.
+    const rowAt = after(sessionsAt >= 0 ? sessionsAt : sessionsBackAt, (st) => st[0] === 'click' && /data-session-row/.test(sel(st, 1)));
+    const sheetAt = after(rowAt, (st) => st[0] === 'click' && /会话操作|Session actions/.test(sel(st, 1)));
+    // The sheet row's label is a nested span, so `button:text-is(…)` does not
+    // match it; the walker's exact-text regex does, and the row must be waited
+    // for before the press (the sheet's entrance is animated).
+    const filesRowSelector = /text-is\('(?:文件|Files)'\)|\^\(文件\|Files\)\$/;
+    const reopenAt = after(sheetAt, (st) => st[0] === 'click' && filesRowSelector.test(sel(st, 1)));
+    if (rowAt < 0) errs.push('J13 never reopens the seeded conversation after the system Back queue');
+    if (sheetAt < 0) errs.push('J13 never opens the session action sheet to reach Files');
+    if (reopenAt < 0) errs.push('J13 never presses the Files row in the action sheet');
+    const reopenPanelAt = after(reopenAt, (st) => st[0] === 'search' && /panel=files/.test(sel(st, 1)) && !/file=/.test(sel(st, 1)));
+    const reopenListAt = after(reopenAt, (st) => st[0] === 'wait' && /data-phone-view/.test(sel(st, 1)) && /list/.test(sel(st, 1)));
+    const reopenGoneAt = after(reopenAt, (st) => st[0] === 'gone' && /data-pane/.test(sel(st, 1)) && /viewer/.test(sel(st, 1)));
+    if (reopenPanelAt < 0) errs.push('J13 never proves opening Files named the list address (?panel=files with no file=)');
+    if (reopenListAt < 0) errs.push("J13 never proves reopening Files shows the list (wait [data-phone-view='list'])");
+    if (reopenGoneAt < 0) errs.push('J13 never proves reopening Files does not replay the earlier file (gone [data-pane=viewer])');
   }
 
   // Leg 2 — the self-contained HTML file. The preview is pressed, the source
@@ -1919,6 +2046,20 @@ async function stepLocator(page, sel, opts = {}) {
     for (let i = 0; i < namedCount; i++) if (await usable(named.nth(i))) return named.nth(i);
   }
   return text.first();
+}
+/**
+ * Press the browser's own Back and report whether the stack actually moved.
+ *
+ * Playwright returns null from `page.goBack` for a same-document navigation:
+ * the entries React Router pushes are `pushState` entries, so popping one has
+ * no document response. The address is the honest evidence, not the return
+ * value — a walk that treated null as "no entry" would redden every synthesized
+ * phone queue while the browser had in fact gone back.
+ */
+async function historyBack(page) {
+  const before = page.url();
+  await page.goBack({ waitUntil: 'domcontentloaded', timeout: WAIT_MS }).catch(() => null);
+  return pollUntil(page, () => page.url() !== before, 3000);
 }
 // A `?` prefix means the same thing for every op: absent or not visible is a
 // recorded skip, not a failure (see journeys.json `_doc`).
@@ -2444,10 +2585,21 @@ for (const j of want) {
             log.push('pressed Back');
           }
           if (!pressed) {
-            const went = await page.goBack({ waitUntil: 'domcontentloaded', timeout: WAIT_MS }).catch(() => null);
-            if (!went) { hardFail.push(`${j}/${vpName}: Back left no history entry to return to`); continue; }
+            const moved = await historyBack(page);
+            if (!moved) { hardFail.push(`${j}/${vpName}: Back left no history entry to return to`); continue; }
             log.push('history back');
           }
+          await page.waitForTimeout(400);
+        } else if (op === 'history-back') {
+          // The system Back: the browser's own stack, not the app's Back
+          // button. `back` presses a reachable /返回|Back/ control first, so it
+          // proves the in-app exit; a queue the story promises to the system
+          // Back (KIN-RESULT-002: file → list → conversation → sessions) has to
+          // be popped by the browser. Nothing behind this entry is a hard
+          // failure — the synthesized parent is exactly what is under test.
+          const moved = await historyBack(page);
+          if (!moved) { hardFail.push(`${j}/${vpName}: history-back had no history entry to return to`); continue; }
+          log.push('history back');
           await page.waitForTimeout(400);
         } else if (op === 'value') {
           const { optional, value: sel } = optionalOf(a);
