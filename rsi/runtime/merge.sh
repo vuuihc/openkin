@@ -19,8 +19,8 @@ item_id() { # slug body -> the marker's id, else R-<slug>: the one reader and th
   id="$(printf '%s\n' "$2" | python3 "$RSI_DIR/runtime/item_marker.py")"
   printf '%s\n' "${id:-R-$1}"
 }
-sendback() { # slug item title detail-file
-  local slug="$1" item="$2" title="$3" det="$4" a live
+sendback() { # slug item title detail-file [source] [spec] [cmd]
+  local slug="$1" item="$2" title="$3" det="$4" a live src="${5:-unknown}" spec="${6:--}" cmd="${7:--}"
   # A rework lane can push the fix WHILE this lane is still reviewing. Bouncing the PR on the SHA
   # that failed would then hand back a head that already contains the fix, burning one of three
   # attempts and 10-20 min of lane time. If the live head moved past the reviewed SHA, suppress the
@@ -45,13 +45,18 @@ sendback() { # slug item title detail-file
     [ $b -ge 2 ] && [ ! -e "$STATE/NO_MERGE" ] && echo "two PRs blocked after their rework rounds ($(date))" > "$STATE/NO_MERGE"
     notify "Kin RSI: PR rsi/$slug blocked" "$title"; return
   fi
-  write_sendback "$slug" "$item" "$title" "$det" "$a" targeted
+  write_sendback "$slug" "$item" "$title" "$det" "$a" targeted "$src" "$spec" "$cmd"
   say "sendback $slug (#$a): $title"; KICK=1
 }
-write_sendback() { # slug item title detail-file attempt-label kind(targeted|mechanical)
+write_sendback() { # slug item title detail-file attempt-label kind(targeted|mechanical) [source] [spec] [cmd]
+  # Provenance sits right after `kind:` so a retro can sort 18 sendbacks by who caught them
+  # without opening each one (retro 2026-11-18 §5.2). Defaults are explicit words, never blank.
   local slug="$1" item="$2" title="$3" det="$4" a="$5" kind="${6:-targeted}"
+  local src="${7:-unknown}" spec="${8:--}" cmd="${9:--}"
   {
-    echo "item: $item"; echo "attempt: $a"; echo "kind: $kind"; echo "# Sent back by the merge lane: $title"; echo
+    echo "item: $item"; echo "attempt: $a"; echo "kind: $kind"
+    echo "source: $src"; echo "spec: $spec"; echo "cmd: $cmd"
+    echo "# Sent back by the merge lane: $title"; echo
     echo "Branch rsi/$slug. Make MINIMAL, TARGETED edits: fix exactly the items below, do not regenerate or rewrite files, do not touch code the items do not name. Then re-run only the focused checks and stop (the merge lane re-gates and re-reviews the delta)."
     if [ "$kind" = mechanical ]; then echo "This is a MECHANICAL fix (conflict/format/infra), not a quality sendback: resolve it and change nothing else."; fi
     if [ -s "${SB_FIXLIST:-/nonexistent}" ]; then echo; echo "## Fix list (file:line, issue, required change)"; echo; cat "$SB_FIXLIST"; fi
@@ -59,10 +64,10 @@ write_sendback() { # slug item title detail-file attempt-label kind(targeted|mec
     echo; echo "## Raw report"; echo '```'; tail -c 6000 "$det" | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null; echo '```'
   } > "$STATE/sendback/$slug.md"
 }
-sendback_mech() { # slug item title detail-file : mechanical failure (merge conflict, format, infra). Does NOT count as a sendback; capped at 5 then counts.
-  local slug="$1" item="$2" title="$3" det="$4" m; m=$(( $(cat "$STATE/merge/$slug.mech" 2>/dev/null || echo 0) + 1 )); echo $m > "$STATE/merge/$slug.mech"
-  if [ $m -gt 5 ]; then sendback "$slug" "$item" "$title (mechanical x$m)" "$det"; return; fi
-  SB_FIXLIST="" SB_GATEFAILS="" write_sendback "$slug" "$item" "$title" "$det" "mech-$m" mechanical
+sendback_mech() { # slug item title detail-file [source] [spec] [cmd] : mechanical failure (merge conflict, format, infra). Does NOT count as a sendback; capped at 5 then counts.
+  local slug="$1" item="$2" title="$3" det="$4" src="${5:-mech}" spec="${6:--}" cmd="${7:--}" m; m=$(( $(cat "$STATE/merge/$slug.mech" 2>/dev/null || echo 0) + 1 )); echo $m > "$STATE/merge/$slug.mech"
+  if [ $m -gt 5 ]; then sendback "$slug" "$item" "$title (mechanical x$m)" "$det" "$src" "$spec" "$cmd"; return; fi
+  SB_FIXLIST="" SB_GATEFAILS="" write_sendback "$slug" "$item" "$title" "$det" "mech-$m" mechanical "$src" "$spec" "$cmd"
   say "mechanical rework $slug (#$m, not counted as a sendback): $title"; KICK=1
 }
 
@@ -87,6 +92,18 @@ pr_head() { # <pr-number> -> prints the live head oid, non-zero on failure (an o
 }
 # A head is an oid and nothing else: a gh warning or a blank line on stdout must read as unreadable.
 oid() { case "${1:-}" in ""|*[!0-9a-fA-F]*) return 1 ;; esac; }
+# The journey spec the UX gate walked, as a 12-hex blob revision, or "-" when the worktree, the
+# blob or git itself cannot answer. #251's false red was a walker/spec mismatch: the sendback
+# named neither, so the retro could not tell it from a real defect. Never fails: the header line
+# must always be writable.
+spec_rev() { # <worktree> -> HEAD:rsi/runtime/ux/journeys.json short hash, or -
+  local wt="${1:-}" rev
+  if [ -n "$wt" ] && [ -d "$wt" ]; then
+    rev="$($GIT -C "$wt" rev-parse --short=12 HEAD:rsi/runtime/ux/journeys.json 2>/dev/null)" || rev=""
+    [ ${#rev} -eq 12 ] && { printf '%s\n' "$rev"; return 0; }
+  fi
+  printf '%s\n' -
+}
 
 ratchet_ok() { # worktree -> 0 when the regenerated inventory did not grow past origin/main's copy
   local wt="$1" base rc; base="$(mktemp)" || return 1
@@ -323,7 +340,28 @@ if [ "${1:-}" != "--one" ]; then
   if [ "${1:-}" = "--stale-check" ]; then
     SLUG="${2:?slug required}"; ITEM="${3:?item required}"; N="${4:?pr required}"
     SHA="${5-}"; DET="${6:?detail file required}"
-    sendback "$SLUG" "$ITEM" "stale-check" "$DET"
+    sendback "$SLUG" "$ITEM" "stale-check" "$DET" "test" - "bash rsi/runtime/tests/test-loop-sendback-stale.sh"
+    exit 0
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-sendback-provenance.sh: run the same sendback_mech()
+  # the sync_main conflict path calls, so its forwarding into write_sendback is proven end to end.
+  if [ "${1:-}" = "--mech-check" ]; then
+    sendback_mech "${2:?slug required}" "${3:?item required}" "${4:?title required}" \
+      "${5:?detail file required}" "${6:-}" "${7:-}" "${8:-}"
+    exit 0
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-sendback-provenance.sh: write one sendback through
+  # the same write_sendback() the land loop uses, provenance lines included. No state, no gh.
+  if [ "${1:-}" = "--sendback-check" ]; then
+    write_sendback "${2:?slug required}" "${3:?item required}" "${4:?title required}" \
+      "${5:?detail file required}" "${6:?attempt required}" "${7:?kind required}" \
+      "${8:-}" "${9:-}" "${10:-}"
+    exit 0
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-sendback-provenance.sh: the same spec_rev() the UX
+  # gate sendback calls, against a temp repo. No state, no gh.
+  if [ "${1:-}" = "--spec-rev" ]; then
+    spec_rev "${2:?worktree required}"
     exit 0
   fi
   # Hermetic seam for rsi/runtime/tests/test-loop-sendback-stale.sh: read the item id from a body
@@ -428,7 +466,8 @@ sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 tr
   if ! $GIT -C "$WT" merge -q --no-edit origin/main >/dev/null 2>&1; then
     if gen_resolve "$WT"; then say "#$N: conflict(s) in generated files resolved by regeneration"
     else CF="$($GIT -C "$WT" diff --name-only --diff-filter=U)"; $GIT -C "$WT" merge --abort >/dev/null 2>&1
-      printf 'merge of origin/main conflicts in:\n%s\n' "$CF" > "$STATE/merge/$SLUG.err"; sendback_mech "$SLUG" "$ITEM" "merge conflict with main" "$STATE/merge/$SLUG.err"; return 1; fi
+      printf 'merge of origin/main conflicts in:\n%s\n' "$CF" > "$STATE/merge/$SLUG.err"
+      sendback_mech "$SLUG" "$ITEM" "merge conflict with main" "$STATE/merge/$SLUG.err" "mech" - "$GIT -C $WT merge -q --no-edit origin/main"; return 1; fi
   fi
   with_timeout 120 "$GIT" -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push after merge-main failed"; return 2; }
   return 0
@@ -569,7 +608,7 @@ if [ "$SIZE" -gt 1000 ]; then
 fi
 echo "$CH" | grep -qE '^web/dist/assets/' && HOLD="web/dist/assets in diff"
 if [ -n "$HOLD" ]; then
-  if [ "${HOLD#diff is}" != "$HOLD" ]; then printf '%s\n' "$HOLD" > "$STATE/merge/$SLUG.err"; sendback "$SLUG" "$ITEM" "$HOLD" "$STATE/merge/$SLUG.err"
+  if [ "${HOLD#diff is}" != "$HOLD" ]; then printf '%s\n' "$HOLD" > "$STATE/merge/$SLUG.err"; sendback "$SLUG" "$ITEM" "$HOLD" "$STATE/merge/$SLUG.err" "hold-size" - -
   else touch "$STATE/merge/$SLUG.blocked"; printf -- '- %s PR #%s rsi/%s held: %s\n' "$(date '+%F %H:%M')" "$N" "$SLUG" "$HOLD" >> "$STATE/needs-ceo.md"; fi
   exit 0
 fi
@@ -578,7 +617,7 @@ fi
 if echo "$CH" | grep -qE '^ui/src/.*\.tsx$' && ! echo "$CH" | grep -qE '^ui/src/.*\.(test|spec)\.' ; then
   if [ -z "$(ls "$STATE/shots/$SLUG" 2>/dev/null)" ] && ! echo "$BODY" | grep -qiE 'screenshots?:.*(none|not visible|https?://|!\[)' ; then
     echo "UI .tsx changed but no screenshots in $STATE/shots/$SLUG/ and no 'Screenshots:' line with a link/image or 'none: <reason>' in the PR body (MANDATE 5). Capture 390x844 and 1100x760 before/after, or state why nothing is visible." > "$STATE/merge/$SLUG.err"
-    sendback "$SLUG" "$ITEM" "missing screenshots" "$STATE/merge/$SLUG.err"; exit 0
+    sendback "$SLUG" "$ITEM" "missing screenshots" "$STATE/merge/$SLUG.err" "hold-screenshots" - -; exit 0
   fi
 fi
 
@@ -791,7 +830,7 @@ if [ $GATE_OK -eq 0 ] || [ $REV_OK -eq 0 ]; then
   [ $REV_OK -eq 0 ] && python3 "$RSI_DIR/runtime/fixlist.py" "$PREV" > "$SB_FIXLIST" 2>/dev/null
   [ $GATE_OK -eq 0 ] && grep -E 'error TS[0-9]+|^ *(FAIL|✗|×) |AssertionError|^FAIL:|Error:|not ok|--- FAIL' "$GL" 2>/dev/null | head -30 > "$SB_GATEFAILS"
   export SB_FIXLIST SB_GATEFAILS
-  sendback "$SLUG" "$ITEM" "$TITLEBAD" "$C"
+  sendback "$SLUG" "$ITEM" "$TITLEBAD" "$C" "gate+review" - "bash $RSI_DIR/runtime/gate.sh $WT"
   [ -z "${SB_SUPPRESSED:-}" ] && scorecard_row "$ITEM $SLUG" "$M_WORKER" "$RMODEL" "$TITLEBAD" "[#$N]($PRURL)" "patched" "see ${GL##*/}"
   exit 0
 fi
@@ -837,7 +876,7 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
       echo "$DH PASS $MAINUI" > "$UXV"
       $GH pr comment "$N" --repo "$GH_REPO" --body "RSI UX gate: PASS on ${SHA:0:8} ($SC). Journey screenshots are kept on the CEO machine (rsi/state/shots/$SLUG/journeys/). Rubric: rsi/UX-RUBRIC.md." >/dev/null 2>&1
     elif [ $urc -eq 1 ]; then
-      say "#$N $SLUG: UX gate FAIL ($SC)"; sendback "$SLUG" "$ITEM" "UX gate failed ($SC)" "$STATE/merge/$SLUG.ux.txt"
+      say "#$N $SLUG: UX gate FAIL ($SC)"; sendback "$SLUG" "$ITEM" "UX gate failed ($SC)" "$STATE/merge/$SLUG.ux.txt" "ux-gate" "$(spec_rev "$WT")" "bash $RSI_DIR/runtime/ux-gate.sh $WT $SLUG $ITEM $N $DH $ROLE"
       [ -z "${SB_SUPPRESSED:-}" ] && scorecard_row "$ITEM $SLUG" "$M_WORKER" "$RMODEL (ux)" "UX FAIL $SC" "[#$N]($PRURL)" "patched" "see state/ux/$SLUG"; exit 0
     else
       [ -e "$STATE/merge/$SLUG.uxunavail.$DH" ] || { touch "$STATE/merge/$SLUG.uxunavail.$DH"
@@ -880,7 +919,7 @@ for round in 1 2 3; do
       say "#$N $SLUG: CI still failing only on tests outside the PR footprint (or known-flaky) after one rerun — mechanical, not a quality sendback, not kicking a rework lane"
       exit 0
     fi
-    sendback "$SLUG" "$ITEM" "CI failed" "$STATE/merge/$SLUG.ci.txt"; exit 0
+    sendback "$SLUG" "$ITEM" "CI failed" "$STATE/merge/$SLUG.ci.txt" "ci" - "gh pr checks $N --repo $GH_REPO"; exit 0
   }
   mklock "$STATE/.land.lock" 900 || { say "#$N: land lock timeout"; exit 0; }
   $GIT -C "$WT" fetch -q origin main 2>/dev/null

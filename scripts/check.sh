@@ -218,6 +218,7 @@ job_shell_test() {
   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest >/dev/null || return 1
   bash rsi/runtime/tests/test-ux-walker.sh || return 1
   bash rsi/runtime/tests/test-loop-sendback-stale.sh || return 1
+  bash rsi/runtime/tests/test-sendback-provenance.sh || return 1
   bash rsi/runtime/tests/test-release.sh || return 1
   bash rsi/runtime/tests/test-pace.sh || return 1
   bash rsi/runtime/tests/test-control-sync.sh || return 1
