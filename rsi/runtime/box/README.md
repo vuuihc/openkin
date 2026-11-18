@@ -12,10 +12,21 @@ Box sync is paused. `state/BOX_OFF` says:
 While that file exists, `common.sh` caps cloud claims (`RSI_CLOUD_MAX=2`) and `run.sh` skips
 `box-pack.sh`, so this code adds no capacity as long as the file is there.
 
-To reactivate: copy `box-side/litellm.yaml.example` to `box-side/litellm.yaml` and set your gateway
+To reactivate: deploy `box-side/*` flat into `/workspace/box-lane` on the box (that directory is the
+proxy's cwd), copy `litellm.yaml.example` to `/workspace/box-lane/litellm.yaml` and set your gateway
 host in it, export `VOLCENGINE_API_KEY` in the environment only (never on disk, never in the repo),
 remove `state/BOX_OFF`, then start `supervisor.sh`. Briefs packed for the box remain public-repo-only
-by the pack's own contract.
+by the pack's own contract. Before reactivation, also port the ingest guards from `nas/ingest-nas.sh`
+(lane-active, slug lock, ancestry, dirty tree) into `ingest-box.sh`; this publish is byte-for-byte and
+does not carry them.
+
+### Landing note (control tree)
+
+If a control tree still carries untracked copies of `rsi/runtime/box/README.md` or
+`rsi/runtime/box/box-side/start-proxy.sh`, landing this directory pins it: those copies differ from
+the tracked ones, so `run.sh`'s `adopt_untracked_collision` refuses to sync and `--sync-check` exits
+1. Delete the two before the next sync (keep `box-side/litellm.yaml`, which the repo-root
+`.gitignore` rule covers); the other 12 files are byte-identical and are adopted automatically.
 
 ```
 Mac  box-pack.sh        take untaken state/cloud/*.json claims (taker=box), write state/box/xfer/in.tgz (+acks.txt)

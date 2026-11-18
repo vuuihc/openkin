@@ -1,7 +1,7 @@
 #!/bin/bash
 # box-lane.sh <slug>  — run one queued job end-to-end on the box: worktree -> worker (Claude Code via box gateway) ->
 # self-check (typecheck + inventory ratchet + tests, one fix round) -> git bundle + PR body for the Mac to ingest.
-# The box has no GitHub credentials: it never pushes. The Mac (ingest-box.sh / box-sync.sh) pushes rsi/<slug> and opens the PR.
+# The box has no GitHub credentials: it never pushes. The Mac (ingest-box.sh) pushes rsi/<slug> and opens the PR.
 set -u
 BL=/workspace/box-lane; SLUG="$1"; J="$BL/jobs/$SLUG"; REPO=/workspace/openkin-box; WT="/workspace/wt/rsi-$SLUG"; BR="rsi/$SLUG"
 LOG="$BL/logs/$SLUG.log"; exec >> "$LOG" 2>&1
@@ -12,7 +12,7 @@ export VITEST_MAX_WORKERS=2 RSI_HEAVY_SLOTS=2 BASH_DEFAULT_TIMEOUT_MS=3300000 BA
 WORKER='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
 st() { python3 - "$J/status.json" "$@" <<'PY'
 import json,sys,time
-p=sys.argv[1]; d=json.load(open(p)); 
+p=sys.argv[1]; d=json.load(open(p))
 for kv in sys.argv[2:]:
     k,v=kv.split("=",1); d[k]=v
 d["updated_at"]=time.time(); json.dump(d,open(p+".tmp","w")); __import__("os").replace(p+".tmp",p)

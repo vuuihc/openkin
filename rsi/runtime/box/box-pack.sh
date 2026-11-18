@@ -1,8 +1,8 @@
 #!/bin/bash
 # box-pack.sh — Mac side, step 1 of a box sync. Packs every cloud claim nobody has taken yet (state/cloud/*.json without "taker")
 # into state/box/xfer/in.tgz (job.json = {item, paths, brief text}) plus acks.txt (slugs already ingested), and marks those claims taker=box
-# so no other cloud launcher double-takes them. The claim is heart-beaten (claimed_at pushed into the future) so the 3 h TTL does not fall
-# back to a local lane while the box works. Never contains secrets: briefs are public-repo-only by contract.
+# so no other cloud launcher double-takes them. The claim carries expires_at = now + RSI_BOX_CLAIM_HOURS (5 h), the field
+# lanes.py cloud_claims() honours, so the 3 h CLOUD_TTL does not fall back to a local lane while the box works. Never contains secrets: briefs are public-repo-only by contract.
 # Sync cycle (run by an agent that has Mac + box tools; the box has no inbound route and no GitHub write access):
 #   Mac: box-pack.sh -> CopyToBox xfer/in.tgz to /workspace/box-lane/xfer/in.tgz -> box: box-inbox.sh ; box: box-outbox.sh
 #   -> CopyFromBox /workspace/box-lane/xfer/out.tgz to Mac xfer/out.tgz -> Mac: ingest-box.sh
@@ -33,11 +33,14 @@ for f in "$STATE"/cloud/*.json; do [ -e "$f" ] || continue
 import json,sys,os,time
 f,T,ctrl,hrs=sys.argv[1:5]; d=json.load(open(f))
 if d.get("taker"): sys.exit(1)
+slug=d.get("slug") or ""
+if any(c not in "abcdefghijklmnopqrstuvwxyz0123456789._-" for c in slug) or not slug:
+  print("skip bad slug", slug, file=sys.stderr); sys.exit(1)
 b=d["brief"]; b=b if os.path.isabs(b) else os.path.join(ctrl,b)
 brief=open(b).read()
-os.makedirs(f"{T}/jobs/{d['slug']}",exist_ok=True)
-json.dump(dict(item=d["item"],paths=d["paths"],brief=brief),open(f"{T}/jobs/{d['slug']}/job.json","w"))
-d.update(taker="box",status="launched",launched_at=time.time(),claimed_at=time.time()+float(hrs)*3600-10800)
+os.makedirs(f"{T}/jobs/{slug}",exist_ok=True)
+json.dump(dict(item=d["item"],paths=d["paths"],brief=brief),open(f"{T}/jobs/{slug}/job.json","w"))
+d.update(taker="box",status="launched",launched_at=time.time(),expires_at=time.time()+float(hrs)*3600)
 json.dump(d,open(f,"w"))
 print("packed",d["item"],d["slug"])
 PY

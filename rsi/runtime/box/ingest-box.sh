@@ -4,6 +4,7 @@
 # release the cloud claim, queue the slug in acks.txt for the next pack, then kick the merge lane. A failed box job releases the claim as expired
 # so the slice falls back to a local lane. Idempotent.
 source "$(cd "$(dirname "$0")/.." && pwd)/common.sh"
+mkdir -p "$STATE/box"
 X="$STATE/box/xfer"; F="${1:-$X/out.tgz}"; [ -f "$F" ] || { echo "no $F"; exit 0; }
 T="$(mktemp -d)"; tar xzf "$F" -C "$T" || { echo "bad tarball"; exit 1; }; KICK=0
 for d in "$T"/jobs/*/; do [ -f "$d/status.json" ] || continue; SLUG="$(basename "$d")"
