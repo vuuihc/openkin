@@ -1252,9 +1252,10 @@ function checkJ4Contract(spec) {
 // strip, or photographs the order instead of reading it after a reload is
 // green while the phone gesture is dead.
 //   node walk.mjs --check-spec [--spec path/to/journeys.json]
-// These are the shipped thresholds, duplicated so the spec cannot quietly
-// drift from the gestures: ui/src/hooks/useEdgeSwipeBack.ts
-// (EDGE_START_PX / EDGE_COMMIT_PX) and SwipeReveal.tsx (+swipeGesture.ts).
+// These mirror the thresholds the gestures ship with in
+// ui/src/hooks/useEdgeSwipeBack.ts (EDGE_START_PX / EDGE_COMMIT_PX) and
+// SwipeReveal.tsx (+swipeGesture.ts). Nothing compares the numbers at build
+// time, so a change there surfaces as a failed gesture in the walk, not here.
 const J12_EDGE_START_PX = 20;
 const J12_EDGE_COMMIT_PX = 64;
 const J12_REVEAL_WIDTH = 152;
@@ -1270,6 +1271,15 @@ function checkJ12Contract(spec) {
   if (!journey.title && !Array.isArray(steps)) return [];
   if (!Array.isArray(steps) || steps.length === 0) return ['J12 has no steps'];
   const errs = [];
+  // Every J12 proof is mandatory. The executor logs a `?`-prefixed step that
+  // does not match as `skipped …` with no hard failure, so one optional chip
+  // wait or post-reload `rows` would leave the walk green while the gesture is
+  // dead — the failure this contract exists to catch.
+  steps.forEach((st) => {
+    if (Array.isArray(st) && st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'))) {
+      errs.push('J12 step ' + JSON.stringify(st) + ' is optional; every J12 proof must be mandatory');
+    }
+  });
   const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
   const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
   const sel = (st, i) => String((st || [])[i] ?? '');
@@ -1352,6 +1362,9 @@ function checkJ12Contract(spec) {
     if (orderAt < 0 || (reloadAt >= 0 && orderAt > reloadAt)) {
       errs.push('J12 never reads the new row order after the drag and before the reload (rows css=<scope> token|token)');
     }
+    const beforeAt = steps.findLastIndex((st, i) => i < dragAt && Array.isArray(st) && st[0] === 'rows');
+    if (beforeAt < 0) errs.push('J12 never reads the row order before the drag (rows css=<scope> token|token); a drag with no before cannot prove it moved');
+    else if (orderAt >= 0 && sel(steps[beforeAt], 2) === sel(steps[orderAt], 2)) errs.push('J12 expects the same row order before and after the drag; the hold must move the row');
     if (reloadAt < 0) errs.push('J12 never reloads the list after the drag (goto /sessions)');
     const postAt = after(reloadAt, (st) => st[0] === 'rows');
     if (reloadAt >= 0 && postAt < 0) errs.push('J12 never reads the order back after the reload; persistence is the half a drag without a reload cannot prove');
@@ -1399,7 +1412,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J9 keeps the shell, the scroll and the draft across a switch');
   console.log('spec ok: J10 approves the deep-linked card, walks all four footer entries, and finds it gone on the return');
   console.log('spec ok: J11 keeps the shell, the scroll and the draft across the phone\'s switches');
-  console.log('spec ok: J12 walks the phone\'s edge back, row reveal and hold-to-reorder as real touch and reads the consequences');
+  if (spec.journeys && spec.journeys.J12) console.log('spec ok: J12 walks the phone\'s edge back, row reveal and hold-to-reorder as real touch and reads the consequences');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
@@ -1863,7 +1876,7 @@ async function performDrag(page, cdp, selector, dy, holdMs) {
   await touchPoint(cdp, 'touchEnd', x, endY);
   await page.waitForTimeout(350);
 }
-/** The visible conversation rows under a scope, in drawn order. */
+/** The conversation rows with a layout box under a scope, in drawn order. */
 async function readRows(page, scope) {
   // Resolve the scope with Playwright's engine: a spec scopes a bucket with
   // `:has-text(...)`, which native `querySelectorAll` cannot parse.
@@ -1881,7 +1894,7 @@ async function readRows(page, scope) {
         .filter(visible)
         .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim());
     }).catch(() => null);
-    if (texts) return texts;
+    if (texts) return texts.length ? texts : null;
   }
   return null;
 }
