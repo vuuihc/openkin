@@ -6,6 +6,8 @@
 #   UX_KIN_BIN=/path/to/kin   use a prebuilt binary instead of building the worktree (baseline / tests)
 #   --walker-for <worktree>   print the walker that worktree would run and exit; build-free seam for
 #                             rsi/runtime/tests/test-ux-walker.sh
+#   --dist-state <worktree>   print "skip" or "build: <why>" for the worktree's web/dist and exit;
+#                             build-free seam for the same suite
 set -u
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
@@ -22,10 +24,80 @@ walker_for() {
     printf '%s\n' "$RSI_DIR/runtime/ux/walk.mjs"
   fi
 }
+# The console build is skipped only when web/dist is coherent: an index.html
+# from one build can name a chunk another build replaced (a second build, an
+# interrupted one, a branch cut mid-build), and the console then 404s its entry
+# chunk — every journey fails and the gate reds a PR for a reason that is not
+# in the PR (measured 2026-11-18/19). The walk can build, so an inconsistent
+# dist means build; journeys-smoke.sh --no-build cannot build and must refuse.
+# Reference rules match that script: only local /assets/ files are required
+# (CDN and data: URLs are not on disk by design). Prints one line: "skip" or
+# "build: <why>"; an unreadable index is not consistent, so it builds.
+dist_state() {
+  local state
+  state="$(python3 - "$1" 2>&1 <<'PY'
+import os
+import re
+import sys
+
+dist = os.path.join(sys.argv[1], "web", "dist")
+index = os.path.join(dist, "index.html")
+assets = os.path.join(dist, "assets")
+if not os.path.isfile(index):
+    print("build: web/dist/index.html is missing")
+    raise SystemExit
+if not os.path.isdir(assets):
+    print("build: web/dist/assets is missing")
+    raise SystemExit
+try:
+    with open(index, encoding="utf-8", errors="replace") as fh:
+        html = fh.read()
+except OSError as exc:
+    print("build: cannot read web/dist/index.html: %s" % exc)
+    raise SystemExit
+
+# Quote characters are written as hex escapes: bash 3.2 misparses a bare
+# apostrophe inside a heredoc in $(...).
+missing = []
+for ref in re.findall(r"(?:src|href)\s*=\s*[\x22\x27]([^\x22\x27]+)[\x22\x27]", html, re.I):
+    if ref.startswith(("http://", "https://", "//", "data:")):
+        continue
+    path = ref.split("?", 1)[0].split("#", 1)[0]
+    if path.startswith("/assets/"):
+        rel = path[len("/"):]
+    elif path.startswith("./assets/"):
+        rel = path[len("./"):]
+    elif path.startswith("assets/"):
+        rel = path
+    else:
+        continue
+    if not os.path.isfile(os.path.join(dist, rel)) and path not in missing:
+        missing.append(path)
+if missing:
+    print("build: index.html names missing chunks: " + ", ".join(missing))
+else:
+    print("skip")
+PY
+)"
+  # Any other answer (python missing, a traceback) must build, one line.
+  state="$(printf '%s\n' "$state" | tail -n 1)"
+  case "$state" in
+    skip) printf 'skip\n' ;;
+    build:\ *) printf '%s\n' "$state" ;;
+    *) printf 'build: dist state unreadable: %s\n' "${state:-no answer}" ;;
+  esac
+}
+# Same answer the seam prints, as a predicate: 0 = serve the dist as it is.
+dist_ready() { [ "$(dist_state "$1")" = "skip" ]; }
+
 # Build-free seam: answer and exit before any build, daemon or output directory.
 if [ "${1:-}" = "--walker-for" ]; then
   [ -n "${2:-}" ] || { echo "usage: ux-walk.sh --walker-for <worktree>" >&2; exit 2; }
   walker_for "$2"; exit 0
+fi
+if [ "${1:-}" = "--dist-state" ]; then
+  [ -n "${2:-}" ] || { echo "usage: ux-walk.sh --dist-state <worktree>" >&2; exit 2; }
+  dist_state "$2"; exit 0
 fi
 
 WT="$1"; OUT="$2"; SEL="${3:-}"; mkdir -p "$OUT"
@@ -37,7 +109,7 @@ TMP="$(mktemp -d)"; PID=""; trap '[ -n "$PID" ] && kill -KILL "$PID" 2>/dev/null
 [ -n "${RSI_NO_HEAVY:-}" ] && unavail "the walk is a heavy step and needs the machine-wide slot; unset RSI_NO_HEAVY"
 BIN="${UX_KIN_BIN:-}"
 if [ -z "$BIN" ]; then
-  [ -d "$WT/web/dist/assets" ] || { ( cd "$WT/ui" && npm run build >/dev/null 2>&1 ) || unavail "ui build failed in $WT"; }
+  dist_ready "$WT" || { ( cd "$WT/ui" && npm run build >/dev/null 2>&1 ) || unavail "ui build failed in $WT"; }
   ( cd "$WT" && go build -o "$TMP/kin" ./cmd/kin ) >"$TMP/build.log" 2>&1 || unavail "go build failed: $(tail -c 300 "$TMP/build.log")"
   BIN="$TMP/kin"
 fi
