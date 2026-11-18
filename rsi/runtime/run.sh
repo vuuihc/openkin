@@ -20,7 +20,7 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 #                          adopted (nothing is lost, the ff writes the same content); different bytes pin
 #                          the tree with a line naming the path, because both the ff and `reset --hard`
 #                          would either abort or overwrite that draft silently.
-#   anything else       -> leave alone; unmerged local loop commits on rsi/ceo-loop must survive.
+#   anything else       -> leave alone and pin loudly; unmerged local loop commits on rsi/ceo-loop must survive.
 #
 # Never silent: a tree that cannot move says why and `--sync-check` exits non-zero. 2026-11-18 a stale
 # untracked draft of rsi/runtime/reviewer-misses.py pinned the live tree 5 commits behind main with no
@@ -53,8 +53,16 @@ adopt_untracked_collision() {
 }
 sync_control_tree() {
   local before after
+  local behind
   $GIT -C "$RSI_CTRL" fetch -q origin main 2>/dev/null
-  $GIT -C "$RSI_CTRL" merge-base --is-ancestor HEAD origin/main 2>/dev/null || return 0
+  if ! $GIT -C "$RSI_CTRL" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+    # Not an ancestor: either HEAD carries unpublished loop commits (ahead, nothing to pull) or the
+    # history diverged and origin/main moved on. The latter is behind and must not look synced.
+    behind="$($GIT -C "$RSI_CTRL" rev-list --count HEAD..origin/main 2>/dev/null)"
+    { [ -z "$behind" ] || [ "$behind" = 0 ]; } && return 0   # nothing behind (or no origin/main ref)
+    pinned "local loop commits are unpublished; land or merge them to resume syncing"
+    return 1
+  fi
   adopt_untracked_collision || return 1
   if [ -z "$($GIT -C "$RSI_CTRL" status --porcelain --untracked-files=no)" ]; then
     $GIT -C "$RSI_CTRL" merge -q --ff-only origin/main 2>/dev/null || {
@@ -63,8 +71,16 @@ sync_control_tree() {
     }
     return 0
   fi
-  $GIT -C "$RSI_CTRL" diff --quiet origin/main 2>/dev/null \
-    || { pinned "uncommitted tracked changes differ from origin/main; commit or move them aside"; return 1; }
+  if ! $GIT -C "$RSI_CTRL" diff --quiet origin/main 2>/dev/null; then
+    # Dirty with tracked content that differs from origin/main. With nothing to pull this is the
+    # in-place hotfix shape (HEAD already at origin/main): leave it alone, it is not a stale tree.
+    if [ "$($GIT -C "$RSI_CTRL" rev-list --count HEAD..origin/main 2>/dev/null)" = 0 ]; then
+      echo "control tree dirty at $($GIT -C "$RSI_CTRL" rev-parse --short HEAD 2>/dev/null) (at origin/main); leaving it alone" >&2
+      return 0
+    fi
+    pinned "uncommitted tracked changes differ from origin/main; commit or move them aside"
+    return 1
+  fi
   before="$($GIT -C "$RSI_CTRL" rev-parse HEAD 2>/dev/null)"
   $GIT -C "$RSI_CTRL" reset -q --hard origin/main 2>/dev/null \
     || { pinned "reset --hard origin/main failed"; return 1; }
