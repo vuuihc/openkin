@@ -1,0 +1,19 @@
+{
+  "model": "sonnet[1m]",
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://host.docker.internal:3425",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "volcengine-gw/volcengine/deepseek-v4.1-flash[1m]",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "volcengine-gw/volcengine/deepseek-v4.1-flash[1m]",
+    "ANTHROPIC_SMALL_FAST_MODEL": "volcengine-gw/volcengine/deepseek-v4.1-flash[1m]",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "volcengine-gw/kimi-k3.1-pro[1m]",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1",
+    "API_TIMEOUT_MS": "3000000"
+  },
+  "modelOverrides": {
+    "claude-opus-5-5": "volcengine-gw/kimi-k3.1-pro[1m]",
+    "claude-sonnet-5-5": "volcengine-gw/volcengine/deepseek-v4.1-flash[1m]",
+    "claude-haiku-5-5": "volcengine-gw/volcengine/deepseek-v4.1-flash[1m]"
+  },
+  "skipDangerousModePermissionPrompt": true
+}
