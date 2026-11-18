@@ -407,3 +407,20 @@ describe("loadProjectChats", () => {
     expect(isCurrent).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("the new-chat target after a saved reorder (KIN-PROJECT-002)", () => {
+  it("KIN-PROJECT-002 the new-chat target follows the first root after a saved reorder", () => {
+    // PATCH replaces the whole list, so the order the cover saved is the order
+    // every reader of the project sees — including the one that decides where
+    // a new chat lands.
+    const reordered = { roots: ["/work/alpha-config", "/work/alpha"] };
+    expect(projectRoots(reordered)).toEqual(["/work/alpha-config", "/work/alpha"]);
+    expect(projectNewChatTarget(reordered)).toEqual({ kind: "picker", href: "/new" });
+
+    // Left with one folder, the saved reorder is exactly where the chat goes.
+    expect(projectNewChatTarget({ roots: ["/work/alpha-config"] })).toEqual({
+      kind: "cwd",
+      href: "/new?cwd=%2Fwork%2Falpha-config",
+    });
+  });
+});

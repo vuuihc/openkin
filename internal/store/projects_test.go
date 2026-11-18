@@ -99,6 +99,97 @@ func TestProjectCRUD(t *testing.T) {
 	}
 }
 
+// KIN-PROJECT-002: the saved order is the read order. The first folder is the
+// one a new chat starts in, so an alphabetical read-back would move the user's
+// default without telling them.
+func TestProjectRootsKeepSavedOrder(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+
+	insert := func(t *testing.T, id string, roots []string) {
+		t.Helper()
+		p := Project{
+			ID:           id,
+			Name:         "Order " + id,
+			Mode:         ProjectModeShip,
+			Status:       ProjectActive,
+			OnePagerRel:  id + "/ONE_PAGER.md",
+			CreatedAt:    now,
+			UpdatedAt:    now,
+			LastActiveAt: now,
+		}
+		if err := s.InsertProject(ctx, p, roots); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roots := func(t *testing.T, id string) []string {
+		t.Helper()
+		p, err := s.GetProject(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.Roots
+	}
+	equal := func(t *testing.T, got, want []string) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("roots=%v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("roots=%v, want %v", got, want)
+			}
+		}
+	}
+
+	tests := []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{
+			name: "insert keeps submitted order, not alphabetical",
+			run: func(t *testing.T) {
+				insert(t, "proj-insert", []string{"/work/zeta", "/work/alpha", "/work/mid"})
+				equal(t, roots(t, "proj-insert"), []string{"/work/zeta", "/work/alpha", "/work/mid"})
+			},
+		},
+		{
+			name: "set replaces and returns the new order",
+			run: func(t *testing.T) {
+				insert(t, "proj-set", []string{"/work/zeta", "/work/alpha", "/work/mid"})
+				if err := s.SetProjectRoots(ctx, "proj-set", []string{"/work/alpha", "/work/zeta"}); err != nil {
+					t.Fatal(err)
+				}
+				equal(t, roots(t, "proj-set"), []string{"/work/alpha", "/work/zeta"})
+				// A second rewrite moves the default to the front and stays there
+				// on the next read.
+				if err := s.SetProjectRoots(ctx, "proj-set", []string{"/work/alpha", "/work/zeta", "/work/mid"}); err != nil {
+					t.Fatal(err)
+				}
+				equal(t, roots(t, "proj-set"), []string{"/work/alpha", "/work/zeta", "/work/mid"})
+			},
+		},
+		{
+			name: "make default at the front survives a read",
+			run: func(t *testing.T) {
+				insert(t, "proj-default", []string{"/work/alpha", "/work/mid"})
+				if err := s.SetProjectRoots(ctx, "proj-default", []string{"/work/mid", "/work/alpha"}); err != nil {
+					t.Fatal(err)
+				}
+				equal(t, roots(t, "proj-default"), []string{"/work/mid", "/work/alpha"})
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) { tt.run(t) })
+	}
+}
+
 func TestOnePagerTemplateAndDigest(t *testing.T) {
 	md := DefaultOnePagerMarkdown("Demo", ProjectModeLearn)
 	if !strings.Contains(md, "# Demo") || !strings.Contains(md, "## Teach-back") {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { Link } from "react-router-dom";
@@ -806,5 +806,288 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     expect(bar!.className).toContain("bottom-0");
     expect(bar!.contains(phoneLink)).toBe(true);
     expect(bar!.querySelectorAll(".kin-btn-primary").length).toBe(1);
+  });
+});
+
+/**
+ * KIN-PROJECT-002: the cover shows every working folder, not only the first.
+ *
+ * The daemon already stores an ordered list (`roots`), and PATCH replaces it as
+ * a whole. So the cover has one job here: draw the saved list with its default,
+ * and edit it as a draft that only becomes the saved list on a successful
+ * save.
+ */
+const threeRoots = ["/work/alpha", "/work/alpha-config", "/work/shared-lib"];
+
+function withRoots(roots: string[]): Project {
+  return { ...project, roots };
+}
+
+async function openRootsEditor() {
+  const user = userEvent.setup();
+  const block = await screen.findByRole("region", { name: "Working folders" });
+  await user.click(within(block).getByRole("button", { name: "Edit folders" }));
+  const dialog = await screen.findByRole("dialog", { name: "Working folders" });
+  return { user, block, dialog };
+}
+
+describe("the project's working folders (KIN-PROJECT-002)", () => {
+  it("KIN-PROJECT-002 shows every root in saved order and marks only the first default", async () => {
+    client.getProject.mockImplementation(async () => withRoots(threeRoots));
+    renderPage();
+
+    const block = await screen.findByRole("region", { name: "Working folders" });
+    const rows = within(block).getAllByRole("listitem");
+
+    expect(rows).toHaveLength(3);
+    expect(rows[0]!.textContent).toContain("/work/alpha");
+    expect(rows[1]!.textContent).toContain("/work/alpha-config");
+    expect(rows[2]!.textContent).toContain("/work/shared-lib");
+    // The first saved folder is the default, and it is the only one that says
+    // so: a second badge would make "default" a property of every row.
+    expect(within(rows[0]!).getByText("Default")).toBeTruthy();
+    expect(within(rows[1]!).queryByText("Default")).toBeNull();
+    expect(within(rows[2]!).queryByText("Default")).toBeNull();
+    expect(within(block).getByText(/New chats start in the first folder/)).toBeTruthy();
+  });
+
+  it("KIN-PROJECT-002 says default once per editor row and explains the intent", async () => {
+    client.getProject.mockImplementation(async () => withRoots(threeRoots));
+    renderPage();
+    const { dialog } = await openRootsEditor();
+
+    // The helper talks about where a new chat starts, not about what the save
+    // request carries.
+    expect(
+      within(dialog).getByText(
+        "The first folder is where new chats start; changes apply when you save.",
+      ),
+    ).toBeTruthy();
+
+    const rows = within(dialog).getAllByRole("listitem");
+    // Row 1: the pill is the one statement that this folder is the default;
+    // no disabled "already the default" button repeats it.
+    expect(within(rows[0]!).getByText("Default")).toBeTruthy();
+    expect(within(rows[0]!).queryByText("Already the default")).toBeNull();
+    expect(within(rows[0]!).queryByRole("button", { name: "Make default" })).toBeNull();
+    // Rows 2..n keep the action that moves the default.
+    expect(within(rows[1]!).getByRole("button", { name: "Make default" })).toBeTruthy();
+    expect(within(rows[2]!).getByRole("button", { name: "Make default" })).toBeTruthy();
+  });
+
+  it("KIN-PROJECT-002 saves the complete ordered list through PATCH roots", async () => {
+    client.getProject.mockImplementation(async () => withRoots(threeRoots));
+    client.patchProject.mockImplementation(async (_id: string, body: { roots?: string[] }) =>
+      withRoots(body.roots ?? []),
+    );
+    renderPage();
+    const { user, block, dialog } = await openRootsEditor();
+
+    await user.click(
+      within(within(dialog).getAllByRole("listitem")[1]!).getByRole("button", {
+        name: "Make default",
+      }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save folders" }));
+
+    await waitFor(() => expect(client.patchProject).toHaveBeenCalledTimes(1));
+    // The whole ordered list, not a delta: the server replaces `roots`.
+    expect(client.patchProject).toHaveBeenCalledWith("p1", {
+      roots: ["/work/alpha-config", "/work/alpha", "/work/shared-lib"],
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Working folders" })).toBeNull(),
+    );
+
+    const updated = within(block).getAllByRole("listitem");
+    expect(updated[0]!.textContent).toContain("/work/alpha-config");
+    expect(within(updated[0]!).getByText("Default")).toBeTruthy();
+    expect(updated[1]!.textContent).toContain("/work/alpha");
+  });
+
+  it("KIN-PROJECT-002 keeps the sheet open with the draft and a retry when the save fails", async () => {
+    client.getProject.mockImplementation(async () => withRoots(threeRoots));
+    client.patchProject.mockRejectedValueOnce(new ApiError(500, "network down"));
+    renderPage();
+    const { user, dialog } = await openRootsEditor();
+
+    await user.click(
+      within(within(dialog).getAllByRole("listitem")[1]!).getByRole("button", {
+        name: "Make default",
+      }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save folders" }));
+
+    expect(await screen.findByText("network down")).toBeTruthy();
+    // The editor is still there, and the draft — including the attempted
+    // reorder — is still the list it shows.
+    expect(screen.getByRole("dialog", { name: "Working folders" })).toBeTruthy();
+    const rows = within(screen.getByRole("dialog", { name: "Working folders" })).getAllByRole(
+      "listitem",
+    );
+    expect(rows[0]!.textContent).toContain("/work/alpha-config");
+    // The cover behind the draft did not move.
+    expect(
+      within(screen.getByRole("region", { name: "Working folders" })).getAllByRole("listitem")[0]!
+        .textContent,
+    ).toContain("/work/alpha");
+    // Focus is back on Save, so a retry is one Enter away.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(screen.getByRole("dialog", { name: "Working folders" })).getByRole("button", {
+          name: "Save folders",
+        }),
+      ),
+    );
+
+    client.patchProject.mockImplementation(async (_id: string, body: { roots?: string[] }) =>
+      withRoots(body.roots ?? []),
+    );
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(client.patchProject).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Working folders" })).toBeNull(),
+    );
+  });
+
+  it("KIN-PROJECT-002 confirms before removing a root and says no conversation is deleted", async () => {
+    client.getProject.mockImplementation(async () => withRoots(threeRoots));
+    renderPage();
+    const { user, block, dialog } = await openRootsEditor();
+
+    await user.click(
+      within(within(dialog).getAllByRole("listitem")[1]!).getByRole("button", { name: "Remove" }),
+    );
+
+    const confirm = await screen.findByRole("group", { name: "Remove /work/alpha-config?" });
+    expect(within(confirm).getByText(/no longer appear under this project/)).toBeTruthy();
+    expect(within(confirm).getByText(/No conversation is deleted/)).toBeTruthy();
+    // The confirmation is a bar in the row, not a second full-screen dialog.
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(confirm).getByRole("button", { name: "Cancel" })),
+    );
+
+    await user.click(within(confirm).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(within(screen.getByRole("dialog")).getAllByRole("listitem")).toHaveLength(2),
+    );
+    expect(within(screen.getByRole("dialog")).queryByText("/work/alpha-config")).toBeNull();
+    // Removing from the draft is not removing from the project: nothing is
+    // saved and the cover still lists all three.
+    expect(client.patchProject).not.toHaveBeenCalled();
+    expect(within(block).getAllByRole("listitem")).toHaveLength(3);
+  });
+
+  it("KIN-PROJECT-002 adds a picked folder to the draft and reports a duplicate inline", async () => {
+    client.getProject.mockImplementation(async () => withRoots(threeRoots));
+    renderPage();
+    const { user, block, dialog } = await openRootsEditor();
+
+    // The adding row is the new-chat pickers, not a second folder browser:
+    // machine first, then the directory, with the type-a-path escape hatch.
+    await user.click(within(dialog).getByRole("button", { name: /Add folder/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Edit" }));
+    const field = await screen.findByRole("combobox");
+    await user.type(field, "/work/extra{Enter}");
+
+    const rows = within(dialog).getAllByRole("listitem");
+    expect(rows).toHaveLength(4);
+    expect(rows[3]!.textContent).toContain("/work/extra");
+    // Nothing is written until Save, and the cover keeps its saved list.
+    expect(client.patchProject).not.toHaveBeenCalled();
+    expect(within(block).getAllByRole("listitem")).toHaveLength(3);
+
+    await user.click(within(dialog).getByRole("button", { name: /Add folder/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Edit" }));
+    const again = await screen.findByRole("combobox");
+    await user.type(again, "/work/extra{Enter}");
+
+    // A duplicate is a sentence next to the picker, not a fifth row.
+    expect(await screen.findByText("That folder is already in the list.")).toBeTruthy();
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(4);
+  });
+
+  it("KIN-PROJECT-002 warns that removing the last root leaves new chats nowhere to land", async () => {
+    client.getProject.mockImplementation(async () => withRoots(["/work/alpha"]));
+    renderPage();
+    const { user, dialog } = await openRootsEditor();
+
+    await user.click(
+      within(within(dialog).getAllByRole("listitem")[0]!).getByRole("button", { name: "Remove" }),
+    );
+
+    expect(await screen.findByText(/New chats will have nowhere to start/)).toBeTruthy();
+    // The warning explains the consequence; it does not forbid the save.
+    expect(
+      (within(dialog).getByRole("button", { name: "Save folders" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("KIN-PROJECT-002 reopening the editor shows the saved list, not a cancelled draft", async () => {
+    client.getProject.mockImplementation(async () => withRoots(threeRoots));
+    renderPage();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { user, block, dialog } = await openRootsEditor();
+
+    await user.click(
+      within(within(dialog).getAllByRole("listitem")[1]!).getByRole("button", {
+        name: "Make default",
+      }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Working folders" })).toBeNull(),
+    );
+    // The sheet's history entry is given back asynchronously; reopening before
+    // that lands would race the next push against the pending Back.
+    await waitFor(() =>
+      expect((window.history.state as { kinSheet?: string } | null)?.kinSheet).toBeUndefined(),
+    );
+
+    await user.click(within(block).getByRole("button", { name: "Edit folders" }));
+    const reopened = await screen.findByRole("dialog", { name: "Working folders" });
+    const rows = within(reopened).getAllByRole("listitem");
+    expect(rows[0]!.textContent).toContain("/work/alpha");
+    expect(within(rows[0]!).getByText("Default")).toBeTruthy();
+    expect(within(reopened).getByText("/work/alpha-config")).toBeTruthy();
+    expect(client.patchProject).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it("KIN-PROJECT-002 disables editing offline and says why", async () => {
+    client.getProject.mockImplementation(async () => withRoots(threeRoots));
+    useAppStore.setState({ wsStatus: "disconnected" });
+    renderPage();
+
+    const block = await screen.findByRole("region", { name: "Working folders" });
+    // The cached/read list stays readable; only the write entry goes away.
+    expect(within(block).getAllByRole("listitem")).toHaveLength(3);
+    const edit = within(block).getByRole("button", { name: "Edit folders" }) as HTMLButtonElement;
+    expect(edit.disabled).toBe(true);
+    expect(within(block).getByText(/Offline — folder editing is disabled/)).toBeTruthy();
+  });
+
+  it("KIN-PROJECT-002 opens the anchored editor from the empty state on a wide cover", async () => {
+    viewport(true);
+    client.getProject.mockImplementation(async () => withRoots([]));
+    renderPage();
+
+    const user = userEvent.setup();
+    const block = await screen.findByRole("region", { name: "Working folders" });
+    expect(within(block).getByText("This project has no folders yet.")).toBeTruthy();
+    // With nothing saved the header's Edit button is not mounted: the empty
+    // state's own button is the trigger, and it must anchor the popover.
+    expect(within(block).queryByRole("button", { name: "Edit folders" })).toBeNull();
+    const add = within(block).getByRole("button", { name: /Add folder/ });
+    expect(add.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(add.getAttribute("aria-expanded")).toBe("false");
+
+    await user.click(add);
+
+    const dialog = await screen.findByRole("dialog", { name: "Working folders" });
+    expect(within(dialog).getByText("This project has no folders yet.")).toBeTruthy();
+    expect(add.getAttribute("aria-expanded")).toBe("true");
   });
 });
