@@ -68,5 +68,12 @@
     "old": "        ...(runningNow\n          ? [\n              {\n                id: \"running\",",
     "new": "        // R-j5-row-actions-proof: the running status line dropped on purpose.\n        // `runningNow &&` keeps the tone test referenced so tsc's noUnusedLocals\n        // accepts the mutant build; esbuild drops the dead branch.\n        ...(runningNow && false\n          ? [\n              {\n                id: \"running\",",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J5"
+  },
+  {
+    "label": "the phone's Back reloads the document, throwing away the shell and the kept-alive panes",
+    "file": "ui/src/lib/phoneBack.ts",
+    "old": "  if ((window.history.state?.idx ?? 0) > 0) navigate(-1);",
+    "new": "  // R-f4-switch-phone: the phone's Back reloads the document on purpose —\n  // a page load throws away the shell, the kept-alive panes and the transcript\n  // position, which is exactly the flash F4 exists to prevent. `navigate` stays\n  // used on the cold-deep-link branch so tsc accepts the mutant.\n  if ((window.history.state?.idx ?? 0) > 0) window.location.assign(\"/sessions\");",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J11"
   }
 ]

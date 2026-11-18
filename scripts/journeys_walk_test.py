@@ -5,10 +5,11 @@ Run directly: `python3 -B scripts/journeys_walk_test.py`. Pure: fixture
 seed.log and spec files, no browser, no daemon, no network. The walker's
 `--resolve-j1` / `--resolve-j7` modes run the same read/apply functions the
 real walk uses, so a green case here is the resolution that walk would take.
-`--check-spec` runs the J2 review-loop, J3 send and J8 phone-tap contracts
-through the same parser, so a spec that regressed to photographing the diff, to
-merely asserting Start is usable, or to pressing a desktop chord on the phone,
-fails before a browser starts.
+`--check-spec` runs the J2 review-loop, J3 send, J8 phone-tap, J9 Mac switch
+and J11 phone switch contracts through the same parser, so a spec that
+regressed to photographing the diff, to merely asserting Start is usable, to
+pressing a desktop chord on the phone, or to leaving the shell, the scroll and
+the draft unread, fails before a browser starts.
 """
 
 from __future__ import annotations
@@ -1473,6 +1474,157 @@ class WalkJ10ContractTest(unittest.TestCase):
         self.assertIn("stayed gone", out)
 
 
+class WalkJ11ContractTest(unittest.TestCase):
+    """J11 must prove the phone switch keeps the shell, the scroll and the draft.
+
+    J9 proves the same promise on the Mac; the phone has its own Back, its own
+    list rows and a footer, and nothing walked the switch at 390. A regression
+    that remounts the pane, resets the transcript, or drops the draft reads as
+    "the app ate my draft" and is invisible to the gate. Same shape as
+    WalkJ9ContractTest: the checked-in spec passes the walker's own contract
+    check, and a copy that regresses one rule at a time fails naming that rule.
+    """
+
+    DRAFT = "F4 draft [seed]"
+    OFFSET = "320"
+    TRANSCRIPT = "css=[role=region][tabindex='-1']"
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j11-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J11"]["steps"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred, start: int = 0) -> int:
+        return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+    @staticmethod
+    def is_click_title(step: list, title: str) -> bool:
+        return step[0] == "click" and title in str(step[1])
+
+    def test_j11_spec_pins_the_phone_switch(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J11 keeps the shell, the scroll and the draft", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        journey = spec["journeys"]["J11"]
+        steps = journey["steps"]
+        # Phone only: the footer and the phone's own Back are what this walks.
+        self.assertEqual(journey["viewports"], ["phone"])
+        # The three pieces, in the order the switch runs: a numeric middle
+        # scroll and the shell tagged before the first leaving, an unsent
+        # draft, then the same shell, the same offset and the same draft read
+        # back after the return.
+        self.assertIn(["node", "css=#root .touch-lg", "shell"], steps)
+        self.assertIn(["scroll", self.TRANSCRIPT, self.OFFSET], steps)
+        self.assertIn(["scroll-kept", self.TRANSCRIPT, self.OFFSET], steps)
+        self.assertIn(["value", "textarea", self.DRAFT], steps)
+        names = [step[1] for step in steps if step[0] == "shot"]
+        self.assertLess(names.index("switch-chat"), names.index("switch-back"), names)
+        # The order is the story: leave, switch, assert the shell, return,
+        # read the draft and the position, then the footer round.
+        scroll_i = steps.index(["scroll", self.TRANSCRIPT, self.OFFSET])
+        back_i = self.at(steps, lambda step: step[0] == "back", scroll_i + 1)
+        switch_i = self.at(steps, lambda step: self.is_click_title(step, "Failed migration"), back_i + 1)
+        node_i = self.at(steps, lambda step: step[0] == "node" and step[2] == "shell", switch_i + 1)
+        return_i = self.at(steps, lambda step: self.is_click_title(step, "Morning planning"), node_i + 1)
+        value_i = self.at(steps, lambda step: step[0] == "value" and step[2] == self.DRAFT, return_i + 1)
+        kept_i = self.at(steps, lambda step: step[0] == "scroll-kept", value_i + 1)
+        routines_i = self.at(steps, lambda step: step[0] == "click"
+                             and '[data-phone-return="routines"]' in str(step[1]), kept_i + 1)
+        self.assertLess(scroll_i, back_i)
+        self.assertLess(back_i, switch_i)
+        self.assertLess(switch_i, node_i)
+        self.assertLess(node_i, return_i)
+        self.assertLess(return_i, value_i)
+        self.assertLess(value_i, kept_i)
+        self.assertLess(kept_i, routines_i)
+        # The leaving is the phone's Back (a `goto` after the conversation is
+        # open would reload the document and make the shell question
+        # meaningless). The area round is the footer's, never the Mac's
+        # `[data-area=…]` nav.
+        first_open = self.at(steps, lambda step: self.is_click_title(step, "Morning planning"))
+        first_back = self.at(steps, lambda step: step[0] == "back", first_open + 1)
+        self.assertTrue(all(i < first_open for i, step in enumerate(steps) if step[0] == "goto"))
+        self.assertLess(first_open, first_back)
+        self.assertFalse(any("[data-area=" in str(step[1])
+                             for step in steps if step[0] == "click"), steps)
+        for tab in ("routines", "sessions"):
+            self.assertTrue(any(step[0] == "click" and f'[data-phone-return="{tab}"]' in str(step[1])
+                                for step in steps), tab)
+        # The area switch is the stronger claim: the pane was off screen, so
+        # the return must prove the restore again, not only element identity.
+        values = [i for i, step in enumerate(steps)
+                  if step[0] == "value" and "textarea" in str(step[1])]
+        kepts = [i for i, step in enumerate(steps) if step[0] == "scroll-kept"]
+        self.assertEqual(len(values), 2, values)
+        self.assertEqual(len(kepts), 2, kepts)
+        self.assertGreater(kepts[1], self.at(
+            steps, lambda step: step[0] == "click" and '[data-phone-return="sessions"]' in str(step[1])), kepts)
+        # A shell or conversation-pane diff must select J11.
+        for row_needle in ("ui/src/components/layout/", "ui/src/pages/TaskDetail"):
+            row = next((row for row in spec["paths"] if row_needle in row[0]), None)
+            self.assertIsNotNone(row, row_needle)
+            self.assertIn("J11", row[1], row_needle)
+
+    def test_j11_contract_rejects_a_return_without_the_scroll_assertion(self) -> None:
+        # A resumed conversation that snapped back to the top is the regression
+        # this journey exists to catch; without scroll-kept the walk only
+        # photographs the right pane.
+        def drop_the_scroll_kept(steps: list) -> None:
+            hits = [i for i, step in enumerate(steps) if step[0] == "scroll-kept"]
+            for i in reversed(hits):
+                steps.pop(i)
+
+        code, out = self.check(self.copy_with(drop_the_scroll_kept))
+        self.assertEqual(code, 1, out)
+        self.assertIn("never asserts the transcript came back", out)
+
+    def test_j11_contract_rejects_a_return_without_the_draft_value(self) -> None:
+        # The half-typed message is the thing keep-alive exists for. A return
+        # that never reads the composer back proves only that the route works.
+        def drop_the_draft_value(steps: list) -> None:
+            hits = [i for i, step in enumerate(steps)
+                    if step[0] == "value" and "textarea" in str(step[1])]
+            for i in reversed(hits):
+                steps.pop(i)
+
+        code, out = self.check(self.copy_with(drop_the_draft_value))
+        self.assertEqual(code, 1, out)
+        self.assertIn("draft survived the return", out)
+
+    def test_j11_contract_rejects_an_area_round_without_the_shell_assertion(self) -> None:
+        # The footer tap is a route change while the pane is off screen; a
+        # shell remounted there is exactly the page-load flash F4 prevents.
+        def drop_the_routines_node(steps: list) -> None:
+            tap = self.at(steps, lambda step: step[0] == "click"
+                          and '[data-phone-return="routines"]' in str(step[1]))
+            node = self.at(steps, lambda step: step[0] == "node", tap + 1)
+            steps.pop(node)
+
+        code, out = self.check(self.copy_with(drop_the_routines_node))
+        self.assertEqual(code, 1, out)
+        self.assertIn("routines area change", out)
+
+
 class WalkJ5ContractTest(unittest.TestCase):
     """J5 must read the row menu it opens, not only photograph it.
 
@@ -1650,6 +1802,37 @@ class WalkMutantManifestTest(unittest.TestCase):
         # `runningNow && false` keeps the tone test referenced, so the mutant
         # build still passes tsc's noUnusedLocals while rendering no line.
         self.assertIn("runningNow && false", entry["new"])
+        with open(os.path.join(ROOT, entry["file"]), encoding="utf-8") as fh:
+            source = fh.read()
+        self.assertEqual(source.count(entry["old"]), 1, "the mutant's `old` no longer occurs exactly once")
+        with open(self.SHELL, encoding="utf-8") as fh:
+            shell = fh.read()
+        pinned = re.search(r"len\(entries\)\s*!=\s*(\d+)", shell)
+        self.assertIsNotNone(pinned, "test-walk-mutant.sh no longer pins the entry count")
+        self.assertEqual(int(pinned.group(1)), len(entries), "the manifest grew without bumping the pinned count")
+
+    def test_walk_mutant_manifest_pins_the_j11_phone_switch(self) -> None:
+        """The phone switch proof reddens on a page load, not a guess.
+
+        J11 must have its own mutant: a manifest entry whose `test` walks J11.
+        The phone's Back reloading the document throws away the shell and the
+        kept-alive panes, so J11's `node` assertion is what fails. The break is
+        on the phone's own Back helper, so J9 (which never presses Back) stays
+        green and the phone claim has its own proof.
+        """
+        with open(self.MANIFEST, encoding="utf-8") as fh:
+            entries = json.load(fh)
+        matching = [entry for entry in entries
+                    if entry["file"].endswith("ui/src/lib/phoneBack.ts")
+                    and "--walk-once J11" in entry["test"]]
+        self.assertEqual(len(matching), 1, matching)
+        entry = matching[0]
+        self.assertIn("navigate(-1)", entry["old"])
+        # A full document load replaces the shell; the mutant must not leave the
+        # client-side history back reachable, or the walk could stay green.
+        self.assertIn('window.location.assign("/sessions")', entry["new"])
+        self.assertNotIn("navigate(-1)", entry["new"])
+        self.assertIn("R-f4-switch-phone", entry["new"])
         with open(os.path.join(ROOT, entry["file"]), encoding="utf-8") as fh:
             source = fh.read()
         self.assertEqual(source.count(entry["old"]), 1, "the mutant's `old` no longer occurs exactly once")
