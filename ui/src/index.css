@@ -214,14 +214,29 @@
   so it escapes the root's padding entirely and has to re-apply the inset
   itself — `pb-[max(1rem,env(safe-area-inset-bottom))]`.
 
-  Note on mechanism: these are in `@layer utilities`, and a custom utility is
-  emitted *after* the generated ones in that layer, so it beats `px-4`/`pb-10`/
-  `w-4` on the same element at equal specificity. Tailwind 4 makes the layer
-  real, but source order inside it is unchanged, which is what this block was
-  already relying on. That is why the helpers below are written as `max()`, and
-  why `.touch-mini` can shrink a button that already carries a `w-*`. Never put
-  a bare `env()` helper and a `p*` utility on the same element.
+  Note on mechanism: `pt-safe` is a top-level `@utility` (below), because it is
+  the one helper here used with responsive prefixes — `md:pt-safe` on the shell
+  root, `max-md:pt-safe` on the phone-only pages and the reconnect strip.
+  Tailwind emits variants only for utilities it knows; as a plain class in
+  `@layer utilities` it produced one `.pt-safe` rule and silently dropped every
+  prefix, so the 768–1023px iPad gap and the phone early-return states spent no
+  inset at all. As a real utility it sorts with the generated ones, so no
+  element may carry both `pt-safe` and a `p*`/`pt-*`/`py-*` utility that also
+  sets padding-top. Every call site was audited for that when it moved.
+
+  The remaining helpers here — `.px-safe` and the touch/type floors — stay
+  plain classes in `@layer utilities`, where they are emitted *after* the
+  generated utilities and so beat `px-4`/`pb-10`/`w-4` on the same element at
+  equal specificity. Tailwind 4 makes the layer real, but source order inside
+  it is unchanged, which is what this block was already relying on. That is why
+  the helpers below are written as `max()`, and why `.touch-mini` can shrink a
+  button that already carries a `w-*`. Never put a bare `env()` helper and a
+  `p*` utility on the same element.
 */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
 @layer utilities {
   /* Horizontal gutter that is *at least* the design gutter, and grows to clear
      the sensor housing in landscape. Never less than the gutter. */
@@ -229,22 +244,12 @@
     padding-left: max(1rem, env(safe-area-inset-left));
     padding-right: max(1rem, env(safe-area-inset-right));
   }
-  .pt-safe {
-    padding-top: env(safe-area-inset-top);
-  }
   /* The session panel is a full-bleed overlay on a phone and it covers
      `MobileHeader` — the bar that would otherwise spend the top inset — so
-     the overlay spends it itself below `md`. Above `md` the shell root is
-     meant to spend it once for both columns, but its `md:pt-safe` emits no
-     rule today: `.pt-safe` is a plain class in this layer, not a Tailwind
-     `@utility` (the built stylesheet has one `.pt-safe` and zero
-     `md\:pt-safe` / `max-md\:pt-safe` selectors). So 768–1023 is a known,
-     pre-existing gap with its own row; this rule stays phone-scoped, which is
-     also what keeps the inset from doubling once the shell's variant is real.
-
-     Written as a real media query, not `max-md:pt-safe`, because that variant
-     generates no rule at all for the same reason. Keep the 0.02px guard in
-     step with Tailwind's 768px `md`. */
+     the overlay spends it itself below `md`. Above `md` the shell root's
+     `md:pt-safe` spends it once for both columns, so this rule stays
+     phone-scoped to keep the inset from being spent twice. Keep the 0.02px
+     guard in step with Tailwind's 768px `md`. */
   @media (max-width: 767.98px) {
     .panel-top-inset {
       padding-top: env(safe-area-inset-top);

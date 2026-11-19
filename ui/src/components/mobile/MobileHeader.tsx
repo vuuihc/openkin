@@ -30,6 +30,12 @@ export type MobileHeaderProps = {
    * the bar then shows a plain span, so the screen keeps exactly one heading.
    */
   heading?: boolean;
+  /**
+   * Whether the bar spends the top safe-area inset. False when something
+   * above it already owns the notch — the shell's reconnect strip on a
+   * session page — so the phone reserves the inset exactly once.
+   */
+  topInset?: boolean;
   className?: string;
 };
 
@@ -40,13 +46,16 @@ export default function MobileHeader({
   subtitle,
   bordered = true,
   heading = true,
+  topInset = true,
   className = "",
 }: MobileHeaderProps) {
   const titleClass = "truncate text-subtitle font-semibold leading-5";
   return (
     <header
       className={[
-        "md:hidden flex-none kin-glass relative z-30 pt-safe kin-zen-hide",
+        "md:hidden flex-none kin-glass relative z-30",
+        topInset ? "pt-safe" : "",
+        "kin-zen-hide",
         bordered ? "border-b border-[var(--kin-hairline)]" : "",
         className,
       ].join(" ")}
