@@ -192,7 +192,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(await screen.findByText("No agents yet")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Install an agent" }));
     expect(await screen.findByText("Discovered on this machine")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add to catalog" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add Cursor to catalog" })).toBeTruthy();
   });
 
   it("calls a runnable discovery available outside the catalog, not disconnected", async () => {
@@ -210,10 +210,10 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(await screen.findByText("Gemini CLI")).toBeTruthy();
     expect(screen.getByText("Available — not in your catalog")).toBeTruthy();
     expect(screen.queryByText("Not connected")).toBeNull();
-    expect(screen.getByRole("button", { name: "Add to catalog" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add Gemini CLI to catalog" })).toBeTruthy();
 
     // The confirmation speaks the same verb.
-    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Gemini CLI to catalog" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Add Gemini CLI to the catalog?")).toBeTruthy();
     expect(readConnectedFamilies()).not.toContain("gemini");
@@ -230,10 +230,16 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(screen.getByText("1 discovered, not in the catalog")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Cursor to catalog" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Add Cursor to the catalog?")).toBeTruthy();
     expect(within(dialog).getByText(/does not import Cursor's history sessions/i)).toBeTruthy();
+    // Cursor is installed but not available; the intro must not claim Kin can
+    // already run it.
+    expect(
+      within(dialog).getByText("Kin found Cursor on this machine. It is not in your catalog yet."),
+    ).toBeTruthy();
+    expect(within(dialog).queryByText(/already run/i)).toBeNull();
     // Reading the explanation changes nothing on its own.
     expect(screen.getAllByText("Cursor")).toHaveLength(1);
 
@@ -245,7 +251,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(readConnectedFamilies()).toContain("cursor");
   });
 
-  it("keeps a failed connect out of the catalog and offers a retry", async () => {
+  it("keeps a failed add out of the catalog and offers a retry", async () => {
     writeConnectedFamilies(["claude", "codex"]);
     // The first read is fine; every read after it fails, so the confirmation's
     // reread is the one that breaks no matter how many reads the shell makes.
@@ -259,7 +265,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Cursor to catalog" }));
     const dialog = await screen.findByRole("dialog");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
@@ -285,7 +291,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     expect(screen.getByText("The catalog is full. Remove one before adding another.")).toBeTruthy();
     expect(
-      (screen.getByRole("button", { name: "Add to catalog" }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: "Add Cursor to catalog" }) as HTMLButtonElement).disabled,
     ).toBe(true);
   });
 
@@ -640,14 +646,15 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     // Nine rows plus the lost family is ten slots: the catalog is full, and a
     // hole nobody can see would otherwise block every new product forever.
     expect(
-      (screen.getByRole("button", { name: "Add to catalog" }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: "Add Cursor to catalog" }) as HTMLButtonElement).disabled,
     ).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove vanished" }));
 
     await waitFor(() =>
       expect(
-        (screen.getByRole("button", { name: "Add to catalog" }) as HTMLButtonElement).disabled,
+        (screen.getByRole("button", { name: "Add Cursor to catalog" }) as HTMLButtonElement)
+          .disabled,
       ).toBe(false),
     );
     expect(readConnectedFamilies()).not.toContain("vanished");
@@ -671,7 +678,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Cursor to catalog" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
@@ -708,7 +715,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Cursor to catalog" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
@@ -740,7 +747,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Cursor to catalog" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
@@ -1032,7 +1039,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Cursor to catalog" }));
 
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));

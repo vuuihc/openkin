@@ -1667,6 +1667,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                     <Button
                       variant="secondary"
                       className="min-h-11 shrink-0 px-3 text-strong"
+                      aria-label={tr("agents.addToCatalogAction", { name: a.name })}
                       disabled={offline || full}
                       title={full ? tr("agents.connectFull") : undefined}
                       onClick={() => beginConnect(a)}
