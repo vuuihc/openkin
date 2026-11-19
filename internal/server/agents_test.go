@@ -13,6 +13,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter/acp"
 	"github.com/vuuihc/openkin/internal/adapter/claudecode"
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // writeExecutable puts a tiny executable at path, creating its directory.
@@ -100,6 +101,67 @@ func TestClaudeCodeStatusUsesResolvedBinary(t *testing.T) {
 	}
 	if status.Binary != bin {
 		t.Fatalf("binary=%q want %q", status.Binary, bin)
+	}
+}
+
+// The resolver is only a fix if the composition root actually wires it into
+// the Claude Code plugin. Hand-building the plugin's LookPath, as the test
+// above does, leaves this seam untested: deleting the field would restore the
+// launchd-PATH bug with every test still green.
+func TestAgentRegistryFindsClaudeOutsideDaemonPATH(t *testing.T) {
+	home := t.TempDir()
+	bin := writeExecutable(t, filepath.Join(home, ".local", "bin", "claude"))
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("KIN_CLAUDE_BIN", "")
+
+	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	reg, err := buildAgentRegistry(context.Background(), st, "http://127.0.0.1:7777", nil, nil, nil, "test")
+	if err != nil {
+		t.Fatalf("build registry: %v", err)
+	}
+	registration, ok := reg.Get("claude-code")
+	if !ok {
+		t.Fatal("claude-code is not registered")
+	}
+	status := registration.Status(context.Background())
+	if !status.Installed || !status.Available {
+		t.Fatalf("installed=%v available=%v reason=%q", status.Installed, status.Available, status.Reason)
+	}
+	if status.Binary != bin {
+		t.Fatalf("binary=%q want %q", status.Binary, bin)
+	}
+}
+
+// A missing install must say where it looked. The resolver already writes that
+// sentence; this test proves the plugin forwards it to the status row a person
+// reads instead of replacing it with a bare "not found".
+func TestClaudeCodeStatusCarriesResolverReason(t *testing.T) {
+	home := t.TempDir()
+	want := filepath.Join(home, ".local", "bin", "claude")
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("KIN_CLAUDE_BIN", "")
+
+	factory := claudecode.NewPluginFactory(claudecode.PluginConfig{
+		LookPath: func(file string) (string, error) {
+			return resolveAgentBinary(file, "KIN_CLAUDE_BIN", want)
+		},
+	})
+	registration, err := factory.Open(context.Background())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	status := registration.Status(context.Background())
+	if status.Installed || status.Available {
+		t.Fatalf("installed=%v available=%v", status.Installed, status.Available)
+	}
+	if !strings.Contains(status.Reason, want) {
+		t.Fatalf("reason %q does not name %q", status.Reason, want)
 	}
 }
 
