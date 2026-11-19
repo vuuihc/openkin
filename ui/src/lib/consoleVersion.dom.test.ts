@@ -93,6 +93,14 @@ describe("checkConsoleVersion", () => {
     expect(failed.reload).not.toHaveBeenCalled();
   });
 
+  it("does not reload when the served index names no entry chunk", async () => {
+    // A captive portal or a proxy answering something that is not the console:
+    // nothing to compare, so the page the person is reading must survive.
+    const { deps, reload } = setup({ html: "<!doctype html><p>portal</p>" });
+    await expect(checkConsoleVersion(deps)).resolves.toBe("skipped");
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it("does not reload twice for the same stale entry", async () => {
     // Two resumes of the same document: the first reloads, the second must not
     // queue a second navigation before the first one takes effect. Storage that
