@@ -190,6 +190,12 @@ describe("a file the console cannot draw", () => {
     const label = within(trigger).getByText(t("workspace.openWith.button"));
     expect(label.className).not.toContain("hidden");
     expect(label.className).not.toContain("sm:inline");
+    // Astryx wraps the children in a plain span; the icon, word and chevron
+    // must still share one horizontal row inside it, or the trigger grows to
+    // three lines and stops being Download's peer.
+    const contentRow = label.parentElement;
+    expect(contentRow?.className).toContain("inline-flex");
+    expect(contentRow?.className).toContain("items-center");
 
     fireEvent.click(download);
     await waitFor(() => expect(saved).toHaveLength(1));

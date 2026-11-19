@@ -113,11 +113,16 @@ export default function OpenInMenu({ root, relativePath, alwaysShowLabel = false
         aria-expanded={open}
         className="flex-none gap-1 px-2 py-1 text-caption"
       >
-        <IconExternal size={12} />
-        <span className={alwaysShowLabel ? undefined : "hidden sm:inline"}>
-          {t("workspace.openWith.button")}
+        {/* Astryx's Button wraps children in a plain span, so the row has to
+            be built here: bare children would stack icon, word and chevron
+            into three lines inside that wrapper. */}
+        <span className="inline-flex items-center gap-1">
+          <IconExternal size={12} />
+          <span className={alwaysShowLabel ? undefined : "hidden sm:inline"}>
+            {t("workspace.openWith.button")}
+          </span>
+          <IconChevron size={12} className={open ? "rotate-[-90deg]" : "rotate-90"} />
         </span>
-        <IconChevron size={12} className={open ? "rotate-[-90deg]" : "rotate-90"} />
       </Button>
       <Menu
         // Keyed on "the list is still loading": the layer moves focus only
