@@ -137,6 +137,39 @@ describe("conversation-list density", () => {
     expect(row("alpha-work").className).not.toContain("min-h-9");
   });
 
+  it("a coarse sidebar keeps the roomy heading gap and its 16px step", async () => {
+    pointer("coarse");
+    list("sidebar");
+
+    const heading = await screen.findByRole("button", { name: "Project Alpha" });
+    const headingRow = heading.parentElement as HTMLElement;
+    expect(headingRow.className).toContain("pt-4");
+    expect(headingRow.className).not.toContain("pt-2");
+
+    // The conversation block still steps in from the project block, by the
+    // finger-sized step rather than the mouse's 12px one.
+    const sessionStep = document.querySelector<HTMLElement>('[data-sidebar-indent="session"]');
+    expect(sessionStep).not.toBeNull();
+    expect(sessionStep?.className).toContain("pl-4");
+    expect(sessionStep?.className).not.toContain("pl-3");
+  });
+
+  it("a page shell stays roomy for a mouse", async () => {
+    pointer("fine");
+    list("page");
+
+    // The page shell is not the sidebar, so a fine pointer alone does not
+    // pack it: a narrow desktop window keeps the phone's 44px rows and
+    // heading gap.
+    expect(row("alpha-work").className).toContain("min-h-11");
+    expect(row("alpha-work").className).not.toContain("min-h-9");
+
+    const heading = await screen.findByRole("button", { name: "Project Alpha" });
+    const headingRow = heading.parentElement as HTMLElement;
+    expect(headingRow.className).toContain("pt-4");
+    expect(headingRow.className).not.toContain("pt-2");
+  });
+
   it("a project heading keeps a header gap smaller than the old pt-4 in the sidebar", async () => {
     pointer("fine");
     list("sidebar");

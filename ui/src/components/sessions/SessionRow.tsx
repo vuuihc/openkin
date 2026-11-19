@@ -166,10 +166,11 @@ export default function SessionRow({
   // The Mac sidebar is a pointer surface with a keyboard: its edit is confirmed
   // with Enter. A touch surface has neither key, so it draws explicit controls.
   const desktop = shell === "sidebar" && !coarse;
-  // Density follows the pointer, not the shell. A mouse packs the sidebar row
-  // at the scale's 36px step; a finger — the phone page, or the sidebar on an
-  // iPad — keeps the 44px target it can actually hit.
-  const dense = shell === "sidebar" && !coarse;
+  // Within the sidebar, density follows the pointer: a mouse packs the row at
+  // the scale's 36px step; a finger — the phone page, or the sidebar on an
+  // iPad — keeps the 44px target it can actually hit. The page shell stays
+  // roomy for a mouse too, which is the whole rule `desktop` already states.
+  const dense = desktop;
   // The row's title element is what the action trigger is described by, so a
   // screen reader hears which conversation a "More" belongs to.
   const titleId = `session-row-title-${row.task?.id ?? row.session?.id}`;
