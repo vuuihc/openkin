@@ -3551,9 +3551,9 @@ describe("context compaction", () => {
 
     expect(compactions(noticeOnly)).toHaveLength(1);
     expect(compactions(noticeOnly)[0]).toMatchObject({ text: "", partial: true });
-    expect(
-      noticeOnly.some((item) => item.kind === "message" && item.speaker !== "user"),
-    ).toBe(false);
+    expect(noticeOnly.some((item) => item.kind === "message" && item.speaker !== "user")).toBe(
+      false,
+    );
 
     const chunksOnly = buildChatItems(
       [userTurn(), compactionChunk(2, SUMMARY_FIRST)],
@@ -3565,9 +3565,9 @@ describe("context compaction", () => {
     expect(compactions(chunksOnly)).toHaveLength(1);
     expect(compactions(chunksOnly)[0]).toMatchObject({ partial: true });
     // The half summary is behind the disclosure, not laid into the body.
-    expect(
-      chunksOnly.some((item) => item.kind === "message" && item.speaker !== "user"),
-    ).toBe(false);
+    expect(chunksOnly.some((item) => item.kind === "message" && item.speaker !== "user")).toBe(
+      false,
+    );
   });
 
   it("settling a turn settles a running compaction", () => {
