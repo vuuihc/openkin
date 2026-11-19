@@ -10,6 +10,11 @@ import {
   isDev,
 } from "./config";
 import { listKinDaemonPids, waitForRivalDaemon } from "./daemon-rival";
+import {
+  bringUpDaemon,
+  type HandshakeOutcome,
+  type SpawnResult,
+} from "./daemon-handshake";
 
 const execFileAsync = promisify(execFile);
 
@@ -122,81 +127,125 @@ export class Sidecar {
   private async ensureRunningOnce(): Promise<SidecarStatus> {
     const generation = ++this.generation;
     this.stopping = false;
-    const expected = await this.binaryVersion();
-    let healthy = await this.probeHealth();
-
-    // Nothing answers, but a kin process may be on its way back. On a machine
-    // set up as a node, launchd restarts the installed daemon seconds after a
-    // rebuild kills its listener — a window longer than one health probe. A
-    // second daemon spawned here would share the database with the first while
-    // keeping its own bus, and the console would watch the wrong one; see
-    // daemon-rival.ts. A cold machine has no such process and spawns at once.
-    if (!healthy && !this.child) {
-      const outcome = await waitForRivalDaemon({
-        listRivals: () => listKinDaemonPids(DAEMON_PORT),
+    // The order lives in daemon-handshake.ts so it can be held by a test:
+    // health first, the version label beside it, and a spawned daemon polled
+    // at the fast cadence. Nothing about the window's gate changes here.
+    let outcome: HandshakeOutcome;
+    try {
+      outcome = await bringUpDaemon({
         probeHealth: () => this.probeHealth(),
+        binaryVersion: () => this.binaryVersion(),
+        probeVersion: () => this.probeVersion(),
+        ownsChild: () => this.child !== null,
+        // Nothing answers, but a kin process may be on its way back. On a
+        // machine set up as a node, launchd restarts the installed daemon
+        // seconds after a rebuild kills its listener — a window longer than one
+        // health probe. A second daemon spawned here would share the database
+        // with the first while keeping its own bus, and the console would watch
+        // the wrong one; see daemon-rival.ts. A cold machine has no such process
+        // and spawns at once.
+        waitForRival: () =>
+          waitForRivalDaemon({
+            listRivals: () => listKinDaemonPids(DAEMON_PORT),
+            probeHealth: () => this.probeHealth(),
+          }),
+        stuckReason: `a kin daemon process is running but not answering on :${DAEMON_PORT} — not starting a second one`,
+        spawn: () => this.spawnDaemon(),
+        isCurrent: () => generation === this.generation && !this.stopping,
       });
-      if (generation !== this.generation || this.stopping) return this.status;
-      if (outcome === "stuck") {
-        this.status = {
-          state: "unavailable",
-          reason: `a kin daemon process is running but not answering on :${DAEMON_PORT} — not starting a second one`,
-        };
-        console.error(`[kin-desktop] ${this.status.reason}`);
-        return this.status;
-      }
-      healthy = outcome === "healthy";
+    } catch (err) {
+      // The handshake's probes and spawn report failure as outcomes; this is
+      // the boundary that keeps an unexpected throw inside the handshake from
+      // rejecting ensureRunning(), which callers do not try/catch.
+      this.status = {
+        state: "unavailable",
+        reason: err instanceof Error ? err.message : String(err),
+      };
+      console.error(`[kin-desktop] startup handshake failed: ${this.status.reason}`);
+      return this.status;
     }
 
-    if (healthy) {
-      if (generation !== this.generation) return this.status;
+    if (outcome.state === "superseded") return this.status;
+    if (outcome.state === "unavailable") {
+      this.status = { state: "unavailable", reason: outcome.reason };
+      console.error(`[kin-desktop] ${this.status.reason}`);
+      return this.status;
+    }
+    if (outcome.state === "unhealthy") {
+      await this.stopIfOwned();
+      this.status = {
+        state: "unavailable",
+        reason: "spawned daemon did not become healthy in time",
+      };
+      console.error(`[kin-desktop] ${this.status.reason}`);
+      return this.status;
+    }
+
+    if (outcome.state === "external") {
       if (this.restartTimer) {
         clearTimeout(this.restartTimer);
         this.restartTimer = null;
       }
-      const running = (await this.probeVersion()) ?? "unknown";
-      if (generation !== this.generation) return this.status;
       const owned = this.weStarted && this.child !== null;
-      if (expected && running !== expected) {
+      // Only two known versions can disagree. A label that missed the bounded
+      // wait is "unknown", which is not evidence of drift.
+      if (
+        outcome.expected &&
+        outcome.version !== "unknown" &&
+        outcome.version !== outcome.expected
+      ) {
         console.warn(
-          `[kin-desktop] daemon version mismatch: running=${running} expected=${expected}; attaching to existing process`,
+          `[kin-desktop] daemon version mismatch: running=${outcome.version} expected=${outcome.expected}; attaching to existing process`,
         );
       } else {
         console.log(
-          `[kin-desktop] daemon already running version=${running} (external)`,
+          `[kin-desktop] daemon already running version=${outcome.version} (external)`,
         );
       }
       if (!owned) {
         this.weStarted = false;
         this.restartAttempt = 0;
-        this.status = { state: "external", version: running };
+        this.status = { state: "external", version: outcome.version };
       } else {
         this.markStable();
         this.status = {
           state: "spawned",
-          version: running,
+          version: outcome.version,
           pid: this.child?.pid ?? -1,
         };
       }
       return this.status;
     }
 
+    this.markStable();
+    this.status = {
+      state: "spawned",
+      version: outcome.version,
+      pid: outcome.pid,
+    };
+    console.log(
+      `[kin-desktop] daemon ready version=${outcome.version} pid=${outcome.pid}`,
+    );
+    return this.status;
+  }
+
+  /**
+   * Start `kin supervise` and wire its lifecycle. Reports the pid, or the
+   * reason no process exists, so the handshake can treat both as its spawn
+   * step without owning Electron's child handling.
+   */
+  private spawnDaemon(): SpawnResult {
     const bin = kinBinaryPath();
     if (!existsSync(bin)) {
-      this.status = {
-        state: "unavailable",
-        reason: `kin binary not found at ${bin}`,
-      };
-      console.error(`[kin-desktop] ${this.status.reason}`);
-      return this.status;
+      return { ok: false, reason: `kin binary not found at ${bin}` };
     }
-    if (generation !== this.generation || this.stopping) return this.status;
-
     console.log(
       `[kin-desktop] no daemon on :${DAEMON_PORT}; spawning ${bin} supervise (dev=${isDev()})`,
     );
+
+    let child: ChildProcess;
     try {
-      const child = spawn(bin, ["supervise"], {
+      child = spawn(bin, ["supervise"], {
         // The daemon is a durable background service. It must outlive the
         // Electron shell when the user quits the menu-bar app.
         stdio: ["ignore", "ignore", "ignore"],
@@ -210,96 +259,64 @@ export class Sidecar {
         },
         detached: true,
       });
-      this.child = child;
-      this.weStarted = true;
-      const pid = child.pid ?? -1;
-      // Named as soon as the process exists, not only once it is healthy: a
-      // launcher interrupted during the health wait must still know which
-      // supervisor this shell owns, so cleanup never has to guess from a port.
-      console.log(`[kin-desktop] daemon spawned pid=${pid}`);
-      child.on("exit", (code, signal) => {
-        if (this.child !== child) return;
-        console.log(
-          `[kin-desktop] daemon exited code=${code} signal=${signal}`,
-        );
-        this.child = null;
-        if (this.weStarted) {
-          this.clearStableTimer();
-          this.invalidatePendingEnsure();
-          this.weStarted = false;
-          this.status = {
-            state: "unavailable",
-            // A busy state directory is the one exit worth naming: it means the
-            // machine is already being served, not that the daemon broke.
-            reason:
-              code === STATE_DIR_BUSY_EXIT
-                ? "another kin daemon already owns this machine's state directory"
-                : `daemon exited (code=${code})`,
-          };
-          // A busy state directory is not a crash, and retrying cannot change
-          // it: the other daemon owns that directory until it stops. So do not restart
-          // here; the shell's own recovery, or the next Start, asks again.
-          if (!this.stopping && code !== STATE_DIR_BUSY_EXIT) this.scheduleRestart();
-        }
-      });
-      child.on("error", (err) => {
-        console.error("[kin-desktop] daemon process error", err);
-        if (this.child !== child || !this.weStarted) return;
+    } catch (err) {
+      return {
+        ok: false,
+        reason: `spawn failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
+    this.child = child;
+    this.weStarted = true;
+    const pid = child.pid ?? -1;
+    // Named as soon as the process exists, not only once it is healthy: a
+    // launcher interrupted during the health wait must still know which
+    // supervisor this shell owns, so cleanup never has to guess from a port.
+    console.log(`[kin-desktop] daemon spawned pid=${pid}`);
+    child.on("exit", (code, signal) => {
+      if (this.child !== child) return;
+      console.log(
+        `[kin-desktop] daemon exited code=${code} signal=${signal}`,
+      );
+      this.child = null;
+      if (this.weStarted) {
         this.clearStableTimer();
         this.invalidatePendingEnsure();
-        this.child = null;
         this.weStarted = false;
         this.status = {
           state: "unavailable",
-          reason: `daemon process error: ${err.message}`,
+          // A busy state directory is the one exit worth naming: it means the
+          // machine is already being served, not that the daemon broke.
+          reason:
+            code === STATE_DIR_BUSY_EXIT
+              ? "another kin daemon already owns this machine's state directory"
+              : `daemon exited (code=${code})`,
         };
-        if (!this.stopping) this.scheduleRestart();
-      });
-      child.unref();
-
-      // Wait until health answers (up to ~15s).
-      const ok = await this.waitHealthy(15_000);
-      if (generation !== this.generation) return this.status;
-      if (!ok) {
-        await this.stopIfOwned();
-        this.status = {
-          state: "unavailable",
-          reason: "spawned daemon did not become healthy in time",
-        };
-        console.error(`[kin-desktop] ${this.status.reason}`);
-        return this.status;
+        // A busy state directory is not a crash, and retrying cannot change
+        // it: the other daemon owns that directory until it stops. So do not restart
+        // here; the shell's own recovery, or the next Start, asks again.
+        if (!this.stopping && code !== STATE_DIR_BUSY_EXIT) this.scheduleRestart();
       }
-      const ver = (await this.probeVersion()) ?? expected ?? "unknown";
-      if (generation !== this.generation) return this.status;
-      this.markStable();
-      this.status = { state: "spawned", version: ver, pid };
-      console.log(
-        `[kin-desktop] daemon ready version=${ver} pid=${pid}`,
-      );
-      return this.status;
-    } catch (err) {
+    });
+    child.on("error", (err) => {
+      console.error("[kin-desktop] daemon process error", err);
+      if (this.child !== child || !this.weStarted) return;
+      this.clearStableTimer();
+      this.invalidatePendingEnsure();
+      this.child = null;
+      this.weStarted = false;
       this.status = {
         state: "unavailable",
-        reason: err instanceof Error ? err.message : String(err),
+        reason: `daemon process error: ${err.message}`,
       };
-      console.error(`[kin-desktop] spawn failed: ${this.status.reason}`);
-      return this.status;
-    }
-  }
+      if (!this.stopping) this.scheduleRestart();
+    });
+    child.unref();
 
-  private async waitHealthy(ms: number): Promise<boolean> {
-    const deadline = Date.now() + ms;
-    while (Date.now() < deadline) {
-      if (await this.probeHealth()) return true;
-      await sleep(250);
-    }
-    return false;
+    return { ok: true, pid };
   }
 
   async start(): Promise<SidecarStatus> {
-    if (await this.probeHealth()) {
-      return this.ensureRunning();
-    }
     return this.ensureRunning();
   }
 
@@ -443,8 +460,4 @@ export class Sidecar {
       this.stableTimer = null;
     }
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }
