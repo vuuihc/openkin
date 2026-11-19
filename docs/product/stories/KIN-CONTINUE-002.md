@@ -1,6 +1,6 @@
 # KIN-CONTINUE-002 · 手机只留一个导航面：列表页就是侧栏
 
-状态：approved
+状态：covered
 签字：2026-11-12 用户。D1 改为「归档保留，导入放到 Agent 运维」；D2、D3、D4 同意。2026-11-14 用户明确修改：底部为对话列表、例行任务、Agent 运维、设置四个同级 Tab，都保留底栏且左右滑动切换；已归档为对话列表筛选。以下旧流程已按这次明确修改统一更新；D1–D4 的其余签字内容不变。
 优先级：P0
 旅程：J1、J2
@@ -136,7 +136,7 @@ IA 2026-10-30 的 D3 把「K 面板只留入口」当成合并，但列表页和
 ## 证据
 
 - 之前（本地留存，未入库）：`01-sessions-390.png`、`02-drawer-390.png`、`03-sessions-1280.png`。
-- 之后：交付时补。
+- 之后：J11/J12 真机走查（`bash rsi/runtime/ux-walk.sh <worktree> <out> J11,J12`，390×844，`walk.json` 的 `hardFail` 为空）。J11 在列表页数出 `count css=[data-phone-dock] 0`、`count css=[aria-label='Open menu'], [aria-label='打开菜单'] 0`、`count css=input[type=search] 1`、`count css=[data-phone-footer] 1`、`count css=[data-phone-footer] a 4`、`count css=[data-phone-scroll] 1`、`count css=[data-session-row]:has-text("[seed] Morning planning") 1`：只有一份列表、没有抽屉与 dock、没有第二份列表或搜索框（截图 `J11-phone-02-one-list.png`）。J12 的左缘右滑与页头返回两条腿都从同一行进出，回来时分别读回 `value input[type=search]` 为 `seed`、`search` 为 `?search=seed`、`scroll-kept css=[data-phone-scroll]` 为 80（截图 `J12-phone-03-list-restored.png`、`J12-phone-04-header-back-restored.png`）。红证：把 `MobileList.tsx` 的恢复改成 `node.scrollTop = 0` 后，J12 恰好只有两处 `scroll-kept` 变红（`is at 0, want 80±48`），其余步骤全绿；恢复后 `shasum -a 256` 与改动前一致。1100 半边仍由已登记的 `ui/src/components/layout/Sidebar.dom.test.tsx` 覆盖（左栏是唯一列表、没有手机抽屉或 dock），本轮没有新增 1100 走查。
 
 ## 变更记录
 
@@ -145,3 +145,4 @@ IA 2026-10-30 的 D3 把「K 面板只留入口」当成合并，但列表页和
 - 2026-11-12 交付：四轮同模型复审，所有 blocker / major 均修复并补测试（首轮 2 blocker / 6 major，后三轮继续修完守卫、滚动、面板与恢复信号）；系统返回由 `lib/phoneDeepLinkParent.ts` 在路由挂载前合成父级，页内返回与边缘手势统一走 `goBackToList` 并经 `leaveGuard` 问过页面，列表滚动位置记住并恢复，读失败有重试。手机冷启动落列表，取代 `KIN-CONTINUE-001` step 1 的手机半边（已在该故事变更记录注明）。三处帧细节以可用性为准保留现状并记入计划文档「已知限制」：加载态是文字行而非骨架行、空态只有指路文案没有第二个「新建」按钮、归档范围在折叠的筛选面板里而不是常驻范围条。
 
 - 2026-11-14 用户修订：四个 root 共用 Tab 底栏并支持横滑；归档只作对话的筛选。同步重写第 1、3、4 节、面和验收中的旧入口与 push 关系。
+- 2026-11-19 P8 结算：J11 数出手机列表页就是唯一列表（无 dock、无抽屉触发器、搜索框与滚动容器各一份、底栏四个入口），J12 补页头返回到列表后搜索词与滚动偏移仍为 `seed`／80；`MobileList.tsx` 的 `scrollTop = 0` 红证只红两处 `scroll-kept`。故事翻 `covered`；1100 半边仍由 `Sidebar.dom.test.tsx` 覆盖，未新增 1100 走查。

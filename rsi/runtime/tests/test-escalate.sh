@@ -138,6 +138,134 @@ grep -q "Found-what-DeepSeek-missed: 1" "$T/st2/escalations-weekly.md" || { cat 
 grep -q "Agreed: 1" "$T/st2/escalations-weekly.md" || { cat "$T/st2/escalations-weekly.md"; bad weekly-agreed; }
 ok weekly-daily-line
 
+# --- weekly worth-it: caught per decided review and per yuan, priced by window ---
+# Three 1M-input Kimi rows at ¥13 each: one inside A's window, one inside B's, one one
+# hour after every outcome (must be excluded). C is decided with no spend -> flat-rate.
+mkdir -p "$T/w1"
+python3 - "$T/w1" "$T/w1-usage.jsonl" <<'P'
+import json, sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+SGT = timezone(timedelta(hours=8))
+st = Path(sys.argv[1]); ledger = Path(sys.argv[2]); st.mkdir(parents=True, exist_ok=True)
+now = datetime.now(SGT)
+ws = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+def iso(h): return (ws + timedelta(hours=h)).isoformat()
+def row(h):
+    return dict(t=iso(h), provider="volcengine-gw", host="example.apigateway-cn-beijing.volceapi.com",
+                model="kimi-k3.1-pro", **{"in": 1_000_000}, out=0, cache_read=0)
+rows = [
+    dict(ts=iso(1), outcome_ts=iso(2), id="a", model="kimi", reason="reviewer-disagreement",
+         outcome="FAIL", deepseek_verdict="PASS", has_bm=True, kind=""),
+    dict(ts=iso(3), outcome_ts=iso(4), id="b", model="kimi", reason="reviewer-disagreement",
+         outcome="PASS", deepseek_verdict="PASS", has_bm=False, kind=""),
+    dict(ts=iso(5), outcome_ts=iso(6), id="c", model="kimi", reason="reviewer-disagreement",
+         outcome="PASS", deepseek_verdict="PASS", has_bm=False, kind=""),
+]
+(st / "escalations.jsonl").write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
+(ledger).write_text("".join(json.dumps(r) + "\n" for r in (row(1.5), row(3.5), row(8.0))))
+P
+RSI_STATE="$T/w1" MAGPIE_USAGE_JSONL="$T/w1-usage.jsonl" python3 "$PY" --weekly >/dev/null || bad weekly-worth-it-rate-exit
+md="$T/w1/escalations-weekly.md"
+grep -q 'caught 1 of 3 decided reviews (33%)' "$md" || { cat "$md"; bad weekly-worth-it-rate; }
+grep -q 'spend ¥26.00' "$md" || { cat "$md"; bad weekly-worth-it-spend; }
+grep -q '¥26.00 per caught defect' "$md" || { cat "$md"; bad weekly-worth-it-per-defect; }
+grep -q 'flat-rate 1' "$md" || { cat "$md"; bad weekly-worth-it-flat; }
+grep -q 'unmeasured 0' "$md" || { cat "$md"; bad weekly-worth-it-unmeasured; }
+grep -q 'Spend is window-priced from the local usage ledger' "$md" || { cat "$md"; bad weekly-worth-it-note; }
+# Placement is part of the contract: after the Daily worth-it block, before its closing note.
+python3 - "$md" <<'P' || bad weekly-worth-it-placement
+import sys
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+daily = next(i for i, l in enumerate(lines) if l.startswith("## Daily worth-it"))
+worth = next(i for i, l in enumerate(lines) if l.startswith("Worth it:"))
+close = next(i for i, l in enumerate(lines) if l.startswith("Found-what-DeepSeek-missed is"))
+assert daily < worth < close, (daily, worth, close)
+assert sum(1 for l in lines if l.startswith("Worth it:")) == 1
+P
+ok weekly-worth-it-rate
+
+# --- weekly worth-it: none caught names n/a instead of dividing by zero ---
+mkdir -p "$T/w2"
+python3 - "$T/w2" "$T/w2-usage.jsonl" <<'P'
+import json, sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+SGT = timezone(timedelta(hours=8))
+st = Path(sys.argv[1]); ledger = Path(sys.argv[2]); st.mkdir(parents=True, exist_ok=True)
+now = datetime.now(SGT)
+ws = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+def iso(h): return (ws + timedelta(hours=h)).isoformat()
+rows = [
+    dict(ts=iso(1), outcome_ts=iso(2), id="a", model="kimi", reason="reviewer-disagreement",
+         outcome="PASS", deepseek_verdict="PASS", has_bm=False, kind=""),
+    dict(ts=iso(3), outcome_ts=iso(4), id="b", model="kimi", reason="reviewer-disagreement",
+         outcome="PASS", deepseek_verdict="PASS", has_bm=False, kind=""),
+]
+(st / "escalations.jsonl").write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
+ledger.write_text(json.dumps(dict(t=iso(1.5), provider="volcengine-gw", host="example.apigateway-cn-beijing.volceapi.com",
+                                  model="kimi-k3.1-pro", **{"in": 1_000_000}, out=0, cache_read=0)) + "\n")
+P
+RSI_STATE="$T/w2" MAGPIE_USAGE_JSONL="$T/w2-usage.jsonl" python3 "$PY" --weekly >/dev/null || bad weekly-worth-it-none-exit
+md="$T/w2/escalations-weekly.md"
+grep -q 'caught 0 of 2 decided reviews (0%)' "$md" || { cat "$md"; bad weekly-worth-it-none-caught; }
+grep -q 'spend ¥13.00' "$md" || { cat "$md"; bad weekly-worth-it-none-spend; }
+grep -q 'per caught defect: n/a (none caught)' "$md" || { cat "$md"; bad weekly-worth-it-none-n; }
+grep -q 'flat-rate 1' "$md" || { cat "$md"; bad weekly-worth-it-none-flat; }
+ok weekly-worth-it-none-caught
+
+# --- weekly worth-it: a missing ledger says unmeasured, never ¥0.00 ---
+mkdir -p "$T/w3"
+python3 - "$T/w3" <<'P'
+import json, sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+SGT = timezone(timedelta(hours=8))
+st = Path(sys.argv[1]); st.mkdir(parents=True, exist_ok=True)
+now = datetime.now(SGT)
+ws = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+iso = lambda h: (ws + timedelta(hours=h)).isoformat()
+(st / "escalations.jsonl").write_text(json.dumps(dict(
+    ts=iso(1), outcome_ts=iso(2), id="a", model="kimi", reason="reviewer-disagreement",
+    outcome="PASS", deepseek_verdict="PASS", has_bm=False, kind=""), sort_keys=True) + "\n")
+P
+RSI_STATE="$T/w3" MAGPIE_USAGE_JSONL="$T/no-such-usage.jsonl" python3 "$PY" --weekly >/dev/null || bad weekly-worth-it-unmeasured-exit
+md="$T/w3/escalations-weekly.md"
+grep -q 'spend unmeasured' "$md" || { cat "$md"; bad weekly-worth-it-unmeasured; }
+grep -q 'per caught defect: n/a (spend unmeasured)' "$md" || { cat "$md"; bad weekly-worth-it-unmeasured-per; }
+grep -q 'Daily worth-it' "$md" || { cat "$md"; bad weekly-worth-it-unmeasured-daily; }
+grep -q '¥0.00' "$md" && { cat "$md"; bad weekly-worth-it-unmeasured-zero; }
+ok weekly-worth-it-unmeasured
+
+# --- weekly worth-it: no outcome_ts is unmeasured, not decided and not ¥0 ---
+mkdir -p "$T/w4"
+python3 - "$T/w4" "$T/w4-usage.jsonl" <<'P'
+import json, sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+SGT = timezone(timedelta(hours=8))
+st = Path(sys.argv[1]); ledger = Path(sys.argv[2]); st.mkdir(parents=True, exist_ok=True)
+now = datetime.now(SGT)
+ws = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+iso = lambda h: (ws + timedelta(hours=h)).isoformat()
+rows = [
+    dict(ts=iso(1), outcome_ts=iso(2), id="a", model="kimi", reason="reviewer-disagreement",
+         outcome="PASS", deepseek_verdict="PASS", has_bm=False, kind=""),
+    # A strong FAIL with B/M after DeepSeek PASS, but no outcome_ts: the window is unknown,
+    # so it can neither be priced nor counted as a decided review.
+    dict(ts=iso(3), id="b", model="kimi", reason="reviewer-disagreement",
+         outcome="FAIL", deepseek_verdict="PASS", has_bm=True, kind=""),
+]
+(st / "escalations.jsonl").write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
+ledger.write_text("")
+P
+RSI_STATE="$T/w4" MAGPIE_USAGE_JSONL="$T/w4-usage.jsonl" python3 "$PY" --weekly >/dev/null || bad weekly-worth-it-undecided-exit
+md="$T/w4/escalations-weekly.md"
+grep -q 'caught 0 of 1 decided reviews (0%)' "$md" || { cat "$md"; bad weekly-worth-it-undecided; }
+grep -q 'unmeasured 1' "$md" || { cat "$md"; bad weekly-worth-it-undecided-count; }
+grep -q 'flat-rate 1' "$md" || { cat "$md"; bad weekly-worth-it-undecided-flat; }
+ok weekly-worth-it-undecided
+
 # --- note_agy_limit ignores success prose containing "quota" and stamps real quota errors ---
 mkdir -p "$T/agy_st"
 (

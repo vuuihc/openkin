@@ -1,18 +1,27 @@
 #!/bin/bash
-# test-lane-autofill.sh — a size-only sendback whose cap was waived must not open a rework lane.
+# test-lane-autofill.sh — autofill must not open a rework lane for a PR that no longer exists.
 #
-# merge.sh bounces a PR for size alone with `source: hold-size`. The CEO can then grant a waiver
-# (`state/merge/<slug>.size-ok`) because the diff is signed and must not be trimmed. `merge.sh`
-# honours it, but lane.sh autofill used to claim the sendback anyway: the lane then spent its
-# round cutting real content to fit a cap that no longer exists (2026-11-18: #296's rework deleted
-# 879 lines of a signed story before it was killed; #299 was waived before a lane claimed it).
-# The guard skips exactly that pair — `source: hold-size` plus a standing `.size-ok` — and says
-# why in one line. Every other sendback source must still reach a lane.
+# Two guards share this suite, both about sending a lane after work that does not need one:
 #
-# Hermetic: temp RSI_CTRL (common.sh derives STATE from it), stubbed lanes.py/volc-budget.py,
-# no network, no model calls. npm/go/node/curl are booby traps: autofill must not need them.
-# The non-waived cases use a local bare origin so the real fetch/diff finds a diff; the waived
-# case must never get that far.
+# 1. A size-only sendback whose cap was waived must not open a rework lane. merge.sh bounces a PR
+#    for size alone with `source: hold-size`. The CEO can then grant a waiver
+#    (`state/merge/<slug>.size-ok`) because the diff is signed and must not be trimmed. merge.sh
+#    honours it, but lane.sh autofill used to claim the sendback anyway: the lane then spent its
+#    round cutting real content to fit a cap that no longer exists (2026-11-18: #296's rework
+#    deleted 879 lines of a signed story before it was killed; #299 was waived before a lane
+#    claimed it). The guard skips exactly that pair — `source: hold-size` plus a standing
+#    `.size-ok` — and says why in one line. Every other sendback source must still reach a lane.
+#
+# 2. A sendback for a squash-merged (or closed) PR must be archived, not reworked. The branch
+#    commits are not in main after a squash merge, so the fetch/diff sees a diff and autofill used
+#    to claim a phantom rework round for a PR that was already handled (2026-11-19, lane 3:
+#    "cancelled: stale sendback (fixed at 576fa8c5)"). The PR state comes through RSI_PR_STATE_CMD;
+#    MERGED/CLOSED archive the file under sendback/done/ and continue, OPEN keeps today's path,
+#    and an unreadable state fails open with one log line (a gh outage must not stall real rework).
+#
+# Hermetic: temp RSI_CTRL (common.sh derives STATE from it), stubbed lanes.py/volc-budget.py and
+# PR state, no network, no model calls, no real gh. npm/go/node/curl are booby traps: autofill must
+# not need them. The claim cases use a local bare origin so the real fetch/diff finds a diff.
 # Prints "ok: <case>" per case and exits non-zero on the first failure.
 # Set RSI_TEST_ONLY=<case> to run one case (used to show the red run).
 set -u
@@ -35,6 +44,18 @@ out() { tr '\n' ' ' < "$T/$CASE.out"; }
 # Booby traps: autofill is loop plumbing, it must run without package managers, Go, Node or curl.
 npm() { exit 97; }; go() { exit 97; }; node() { exit 97; }; curl() { exit 97; }
 export -f npm go node curl
+
+# RSI_PR_STATE_CMD replaces the `gh pr view rsi/<slug> --json state` lookup. STUB_PR_STATE is
+# what it prints (default OPEN, set per case); STUB_PR_STATE_FAIL=1 exits non-zero before
+# printing, the gh-failure shape; STUB_PR_STATE_ARG_FILE records the slug the seam receives.
+cat > "$T/pr-state-stub.sh" <<'SH'
+#!/bin/bash
+set -u
+[ -n "${STUB_PR_STATE_ARG_FILE:-}" ] && printf '%s' "${1:-UNSET}" > "$STUB_PR_STATE_ARG_FILE"
+[ "${STUB_PR_STATE_FAIL:-0}" = 1 ] && exit 1
+[ -n "${STUB_PR_STATE:-}" ] || exit 0
+printf '%s\n' "$STUB_PR_STATE"
+SH
 # The ambient shell exports a real commit identity; these temp repos stay placeholders.
 export GIT_AUTHOR_NAME="waiver guard test" GIT_AUTHOR_EMAIL=owner@example.com
 export GIT_COMMITTER_NAME="waiver guard test" GIT_COMMITTER_EMAIL=owner@example.com
@@ -62,6 +83,12 @@ if args[:1] == ["claim"]:
 sys.exit(0)
 PY
   printf 'import sys\nsys.exit(0)\n' > "$RSI_CTRL/rsi/runtime/volc-budget.py"
+  # lane.sh sources lane-pr.sh (PR creation, never reached by autofill); without it the failed
+  # source prints a stderr line that lands in $CASE.out and hides autofill's own output.
+  printf '#!/bin/bash\n# stub: autofill never creates a PR\n' > "$RSI_CTRL/rsi/runtime/lane-pr.sh"
+  # Default PR state OPEN so the waiver cases keep reaching the claim, as they did before the
+  # terminal-PR guard; each terminal case overrides it.
+  STUB_PR_STATE=OPEN; STUB_PR_STATE_FAIL=0; STUB_PR_STATE_ARG_FILE=""
   if [ "${2:-}" = repo ]; then make_repo || fail "$CASE: repo setup failed"; fi
   return 0
 }
@@ -100,6 +127,9 @@ write_sb_for() { # slug source
 
 run_autofill() {
   CLAIM_LOG="$(claim_log)" RSI_CTRL="$RSI_CTRL" \
+    RSI_PR_STATE_CMD="bash $T/pr-state-stub.sh \"\$1\"" \
+    STUB_PR_STATE="$STUB_PR_STATE" STUB_PR_STATE_FAIL="$STUB_PR_STATE_FAIL" \
+    STUB_PR_STATE_ARG_FILE="$STUB_PR_STATE_ARG_FILE" \
     bash "$LANE" autofill > "$T/$CASE.out" 2>&1
   RC=$?
 }
@@ -114,8 +144,12 @@ test_hold_size_waiver_skips_rework() {
   new_case hold_size_waiver repo
   write_sb hold-size
   : > "$(st)/merge/$SLUG.size-ok"
+  # The waiver skip is free and comes first: a waived sendback must not pay for a PR lookup.
+  STUB_PR_STATE_ARG_FILE="$T/$CASE.arg"
   run_autofill
   [ "$RC" -eq 0 ] || fail "hold_size_waiver: autofill exited $RC ($(out))"
+  [ ! -e "$T/$CASE.arg" ] \
+    || fail "hold_size_waiver: looked up the PR state for a waived sendback"
   [ ! -e "$(claim_log)" ] \
     || fail "hold_size_waiver: claimed a lane despite the waiver: $(cat "$(claim_log)")"
   grep -q "hold-size waived" "$T/$CASE.out" \
@@ -194,6 +228,85 @@ test_no_sendback_no_output() {
   fi
 }
 
+# --- terminal-PR cases -------------------------------------------------------------------------
+# A squash merge keeps the branch commits out of main, so the fetch/diff below still finds a diff
+# after the PR landed. Without the state check autofill claimed a rework lane for the merged PR and
+# the worker spent a round on work already on main (2026-11-19, lane 3: "cancelled: stale
+# sendback"). Terminal state archives the sendback; OPEN keeps today's path; anything unreadable
+# fails open so a gh outage cannot stall a real rework.
+
+# The motivating case: MERGED -> no claim, the file moves to done/, one line says why.
+test_merged_pr_sendback_is_archived() {
+  new_case merged_pr_archived repo
+  write_sb 'gate+review'
+  cp "$(st)/sendback/$SLUG.md" "$T/$CASE.before"
+  STUB_PR_STATE=MERGED
+  run_autofill
+  [ "$RC" -eq 0 ] || fail "merged_pr_archived: autofill exited $RC ($(out))"
+  [ ! -e "$(claim_log)" ] \
+    || fail "merged_pr_archived: claimed a lane for a merged PR: $(cat "$(claim_log)")"
+  [ ! -e "$(st)/sendback/$SLUG.md" ] || fail "merged_pr_archived: the sendback is still in the queue"
+  local done_f; done_f="$(ls "$(st)/sendback/done/$SLUG-merged-"*.md 2>/dev/null | head -1)"
+  [ -n "$done_f" ] || fail "merged_pr_archived: no sendback/done/$SLUG-merged-*.md"
+  cmp -s "$T/$CASE.before" "$done_f" \
+    || fail "merged_pr_archived: the archived copy differs from the sendback"
+  [ "$(grep -c . "$T/$CASE.out")" = 1 ] \
+    || fail "merged_pr_archived: expected one explanation line, got: $(out)"
+  grep -q "$SLUG" "$T/$CASE.out" || fail "merged_pr_archived: the line does not name the slug ($(out))"
+  grep -q "MERGED" "$T/$CASE.out" || fail "merged_pr_archived: the line does not say MERGED ($(out))"
+}
+
+# CLOSED is terminal too: nobody will push the rework the sendback asks for.
+test_closed_pr_sendback_is_archived() {
+  new_case closed_pr_archived repo
+  write_sb 'gate+review'
+  STUB_PR_STATE=CLOSED
+  run_autofill
+  [ "$RC" -eq 0 ] || fail "closed_pr_archived: autofill exited $RC ($(out))"
+  [ ! -e "$(claim_log)" ] \
+    || fail "closed_pr_archived: claimed a lane for a closed PR: $(cat "$(claim_log)")"
+  [ ! -e "$(st)/sendback/$SLUG.md" ] || fail "closed_pr_archived: the sendback is still in the queue"
+  ls "$(st)/sendback/done/$SLUG-merged-"*.md >/dev/null 2>&1 \
+    || fail "closed_pr_archived: no sendback/done/$SLUG-merged-*.md"
+  grep -q "CLOSED" "$T/$CASE.out" || fail "closed_pr_archived: the line does not say CLOSED ($(out))"
+}
+
+# OPEN is today's path, unchanged: a real rework is claimed. The lookup names the slug, so the
+# stub cannot be answering for some other PR.
+test_open_pr_sendback_still_claims() {
+  new_case open_pr_claims repo
+  write_sb 'gate+review'
+  STUB_PR_STATE=OPEN
+  STUB_PR_STATE_ARG_FILE="$T/$CASE.arg"
+  run_autofill
+  [ "$RC" -eq 0 ] || fail "open_pr_claims: autofill exited $RC ($(out))"
+  [ "$(cat "$T/$CASE.arg" 2>/dev/null)" = "$SLUG" ] \
+    || fail "open_pr_claims: the lookup saw '$(cat "$T/$CASE.arg" 2>/dev/null)', want $SLUG"
+  [ -s "$(claim_log)" ] || fail "open_pr_claims: no claim for an open PR ($(out))"
+  [ "$(grep -c . "$(claim_log)")" = 1 ] \
+    || fail "open_pr_claims: expected one claim, got: $(cat "$(claim_log)")"
+  grep -q -- "--slug $SLUG" "$(claim_log)" || fail "open_pr_claims: claim lacks --slug $SLUG"
+  grep -q -- "--mode rework" "$(claim_log)" || fail "open_pr_claims: claim is not a rework"
+  [ -s "$(st)/sendback/$SLUG.md" ] || fail "open_pr_claims: archived an open PR's sendback"
+}
+
+# A gh failure is not evidence the PR is done: fail open, log one line, rework as before.
+test_unknown_pr_state_fails_open() {
+  new_case unknown_state_claims repo
+  write_sb 'gate+review'
+  STUB_PR_STATE=MERGED STUB_PR_STATE_FAIL=1   # a failed lookup prints nothing; the MERGED would be a lie
+  run_autofill
+  [ "$RC" -eq 0 ] || fail "unknown_state_claims: autofill exited $RC ($(out))"
+  [ -s "$(claim_log)" ] || fail "unknown_state_claims: a failed lookup stopped the rework ($(out))"
+  grep -q -- "--slug $SLUG" "$(claim_log)" || fail "unknown_state_claims: claim lacks --slug $SLUG"
+  [ -s "$(st)/sendback/$SLUG.md" ] \
+    || fail "unknown_state_claims: archived on an unreadable PR state"
+  [ "$(grep -c . "$T/$CASE.out")" = 1 ] \
+    || fail "unknown_state_claims: expected one log line, got: $(out)"
+  grep -qi "state" "$T/$CASE.out" \
+    || fail "unknown_state_claims: the log line does not explain the fail-open ($(out))"
+}
+
 run() {
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   RAN=$((RAN+1))
@@ -208,5 +321,9 @@ run test_hold_size_without_waiver_reaches_claim
 run test_waiver_does_not_skip_other_sources
 run test_waiver_is_per_slug
 run test_no_sendback_no_output
+run test_merged_pr_sendback_is_archived
+run test_closed_pr_sendback_is_archived
+run test_open_pr_sendback_still_claims
+run test_unknown_pr_state_fails_open
 [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS

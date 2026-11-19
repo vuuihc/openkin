@@ -7,7 +7,8 @@ is the text; this script keeps the two and the tests honest.
 
 Usage:
   python3 scripts/stories.py                  # check, print a summary
-  python3 scripts/stories.py --write-coverage # check and rewrite COVERAGE.md
+  python3 scripts/stories.py --write-coverage # check and rewrite generated docs
+                                              # (COVERAGE.md, PLAN.md count sentence)
   python3 scripts/stories.py new AREA "title" [--journeys J1,J2] [--surfaces mac,phone]
                                               # scaffold a story before writing code
 
@@ -20,12 +21,14 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DIR = ROOT / "docs" / "product" / "stories"
 REGISTRY = DIR / "registry.json"
 COVERAGE = DIR / "COVERAGE.md"
+PLAN = DIR / "PLAN.md"
 
 ID_RE = re.compile(r"^KIN-[A-Z]+-\d{3}$")
 
@@ -42,6 +45,38 @@ JOURNEY_SPLIT = re.compile(r"[、,，+\s]+")
 SURFACES_RE = re.compile(r"^面：\s*(.+)$", re.M)
 SURFACE_LABEL = {"mac": "Mac", "phone": "手机"}
 DIFFERENCES_HEADING = "## 各面差异"
+
+# PLAN.md's opening sentence names the counts, so it is generated from the
+# registry like COVERAGE.md instead of being typed. `check()` reads the same
+# sentence back; a missing or rewritten one is a problem, not a skip.
+PLAN_COUNT = r"(?:\d+|[零〇一二两三四五六七八九十百]+)"
+PLAN_STATUS_RE = re.compile(
+    rf"^状态：(?P<total>{PLAN_COUNT})\s*条合同已写，"
+    rf"(?P<signed>{PLAN_COUNT})\s*条已签字"
+    r"（(?P<counts>[^）\n]*)）",
+    re.M,
+)
+PLAN_COUNT_ITEM_RE = re.compile(r"(\d+)\s*条\s*`([a-z]+)`")
+PLAN_COUNT_ORDER = ("covered", "approved", "draft", "failing", "blocked")
+# The three phases the sentence always names, so a zero is visible rather than
+# silently dropped; other states appear only while they have stories.
+PLAN_ALWAYS_SHOWN = ("covered", "approved", "draft")
+# README's state machine: approved → covered, with failing reachable from both.
+SIGNED_STATES = frozenset({"approved", "covered", "failing"})
+ZH_DIGITS = {
+    "零": 0,
+    "〇": 0,
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
 
 # The contract's skeleton. A story missing any of these is still being written,
 # and the checker says so instead of letting a half-written story look approved.
@@ -195,6 +230,7 @@ def cmd_new(argv: list[str]) -> int:
     data["stories"] = stories
     REGISTRY.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     COVERAGE.write_text(coverage_text(data), encoding="utf-8")
+    rewrite_plan_counts(data)
 
     print(f"created {path.relative_to(ROOT)}")
     if review_path.exists():
@@ -202,6 +238,118 @@ def cmd_new(argv: list[str]) -> int:
     print(f"created registry entry {story_id} (draft)")
     print("next: fill it in per docs/product/stories/AUTHORING.md, then run stories.py")
     return 0
+
+
+def parse_count(text: str) -> int | None:
+    """Read `16` or a Chinese numeral like `十六` / `二十四`; None when neither."""
+    if text.isdigit():
+        return int(text)
+    if not text or any(ch not in ZH_DIGITS and ch not in "十百" for ch in text):
+        return None
+    total = 0
+    current = 0
+    for ch in text:
+        if ch in ZH_DIGITS:
+            current = ZH_DIGITS[ch]
+        elif ch == "十":
+            total += (current or 1) * 10
+            current = 0
+        else:  # 百
+            total += (current or 1) * 100
+            current = 0
+    return total + current
+
+
+def state_counts(data: dict) -> Counter:
+    counts: Counter = Counter()
+    for story in data.get("stories") or []:
+        if isinstance(story, dict):
+            counts[str(story.get("state", "?"))] += 1
+    return counts
+
+
+def plan_count_items(counts: Counter) -> list[tuple[int, str]]:
+    """The counts in the order PLAN.md lists them, zeros for the named phases."""
+    order = list(PLAN_COUNT_ORDER) + sorted(
+        state for state in counts if state not in PLAN_COUNT_ORDER
+    )
+    return [
+        (counts[state], state)
+        for state in order
+        if state in PLAN_ALWAYS_SHOWN or counts[state]
+    ]
+
+
+def plan_status_prefix(data: dict) -> str:
+    """The generated `状态：…` sentence prefix, up to the counts' closing bracket."""
+    counts = state_counts(data)
+    total = sum(counts.values())
+    signed = sum(count for state, count in counts.items() if state in SIGNED_STATES)
+    items = "、".join(
+        f"{count} 条 `{state}`" for count, state in plan_count_items(counts)
+    )
+    return f"状态：{total} 条合同已写，{signed} 条已签字（{items}）"
+
+
+def plan_problems(data: dict) -> list[str]:
+    """PLAN.md's count sentence must be the one this script generates."""
+    path = PLAN.relative_to(ROOT).as_posix()
+    if not PLAN.exists():
+        return [f"{path}: missing"]
+    found = PLAN_STATUS_RE.search(read(PLAN))
+    if not found:
+        return [
+            f"{path}: no `状态：N 条合同已写，M 条已签字（…）` count sentence; "
+            "run python3 scripts/stories.py --write-coverage"
+        ]
+
+    problems: list[str] = []
+    counts = state_counts(data)
+    total = sum(counts.values())
+    signed = sum(count for state, count in counts.items() if state in SIGNED_STATES)
+    if (
+        parse_count(found.group("total")) != total
+        or parse_count(found.group("signed")) != signed
+    ):
+        problems.append(
+            f"{path}: status says {found.group('total')}条合同已写 / "
+            f"{found.group('signed')}条已签字; registry has {total} written / {signed} signed"
+        )
+
+    typed_items = PLAN_COUNT_ITEM_RE.findall(found.group("counts"))
+    typed_counts = {state: int(count) for count, state in typed_items}
+    expected_items = plan_count_items(counts)
+    reserialized = "、".join(f"{count} 条 `{state}`" for count, state in typed_items)
+    if (
+        len(typed_counts) != len(typed_items)
+        or reserialized != found.group("counts")
+        or sorted(typed_counts.items()) != sorted(
+            (state, count) for count, state in expected_items
+        )
+    ):
+        typed_text = (
+            "、".join(f"{count} 条 {state}" for count, state in typed_items)
+            or "no readable counts"
+        )
+        expected_text = "、".join(f"{count} 条 {state}" for count, state in expected_items)
+        problems.append(
+            f"{path}: status counts say {typed_text}; registry says {expected_text}; "
+            "run python3 scripts/stories.py --write-coverage"
+        )
+    return problems
+
+
+def rewrite_plan_counts(data: dict) -> None:
+    """Rewrite PLAN.md's count sentence, leaving the rest of the line alone."""
+    if not PLAN.exists():
+        return
+    text = read(PLAN)
+    found = PLAN_STATUS_RE.search(text)
+    if not found:
+        return
+    updated = text[: found.start()] + plan_status_prefix(data) + text[found.end() :]
+    if updated != text:
+        PLAN.write_text(updated, encoding="utf-8")
 
 
 def check() -> list[str]:
@@ -410,6 +558,7 @@ def check() -> list[str]:
             if mentioned not in seen:
                 problems.append(f"{path.relative_to(ROOT)}: mentions unregistered story {mentioned}")
 
+    problems.extend(plan_problems(data))
     return problems
 
 
@@ -418,9 +567,7 @@ def coverage_text(data: dict) -> str:
         data.get("stories", []),
         key=lambda s: (s.get("priority", "P9"), s.get("id", "")),
     )
-    counts: dict[str, int] = {}
-    for story in stories:
-        counts[story.get("state", "?")] = counts.get(story.get("state", "?"), 0) + 1
+    counts = state_counts(data)
 
     lines = [
         "# 故事覆盖",
@@ -462,22 +609,24 @@ def main(argv: list[str]) -> int:
     if argv and argv[0] == "new":
         return cmd_new(argv[1:])
 
-    problems = check()
     data = load_registry()
-    expected = coverage_text(data)
     write = "--write-coverage" in argv
-
     if write:
-        COVERAGE.write_text(expected, encoding="utf-8")
-    elif not COVERAGE.exists():
-        problems.append("COVERAGE.md missing; run with --write-coverage")
-    elif COVERAGE.read_text(encoding="utf-8") != expected:
-        problems.append("COVERAGE.md is stale; run with --write-coverage")
+        COVERAGE.write_text(coverage_text(data), encoding="utf-8")
+        rewrite_plan_counts(data)
+
+    # Run after the write so `--write-coverage` reports the tree it just fixed,
+    # not the stale one it read at startup.
+    problems = check()
+    expected = coverage_text(data)
+    if not write:
+        if not COVERAGE.exists():
+            problems.append("COVERAGE.md missing; run with --write-coverage")
+        elif COVERAGE.read_text(encoding="utf-8") != expected:
+            problems.append("COVERAGE.md is stale; run --write-coverage")
 
     stories = data.get("stories", [])
-    counts: dict[str, int] = {}
-    for story in stories:
-        counts[story.get("state", "?")] = counts.get(story.get("state", "?"), 0) + 1
+    counts = state_counts(data)
     summary = ", ".join(f"{state} {counts[state]}" for state in sorted(counts)) or "none"
     print(f"stories: {len(stories)} ({summary})")
 

@@ -126,6 +126,36 @@ record_outcome() { # outcome note
   python3 "$RSI_DIR/runtime/escalate.py" --outcome --id "$RSI_ESCALATE_ID" --outcome "$1" --model "$MODEL" --tag "$TAG" --note "${2:-}" >/dev/null 2>&1 || true
 }
 
+# review_note <verdict> <file> — the outcome note. A FAIL keeps the verdict as
+# its prefix and appends up to five lines that name a blocker/major, so the
+# weekly "Found-what-DeepSeek-missed" metric can see what the strong review
+# found (escalate.py's has_bm reads the note). A FAIL that names none stays
+# bare: inventing a tag would inflate that metric, which is worse than a zero.
+# The note is one bounded line because escalations.log appends one line per
+# record. PASS/hold/error notes are unchanged.
+review_note() { # <verdict> <file>
+  local verdict="${1:-}" f="${2:-}" out="" line n=0
+  if [ "$verdict" != FAIL ] || [ -z "$f" ] || [ ! -r "$f" ]; then
+    printf 'VERDICT: %s\n' "$verdict"
+    return 0
+  fi
+  # Boundary on alpha, not \b: **Blocker**, Blocker B1, Major M3, - **major**: … match.
+  while IFS= read -r line; do
+    [ "$n" -ge 5 ] && break
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [ -n "$line" ] || continue
+    out="${out:+$out | }$line"
+    n=$((n + 1))
+  done <<EOF
+$(grep -iE '(^|[^[:alpha:]])(blocker|major)([^[:alpha:]]|$)' "$f" 2>/dev/null)
+EOF
+  [ -n "$out" ] || { printf 'VERDICT: FAIL\n'; return 0; }
+  out="$(printf '%s' "$out" | tr '\n\r' '  ')"
+  [ "${#out}" -gt 1400 ] && out="${out:0:1400}"
+  printf 'VERDICT: FAIL | %s\n' "$out"
+}
+
 run_claude() { # model [effort]
   local model="$1" effort="${2:-}"
   local args=( -p "$PROMPT" --model "$model" --allowedTools "${TOOLS[@]}" --permission-mode bypassPermissions
@@ -309,7 +339,16 @@ PY
 
 run_codex() {
   command -v codex >/dev/null 2>&1 || return 2
-  ( cd "$CWD" && codex exec -m gpt-6.1-sol -s read-only "$PROMPT" < /dev/null > "$LOG.txt" 2>&1 )
+  # Same watchdog as run_claude: on 2026-11-15 two silent `codex exec` reviews
+  # held both verifier slots for an hour. A killed call is a failed call, so the
+  # reviewer-alt fallback to claude -p still runs.
+  ( cd "$CWD" && codex exec -m gpt-6.1-sol -s read-only "$PROMPT" < /dev/null > "$LOG.txt" 2>&1 ) &
+  local pid=$!
+  ( sleep "${DISPATCH_MAX_SECS:-3000}"; rsi_kill_tree "$pid"; kill -TERM -"$pid" 2>/dev/null ) & local wd=$!
+  wait "$pid"; local rc=$?
+  kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+  rsi_kill_tree "$pid"
+  return $rc
 }
 
 stamp_review() { # file: persist DeepSeek / strong verdict against this SHA so the next cycle can reuse it
@@ -336,7 +375,7 @@ stamp_review() { # file: persist DeepSeek / strong verdict against this SHA so t
 emit_and_exit() { # rc  [file]
   local rc="$1" f="${2:-}"
   local oc=PASS note=""
-  if [ -n "$f" ] && grep -qE 'VERDICT: *FAIL' "$f"; then oc=FAIL; note="VERDICT: FAIL"
+  if [ -n "$f" ] && grep -qE 'VERDICT: *FAIL' "$f"; then oc=FAIL; note="$(review_note FAIL "$f")"
   elif [ -n "$f" ] && grep -qE 'VERDICT: *PASS' "$f"; then oc=PASS; note="VERDICT: PASS"
   elif [ $rc -eq 3 ]; then oc=hold; note="hold"
   elif [ $rc -ne 0 ]; then oc=error; note="exit $rc"
@@ -418,7 +457,7 @@ if [ -n "${RSI_ESCALATE_MODEL:-}" ]; then
   if [ $rc -eq 0 ]; then
     python3 "$(dirname "$0")/parse_result.py" "$LOG"; pr=$?
     # parse_result prints the text; stitch outcome
-    if grep -qE 'VERDICT: *FAIL' "$LOG" 2>/dev/null; then record_outcome FAIL "VERDICT: FAIL"; stamp_review "$LOG"
+    if grep -qE 'VERDICT: *FAIL' "$LOG" 2>/dev/null; then record_outcome FAIL "$(review_note FAIL "$LOG")"; stamp_review "$LOG"
     elif grep -qE 'VERDICT: *PASS' "$LOG" 2>/dev/null; then record_outcome PASS "VERDICT: PASS"; stamp_review "$LOG"
     elif [ $pr -ne 0 ]; then record_outcome error "parse_result $pr"
     else record_outcome PASS "ok"

@@ -1,0 +1,16 @@
+[
+  {
+    "label": "spare pressure guard disabled: a warning-pressure machine admits a second lane",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lane-spare-pressure.sh",
+    "old": "    if lvl is not None and lvl > LANE2_PRESSURE_MAX:",
+    "new": "    if False:"
+  },
+  {
+    "label": "old defect restored: used swap decides the floor again, refusing a warm-but-normal machine",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lane-spare-pressure.sh",
+    "old": "    free = swap_free_mb()",
+    "new": "    free = swap_used_mb()"
+  }
+]

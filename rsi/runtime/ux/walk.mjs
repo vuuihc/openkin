@@ -5,8 +5,13 @@
 //   node walk.mjs --resolve-j5 DIR/seed.log [--spec path/to/journeys.json]   (print the resolved J5 row-menu step or skip; no browser)
 //   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
 //   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
-//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J7's landing contract, J9's Mac switch, J11's phone switch and J12's thumb gestures; no browser)
+//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J1's phone search/approve/deny leg, J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J6's default-agent change/reload/restore, J7's landing contract, J9's Mac switch, J11's phone switch and J12's thumb gestures; no browser)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
+// Ops are documented in journeys.json `_doc`. One op is not listed there
+// because it belongs to one story: `history-back` is the browser's own Back
+// (`page.goBack`), for legs where the app draws a Back button of its own and
+// the promise under test is the system Back / edge gesture. `back` presses
+// that button when it is reachable; `history-back` never does.
 // Exit 0 always when the walk ran (verdicts are the reviewer's and walk.json's `hardFail`); exit 2 when it could not run (no chrome, daemon unreachable).
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -620,6 +625,25 @@ function checkJ9Contract(spec) {
     }
   });
 
+  // The composer is part of the shell claim (TASTE 15). #342 tags the `form`
+  // itself by name: `composer` before the switch, `composer-failed` on the
+  // other conversation, `composer` again after the return. A per-route re-key
+  // leaves the shell node identical while the input is a new element, so
+  // without these tags the walk photographs the right pane and proves nothing.
+  const composerTag = (name, from, to = steps.length) => (nodes.find((i) => i > from && i < to && sel(steps[i], 2) === name && /^css=/.test(sel(steps[i], 1))) ?? -1);
+  const composerBefore = switchAt < 0 ? -1 : (nodes.find((i) => i < switchAt && sel(steps[i], 2) === 'composer' && /^css=/.test(sel(steps[i], 1))) ?? -1);
+  const composerFailed = switchAt < 0 || backAt < 0 ? -1 : composerTag('composer-failed', switchAt, backAt);
+  const composerBack = backAt < 0 ? -1 : composerTag('composer', backAt);
+  if (switchAt >= 0 && composerBefore < 0) {
+    errs.push('J9 never tags the composer element before the switch (node css=… composer)');
+  }
+  if (switchAt >= 0 && backAt >= 0 && composerFailed < 0) {
+    errs.push("J9 never tags the second conversation's composer (node css=… composer-failed)");
+  }
+  if (backAt >= 0 && composerBack < 0) {
+    errs.push('J9 never tags the same composer element again after the return (node css=… composer); a per-route re-key would go unseen');
+  }
+
   // The transcript's place. The offset must be numeric and away from the top:
   // a remount that starts at 0, or the product's own jump-to-bottom on a fresh
   // pane, must not be able to satisfy the return by accident.
@@ -809,6 +833,29 @@ function checkJ11Contract(spec) {
     if (sessionsAt >= 0 && sameShell(sessionsAt) === undefined) {
       errs.push('J11 never asserts the same shell node after the sessions area change');
     }
+  }
+
+  // The composer is part of the shell claim at 390 too (TASTE 15). #342 tags
+  // the `form` by name before the first Back, on the other conversation, after
+  // the return and after the footer round; the last one is the stronger
+  // claim, because the pane was off screen. Deleting any tag must be red.
+  const composerTag = (name, from, to = steps.length) => (nodes.find((i) => i > from && i < to && sel(steps[i], 2) === name && /^css=/.test(sel(steps[i], 1))) ?? -1);
+  const lastReturnAt = returnAt < 0 ? -1 : idx((st) => st[0] === 'click' && /Morning planning/.test(sel(st, 1)), returnAt + 1);
+  const composerBefore = leaveAt < 0 ? -1 : (nodes.find((i) => i < leaveAt && sel(steps[i], 2) === 'composer' && /^css=/.test(sel(steps[i], 1))) ?? -1);
+  const composerFailed = switchAt < 0 || backAt < 0 ? -1 : composerTag('composer-failed', switchAt, backAt);
+  const composerBack = returnAt < 0 ? -1 : composerTag('composer', returnAt, lastReturnAt < 0 ? steps.length : lastReturnAt);
+  const composerFinal = lastReturnAt < 0 ? -1 : composerTag('composer', lastReturnAt);
+  if (leaveAt >= 0 && composerBefore < 0) {
+    errs.push('J11 never tags the composer element before the first Back (node css=… composer)');
+  }
+  if (switchAt >= 0 && backAt >= 0 && composerFailed < 0) {
+    errs.push("J11 never tags the second conversation's composer (node css=… composer-failed)");
+  }
+  if (returnAt >= 0 && composerBack < 0) {
+    errs.push('J11 never tags the same composer element again after the return (node css=… composer); a per-route re-key would go unseen');
+  }
+  if (lastReturnAt >= 0 && composerFinal < 0) {
+    errs.push('J11 never tags the same composer element again after the footer round (node css=… composer); the off-screen restore is the stronger claim');
   }
 
   // The transcript's place. The offset must be numeric and away from the top:
@@ -1470,6 +1517,10 @@ function checkJ12Contract(spec) {
 const J13_DEEP_LINK = /panel=files&file=/;
 const J13_PREVIEW = /预览|Preview/;
 const J13_SOURCE = /源码|Code/;
+// The seeded conversation's own prompt (journeys_seed.py). Every seeded
+// conversation carries the same fake reply, so only the prompt says which one
+// the Mac's cold start reopened.
+const J14_MAC_PROMPT = '[seed] change: summarise the three things worth doing today.';
 function checkJ13Contract(spec) {
   const journey = (((spec || {}).journeys || {}).J13) || {};
   const steps = journey.steps;
@@ -1559,6 +1610,58 @@ function checkJ13Contract(spec) {
     }
   }
 
+  // Leg 1b — the queue KIN-RESULT-002 promises to the system Back. The cold
+  // files link is four entries (list → conversation → file list → file); the
+  // browser's own Back has to pop them in that order. `back` may press the
+  // panel's own Return control, which is a different promise, so the queue is
+  // pinned to `history-back`. And the list has to be SHOWN as the list: an
+  // address change over a still-open viewer would pass a `search`-only pin.
+  const sysBackAt = idx((st) => st[0] === 'history-back');
+  if (sysBackAt < 0) {
+    errs.push('J13 never presses the system Back (history-back) from the file deep link');
+  } else {
+    const listAddressAt = after(sysBackAt, (st) => st[0] === 'search' && /panel=files/.test(sel(st, 1)) && !/file=/.test(sel(st, 1)));
+    const listShownAt = after(sysBackAt, (st) => st[0] === 'wait' && /data-phone-view/.test(sel(st, 1)) && /list/.test(sel(st, 1)));
+    const viewerGoneAt = after(sysBackAt, (st) => st[0] === 'gone' && /data-pane/.test(sel(st, 1)) && /viewer/.test(sel(st, 1)));
+    if (listAddressAt < 0) errs.push('J13 never proves the first system Back reached the file list (?panel=files with no file=)');
+    if (listShownAt < 0) errs.push("J13 never proves the file list is the pane on screen after the first system Back (wait [data-phone-view='list'])");
+    if (viewerGoneAt < 0) errs.push('J13 never proves the file viewer left the screen after the first system Back (gone [data-pane=viewer])');
+
+    const conversationBackAt = after(listAddressAt >= 0 ? listAddressAt : sysBackAt, (st) => st[0] === 'history-back');
+    const conversationAt = after(conversationBackAt, (st) => st[0] === 'url' && /\/tasks\//.test(sel(st, 1)));
+    const cleanAddressAt = after(conversationBackAt, (st) => st[0] === 'search' && sel(st, 1).replace(/\s/g, '') === '^$');
+    const panelGoneAt = after(conversationBackAt, (st) => st[0] === 'gone');
+    if (conversationBackAt < 0) errs.push('J13 never presses a second system Back from the file list');
+    if (conversationAt < 0) errs.push('J13 never proves the second system Back reached the conversation (url ^/tasks/…)');
+    if (cleanAddressAt < 0) errs.push('J13 never proves the second system Back cleared panel/file from the address (search ^$)');
+    if (panelGoneAt < 0) errs.push('J13 never proves the files pane left the screen when the second system Back reached the conversation (gone …)');
+
+    const sessionsBackAt = after(cleanAddressAt >= 0 ? cleanAddressAt : conversationBackAt, (st) => st[0] === 'history-back');
+    const sessionsAt = after(sessionsBackAt, (st) => st[0] === 'url' && /sessions/.test(sel(st, 1)));
+    if (sessionsBackAt < 0) errs.push('J13 never presses the third system Back from the conversation');
+    if (sessionsAt < 0) errs.push('J13 never proves the third system Back reached the session list (url ^/sessions)');
+
+    // Leg 1c — reopening Files from the conversation starts at the list. The
+    // file the reader left belongs to a history entry, not to the panel's
+    // memory; a panel that replays it opens a file nobody chose.
+    const rowAt = after(sessionsAt >= 0 ? sessionsAt : sessionsBackAt, (st) => st[0] === 'click' && /data-session-row/.test(sel(st, 1)));
+    const sheetAt = after(rowAt, (st) => st[0] === 'click' && /会话操作|Session actions/.test(sel(st, 1)));
+    // The sheet row's label is a nested span, so `button:text-is(…)` does not
+    // match it; the walker's exact-text regex does, and the row must be waited
+    // for before the press (the sheet's entrance is animated).
+    const filesRowSelector = /text-is\('(?:文件|Files)'\)|\^\(文件\|Files\)\$/;
+    const reopenAt = after(sheetAt, (st) => st[0] === 'click' && filesRowSelector.test(sel(st, 1)));
+    if (rowAt < 0) errs.push('J13 never reopens the seeded conversation after the system Back queue');
+    if (sheetAt < 0) errs.push('J13 never opens the session action sheet to reach Files');
+    if (reopenAt < 0) errs.push('J13 never presses the Files row in the action sheet');
+    const reopenPanelAt = after(reopenAt, (st) => st[0] === 'search' && /panel=files/.test(sel(st, 1)) && !/file=/.test(sel(st, 1)));
+    const reopenListAt = after(reopenAt, (st) => st[0] === 'wait' && /data-phone-view/.test(sel(st, 1)) && /list/.test(sel(st, 1)));
+    const reopenGoneAt = after(reopenAt, (st) => st[0] === 'gone' && /data-pane/.test(sel(st, 1)) && /viewer/.test(sel(st, 1)));
+    if (reopenPanelAt < 0) errs.push('J13 never proves opening Files named the list address (?panel=files with no file=)');
+    if (reopenListAt < 0) errs.push("J13 never proves reopening Files shows the list (wait [data-phone-view='list'])");
+    if (reopenGoneAt < 0) errs.push('J13 never proves reopening Files does not replay the earlier file (gone [data-pane=viewer])');
+  }
+
   // Leg 2 — the self-contained HTML file. The preview is pressed, the source
   // press takes the iframe away and shows the source, and the preview press
   // brings the page back; every press moves `aria-pressed`, and the address
@@ -1612,11 +1715,486 @@ function checkJ13Contract(spec) {
   }
   return errs;
 }
+// J14's contract: KIN-CONTINUE-001's three sentences at the walk's level. A
+// Mac cold start at `/` reopens the conversation the reader left, proved by
+// that conversation's own prompt (every seeded conversation carries the same
+// fake reply, so the reply cannot say which one came back); ⌘K's dialog holds
+// places and recipes but no conversation rows; and the phone home is the one
+// list with the device, project and conversation levels on screen at 390. The
+// walk is two cold starts, so its viewports are exactly `mac` and `phone`;
+// unlike J13 it is not phone-only, so the phone leg's ban is only the Mac's
+// own input (chords and hover).
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ14Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J14) || {};
+  const steps = journey.steps;
+  // Registration is the point: deleting the one index line must be loud, or
+  // the cold-start walk can be retired by an edit no gate notices.
+  if (!journey.title && !Array.isArray(steps)) return ['J14 is not in the spec'];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J14 has no steps'];
+  const errs = [];
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const sel = (st, i) => String((st || [])[i] ?? '');
+
+  // Only the project fold may be optional: past five rows the bucket draws
+  // 展开全部 and a standalone walk's bucket may not. Every address, count,
+  // wait, node, key and gone is a proof, and a `?`-prefixed proof that misses
+  // is logged as `skipped` — green while the cold start, a palette zero or a
+  // list level is dead.
+  steps.forEach((st) => {
+    if (!Array.isArray(st)) return;
+    const optional = st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'));
+    if (!optional) return;
+    const isFold = st[0] === 'click' && /展开全部|Show all/.test(sel(st, 1));
+    if (!isFold) {
+      errs.push('J14 step ' + JSON.stringify(st) + ' is optional; only the project fold may be optional, every proof must be mandatory');
+    }
+  });
+
+  // Two cold starts: a Mac reload and a phone reload, each landing on a list
+  // the reader already had. One viewport would walk half the story.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 2 || viewports[0] !== 'mac' || viewports[1] !== 'phone') {
+    errs.push('J14 is two cold starts: its viewports must be exactly ["mac","phone"]');
+  }
+  const macAt = idx((st) => st[0] === 'vp' && sel(st, 1) === 'mac');
+  const phoneAt = idx((st) => st[0] === 'vp' && sel(st, 1) === 'phone');
+
+  // Leg 1 — the Mac cold start returns to the last conversation, not merely a
+  // conversation. A conversation is open first (`url ^/tasks/` before the
+  // reload), then `goto /` under `vp mac`, then the address and that
+  // conversation's own prompt. The generic fake reply is on every seeded
+  // conversation and cannot stand in for the wait.
+  const openedAt = macAt < 0 ? -1 : steps.findIndex((st, i) => i < macAt && Array.isArray(st) && st[0] === 'url' && /^\^\/tasks\//.test(sel(st, 1)));
+  if (macAt < 0) {
+    errs.push('J14 never scopes the Mac leg (vp mac)');
+  } else {
+    if (openedAt < 0) errs.push('J14 never opens a conversation before the Mac cold start (url ^/tasks/)');
+    const gotoAt = idx((st) => st[0] === 'goto' && sel(st, 1) === '/', macAt + 1);
+    if (gotoAt < 0 || (phoneAt >= 0 && gotoAt > phoneAt)) {
+      errs.push('J14 never reloads the Mac onto / for its cold start after the conversation is open (goto / under vp mac)');
+    } else {
+      const addressAt = after(gotoAt, (st) => st[0] === 'url' && /^\^\/tasks\//.test(sel(st, 1)));
+      const promptAt = after(gotoAt, (st) => st[0] === 'wait' && /role=.?region/.test(sel(st, 1)) && sel(st, 1).includes(J14_MAC_PROMPT));
+      if (addressAt < 0) errs.push('J14 never proves the Mac cold start landed on a conversation (url ^/tasks/)');
+      if (promptAt < 0) errs.push('J14 never proves the Mac cold start reopened the last conversation (wait … ' + J14_MAC_PROMPT + ')');
+    }
+  }
+
+  // Leg 2 — ⌘K holds places and recipes, not conversations. The places row is
+  // required before the two zeros: a palette that failed to open would count
+  // zero rows and pass a zero-only check.
+  const keyAt = idx((st) => st[0] === 'key' && /^(meta|cmd)\+k$/i.test(sel(st, 1)));
+  if (keyAt < 0) {
+    errs.push('J14 never opens the command palette (key Meta+k)');
+  } else {
+    const dialogAt = after(keyAt, (st) => st[0] === 'wait' && /\[role=dialog\]/.test(sel(st, 1)));
+    if (dialogAt < 0) errs.push('J14 never waits for the palette dialog (wait [role=dialog])');
+    const placesAt = after(keyAt, (st) => st[0] === 'wait' && /例行任务|Routines/.test(sel(st, 1)));
+    if (placesAt < 0) errs.push('J14 never proves the palette still holds a places/recipes row (例行任务|Routines); an empty palette would satisfy the zeros');
+    const rowsAt = after(keyAt, (st) => st[0] === 'count' && /\[role=dialog\]/.test(sel(st, 1)) && /\[data-session-row\]/.test(sel(st, 1)) && sel(st, 2) === '0');
+    if (rowsAt < 0) errs.push('J14 never proves the palette holds no conversation rows (count [role=dialog] [data-session-row] 0)');
+    const seedAt = after(keyAt, (st) => st[0] === 'count' && /\[role=dialog\]/.test(sel(st, 1)) && /Morning planning/.test(sel(st, 1)) && sel(st, 2) === '0');
+    if (seedAt < 0) errs.push('J14 never proves the palette does not name the seeded conversation (count … Morning planning 0)');
+    const escapeAt = after(keyAt, (st) => st[0] === 'key' && sel(st, 1) === 'Escape');
+    if (escapeAt < 0) errs.push('J14 never closes the palette with Escape');
+    const goneAt = escapeAt < 0 ? -1 : after(escapeAt, (st) => st[0] === 'gone' && /\[role=dialog\]/.test(sel(st, 1)));
+    if (goneAt < 0) errs.push('J14 never proves the palette left the screen (gone [role=dialog])');
+  }
+
+  // Leg 3 — the phone home is the one list at three levels. A cold `goto /`
+  // under `vp phone` lands on /sessions, and the device heading, the project
+  // button and the conversation row are all on screen. The count of one is
+  // the one-list claim: a second copy of the seeded row is a duplicated list.
+  if (phoneAt < 0) {
+    errs.push('J14 never scopes the phone leg (vp phone)');
+  } else {
+    const phoneGotoAt = after(phoneAt, (st) => st[0] === 'goto' && sel(st, 1) === '/');
+    if (phoneGotoAt < 0) {
+      errs.push('J14 never reloads the phone home (goto / under vp phone)');
+    } else {
+      const sessionsAt = after(phoneGotoAt, (st) => st[0] === 'url' && /^\^\/sessions/.test(sel(st, 1)));
+      if (sessionsAt < 0) errs.push('J14 never proves the phone cold start landed on the session list (url ^/sessions)');
+      const deviceAt = after(phoneGotoAt, (st) => st[0] === 'wait' && /此设备|This machine/.test(sel(st, 1)));
+      if (deviceAt < 0) errs.push('J14 never proves the phone one list draws its device level (wait … 此设备|This machine)');
+      const projectAt = after(phoneGotoAt, (st) => st[0] === 'wait' && /\[seed\] Project Alpha/.test(sel(st, 1)));
+      if (projectAt < 0) errs.push('J14 never proves the phone one list draws its project level (wait … [seed] Project Alpha)');
+      const rowAt = after(phoneGotoAt, (st) => st[0] === 'wait' && /\[data-session-row\]/.test(sel(st, 1)) && /Morning planning/.test(sel(st, 1)));
+      if (rowAt < 0) errs.push('J14 never proves the phone one list draws its conversation level (wait [data-session-row] … Morning planning)');
+      const oneAt = after(phoneGotoAt, (st) => st[0] === 'count' && /\[data-session-row\]/.test(sel(st, 1)) && /Morning planning/.test(sel(st, 1)) && sel(st, 2) === '1');
+      if (oneAt < 0) errs.push('J14 never proves the one list draws the seeded conversation exactly once (count … = 1)');
+    }
+  }
+
+  // The phone leg has no mouse and no keyboard: a platform chord or a hover
+  // after `vp phone` would press a control the surface does not have.
+  if (phoneAt >= 0) {
+    for (let i = phoneAt + 1; i < steps.length; i += 1) {
+      const st = steps[i];
+      if (!Array.isArray(st)) continue;
+      if (st[0] === 'hover') errs.push('J14 hovers a control in the phone leg; the phone must press, not hover');
+      if (st[0] === 'key' && /meta|cmd|ctrl|alt/i.test(sel(st, 1))) {
+        errs.push('J14 presses the Mac-only chord ' + JSON.stringify(sel(st, 1)) + ' in the phone leg');
+      }
+    }
+  }
+
+  // Every click must be followed by the state it changed before the next
+  // click starts. A press with no read is a photograph of a page that may not
+  // have moved.
+  const ASSERT_OPS = new Set(['wait', 'gone', 'count', 'url', 'search', 'value', 'active']);
+  const clicks = steps.map((st, i) => i).filter((i) => Array.isArray(steps[i]) && steps[i][0] === 'click');
+  clicks.forEach((at, k) => {
+    const next = k + 1 < clicks.length ? clicks[k + 1] : steps.length;
+    if (!steps.some((st, i) => i > at && i < next && Array.isArray(st) && ASSERT_OPS.has(st[0]))) {
+      errs.push(`J14's click at step ${at + 1} (${sel(steps[at], 1)}) is never followed by an assertion before the next click`);
+    }
+  });
+
+  // The paths table selects the journeys `--files` walks, first match wins. A
+  // palette, list or conversation diff that drops J14 would let the cold
+  // start rot without the gate ever walking it.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ14 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J14');
+  };
+  for (const file of ['ui/src/components/CommandPalette.tsx', 'ui/src/pages/SessionsPage.tsx', 'ui/src/components/sessions/SessionList.tsx', 'ui/src/components/mobile/MobileList.tsx', 'ui/src/pages/TaskDetailPage.tsx', 'ui/src/components/chat/ChatStream.tsx']) {
+    if (!mapsToJ14(file)) {
+      errs.push(`the paths table does not map ${file} to J14; a diff there would not walk the cold start`);
+    }
+  }
+  return errs;
+}
+// J1's contract: the phone leg must find last week's chat, search and filter
+// the list, and then decide two real cards — approve one, deny another —
+// reading each answer's control off the screen. Every one of those steps can
+// be deleted today with the gate green; only a 20-minute browser walk notices,
+// and only if it happens to fail. The deep links reason about the seed's
+// placeholders (`--resolve-j1` fills them), never about an invented id.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ1Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J1) || {};
+  const steps = journey.steps;
+  // Registration is the point: deleting the one index line must be loud, or
+  // the phone's search/approve/deny walk can be retired by an edit no gate
+  // notices.
+  if (!journey.title && !Array.isArray(steps)) return ['J1 is not in the spec'];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J1 has no steps'];
+  const errs = [];
+  const required = (v) => typeof v === 'string' && !v.startsWith('?');
+  const bare = (v) => String(v).replace(/^\?/, '');
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st, i));
+
+  // Phone only: the search field, the filter sheet and the approval card are
+  // the 390px surfaces; a Mac width would walk a layout this leg never claims.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'phone') {
+    errs.push('J1 is the phone approve/deny proof: its viewports must be exactly ["phone"]');
+  }
+
+  // Only setup steps — a fill or a click — may be optional. Every `gone`,
+  // `wait`, `count`, `url`, `key`, `focus`, `value` and `active` is a proof,
+  // and a `?`-prefixed proof that misses is logged as `skipped`: the walk
+  // stays green while the decision is dead. (The decisions' own presses are
+  // pinned as mandatory below, so an optional click cannot hide one.)
+  steps.forEach((st) => {
+    if (!Array.isArray(st)) return;
+    if (!st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'))) return;
+    if (st[0] !== 'fill' && st[0] !== 'click') {
+      errs.push('J1 step ' + JSON.stringify(st) + ' is optional; only a fill or a click setup step may be optional, every proof must be mandatory');
+    }
+  });
+
+  // The list is searched and filtered before either decision: deleting any of
+  // the three leaves the walk starting on a card, not on the list a person
+  // actually uses to find last week's chat.
+  const firstTaskAt = idx((st) => st[0] === 'goto' && /\/tasks\//.test(bare(sel(st, 1))));
+  const searchAt = idx((st) => st[0] === 'fill' && /input\[type=search\]/.test(sel(st, 1)) && sel(st, 2).trim() !== '');
+  const filterAt = idx((st) => st[0] === 'click' && /筛选|Filter/.test(sel(st, 1)));
+  const escapeAt = idx((st) => st[0] === 'key' && sel(st, 1) === 'Escape');
+  if (searchAt < 0) errs.push('J1 never searches the list before the decisions (fill … input[type=search] with a term)');
+  if (filterAt < 0) errs.push('J1 never opens the search filter before the decisions (click 筛选 / Filter)');
+  if (escapeAt < 0) errs.push('J1 never closes the search filter with Escape before the decisions');
+  if (searchAt >= 0 && filterAt >= 0 && filterAt < searchAt) {
+    errs.push('J1 opens the filter before it searches; the search leg is fill, filter, Escape');
+  }
+  if (filterAt >= 0 && escapeAt >= 0 && escapeAt < filterAt) {
+    errs.push('J1 presses Escape before it opens the filter; the search leg is fill, filter, Escape');
+  }
+  if (firstTaskAt >= 0) {
+    if (searchAt > firstTaskAt) errs.push('J1 searches the list only after the first decision; the search leg must come first');
+    if (filterAt > firstTaskAt) errs.push('J1 opens the filter only after the first decision; the search leg must come first');
+    if (escapeAt > firstTaskAt) errs.push('J1 presses Escape only after the first decision; the search leg must come first');
+  }
+
+  // Each decision is a landing, a press and a consequence. The deep link must
+  // name the seed's own placeholders; the press must follow the landing; and a
+  // mandatory `gone` must follow the press, because a card still showing its
+  // control after the walk says it decided was never decided.
+  const APPROVE = /批准|Approve/;
+  const DENY = /拒绝|Deny/;
+  const linkAt = (name) => idx((st) => st[0] === 'goto' && required(sel(st, 1))
+    && /\/tasks\//.test(bare(sel(st, 1))) && bare(sel(st, 1)).includes('{' + name + '.conversation}'));
+  const pressAt = (re) => idx((st) => st[0] === 'click' && required(sel(st, 1)) && re.test(bare(sel(st, 1))));
+  const goneAt = (re, from) => idx((st) => st[0] === 'gone' && required(sel(st, 1)) && re.test(bare(sel(st, 1))), from);
+  const approveAt = linkAt('approve');
+  const approvePress = pressAt(APPROVE);
+  const approveGone = approvePress < 0 ? -1 : goneAt(APPROVE, approvePress + 1);
+  const denyAt = linkAt('deny');
+  const denyPress = pressAt(DENY);
+  const denyGone = denyPress < 0 ? -1 : goneAt(DENY, denyPress + 1);
+  if (approveAt < 0) {
+    errs.push('J1 has no required approve deep link naming {approve.conversation} and focus={approve.focus}');
+  } else if (!bare(sel(steps[approveAt], 1)).includes('{approve.focus}')) {
+    errs.push('J1\'s approve deep link never names focus={approve.focus}; the card it opens is whatever landed');
+  }
+  if (approvePress < 0) errs.push('J1 never presses the approve control (批准 / Approve)');
+  else if (approveAt >= 0 && approvePress < approveAt) errs.push('J1 presses approve before the approve deep link lands on the card');
+  if (approveGone < 0) errs.push('J1 never proves the approve control left the screen after the answer (gone 批准 / Approve)');
+  else if (denyAt >= 0 && approveGone > denyAt) {
+    errs.push('J1 reads the approve control gone only after the deny card landed; the approve answer must be proven on its own card');
+  }
+  if (denyAt < 0) {
+    errs.push('J1 has no required deny deep link naming {deny.conversation} and focus={deny.focus}');
+  } else if (!bare(sel(steps[denyAt], 1)).includes('{deny.focus}')) {
+    errs.push('J1\'s deny deep link never names focus={deny.focus}; the card it opens is whatever landed');
+  }
+  if (denyPress < 0) errs.push('J1 never presses the deny control (拒绝 / Deny)');
+  else if (denyAt >= 0 && denyPress < denyAt) errs.push('J1 presses deny before the deny deep link lands on the card');
+  if (denyGone < 0) errs.push('J1 never proves the deny control left the screen after the answer (gone 拒绝 / Deny)');
+
+  // Two decisions, two cards: a copy-paste that points the deny leg at the
+  // approve conversation approves and denies the same card, and the second
+  // press lands on something already answered. The approve conversation is
+  // decided first, and the deny link must not borrow either approve
+  // placeholder (nor the approve link a deny one).
+  if (approveAt >= 0 && denyAt >= 0) {
+    const approveLink = bare(sel(steps[approveAt], 1));
+    const denyLink = bare(sel(steps[denyAt], 1));
+    if (/\{approve\.(conversation|focus)\}/.test(denyLink) || /\{deny\.(conversation|focus)\}/.test(approveLink)) {
+      errs.push('J1 points both decisions at the same conversation: the approve and deny deep links must name different placeholders');
+    }
+    if (denyAt < approveAt) errs.push('J1 denies before it approves: the approve conversation must be decided first');
+  }
+
+  // No Mac-only input: a hover is a mouse a phone does not have, a platform
+  // chord is the desktop's shortcut, and a viewport scope is a leg that never
+  // runs at 390.
+  steps.forEach((st) => {
+    if (!Array.isArray(st)) return;
+    if (st[0] === 'hover') errs.push('J1 hovers a control; the phone walk must press, not hover (Mac-only input)');
+    if (st[0] === 'vp' && String(st[1] || '') !== '') errs.push('J1 scopes steps to ' + JSON.stringify(st[1]) + '; a Mac-only viewport scope has no place in the phone leg');
+    if (st[0] === 'key' && /meta|cmd|ctrl|alt/i.test(sel(st, 1))) errs.push('J1 presses the Mac-only chord ' + JSON.stringify(sel(st, 1)));
+  });
+
+  // A mandatory press must be followed by the state it changed before the next
+  // press starts; the optional filter click is setup, and its proof is the
+  // `gone` after each answer.
+  const ASSERT_OPS = new Set(['wait', 'gone', 'count', 'url', 'search', 'value', 'active']);
+  const clicks = steps.map((st, i) => i).filter((i) => Array.isArray(steps[i]) && steps[i][0] === 'click' && required(steps[i][1]));
+  clicks.forEach((at, k) => {
+    const next = k + 1 < clicks.length ? clicks[k + 1] : steps.length;
+    if (!steps.some((st, i) => i > at && i < next && Array.isArray(st) && ASSERT_OPS.has(st[0]))) {
+      errs.push(`J1's click at step ${at + 1} (${sel(steps[at], 1)}) is never followed by an assertion before the next click`);
+    }
+  });
+
+  // The paths table selects the journeys `--files` walks, first match wins. A
+  // list or conversation diff that drops J1 would let the phone's decisions
+  // rot without the gate ever walking them.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ1 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J1');
+  };
+  for (const file of ['ui/src/pages/SessionsPage.tsx', 'ui/src/components/mobile/MobileList.tsx', 'ui/src/pages/TaskDetailPage.tsx']) {
+    if (!mapsToJ1(file)) {
+      errs.push(`the paths table does not map ${file} to J1; a diff there would not walk the phone search/approve/deny leg`);
+    }
+  }
+  return errs;
+}
+// J6's contract: the settings leg must change the default agent, prove the
+// next new chat hosts it, and put the old value back. The chain is four
+// settings surfaces (the legacy `/agents` redirect included), the default row
+// read in both locales, both agents counted in the picker, the pick, the save,
+// a reload that proves persistence, the `/new` read, and the restore.
+// Deleting any one leaves the walk green while the default silently stayed —
+// or leaves the daemon hosting Codex for every later journey.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ6Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J6) || {};
+  const steps = journey.steps;
+  // Registration is the point: deleting the one index line must be loud, or
+  // the settings walk can be retired by an edit no gate notices.
+  if (!journey.title && !Array.isArray(steps)) return ['J6 is not in the spec'];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J6 has no steps'];
+  const errs = [];
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st, i));
+  const after = (from, pred) => (from < 0 ? -1 : idx(pred, from + 1));
+  const SAVE = /保存默认 agent|Save default agent/;
+  const STATUS = /\[role=['"]?status['"]?\]/;
+  const SAVED = /已保存|Saved/;
+
+  // No optional steps at all: every address, count, wait and click is a
+  // proof, and a `?`-prefixed step that misses is logged as `skipped` — the
+  // walk stays green while the default never changed.
+  steps.forEach((st) => {
+    if (Array.isArray(st) && st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'))) {
+      errs.push('J6 step ' + JSON.stringify(st) + ' is optional; every J6 proof must be mandatory');
+    }
+  });
+
+  // The default is changed at the phone and read at the Mac (the walk runs
+  // both widths); one viewport would walk half the story.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 2 || viewports[0] !== 'phone' || viewports[1] !== 'mac') {
+    errs.push('J6 changes and reads the default at both widths: its viewports must be exactly ["phone","mac"]');
+  }
+
+  // The restore leg's first press — the picker option that puts claude-code
+  // back — bounds the Codex leg, so a Codex leg that lost its save cannot
+  // borrow the restore leg's.
+  const restoreAt = idx((st) => st[0] === 'click' && sel(st, 1).includes('(claude-code)'));
+  const beforeRestore = (i) => restoreAt < 0 || i < restoreAt;
+
+  // The choice under test: the Codex picker option. Everything that reads the
+  // before-picture must precede it.
+  const pickAt = idx((st) => st[0] === 'click' && sel(st, 1).includes('(codex)'));
+
+  // The four surfaces are a chain: 设置 → 运维 → the legacy /agents redirect
+  // → providers. Each is its own address, and all precede the choice.
+  const surfaces = ['/settings', '/settings?tab=operations', '/agents', '/settings?tab=providers'];
+  const surfaceAts = surfaces.map((p) => idx((st) => st[0] === 'goto' && sel(st, 1) === p));
+  surfaceAts.forEach((at, k) => {
+    if (at < 0) errs.push(`J6 never visits ${surfaces[k]} among the settings surfaces before it chooses an agent`);
+    else if (pickAt >= 0 && at > pickAt) errs.push(`J6's settings surfaces are out of order: ${surfaces[k]} must be visited before the first agent choice`);
+  });
+  for (let k = 1; k < surfaceAts.length; k += 1) {
+    if (surfaceAts[k - 1] >= 0 && surfaceAts[k] >= 0 && surfaceAts[k] < surfaceAts[k - 1]) {
+      errs.push(`J6 visits ${surfaces[k]} before ${surfaces[k - 1]}; the settings surfaces are a chain`);
+    }
+  }
+
+  // The default row is read in both locales before the change: the walk shows
+  // the before-picture, not only the after.
+  const descAt = idx((st) => st[0] === 'wait' && sel(st, 1).includes('#default-agent-desc')
+    && sel(st, 1).includes('新建对话默认用它') && sel(st, 1).includes('A new chat starts with this agent'));
+  if (descAt < 0) {
+    errs.push('J6 never reads the default-agent row in both locales (wait #default-agent-desc … 新建对话默认用它 … A new chat starts with this agent)');
+  } else if (pickAt >= 0 && descAt > pickAt) {
+    errs.push('J6 reads the default-agent row only after it chose an agent; the row is the before-picture');
+  }
+
+  // Both agents must be listed before the choice: a picker that quietly lost
+  // one option cannot offer the change the leg claims.
+  const countAt = (tag) => idx((st) => st[0] === 'count' && sel(st, 1).includes('(' + tag + ')') && sel(st, 2) === '1');
+  const claudeCountAt = countAt('claude-code');
+  const codexCountAt = countAt('codex');
+  // The counts read the open list: a count moved before the trigger press
+  // would find no visible option, and the browser walk would fail for a
+  // reason the spec check should have named first.
+  const openAt = idx((st) => st[0] === 'click' && sel(st, 1).includes('aria-describedby') && sel(st, 1).includes('aria-haspopup'));
+  if (claudeCountAt < 0) errs.push('J6 never counts the picker listing claude-code exactly once (count … (claude-code) 1)');
+  if (codexCountAt < 0) errs.push('J6 never counts the picker listing codex exactly once (count … (codex) 1)');
+  [['claude-code', claudeCountAt], ['codex', codexCountAt]].forEach(([tag, at]) => {
+    if (at >= 0 && pickAt >= 0 && at > pickAt) errs.push(`J6 counts the picker's ${tag} option only after the choice; both agents must be listed first`);
+    if (at >= 0 && openAt >= 0 && at < openAt) errs.push(`J6 counts the picker's ${tag} option before the picker is opened; the count must read the open list`);
+  });
+
+  // The choice and the save: the trigger must move to codex, the save must be
+  // pressed, and the status must say it landed. Three separate proofs — a
+  // press nobody reads is a photograph of a page that may not have moved.
+  const codexTriggerAt = after(pickAt, (st, i) => beforeRestore(i) && st[0] === 'wait' && /aria-label/.test(sel(st, 1)) && sel(st, 1).includes('(codex)'));
+  const saveAt = after(codexTriggerAt, (st, i) => beforeRestore(i) && st[0] === 'click' && SAVE.test(sel(st, 1)));
+  const savedAt = after(saveAt, (st, i) => beforeRestore(i) && st[0] === 'wait' && STATUS.test(sel(st, 1)) && SAVED.test(sel(st, 1)));
+  if (pickAt < 0) errs.push('J6 never chooses Codex in the agent picker (click … (codex))');
+  if (codexTriggerAt < 0) errs.push("J6 never proves the picker's trigger switched to codex (wait … aria-label … (codex))");
+  if (saveAt < 0) errs.push('J6 never saves the new default (click 保存默认 agent / Save default agent)');
+  if (savedAt < 0) errs.push('J6 never proves the save landed (wait [role=status] … 已保存 / Saved)');
+
+  // Persistence: the page that saved the default cannot prove it — the walk
+  // must reload /settings?tab=providers and read codex off the trigger again,
+  // and it must do so before /new (the new chat reads the daemon's value, and
+  // a reload after /new would prove the next chat, not this one).
+  const reloadAt = after(savedAt, (st, i) => beforeRestore(i) && st[0] === 'goto' && sel(st, 1).includes('/settings?tab=providers'));
+  const persistedAt = after(reloadAt, (st, i) => beforeRestore(i) && st[0] === 'wait' && /aria-label/.test(sel(st, 1)) && sel(st, 1).includes('(codex)'));
+  const newAt = after(savedAt, (st, i) => beforeRestore(i) && st[0] === 'goto' && sel(st, 1) === '/new');
+  if (reloadAt < 0) {
+    errs.push('J6 never reloads the settings page after the save (goto /settings?tab=providers); a default that only lives in the page that saved it is not persisted');
+  }
+  if (persistedAt < 0) {
+    errs.push('J6 never proves the default persisted across the reload (wait trigger … (codex) after the reload goto)');
+  }
+  if (persistedAt >= 0 && newAt >= 0 && persistedAt > newAt) {
+    errs.push('J6 reads the persisted default only after it opens /new; the reload proof must precede the new chat');
+  }
+
+  // The next new chat hosts it: the composer's run-settings trigger names
+  // Codex. This is the user-visible consequence of the change.
+  const hostsAt = after(newAt, (st, i) => beforeRestore(i) && st[0] === 'wait' && /运行设置|Run settings/.test(sel(st, 1)) && /Codex/.test(sel(st, 1)));
+  if (newAt < 0) errs.push('J6 never opens a new chat after the save (goto /new)');
+  if (hostsAt < 0) errs.push('J6 never proves the next new chat hosts Codex (goto /new then wait 运行设置 … Codex)');
+
+  // The restore leg leaves the daemon as found: the shipped default is
+  // claude-code, and a walk that ends hosting Codex poisons every later
+  // journey against the same daemon.
+  if (restoreAt < 0) {
+    errs.push('J6 never restores the shipped default after the Codex read (click … (claude-code))');
+  } else {
+    if (hostsAt >= 0 && restoreAt < hostsAt) {
+      errs.push('J6 restores the default before it reads the new chat hosting Codex');
+    }
+    const restoreTriggerAt = after(restoreAt, (st) => st[0] === 'wait' && /aria-label/.test(sel(st, 1)) && sel(st, 1).includes('(claude-code)'));
+    const restoreSaveAt = after(restoreTriggerAt, (st) => st[0] === 'click' && SAVE.test(sel(st, 1)));
+    const restoreSavedAt = after(restoreSaveAt, (st) => st[0] === 'wait' && STATUS.test(sel(st, 1)) && SAVED.test(sel(st, 1)));
+    const restoreNewAt = after(restoreSavedAt, (st) => st[0] === 'goto' && sel(st, 1) === '/new');
+    const restoreHostsAt = after(restoreNewAt, (st) => st[0] === 'wait' && /运行设置|Run settings/.test(sel(st, 1)) && /Claude Code/.test(sel(st, 1)));
+    if (restoreTriggerAt < 0) errs.push('J6 never proves the trigger returned to claude-code (wait … (claude-code))');
+    if (restoreSaveAt < 0) errs.push('J6 never saves the restored default; the walk leaves the daemon hosting Codex');
+    if (restoreSavedAt < 0) errs.push('J6 never proves the restore save landed (wait [role=status] … 已保存 / Saved)');
+    if (restoreNewAt < 0) errs.push('J6 never opens a new chat after the restore (goto /new)');
+    if (restoreHostsAt < 0) errs.push('J6 never proves the restored new chat hosts Claude Code (goto /new then wait 运行设置 … Claude Code)');
+  }
+
+  // Every click must be followed by the state it changed before the next
+  // click starts; a press with no read is a photograph of a page that may not
+  // have moved.
+  const ASSERT_OPS = new Set(['wait', 'gone', 'count', 'url', 'search', 'value', 'active']);
+  const clicks = steps.map((st, i) => i).filter((i) => Array.isArray(steps[i]) && steps[i][0] === 'click');
+  clicks.forEach((at, k) => {
+    const next = k + 1 < clicks.length ? clicks[k + 1] : steps.length;
+    if (!steps.some((st, i) => i > at && i < next && Array.isArray(st) && ASSERT_OPS.has(st[0]))) {
+      errs.push(`J6's click at step ${at + 1} (${sel(steps[at], 1)}) is never followed by an assertion before the next click`);
+    }
+  });
+
+  // The paths table selects the journeys `--files` walks, first match wins. A
+  // settings diff that drops J6 would let the default-agent walk rot without
+  // the gate ever walking it.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ6 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J6');
+  };
+  for (const file of ['ui/src/pages/SettingsPage.tsx', 'ui/src/pages/AgentsPage.tsx', 'ui/src/components/settings/ProviderSettingsSection.tsx']) {
+    if (!mapsToJ6(file)) {
+      errs.push(`the paths table does not map ${file} to J6; a diff there would not walk the default-agent change`);
+    }
+  }
+  return errs;
+}
 if (process.argv.includes('--check-spec')) {
+  const j1 = checkJ1Contract(spec);
   const j2 = checkJ2Contract(spec);
   const j3 = checkJ3Contract(spec);
   const j4 = checkJ4Contract(spec);
   const j5 = checkJ5Contract(spec);
+  const j6 = checkJ6Contract(spec);
   const j7 = checkJ7Contract(spec);
   const j8 = checkJ8Contract(spec);
   const j9 = checkJ9Contract(spec);
@@ -1624,11 +2202,14 @@ if (process.argv.includes('--check-spec')) {
   const j11 = checkJ11Contract(spec);
   const j12 = checkJ12Contract(spec);
   const j13 = checkJ13Contract(spec);
-  if (j2.length || j3.length || j4.length || j5.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length) {
+  const j14 = checkJ14Contract(spec);
+  if (j1.length || j2.length || j3.length || j4.length || j5.length || j6.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length || j14.length) {
+    if (j1.length) { console.log('spec red: J1'); j1.forEach((e) => console.log(' - ' + e)); }
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
     if (j4.length) { console.log('spec red: J4'); j4.forEach((e) => console.log(' - ' + e)); }
     if (j5.length) { console.log('spec red: J5'); j5.forEach((e) => console.log(' - ' + e)); }
+    if (j6.length) { console.log('spec red: J6'); j6.forEach((e) => console.log(' - ' + e)); }
     if (j7.length) { console.log('spec red: J7'); j7.forEach((e) => console.log(' - ' + e)); }
     if (j8.length) { console.log('spec red: J8'); j8.forEach((e) => console.log(' - ' + e)); }
     if (j9.length) { console.log('spec red: J9'); j9.forEach((e) => console.log(' - ' + e)); }
@@ -1636,14 +2217,17 @@ if (process.argv.includes('--check-spec')) {
     if (j11.length) { console.log('spec red: J11'); j11.forEach((e) => console.log(' - ' + e)); }
     if (j12.length) { console.log('spec red: J12'); j12.forEach((e) => console.log(' - ' + e)); }
     if (j13.length) { console.log('spec red: J13'); j13.forEach((e) => console.log(' - ' + e)); }
+    if (j14.length) { console.log('spec red: J14'); j14.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
+  console.log('spec ok: J1 searches the list, filters it, and approves one card and denies another with both controls read gone');
   console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
   console.log('spec ok: J2 keeps a saved comment across a rerun — re-anchored to its new line, then 该行已变化 when the quoted line is gone');
   console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
   console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
   console.log('spec ok: J4 reads the cover\'s 工作方式 block, sends the pre-filled prompt, edits the file, and proves the same cut on the cover and in the agent\'s receipt');
   console.log('spec ok: J5 opens the running row\'s menu and pins rename, pin, archive, delete and a disabled 运行中 line');
+  console.log('spec ok: J6 changes the default agent at both widths, proves it persisted and hosts the next new chat, then restores it');
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
   console.log('spec ok: J8 taps a changed line at 390, saves the sheet, sends the tray, and proves path, hunk and quote');
   console.log('spec ok: J9 keeps the shell, the scroll and the draft across a switch');
@@ -1651,6 +2235,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J11 keeps the shell, the scroll and the draft across the phone\'s switches');
   if (spec.journeys && spec.journeys.J12) console.log('spec ok: J12 walks the phone\'s edge back, row reveal and hold-to-reorder as real touch and reads the consequences');
   if (spec.journeys && spec.journeys.J13) console.log('spec ok: J13 walks the phone file link through Back to the list and the conversation, and the HTML preview/source switch without leaving the file address');
+  if (spec.journeys && spec.journeys.J14) console.log('spec ok: J14 reopens the last conversation on the Mac, finds no conversation rows in ⌘K, and draws the phone home as one list at three levels');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
@@ -1989,6 +2574,20 @@ async function stepLocator(page, sel, opts = {}) {
     for (let i = 0; i < namedCount; i++) if (await usable(named.nth(i))) return named.nth(i);
   }
   return text.first();
+}
+/**
+ * Press the browser's own Back and report whether the stack actually moved.
+ *
+ * Playwright returns null from `page.goBack` for a same-document navigation:
+ * the entries React Router pushes are `pushState` entries, so popping one has
+ * no document response. The address is the honest evidence, not the return
+ * value — a walk that treated null as "no entry" would redden every synthesized
+ * phone queue while the browser had in fact gone back.
+ */
+async function historyBack(page) {
+  const before = page.url();
+  await page.goBack({ waitUntil: 'domcontentloaded', timeout: WAIT_MS }).catch(() => null);
+  return pollUntil(page, () => page.url() !== before, 3000);
 }
 // A `?` prefix means the same thing for every op: absent or not visible is a
 // recorded skip, not a failure (see journeys.json `_doc`).
@@ -2514,10 +3113,21 @@ for (const j of want) {
             log.push('pressed Back');
           }
           if (!pressed) {
-            const went = await page.goBack({ waitUntil: 'domcontentloaded', timeout: WAIT_MS }).catch(() => null);
-            if (!went) { hardFail.push(`${j}/${vpName}: Back left no history entry to return to`); continue; }
+            const moved = await historyBack(page);
+            if (!moved) { hardFail.push(`${j}/${vpName}: Back left no history entry to return to`); continue; }
             log.push('history back');
           }
+          await page.waitForTimeout(400);
+        } else if (op === 'history-back') {
+          // The system Back: the browser's own stack, not the app's Back
+          // button. `back` presses a reachable /返回|Back/ control first, so it
+          // proves the in-app exit; a queue the story promises to the system
+          // Back (KIN-RESULT-002: file → list → conversation → sessions) has to
+          // be popped by the browser. Nothing behind this entry is a hard
+          // failure — the synthesized parent is exactly what is under test.
+          const moved = await historyBack(page);
+          if (!moved) { hardFail.push(`${j}/${vpName}: history-back had no history entry to return to`); continue; }
+          log.push('history back');
           await page.waitForTimeout(400);
         } else if (op === 'value') {
           const { optional, value: sel } = optionalOf(a);

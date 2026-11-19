@@ -1,6 +1,6 @@
 # KIN-CONTINUE-003 · 四个区域，一套可以预期的工作台
 
-状态：approved
+状态：covered
 签字：2026-11-17 CEO 代签（用户授权见 rsi/DECISIONS.md 2026-11-15「KIN-CONTINUE-003 treated as approved」）。设计页与 20 张帧已读；登记的可执行测试见 registry。
 优先级：P0
 旅程：J1、J2、J3、J4、J5、J6、J7
@@ -168,10 +168,31 @@
 - 设计源：`KIN-CONTINUE-003.figma/frames/`（20 张）。2026-11-17 补记：帧 01/04/06/07/08/15/16 早于 IA D8，仍画「对话/项目/例行任务/设置」底栏或让 Agent 运维隐藏 Tab，已作废；现行契约以本故事 §2 为准——四个入口是 对话 / 例行任务 / Agent 运维 / 设置，`/projects/:id` 由项目标题推入，Agent 运维分区保留 Tab。
 - 集中审阅：`KIN-CONTINUE-003.review.html`。
 - 当前问题：用户 2026-11-14 明确指出导航没有对话入口、归档被错误提升、入口间缺乏统一转场，且 Mac 与手机结构不统一。
-- 交付证据：每个内部批次在总计划更新测试、截图、包体与实际规模；最终 J1–J7 走查一并交付。
+- 交付证据（2026-11-19，`rsi/continue-003-final-walk` 树）：`bash rsi/runtime/ux-walk.sh <worktree> <outdir> J1,J2,J3,J4,J5,J6,J7` 退出 0，`walk.json` 为 `hardFail: []`，J1–J7 全部出现，共 156 张截图（每张同名 `.aria.txt` 无障碍快照），存于 `rsi/state/shots/continue-003-final-walk/`。宽度按各旅程声明：J1 仅 phone 390×844；J2 mac 1100×760 与 mac-wide 1280×800；J3 phone 与 mac；J4 phone、mac 与 mac-wide；J5/J6/J7 phone 与 mac。代表截图：`J1-phone-02-search`、`J1-phone-04-approval-card`、`J2-mac-05-workspace-panel`、`J2-mac-wide-10-diff-comment-sent`、`J3-phone-13-midrun-queued`、`J3-mac-16-stopped`、`J4-phone-02-project-cover`、`J4-mac-wide-20-cwd-chosen`、`J5-mac-02-row-actions`、`J6-phone-03-legacy-agents-redirect`、`J7-mac-01-landing-card`。
+- 12 个登记套件在同一棵树全绿：`npx vitest run src/lib/areas.test.ts src/lib/areaNavigation.test.ts src/components/layout/AreaNavigation.dom.test.tsx src/components/layout/PhoneNavigation.dom.test.tsx src/lib/notificationRoute.test.ts src/components/NotificationTaps.dom.test.tsx src/lib/overlayOwnsKeyboard.dom.test.ts src/pages/macKeyboardWiring.test.ts src/pages/SettingsPage.leaveGuard.dom.test.tsx src/pages/settingsTabsWiring.test.ts src/pages/ProjectDetailPage.dom.test.tsx src/pages/AgentSessionDetailPage.dom.test.tsx` → 12 files / 169 tests passed。走查前先跑这组基线，绿后才开始走查。
+- 走查修正了一处夹具时序、未放宽断言：`scripts/journeys_fake_agent/claude` 的 `[seed] slow` 保持改为覆盖整段回答（含项目指令回显）。此前回显先于 10 秒保持输出，`shouldShowGenericThinking` 会在首段文本落地后收起等待行，J3 的等待行断言因此变成竞态（同一命令修正前连续两次 `hardFail` 各 5 条，修正后为 `[]`）。
+- 验收逐行证据（行号按上表顺序）：
+  1. 导航/选中态：登记 `AreaNavigation.dom.test.tsx`；J6 `03-legacy-agents-redirect` 与 J4 `01-projects` 在 390/1100/1280 保持同一外壳。
+  2. 导航/区域状态：登记 `AreaNavigation.dom.test.tsx`；J2、J3 的 390/1100/1280 截图未见重排或重复列表。
+  3. 返回：登记 `PhoneNavigation.dom.test.tsx`；J7 `02-back-list`→`03-back-card` 在 390 与 1100 回到原列表与原卡。
+  4. 对话/归档：登记 `PhoneNavigation.dom.test.tsx`；J1 `01-list` 的筛选行仍在对话区内。
+  5. 路由：登记 `areaNavigation.test.ts`；J6 `03-legacy-agents-redirect` 现场证明 `/agents` 落到 `?tab=operations`。
+  6. 跨区：登记 `areaNavigation.test.ts` + `PhoneNavigation.dom.test.tsx`；J4 `01-projects`→`02-project-cover` 从项目集合进入封面。
+  7. 通知：登记 `notificationRoute.test.ts` + `NotificationTaps.dom.test.tsx`；`TaskDetailPage.dom.test.tsx` 由 START/RESULT 故事登记引用。J7 `01-landing-card` 在 390/1100 落在确切卡。
+  8. 交付恢复：登记 `NotificationTaps.dom.test.tsx` + `notificationRoute.test.ts`；J7 `03-back-card` 回原卡。
+  9. 键盘：登记 `overlayOwnsKeyboard.dom.test.ts` + `macKeyboardWiring.test.ts`；J1 `06-conversation-focus`、J3 `11-run-config-closed-focus` 在 390/1100 显示焦点归还。
+  10. 对话/现有行为：`TaskDetailPage.dom.test.tsx` 与 START/CONTINUE 既有测试由各自故事登记引用；J3 在 390/1100 完成发送、排队、回复与停止（`12-sent`、`13-midrun-queued`、`16-stopped`）。
+  11. 项目：登记 `ProjectDetailPage.dom.test.tsx`；J4 `02-project-cover` 在三个宽度显示封面与工作方式。
+  12. 导入：登记 `AgentSessionDetailPage.dom.test.tsx`；J6 `02-operations` 保留导入入口。
+  13. 例程：`RoutinesPage.*.test.tsx` 由 ROUTINE 故事登记引用；J4 `16-routines`、`17-routine-editor`、`18-cwd-browser-open` 在三个宽度运行。
+  14. 设置：登记 `SettingsPage.leaveGuard.dom.test.tsx` + `settingsTabsWiring.test.ts`；Agents 测试由 AGENTS 故事登记引用；J6 `01-settings`、`02-operations`、`04-default-agent-row`、`05-new-chat-host`。
+  15. 无障碍：登记 `AreaNavigation.dom.test.tsx` 持有 44px 与 reduced-motion；走查为每张截图留下同名 `.aria.txt`，四区入口以 navigation/链接呈现（如 `J1-phone-01-list.aria.txt`）。
+  16. 视觉：本行即本次走查——J1 390；J2 1100+1280；J3/J5/J6/J7 390+1100；J4 390+1100+1280；`hardFail: []`。
+  17. 组件：`python3 scripts/check-ui-inventory.py` 未增长；`./scripts/check.sh` 绿（本故事未改 `ui/src`，只改夹具与证据）。
 
 ## 变更记录
 
 - 2026-11-14 创建，按用户选择：四区为 对话 / 项目 / 例行任务 / 设置；Mac 同构侧栏双栏；一级克制动效、二级对称转场、区域状态保留；保留 Kin token、采用 Astryx 交互底座。
 - 2026-11-14 取代 `KIN-CONTINUE-002` 和 `NAVIGATION.md` 手机目的地模型；将项目提升为一级集合而不是取消项目封面能力。
 - 2026-11-17 签字并登记测试（CEO 代签，授权见 rsi/DECISIONS.md）；Astryx 计划 62/62 已合并，四区导航与其测试在 main。
+- 2026-11-19 J1–J7 在 390×844 / 1100×760 / 1280×800 走查完成，`hardFail: []`，12 个登记套件全绿；状态改为 covered。同时修正 fake agent 的 `[seed] slow` 保持顺序，使 J3 的等待行窗口确定（断言未放宽）。

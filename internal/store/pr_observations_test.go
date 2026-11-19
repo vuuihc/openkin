@@ -611,3 +611,191 @@ func TestUpgradeFromVersion36AddsPRObservations(t *testing.T) {
 		t.Fatalf("record after upgrade: %v", err)
 	}
 }
+
+// A fresh install never runs migration 049: migrate() applies migration001 and
+// stamps the current version. The column therefore has to be in the base
+// pr_observations DDL, not only in the ordered step, or every new database
+// lacks it.
+func TestFreshInstallHasTheReviewsColumn(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	var notNull int
+	var dflt string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT "notnull", dflt_value FROM pragma_table_info('pr_observations') WHERE name = 'reviews'`,
+	).Scan(&notNull, &dflt); err != nil {
+		t.Fatalf("a fresh install has no pr_observations.reviews column: %v", err)
+	}
+	if notNull != 1 {
+		t.Fatalf("reviews notnull = %d, want 1", notNull)
+	}
+	if dflt != "''" {
+		t.Fatalf("reviews default = %q, want the empty string", dflt)
+	}
+
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: testPRBranch, TaskID: testPRTask,
+		Number: number(42), State: "open",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := s.GetPRObservation(ctx, testPRRepo, testPRBranch)
+	if err != nil || !ok {
+		t.Fatalf("get: ok=%v err=%v", ok, err)
+	}
+	if got.Reviews != "" {
+		t.Fatalf("reviews = %q, want empty for an observation recorded without any", got.Reviews)
+	}
+}
+
+// A row written before the column existed upgrades with ”, keeps every other
+// column, and records a two-review array afterwards. That is the populated half
+// AGENTS.md requires; the fresh-install half is above.
+func TestUpgradeFromVersion48AddsReviews(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kin.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: testPRBranch, TaskID: testPRTask,
+		Number: number(42), URL: "https://github.com/owner/repo/pull/42",
+		Title: "Add the thing", State: "open", BaseBranch: "main",
+		CIState: CISuccess, CISummary: `{"state":"success"}`, Source: "gh",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, ok, err := s.GetPRObservation(ctx, testPRRepo, testPRBranch)
+	if err != nil || !ok {
+		t.Fatalf("get before the wind-back: ok=%v err=%v", ok, err)
+	}
+
+	// Wind the database back to the shape it had before migration 049.
+	if _, err := s.db.Exec(`
+		ALTER TABLE pr_observations DROP COLUMN reviews;
+		PRAGMA user_version = 48;`); err != nil {
+		t.Fatalf("simulate a version 48 database: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	upgraded, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen at version 48: %v", err)
+	}
+	defer upgraded.Close()
+
+	if got := schemaVersionOf(t, upgraded); got != schemaVersion {
+		t.Fatalf("user_version = %d, want %d", got, schemaVersion)
+	}
+	after, ok, err := upgraded.GetPRObservation(ctx, testPRRepo, testPRBranch)
+	if err != nil || !ok {
+		t.Fatalf("get after the upgrade: ok=%v err=%v", ok, err)
+	}
+	if after.Reviews != "" {
+		t.Fatalf("reviews after the upgrade = %q, want empty (never read)", after.Reviews)
+	}
+	if after.Number == nil || *after.Number != 42 || after.URL != before.URL ||
+		after.Title != before.Title || after.State != before.State ||
+		after.BaseBranch != before.BaseBranch || after.CIState != before.CIState ||
+		after.CISummary != before.CISummary || after.Source != before.Source {
+		t.Fatalf("the upgrade changed the old row: %+v -> %+v", before, after)
+	}
+
+	const twoReviews = `[{"author":"octocat","state":"APPROVED","body":"looks good"},{"author":"hubot","state":"CHANGES_REQUESTED","body":"please add a test"}]`
+	if err := upgraded.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: testPRBranch, TaskID: testPRTask,
+		Number: number(42), State: "open", Reviews: twoReviews,
+	}); err != nil {
+		t.Fatalf("record reviews after the upgrade: %v", err)
+	}
+	got, ok, err := upgraded.GetPRObservation(ctx, testPRRepo, testPRBranch)
+	if err != nil || !ok {
+		t.Fatalf("get the recorded reviews: ok=%v err=%v", ok, err)
+	}
+	if got.Reviews != twoReviews {
+		t.Fatalf("reviews = %q, want the two-review array", got.Reviews)
+	}
+}
+
+// The rule the panel depends on: a refresh whose reviews read failed is not an
+// answer of "no reviews". It keeps the previous array, and a branch that was
+// never read stays ” rather than becoming '[]'.
+func TestAReviewsReadThatDidNotHappenKeepsTheLastArray(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	const twoReviews = `[{"author":"octocat","state":"APPROVED","body":"looks good"},{"author":"hubot","state":"CHANGES_REQUESTED","body":"please add a test"}]`
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: testPRBranch, TaskID: testPRTask,
+		Number: number(42), State: "open", Reviews: twoReviews,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A failed attempt writes only the attempt columns.
+	if err := s.RecordPRFailure(ctx, testPRRepo, testPRBranch, testPRTask, "reviews read timed out", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	afterFailure, _, err := s.GetPRObservation(ctx, testPRRepo, testPRBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterFailure.Reviews != twoReviews {
+		t.Fatalf("a failed attempt changed reviews: %q", afterFailure.Reviews)
+	}
+
+	// A newer successful observation whose reviews read failed carries ''. It
+	// must keep the array rather than erase it.
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: testPRBranch, TaskID: testPRTask,
+		Number: number(42), State: "open", Title: "renamed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	kept, _, err := s.GetPRObservation(ctx, testPRRepo, testPRBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept.Reviews != twoReviews {
+		t.Fatalf("reviews = %q, want the previous array to survive a read that did not happen", kept.Reviews)
+	}
+	if kept.Title != "renamed" {
+		t.Fatalf("title = %q, want the newer observation to apply", kept.Title)
+	}
+
+	// A branch that has never been read reads '', never '[]'.
+	const unreadBranch = testPRBranch + "-unread"
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: unreadBranch, TaskID: testPRTask,
+		Number: number(43), State: "open",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	unread, _, err := s.GetPRObservation(ctx, testPRRepo, unreadBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unread.Reviews != "" {
+		t.Fatalf("reviews for a branch never read = %q, want the empty string", unread.Reviews)
+	}
+
+	// A successful empty answer is '[]' and replaces the array.
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: testPRBranch, TaskID: testPRTask,
+		Number: number(42), State: "open", Reviews: "[]",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	empty, _, err := s.GetPRObservation(ctx, testPRRepo, testPRBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Reviews != "[]" {
+		t.Fatalf("reviews = %q, want '[]' after a successful empty answer", empty.Reviews)
+	}
+}

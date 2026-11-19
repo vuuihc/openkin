@@ -8,6 +8,15 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 source "$RSI_DIR/runtime/lane-pr.sh"
 CMD="${1:-}"; N="${2:-}"
 
+# A squash-merged (or closed) PR leaves its branch diffing from main, so autofill's fetch/diff
+# cannot tell a live rework from a dead one. The PR's lifecycle state decides. The override is a
+# test seam (the command reads the slug as $1); empty means the real gh call.
+PR_STATE_CMD="${RSI_PR_STATE_CMD:-}"
+pr_state() { # <slug> -> prints OPEN|MERGED|CLOSED; non-zero when the state cannot be read
+  if [ -n "$PR_STATE_CMD" ]; then bash -c "$PR_STATE_CMD" pr-state "$1"
+  else "$GH" pr view "rsi/$1" --repo "$GH_REPO" --json state --jq .state; fi
+}
+
 launch() { # n
   nohup /bin/bash "$SELF" run "$1" >> "$RUNS/$(date +%F-%H%M%S)-lane$1.log" 2>&1 < /dev/null &
   disown 2>/dev/null || true
@@ -44,6 +53,21 @@ if [ "$CMD" = autofill ]; then
     [ "$SCOPE" = rest ] && [ "$is_astryx" = 1 ] && continue
     # skip if some lane already works on it
     python3 "$LANES_PY" slugs | grep -qx "$slug" && continue
+    # Terminal PR, no rework: after a squash merge the branch commits stay out of main, so the
+    # fetch/diff below still finds a diff and would claim a lane for a PR that is already done
+    # (2026-11-19, lane 3: "cancelled: stale sendback"). MERGED/CLOSED archive the file; OPEN
+    # keeps today's path. An unreadable state fails open — a rare phantom costs less than a real
+    # rework stalled by a gh outage.
+    pstate="$(pr_state "$slug" 2>/dev/null || true)"
+    case "$pstate" in
+      MERGED|CLOSED)
+        mkdir -p "$STATE/sendback/done"
+        mv "$STATE/sendback/$slug.md" "$STATE/sendback/done/$slug-merged-$(date +%H%M%S).md"
+        echo "rework $slug: PR $pstate, sendback archived (no rework lane)"
+        continue ;;
+      OPEN) ;;
+      *) echo "autofill: $slug: PR state '${pstate:-unreadable}', claiming as before" ;;
+    esac
     idle="$(python3 "$LANES_PY" idle --ignore-pressure | head -1)"; [ -z "$idle" ] && { echo "no idle lane for rework $slug"; break; }
     br="rsi/$slug"; $GIT -C "$RSI_CTRL" fetch -q origin "$br" 2>/dev/null
     paths="$($GIT -C "$RSI_CTRL" -c core.fileMode=false diff --no-renames --raw "origin/main...origin/$br" 2>/dev/null | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}' | grep -vx "web/dist/index.html" | head -40)"

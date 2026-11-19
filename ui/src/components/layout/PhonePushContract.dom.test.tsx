@@ -9,6 +9,7 @@ import ProjectDetailPage from "../../pages/ProjectDetailPage";
 import RoutinesPage from "../../pages/RoutinesPage";
 import { setLocale } from "../../i18n";
 import { resetLeaveGuard } from "../../lib/leaveGuard";
+import { synthesizePhoneParent } from "../../lib/phoneDeepLinkParent";
 import { phonePush } from "../../lib/phoneNavigation";
 import type { Task } from "../../api/client";
 
@@ -202,8 +203,9 @@ function ConversationPage() {
 }
 
 /** Start at a cold destination on a real history stack. */
-function browser(initial: string) {
+function browser(initial: string, options?: { synthesize?: boolean }) {
   window.history.replaceState({ idx: 0 }, "", initial);
+  if (options?.synthesize) synthesizePhoneParent();
   return render(
     <BrowserRouter>
       <AppShell pendingApprovals={[]}>
@@ -458,5 +460,33 @@ describe("a warm list under the project it opened", () => {
     expect(window.history.state.idx).toBe(2);
     await browserBack();
     await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
+  });
+});
+
+describe("a cold files deep link", () => {
+  it("Back from the file list reaches the conversation, not the session list", async () => {
+    fixtures.tasks = [listTask()];
+    // The reader opened the file list from a conversation on a cold launch:
+    // the address names only the list, so the conversation and the list parent
+    // have to be synthesized beneath it before the router mounts.
+    browser("/tasks/listed-chat?panel=files", { synthesize: true });
+    expect(window.history.state.idx).toBe(2);
+    expect(screen.getByText("conversation page")).toBeTruthy();
+
+    // The first Back is the file list's parent: the conversation the file came
+    // from, still a real route (the same URL with no panel and no file). The
+    // query is what moved — the pathname alone is the same at both depths.
+    await browserBack();
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(window.location.pathname).toBe("/tasks/listed-chat");
+    expect(window.history.state.idx).toBe(1);
+    expect(screen.getByText("conversation page")).toBeTruthy();
+
+    // Only then the list. The old single-parent synthesis made the first Back
+    // land here, skipping the conversation entirely.
+    await browserBack();
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.history.state.idx).toBe(0);
+    expect(await screen.findByRole("heading", { name: "Chats" })).toBeTruthy();
   });
 });

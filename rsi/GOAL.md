@@ -135,8 +135,14 @@ object expansion (session / role / prompt shortcut: needs its own story), the §
 security pass), reading a project's `AGENTS.md` / `CLAUDE.md` (filesystem, future story), and anything that
 would add a schema, a migration or a new endpoint.
 
-## Current phase (P7) — 手机上没被走查过的三件事
-<!-- phase: P7-phone-gestures target=2026-11-23T20:00 -->
+## Closed phase (P7) — 手机上没被走查过的三件事
+<!-- closed-phase: P7-phone-gestures target=2026-11-23T20:00 -->
+
+Closed 2026-11-19, all three items landed: item 1 `baea0c98` (#318 the three phone gestures walked as
+J12) and `dcbd6d24` (#326 J12 registered in the journey set), item 2 `76e95b65` (#330 the phone file
+legs), `106995e8` (#340 Back restoring each tab) and `26419567` (#345 the KIN-RESULT-002 flip), item 3
+`02504e57` (#316 KIN-MANAGE-001, KIN-RESULT-001 and KIN-RESULT-003 flipped, each naming its walk
+test). P7 closed four days early; the target date is unchanged.
 
 **Why this and not features.** P1–P6 proved the five flows on the Mac and most of the phone, but three pointer
 gestures a person uses every day at 390 have no walk at all — the edge swipe back, the row swipe and the
@@ -169,8 +175,15 @@ retro. Do not extend the date.
 model), the browser panel tab (Electron `webview` ADR), the agent catalog cut 74 → ≤10, and queue rows 9
 `R-steer-native`, 10 `R-queue-reorder`, 13 `R-routine-filter`, 15 `R-at-sessions`.
 
-## Next phase (P8) — 把签过字的承诺结算成事实
-<!-- next-phase: P8-settled-ledger target=2026-11-21T20:00 -->
+## Closed phase (P8) — 把签过字的承诺结算成事实
+<!-- closed-phase: P8-settled-ledger target=2026-11-21T20:00 -->
+
+Closed 2026-11-19, all four items landed: item 1 `b701c37b` (#333 PROJECT-002's 添加目录 and 移除
+pressed at 390 and 1100), item 2 `c42a08ee` (#331 the four defaults reaching a new chat) and
+`d8ff66c4` (#339 the settings walk), item 3 `3c45ab51` (#341 KIN-CONTINUE-002 at 390), item 4
+`2a6eaa9e` (#342 KIN-CONTINUE-001's four sentences). The ledger is `approved 2 · covered 14`; the two
+approved rows are KIN-NOTIFY-001 and KIN-SETTINGS-002, both waiting on Ethan. P8 closed two days
+early; the target date is unchanged.
 
 **Why this and not features.** The ledger says 8 `approved` / 8 `covered`, and the label now means
 "nobody has checked" rather than "not built". Three facts from this week measure the gap. `KIN-PROJECT-002`'s
@@ -210,7 +223,75 @@ marker flips rather than carrying one that already passed. A flip with no walk s
 exactly as in P7 item 3.
 
 **Out of scope** — `KIN-NOTIFY-001` (its last acceptance row needs a real iPhone), `KIN-SETTINGS-002` (needs
-a packaged build), `KIN-CONTINUE-003` (its own surface; next phase), and every parked row above.
+a packaged build), `KIN-CONTINUE-003` (its own surface; after P9), and every parked row above.
+
+## Current phase (P9) — 把评审读进来，不用回 GitHub
+<!-- phase: P9-review-in-place target=2026-11-25T20:00 -->
+
+Landed so far: item 1's ADR `d2e621ba` (#347). The ordered migration and its two database tests are
+written and held for the owner as `R-p9-reviews-migration` (branch `rsi/p9-reviews-migration`, PR #352
+open with label `hold`, cross-linked from `rsi/state/STATUS.md`); items 2–3 wait on that decision, and
+item 3 names the evidence seam the implementation row will use.
+
+**Why this and not features.** P7/P8 settled the ledger: `KIN-CONTINUE-003` was covered by `d929cfa5` (#348),
+and the only two `approved` rows are the ones that need Ethan (`KIN-NOTIFY-001`, `KIN-SETTINGS-002`), and
+the one read a person still leaves the app for — on the flow where T3 Code is
+strongest — is the review itself. The PR panel already names up to three failing checks (`ciLabel`,
+`ui/src/lib/prObservation.ts:247`, fed by `ci_summary` end to end), and it has no author, no state and no body
+for the reviews the same pull request carries, so "is this review asking me for something?" is answered on
+GitHub, not in the conversation that produced the change.
+
+**Done means** (evidence per item 3; the walk alone cannot prove this):
+1. A decided, additive shape for the reviews the panel may read: an ADR that names one column on
+   `pr_observations` (`internal/store/pr_observations.go`, table in `internal/store/migrate.go`) holding the
+   reviews as JSON — author, state, body — written by the same explicit refresh that writes `ci_summary`, plus
+   the ordered migration and both database tests AGENTS.md requires. **This half stops at `needs-ceo`**: the
+   ADR may land as docs, but the schema PR stays open for Ethan and the migration does not merge.
+2. Once that column exists (or Ethan answers with a different shape), the panel renders each review's author,
+   state and body from the cached snapshot, and keeps the failing-check names it already shows. A snapshot the
+   panel cannot read says so in one line instead of looking empty. The reviews come from the same cached
+   snapshot, so rendering them adds no GitHub call of its own; the one first-look query a never-checked branch
+   already gets on open stays as it is. `api/openapi.yaml` documents the additive field next to `ci_summary`.
+3. Evidence, named before the work starts: the walk cannot prove this today — `J2.json:68` asserts the
+   "not in a GitHub repository" state and `journeys_seed.py` is API-only, so there is no seeded observation with
+   a review. The PR says which seam it used (a dev-only seed route, or a DOM suite on the panel plus a Go test
+   on the snapshot) and why that proves the same thing; faking it inside the walk is not allowed.
+
+**Mechanism rows (rent, not phase items).** Claimable by a free lane as `rsi/loop-guards`, in this order.
+The two 2026-11-19 follow-ups are **done** and must not be re-derived: the walk-mutant restore runs on
+TERM/HUP/INT (`rsi/runtime/ux/walk-mutant-test.sh` `trap_restore_dist`, plus `scripts/mutants.py`'s signal
+handler from #338) and a merge archives its sendback (#346 `6ea5b433`).
+
+1. **The escalation ledger cannot say what it bought.** Measured 2026-11-19 06:35 on `rsi/state/escalations.jsonl`
+   (400 records): `has_bm` is **false in all 359** records that carry the field and absent in 41, and every one of
+   the 86 `FAIL` records stores the note `VERDICT: FAIL` with no findings — because `dispatch.sh:421-422` records
+   the verdict and never the review's blocker/major lines, so `has_bm_findings()` reads a string that cannot
+   contain them. 233 records also carry no `deepseek_verdict` to compare against. Net: "did the strong reviewer
+   catch something the DeepSeek review missed?" is unanswerable, and that is the one question that decides
+   whether the escalated reviews in the week to 11-18 (hydrogen 213 / hydrogen-high 50 / codex 29) are worth
+   their cost. Smallest shape: at that call site set `has_bm` from the review log (or pass its blocker/major lines
+   as the note) and print caught-defects per review and per yuan in the weekly escalation report. Red proof: a
+   stub log whose review names a blocker → `has_bm` true; a log that only says `VERDICT: PASS` → false; and the
+   weekly line for those two records counts one miss, not zero. Do not widen this into a new store or a schema
+   change.
+2. **A number a person typed drifts.** `docs/product/stories/PLAN.md` line 3 still says "4 条 `covered`、10 条
+   `approved`、2 条 `draft`" while `python3 scripts/stories.py --check` prints `16 (approved 2, covered 14)` —
+   measured 2026-11-19 06:30 — and `--check` exits `ok`, so nothing compares the two. Smallest shape: have
+   `stories.py` write that status line from the registry (it already writes `COVERAGE.md`) and make `--check`
+   fail when the line disagrees; hermetic case = today's mismatched line is red, the regenerated line is green.
+   The same guard should cover the covered/approved counts the morning report quotes.
+
+**Cut rule.** At 11-25 20:00 land what is green and queue the rest with its reason. If Ethan has not answered the
+schema question by then, the phase's shipped part is the ADR and the queue says so; do not extend the date and
+do not merge the migration on a promise.
+
+**Out of scope** — `KIN-CONTINUE-003` (covered by `d929cfa5`; no longer a phase), PDF and Office preview (every
+in-app path crosses a decided boundary: `internal/api/secure.go` sets
+`object-src 'none'` with no `frame-src`, a PDF parser is a new dependency, and `window.open(blob:)` is denied by
+`desktop/src/window.ts` and would land in the OS browser with an unresolvable URL — one ADR, then one PR), queue
+reordering (needs a queue-order endpoint), 清空已结束 (needs a DELETE plus ADR), native steer (an agent
+capability), the browser panel (`webview` ADR), `KIN-NOTIFY-001` and `KIN-SETTINGS-002` (Ethan), and every parked
+row above.
 
 ## Closed phase (P5) — projects you can manage, not just open
 <!-- closed-phase: P5-projects-manage target=2026-11-23T20:00 -->
