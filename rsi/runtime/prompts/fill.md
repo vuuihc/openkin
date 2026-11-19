@@ -14,6 +14,7 @@ In the repo as needed: docs/plans/gap-log.md (## Open), docs/product/TASTE.md, I
 
 ## 1. Update STATUS.md first (you are its only writer while filling)
 Fold finished lane results ({{STATE}}/lanes/*.json status done/failed/crashed) and merged.log lines into the queue states and "Last 48h" (PR URL or SHA as evidence). Atomic write (temp file then mv), ≤ 80 lines. Mark items that are in flight "lane N" so nobody picks them twice. If NO_MERGE or PAUSE exist, say why in STATUS.
+**The release line is derived, never copied.** Run `bash {{CTRL}}/rsi/runtime/release-check.sh` and write its `baseline=`, `unshipped=` and `verdict=` next to the SHA in {{STATE}}/last_release; never restate a previous round's verdict or count. On 2026-11-19 two STATUS versions in a row carried a "13:16 GO, next patrol ships" line after `a2e645b1` had already shipped at 13:31 and the gate read `unshipped 4 < 5` (HOLD) at 14:52.
 
 ## 2. Pick one task per idle lane — ASTRYX PROGRAMME FIRST (Ethan's directive, 2026-11-15)
 Ethan expected the whole Astryx UI overhaul (Kin facade over Astryx, four-zone IA, Mac two-column, phone four tabs, Composer bottom row) to be finished overnight. It is THE priority. Read {{CTRL}}/rsi/ASTRYX-PLAN.md once (phases, rules). The task table is machine-readable: run
