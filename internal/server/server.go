@@ -199,6 +199,10 @@ func ServeWith(version string, flags ServeFlags) error {
 	// timeline — the disconnect post-mortem of 2026-11-09 read a two month
 	// old log as an undated wall of EOF and reconnect lines.
 	timestampStderr()
+	startup := startupTraceFromEnv(os.Stderr, time.Now)
+	// Closes the pre-ServeWith edge: when the launcher exported its spawn
+	// instant, this line reports exec, dyld and runtime init as one segment.
+	startup.mark("process")
 
 	stateDir, err := remote.StateDir()
 	if err != nil {
@@ -207,6 +211,7 @@ func ServeWith(version string, flags ServeFlags) error {
 	if err := os.MkdirAll(filepath.Join(stateDir, "logs"), 0o700); err != nil {
 		return fmt.Errorf("state dir: %w", err)
 	}
+	startup.mark("state-dir")
 
 	// One engine per state directory, taken before anything is opened: the
 	// store, the periodic loops over it, and the in-memory buses all assume a
@@ -218,6 +223,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		return err
 	}
 	defer lock.Close()
+	startup.mark("lock")
 
 	token, err := remote.EnsureToken(stateDir)
 	if err != nil {
@@ -239,6 +245,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		return err
 	}
 	defer st.Close()
+	startup.mark("store-open")
 	secretStore, err := secret.NewDefaultStore(filepath.Join(stateDir, "secrets"))
 	if err != nil {
 		return err
@@ -273,12 +280,14 @@ func ServeWith(version string, flags ServeFlags) error {
 	}, time.Now().UnixMilli()); err != nil {
 		return err
 	}
+	startup.mark("device")
 	// Session rows written before a session's identity named a machine are this
 	// machine's: this daemon owns this database, and it is the only thing that
 	// ever wrote them.
 	if err := st.AdoptUnownedAgentSessions(ctx, identity.ID); err != nil {
 		return err
 	}
+	startup.mark("adopt")
 	if flags.TSControlURL != "" {
 		_ = st.SetSetting(ctx, "tailscale.control_url", flags.TSControlURL)
 	} else if v, err := st.GetSetting(ctx, "tailscale.control_url"); err == nil && v != "" && flags.Tailscale {
@@ -315,6 +324,7 @@ func ServeWith(version string, flags ServeFlags) error {
 	if err != nil {
 		return err
 	}
+	startup.mark("agents")
 	routingCatalog = routing.NewCatalog(st, reg.Has)
 	for _, info := range reg.List(ctx, "") {
 		if info.Available {
@@ -505,14 +515,17 @@ func ServeWith(version string, flags ServeFlags) error {
 	if err != nil {
 		return err
 	}
+	startup.mark("engine-build")
 	defer eng.Close()
 	if err := eng.Start(context.Background()); err != nil {
 		return err
 	}
+	startup.mark("engine-start")
 	browser, err := configureBrowserWorker(stateDir, st, eng, taskBus)
 	if err != nil {
 		return err
 	}
+	startup.mark("browser")
 	if browser != nil {
 		defer browser.Close()
 	}
@@ -558,6 +571,7 @@ func ServeWith(version string, flags ServeFlags) error {
 				return err
 			}
 			defer func() { _ = hub.Close() }()
+			startup.mark("hub")
 		}
 
 		accounts = authsvc.New(st, authsvc.Config{
@@ -1033,6 +1047,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		}
 		listeners = append(listeners, a)
 	}
+	startup.mark("listen")
 
 	// Start Relay from the CLI override or the persisted Settings value.
 	// Settings can later reconfigure the same runtime without restarting the
@@ -1197,6 +1212,7 @@ func ServeWith(version string, flags ServeFlags) error {
 			}
 		}(a)
 	}
+	startup.mark("ready")
 
 	// Graceful shutdown on SIGINT/SIGTERM.
 	sigCh := make(chan os.Signal, 1)

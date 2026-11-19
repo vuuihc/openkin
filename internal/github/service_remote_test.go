@@ -564,3 +564,73 @@ func TestARemoteObservationIsVisibleToTheNextSnapshotRead(t *testing.T) {
 		t.Errorf("snapshot = %q %q", snap.Repo, snap.Branch)
 	}
 }
+
+// The two values a remote answer can carry for reviews are not interchangeable:
+// '[]' is "read, and there are none", ” is "not read". The hop has to preserve
+// both, or a phone reading a remote task shows "not read" for reviews the node
+// did read — and, worse, a failed read looks like an empty one.
+func TestRemoteObservationKeepsNeverReadApartFromNone(t *testing.T) {
+	cases := []struct {
+		name    string
+		reviews string // what the machine's answer carries
+		seed    string // what the row held before, if anything
+		want    string
+	}{
+		{
+			name:    "an empty answer records an empty array",
+			reviews: "[]",
+			want:    "[]",
+		},
+		{
+			name:    "a read that never happened stays never read",
+			reviews: "",
+			want:    "",
+		},
+		{
+			name:    "a failed read does not erase the last array",
+			reviews: "",
+			seed:    `[{"author":"a","state":"APPROVED","body":"ok"}]`,
+			want:    `[{"author":"a","state":"APPROVED","body":"ok"}]`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, st := newTestService(t, &fakeRunner{name: SourceAnonymous})
+			ctx := context.Background()
+			remoteTask(t, st, "github.com/owner/app", "feature/scratch")
+			if tc.seed != "" {
+				old := time.Now().Add(-time.Hour).UnixMilli()
+				if err := st.RecordPRObservation(ctx, store.PRObservation{
+					Repo: "github.com/owner/app", HeadBranch: "feature/scratch", TaskID: "remote-task",
+					Number: number(42), State: "open", Reviews: tc.seed, Source: SourceGH,
+					ObservedAt: &old, AttemptedAt: old,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			svc.SetMachines(&fakeMachines{
+				runsElsewhere: true,
+				dir:           "/Users/x/work/app",
+				answer: worker.PRObserveResult{
+					Path: "/Users/x/work/app", Repo: "github.com/owner/app", Branch: "feature/scratch",
+					Observed: true, Source: "gh", Number: 42, State: "open", Reviews: tc.reviews,
+				},
+			})
+
+			target, _, err := svc.TargetForTask(ctx, "remote-task")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.Observe(ctx, target); err != nil {
+				t.Fatalf("Observe: %v", err)
+			}
+			obs, ok, err := st.GetPRObservation(ctx, "github.com/owner/app", "feature/scratch")
+			if err != nil || !ok {
+				t.Fatalf("observation: ok=%v err=%v", ok, err)
+			}
+			if obs.Reviews != tc.want {
+				t.Fatalf("reviews = %q, want %q", obs.Reviews, tc.want)
+			}
+		})
+	}
+}

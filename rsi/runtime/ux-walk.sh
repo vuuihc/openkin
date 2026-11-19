@@ -113,16 +113,24 @@ if [ -z "$BIN" ]; then
   ( cd "$WT" && go build -o "$TMP/kin" ./cmd/kin ) >"$TMP/build.log" 2>&1 || unavail "go build failed: $(tail -c 300 "$TMP/build.log")"
   BIN="$TMP/kin"
 fi
-# Every conversation route starts the agent CLI the daemon resolves on PATH.
-# Put the worktree's fake first so the seed's conversations cannot start a real
-# model turn; the export reaches only this script's children, and
-# KIN_CLAUDE_BIN would override PATH, so drop it. journeys-smoke.sh sets the
-# same PATH for its own daemon and seed, but fails hard when the fake is
-# missing: this runner still walks what exists and records the skips, while the
-# gate must not report green on missing fixtures.
+# Every conversation route starts the agent CLI the daemon resolves.
+# Put the worktree's fake first in PATH and pin it, so the seed's conversations
+# cannot start a real model turn; journeys-smoke.sh sets the same PATH for its own
+# daemon and seed, but fails hard when the fake is missing: this runner still walks
+# what exists and records the skips, while the gate must not report green on
+# missing fixtures.
+#
+# PATH order alone is not enough, and on 2026-11-19 it silently stopped being
+# enough: with the fake first on PATH the daemon still answered /api/agents with
+# ~/.local/bin/claude (a config under the real $HOME outranks PATH for this
+# agent), so journeys_seed.py refused every conversation ("the daemon would start
+# a real claude CLI") and every list/detail journey failed against an empty
+# daemon; PR #366 was billed a UX-gate sendback for it. The pin below is the
+# documented override and the daemon honours it ahead of PATH.
 FAKE_AGENT_DIR="$WT/scripts/journeys_fake_agent"
 if [ -x "$FAKE_AGENT_DIR/claude" ]; then
-  PATH="$FAKE_AGENT_DIR:$PATH"; export PATH; unset KIN_CLAUDE_BIN
+  PATH="$FAKE_AGENT_DIR:$PATH"; export PATH
+  KIN_CLAUDE_BIN="$FAKE_AGENT_DIR/claude"; export KIN_CLAUDE_BIN
   # J3 types a second message while the first round is open, so the fake's
   # `[seed] slow` hold must cover the follow-up steps. The fake clamps at 10s;
   # an explicit value from the caller (the mutant runner) still wins.

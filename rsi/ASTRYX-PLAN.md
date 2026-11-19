@@ -1,7 +1,9 @@
 # ASTRYX-PLAN — the UX unification as lane-sized slices
 
+> **Status (2026-11-19): programme complete — 62/62 slices merged** per `python3 rsi/runtime/slices.py status`. This file is the 2026-11-15 plan, not a live queue.
+
 Source of truth for *what* is built: `docs/plans/2026-11-14-ux-unification.md` (Batches A–E, Goal 2), `docs/plans/2026-11-09-astryx-spike.md`, `docs/product/stories/KIN-CONTINUE-003.md` + `ux-unification-story-map.md` (all on `origin/main`; no unpushed local-main docs are needed).
-Source of truth for *what to run next*: `rsi/astryx-slices.json` (55 slices + the in-flight Q3a), scheduled by `rsi/runtime/slices.py ready`. A slice is done when its id shows up in `state/merged.log` (the merge lane writes it).
+Source of truth for *what to run next*: `rsi/astryx-slices.json`, scheduled by `rsi/runtime/slices.py ready`. All 62 slices in that registry are merged — `python3 rsi/runtime/slices.py status` prints `Astryx programme: 62/62 slices merged` — and a slice was done when its id showed up in `state/merged.log` (the merge lane writes it).
 Ethan's directive (2026-11-15): this programme is the top priority; bug-fix pacing is parked (P0 only). KIN-CONTINUE-003 stays treated as signed (DECISIONS 2026-11-15).
 
 ## Facts from the code (2026-11-15)
@@ -31,7 +33,7 @@ Sizes: M ≈ 30 min / ≤ 500 lines, L ≈ 45 min / ≤ 800 lines.
 | **5 Settings & agents** (Batch E) | E1 settings page (N4,F5a,F5d) → E2 sections, E3 routing · E4b→E4c agent operations (E4a) · E5 agent session/approvals/tray · E6 account/connect | |
 | **6 Close-out** (Goal 2) | G1 lint-ban legacy primitives + lower baseline (C3b,C5c,E4c,R4,P3,W2) · G2 docs (S3) · G3 journeys J1–J7 smoke at 390/1100/1280 (S3,C2,C5c) → G4 bundle/inventory report + acceptance note (G1,G3) | Ethan's single acceptance walk-through |
 
-Counts: V 1 · F 9 · N 4 · S 3 · X (extractions) 9 · C 14 · D 4 · E 7 · G 4 = **55 slices** (V1 = seeded fixtures for the journey walk; F2 depends on it).
+Counts per the registry (`python3 rsi/runtime/slices.py status`): C 19 · D 4 · E 7 · F 9 · G 5 · N 3 · S 5 · V 1 · X (extractions) 9 = **62 slices**, all merged (V1 = seeded fixtures for the journey walk; F2 depends on it).
 Critical path: F1→F2→F3→F5b→F5d→C1a→C1d→C2/C3b→G3→G4 (≈ 10 sequential merges). Max useful width after F3 ≈ 6–8 ready slices, so 3 lanes stay busy.
 
 ## Throughput and ETA (honest)
