@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the grounding predicate never fires, so an unexplained feedback=2 goes straight back to a rework round",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_ungrounded_twice_is_unavailable bash rsi/runtime/tests/test-ux-gate-grounded-red.sh",
+    "old": "print(\",\".join(a for a in axes if a in sc and sc[a] < 3 and not re.search(r\"(?i)\\b%s\\b\" % a, body)))",
+    "new": "print(\"\")"
+  },
+  {
+    "label": "the machine UX_SCORES line counts as a finding, so the #383 shape is never re-asked",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_scores_line_alone_does_not_ground bash rsi/runtime/tests/test-ux-gate-grounded-red.sh",
+    "old": "body = \"\\n\".join(l for l in txt.splitlines() if not l.startswith((\"UX_SCORES:\", \"UX_VERDICT:\")))",
+    "new": "body = txt"
+  },
+  {
+    "label": "twice-ungrounded is sent back instead of recorded as no verdict",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_ungrounded_twice_is_unavailable bash rsi/runtime/tests/test-ux-gate-grounded-red.sh",
+    "old": "  if [ -n \"$GAPS\" ]; then\n    [ \"$UX_REASKED\" = 1 ] \\\n      && unavailable \"reviewer scored $GAPS below 3 without naming the evidence (asked twice); no verdict\" \\\n      || unavailable \"reviewer scored $GAPS below 3 and the re-ask produced no review; no verdict\"\n  fi",
+    "new": "  if [ -n \"$GAPS\" ]; then exit 1; fi"
+  },
+  {
+    "label": "the reviewer is never asked a second time, so an ungrounded score can only end as unavailable",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_ungrounded_red_is_reasked_once_then_grounded bash rsi/runtime/tests/test-ux-gate-grounded-red.sh",
+    "old": "  run_review \"$PF.2\" \"$UXR2\" fresh || true",
+    "new": "  :"
+  }
+]
