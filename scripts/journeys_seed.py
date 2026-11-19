@@ -454,7 +454,10 @@ def _seed_roots() -> str:
     shared with those journeys, so it must stay exactly as written. The
     self-contained `preview.html` is J13's page/source leg: no external CSS,
     image or script, and one visible line the source view can match after the
-    preview iframe has left the screen.
+    preview iframe has left the screen. `report.pdf` is J13's undrawable file:
+    the panel may not draw a PDF, so it lands in the download pane, where the
+    desktop shell's "Open in…" control lives. Its bytes are only required to
+    be a plausible PDF; nothing parses them.
 
     Never a real repository: the fake agent appends its one diff line only
     inside a path carrying SEED_ROOT_PREFIX, and this is the only place that
@@ -486,8 +489,18 @@ def _seed_roots() -> str:
                 "</body>\n"
                 "</html>\n"
             )
+        # A minimal, self-contained PDF: enough header/trailer for a reader to
+        # recognise the format, a few hundred bytes, and committed with the
+        # other two so J2's status leg sees a clean tree.
+        with open(os.path.join(root, "report.pdf"), "wb") as fh:
+            fh.write(
+                b"%PDF-1.4\n"
+                b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+                b"2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n"
+                b"trailer\n<< /Root 1 0 R >>\n%%EOF\n"
+            )
         _git(root, "init", "-q")
-        _git(root, "add", "notes.md", "preview.html")
+        _git(root, "add", "notes.md", "preview.html", "report.pdf")
         # Inline identity and no signing: the seed must not depend on, or
         # disturb, whatever git config the machine happens to carry.
         _git(
