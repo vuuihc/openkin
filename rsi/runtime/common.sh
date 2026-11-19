@@ -271,8 +271,10 @@ rsi_open_pr_counts() {
     sleep 2
     prj="$($GH pr list --repo "$GH_REPO" --state open --limit 80 --json number,headRefName,isDraft,labels 2>/dev/null || true)"
   fi
-  printf '%s' "$prj" | STATE="$STATE" python3 -c '
+  printf '%s' "$prj" | STATE="$STATE" RSI_DIR="$RSI_DIR" python3 -c '
 import json, os, sys
+sys.path.insert(0, os.path.join(os.environ["RSI_DIR"], "runtime"))
+from pr_select import is_candidate
 try:
     prs = json.load(sys.stdin)
 except Exception:
@@ -281,8 +283,7 @@ st = os.environ["STATE"]
 active = 0
 for p in prs:
     h = p.get("headRefName") or ""
-    ls = {l.get("name") for l in (p.get("labels") or [])}
-    if not h.startswith("rsi/") or h.startswith("rsi/dream-") or h.startswith("rsi/ceo-") or p.get("isDraft") or (ls & {"hold", "needs-ceo"}):
+    if not is_candidate(h, p.get("isDraft"), p.get("labels")):
         continue
     slug = h[4:]
     if os.path.exists(os.path.join(st, "merge", slug + ".blocked")):
