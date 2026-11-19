@@ -94,6 +94,12 @@ grep -q 'bounded_run "$GATE_MAX" bash "$RSI_DIR/runtime/ux-gate.sh"' "$MERGE" \
   || fail "wiring: merge.sh calls ux-gate.sh without bounded_run"
 grep -q 'if \[ "$urc" -eq 124 \]' "$MERGE" \
   || fail "wiring: merge.sh does not map 124 to unavailable"
-pass "wiring: merge.sh bounds the gate and maps 124 to unavailable"
+# An outer expiry that lands during the confirmation re-walk must keep the first
+# walk's red (ux-gate's own fail-closed rule), not turn it into "unavailable".
+grep -q 'keeping the first walk.s red' "$MERGE" \
+  || fail "wiring: merge.sh can turn a first-walk red into unavailable on outer expiry"
+grep -q 'if \[ -n "$RED" \]' "$MERGE" \
+  || fail "wiring: merge.sh has no red-preserving branch"
+pass "wiring: merge.sh bounds the gate, maps 124 to unavailable, and keeps a first-walk red"
 
 echo "all cases passed"

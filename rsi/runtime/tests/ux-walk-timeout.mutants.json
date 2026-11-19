@@ -10,7 +10,7 @@
     "label": "timeout verdict ignored: a wedged walk's 143 is read as the walker's own answer",
     "file": "rsi/runtime/common.sh",
     "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
-    "old": "  if [ -s \"$flag\" ]; then rm -f \"$flag\"; return 124; fi",
+    "old": "  if [ -s \"$flag\" ] && [ \"$rc\" -ge 128 ] 2>/dev/null; then rm -f \"$flag\"; return 124; fi",
     "new": "  if false; then rm -f \"$flag\"; return 124; fi"
   },
   {
@@ -26,5 +26,12 @@
     "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
     "old": "    if [ \"$urc\" -eq 124 ]; then",
     "new": "    if [ \"$urc\" -eq 999 ]; then"
+  },
+  {
+    "label": "outer expiry during confirmation discards the first walk's red: a failing PR stays verified forever",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "      if [ -n \"$RED\" ]; then",
+    "new": "      if false; then"
   }
 ]
