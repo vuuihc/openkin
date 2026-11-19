@@ -407,6 +407,34 @@ grep -qi 'heavy slot\|machine-wide' "$OUT7/UNAVAILABLE" \
   || fail "$case_name: a heavy slot was taken under RSI_NO_HEAVY"
 pass "$case_name"
 
+# --- 7b: the real walk joins every positional, not only the third --------------
+# The --select-args seam above calls select_args "$@" after shift, but the walk
+# reads its own slice, "${@:3}". Every other real-path case passes two
+# positionals at most, where "${3:-}" and "${@:3}" are identical, so reverting
+# the walk to "${3:-}" (the original silent under-run: `J9 J11` walked only J9)
+# stayed green. This case drives the real walk to the walker and records the
+# argv the walker was handed.
+case_name="test_real_walk_joins_every_positional"
+WT12="$T/wt-join"; mkdir -p "$WT12"
+# Case-local record/ready paths: KIN_STUB_READY and REC are exported above, so
+# assigning them here would leak an already-existing ready marker into case 8
+# and race its stub daemon.
+OUT12="$T/out-join"; REC12="$T/walk-join.rec"; READY12="$T/walk-join.ready"
+rm -f "$REC12" "$READY12"
+node() { printf '%s\n' "$@" > "$REC"; }
+export -f node
+env -u RSI_HEAVY_HELD -u RSI_NO_HEAVY UX_KIN_BIN="$STUB" REC="$REC12" KIN_STUB_READY="$READY12" \
+  bash "$SEAM" "$WT12" "$OUT12" J9 J11 > "$T/walk-join.out" 2>&1
+rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(tail -c 300 "$T/walk-join.out"))"
+[ -f "$REC12" ] || fail "$case_name: the walker never ran"
+joined=" $(tr '\n' ' ' < "$REC12") "
+case "$joined" in
+  *" --journeys J9,J11 "*) ;;
+  *) fail "$case_name: the walker got '$(tr '\n' ' ' < "$REC12")', wanted --journeys J9,J11" ;;
+esac
+pass "$case_name"
+
 # --- 8: the daemon is told which claude to run, not merely pointed at it ------
 # PATH order stopped being enough on 2026-11-19: with the fake first on PATH the
 # throwaway daemon still answered /api/agents with ~/.local/bin/claude (a config
@@ -603,4 +631,4 @@ PY
 [ $rc -eq 0 ] || fail "$case_name: $out"
 pass "$case_name"
 
-echo "ux-walker contract: 25/25 cases passed"
+echo "ux-walker contract: 26/26 cases passed"
