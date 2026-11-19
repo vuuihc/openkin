@@ -4540,6 +4540,103 @@ class WalkMutantManifestTest(unittest.TestCase):
                          "the manifest grew without bumping the pinned count")
 
 
+class JourneyContractCoverageTest(unittest.TestCase):
+    """The index, the contracts and their test classes must name the same journeys.
+
+    `--check-spec` runs one contract per journey and this file runs one class
+    per contract, but nothing compared the sets. A journey that lands with no
+    contract, a contract whose definition is never dispatched, or a contract
+    test class renamed away all leave `./scripts/check.sh` green while the walk
+    loses a proof only a browser walk would notice. These cases are the
+    set-level guard: every id in the real index (never the reduced fixture
+    specs the other classes build) must have all three halves, and a spec that
+    loses journeys wholesale must not pass an empty loop.
+    """
+
+    def setUp(self) -> None:
+        with open(WALK, encoding="utf-8") as fh:
+            self.walk = fh.read()
+        with open(os.path.join(SCRIPTS, os.path.basename(__file__)), encoding="utf-8") as fh:
+            self.tests = fh.read()
+        with open(SPEC, encoding="utf-8") as fh:
+            # The raw index is read only to count what it ships; the walker's
+            # own reader (load_spec) is what the guard iterates.
+            self.index = json.load(fh)["journeys"]
+        self.spec = load_spec()
+
+    def test_every_journey_has_a_contract_and_a_test_class(self) -> None:
+        self.assertTrue(self.spec["journeys"], "the journey index resolves to no journeys")
+        for journey in self.spec["journeys"]:
+            with self.subTest(journey=journey):
+                self.assertRegex(
+                    journey, r"^J\d+$",
+                    f"{journey} is in the journey index but is not a J<n> id, "
+                    "so no contract can be named for it",
+                )
+                self.assertIn(
+                    f"function check{journey}Contract(", self.walk,
+                    f"{journey} is in the journey index but walk.mjs defines no "
+                    f"check{journey}Contract; write the contract (the #359/#362 "
+                    "shape), do not exempt the journey",
+                )
+                self.assertIn(
+                    f"class Walk{journey}ContractTest(", self.tests,
+                    f"{journey} is in the journey index but this file has no "
+                    f"Walk{journey}ContractTest class; its contract would have no "
+                    "Python-side proof",
+                )
+
+    def test_the_check_spec_dispatch_calls_every_contract(self) -> None:
+        lines = self.walk.splitlines()
+        starts = [
+            i for i, line in enumerate(lines)
+            if "process.argv.includes('--check-spec')" in line
+        ]
+        self.assertEqual(
+            len(starts), 1,
+            "walk.mjs no longer has exactly one --check-spec dispatch; the "
+            "coverage guard cannot find the calls",
+        )
+        start = starts[0]
+        ends = [i for i in range(start + 1, len(lines)) if lines[i] == "}"]
+        self.assertTrue(ends, "walk.mjs's --check-spec block is never closed")
+        region = "\n".join(lines[start:ends[0] + 1])
+        # The definitions sit above the dispatch. If this region ever grew to
+        # include them, `function checkJ<n>Contract(` would satisfy the call
+        # search and a deleted call would go unseen.
+        self.assertNotIn(
+            "function check", region,
+            "the --check-spec region starts before the contract definitions, so "
+            "the call search would match the definitions themselves",
+        )
+        for journey in self.spec["journeys"]:
+            with self.subTest(journey=journey):
+                self.assertIn(
+                    f"check{journey}Contract(spec)", region,
+                    f"{journey}'s contract is defined but --check-spec never "
+                    f"calls check{journey}Contract(spec); a dead contract proves "
+                    "nothing",
+                )
+
+    def test_the_guard_is_not_vacuous(self) -> None:
+        journeys = list(self.spec["journeys"])
+        self.assertGreaterEqual(
+            len(journeys), 12,
+            f"the journey index resolves to {len(journeys)} journeys; a spec "
+            "that loses journeys wholesale must fail loudly, not pass an empty loop",
+        )
+        self.assertEqual(
+            len(journeys), len(self.index),
+            "the guard dropped journey ids the index ships; a parser change must "
+            "not shrink the set silently",
+        )
+        self.assertIn(
+            "J14", journeys,
+            "the guard no longer sees J14, the newest journey before this row; "
+            "the journey reader is broken",
+        )
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--check-spec"]:
         raise SystemExit(subprocess.call([NODE, WALK, "--check-spec", "--spec", SPEC]))
