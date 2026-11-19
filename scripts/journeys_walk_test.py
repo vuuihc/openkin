@@ -1278,6 +1278,100 @@ class WalkJ7ContractTest(unittest.TestCase):
             if step[0] == "wait" and "[data-pending-id=" in str(step[1])
         )
 
+    @staticmethod
+    def approve_count_at(steps: list, want: str) -> int:
+        return next(
+            i
+            for i, step in enumerate(steps)
+            if step[0] == "count"
+            and "批准" in str(step[1])
+            and "Approve" in str(step[1])
+            and str(step[2]) == want
+        )
+
+    def test_j7_spec_pins_the_phone_root_count(self) -> None:
+        # The checked-in spec is the proof the walk runs: the phone list count
+        # after Back, its scope, and the positive count after the reopen are
+        # all present and in order here, not only inside the contract.
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J7", out)
+        steps = load_spec()["journeys"]["J7"]["steps"]
+        phone = self.approve_count_at(steps, "0")
+        back = next(i for i, step in enumerate(steps) if step[0] == "back")
+        self.assertGreater(phone, back, steps)
+        reopen = next(
+            i
+            for i, step in enumerate(steps)
+            if i > phone
+            and step[0] == "count"
+            and "批准" in str(step[1])
+            and str(step[2]) != "0"
+        )
+        scope = next(i for i, step in enumerate(steps) if step[0] == "vp" and step[1] == "phone")
+        self.assertLess(back, scope, steps)
+        self.assertLess(scope, phone, steps)
+        clear = next(
+            i for i, step in enumerate(steps) if i > phone and step[0] == "vp" and step[1] == ""
+        )
+        self.assertLess(phone, clear, steps)
+        # The same control is tapped back into view and counted, so the card's
+        # return is a number a reviewer can read, not only a wait.
+        row = next(i for i, step in enumerate(steps) if step[0] == "click" and "data-session-row" in str(step[1]))
+        self.assertLess(row, reopen, steps)
+
+    def test_j7_contract_requires_the_phone_root_count(self) -> None:
+        # The phone tab root draws the approval strip only; the decision card
+        # belongs to a conversation. Without the count, the pre-#252 layout
+        # that draws the card over the list is green (the committed mutant).
+        def drop_the_phone_count(steps: list) -> None:
+            steps.pop(self.approve_count_at(steps, "0"))
+
+        code, out = self.check(self.copy_with(drop_the_phone_count))
+        self.assertEqual(code, 1, out)
+        self.assertIn("phone list", out)
+        self.assertIn("批准", out)
+        self.assertIn("Approve", out)
+
+    def test_j7_contract_rejects_a_phone_count_that_is_not_zero(self) -> None:
+        # Exactly zero: one card on the phone list is the decision surface
+        # floating over rows it does not belong to.
+        def one_card_on_the_list(steps: list) -> None:
+            steps[self.approve_count_at(steps, "0")][2] = "1"
+
+        code, out = self.check(self.copy_with(one_card_on_the_list))
+        self.assertEqual(code, 1, out)
+        self.assertIn("phone list", out)
+        self.assertIn("0", out)
+
+    def test_j7_contract_requires_the_phone_scope_around_the_count(self) -> None:
+        # On the Mac the card on the list is legitimate, so an unscoped count
+        # asserts the wrong thing at that width: the scope is the assertion.
+        def drop_the_phone_scope(steps: list) -> None:
+            at = next(i for i, step in enumerate(steps) if step[0] == "vp" and step[1] == "phone")
+            steps.pop(at)
+
+        code, out = self.check(self.copy_with(drop_the_phone_scope))
+        self.assertEqual(code, 1, out)
+        self.assertIn("phone scope", out)
+        self.assertIn("vp phone", out)
+
+    def test_j7_contract_requires_a_positive_count_after_the_reopen(self) -> None:
+        # The reopen is a pointer tap into the conversation; the card coming
+        # back is a count of the same control, not just a wait that found a
+        # node somewhere on the page.
+        def drop_the_reopen_count(steps: list) -> None:
+            at = next(
+                i
+                for i, step in enumerate(steps)
+                if step[0] == "count" and "批准" in str(step[1]) and str(step[2]) != "0"
+            )
+            steps.pop(at)
+
+        code, out = self.check(self.copy_with(drop_the_reopen_count))
+        self.assertEqual(code, 1, out)
+        self.assertIn("after reopening", out)
+
     def test_j7_lands_on_the_named_card(self) -> None:
         # With a seed line the check resolves the real ids and prints the
         # assertion the walk will make, not just "the spec mentions {focus}".

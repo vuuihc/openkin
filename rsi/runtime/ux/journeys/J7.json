@@ -70,6 +70,11 @@
       "css=[data-pending-id=\"{focus}\"]"
     ],
     [
+      "count",
+      "css=button[aria-label='批准'], button[aria-label='Approve']",
+      "2"
+    ],
+    [
       "shot",
       "back-card"
     ]
