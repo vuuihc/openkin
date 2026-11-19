@@ -9,11 +9,12 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Sidecar } from "./sidecar";
 import { MainWindow } from "./window";
+import { createBootWindow } from "./boot-window";
 import { AppTray } from "./tray";
 import { TrayPopover } from "./tray-popover";
 import { DaemonWS } from "./ws-client";
 import { Notifier } from "./notifications";
-import { routeNotifyMessage } from "./native-notifications";
+import { approvalPath, routeNotifyMessage } from "./native-notifications";
 import { taskIdFromURL } from "./task-notifications";
 import { retryWhileUnavailable } from "./daemon-retry";
 import { registerIpcHandlers } from "./ipc";
@@ -70,6 +71,15 @@ const mainWindow = new MainWindow();
 // finishes and writes/refreshes the token.
 mainWindow.setTokenSource(() => sidecar.readToken());
 
+// P10 item 2: the window goes up before the daemon answers. The coordinator
+// owns the order; the window owns the page.
+const boot = createBootWindow({
+  hasWindow: () => mainWindow.isOpen,
+  showBoot: (path) => mainWindow.showBoot(path),
+  showConsole: (path) => mainWindow.enterConsole(path),
+  reveal: () => mainWindow.revealWindow(),
+});
+
 let tray: AppTray | null = null;
 let popover: TrayPopover | null = null;
 let ws: DaemonWS | null = null;
@@ -120,7 +130,7 @@ function handleDeepLink(rawURL: string): boolean {
     pendingDeepLinkPath = path;
     return true;
   }
-  mainWindow.show(path);
+  boot.show(path);
   return true;
 }
 
@@ -276,7 +286,7 @@ async function recoverWhenDaemonAppears(): Promise<void> {
     if (outcome !== "ready") return;
     connectWS();
     await refreshPending();
-    mainWindow.reloadWhenReady();
+    boot.settle("ready");
     popover?.reloadWhenReady();
     tray?.refresh();
   } finally {
@@ -288,7 +298,7 @@ function setupTray(): void {
   popover = new TrayPopover({
     openMain: (path) => {
       popover?.hide();
-      mainWindow.show(path || "/");
+      boot.show(path || "/");
     },
     getToken: () => sidecar.readToken(),
   });
@@ -339,11 +349,11 @@ function setupTray(): void {
   tray = new AppTray({
     openKin: () => {
       popover?.hide();
-      mainWindow.show("/");
+      boot.show("/");
     },
     openApproval: (id, taskId) => {
       popover?.hide();
-      mainWindow.openApproval(id, taskId);
+      boot.show(approvalPath(id, taskId));
     },
     togglePopover: (bounds) => {
       popover?.toggle(bounds);
@@ -356,14 +366,22 @@ function setupTray(): void {
         // already on the port but not answering. The tray only says "stopped",
         // so say why — and keep asking, in case that something is a supervisor
         // about to bring the daemon back.
-        if (status.state === "unavailable") {
+        const unavailable = status.state === "unavailable";
+        if (unavailable) {
           announceDaemonUnavailable(status.reason);
+          // Keep the boot surface; the recovery retry swaps it when a daemon
+          // answers.
+          boot.settle("unavailable");
           void recoverWhenDaemonAppears();
         }
         connectWS();
         await refreshPending();
-        // Recover any window that opened while the daemon was down.
-        mainWindow.reloadWhenReady();
+        if (!unavailable) {
+          // Recover any window that opened while the daemon was down, and let
+          // the coordinator know the console has somewhere to land.
+          mainWindow.reloadWhenReady();
+          boot.settle("ready");
+        }
         popover?.reloadWhenReady();
         tray?.refresh();
       })();
@@ -451,7 +469,7 @@ if (!gotLock) {
     const deepLink = deepLinkFromArgv(argv);
     if (deepLink && handleDeepLink(deepLink)) return;
     // Re-launch / second npm run: bring UI forward instead of looking dead.
-    mainWindow.show("/");
+    boot.show("/");
   });
 
   app.on("open-url", (event, rawURL) => {
@@ -487,7 +505,7 @@ if (!gotLock) {
       setupTray();
 
       notifier = new Notifier({
-        openPath: (path) => mainWindow.show(path),
+        openPath: (path) => boot.show(path),
         getToken: () => sidecar.readToken(),
         onDecided: () => {
           void refreshPending();
@@ -507,6 +525,23 @@ if (!gotLock) {
       });
 
       traceStartup("sidecar-start");
+
+      // P10 item 2: the window is what the person asked for, so it goes up
+      // now — the console replaces the boot surface when the daemon answers.
+      // A background launch (login item, --hidden) stays in the tray with no
+      // window. The boot show must stay above the await, or the launch is
+      // daemon-gated again.
+      const launchPath = pendingDeepLinkPath;
+      pendingDeepLinkPath = null;
+      if (isBackgroundLaunch()) {
+        console.log(
+          "[kin-desktop] background launch — idle in menu bar (window hidden)",
+        );
+        boot.start({ background: true });
+      } else {
+        boot.start({ deepLinkPath: launchPath });
+      }
+
       const status = await sidecar.ensureRunning();
       // "unavailable" is a failed start, not a readiness edge. The measurement
       // script asks for this mark to know a daemon answered; emitting it for a
@@ -518,32 +553,20 @@ if (!gotLock) {
       if (status.state !== "unavailable") {
         connectWS();
         await refreshPending();
-        // If the user already opened the window while the daemon was booting,
-        // the first loadURL may have failed — force a clean reload now.
-        mainWindow.reloadWhenReady();
+        // The boot page is on screen; swap the console in at the deep-link
+        // path (or `/`) exactly once.
+        boot.settle("ready");
         popover?.reloadWhenReady();
       } else {
         console.error(
           "[kin-desktop] daemon unavailable:",
           status.state === "unavailable" ? status.reason : "",
         );
-        // Say why — the window is about to load a URL nothing answers — and
-        // keep asking in the background.
+        // Say why, keep the boot surface up instead of loading a URL nothing
+        // answers, and keep asking in the background.
+        boot.settle("unavailable");
         announceDaemonUnavailable(status.reason);
         void recoverWhenDaemonAppears();
-      }
-
-      const launchPath = pendingDeepLinkPath;
-      pendingDeepLinkPath = null;
-      if (launchPath) {
-        mainWindow.show(launchPath);
-      } else if (isBackgroundLaunch()) {
-        console.log(
-          "[kin-desktop] background launch — idle in menu bar (window hidden)",
-        );
-      } else {
-        mainWindow.show("/");
-        console.log("[kin-desktop] main window opened");
       }
     })
     .catch((err) => {
@@ -551,7 +574,7 @@ if (!gotLock) {
     });
 
   app.on("activate", () => {
-    mainWindow.show("/");
+    boot.show("/");
   });
 
   app.on("window-all-closed", () => {

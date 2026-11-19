@@ -1,0 +1,37 @@
+[
+  {
+    "label": "daemon-gated again in the coordinator: the foreground launch shows nothing until the daemon settles",
+    "file": "desktop/src/boot-window.ts",
+    "test": "cd desktop && node --test src/boot-window.test.ts",
+    "old": "      phase = \"booting\";\n      showBootOnce();\n    },\n\n    settle(outcome) {",
+    "new": "      phase = \"booting\";\n    },\n\n    settle(outcome) {"
+  },
+  {
+    "label": "an unavailable daemon loads the dead console URL instead of keeping the boot surface",
+    "file": "desktop/src/boot-window.ts",
+    "test": "cd desktop && node --test src/boot-window.test.ts",
+    "old": "      if (outcome === \"unavailable\") {\n        // The boot surface stays; nothing loads a URL that nothing answers.\n        // The recovery retry settles again when a daemon appears.\n        if (phase === \"booting\" || phase === \"background\") phase = \"unavailable\";\n        return;\n      }",
+    "new": "      if (outcome === \"unavailable\") {\n        host.showConsole(target);\n        return;\n      }"
+  },
+  {
+    "label": "daemon-gated again in main.ts: the sidecar is awaited before the window is shown",
+    "file": "desktop/src/main.ts",
+    "test": "cd desktop && node --test src/window.wiring.test.ts",
+    "old": "      const launchPath = pendingDeepLinkPath;\n      pendingDeepLinkPath = null;\n      if (isBackgroundLaunch()) {\n        console.log(\n          \"[kin-desktop] background launch — idle in menu bar (window hidden)\",\n        );\n        boot.start({ background: true });\n      } else {\n        boot.start({ deepLinkPath: launchPath });\n      }\n\n      const status = await sidecar.ensureRunning();",
+    "new": "      const launchPath = pendingDeepLinkPath;\n      pendingDeepLinkPath = null;\n\n      const status = await sidecar.ensureRunning();\n      if (isBackgroundLaunch()) {\n        console.log(\n          \"[kin-desktop] background launch — idle in menu bar (window hidden)\",\n        );\n        boot.start({ background: true });\n      } else {\n        boot.start({ deepLinkPath: launchPath });\n      }"
+  },
+  {
+    "label": "the background branch no longer decides first: a login-item launch puts a window on screen",
+    "file": "desktop/src/main.ts",
+    "test": "cd desktop && node --test src/window.wiring.test.ts",
+    "old": "      if (isBackgroundLaunch()) {\n        console.log(\n          \"[kin-desktop] background launch — idle in menu bar (window hidden)\",\n        );\n        boot.start({ background: true });\n      } else {\n        boot.start({ deepLinkPath: launchPath });\n      }",
+    "new": "      boot.start({ deepLinkPath: launchPath });\n      if (isBackgroundLaunch()) {\n        console.log(\n          \"[kin-desktop] background launch — idle in menu bar (window hidden)\",\n        );\n      }"
+  },
+  {
+    "label": "the boot page's load is counted as the console's window-first-load",
+    "file": "desktop/src/window.ts",
+    "test": "cd desktop && node --test src/window.wiring.test.ts",
+    "old": "      if (isConsoleURL(url)) traceStartup(\"window-first-load\");",
+    "new": "      traceStartup(\"window-first-load\");"
+  }
+]
