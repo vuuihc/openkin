@@ -28,6 +28,10 @@ function fakeHost() {
         calls.push(`console:${path}`);
         window = true;
       },
+      showBootFailure: (reason: string) => {
+        calls.push(`failure:${reason}`);
+        window = true;
+      },
       reveal: () => {
         calls.push("reveal");
       },
@@ -119,5 +123,69 @@ describe("the window opens before the daemon answers", () => {
 
     boot.settle("ready");
     assert.deepEqual(calls, ["boot:/", "reveal", "reveal", "console:/tasks/xyz"]);
+  });
+
+  it("a retry that gives up swaps the boot surface for the failure page once", () => {
+    const { calls, host } = fakeHost();
+    const boot = createBootWindow(host);
+
+    boot.start();
+    boot.settle("unavailable");
+    boot.fail("crash");
+    boot.fail("crash");
+
+    assert.deepEqual(
+      calls,
+      ["boot:/", "failure:crash"],
+      "the boot surface is replaced by one failure page, not one per attempt",
+    );
+    assert.equal(
+      calls.filter((c) => c.startsWith("console:")).length,
+      0,
+      "a failure must not load a console that is not there",
+    );
+    assert.equal(boot.phase, "failed");
+  });
+
+  it("a failure never replaces a ready console", () => {
+    const { calls, host } = fakeHost();
+    const boot = createBootWindow(host);
+
+    boot.start();
+    boot.settle("ready");
+    boot.fail("missing");
+
+    assert.deepEqual(calls, ["boot:/", "console:/"]);
+    assert.equal(boot.phase, "ready", "a late failure must not undo a working console");
+  });
+
+  it("a recovery after the failure swaps in the console exactly once", () => {
+    const { calls, host } = fakeHost();
+    const boot = createBootWindow(host);
+
+    boot.start();
+    boot.fail("rival");
+    boot.settle("ready");
+    boot.settle("ready");
+
+    assert.deepEqual(calls, ["boot:/", "failure:rival", "console:/"]);
+    assert.equal(boot.phase, "ready");
+  });
+
+  it("a background launch that failed stays in the tray until asked", () => {
+    const { calls, host } = fakeHost();
+    const boot = createBootWindow(host);
+
+    boot.start({ background: true });
+    boot.fail("missing");
+
+    assert.deepEqual(calls, [], "a login-item launch must not put a failure page on screen");
+    assert.equal(boot.phase, "failed");
+
+    boot.show();
+    assert.deepEqual(calls, ["failure:missing"], "the failure page, not the spinner");
+
+    boot.show();
+    assert.deepEqual(calls, ["failure:missing", "reveal"], "a shown failure page is only revealed");
   });
 });
