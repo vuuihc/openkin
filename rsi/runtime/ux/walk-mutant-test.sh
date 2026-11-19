@@ -2,7 +2,7 @@
 # walk-mutant-test.sh — the one-command red proof for the walk contracts (R-walk-mutant, R-walk-tap-j7).
 #
 #   bash rsi/runtime/ux/walk-mutant-test.sh                    # apply every committed mutant, require red, restore
-#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J5|J7|J2|J8|J9|J10|J11|J12] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
+#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J5|J7|J2|J8|J9|J10|J11|J12|J13] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
 #   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest
 #
 # J3 has two contracts. One: pressing Start on /new must keep the typed message
@@ -157,8 +157,8 @@ case "${1:-}" in
   --walk-once)
     JOURNEY="${2:-J3}"
     case "$JOURNEY" in
-      J3|J5|J7|J2|J8|J9|J10|J11|J12) ;;
-      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J5, J7, J2, J8, J9, J10, J11 or J12" ;;
+      J3|J5|J7|J2|J8|J9|J10|J11|J12|J13) ;;
+      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J5, J7, J2, J8, J9, J10, J11, J12 or J13" ;;
     esac
     ;;
   --trap-check)
@@ -616,6 +616,114 @@ if hard or missing:
     sys.exit(1)
 print("walk-mutant: J12 green: the edge back kept the search and the scroll, the row swipe "
       "revealed and closed without navigating, and the hold survived a reload")
+PY
+  exit $?
+fi
+
+# J13's PR legs (R-panel-exit). The manifest refuses `?panel=pr` in
+# parseWorkspaceLink, so a cold address draws no PR surface and a refresh drops
+# it. The walk must redden on the selected-tab waits; the address steps alone
+# stay green (the bytes are still `?panel=pr`), which is why the check below
+# reads the tab and not only the query.
+if [ "$JOURNEY" = "J13" ]; then
+  bash rsi/runtime/ux-walk.sh "$WT" "$OUT" J13 >"$OUT/ux-walk.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    unavailable "$(cat "$OUT/UNAVAILABLE" 2>/dev/null || tail -c 300 "$OUT/ux-walk.log")"
+  fi
+  [ "$rc" -eq 0 ] || unavailable "ux-walk.sh exited $rc: $(tail -c 300 "$OUT/ux-walk.log")"
+  [ -s "$OUT/walk.json" ] || unavailable "the walker wrote no walk.json"
+
+  python3 - "$OUT/walk.json" <<'PY'
+import json
+import sys
+
+walk = json.load(open(sys.argv[1], encoding="utf-8"))
+screens = [s for s in walk.get("screens", []) if s.get("journey") == "J13"]
+names = [str(s.get("name", "")) for s in screens]
+skips = [n for n in names if "-skipped-" in n]
+if skips:
+    # No seeded conversation: the PR tab is not offered and the address proves
+    # nothing. Fail closed as "could not run".
+    print("UNAVAILABLE: J13 was skipped (" + ", ".join(skips[:2]) + ")")
+    sys.exit(2)
+
+# Step failures are `J13/…`; screenshot lint is `J13-<vp>-…`. Both are J13's.
+hard = [f for f in walk.get("hardFail", [])
+        if str(f).startswith("J13/") or str(f).startswith("J13-")]
+print("J13 screens: " + (", ".join(names) or "none"))
+for f in hard:
+    print("J13 hardFail: " + str(f))
+if hard:
+    print("walk-mutant: J13 red: %d hard failure(s)" % len(hard))
+    sys.exit(1)
+
+# The two PR legs run in order and each shot's notes are the steps since the
+# previous shot, so the shot is only evidence when its own notes read the tab.
+required = ["pr-cold", "pr-refresh", "pr-back", "pr-forward", "pr-open", "pr-back-sheet"]
+found, missing, order = {}, [], []
+for name in required:
+    at = [i for i, n in enumerate(names) if n.endswith("-" + name)]
+    if not at:
+        missing.append(name)
+        continue
+    found[name] = screens[at[-1]]
+    order.append(at[-1])
+if order != sorted(order):
+    missing.append("the six PR shots in walk order (got " + ", ".join(names) + ")")
+
+
+def read(shot, prefix, *needles):
+    if shot not in found:
+        return False
+    notes = [str(n) for n in found[shot].get("notes", [])]
+    return any(n.startswith(prefix) and all(x in n for x in needles) for n in notes)
+
+
+def read_pr_tab(shot, gone=False):
+    return read(shot, "gone " if gone else "waited for ", "aria-selected", "Pull")
+
+
+# Cold: the address is read back and the PR tab is the selected one.
+if not read("pr-cold", 'search "?panel=pr"'):
+    missing.append("the cold ?panel=pr search on pr-cold")
+if not read_pr_tab("pr-cold"):
+    missing.append("the selected PR tab on pr-cold")
+# The reload lands on the same tab.
+if not read_pr_tab("pr-refresh"):
+    missing.append("the selected PR tab after the reload on pr-refresh")
+# Back closes only the panel: the query is gone, the tab is gone, the
+# conversation is on screen.
+if not read("pr-back", 'search ""', "^$"):
+    missing.append("the cleared query on pr-back")
+if not read_pr_tab("pr-back", gone=True):
+    missing.append("the PR tab leaving the screen on pr-back")
+if not read("pr-back", "waited for css=[role=region]"):
+    missing.append("the conversation region on pr-back")
+# Forward brings the tab back.
+if not read("pr-forward", "history forward"):
+    missing.append("the Forward press on pr-forward")
+if not read("pr-forward", 'search "?panel=pr"'):
+    missing.append("the ?panel=pr search on pr-forward")
+if not read_pr_tab("pr-forward"):
+    missing.append("the selected PR tab after Forward on pr-forward")
+# The in-session press gives the panel the same address, and Back closes only
+# the panel.
+if not read("pr-open", 'search "?panel=pr"'):
+    missing.append("the in-session ?panel=pr search on pr-open")
+if not read_pr_tab("pr-open"):
+    missing.append("the selected PR tab after the action-sheet press")
+if not read("pr-back-sheet", 'search ""', "^$"):
+    missing.append("the cleared query on pr-back-sheet")
+if not read_pr_tab("pr-back-sheet", gone=True):
+    missing.append("the PR tab leaving the screen on pr-back-sheet")
+if not read("pr-back-sheet", "waited for css=[role=region]"):
+    missing.append("the conversation region on pr-back-sheet")
+if missing:
+    print("walk-mutant: J13 red: the walk never read " + ", ".join(missing))
+    sys.exit(1)
+print("walk-mutant: J13 green: the PR tab is an address — cold, refreshed, Forward, "
+      "and Back closes only the panel")
 PY
   exit $?
 fi

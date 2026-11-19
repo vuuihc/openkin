@@ -44,6 +44,7 @@ import {
   noteLabelKey,
   noteNeedsAttribution,
   normalizeModel,
+  prettyToolName,
   progressRows,
   roundEvidenceByTurn,
   shouldShowGenericThinking,
@@ -718,9 +719,6 @@ function AgentTurn({
               {tr("chat.streaming")}
             </span>
           )}
-          {showThinking && !hasPartial && (
-            <span className="mt-px text-caption text-kin-muted">{tr("chat.thinking")}</span>
-          )}
         </div>
 
         {items.map((item) => {
@@ -817,7 +815,9 @@ function AgentTurn({
           }
         })}
 
-        {showThinking && !hasPartial && <ThinkingDots />}
+        {/* One wait cue: the dots. The words are the cue's accessible name, not a
+            second visible line saying the same thing. */}
+        {showThinking && !hasPartial && <ThinkingDots label={tr("chat.thinking")} />}
       </div>
     </div>
   );
@@ -1055,8 +1055,9 @@ function ThinkingRow({ speaker, model }: { speaker: string; model?: string }) {
       <div className="flex-1 min-w-0 flex flex-col gap-1.5 pt-0.5">
         <div className="flex items-start gap-2">
           <AgentIdentity name={meta.label} model={model} />
-          <span className="mt-px text-caption text-kin-muted">{tr("chat.thinking")}</span>
         </div>
+        {/* The wrapper carries the sentence for a screen reader; the dots are
+            the one visible cue. */}
         <ThinkingDots />
       </div>
     </div>
@@ -1079,12 +1080,13 @@ function AgentIdentity({ name, model }: { name: string; model?: string }) {
   );
 }
 
-function ThinkingDots() {
+function ThinkingDots({ label }: { label?: string }) {
   return (
     <div
       className="inline-flex items-center gap-1.5 h-7 px-3 rounded-2xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] w-fit"
       role="status"
       aria-live="polite"
+      aria-label={label}
     >
       <span className="kin-dot" style={{ animationDelay: "0ms" }} />
       <span className="kin-dot" style={{ animationDelay: "160ms" }} />
@@ -1132,58 +1134,60 @@ function ProgressCard({
   const [openStep, setOpenStep] = useState<string | null>(null);
   const details = summarizeProgressDetails(steps);
   const status = summarizeProgressStatus(steps, running);
-  const activity = details.toolCounts || tr("chat.progress.notes", { count: details.noteCount });
+  const hasFailure = status.state === "failed" || status.state === "partial_failed";
 
+  // What is being called right now, not every call the run ever made: the
+  // present tense has to stay true while the reader is looking at it.
+  const calling = rows
+    .flatMap((row) =>
+      row.step.kind === "tool" && row.step.status === "running"
+        ? [prettyToolName(row.step.name)]
+        : [],
+    )
+    .join(" · ");
+
+  const notesSentence = tr("chat.progress.notes", { count: details.noteCount });
+
+  // The failures the state was derived from: tools on a card that holds any,
+  // the notes themselves on a card that holds only notes.
+  const failed = status.failedTools + status.failedNotes;
+
+  // One sentence for the whole run. Composition rules, in order: a live run
+  // names the call still in flight, and only that — the moment every call has
+  // returned it says what it called, because "Calling" over a settled call is
+  // a lie; a failed run says how many failed (never silently); a settled run
+  // says what it called. A card that only ever held notes says how many,
+  // because there is no call to name.
   const summary = (() => {
-    if (status.state === "running") {
-      return tr("chat.progress.summaryRunning", { activity });
+    if (status.state === "running" && calling) {
+      return tr("chat.progress.summaryRunning", { activity: calling });
     }
     if (status.state === "failed") {
-      return tr("chat.progress.summaryFailed", { activity });
+      // A note-only run fails through its notes; the count follows the same
+      // steps the state came from, so this is never "0 failed".
+      return tr("chat.progress.summaryFailed", { failed });
     }
     if (status.state === "partial_failed") {
       return tr("chat.progress.summaryMixed", {
-        done: status.doneTools,
-        failed: status.failedTools,
-        activity,
+        failed,
+        activity: details.toolCounts || notesSentence,
       });
     }
-    return tr("chat.progress.summaryDone", { activity });
+    return details.toolCounts
+      ? tr("chat.progress.summaryDone", { activity: details.toolCounts })
+      : notesSentence;
   })();
 
-  const failed = status.state === "failed";
-  const partialFailed = status.state === "partial_failed";
-  const statusTone =
-    // 15% is the ceiling for a status tint that carries ink — the card's own
-    // step rows are `text-kin-muted`, and at 30% that caption measured 3.8:1 in
-    // the light scheme. See `tokens.test.ts`, "certifies every ink on a tint".
-    status.state === "running"
-      ? "border-kin-blue/25 bg-kin-blue/15"
-      : failed || partialFailed
-        ? "border-kin-red/25 bg-kin-red/5"
-        : "border-[var(--kin-hairline)] bg-[var(--kin-fill)]";
-
-  const badgeLabel =
-    status.state === "running"
-      ? tr("chat.progress.running")
-      : failed
-        ? tr("chat.progress.failed")
-        : partialFailed
-          ? tr("chat.progress.partialFailed")
-          : tr("chat.progress.done");
-
-  const badgeTone =
-    status.state === "running"
-      ? "bg-kin-blue/15 text-kin-blue-ink"
-      : failed || partialFailed
-        ? "bg-kin-red/15 text-kin-red-ink"
-        : "bg-[var(--kin-fill-strong)] text-kin-muted";
+  // Nothing behind the fold: there is no line to draw.
+  if (rows.length === 0) return null;
 
   return (
-    <div className={`rounded-xl border ${statusTone} overflow-hidden`}>
-      {/* The card's header is a full-width disclosure on the console's facade;
-          the row's own geometry stays on the content span, which is where Astryx
-          puts a button's children. */}
+    <div>
+      {/* The run's whole face is one line. The state chip and the "N steps
+          collapsed" label each repeated what the sentence already said; the dot
+          is the only status mark left, and only while it means something (a
+          call is running, or something failed). The line is still a full-width
+          disclosure on the console's facade. */}
       <Button
         variant="quiet"
         onClick={() => {
@@ -1193,80 +1197,47 @@ function ProgressCard({
           else setCollapsed((v) => !v);
         }}
         aria-expanded={expanded}
-        className="flex w-full justify-start rounded-sm p-0 text-left text-body font-normal cursor-pointer hover:bg-transparent"
+        className="flex w-full justify-start rounded-md p-0 text-left text-caption font-normal cursor-pointer hover:bg-transparent"
       >
-        <span className="flex w-full items-center gap-2 px-3 py-2 transition-colors hover:bg-[var(--kin-fill-strong)]">
+        <span className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-kin-muted transition-colors hover:bg-[var(--kin-fill)]">
+          {status.state === "running" && (
+            <span
+              className="w-1.5 h-1.5 flex-none rounded-full bg-kin-blue animate-breathe"
+              aria-hidden="true"
+            />
+          )}
+          {hasFailure && (
+            <span
+              data-progress-state={status.state}
+              className="w-1.5 h-1.5 flex-none rounded-full bg-kin-red"
+              aria-hidden="true"
+            />
+          )}
           <span
-            className={[
-              "flex-none text-micro font-semibold uppercase tracking-label px-1.5 py-0.5 rounded",
-              badgeTone,
-            ].join(" ")}
+            className={["min-w-0 flex-1 truncate", hasFailure ? "text-kin-red-ink" : ""].join(" ")}
+            title={summary}
           >
-            {status.state === "running" ? (
-              <span className="inline-flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
-                {badgeLabel}
-              </span>
-            ) : (
-              badgeLabel
-            )}
+            {summary}
           </span>
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            {/* One line, cut with an ellipsis. The summary is a list of counts
-                ("list 1 × · read 1 × · edit 1 ×"); letting it wrap on a phone
-                broke between a tool name and its count and made the row two
-                ragged lines tall while the fold label beside it stayed put. The
-                full text is the tooltip and the steps are one tap away. */}
-            <span className="flex min-w-0 items-baseline gap-2">
-              <span className="truncate font-medium text-kin-text" title={summary}>
-                {summary}
-              </span>
-              {!running && item.durationMs != null && (
-                // The settled face of the run: one number that does not change
-                // once the turn is done. A live card never gets one — a clock
-                // that does not tick would be a lie.
-                <span
-                  className="flex-none text-caption font-normal tabular-nums text-kin-muted"
-                  data-progress-duration={item.durationMs}
-                >
-                  · {formatDuration(item.durationMs)}
-                </span>
-              )}
+          {!running && item.durationMs != null && (
+            // The settled face of the run: one number that does not change once
+            // the turn is done. A live card never gets one — a clock that does
+            // not tick would be a lie.
+            <span
+              className="flex-none tabular-nums text-kin-muted"
+              data-progress-duration={item.durationMs}
+            >
+              · {formatDuration(item.durationMs)}
             </span>
-            {!expanded && details.latestNote && running && (
-              <span
-                className="truncate text-caption font-normal text-kin-muted"
-                title={details.latestNote}
-              >
-                {details.latestNote}
-              </span>
-            )}
-          </span>
-          <span className="flex-none text-caption font-normal text-kin-muted">
-            {/* What is behind the fold and how much of it, rather than the bare
-                word "expand": the button already says it is a toggle. */}
-            {expanded
-              ? tr("chat.progress.hide")
-              : steps.length > 0
-                ? tr("chat.progress.collapsed", { count: steps.length })
-                : tr("chat.progress.expand")}
-          </span>
+          )}
+          {expanded && <span className="flex-none text-kin-muted">{tr("chat.progress.hide")}</span>}
         </span>
       </Button>
       {expanded && (
-        // `divide-y` separates the rows from each other, and this line separates
-        // the first of them from the summary above — the two faces are the same
-        // level, so the rule draws it. The tint below is not a level, and how
-        // far it is from one depends on the tone: the numbers here are the
-        // *settled* card (`--kin-fill`), where 30% `--kin-elevated` composites
-        // to exactly the card's value in the light scheme (245,245,245 on
-        // 245,245,245) and to one 8-bit step in the dark one. Measured across
-        // the three tones the separation runs 0.00 L* (light, settled) to 2.08
-        // (dark, failed, whose `--kin-red/5` card is the one the tint actually
-        // moves away from), so the tint cannot be relied on for the boundary in
-        // any of them — which is why removing this border left the header and
-        // the first step running together in both schemes.
-        <div className="border-t border-[var(--kin-hairline)] bg-kin-elevated/30 divide-y divide-[var(--kin-hairline)]">
+        // The steps are indented under the sentence rather than boxed in it:
+        // the line reads as prose, and the rule says where the detail starts.
+        // `divide-y` separates the rows from each other.
+        <div className="mt-0.5 ml-3 border-t border-[var(--kin-hairline)] divide-y divide-[var(--kin-hairline)]">
           {rows.map(({ step, depth, index }) =>
             step.kind === "tool" ? (
               <ToolStepRow
@@ -1322,7 +1293,9 @@ function NoteStepRow({
         : "bg-kin-green";
   // Where it came from, not what it reads like: thinking and narration are the
   // same shape of text, and only the event that carried them says which is which.
-  const label = tr(noteLabelKey(note.source));
+  // Narration has no label: "note" in front of a sentence the agent plainly said
+  // tells the reader nothing the sentence does not.
+  const labelKey = noteLabelKey(note.source);
   const attribution = noteNeedsAttribution(note, hostSpeaker)
     ? [agentAvatarMeta(note.speaker).label, note.model].filter(Boolean).join(" · ")
     : "";
@@ -1347,7 +1320,11 @@ function NoteStepRow({
         </>
       )}
       <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`} />
-      <span className="font-mono text-caption text-kin-muted flex-none pt-px">{label}</span>
+      {labelKey && (
+        <span className="font-mono text-caption text-kin-muted flex-none pt-px">
+          {tr(labelKey)}
+        </span>
+      )}
       {attribution && (
         // No width of its own: the row's text keeps `flex-1`, so a long
         // attribution truncates itself rather than squeezing the note.

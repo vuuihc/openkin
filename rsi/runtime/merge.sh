@@ -1100,8 +1100,12 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
   if [ "$(cut -d' ' -f1 "$UXV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$UXV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f3 "$UXV" 2>/dev/null)" = "$MAINUI" ]; then
     say "#$N $SLUG: UX gate carried over (PR diff and origin/main:ui unchanged)"
   else
-    # Reuse a strong UX review for this same head SHA (do not re-call Hydrogen/sol).
-    if [ -s "$STATE/merge/$SLUG.strong-ux" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong-ux")" = "$SHA" ] && [ -s "$STATE/merge/$SLUG.strong-ux.txt" ]; then
+    # Reuse a strong UX review for this same head SHA (do not re-call Hydrogen/sol), but only
+    # when the gate's own decision accepts the cached text: reusing an ungrounded below-threshold
+    # score is #383 again (its FAIL sends the PR back, its PASS merges it) one tick after the gate
+    # said "no verdict". On any failure fall through to ux-gate.sh, which re-walks and re-asks.
+    if [ -s "$STATE/merge/$SLUG.strong-ux" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong-ux")" = "$SHA" ] && [ -s "$STATE/merge/$SLUG.strong-ux.txt" ] \
+       && bash "$RSI_DIR/runtime/ux-gate.sh" --accepts-review "$STATE/merge/$SLUG.strong-ux.txt"; then
       say "#$N $SLUG: reuse strong UX review for ${SHA:0:8} (verdict=$(awk '{print $2}' "$STATE/merge/$SLUG.strong-ux")) — head unchanged"
       mkdir -p "$STATE/ux/$SLUG"
       cp "$STATE/merge/$SLUG.strong-ux.txt" "$STATE/ux/$SLUG/review.txt"
@@ -1113,6 +1117,8 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
       mkdir -p "$STATE/ux/$SLUG"
       echo "ux reviewer held: no strong reviewer available" > "$STATE/ux/$SLUG/unavailable.txt"
     else
+    [ -s "$STATE/merge/$SLUG.strong-ux.txt" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong-ux")" = "$SHA" ] \
+      && say "#$N $SLUG: cached strong UX review for ${SHA:0:8} fails the UX gate's own decision (grounding/threshold) — running the gate"
     say "#$N $SLUG: UX gate (journey walk + vision review)"
     # Outer backstop, not the walk bound: ux-gate re-walks a red once (confirm),
     # and that second walk has the same RSI_WALK_MAX_S ceiling, so the default
