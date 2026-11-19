@@ -5,6 +5,7 @@ import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { Task } from "../api/client";
 import { setLocale } from "../i18n";
+import { BRAND_MARK_PATH } from "../components/BrandMark";
 import TaskDetailPage from "./TaskDetailPage";
 
 /**
@@ -164,15 +165,21 @@ describe("a cold entry into a conversation", () => {
     expect(screen.getByRole("button", { name: "Session actions" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Switch session/ })).toBeNull();
     expect(screen.getByTestId("composer").getAttribute("data-disabled")).toBe("true");
-    expect(screen.getByTestId("chat-stream").getAttribute("data-loading")).toBe("true");
+    // The transcript slot is a visible, named wait surface; the scroller (and
+    // its invisible-to-the-reader `ThinkingRow`) is not mounted at all. See
+    // `TaskDetailPage.entryWait.dom.test.tsx` for the path this covers.
+    expect(screen.getByRole("status", { name: /Loading/ })).toBeTruthy();
+    expect(screen.queryByTestId("chat-stream")).toBeNull();
   });
 
-  it("removes the transcript loading state when the detail answers", () => {
+  it("removes the wait surface and mounts the transcript when the detail answers", () => {
     open(cached);
-    expect(screen.getByTestId("chat-stream").getAttribute("data-loading")).toBe("true");
+    expect(screen.getByRole("status", { name: /Loading/ })).toBeTruthy();
+    expect(screen.queryByTestId("chat-stream")).toBeNull();
     act(() => {
       store.resolve({ ...cached, title: "Fresh title", status: "succeeded" });
     });
+    expect(screen.queryByRole("status", { name: /Loading/ })).toBeNull();
     expect(screen.getByTestId("chat-stream").getAttribute("data-loading")).toBe("false");
   });
 
@@ -204,13 +211,17 @@ describe("a cold entry into a conversation", () => {
     expect(screen.queryByTestId("mobile-header")).toBeNull();
     expect(screen.queryByTestId("composer")).toBeNull();
     const status = screen.getByRole("status", { name: /Loading/ });
-    expect(status.querySelector("svg")).toBeTruthy();
+    // The same tile and K as the boot screen, so boot → first paint is one
+    // identity (BrandMark pins both against ui/index.html).
+    expect(status.querySelector("svg path")?.getAttribute("d")).toBe(BRAND_MARK_PATH);
   });
 
   it("keeps the slow-connect hint with the waiting mark and removes both on detail arrival", () => {
     slow.value = true;
     open();
-    expect(screen.getByRole("status", { name: /Loading/ }).querySelector("svg")).toBeTruthy();
+    expect(
+      screen.getByRole("status", { name: /Loading/ }).querySelector(`path[d="${BRAND_MARK_PATH}"]`),
+    ).toBeTruthy();
     expect(screen.getByText(/Still connecting/)).toBeTruthy();
     act(() => {
       store.resolve({ ...cached, title: "Fresh title", status: "succeeded" });
