@@ -82,6 +82,11 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
     that encloses it, kills its process tree on expiry, and reports "no
     verdict" instead of a fabricated one; a path with no bound is a defect
     even if it has never hung.
+14. **A delivered item is claimed once.** An item already present in the
+    durable delivery record cannot be claimed or re-delivered; the claim and
+    the delivery record are the same write, and a deliberate redo needs an
+    explicit flag and a note. Queue readers consult that record, never prose
+    status notes.
 
 ## Development workflow
 

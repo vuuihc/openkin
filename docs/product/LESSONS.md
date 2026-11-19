@@ -71,11 +71,12 @@ seen: 1
 证据：`fff2c11d`
 
 ## 2026-10-31 · 一次性焦点标记要在落点消费
-seen: 1
+seen: 2
 
 发生了什么：从会话返回列表时，为了把焦点放回原来那一行，页面在每次列表更新时重放标记。
 标记被聚焦后没有清掉，之后任何一次打字或实时更新都会把光标从搜索框抢回那一行
 （KIN-CONTINUE-001 五轮复审）。
+2026-11-20 再次出现：快速打开在两处重置高亮——答案到达时一次，被动 effect 里按答案对象又重置一次；后一次晚一帧生效，在这期间按下的方向键把高亮移回第一行，Enter 打开的不是高亮文件（`9567f6ba`）。修复删掉迟到的 effect；第一条回归测试因 `findByText`/`fireEvent` 被 act 包裹、迟到 effect 总在按键前 flush 而无法变红，最终用 MutationObserver 在“已绘制、effect 未 flush”的窗口注入方向键才复现。
 
 为什么没拦住：测试只证明"返回后焦点在那一行"，没测"落点之后不再抢"。
 
@@ -592,10 +593,11 @@ seen: 1
 证据：#96（`07e9b3b7`，669 行）对比 #97–#108（0 行），`rsi/state/merged.log` 02:34–07:39
 
 ## 2026-11-16 · 同一份交付只投递一次，认领随落库一起释放
-seen: 2
+seen: 3
 
 发生了什么：`state/cloud/design-system-gallery.json` 在 #96 合入后没有被释放，#97–#108 的重复投递就是这么来的。同一时期还有一类同源错误：`slices.py ready` 在 lane 退出后就把仍有开放 PR 的切片重新列为 ready（15:22 记录：N2/T1/L1/P1/Q3a 同时被列为 ready 而它们都有 live PR）。
 2026-11-19 再次出现：squash merge 不会把分支提交带进 main，`git diff origin/main...rsi/<slug>` 在 PR 合入后仍非空；残留的 `state/sendback/<slug>.md` 让 `lane.sh` autofill 为已经在 main 上的工作认领了一个幽灵 rework lane（lane 3 `cancelled: stale sendback`），损失一个 worker 轮次与一个 merge-lane 槽，merge.sh 也在该文件存在时拒绝已修好的 PR；`6ea5b433` 在合入成功时把 sendback 归档到 `state/sendback/done/`，autofill 先读 PR 状态再决定是否认领。
+2026-11-20 再次出现：认领端仍不读落库记录——一个通知文案条目在 PR 合入并发版数小时后还写着“queued for reproduction”，只靠人工重读产品代码才拦住一次对已完成工作的付费重做，提交正文记 “Prose notes failed four times in one day”（`43ed7134`）。`lanes.py claim` 与 `cloud-claim` 现在先读 `$STATE/merged.log`，已在其中的条目以 exit 9 拒绝并点名 PR 与 sha，只有 `--redeliver` 允许有意重做，`--mode rework` 跳过（rework 的 PR 本来就开着）。
 
 为什么没拦住：“已交付”只写在 `merged.log` 里，投递端（cloud/NAS ingest、scheduler）在决定要不要再干一次时不读它；认领的释放挂在合并流程之外，合入成功并不必然触发。
 
@@ -649,9 +651,10 @@ seen: 1
 证据：`rsi/state/last_fill`（01:25:48）、`rsi/runtime/runs/launchd-pulse.log`
 
 ## 2026-11-17 · 限流与额度只看结构化错误，不读正文
-seen: 1
+seen: 2
 
 发生了什么：01:04 的 Hydrogen-medium 评审本身 `SUCCESS` 且返回 `UX_VERDICT: PASS`，正文里提到 “quota-wait indicators”，`dispatch.sh` 的 `note_agy_limit()` 因此写下 45 分钟的 `state/agy-limited-until`，把随后的 UX 评审全部改道 Kimi（当日 ¥57.82 / ¥80），直到 01:41 人工清除（`478bd4be`）。
+2026-11-19 再次出现（同一形状换了状态）：压缩是否完成原先靠匹配英文标题，失败的一次被读成“context compacted”；`1444792c` 让 `session.compaction` 事件携带 `compaction_id`、`status` 与 summary，控制台按 `completed` / `in_progress` / `failed|cancelled` 落定，只有旧适配器才回退到标题匹配。
 
 为什么没拦住：限额判断用 `grep -i quota` 扫整段模型输出，而模型输出是自然语言——既会引用被评审产品里的词，也会写解释性文字；“`status=SUCCESS` 与限额互斥”这一事实没有被先用上。
 
@@ -717,9 +720,10 @@ seen: 1
 证据：`46cfbcd1`（2026-11-18）
 
 ## 2026-11-18 · 浮层盖住列表根页时，用真实指针点一次种子行
-seen: 1
+seen: 2
 
 发生了什么：390×844 的四个 tab 根页上，浮动的 `ApprovalCard` 盖住会话行；`elementFromPoint` 在种子上返回面板的「打开任务」按钮，列表行根本点不开（needs-ceo 02:10）。`#252` 把根页改成一条 ≥44px 的「等待处理」横条，完整卡片留在被推入的对话里。
+2026-11-19 再次出现：同一个浮动审批卡（fixed z-40，同 z 下靠后的 DOM 顺序胜出）盖住了打开中的面板——390 下面板全宽，文件正文被盖掉一半；1100 下卡片落在面板列上。`5ef981de` 让 `PanelSurface` 把可见面板数登记进 `panelPresence`，有面板时卡片只留一行横条；返工又补了三处：隐藏面板不得登记（会话宿主会保留已访问会话的挂载）、横条按列面板宽度让位、测量取最高的 docked 区域并在面板消失时丢掉过期 band。
 
 为什么没拦住：J7 走查用 focus+Enter 打开行，键盘绕过了命中测试；DOM 测试只证明卡片存在，没有断言被盖住的行仍然可点。
 
@@ -774,9 +778,10 @@ seen: 2
 证据：`b4ee0d5b`（#263）；`rsi/state/needs-ceo.md` 2026-11-18 04:55
 
 ## 2026-11-18 · 把一次失败计进 rework 之前，先在同一棵树上确认它能复现
-seen: 1
+seen: 2
 
 发生了什么：一条 J9 滚动失败曾让 PR #296 被计 9 分钟与 $0.89，而三次独立走查都无法复现；`8e23d244` 因此加了 confirm：只重走失败行点名的 journey，一次，同一棵树，flaked 记进 sendback 与 `scores.json`，复现的仍然阻塞。同一天 `9d03f1b5` 发现确认器只认 `<journey>/<viewport>: …` 行，而截图检查把硬失败写成 `<step>: blank page`（step 里已经含 journey，如 `J11-phone-03-switch-back`）；J11 的确认重走零硬失败，PR #330 仍被计一个 rework 轮次——同一类假红又来一次。
+2026-11-19 再次出现：gate 等 `state/.gate.lock` 超时（1800 s）本是循环自己的争用，却被记成“gate failed: gate lock timeout”算在分支头上——一个 rework lane、三次尝试之一、一个 worker 去改没人证明有错的代码（`c8e66893`，#387）；同一天确认重走在同一棵树上 `reproduced=0, flaked>0`，评审者拿到的仍是首次走查的 flaked 截图，PR #389 据此被打 density=2 feedback=2 并 block（`c22dc001`）。两处都改成“没有复现证据就不计费”：超时转 SKIP/exit 0 并留一次 needs-ceo 标记；确认侧把 flakes 列为非证据、只在确认目录或 `walk.json` 上 ground，必要时 exit 2 而不是 sendback。
 
 为什么没拦住：确认器按想象中的日志格式写解析，没有拿真实的失败行样本验证；“能确认”被实现成“能解析一种前缀”，其余形态静默落回计费路径；负向用例只覆盖了能被解析的那一种。
 
@@ -806,6 +811,28 @@ seen: 1
 
 证据：`1505de69`（#350，2026-11-19）
 
+## 2026-11-19 · 扫描目录要容忍条目在列举与读取之间消失
+seen: 1
+
+发生了什么：`autofill` 用 `os.path.getmtime` 给 `state/sendback/*.md` 排序，而 `merge.sh` 同时把已落地的 sendback 归档进 `sendback/done/`。一个文件在 glob 与 stat 之间消失就抛 FileNotFoundError，python 非零退出，`done < <(sendbacks_by_age)` 进程替换什么也不产出，这一轮便宣称没有 rework——所有排队 sendback 都丢了一个 pulse，不只是消失的那一个（`efab74f2`）。
+
+为什么没拦住：排序假设列举到的路径在 stat 时仍然存在；进程替换把子进程失败折叠成空输出，而下游把“空”读成“没有工作”，两者无法区分。
+
+规则：扫描—排序—读取的批处理逐条 stat，ENOENT 只跳过该条，其余条目照常输出且整轮退出 0；扫描失败与扫描为空必须可区分（打印 scanned/failed 计数），并用确定性 seam 覆盖“列举之后被移走”的条目。
+
+证据：`efab74f2`（#402）（2026-11-19）
+
+## 2026-11-20 · 变体工具类要在编译产物里断言有规则，安全区用注入值量
+seen: 1
+
+发生了什么：`pt-safe` 是 `@layer utilities` 里的普通类，不是 Tailwind 的 `@utility`，所以 `md:pt-safe`（壳层根）与 `max-md:pt-safe`（三个早退状态、重连横条）都不产出任何 CSS；768–1023 的 iPad 段与 restoring / load error / not found 三个状态渲染在状态栏下面，而所有类名字符串测试都是绿的（构建产物里 `.md\:pt-safe`/`.max-md\:pt-safe` 从 0 条选择器变成各 1 条）。`40b7c77e` 另外证明：无头 Chrome 报 `env(safe-area-inset-top)=0`，之前几次都复现不了；CDP 注入 59px 后才看到面板首行从 y=0 起、44×44 关闭按钮在状态栏下不可点（注入后 header top 0→59，关闭按钮 y=67..111）。`f3a2258d` 把 `pt-safe` 改成顶层 `@utility`，`topInset` 套件编译真实样式表与真实配置，对树里用到的每个 `*pt-safe` token 断言生成规则；复核还抓出注释里“md 以上由 `md:pt-safe` 花掉 inset”的假不变量，改成实测事实并让守卫拒绝任何 `pt-safe` 变体。
+
+为什么没拦住：测试断言类名在不在 JSX 里，没有断言构建后的 CSS 有对应选择器；自定义类放在 `@layer utilities` 对裸类名有效，对变体静默失效。安全区在无头环境恒为 0，“没看到问题”被当成“没有问题”。
+
+规则：任何经变体（`md:`、`max-md:` 或任意断点）使用的自定义工具类，必须在构建后的 CSS 里断言目标选择器存在，类名断言不算验证；安全区/刘海这类环境值用 CDP 注入真实数值（如 top=59、bottom=34）再量首个可交互元素的位置与命中，并证明关闭/返回控件可达。
+
+证据：`f3a2258d`（#414）、`40b7c77e`（#412）（2026-11-20）
+
 ---
 
 ## 升级记录
@@ -815,7 +842,7 @@ seen: 1
 | 快捷键属于最靠近它的那个面 | 4 | 已升级为 `TASTE.md` 规则 16 |
 | 点击在 jsdom 里到不了按钮 | 1 | 未升级；已写进 KIN-CONTINUE-001 / KIN-START-001 的验收表 |
 | 给用户看的错误只能是提供方自己的话 | 1 | 未升级；已写进 KIN-CONTINUE-001 的 Do not |
-| 一次性焦点标记要在落点消费 | 1 | 未升级；第三次出现时进 `AGENTS.md` |
+| 一次性焦点标记要在落点消费 | 2 | 未升级；`9567f6ba` 已删掉迟到的重置 effect 并补了绘制/effect 竞争探针，下一次加一次性标记先测“落点后再来一次更新” |
 | 弹出层的焦点要等它真的挂载 | 1 | 未升级；三处已有回归测试 |
 | 测试只证明元素在，不证明行为发生 | 3 | 未升级；第三次出现在 2026-11-11，跨 2 个日期，满 3 个日期再升级；送审前 mutant 不变 |
 | 验收探针只能把本次受邀回合自己的输出算作证据 | 1 | 未升级；28 个 mutant 在 `probe/kin-probe-w4b/mutants.json` |
@@ -844,7 +871,7 @@ seen: 1
 | 串行检查的退出码要逐个传递，不能由最后一条覆盖 | 1 | 未升级；`1f630884` 已执行生产 job 的失败组合 |
 | AST 与 ESLint 守卫要验证语言绑定和真实配置语义 | 1 | 未升级；`568d7117` 已补四条红测，下一次新规则先列旁路 |
 | 合入必须改变树 | 1 | 未升级；`merge.sh` 需补 changedFiles > 0 断言，空 PR 关闭不合 |
-| 同一份交付只投递一次，认领随落库一起释放 | 2 | 未升级；`6ea5b433` 已在合入成功时归档 sendback、autofill 先读 PR 状态；下一次新增队列输入先问“完成状态记在哪” |
+| 同一份交付只投递一次，认领随落库一起释放 | 3 | AGENTS.md「Agent best practices」第 14 条；`43ed7134` 已让 `claim`/`cloud-claim` 先读 `merged.log` 并以 exit 9 拒绝已合入条目；仍需一条能复现“已落库条目再次被认领必须拒绝”的回归测试，本轮不改代码 |
 | 循环脚本安装要么整份要么不装 | 2 | 未升级；`node-stamp.sh` 已按整份恢复，`1ff7749b` 已在 `common.sh` 自愈可执行位；下一次安装脚本先断言存在性、语法与可执行位 |
 | gate 日志要留下失败测试的名字 | 1 | 未升级；`gate.sh` `step()` 已保留 FAIL 标识，下一次改日志先验分类器 |
 | 判断证据缺失要列目录，不要猜文件名 | 1 | 未升级；`rsi/roles/reviewer.md` 已写抗体 |
@@ -853,20 +880,23 @@ seen: 1
 | 发布流水线在第一个真 tag 之前先整条跑通一次 | 1 | 未升级；下一次改 `.github/workflows/` 先用预发布 tag 或 `workflow_dispatch` 跑通，并核对 `--version` 与 tag 一致 |
 | 列表响应按列表要用的字段投影，并在真实数据量上对着链路上限断言 | 1 | 未升级；`987d5788` 已给 routines 分页读加 summary 投影，下一次新增列表先把同一实体的所有读路径列出来并对 relay 上限断言 |
 | 合并或变基的结果当成一次新改动，提交前重跑 gate | 1 | 未升级；下一次解冲突或合并后先在合并树上跑 tsc/测试/格式/库存基线并重建 `web/dist`，ratchet 上调须在正文写明原因 |
-| 限流与额度只看结构化错误，不读正文 | 1 | 未升级；`note_agy_limit()` 已改为只认结构化错误，回归用例在 `rsi/runtime/tests/` |
+| 限流与额度只看结构化错误，不读正文 | 2 | 未升级；`note_agy_limit()` 只认结构化错误，`1444792c` 已让压缩状态按协议字段落定；下一个状态先问“有没有结构化字段” |
 | 测量必须在 `origin/main` 的导出树上做 | 2 | 未升级；DREAM 夜报与 planner 卡已写抗体，下一次测量前先 `git archive` |
 | 只读评审者的搜索要限定在 state 目录 | 4 | AGENTS.md「Agent best practices」第 13 条；`merge.sh` 的 `$RB` 与 codex 看门狗已就位，仍需一条能复现“无界等待必然被信号终止”的回归测试，本轮不改代码 |
 | 同一份共享文件一轮只能有一个写者 | 2 | 未升级；baseline / locale 的单写者规则已进 DECISIONS，第三次时进 AGENTS.md |
 | 一个字段有多个展示副本时，改名要逐面接线并验证实时重绘 | 1 | 未升级；`taskDisplayTitle` 已收敛取名表达式，下一次新增可编辑字段先列展示副本并写“挂着时改名立即重绘”的测试 |
 | 截断用户或 PR 文本要按字符边界，不按字节 | 1 | 未升级；三处截断已改 `iconv -c`，下一次切文本先加一条中英混排的边界用例 |
-| 浮层盖住列表根页时，用真实指针点一次种子行 | 1 | 未升级；`FloatingApproval` 已改横条，下一次在根页加浮层先写 `elementFromPoint` 断言 |
+| 浮层盖住列表根页时，用真实指针点一次种子行 | 2 | 未升级；`panelPresence` 已让浮动卡在有面板时只留横条，并覆盖隐藏面板与列面板两种形态；下一次新增浮层先断言它让位给最上层 |
 | `--no-build` 走查先校验 `index.html` 与 `assets/` 同源 | 2 | 未升级；`04fa6370` 已让可构建路径在不一致时重建，下一次复用 dist 前先断言入口 chunk 存在 |
 | 仓库自带的冒烟要自己 pin 它需要的环境变量 | 1 | 未升级；`RSI_FAKE_SLOW_SECS` 已进 smoke，下一次加时间窗步骤先补 export 与完整旅程 |
 | 新增可执行脚本必须以 100755 进 git | 1 | 未升级；#254 的脚本已修正，下一次新脚本用 `--chmod=+x` 并断言 `ls-files -s` |
 | 同步/快进失败不得吞掉 | 2 | 未升级；`b8828d55` 已在 release 重建前拒绝空 SHA 与非十六进制 SHA，下一次不可逆步骤前先断言目标 SHA |
-| 把一次失败计进 rework 之前，先在同一棵树上确认它能复现 | 1 | 未升级；`8e23d244`/`9d03f1b5` 已覆盖两种失败行形态，下一次新判据先用真实日志的每种格式各跑一遍 |
+| 把一次失败计进 rework 之前，先在同一棵树上确认它能复现 | 2 | 未升级；`c8e66893` 把 gate-lock 超时转 SKIP、`c22dc001` 让评审只读确认证据；下一次新判据先用真实日志的每种格式各跑一遍 |
 | 改到受版本控制的文件或生成物时，恢复要挂满退出与信号路径 | 1 | 未升级；`25dc3d81` 已挂 EXIT/TERM/HUP/INT 并有信号回放用例，下一次写临时改动受控文件的工具先复用 `restore_dist` |
 | 调度与健康判据读瞬时状态，不读累积计数或代理指标 | 1 | 未升级；`1505de69` 已改读 VM pressure 与真实 headroom，下一次加门槛先在“历史高水位、当前正常”的样本上验证不误拒 |
+| 散文承诺要写清它断言的那一行 | 4 | 未升级；仅 2026-11-19 一个日期（4 次），`2b78ee75` 已让 STATUS 发布行由 `release-check.sh` 推导；满 3 个日期再升级 |
+| 扫描目录要容忍条目在列举与读取之间消失 | 1 | 未升级；`efab74f2` 已逐条 stat 并加 `_sendback-order` stdin seam，下一次写批处理先区分“扫描失败”和“扫描为空” |
+| 变体工具类要在编译产物里断言有规则，安全区用注入值量 | 1 | 未升级；`@utility pt-safe` 已让变体产出规则，`topInset` 套件编译真实样式表覆盖每个 `*pt-safe` token；下一次新增自定义工具类先在构建产物里断言变体选择器 |
 
 ## 2026-11-19 · 走查步骤没有契约，就能在全绿时被删掉
 seen: 2
@@ -883,11 +913,12 @@ seen: 2
 证据：`2a6eaa9e`、`3c2d4a5c`
 
 ## 2026-11-19 · 散文承诺要写清它断言的那一行
-seen: 3
+seen: 4
 
 发生了什么：一天里三次：GOAL 说「打开 PR 面板不花 GitHub 调用」而测试钉着首看查询；`PLAN.md`
 手写「4 covered / 10 approved」而注册表是 2/14；ADR 把 `migrate()` 的盖章顺序和 node→Hub 载体
 写错。三次都是复核花一整轮之后才抓到。
+2026-11-19 再次出现：STATUS 的发布行是复制来的而不是从树里读的——连续两次 fill（14:09、14:56）写着“release-check 13:16 GO, next patrol ships it”，而 `a2e645b1` 已在 13:31 发版，实时 gate 读到 unshipped 4 < 5（`2b78ee75`）。修复要求 fill §1 先跑 `release-check.sh`，把 baseline/unshipped/verdict 连同 `gate_at=` 写进 `state/last_release`，且不得改写 `node=`/`hub=`/`released_at=`。
 
 为什么没拦住：brief 和 PR 体只要求「写清楚」，没要求指出这句话对应的 `path:line` 与今天的证据。
 
