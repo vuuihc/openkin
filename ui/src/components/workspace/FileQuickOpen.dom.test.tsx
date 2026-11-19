@@ -64,10 +64,35 @@ describe("the file finder", () => {
 
     fireEvent.change(input(), { target: { value: "b" } });
     await screen.findByText("b.md");
+    // The answer's own render settles the highlight on its first row.
+    expect(input().getAttribute("aria-activedescendant")).toBe("kin-file-quick-open-list-0");
 
     fireEvent.keyDown(input(), { key: "ArrowDown" });
+    // Enter opens the row under the highlight, so check the highlight moved
+    // before the key that reads it.
+    expect(input().getAttribute("aria-activedescendant")).toBe("kin-file-quick-open-list-1");
     fireEvent.keyDown(input(), { key: "Enter" });
 
+    expect(onOpenPath).toHaveBeenCalledWith("docs/b.md");
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("keeps the highlight when the answer's effects settle after a keypress", async () => {
+    searchTaskSourceFiles.mockImplementation(() => answer(["src/a.ts", "docs/b.md"]));
+    const { onOpenPath, onClose } = renderFinder();
+
+    fireEvent.change(input(), { target: { value: "b" } });
+    await screen.findByText("b.md");
+
+    fireEvent.keyDown(input(), { key: "ArrowDown" });
+    // Let any effect the answer scheduled land before the key that reads the
+    // highlight. A reset here would silently move Enter back to the first row.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(input().getAttribute("aria-activedescendant")).toBe("kin-file-quick-open-list-1");
+
+    fireEvent.keyDown(input(), { key: "Enter" });
     expect(onOpenPath).toHaveBeenCalledWith("docs/b.md");
     expect(onClose).toHaveBeenCalled();
   });
