@@ -30,9 +30,14 @@ await esbuild.build({
   outfile: join(outdir, "preload.js"),
 });
 
-// The boot surface is a plain file, not a bundle: `showBoot()` loads it with
-// `loadFile` before the daemon answers. Copied verbatim (no processing) so it
-// stays readable and cannot pick up a build-time dependency.
+// The boot surface and its failure page are plain files, not bundles:
+// `showBoot()` loads the former before the daemon answers and
+// `showBootFailure()` loads the latter when the retry gives up. Copied
+// verbatim (no processing) so they stay readable and cannot pick up a
+// build-time dependency.
 copyFileSync(join(root, "boot.html"), join(outdir, "boot.html"));
+copyFileSync(join(root, "boot-failed.html"), join(outdir, "boot-failed.html"));
 
-console.log("desktop: bundled → dist/main.js + dist/preload.js + dist/boot.html");
+console.log(
+  "desktop: bundled → dist/main.js + dist/preload.js + dist/boot.html + dist/boot-failed.html",
+);

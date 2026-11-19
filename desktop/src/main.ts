@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { Sidecar } from "./sidecar";
 import { MainWindow } from "./window";
 import { createBootWindow } from "./boot-window";
+import { reasonFrom, retryOutcomeEffect } from "./boot-failure";
 import { AppTray } from "./tray";
 import { TrayPopover } from "./tray-popover";
 import { DaemonWS } from "./ws-client";
@@ -77,6 +78,7 @@ const boot = createBootWindow({
   hasWindow: () => mainWindow.isOpen,
   showBoot: (path) => mainWindow.showBoot(path),
   showConsole: (path) => mainWindow.enterConsole(path),
+  showBootFailure: (reason) => mainWindow.showBootFailure(reason),
   reveal: () => mainWindow.revealWindow(),
 });
 
@@ -273,7 +275,7 @@ let recovering = false;
  * retry runs in the background and wires everything up when a daemon appears.
  * A person who stopped the daemon on purpose is left alone. See daemon-retry.ts.
  */
-async function recoverWhenDaemonAppears(): Promise<void> {
+async function recoverWhenDaemonAppears(reason?: string): Promise<void> {
   if (recovering) return;
   recovering = true;
   try {
@@ -283,7 +285,15 @@ async function recoverWhenDaemonAppears(): Promise<void> {
         sidecar.isStopped || sidecar.current.state !== "unavailable",
     });
     console.log(`[kin-desktop] daemon retry → ${outcome}`);
-    if (outcome !== "ready") return;
+    const effect = retryOutcomeEffect(outcome);
+    if (effect === "failed") {
+      // Five minutes of silence is an ending. Say why on the launch surface
+      // instead of leaving the loader animating forever. `resolved` maps to
+      // "none", not a failure: Start, Stop or quit owns the state now.
+      boot.fail(reasonFrom(reason));
+      return;
+    }
+    if (effect === "none") return;
     connectWS();
     await refreshPending();
     boot.settle("ready");
@@ -566,7 +576,7 @@ if (!gotLock) {
         // answers, and keep asking in the background.
         boot.settle("unavailable");
         announceDaemonUnavailable(status.reason);
-        void recoverWhenDaemonAppears();
+        void recoverWhenDaemonAppears(status.reason);
       }
     })
     .catch((err) => {

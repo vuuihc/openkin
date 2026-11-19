@@ -16,6 +16,7 @@ import {
   appIconPath,
 } from "./config";
 import { traceStartup } from "./startup-trace";
+import { failureCopy, failureLocale, type FailureReason } from "./boot-failure";
 import {
   MIN_HEIGHT,
   MIN_WIDTH,
@@ -35,6 +36,9 @@ const DEFAULT_BOUNDS = { width: 1100, height: 760 };
 /** The wordless boot surface, copied next to the bundle by build.mjs. */
 const BOOT_PAGE = join(__dirname, "boot.html");
 
+/** The worded failure page, copied next to the bundle by build.mjs. */
+const BOOT_FAILED_PAGE = join(__dirname, "boot-failed.html");
+
 /** Chromium ERR_ABORTED — user/navigation cancelled; do not retry. */
 const ERR_ABORTED = -3;
 
@@ -47,6 +51,8 @@ export class MainWindow {
   private pendingPath = "/";
   /** The window is showing the boot page and the console has not loaded yet. */
   private booting = false;
+  /** Set when the surface being booted is the failure page rather than the loader. */
+  private failureReason: FailureReason | null = null;
   private loadRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private loadAttempts = 0;
 
@@ -117,6 +123,29 @@ export class MainWindow {
       return;
     }
     this.booting = true;
+    this.failureReason = null;
+    this.create(this.pendingPath || "/");
+  }
+
+  /**
+   * Put the worded failure page on screen after the recovery retry gave up.
+   *
+   * It replaces the boot surface in place, and `booting` stays true so a later
+   * `enterConsole()` is still the in-place console swap. The page is loaded
+   * once by the coordinator; recreating a closed window loads it again.
+   */
+  showBootFailure(reason: FailureReason): void {
+    this.booting = true;
+    this.failureReason = reason;
+    if (this.win && !this.win.isDestroyed()) {
+      // A window closed to the tray stays there: the page is updated, but a
+      // failure that arrives five minutes later must not steal focus from
+      // whatever the person moved on to.
+      const visible = this.win.isVisible();
+      this.loadFailurePage(reason);
+      if (visible) this.reveal();
+      return;
+    }
     this.create(this.pendingPath || "/");
   }
 
@@ -160,6 +189,7 @@ export class MainWindow {
   reloadWhenReady(path?: string): void {
     if (!this.win || this.win.isDestroyed()) return;
     this.booting = false;
+    this.failureReason = null;
     this.loadAttempts = 0;
     this.clearLoadRetry();
     this.navigate(path ?? this.pendingPath);
@@ -318,7 +348,8 @@ export class MainWindow {
     });
 
     if (this.booting) {
-      this.loadBootPage();
+      if (this.failureReason) this.loadFailurePage(this.failureReason);
+      else this.loadBootPage();
     } else {
       this.navigate(path);
     }
@@ -328,8 +359,25 @@ export class MainWindow {
   private loadBootPage(): void {
     if (!this.win || this.win.isDestroyed()) return;
     this.clearLoadRetry();
+    this.failureReason = null;
     console.log("[kin-desktop] boot page", this.pendingPath);
     void this.win.loadFile(BOOT_PAGE);
+  }
+
+  /**
+   * Load the local failure page. The reason is classified before it gets here
+   * (`boot-failure.ts`), so the query carries one of four fixed sentences —
+   * never the handshake text, which can name a path or a port.
+   */
+  private loadFailurePage(reason: FailureReason): void {
+    if (!this.win || this.win.isDestroyed()) return;
+    this.clearLoadRetry();
+    this.failureReason = reason;
+    console.log("[kin-desktop] boot failure page", reason);
+    const locale = app.getLocale();
+    void this.win.loadFile(BOOT_FAILED_PAGE, {
+      query: { ...failureCopy(locale, reason), lang: failureLocale(locale) },
+    });
   }
 
   private navigate(path: string): void {
