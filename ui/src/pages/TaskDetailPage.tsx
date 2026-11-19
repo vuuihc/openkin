@@ -72,7 +72,8 @@ import {
   settlePendingSendList,
   type PendingSend,
 } from "../lib/pendingSend";
-import { IconChevronDown, IconKin } from "../components/icons";
+import { IconChevronDown } from "../components/icons";
+import BrandMark from "../components/BrandMark";
 import { SlowConnectHint } from "../components/Skeleton";
 import ActionSheet, { type ActionSheetRow } from "../components/ui/ActionSheet";
 import Button from "../components/ui/Button";
@@ -266,6 +267,15 @@ export default function TaskDetailPage({
     const handed = peekPendingSend(id);
     return handed ? [handed] : [];
   });
+  /**
+   * A list row navigates in with the shell's data but not the conversation's:
+   * no events, no handed-off send, no failure yet. Until the detail answers
+   * there is nothing truthful to draw in the transcript, and the scroller is
+   * deliberately invisible until it can be positioned — so without this flag
+   * the middle of the page is simply blank. The shell above and the composer
+   * below keep drawing from `fallbackTask`.
+   */
+  const entryWait = !detail.loaded && events.length === 0 && pendingSends.length === 0 && !error;
   const [composerModel, setComposerModel] = useState("");
   const [composerPermission, setComposerPermission] = useState<PermissionMode>("default");
   // Bumped when the composer's text is changed from outside it (a queued
@@ -1854,12 +1864,8 @@ export default function TaskDetailPage({
     // yet, and centring the mark under the sensor housing is not centred.
     return (
       <div className="flex-1 flex min-h-0 flex-col items-center justify-center gap-4 bg-kin-bg px-6 max-md:pt-safe">
-        <div
-          role="status"
-          aria-label={tr("common.loading")}
-          className="kin-brand-enter flex h-16 w-16 items-center justify-center rounded-2xl bg-kin-blue"
-        >
-          <IconKin size={30} className="text-kin-on-brand" />
+        <div role="status" aria-label={tr("common.loading")} className="kin-brand-enter">
+          <BrandMark />
         </div>
         <SlowConnectHint show={slow} />
       </div>
@@ -2238,99 +2244,120 @@ export default function TaskDetailPage({
             refs, and the pill sits over the last lines rather than taking a
             row of its own — a new row would move the reading it interrupts. */}
         <div className="relative flex-1 min-h-0 flex flex-col">
-          <div
-            ref={scrollRef}
-            onScroll={onChatScroll}
-            // The focus sink the approval panel hands the keyboard back to on
-            // Esc; `-1` keeps a large scroll area out of the tab order.
-            role="region"
-            aria-label={tr("task.transcript")}
-            tabIndex={-1}
-            className={
-              scrollReady
-                ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 outline-none"
-                : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible outline-none"
-            }
-          >
-            <WorkerTimeline
-              rows={workerRows}
-              onOpenPath={onOpenWorkspacePath}
-              // A settled task has nothing left to stop; a stale running row is
-              // the poll's problem, not a button the reader can use.
-              onStop={isTerminal(task.status) ? undefined : onStopWorker}
-              stoppingKey={workerStoppingKey}
-            />
-            <ChatStream
-              events={events}
-              onOpenPath={onOpenWorkspacePath}
-              fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
-              messageScope={task.id}
-              loading={!detail.loaded || !terminal || sending || awaitingReply}
-              loadingSpeaker={task.agent || "kin"}
-              hostSpeaker={task.agent || "kin"}
-              hostModel={task.model}
-              queuedSeqs={queuedSeqs}
-              onUnqueue={onWithdrawQueued}
-              onEditQueued={onEditQueued}
-              pendingSlots={pendingSlots}
-              showMessageActions={terminal}
-              actionsBusy={actionBusy}
-              onRetry={(seq) => void onRetry(seq)}
-              onFork={(seq) => void onFork(seq)}
-              findOpen={findOpen}
-              onFindOpenChange={setFindOpen}
-              findShortcut={active && panel === null && !fileFinderOpen}
-              findSeed={findSeed}
-              pendingUserMessages={pendingUserMessages}
-              trailing={
-                <>
-                  {unanchored.map((entry) => (
-                    <div key={`${entry.kind}-${entry.id}`} className="mt-1">
-                      {renderPendingCard(entry)}
-                    </div>
-                  ))}
-                  {latestLimitHit && task && (
-                    <div className="mt-2" key={`limit-${latestLimitHit.seq}`}>
-                      <LimitCard
-                        hit={latestLimitHit.payload}
-                        wait={limitWait}
-                        hostAgentId={task.agent || ""}
-                        active={active}
-                        agents={agents}
-                        busy={limitBusy}
-                        onWait={() => void onLimitAction("wait")}
-                        onContinue={() => void onLimitAction("continue")}
-                        onSwitch={(agentId) => void onLimitAction("switch", agentId)}
-                        onDismiss={() => void onLimitAction("dismiss")}
-                      />
-                    </div>
-                  )}
-                  {needsYou.length > 0 && (
-                    /*
+          {entryWait ? (
+            /*
+              The transcript slot's waiting state. It carries the region's own
+              name because it is what the reader is waiting on, and it is the
+              boot screen's tile rather than the blue action accent, so entering
+              a conversation looks like the app starting. The scroller is not
+              mounted here at all: its only waiting row (`chat.thinking`) would
+              be invisible, and it would claim a conversation that may already
+              be finished is still thinking.
+            */
+            <div
+              role="region"
+              aria-label={tr("task.transcript")}
+              className="kin-brand-enter flex flex-1 min-h-0 flex-col items-center justify-center gap-4 px-6"
+            >
+              <div role="status" aria-label={tr("common.loading")}>
+                <BrandMark />
+              </div>
+            </div>
+          ) : (
+            <div
+              ref={scrollRef}
+              onScroll={onChatScroll}
+              // The focus sink the approval panel hands the keyboard back to on
+              // Esc; `-1` keeps a large scroll area out of the tab order.
+              role="region"
+              aria-label={tr("task.transcript")}
+              tabIndex={-1}
+              className={
+                scrollReady
+                  ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 outline-none"
+                  : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible outline-none"
+              }
+            >
+              <WorkerTimeline
+                rows={workerRows}
+                onOpenPath={onOpenWorkspacePath}
+                // A settled task has nothing left to stop; a stale running row is
+                // the poll's problem, not a button the reader can use.
+                onStop={isTerminal(task.status) ? undefined : onStopWorker}
+                stoppingKey={workerStoppingKey}
+              />
+              <ChatStream
+                events={events}
+                onOpenPath={onOpenWorkspacePath}
+                fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
+                messageScope={task.id}
+                loading={!detail.loaded || !terminal || sending || awaitingReply}
+                loadingSpeaker={task.agent || "kin"}
+                hostSpeaker={task.agent || "kin"}
+                hostModel={task.model}
+                queuedSeqs={queuedSeqs}
+                onUnqueue={onWithdrawQueued}
+                onEditQueued={onEditQueued}
+                pendingSlots={pendingSlots}
+                showMessageActions={terminal}
+                actionsBusy={actionBusy}
+                onRetry={(seq) => void onRetry(seq)}
+                onFork={(seq) => void onFork(seq)}
+                findOpen={findOpen}
+                onFindOpenChange={setFindOpen}
+                findShortcut={active && panel === null && !fileFinderOpen}
+                findSeed={findSeed}
+                pendingUserMessages={pendingUserMessages}
+                trailing={
+                  <>
+                    {unanchored.map((entry) => (
+                      <div key={`${entry.kind}-${entry.id}`} className="mt-1">
+                        {renderPendingCard(entry)}
+                      </div>
+                    ))}
+                    {latestLimitHit && task && (
+                      <div className="mt-2" key={`limit-${latestLimitHit.seq}`}>
+                        <LimitCard
+                          hit={latestLimitHit.payload}
+                          wait={limitWait}
+                          hostAgentId={task.agent || ""}
+                          active={active}
+                          agents={agents}
+                          busy={limitBusy}
+                          onWait={() => void onLimitAction("wait")}
+                          onContinue={() => void onLimitAction("continue")}
+                          onSwitch={(agentId) => void onLimitAction("switch", agentId)}
+                          onDismiss={() => void onLimitAction("dismiss")}
+                        />
+                      </div>
+                    )}
+                    {needsYou.length > 0 && (
+                      /*
                     A phone does not have these keys, and the line reads as an
                     instruction to press something that is not there. `sm` is
                     the same gate the composer's ⌘↵ hint uses (Composer.tsx)
                     rather than a pointer media query, so one codebase has one
                     answer to "the keyboard hint does not apply here".
                   */
-                    <p className="hidden sm:block text-center text-caption text-kin-muted mt-2">
-                      <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
-                        A
-                      </kbd>{" "}
-                      {tr("chat.approve")} ·{" "}
-                      <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
-                        D
-                      </kbd>{" "}
-                      {tr("chat.deny")}
-                      {" · "}
-                      {tr("question.hintKeys")}
-                    </p>
-                  )}
-                  <div ref={bottomRef} />
-                </>
-              }
-            />
-          </div>
+                      <p className="hidden sm:block text-center text-caption text-kin-muted mt-2">
+                        <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
+                          A
+                        </kbd>{" "}
+                        {tr("chat.approve")} ·{" "}
+                        <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
+                          D
+                        </kbd>{" "}
+                        {tr("chat.deny")}
+                        {" · "}
+                        {tr("question.hintKeys")}
+                      </p>
+                    )}
+                    <div ref={bottomRef} />
+                  </>
+                }
+              />
+            </div>
+          )}
 
           {/* Kept mounted while empty: a live region announces what is added
               to it, and a region that arrives with its content already inside
