@@ -722,12 +722,20 @@ describe("the project cover (KIN-PROJECT-001)", () => {
   });
 
   it("⌘Enter waits for the new-chat link before it presses", async () => {
+    const projectRead = deferred<Project>();
+    client.getProject.mockReturnValue(projectRead.promise);
     renderPage();
 
     // The key press only means something once the cover knows where a chat
     // goes: the keydown gate ignores a press while the project read is still
     // resolving, so the press waits for the control whose href it reads.
-    // Waiting for the name alone left the press free to land in that window.
+    // Resolve inside act: the link and the passive effect that publishes its
+    // href come from the same commit, so finding the link alone does not prove
+    // the listener carries the href — only a flushed effect does.
+    await act(async () => {
+      projectRead.resolve({ ...project });
+      await projectRead.promise;
+    });
     const link = await screen.findByRole("link", { name: "New chat" });
     expect(link.getAttribute("href")).toBe("/new?cwd=%2Fwork%2Falpha");
 
