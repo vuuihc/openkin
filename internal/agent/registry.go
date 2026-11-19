@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 )
@@ -301,36 +302,59 @@ func (r *Registry) GetRunnable(ctx context.Context, id string) (Registration, er
 	return reg, nil
 }
 
+// listProbeFanOut bounds how many registrations List probes at once. Each probe
+// is a PATH lookup plus, for a provider that offers them, a settings-file read;
+// the work is I/O-bound. 16 keeps a registry of a few dozen entries to a
+// handful of waves without opening a file descriptor per agent.
+const listProbeFanOut = 16
+
 // List returns API-safe info for all plugins.
+//
+// The per-agent probes run concurrently under a bounded fan-out: they are
+// independent filesystem reads, so serial probing adds their latencies
+// together. Results are written by index so the answer keeps the same stable
+// order, and nothing is memoised — List is also what answers /api/agents, so a
+// binary installed while the daemon runs must still show up on the next
+// request.
 func (r *Registry) List(ctx context.Context, configuredDefault string) []Info {
 	if r == nil {
 		return nil
 	}
 	def := r.Default(ctx, configuredDefault)
-	out := make([]Info, 0, len(r.order))
-	for _, id := range r.order {
-		reg := r.byID[id]
-		st := reg.Status(ctx)
-		models := ModelList{Source: "none", Status: "unavailable"}
-		if reg.Models != nil {
-			models = reg.Models(ctx)
-			models.Models = append([]ModelOption(nil), models.Models...)
-		}
-		out = append(out, Info{
-			ID:           reg.Descriptor.ID,
-			Name:         reg.Descriptor.Name,
-			Kind:         reg.Descriptor.Kind,
-			Capabilities: append([]Capability(nil), reg.Descriptor.Capabilities...),
-			Installed:    st.Installed,
-			Available:    st.Available,
-			Reason:       st.Reason,
-			Binary:       st.Binary,
-			Default:      id == def && def != "",
-			Models:       models.Models,
-			ModelSource:  models.Source,
-			ModelStatus:  models.Status,
-		})
+	out := make([]Info, len(r.order))
+	sem := make(chan struct{}, listProbeFanOut)
+	var wg sync.WaitGroup
+	for i, id := range r.order {
+		wg.Add(1)
+		go func(i int, id string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			reg := r.byID[id]
+			st := reg.Status(ctx)
+			models := ModelList{Source: "none", Status: "unavailable"}
+			if reg.Models != nil {
+				models = reg.Models(ctx)
+				models.Models = append([]ModelOption(nil), models.Models...)
+			}
+			out[i] = Info{
+				ID:           reg.Descriptor.ID,
+				Name:         reg.Descriptor.Name,
+				Kind:         reg.Descriptor.Kind,
+				Capabilities: append([]Capability(nil), reg.Descriptor.Capabilities...),
+				Installed:    st.Installed,
+				Available:    st.Available,
+				Reason:       st.Reason,
+				Binary:       st.Binary,
+				Default:      id == def && def != "",
+				Models:       models.Models,
+				ModelSource:  models.Source,
+				ModelStatus:  models.Status,
+			}
+		}(i, id)
 	}
+	wg.Wait()
 	return out
 }
 
