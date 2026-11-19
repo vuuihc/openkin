@@ -1,0 +1,16 @@
+[
+  {
+    "label": "drop the fill-prompt claim-check sentence",
+    "file": "rsi/runtime/prompts/fill.md",
+    "test": "bash rsi/runtime/tests/test-fill-claim-check.sh",
+    "old": "The PR body carries `Claim check:` with that command and its output; a sentence whose claim check is missing or false is not delivered.",
+    "new": "The PR body describes the change."
+  },
+  {
+    "label": "drop the cloud-template claim-check bullet",
+    "file": "rsi/runtime/prompts/cloud-brief-template.md",
+    "test": "bash rsi/runtime/tests/test-fill-claim-check.sh",
+    "old": "- If the deliverable is a sentence rather than behaviour (a `GOAL`, an ADR, a `PLAN` or a story contract), the PR body names the exact `path:line` that sentence asserts and carries `Claim check:` with one command and its literal output; a missing or false claim check is not delivery.",
+    "new": ""
+  }
+]
