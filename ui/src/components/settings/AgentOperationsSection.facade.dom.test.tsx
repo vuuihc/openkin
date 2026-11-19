@@ -306,7 +306,9 @@ describe("the Operations section's remaining controls on the facade (E4c)", () =
     expectFacade(hide);
     expect(hide.className).toContain("text-kin-blue-ink");
 
-    const connect = screen.getByRole("button", { name: "Add Codex to catalog" }) as HTMLButtonElement;
+    const connect = screen.getByRole("button", {
+      name: "Add Codex to catalog",
+    }) as HTMLButtonElement;
     expectFacade(connect, "secondary");
     expect(connect.disabled).toBe(false);
     first.unmount();
@@ -335,7 +337,9 @@ describe("the Operations section's remaining controls on the facade (E4c)", () =
     useAppStore.setState({ wsStatus: "disconnected", reconnectGen: 0, toasts: [] });
     await renderLoaded();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    const offline = screen.getByRole("button", { name: "Add Codex to catalog" }) as HTMLButtonElement;
+    const offline = screen.getByRole("button", {
+      name: "Add Codex to catalog",
+    }) as HTMLButtonElement;
     expectFacade(offline, "secondary");
     expect(offline.disabled).toBe(true);
     expect(offline.getAttribute("title")).toBeNull();
