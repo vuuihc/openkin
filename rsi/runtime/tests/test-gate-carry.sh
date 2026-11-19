@@ -332,7 +332,10 @@ test_regates_when_the_pr_touches_ui_for_a_scripts_move() {
 # The deny-list's completeness pin: every scripts/ path the real gate body mentions must re-gate.
 # A script the gate starts later and nobody adds to GATE_SCRIPTS fails here instead of silently
 # carrying. Comments are scanned too: extra tokens only make the deny-list stricter, a miss is
-# what would let a real gate script carry.
+# what would let a real gate script carry. The gate also starts scripts that start or import other
+# scripts, so every script named by the gate body or the deny-list is scanned one level down as
+# well; trailing prose punctuation is stripped and only .sh/.py files are followed, because the
+# inventory baseline and the fake-agent binary are not scripts the gate starts.
 test_regates_every_script_the_gate_runs() {
   reset_stubs; new_repo c14
   set_line "$R/internal/workspace/diff.go" 1 pr
@@ -341,7 +344,17 @@ test_regates_every_script_the_gate_runs() {
   printf '#!/bin/bash\necho desktop\n' > "$R/scripts/desktop-startup.sh"
   move_main c14
   local p seen=0
-  grep -oE 'scripts/[A-Za-z0-9._/-]+' "$ROOT/scripts/check.sh" | sort -u > "$T/gate-scripts.txt"
+  {
+    grep -oE 'scripts/[A-Za-z0-9._/-]+' "$ROOT/scripts/check.sh"
+    sed -n '/^GATE_SCRIPTS = {$/,/^}$/p' "$MERGE" | grep -oE 'scripts/[A-Za-z0-9._/-]+'
+  } | sort -u > "$T/gate-named.txt"
+  while IFS= read -r p; do
+    [ -f "$ROOT/$p" ] && grep -oE 'scripts/[A-Za-z0-9._/-]+' "$ROOT/$p"
+  done < "$T/gate-named.txt" > "$T/gate-onelevel.txt"
+  grep -qxF 'scripts/ui-inventory-baseline.json' "$T/gate-onelevel.txt" \
+    || fail "c14: the one-level scan did not follow check-ui-inventory.py to its baseline; the scan is broken"
+  cat "$T/gate-named.txt" "$T/gate-onelevel.txt" \
+    | sed -e 's/[.,;:)]*$//' | grep -E '\.(sh|py)$' | sort -u > "$T/gate-scripts.txt"
   grep -qxF 'scripts/check.sh' "$T/gate-scripts.txt" \
     || fail "c14: the gate-body scan did not find scripts/check.sh; the scan is broken"
   while IFS= read -r p; do

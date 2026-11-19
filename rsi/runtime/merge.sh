@@ -260,14 +260,16 @@ shared_files = {
 # scripts/ is different: one script the gate starts is a shared surface, every other script is a
 # leaf. Deny-list, not an allow-list, so a new script carries by default and only a gate job makes
 # it shared. The completeness pin in rsi/runtime/tests/test-gate-carry.sh
-# (test_regates_every_script_the_gate_runs) reads the real scripts/check.sh and fails when a script
-# it mentions is missing here, so adding a check job cannot silently widen the carry.
+# (test_regates_every_script_the_gate_runs) reads the real scripts/check.sh and each script listed
+# here one level down, and fails when a script either names is missing, so a new check job or a
+# helper a gate script starts cannot silently widen the carry.
 GATE_SCRIPTS = {
     "scripts/check.sh", "scripts/check-openapi.sh", "scripts/check-api-coverage.sh",
-    "scripts/install-hub.test.sh", "scripts/stories.py", "scripts/check-ui-inventory.py",
-    "scripts/check-ui-inventory.test.py", "scripts/ui_lint_guard_test.py",
-    "scripts/ui-lint-guard.sh", "scripts/journeys_walk_test.py",
-    "scripts/journeys_smoke_test.py",
+    "scripts/install-hub.sh", "scripts/install-hub.test.sh", "scripts/stories.py",
+    "scripts/check-ui-inventory.py", "scripts/check-ui-inventory.test.py",
+    "scripts/ui_inventory.py", "scripts/ui_lint_guard.py", "scripts/ui_lint_guard_test.py",
+    "scripts/ui-lint-guard.sh", "scripts/journeys_seed.py", "scripts/journeys_smoke.py",
+    "scripts/journeys-smoke.sh", "scripts/journeys_walk_test.py", "scripts/journeys_smoke_test.py",
 }
 # A PR's Go package is internal/<pkg>/: a sibling file in it can change the package's behaviour.
 pr_pkgs = {"/".join(p.split("/")[:2]) + "/" for p in pr_files
