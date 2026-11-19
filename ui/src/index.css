@@ -244,6 +244,17 @@
     padding-left: max(1rem, env(safe-area-inset-left));
     padding-right: max(1rem, env(safe-area-inset-right));
   }
+  /* The session panel is a full-bleed overlay on a phone and it covers
+     `MobileHeader` — the bar that would otherwise spend the top inset — so
+     the overlay spends it itself below `md`. Above `md` the shell root's
+     `md:pt-safe` spends it once for both columns, so this rule stays
+     phone-scoped to keep the inset from being spent twice. Keep the 0.02px
+     guard in step with Tailwind's 768px `md`. */
+  @media (max-width: 767.98px) {
+    .panel-top-inset {
+      padding-top: env(safe-area-inset-top);
+    }
+  }
   /* Phone-only floor for the app's controls, which are drawn at desktop density
      (17–40px). One wrapper around everything a thumb can reach, instead of a
      per-page set of sizes. The `pointer: coarse` arm is what keeps the floor on
