@@ -2700,6 +2700,481 @@ class WalkJ14ContractTest(unittest.TestCase):
                 self.assertIn("J14", out)
 
 
+class WalkJ1ContractTest(unittest.TestCase):
+    """J1's phone leg: search, filter and two real decisions must stay walked.
+
+    #359 pinned J14 and the J9/J11 composer tags but left J1 and J6 with no
+    ``--check-spec`` case, so any of their shipped steps could be deleted with
+    every check green and only a browser walk would notice. Same shape as
+    WalkJ14ContractTest: the walker's own ``--check-spec`` is the reader, so a
+    rule cannot drift between the spec and the gate. The list must be searched
+    and filtered, then one card approved and a different one denied, with each
+    answer's control read off the screen.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j1-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec["journeys"]["J1"]["steps"])
+        path = os.path.join(self.tmp, "resolved.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    def copy_spec_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec)
+        path = os.path.join(self.tmp, "paths.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    def index_without_j1(self) -> str:
+        """A copy of the shipped index with only the J1 entry deleted."""
+        shutil.copytree(JOURNEYS_DIR, os.path.join(self.tmp, "journeys"))
+        with open(SPEC, encoding="utf-8") as fh:
+            index = json.load(fh)
+        self.assertIn("J1", index["journeys"],
+                      "the shipped index does not register J1")
+        del index["journeys"]["J1"]
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(index, fh, ensure_ascii=False)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred, start: int = 0) -> int:
+        return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+    @staticmethod
+    def control(step: list, zh: str, en: str) -> bool:
+        return step[0] in ("click", "gone") and (zh in str(step[1]) or en in str(step[1]))
+
+    def test_shipped_j1_spec_is_ok(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J1 ", out)
+        journey = load_spec()["journeys"]["J1"]
+        self.assertEqual(journey["viewports"], ["phone"],
+                         "J1 is the phone approve/deny proof")
+
+    def test_j1_without_the_approve_proof_is_red(self) -> None:
+        # The approve leg is a landing, a press and a consequence. Deleting the
+        # click leaves the card unanswered; deleting the ``gone`` leaves a card
+        # that may still be showing Approve after the walk says it decided.
+        steps = load_spec()["journeys"]["J1"]["steps"]
+        indexes = [i for i, step in enumerate(steps)
+                   if self.control(step, "批准", "Approve")]
+        self.assertEqual(len(indexes), 2, indexes)
+        for label, index in (("the approve click", indexes[0]),
+                             ("the approve gone", indexes[1])):
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J1", out)
+                self.assertIn("approve", out)
+
+    def test_j1_approve_gone_on_the_deny_card_is_red(self) -> None:
+        # The approve ``gone`` must be read on the card it approved. Moving it
+        # past the deny landing still finds no approve control there — the
+        # deny card never had one — so the proof would pass without proving
+        # the approved card changed.
+        steps = load_spec()["journeys"]["J1"]["steps"]
+        gone = self.at(steps, lambda step: step[0] == "gone"
+                       and ("批准" in str(step[1]) or "Approve" in str(step[1])))
+        deny = self.at(steps, lambda step: step[0] == "goto"
+                       and "{deny.conversation}" in str(step[1]))
+
+        def move_gone(steps: list) -> None:
+            moved = steps.pop(gone)
+            steps.insert(deny, moved)
+
+        code, out = self.check(self.copy_with(move_gone))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J1", out)
+        self.assertIn("approve", out)
+
+    def test_j1_without_the_deny_proof_is_red(self) -> None:
+        # The deny leg is the second decision; an approve-only walk proves one
+        # answer is possible, not that a card can be refused.
+        steps = load_spec()["journeys"]["J1"]["steps"]
+        indexes = [i for i, step in enumerate(steps)
+                   if self.control(step, "拒绝", "Deny")]
+        self.assertEqual(len(indexes), 2, indexes)
+        for label, index in (("the deny click", indexes[0]),
+                             ("the deny gone", indexes[1])):
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J1", out)
+                self.assertIn("deny", out)
+
+    def test_j1_deep_links_name_two_conversations(self) -> None:
+        # Two decisions, two cards. A copy-paste that points both deep links at
+        # one conversation approves and denies the same card, and the second
+        # press lands on something already answered.
+        steps = load_spec()["journeys"]["J1"]["steps"]
+        approve = self.at(steps, lambda step: step[0] == "goto"
+                          and "{approve.conversation}" in str(step[1]))
+        deny = self.at(steps, lambda step: step[0] == "goto"
+                       and "{deny.conversation}" in str(step[1]))
+
+        def reuse_approve(steps: list) -> None:
+            steps[deny][1] = str(steps[deny][1]).replace(
+                "{deny.conversation}", "{approve.conversation}")
+
+        def swap_focuses(steps: list) -> None:
+            steps[approve][1] = str(steps[approve][1]).replace(
+                "{approve.focus}", "{deny.focus}")
+            steps[deny][1] = str(steps[deny][1]).replace(
+                "{deny.focus}", "{approve.focus}")
+
+        def deny_first(steps: list) -> None:
+            steps.insert(approve, steps.pop(deny))
+
+        for label, mutate in (
+            ("the deny link reusing the approve conversation", reuse_approve),
+            ("the deny link reusing the approve focus", swap_focuses),
+            ("the deny leg moved before the approve leg", deny_first),
+        ):
+            with self.subTest(mutation=label):
+                code, out = self.check(self.copy_with(mutate))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J1", out)
+                self.assertIn("conversation", out)
+
+    def test_j1_without_the_search_leg_is_red(self) -> None:
+        # Finding last week's chat is the leg's premise: the list is searched,
+        # the filter sheet opened and escaped before either decision. Deleting
+        # any of the three leaves the walk starting on a card, not on the list
+        # a person actually uses.
+        steps = load_spec()["journeys"]["J1"]["steps"]
+        search = self.at(steps, lambda step: step[0] == "fill"
+                         and "input[type=search]" in str(step[1]))
+        filters = self.at(steps, lambda step: step[0] == "click"
+                          and ("筛选" in str(step[1]) or "Filter" in str(step[1])))
+        escape = self.at(steps, lambda step: step[0] == "key" and step[1] == "Escape")
+        for label, index in (("the search fill", search),
+                             ("the filter click", filters),
+                             ("the Escape", escape)):
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J1", out)
+                self.assertIn("search", out)
+
+    def test_j1_optional_proof_is_red(self) -> None:
+        # A `?`-prefixed proof that misses is logged as `skipped`: one optional
+        # `gone` after an answer would leave the walk green while the card was
+        # never decided. Only the search fill and the filter click may be
+        # optional setup.
+        steps = load_spec()["journeys"]["J1"]["steps"]
+        indexes = [i for i, step in enumerate(steps) if step[0] == "gone"]
+        self.assertEqual(len(indexes), 2, indexes)
+        for index in indexes:
+            def make_optional(steps: list, index: int = index) -> None:
+                steps[index][1] = "?" + str(steps[index][1]).lstrip("?")
+
+            with self.subTest(step=index):
+                code, out = self.check(self.copy_with(make_optional))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J1", out)
+                self.assertIn("optional", out)
+
+    def test_j1_mac_only_step_is_red(self) -> None:
+        # The leg is phone-only: a hover is a mouse input the surface does not
+        # have and Meta+k is the desktop palette chord.
+        steps = load_spec()["journeys"]["J1"]["steps"]
+        first_task = self.at(steps, lambda step: step[0] == "goto"
+                             and "/tasks/" in str(step[1]))
+        for label, step in (("a hover", ["hover", "css=button"]),
+                            ("the palette chord", ["key", "Meta+k"])):
+            def insert(steps: list, step: list = step) -> None:
+                steps.insert(first_task, list(step))
+
+            with self.subTest(added=label):
+                code, out = self.check(self.copy_with(insert))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J1", out)
+                self.assertIn("Mac-only", out)
+
+    def test_index_without_j1_is_red(self) -> None:
+        # Registration is the point: deleting the one index entry must be
+        # loud, or the phone's search/approve/deny walk can be retired by an
+        # edit no gate notices.
+        code, out = self.check(self.index_without_j1())
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J1", out)
+        self.assertIn("J1 is not in the spec", out)
+
+    def test_paths_table_selects_j1_for_its_surfaces(self) -> None:
+        # `--files` selects the journeys from the paths table, first match
+        # wins. A list or conversation diff that drops J1 would let the phone's
+        # decisions rot without the gate ever walking them.
+        spec = load_spec()
+        needles = (
+            "ui/src/pages/Sessions|ui/src/components/sessions/|ui/src/components/mobile/",
+            "ui/src/pages/TaskDetail|ui/src/pages/TaskSession|ui/src/components/chat/"
+            "|ui/src/components/cards/|ui/src/components/workspace/",
+        )
+        for needle in needles:
+            row = next((row for row in spec["paths"] if row[0] == needle), None)
+            self.assertIsNotNone(row, needle)
+            self.assertIn("J1", row[1], needle)
+        for needle in needles:
+            def drop_j1(spec: dict, needle: str = needle) -> None:
+                row = next(row for row in spec["paths"] if row[0] == needle)
+                row[1] = [journey for journey in row[1] if journey != "J1"]
+
+            with self.subTest(row=needle):
+                code, out = self.check(self.copy_spec_with(drop_j1))
+                self.assertEqual(code, 1, out)
+                self.assertIn("paths table", out)
+                self.assertIn("J1", out)
+
+
+class WalkJ6ContractTest(unittest.TestCase):
+    """J6's settings leg: change the default agent, host it, then restore it.
+
+    #359 pinned J14 but left J6 with no ``--check-spec`` case, so the settings
+    chain — four surfaces in order, the default row read in both locales, both
+    agents counted in the picker, the pick, the save, the reload that proves
+    persistence, the new chat that hosts Codex, and the restore — could lose
+    any step with the gate green. Same shape as WalkJ14ContractTest: the
+    walker's own ``--check-spec`` is the reader.
+    """
+
+    SURFACES = ("/settings", "/settings?tab=operations", "/agents",
+                "/settings?tab=providers")
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j6-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec["journeys"]["J6"]["steps"])
+        path = os.path.join(self.tmp, "resolved.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    def copy_spec_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec)
+        path = os.path.join(self.tmp, "paths.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    def index_without_j6(self) -> str:
+        """A copy of the shipped index with only the J6 entry deleted."""
+        shutil.copytree(JOURNEYS_DIR, os.path.join(self.tmp, "journeys"))
+        with open(SPEC, encoding="utf-8") as fh:
+            index = json.load(fh)
+        self.assertIn("J6", index["journeys"],
+                      "the shipped index does not register J6")
+        del index["journeys"]["J6"]
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(index, fh, ensure_ascii=False)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred, start: int = 0) -> int:
+        return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+    @staticmethod
+    def is_save(step: list) -> bool:
+        return step[0] == "click" and (
+            "保存默认 agent" in str(step[1]) or "Save default agent" in str(step[1]))
+
+    @staticmethod
+    def is_saved_status(step: list) -> bool:
+        return step[0] == "wait" and "status" in str(step[1]) and (
+            "已保存" in str(step[1]) or "Saved" in str(step[1]))
+
+    def test_shipped_j6_spec_is_ok(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J6 ", out)
+        journey = load_spec()["journeys"]["J6"]
+        self.assertEqual(journey["viewports"], ["phone", "mac"],
+                         "J6 changes and reads the default at both widths")
+
+    def test_j6_without_the_saved_default_is_red(self) -> None:
+        # The pick, the save and the status are three separate proofs: an
+        # option press that never moves the trigger, a save nobody pressed and
+        # a status nobody read all leave "the default changed" unproven.
+        steps = load_spec()["journeys"]["J6"]["steps"]
+        picker = self.at(steps, lambda step: step[0] == "click"
+                         and "(codex)" in str(step[1]))
+        save = self.at(steps, self.is_save)
+        status = self.at(steps, self.is_saved_status)
+        for label, index in (("the codex picker option", picker),
+                             ("the save button", save),
+                             ("the saved status", status)):
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J6", out)
+
+    def test_j6_counts_before_the_picker_is_open_is_red(self) -> None:
+        # The counts read the open list. Moving them before the trigger press
+        # leaves the walk counting nothing visible while ``--check-spec``
+        # stays green; the contract must keep the counts after the picker
+        # opens.
+        steps = load_spec()["journeys"]["J6"]["steps"]
+        open_at = self.at(steps, lambda step: step[0] == "click"
+                          and "aria-describedby" in str(step[1]))
+        counts = [i for i, step in enumerate(steps)
+                  if step[0] == "count" and ("(claude-code)" in str(step[1])
+                                             or "(codex)" in str(step[1]))]
+        self.assertEqual(len(counts), 2, counts)
+
+        def move_counts(steps: list) -> None:
+            for index in sorted(counts, reverse=True):
+                steps.insert(open_at, steps.pop(index))
+
+        code, out = self.check(self.copy_with(move_counts))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J6", out)
+        self.assertIn("picker", out)
+
+    def test_j6_without_the_reload_persistence_is_red(self) -> None:
+        # A default that only lives in the page that saved it is not
+        # persisted. The reload and its trigger read are the proof; deleting
+        # either must be red and name the persistence rule.
+        steps = load_spec()["journeys"]["J6"]["steps"]
+        status = self.at(steps, self.is_saved_status)
+        reload_i = self.at(steps, lambda step: step[0] == "goto"
+                           and "/settings?tab=providers" in str(step[1]), status + 1)
+        trigger_i = self.at(steps, lambda step: step[0] == "wait"
+                            and "(codex)" in str(step[1]), reload_i + 1)
+        new_i = self.at(steps, lambda step: step[0] == "goto" and step[1] == "/new",
+                        trigger_i + 1)
+        self.assertLess(trigger_i, new_i,
+                        "the reload proof must precede the new chat")
+        for label, index in (("the reload", reload_i),
+                             ("the trigger after the reload", trigger_i)):
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J6", out)
+                self.assertTrue("persist" in out or "reload" in out, out)
+
+    def test_j6_without_the_next_chat_hosting_is_red(self) -> None:
+        # The point of changing the default is the next new chat: a walk that
+        # saves and never opens one proves the row moved, not the behaviour.
+        steps = load_spec()["journeys"]["J6"]["steps"]
+        new_i = self.at(steps, lambda step: step[0] == "goto" and step[1] == "/new")
+        host_i = self.at(steps, lambda step: step[0] == "wait"
+                         and "Codex" in str(step[1]), new_i + 1)
+        code, out = self.check(self.copy_with(lambda steps: steps.pop(host_i)))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J6", out)
+        self.assertIn("host", out)
+
+    def test_j6_without_the_restore_is_red(self) -> None:
+        # The leg must leave the daemon as it found it: the shipped default is
+        # claude-code, and a walk that ends hosting Codex poisons every later
+        # journey against the same daemon.
+        steps = load_spec()["journeys"]["J6"]["steps"]
+        saves = [i for i, step in enumerate(steps) if self.is_save(step)]
+        statuses = [i for i, step in enumerate(steps) if self.is_saved_status(step)]
+        self.assertEqual(len(saves), 2, saves)
+        self.assertEqual(len(statuses), 2, statuses)
+        final = self.at(steps, lambda step: step[0] == "wait"
+                        and "Claude Code" in str(step[1]))
+        for label, index in (("the restore save", saves[1]),
+                             ("the restore status", statuses[1]),
+                             ("the restored new-chat read", final)):
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J6", out)
+                self.assertIn("restore", out)
+
+    def test_j6_optional_step_is_red(self) -> None:
+        # A `?`-prefixed step that misses is logged as `skipped`. J6 has no
+        # optional step at all: every address, count, wait and click is a
+        # proof, and a skipped one leaves the default unproven.
+        steps = load_spec()["journeys"]["J6"]["steps"]
+        for op in ("wait", "goto"):
+            index = self.at(steps, lambda step: step[0] == op)
+
+            def make_optional(steps: list, index: int = index) -> None:
+                steps[index][1] = "?" + str(steps[index][1]).lstrip("?")
+
+            with self.subTest(op=op, step=index):
+                code, out = self.check(self.copy_with(make_optional))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J6", out)
+                self.assertIn("optional", out)
+
+    def test_j6_without_the_settings_surfaces_is_red(self) -> None:
+        # The chain is four addresses in order: 设置 → 运维 → the legacy
+        # /agents redirect → providers. Losing one leaves the route that hosts
+        # the default row unproven.
+        steps = load_spec()["journeys"]["J6"]["steps"]
+        for surface in self.SURFACES:
+            index = self.at(steps, lambda step, surface=surface: step[0] == "goto"
+                            and step[1] == surface)
+            with self.subTest(surface=surface):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J6", out)
+                self.assertIn("settings surfaces", out)
+
+    def test_index_without_j6_is_red(self) -> None:
+        # Registration is the point: deleting the one index entry must be
+        # loud, or the settings walk can be retired by an edit no gate notices.
+        code, out = self.check(self.index_without_j6())
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J6", out)
+        self.assertIn("J6 is not in the spec", out)
+
+    def test_paths_table_selects_j6_for_settings(self) -> None:
+        # `--files` selects the journeys from the paths table, first match
+        # wins. A settings diff that drops J6 would let the default-agent walk
+        # rot without the gate ever walking it.
+        needle = "ui/src/pages/Settings|ui/src/pages/Agents|ui/src/components/settings/"
+        spec = load_spec()
+        row = next((row for row in spec["paths"] if row[0] == needle), None)
+        self.assertIsNotNone(row, needle)
+        self.assertIn("J6", row[1], needle)
+
+        def drop_j6(spec: dict) -> None:
+            row = next(row for row in spec["paths"] if row[0] == needle)
+            row[1] = [journey for journey in row[1] if journey != "J6"]
+
+        code, out = self.check(self.copy_spec_with(drop_j6))
+        self.assertEqual(code, 1, out)
+        self.assertIn("paths table", out)
+        self.assertIn("J6", out)
+
+
 class WalkJ5ContractTest(unittest.TestCase):
     """J5 must read the row menu it opens, not only photograph it.
 
