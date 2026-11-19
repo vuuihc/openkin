@@ -82,5 +82,12 @@
     "old": "    if (!enabledRef.current || gesture.current) return;",
     "new": "    // R-j12-register: the edge back disabled at its entry point on purpose.\n    // The finger still lands in the strip, but `begin` returns before it can\n    // capture the pointer, so the swipe never starts and the list never comes\n    // back. The refs stay referenced so tsc's noUnusedLocals accepts the\n    // mutant build; esbuild drops the dead branch.\n    if (true || !enabledRef.current || gesture.current) return;",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J12"
+  },
+  {
+    "label": "the PR tab names no place again, so a refresh drops it and Back leaves the conversation",
+    "file": "ui/src/lib/workspaceDeepLink.ts",
+    "old": "  if (value !== \"files\" && value !== \"pr\") return null;",
+    "new": "  // R-panel-exit: the PR tab's address refused on purpose. The tab still opens,\n  // but `?panel=pr` parses as no link, so a cold arrival draws no PR surface,\n  // a refresh drops it and Back has no panel entry to close; J13's selected\n  // tab waits redden while the address itself stays put.\n  if (value !== \"files\") return null;",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J13"
   }
 ]
