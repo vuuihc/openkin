@@ -25,9 +25,11 @@
 #   ./scripts/startup-baseline.sh --selftest [--db-fixture-size BYTES]
 #
 # --selftest boots once and fails unless every phase line appears: `process`
-# plus the 11 boot phases, each exactly once. With --db-fixture-size it seeds
-# the database first and additionally asserts the fixture size, the fixture
-# lines, and the $HOME/.kin refusal path. It is this script's own red/green
+# plus the 16 boot phases, each exactly once. The engine-build span carries
+# five sub-marks (routing, catalog, workspace, notifier, configure) so a slow
+# boot can be attributed inside it instead of ending at one opaque number.
+# With --db-fixture-size it seeds the database first and additionally asserts
+# the fixture size, the fixture lines, and the $HOME/.kin refusal path. It is this script's own red/green
 # check; it is deliberately NOT wired into check.sh, because it boots a real
 # binary and startup timing is not a CI gate.
 set -uo pipefail
@@ -325,7 +327,7 @@ say "building ./kin"
 if [[ "$SELFTEST" == "1" ]]; then
   # `process` first: it is the segment that covers exec -> ServeWith and must
   # appear exactly once like every boot phase.
-  required="process state-dir lock store-open device adopt agents engine-build engine-start browser listen ready"
+  required="process state-dir lock store-open device adopt agents engine-routing engine-catalog engine-workspace engine-notifier engine-configure engine-build engine-start browser listen ready"
 
   if [[ -n "$FIXTURE_SIZE" ]]; then
     # The refusal path is asserted before anything boots: a state dir under
@@ -358,7 +360,7 @@ if [[ "$SELFTEST" == "1" ]]; then
     count="$(awk -F'\t' -v p="$phase" '$1 == "cold" && $2 == "1" && $3 == p { n++ } END { print n + 0 }' "$PHASES")"
     [[ "$count" == "1" ]] || fail "selftest: phase $phase appeared $count times, want 1" "$LOGDIR/cold-1.log"
   done
-  echo "ok startup-baseline selftest: 12 phase lines, each once, in a $(awk -F'\t' '$1 == "cold" { print $3 "ms" }' "$RESULTS") boot"
+  echo "ok startup-baseline selftest: 17 phase lines, each once, in a $(awk -F'\t' '$1 == "cold" { print $3 "ms" }' "$RESULTS") boot"
   exit 0
 fi
 
