@@ -38,9 +38,7 @@ export type BootProbeDeps = {
   deadlineMs?: number;
 };
 
-type EarlyAnswer =
-  | { answered: true; state: AccountState | null }
-  | { answered: false };
+type EarlyAnswer = { answered: true; state: AccountState | null } | { answered: false };
 
 /**
  * The probe's answer if it arrives within the deadline, otherwise "too late".
