@@ -1,0 +1,51 @@
+[
+  {
+    "label": "drop the marker check: the deps/migrations/auth hold always holds, so an owner-approved PR can never pass",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  CEO_OK_REASON=\"source=$src quote=\\\"$(printf '%s\\n' \"$line\" | sed -E 's/.*quote[[:space:]]*=?\"([^\"]+)\".*/\\1/')\\\"\"\n  return 0",
+    "new": "  return 1"
+  },
+  {
+    "label": "accept a marker with no quote: the owner's own words stop being required",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  if ! printf '%s\\n' \"$line\" | grep -qE 'quote[[:space:]]*=?\"[^\"]+\"'; then",
+    "new": "  if false; then"
+  },
+  {
+    "label": "ignore the approved pr number: a stale marker approves a later PR on the same slug",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  [ \"$last\" = \"pr $pr\" ] || { CEO_OK_REASON=\"the marker does not approve PR #$pr (last field: ${last:-none})\"; return 1; }",
+    "new": "  :"
+  },
+  {
+    "label": "forget the .blocked exemption: a held deps/migrations/auth PR is skipped even after the owner approved it",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  if [ -e \"$STATE/merge/$slug.blocked\" ] && { ! ceo_ok_clears_hold \"$slug\" \"$pr\" || ! [ \"$STATE/merge/$slug.ceo-ok\" -nt \"$STATE/merge/$slug.blocked\" ]; }; then",
+    "new": "  if [ -e \"$STATE/merge/$slug.blocked\" ]; then"
+  },
+  {
+    "label": "release a .blocked written after the marker: a re-block is re-verified (gate + review) every dispatch",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": " || ! [ \"$STATE/merge/$slug.ceo-ok\" -nt \"$STATE/merge/$slug.blocked\" ]",
+    "new": ""
+  },
+  {
+    "label": "forget the label exemption: a needs-ceo/hold PR is skipped even after the owner approved it",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  for l in $ls; do case \"$l\" in hold|needs-ceo) ceo_ok_clears_hold \"$slug\" \"$pr\" || { echo \"labelled hold (needs CEO)\"; return 0; } ;; esac; done",
+    "new": "  for l in $ls; do case \"$l\" in hold|needs-ceo) { echo \"labelled hold (needs CEO)\"; return 0; } ;; esac; done"
+  },
+  {
+    "label": "release the label on any non-empty marker: a stale marker from a reused slug merges a red-line PR",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  [ \"$(ceo_ok_last_field \"$m\")\" = \"pr $2\" ]",
+    "new": "  :"
+  }
+]

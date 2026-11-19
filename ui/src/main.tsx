@@ -15,6 +15,7 @@ import { AstryxProvider } from "./design/AstryxProvider";
 import { useAppStore } from "./store/appStore";
 import { loginVisit, withoutLoginHash } from "./lib/loginLink";
 import { hubAnswers, hubBootPlan } from "./lib/hubBoot";
+import { checkConsoleVersion } from "./lib/consoleVersion";
 import { currentHubUrl, hubConfigPlugin } from "./lib/hubConfig";
 import { initTheme } from "./lib/theme";
 import { cleanupLegacyWebPush } from "./lib/legacyWebPush";
@@ -97,6 +98,39 @@ async function bootIntoStoredHub(): Promise<boolean> {
   }
 }
 
+/**
+ * Reload this document when it resumes and the server has moved on to a newer
+ * entry chunk.
+ *
+ * A webview left open across a deploy keeps running the bundle it loaded, so
+ * the person keeps seeing bugs that are already fixed. Both ways a page comes
+ * back — a visibility change, and a back/forward restore from the page cache —
+ * run the same check. It is wired after `render()` on purpose: the check is a
+ * courtesy to a console that is already on screen, and it must never sit
+ * between the auth probe and the first paint.
+ */
+function watchConsoleVersion(): void {
+  const check = (): void => {
+    try {
+      const script = document.querySelector<HTMLScriptElement>('script[type="module"][src]');
+      void checkConsoleVersion({
+        fetchImpl: (url, init) => window.fetch(url, init),
+        currentEntry: script?.getAttribute("src") ?? null,
+        reload: () => window.location.reload(),
+        storage: window.sessionStorage,
+      });
+    } catch {
+      // A version check is a courtesy; it never breaks the console.
+    }
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") check();
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) check();
+  });
+}
+
 void (async () => {
   // Before the auth probe: a stored Hub is a different origin, so asking this
   // one who the visitor is would only produce the connect screen this avoids.
@@ -156,4 +190,7 @@ void (async () => {
       </AstryxProvider>
     </StrictMode>,
   );
+  // Only after the console has painted: a stale document is still a document
+  // the person can use, and the reload is an upgrade, not a prerequisite.
+  watchConsoleVersion();
 })();
