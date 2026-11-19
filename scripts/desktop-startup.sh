@@ -4,29 +4,35 @@
 #
 # "The app takes seconds to open" has two halves. The daemon half is measured
 # by scripts/startup-baseline.sh; this script measures the shell that boots it.
-# It builds ./kin (gitignored build output) and desktop/dist, then launches the
-# real Electron shell against a throwaway daemon on a freshly reserved port.
+# It builds the console, ./kin (gitignored build output) and desktop/dist, then
+# launches the real Electron shell against a throwaway daemon on a freshly
+# reserved port.
 #
 # One run:
-#   1. `go build -o <repo>/kin ./cmd/kin` (the dev shell resolves this path)
-#   2. `npm --prefix desktop run build`
-#   3. mktemp state + userData dirs, a free port, and one Electron launch with
+#   1. `npm --prefix ui run build` — the bundles the daemon embeds; a run with
+#      missing entry assets is refused before any number is taken
+#   2. `go build -o <repo>/kin ./cmd/kin` (the dev shell resolves this path)
+#   3. `npm --prefix desktop run build`
+#   4. mktemp state + userData dirs, a free port, and one Electron launch with
 #      KIN_DESKTOP_DEV=1, KIN_DESKTOP_USER_DATA, KIN_STATE_DIR, KIN_PORT,
 #      KIN_STARTUP_TRACE=1 and KIN_STARTUP_ORIGIN_MS=<epoch ms before spawn>.
-#   4. Read `[kin-desktop] trace <name> <ms>` lines from the shell's stdout and
+#   5. Read `[kin-desktop] trace <name> <ms>` lines from the shell's stdout and
 #      report each mark in arrival order, `first-paint` (window-ready-to-show)
 #      and `shell-total` (window-first-load).
 #
 # Expected shape: daemon-gated. main.ts calls `mainWindow.show("/")` only after
 # `sidecar.ensureRunning()` resolves, so first paint necessarily comes after
-# `sidecar-ready`. The gap is the finding, not a failure.
+# `sidecar-ready`. The gap is the finding, not a failure. A daemon that never
+# becomes healthy emits no `sidecar-ready`, and the run fails instead of
+# reporting the remaining marks.
 #
 # Safety: never touches the live node on :7777, ~/.kin, or
 # ~/Library/Application Support/Kin*. Every run uses mktemp directories and a
 # reserved port; a state directory under $HOME/.kin is refused before anything
-# is opened. Only processes this script started (Electron's own process group,
-# and the daemon it spawned on our reserved port) are killed, and only on
-# completion, timeout, or a TERM/HUP/INT trap. Nothing is killed by name.
+# is opened. Only processes this script started are killed — Electron's own
+# process group, and the daemon supervisor pid the shell itself logged (never
+# whatever happens to listen on the port) — and only on completion, timeout,
+# or a TERM/HUP/INT trap. Nothing is killed by name.
 #
 # Usage:
 #   ./scripts/desktop-startup.sh [--runs N] [--json]
@@ -63,7 +69,9 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --runs) RUNS="${2:-}"; shift 2 ;;
+    --runs)
+      [[ $# -ge 2 ]] || { echo "FAIL: --runs needs a value" >&2; usage >&2; exit 2; }
+      RUNS="$2"; shift 2 ;;
     --runs=*) RUNS="${1#*=}"; shift ;;
     --json) JSON=1; shift ;;
     --selftest) SELFTEST=1; shift ;;
@@ -214,47 +222,35 @@ stop_group() { # pid
   wait "$pid" 2>/dev/null
 }
 
-# listeners_on_port is a fallback for a run whose log never named the daemon
-# pid. It keeps only processes whose command is a kin supervisor/server, so a
-# stranger that happened to grab the reserved port is never signalled.
-listeners_on_port() { # port
-  local pid
-  for pid in $(lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null); do
-    # -ww: a long binary path would otherwise truncate the subcommand away.
-    if ps -ww -o command= -p "$pid" 2>/dev/null |
-      grep -qE '(^|/)(kin|ok)[[:space:]]+(supervise|serve)([[:space:]]|$)'; then
-      echo "$pid"
-    fi
-  done
+# daemon_pid_from_log prints the supervisor pid the shell logged, if any. The
+# shell names it at spawn (`daemon spawned pid=`) and again once healthy
+# (`daemon ready version=… pid=`); the last one wins.
+daemon_pid_from_log() { # log
+  sed -nE 's/.*\[kin-desktop\] daemon (spawned|ready)( .*)? pid=([0-9]+).*/\3/p' "$1" 2>/dev/null |
+    tail -1
 }
 
-# stop_daemon kills only the daemon this script's shell spawned. The pid the
-# shell logged (kin supervise) is preferred: it is spawned detached, so it is
-# its own process-group leader and the group also holds `kin serve`. The port
-# fallback runs only when that line never arrived.
+# stop_daemon kills only the daemon supervisor this run's shell logged. The pid
+# is captured from the shell's own line as soon as it appears — including while
+# run_one is still waiting for marks — so a trap needs no port lookup. The
+# supervisor is spawned detached, so it leads its own process group and the
+# group also holds `kin serve`. A port with no recorded owner is never
+# signalled: by cleanup time another process may have taken it.
 stop_daemon() {
-  local pids="" p
-  if [[ -n "$DAEMON_PID" ]]; then
-    pids="$DAEMON_PID"
-  elif [[ -n "$PORT" ]]; then
-    pids="$(listeners_on_port "$PORT")"
-  fi
-  [[ -z "${pids// /}" ]] && return 0
-  for p in $pids; do kill_group "$p" TERM; done
+  [[ -n "$DAEMON_PID" ]] || return 0
+  kill_group "$DAEMON_PID" TERM
   sleep 0.5
-  for p in $pids; do
-    # Same reasoning as stop_group: `kin serve` can outlive the supervisor it
-    # was started under, so kill the group rather than only the leader pid.
-    if kill -0 -- "-$p" 2>/dev/null; then
-      kill -KILL -- "-$p" 2>/dev/null
-    fi
-    kill -KILL "$p" 2>/dev/null
-  done
+  # Same reasoning as stop_group: `kin serve` can outlive the supervisor it was
+  # started under, so kill the group rather than only the leader pid.
+  if kill -0 -- "-$DAEMON_PID" 2>/dev/null; then
+    kill -KILL -- "-$DAEMON_PID" 2>/dev/null
+  fi
+  kill -KILL "$DAEMON_PID" 2>/dev/null
 }
 
 # run_one launches one isolated shell. Returns 0 measured, 1 failed, 2 skipped.
 run_one() { # index
-  local run="$1" origin log marks_file deadline now exited=0 timed_out=0
+  local run="$1" origin log marks_file deadline now exited=0 timed_out=0 failed=0
   local daemon_pid name ms idx=0 lines
   PORT="$(reserve_port)" || fail "could not reserve a free port"
   STATE_TMP="$(mktemp -d)" || fail "could not create a temp state directory"
@@ -271,6 +267,10 @@ run_one() { # index
   # setsid via python: macOS ships no setsid(1), and the Electron tree must be
   # one process group this script can stop without touching anything else.
   (
+    # The shell resolves ./kin from its working directory before the app path,
+    # so a caller sitting in another checkout would otherwise measure that
+    # checkout's binary even though this script built this worktree's.
+    cd "$ROOT/desktop" || exit 1
     unset ELECTRON_RUN_AS_NODE
     export KIN_DESKTOP_DEV=1 \
       KIN_DESKTOP_USER_DATA="$USER_DATA_TMP" \
@@ -286,6 +286,18 @@ run_one() { # index
   deadline=$((origin + TIMEOUT_MS))
   while :; do
     trace_marks "$log" >"$marks_file"
+    # Record the supervisor as soon as the shell names it, so a trap during
+    # this wait kills the daemon this run started rather than inferring one
+    # from the port.
+    if [[ -z "$DAEMON_PID" ]]; then
+      DAEMON_PID="$(daemon_pid_from_log "$log")"
+    fi
+    # An unavailable daemon is a failed start; stop waiting for a readiness
+    # mark that will never come.
+    if grep -qF '[kin-desktop] daemon unavailable' "$log"; then
+      failed=1
+      break
+    fi
     if [[ -z "$(missing_marks "$marks_file")" ]]; then break; fi
     if ! kill -0 "$ELECTRON_PID" 2>/dev/null; then exited=1; break; fi
     now="$(now_ms)"
@@ -296,13 +308,19 @@ run_one() { # index
   sleep 0.3
   trace_marks "$log" >"$marks_file"
 
-  daemon_pid="$(sed -nE 's/.*\[kin-desktop\] daemon ready .*pid=([0-9]+).*/\1/p' "$log" | tail -1)"
+  daemon_pid="$(daemon_pid_from_log "$log")"
   [[ -n "$daemon_pid" ]] && DAEMON_PID="$daemon_pid"
 
   stop_group "$ELECTRON_PID"
   ELECTRON_PID=""
   stop_daemon
   DAEMON_PID=""
+
+  if [[ "$failed" == "1" ]]; then
+    echo "FAIL: run $run: the shell reported the daemon unavailable; startup never reached readiness" >&2
+    tail -30 "$log" >&2
+    return 1
+  fi
 
   lines="$(wc -l <"$marks_file" | tr -d ' ')"
 
@@ -413,6 +431,19 @@ fi
 
 [[ -x "$ELECTRON" ]] ||
   skip "electron is not installed at desktop/node_modules/.bin/electron (run npm --prefix desktop install)"
+
+say "building the console (the daemon embeds web/dist)"
+npm --prefix "$ROOT/ui" run build >>"$LOGDIR/build.log" 2>&1 ||
+  fail "npm --prefix ui run build" "$LOGDIR/build.log"
+
+# web/dist/index.html is tracked and can be the placeholder a fresh checkout
+# has; the hashed bundles beside it are ignored build output. Without them
+# Electron still paints its boot screen and every mark still arrives, so the
+# run would report a fast boot for a console that cannot load. Refuse to
+# measure that.
+if ! ls "$ROOT/web/dist/assets/"*.js >/dev/null 2>&1; then
+  fail "no console entry bundle under web/dist/assets — nothing usable to embed"
+fi
 
 say "building ./kin (gitignored build output)"
 (cd "$ROOT" && go build -o "$ROOT/kin" ./cmd/kin) || fail "go build ./cmd/kin"

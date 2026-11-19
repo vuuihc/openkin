@@ -508,7 +508,11 @@ if (!gotLock) {
 
       traceStartup("sidecar-start");
       const status = await sidecar.ensureRunning();
-      traceStartup("sidecar-ready");
+      // "unavailable" is a failed start, not a readiness edge. The measurement
+      // script asks for this mark to know a daemon answered; emitting it for a
+      // daemon that never did would label the failure a fast boot. The script
+      // also rejects the `daemon unavailable` line below.
+      if (status.state !== "unavailable") traceStartup("sidecar-ready");
       console.log("[kin-desktop] sidecar status", JSON.stringify(status));
 
       if (status.state !== "unavailable") {

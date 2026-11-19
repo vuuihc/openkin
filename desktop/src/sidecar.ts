@@ -213,6 +213,10 @@ export class Sidecar {
       this.child = child;
       this.weStarted = true;
       const pid = child.pid ?? -1;
+      // Named as soon as the process exists, not only once it is healthy: a
+      // launcher interrupted during the health wait must still know which
+      // supervisor this shell owns, so cleanup never has to guess from a port.
+      console.log(`[kin-desktop] daemon spawned pid=${pid}`);
       child.on("exit", (code, signal) => {
         if (this.child !== child) return;
         console.log(

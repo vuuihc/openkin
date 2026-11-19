@@ -20,6 +20,10 @@ import {
  * daemon; if the shell and the child disagree, the shell watches a port
  * nothing answers on. These resolvers are the one place that decides, so the
  * unset case is pinned to today's values.
+ *
+ * This file imports config.ts under plain `node --test`, including a CI install
+ * whose electron package never ran its postinstall. config.ts therefore resolves
+ * electron lazily: only the shell-API helpers call it, and none of them run here.
  */
 
 describe("the shell's daemon coordinates", () => {
@@ -45,6 +49,20 @@ describe("the shell's daemon coordinates", () => {
     );
     assert.equal(resolveDaemonPort({ KIN_PORT: "1" }), 1);
     assert.equal(resolveDaemonPort({ KIN_PORT: "65535" }), 65535);
+  });
+
+  it("trims KIN_STATE_DIR the way the daemon does", () => {
+    // internal/remote.StateDir() returns strings.TrimSpace(os.Getenv(...)).
+    // Returning the untrimmed value here points the shell at a different
+    // directory than the daemon it spawned, so it cannot read the token.
+    assert.equal(
+      resolveStateDir({ KIN_STATE_DIR: " /tmp/kin-isolated " }, "/home/owner"),
+      "/tmp/kin-isolated",
+    );
+    assert.equal(
+      resolveStateDir({ KIN_STATE_DIR: "\t\n" }, "/home/owner"),
+      join("/home/owner", ".kin"),
+    );
   });
 
   it("falls back to 7777 when KIN_PORT is not a port", () => {
