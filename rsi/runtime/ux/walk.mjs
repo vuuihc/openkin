@@ -1066,8 +1066,9 @@ function checkJ10Contract(spec) {
 }
 // J7's contract: a notification tap must prove it landed on the card the
 // notification named — not just photograph whatever loaded. Without these
-// rules a blank deep link, a landing on the wrong card, and a Back that
-// strands the reader are all green today:
+// rules a blank deep link, a landing on the wrong card, a Back that strands
+// the reader, and a decision card floating over the phone's list are all
+// green today:
 //   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json]
 function checkJ7Contract(spec) {
   const steps = (((spec || {}).journeys || {}).J7 || {}).steps;
@@ -1114,6 +1115,44 @@ function checkJ7Contract(spec) {
     }
     if (idx(([op, sel]) => op === 'focus' && required(sel) && bare(sel).includes(rowSel), backAt + 1) >= 0) {
       errs.push('J7 reopens the row with focus+Enter after Back; it must tap the row (click ' + rowSel + '), so a surface covering the row reddens the walk');
+    }
+    // The phone list after Back is the strip, not the card. A count of the
+    // Approve control is the only step that sees a decision surface floating
+    // over the rows; without it the pre-#252 layout ships green (the
+    // committed FloatingApproval mutant deletes exactly that proof). The
+    // count is scoped and sits before the reopen tap: at Mac the list's card
+    // is legitimate, and after the tap the same selector counts the
+    // conversation's own card instead of the list's.
+    const approveCount = (st) => Array.isArray(st) && st[0] === 'count' && required(st[1])
+      && bare(st[1]).includes('批准') && bare(st[1]).includes('Approve');
+    const listCountAt = idx((st) => approveCount(st) && String(st[2]) === '0', backAt + 1);
+    if (listCountAt < 0) {
+      errs.push('J7 never counts the Approve control on the phone list after Back (a required count css=… 批准 … Approve … 0); the card over the list would ship green');
+    } else {
+      if (rowClickAt >= 0 && listCountAt > rowClickAt) {
+        errs.push('J7 counts the Approve control only after reopening the conversation; the count must prove the phone list itself after Back');
+      }
+      const phoneScopeAt = idx((st) => st[0] === 'vp' && String(st[1]).trim() === 'phone', backAt + 1);
+      if (phoneScopeAt < 0 || phoneScopeAt > listCountAt) {
+        errs.push('J7 counts the Approve control on the phone list without the phone scope (vp phone) before it; at Mac the card on the list is legitimate, so an unscoped count asserts the wrong thing at that width');
+      }
+      const clearScopeAt = idx((st) => st[0] === 'vp' && String(st[1] || '').trim() === '', listCountAt + 1);
+      if (clearScopeAt < 0 || (rowClickAt >= 0 && clearScopeAt > rowClickAt)) {
+        errs.push('J7 leaves the phone scope in force after the list count (a vp "" must follow it); the reopen and the rest of the journey must run at both widths');
+      }
+    }
+    // The reopen must put the card back with a positive count of the same
+    // control: a wait finds a node with the id, the count proves the decision
+    // surface came back.
+    const reopenedCardAt = idx(cardWait, backAt + 1);
+    const reopenCountAt = reopenedCardAt < 0 ? -1 : idx((st) => approveCount(st)
+      && /^\d+$/.test(String(st[2])) && String(st[2]) !== '0', reopenedCardAt + 1);
+    if (reopenedCardAt >= 0 && reopenCountAt < 0) {
+      errs.push('J7 never counts the Approve control after reopening the conversation (a required count css=… 批准 … Approve …, not 0)');
+    }
+    const backCardAt = idx(([op, name]) => op === 'shot' && bare(name) === 'back-card', backAt + 1);
+    if (reopenCountAt >= 0 && backCardAt >= 0 && reopenCountAt > backCardAt) {
+      errs.push('the `back-card` shot must follow the Approve count, so the photograph is of a card that was read');
     }
   }
   return errs;
@@ -2285,7 +2324,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J4 reads the cover\'s 工作方式 block, sends the pre-filled prompt, edits the file, and proves the same cut on the cover and in the agent\'s receipt');
   console.log('spec ok: J5 opens the running row\'s menu and pins rename, pin, archive, delete and a disabled 运行中 line');
   console.log('spec ok: J6 changes the default agent at both widths, proves it persisted and hosts the next new chat, then restores it');
-  console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
+  console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, counts no Approve on the phone list after Back, and reopens the card');
   console.log('spec ok: J8 taps a changed line at 390, saves the sheet, sends the tray, and proves path, hunk and quote');
   console.log('spec ok: J9 keeps the shell, the scroll and the draft across a switch');
   console.log('spec ok: J10 approves the deep-linked card, walks all four footer entries, and finds it gone on the return');
