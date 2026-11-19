@@ -233,9 +233,12 @@ before `kin version` starts and a spawned daemon is polled at 50 ms; the 2026-11
 handshake edge at a **595 ms** median, inside the 700 ms bar below. Item 2 (`R-window-before-daemon`) merged
 `b47032f1` (#418) on 2026-11-20 — `window-ready-to-show` precedes `sidecar-ready` in both measurement runs,
 the shell's own boot surface is what the person sees first, and `window-first-load` fires once, with 390/1100
-boot-surface shots in `rsi/state/shots/window-before-daemon/`. Residual: the settled-console half of done-means
-2 has no fresh shots at those widths: #418 touched no `ui/` file, so the console bundle is unchanged, and the
-merge lane opened only the two boot shots — no settled-console 390/1100 shots exist yet.
+boot-surface shots in `rsi/state/shots/window-before-daemon/`. The settled-console half is now measured:
+`rsi/state/shots/settled-console-shots/console-1100x760.png` and `console-390x844.png` are the J9/J11 `list`
+screens captured by `rsi/runtime/ux-walk.sh "$PWD" "$OUT" "J9,J11"` on `2b78ee75`, each showing the seeded
+`[seed] Project Alpha` list from the `index-DOj2fOK9.js` entry chunk that `web/dist/index.html` names; the
+console still loads once per run — one `window-first-load` — per `docs/plans/2026-11-19-startup-baseline.md`
+§「2026-11-20 — the window paints first」.
 
 **Why this and not features.** Ethan's own report (「启动巨慢」, `rsi/state/dogfood/dogfood-20261118-four-defects.md`
 D1) is finally a number, and it is the first thing every dogfood meets. The 2026-11-19 baseline
