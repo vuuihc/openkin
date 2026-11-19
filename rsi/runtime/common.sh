@@ -138,6 +138,24 @@ rsi_kill_tree() {
   kill -KILL "$root" 2>/dev/null || true
 }
 
+# Like with_timeout, but for a wait whose children must not survive it: the walk
+# runs heavy.sh -> node -> Chromium, and killing only the direct child leaves the
+# walker driving the browser after the gate has moved on. Returns 124 at the
+# ceiling so the caller can say "no verdict" instead of guessing a failure.
+bounded_run() { # secs cmd...
+  local secs="$1" p t0 rc; shift
+  "$@" & p=$!
+  t0="$(date +%s)"
+  while kill -0 "$p" 2>/dev/null; do
+    if [ $(( $(date +%s) - t0 )) -ge "$secs" ]; then
+      rsi_kill_tree "$p"; wait "$p" 2>/dev/null; return 124
+    fi
+    sleep 2
+  done
+  wait "$p"; rc=$?
+  return $rc
+}
+
 with_timeout() { # secs cmd...   (macOS has no `timeout`)
   local s="$1"; shift
   "$@" & local p=$!

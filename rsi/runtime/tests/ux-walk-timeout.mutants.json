@@ -1,0 +1,30 @@
+[
+  {
+    "label": "walk ceiling removed: a wedged walker holds the merge lane forever",
+    "file": "rsi/runtime/common.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "    if [ $(( $(date +%s) - t0 )) -ge \"$secs\" ]; then",
+    "new": "    if false; then"
+  },
+  {
+    "label": "only the direct child is killed: the node walker survives its wrapper and keeps driving the browser",
+    "file": "rsi/runtime/common.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "      rsi_kill_tree \"$p\"; wait \"$p\" 2>/dev/null; return 124",
+    "new": "      kill -TERM \"$p\" 2>/dev/null; wait \"$p\" 2>/dev/null; return 124"
+  },
+  {
+    "label": "a timeout is relabelled as a normal walker answer: the gate would keep the PR in limbo or pass it",
+    "file": "rsi/runtime/ux-walk.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "  [ \"$rc\" -eq 124 ] && unavail \"walker exceeded ${WALK_MAX_S}s (RSI_WALK_MAX_S)\"",
+    "new": "  :"
+  },
+  {
+    "label": "outer gate bound no longer mapped to unavailable: a wedged gate would be read as a verdict",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "    if [ \"$urc\" -eq 124 ]; then",
+    "new": "    if [ \"$urc\" -eq 999 ]; then"
+  }
+]
