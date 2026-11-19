@@ -19,9 +19,12 @@ import {
   shouldAskForRead,
   otherPullRequests,
   parseCISummary,
+  parseReviews,
+  reviewStateLabel,
   stateLabel,
   unobservedLabel,
   type Elsewhere,
+  type Review,
 } from "../../lib/prObservation";
 import {
   IconAlert,
@@ -387,6 +390,55 @@ function Loading() {
   );
 }
 
+/** How many reviews the card lists before folding the rest into one line. */
+const REVIEWS_SHOWN = 5;
+
+/**
+ * The reviews the cached snapshot carries, under the checks.
+ *
+ * `null` and `[]` are different answers and get different sentences: never
+ * read, versus read and found none. The cap is a render rule because the panel
+ * has to stay scannable; nothing is dropped from the cache.
+ */
+function Reviews({ reviews }: { reviews: Review[] | null }) {
+  const tr = useT();
+  if (reviews === null) {
+    return <p className="mt-2 text-caption text-kin-muted">{tr("pr.reviewsNeverRead")}</p>;
+  }
+  if (reviews.length === 0) {
+    return <p className="mt-2 text-caption text-kin-muted">{tr("pr.reviewsNone")}</p>;
+  }
+  // The daemon stores reviews oldest-first, so keep the tail: the newest
+  // approval or change request is the one a person is looking for.
+  const shown = reviews.slice(-REVIEWS_SHOWN);
+  return (
+    <ul className="mt-2 divide-y divide-[var(--kin-hairline)] border-t border-[var(--kin-hairline)] text-caption">
+      {reviews.length > shown.length && (
+        <li className="py-1.5 text-kin-muted">
+          {tr("pr.reviewsMore", { more: String(reviews.length - shown.length) })}
+        </li>
+      )}
+      {shown.map((review, index) => (
+        <li key={`${review.author}-${index}`} className="py-1.5">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-medium text-kin-text">{review.author}</span>
+            {review.state && (
+              <span className="text-kin-muted">{reviewStateLabel(tr, review.state)}</span>
+            )}
+          </div>
+          {review.body && (
+            // Three lines keeps the card scannable; the title carries the rest
+            // for a hover, and the pull request link is one click away.
+            <p className="mt-0.5 line-clamp-3 text-kin-muted" title={review.body}>
+              {review.body}
+            </p>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ObservationCard({ lead, busy }: { lead: PullRequestObservation; busy: boolean }) {
   const tr = useT();
   const ci = parseCISummary(lead.ci_summary);
@@ -452,6 +504,8 @@ function ObservationCard({ lead, busy }: { lead: PullRequestObservation; busy: b
               </span>
             </div>
           )}
+
+          <Reviews reviews={parseReviews(lead.reviews)} />
         </>
       )}
 

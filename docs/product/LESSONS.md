@@ -923,6 +923,26 @@ viewport 级；确认重走没有复现就不开返工。
 
 证据：`9d03f1b5`
 
+## 2026-11-19 · 只在无缓存路径上证明过的加载态不算证明
+seen: 3
+
+发生了什么：从对话列表进入 `/tasks/<id>` 时，列表行让 `fallbackTask` 恒为真，`TaskDetailPage`
+的无行冷进入分支不再执行；唯一的等待行在 `visibility: hidden` 的滚动容器里，手机上正文区整片
+空白，且页面上没有任何 `role="status"`。同一处的冷进入品牌块还是 `bg-kin-blue`，与开机页和
+应用图标的中性 K 块不是同一个身份。#43 加过 spinner，#44/#61 改过冷进入品牌块，三次都只在
+jsdom 的「无列表行」路径上验证。
+
+为什么没拦住：测试直接渲染 `TaskDetailPage` 并只跑 `open()`（不传 `fallbackTask`）那一支；
+产品真实入口由 `TaskSessionHost` 传入列表行，从没进过测试。断言也只看「元素存在」，没断言
+「它在可见的、命名的等待面里」。
+
+规则：加载态只在无缓存路径上验证过就不算验证；测试必须持有真实入口的数据（列表行 /
+`fallbackTask`），并断言正文区存在可见且命名的等待面。
+
+证据：分支 `rsi/entry-wait`；`TaskDetailPage.entryWait.dom.test.tsx`、
+`TaskDetailPage.coldLoad.dom.test.tsx`、`BrandMark.dom.test.tsx`；`rsi/state/shots/entry-wait/`
+的 390×844 / 1100×760 真 daemon 前后截图。
+
 ## 评审复盘与协议
 
 KIN-CONTINUE-001 审了五轮才过。事实：77 个文件、+5025/−1335（源码 +2836、测试 +2099），

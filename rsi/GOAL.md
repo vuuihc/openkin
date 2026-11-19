@@ -228,10 +228,12 @@ a packaged build), `KIN-CONTINUE-003` (its own surface; after P9), and every par
 ## Current phase (P9) — 把评审读进来，不用回 GitHub
 <!-- phase: P9-review-in-place target=2026-11-25T20:00 -->
 
-Landed so far: item 1's ADR `d2e621ba` (#347). The ordered migration and its two database tests are
-written and held for the owner as `R-p9-reviews-migration` (branch `rsi/p9-reviews-migration`, PR #352
-open with label `hold`, cross-linked from `rsi/state/STATUS.md`); items 2–3 wait on that decision, and
-item 3 names the evidence seam the implementation row will use.
+Landed so far: item 1's ADR `d2e621ba` (#347); the column it decided, `283e70ba` (#352,
+owner-approved before merge — the `needs-ceo` stop was cleared, not bypassed), with
+`pr_observations.reviews` at `internal/store/migrate.go:844` and ordered migration 049 at `:2678-2705`;
+and the read half `301d345f` (#368) that fills it; `api/openapi.yaml:6810` documents `reviews` next to
+`ci_summary`. The panel half has not landed — `parseReviews` is absent from
+`ui/src/lib/prObservation.ts` on `main` — so it is an open PR; item 3 names its evidence seam.
 
 **Why this and not features.** P7/P8 settled the ledger: `KIN-CONTINUE-003` was covered by `d929cfa5` (#348),
 and the only two `approved` rows are the ones that need Ethan (`KIN-NOTIFY-001`, `KIN-SETTINGS-002`), and
@@ -245,8 +247,8 @@ GitHub, not in the conversation that produced the change.
 1. A decided, additive shape for the reviews the panel may read: an ADR that names one column on
    `pr_observations` (`internal/store/pr_observations.go`, table in `internal/store/migrate.go`) holding the
    reviews as JSON — author, state, body — written by the same explicit refresh that writes `ci_summary`, plus
-   the ordered migration and both database tests AGENTS.md requires. **This half stops at `needs-ceo`**: the
-   ADR may land as docs, but the schema PR stays open for Ethan and the migration does not merge.
+   the ordered migration and both database tests AGENTS.md requires. **This half is delivered**: the owner
+   approved the column before merge; it landed as `283e70ba` (#352, `pr_observations.reviews`, migration 049).
 2. Once that column exists (or Ethan answers with a different shape), the panel renders each review's author,
    state and body from the cached snapshot, and keeps the failing-check names it already shows. A snapshot the
    panel cannot read says so in one line instead of looking empty. The reviews come from the same cached
@@ -257,33 +259,19 @@ GitHub, not in the conversation that produced the change.
    a review. The PR says which seam it used (a dev-only seed route, or a DOM suite on the panel plus a Go test
    on the snapshot) and why that proves the same thing; faking it inside the walk is not allowed.
 
-**Mechanism rows (rent, not phase items).** Claimable by a free lane as `rsi/loop-guards`, in this order.
+**Mechanism rows (rent, not phase items).** Both delivered 2026-11-19; do not re-derive.
 The two 2026-11-19 follow-ups are **done** and must not be re-derived: the walk-mutant restore runs on
 TERM/HUP/INT (`rsi/runtime/ux/walk-mutant-test.sh` `trap_restore_dist`, plus `scripts/mutants.py`'s signal
 handler from #338) and a merge archives its sendback (#346 `6ea5b433`).
 
-1. **The escalation ledger cannot say what it bought.** Measured 2026-11-19 06:35 on `rsi/state/escalations.jsonl`
-   (400 records): `has_bm` is **false in all 359** records that carry the field and absent in 41, and every one of
-   the 86 `FAIL` records stores the note `VERDICT: FAIL` with no findings — because `dispatch.sh:421-422` records
-   the verdict and never the review's blocker/major lines, so `has_bm_findings()` reads a string that cannot
-   contain them. 233 records also carry no `deepseek_verdict` to compare against. Net: "did the strong reviewer
-   catch something the DeepSeek review missed?" is unanswerable, and that is the one question that decides
-   whether the escalated reviews in the week to 11-18 (hydrogen 213 / hydrogen-high 50 / codex 29) are worth
-   their cost. Smallest shape: at that call site set `has_bm` from the review log (or pass its blocker/major lines
-   as the note) and print caught-defects per review and per yuan in the weekly escalation report. Red proof: a
-   stub log whose review names a blocker → `has_bm` true; a log that only says `VERDICT: PASS` → false; and the
-   weekly line for those two records counts one miss, not zero. Do not widen this into a new store or a schema
-   change.
-2. **A number a person typed drifts.** `docs/product/stories/PLAN.md` line 3 still says "4 条 `covered`、10 条
-   `approved`、2 条 `draft`" while `python3 scripts/stories.py --check` prints `16 (approved 2, covered 14)` —
-   measured 2026-11-19 06:30 — and `--check` exits `ok`, so nothing compares the two. Smallest shape: have
-   `stories.py` write that status line from the registry (it already writes `COVERAGE.md`) and make `--check`
-   fail when the line disagrees; hermetic case = today's mismatched line is red, the regenerated line is green.
-   The same guard should cover the covered/approved counts the morning report quotes.
+1. **The escalation ledger cannot say what it bought.** `c00f66fe` (#357): `review_note` records blocker/major
+   lines (`rsi/runtime/dispatch.sh:136`); `f66b4144` (#360): `escalate.py:832` prints `Worth it: caught N of M` weekly.
+2. **A number a person typed drifts.** `4640d9b3` (#356): `plan_status_prefix` writes `PLAN.md`'s `状态：…`
+   count sentence from the registry; `--check` fails on drift (`plan_problems`, `scripts/stories.py:294`).
 
-**Cut rule.** At 11-25 20:00 land what is green and queue the rest with its reason. If Ethan has not answered the
-schema question by then, the phase's shipped part is the ADR and the queue says so; do not extend the date and
-do not merge the migration on a promise.
+**Cut rule.** At 11-25 20:00 land what is green and queue the rest with its reason. The schema question is
+settled — the column and the read half are on `main` — so the queue is the panel half; the registry is green
+(`python3 scripts/stories.py --check`: `16 (approved 2, covered 14)`, `ok`). Do not extend the date.
 
 **Out of scope** — `KIN-CONTINUE-003` (covered by `d929cfa5`; no longer a phase), PDF and Office preview (every
 in-app path crosses a decided boundary: `internal/api/secure.go` sets

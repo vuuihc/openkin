@@ -7,6 +7,8 @@ import {
   observedBranch,
   otherPullRequests,
   parseCISummary,
+  parseReviews,
+  reviewStateLabel,
   shortRepo,
   shouldAskForRead,
   stateLabel,
@@ -78,6 +80,73 @@ describe("parseCISummary", () => {
 
   it("drops non-string entries from the failing list", () => {
     expect(parseCISummary('{"failing":["ok",3,null]}')?.failing).toEqual(["ok"]);
+  });
+});
+
+describe("parseReviews", () => {
+  it("reads the daemon's array", () => {
+    const reviews = parseReviews(
+      JSON.stringify([
+        { author: "ada", state: "COMMENTED", body: "first" },
+        { author: "grace", state: "APPROVED", body: "second" },
+      ]),
+    );
+    // The daemon writes them oldest first; that order is the useful one.
+    expect(reviews).toEqual([
+      { author: "ada", state: "COMMENTED", body: "first" },
+      { author: "grace", state: "APPROVED", body: "second" },
+    ]);
+  });
+
+  it("says never read for the empty string", () => {
+    // '' is the column's "nobody has asked" — including every row written
+    // before the column existed. It is not the same answer as [].
+    expect(parseReviews("")).toBeNull();
+    expect(parseReviews(undefined)).toBeNull();
+  });
+
+  it("says none for an empty array", () => {
+    // [] is a successful read that found no reviews.
+    expect(parseReviews("[]")).toEqual([]);
+  });
+
+  it("survives a value that is not JSON at all", () => {
+    // A cache of somebody else's API: throwing here would lose the number and
+    // the checks along with the reviews.
+    expect(parseReviews("not json")).toBeNull();
+    expect(parseReviews("{}")).toBeNull();
+    expect(parseReviews("null")).toBeNull();
+  });
+
+  it("drops entries that are not objects or carry no author", () => {
+    const reviews = parseReviews(
+      JSON.stringify([
+        null,
+        42,
+        "a string",
+        ["an", "array"],
+        { state: "APPROVED", body: "no author" },
+        { author: "", state: "APPROVED", body: "empty author" },
+        { author: "ada", state: "COMMENTED", body: 7 },
+      ]),
+    );
+    // The well-formed entry survives; a body that is not a string is empty
+    // rather than the literal "7".
+    expect(reviews).toEqual([{ author: "ada", state: "COMMENTED", body: "" }]);
+  });
+});
+
+describe("reviewStateLabel", () => {
+  it("maps the states the daemon writes", () => {
+    expect(reviewStateLabel(tr, "APPROVED")).toBe("pr.reviewStateApproved");
+    expect(reviewStateLabel(tr, "CHANGES_REQUESTED")).toBe("pr.reviewStateChangesRequested");
+    expect(reviewStateLabel(tr, "COMMENTED")).toBe("pr.reviewStateCommented");
+    expect(reviewStateLabel(tr, "DISMISSED")).toBe("pr.reviewStateDismissed");
+    expect(reviewStateLabel(tr, "PENDING")).toBe("pr.reviewStatePending");
+  });
+
+  it("renders an unknown state raw rather than blank", () => {
+    expect(reviewStateLabel(tr, "FUTURE_STATE")).toBe("FUTURE_STATE");
   });
 });
 
