@@ -4,6 +4,7 @@ import {
   agentCatalogState,
   catalogProducts,
   CATALOG_LIMIT,
+  discoveredStatus,
   isNativeAgent,
   planAgentCatalog,
   runnableAgents,
@@ -70,6 +71,27 @@ describe("agentCatalogState (KIN-AGENTS-001)", () => {
   });
 });
 
+describe("discoveredStatus", () => {
+  it("calls a runnable product not in the catalog, not disconnected", () => {
+    // The machine can run it right now; the only thing missing is a person's
+    // decision to put it in the ten-slot catalog.
+    expect(
+      discoveredStatus(
+        agent({ id: "claude-code", name: "Claude Code", installed: true, available: true }),
+      ),
+    ).toBe("notInCatalog");
+  });
+
+  it("calls a product the machine cannot run not connected", () => {
+    expect(
+      discoveredStatus(agent({ id: "claude-code", name: "Claude Code", installed: true })),
+    ).toBe("notConnected");
+    expect(discoveredStatus(agent({ id: "claude-code", name: "Claude Code" }))).toBe(
+      "notConnected",
+    );
+  });
+});
+
 describe("catalog products and the ten-product cap (KIN-AGENTS-001)", () => {
   function product(partial: Partial<AgentInfo> & Pick<AgentInfo, "id" | "name">): AgentInfo {
     return agent({ installed: true, permission_modes: ["default"], ...partial });
@@ -80,7 +102,12 @@ describe("catalog products and the ten-product cap (KIN-AGENTS-001)", () => {
       product({ id: "claude-code", name: "Claude Code", available: true }),
       // A presence-only row: installed, but no permission ladder, because Kin
       // has no adapter to run a turn in.
-      agent({ id: "cursor", name: "Cursor", installed: true, reason: "installed; no known headless CLI mode" }),
+      agent({
+        id: "cursor",
+        name: "Cursor",
+        installed: true,
+        reason: "installed; no known headless CLI mode",
+      }),
     ];
     expect(catalogProducts(list).map((a) => a.id)).toEqual(["claude-code"]);
   });
@@ -171,11 +198,7 @@ describe("catalog products and the ten-product cap (KIN-AGENTS-001)", () => {
       agent({ id: "gemini", name: "Gemini" }),
       agent({ id: "claude-code", name: "Claude Code", default: true }),
     ];
-    expect(sortAgentCatalog(list).map((a) => a.id)).toEqual([
-      "claude-code",
-      "codex",
-      "gemini",
-    ]);
+    expect(sortAgentCatalog(list).map((a) => a.id)).toEqual(["claude-code", "codex", "gemini"]);
   });
 });
 
