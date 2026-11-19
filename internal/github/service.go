@@ -601,6 +601,11 @@ func (s *Service) observeOnMachine(ctx context.Context, t Target, askedAt time.T
 			BaseBranch: answer.BaseBranch,
 			HeadOID:    answer.HeadOID,
 			CI:         CIStatus{State: answer.CIState},
+			// The wire carries '' for "not read" and a JSON array otherwise.
+			// That distinction is why the field is a string rather than a
+			// slice, so it is carried, not inferred.
+			Reviews:     answer.Reviews,
+			ReviewsRead: answer.Reviews != "",
 		}
 		if answer.CISummary != "" {
 			if err := json.Unmarshal([]byte(answer.CISummary), &res.PR.CI); err != nil {
@@ -668,6 +673,12 @@ func (s *Service) record(ctx context.Context, t Target, res LookupResult, askedA
 		obs.CIState = pr.CI.State
 		if summary, err := json.Marshal(pr.CI); err == nil {
 			obs.CISummary = string(summary)
+		}
+		if pr.ReviewsRead {
+			// Only an answer is written. On a failed read this stays '', and
+			// the store's CASE keeps the previous array — a row that was ''
+			// stays '', and one that held reviews keeps them.
+			obs.Reviews = pr.Reviews
 		}
 	}
 	return s.store.RecordPRObservation(ctx, obs)
