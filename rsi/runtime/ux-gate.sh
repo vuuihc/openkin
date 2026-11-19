@@ -201,7 +201,10 @@ fi
 # or records no verdict. Every other state (reproduced > 0, no confirm.json, flaked == 0) keeps
 # today's path exactly.
 CONFIRM_ONLY=0
-if [ -s "$CONF_JSON" ]; then
+# Only a confirm decision that completed sets the flag: a partial write can leave
+# confirm.json behind while the first walk's HARD is kept (CRSN set), and that state
+# must not both bill those lines and call them not evidence.
+if [ -s "$CONF_JSON" ] && [ -z "${CRSN:-}" ]; then
   if python3 - "$CONF_JSON" >/dev/null 2>&1 <<'PY'
 import json, sys
 try:
@@ -218,7 +221,7 @@ fi
 # keeps ungrounded_axes: merge.sh reuses a cached review with the same CLI and semantics as before.
 ungrounded_axes_confirm() { # <review-file> <confirm-dir> -> comma list of below-3 axes with no confirm evidence
   python3 - "$1" "$2" <<'PY'
-import os, re, sys
+import json, os, re, sys
 txt = open(sys.argv[1], errors="replace").read()
 cdir = sys.argv[2]
 axes = ["clarity", "density", "consistency", "feedback", "keyboard"]
@@ -232,14 +235,35 @@ for root, _dirs, files in os.walk(cdir):
     for f in files:
         if f.endswith(".png"):
             tokens.append(f)
+# Ground on walk.json's parsed values, not its source lines: the walker writes
+# JSON.stringify(..., null, 1), so each value arrives quoted and escaped and a finding
+# that quotes the same failure in plain text could never match it. The values a finding
+# can legitimately quote are the hard-failure lines, each screen's screenshot name and
+# notes, and its lint readings (as key=value, so a bare number cannot ground any line).
 try:
-    raw = open(os.path.join(cdir, "walk.json"), errors="replace").read()
-except OSError:
-    raw = ""
-for line in raw.splitlines():
-    t = line.strip().rstrip(",")
-    if len(t) >= 16 and ": " in t:   # a key/value line, not `{`/`[` scaffolding
-        tokens.append(t)
+    walk = json.load(open(os.path.join(cdir, "walk.json"), errors="replace"))
+except (OSError, ValueError):
+    walk = {}
+def _strings(node):
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, list):
+        for v in node:
+            yield from _strings(v)
+if isinstance(walk, dict):
+    for t in _strings(walk.get("hardFail")):
+        if t.strip():
+            tokens.append(t)
+    screens = walk.get("screens")
+    for screen in screens if isinstance(screens, list) else []:
+        if not isinstance(screen, dict):
+            continue
+        for t in _strings([screen.get("name"), screen.get("notes")]):
+            if t.strip():
+                tokens.append(t)
+        lint = screen.get("lint")
+        if isinstance(lint, dict):
+            tokens.extend("%s=%s" % (k, json.dumps(v)) for k, v in lint.items())
 def grounded(line):
     return any(tok in line for tok in tokens)
 gaps = []
@@ -282,7 +306,7 @@ EVID="$SHOTS"; [ "$CONFIRM_ONLY" = 1 ] && EVID="$UXD/confirm"
     echo
     echo "A second walk on the same tree did not reproduce these first-walk failures, so they are not evidence about this PR — do not score or ground an axis on them:"
     tail -n +2 "$UXD/confirm.txt" 2>/dev/null
-    echo "The confirm walk's own screenshots and walk.json ($UXD/confirm) are the evidence this PR is reviewed on."
+    echo "The confirm walk's own screenshots and walk.json ($UXD/confirm) are the evidence this PR is reviewed on. A below-3 axis must cite a file under $EVID or a line from its walk.json; a finding grounded only in the flakes above is not a verdict."
   fi
   echo "Note: a throwaway daemon may be EMPTY (see $EVID/seed.log); then judge empty/loading states and structure, and say 'not verifiable: needs seed data' for what you cannot see. Never invent what the screen shows."
   echo

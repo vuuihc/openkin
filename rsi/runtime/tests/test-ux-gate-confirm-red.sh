@@ -335,6 +335,10 @@ UX_VERDICT: FAIL"
   [ ! -s "$BODY" ] || fail "flaked-only-ungrounded: a sendback body was written"
   grep -Fq 'density' "$UXD/unavailable.txt" || fail "flaked-only-ungrounded: the reason does not name the axis"
   grep -Fq 'asked twice' "$UXD/unavailable.txt" || fail "flaked-only-ungrounded: the reason does not say it was asked twice"
+  # A phrase only the confirm-only re-ask branch emits; the flaked line itself is also
+  # in the first prompt (cat'ed at the end), so asserting it would pass without the branch.
+  prompt_has 2 "grounds that score only in failures the confirm walk could not reproduce" \
+    || fail "flaked-only-ungrounded: the re-ask is not the confirm-only branch"
   prompt_has 2 "$FLAKE" || fail "flaked-only-ungrounded: the re-ask does not spell out the flaked line"
 }
 
@@ -367,6 +371,32 @@ UX_VERDICT: FAIL"
   [ "$(reviews)" = 1 ] || fail "flaked-only-grounded: $(reviews) reviews, want 1 (confirm evidence needs no re-ask)"
   [ ! -e "$UXD/unavailable.txt" ] || fail "flaked-only-grounded: a grounded confirm finding was recorded as unavailable"
   grep -Fq 'density: seed-1-1.png' "$BODY" || fail "flaked-only-grounded: the confirm evidence line is not billed"
+}
+
+# A confirm-only run can still carry a NEW hard failure from the confirm walk: the first
+# red flaked, but the tree has a real second defect. A below-3 finding that quotes that
+# failure in plain text is grounded — the gate must send the PR back (exit 1), not call
+# the finding ungrounded, re-ask and exit 2. The fixture is the indented shape the walker
+# actually writes (JSON.stringify(..., null, 1)), because the compact stub JSON this suite
+# otherwise uses is exactly what hid the quoted-source-line bug.
+test_confirm_only_new_hard_failure_is_grounded() {
+  new_case confirm_only_new_hard
+  fixture 1 '{"hardFail":["J9/mac: A"],"screens":[]}'
+  fixture 2 '{
+ "hardFail": [
+  "J2/mac: the wait box never appears after send"
+ ],
+ "screens": []
+}'
+  rev_fixture 1 "density: J2/mac: the wait box never appears after send — the pending wait box is missing at 390.
+UX_SCORES: clarity=4 density=2 consistency=4 feedback=4 keyboard=4
+UX_VERDICT: FAIL"
+  run_gate
+  [ "$RC" -eq 1 ] || fail "confirm-only-new-hard: exit $RC, want 1 (a quoted confirm hard failure is grounded)"
+  [ "$(reviews)" = 1 ] || fail "confirm-only-new-hard: $(reviews) reviews, want 1 (no re-ask)"
+  [ ! -e "$UXD/unavailable.txt" ] || fail "confirm-only-new-hard: a grounded confirm finding was recorded as unavailable"
+  hard_section | grep -Fqx 'J2/mac: the wait box never appears after send' || fail "confirm-only-new-hard: the new confirm failure is not billed"
+  prompt_has 1 "are not evidence about this PR" || fail "confirm-only-new-hard: the run was not in the confirm-only state"
 }
 
 # The manifest must keep pointing at this gate and this suite: a rotted `old` would retire
@@ -422,6 +452,7 @@ run test_flaked_only_red_reviews_confirm_evidence
 run test_flaked_only_red_below_three_is_unavailable
 run test_reproduced_red_still_reviews_first_walk
 run test_flaked_only_grounded_below_three_is_a_red
+run test_confirm_only_new_hard_failure_is_grounded
 run test_mutant_manifest_points_at_this_gate
 [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo "ux-gate confirm-red contract: $RAN/$RAN cases passed"
