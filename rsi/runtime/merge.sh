@@ -1028,8 +1028,12 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
   if [ "$(cut -d' ' -f1 "$UXV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$UXV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f3 "$UXV" 2>/dev/null)" = "$MAINUI" ]; then
     say "#$N $SLUG: UX gate carried over (PR diff and origin/main:ui unchanged)"
   else
-    # Reuse a strong UX review for this same head SHA (do not re-call Hydrogen/sol).
-    if [ -s "$STATE/merge/$SLUG.strong-ux" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong-ux")" = "$SHA" ] && [ -s "$STATE/merge/$SLUG.strong-ux.txt" ]; then
+    # Reuse a strong UX review for this same head SHA (do not re-call Hydrogen/sol), but only
+    # when the gate's own decision accepts the cached text: reusing an ungrounded below-threshold
+    # score is #383 again (its FAIL sends the PR back, its PASS merges it) one tick after the gate
+    # said "no verdict". On any failure fall through to ux-gate.sh, which re-walks and re-asks.
+    if [ -s "$STATE/merge/$SLUG.strong-ux" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong-ux")" = "$SHA" ] && [ -s "$STATE/merge/$SLUG.strong-ux.txt" ] \
+       && bash "$RSI_DIR/runtime/ux-gate.sh" --accepts-review "$STATE/merge/$SLUG.strong-ux.txt"; then
       say "#$N $SLUG: reuse strong UX review for ${SHA:0:8} (verdict=$(awk '{print $2}' "$STATE/merge/$SLUG.strong-ux")) — head unchanged"
       mkdir -p "$STATE/ux/$SLUG"
       cp "$STATE/merge/$SLUG.strong-ux.txt" "$STATE/ux/$SLUG/review.txt"
@@ -1041,18 +1045,55 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
       mkdir -p "$STATE/ux/$SLUG"
       echo "ux reviewer held: no strong reviewer available" > "$STATE/ux/$SLUG/unavailable.txt"
     else
+    [ -s "$STATE/merge/$SLUG.strong-ux.txt" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong-ux")" = "$SHA" ] \
+      && say "#$N $SLUG: cached strong UX review for ${SHA:0:8} fails the UX gate's own decision (grounding/threshold) — running the gate"
     say "#$N $SLUG: UX gate (journey walk + vision review)"
-    GATE_MAX="${RSI_UX_GATE_MAX_S:-2400}"; case "$GATE_MAX" in ''|*[!0-9]*) GATE_MAX=2400;; esac
+    # Outer backstop, not the walk bound: ux-gate re-walks a red once (confirm),
+    # and that second walk has the same RSI_WALK_MAX_S ceiling, so the default
+    # leaves room for both (2 x 1800s) plus the vision dispatch.
+    GATE_MAX="${RSI_UX_GATE_MAX_S:-5400}"; case "$GATE_MAX" in ''|*[!0-9]*) GATE_MAX=5400;; esac
+    # This attempt's evidence only: ux-gate clears confirm.json below its first walk, so an
+    # earlier attempt on the same slug would otherwise leave it readable to the 124 branch if
+    # this attempt expires during build/seed/walk, and the sendback would carry a past tree's red.
+    rm -f "$STATE/ux/$SLUG/confirm.json" "$STATE/ux/$SLUG/confirm.hard"
     bounded_run "$GATE_MAX" bash "$RSI_DIR/runtime/ux-gate.sh" "$WT" "$SLUG" "$ITEM" "$N" "$DH" "$ROLE"; urc=$?
     if [ "$urc" -eq 124 ]; then
-      # Outer bound (the walk's own ceiling is RSI_WALK_MAX_S, 30 min). A hang here
-      # is infra, not the PR: unavailable + cooldown, never a sendback, never a merge.
-      say "#$N $SLUG: UX gate exceeded ${GATE_MAX}s -> unavailable (not merging)"
-      mkdir -p "$STATE/ux/$SLUG"
-      echo "ux gate exceeded ${GATE_MAX}s (merge.sh bound; no verdict)" > "$STATE/ux/$SLUG/unavailable.txt"
-      COOL_MIN="${RSI_UX_COOLDOWN_MIN:-30}"; case "$COOL_MIN" in ''|*[!0-9]*) COOL_MIN=30;; esac
-      [ "$COOL_MIN" -gt 0 ] && printf '%s %s %s\n' "$(( $(date +%s) + COOL_MIN * 60 ))" "$DH" "ux gate exceeded ${GATE_MAX}s" > "$STATE/merge/$SLUG.uxcooldown"
-      urc=2
+      # The first walk's evidence is $SHOTS/walk.json (ux-gate.sh), not $STATE/ux.
+      # A confirm that finished has already applied ux-gate's own policy: lines it
+      # could not reproduce are cleared from confirm.hard, so an empty file means
+      # the red flaked (no verdict), not "no evidence". A confirm that could not
+      # run leaves confirm.json absent and keeps the first walk's lines (fail closed).
+      if [ -e "$STATE/ux/$SLUG/confirm.json" ]; then
+        RED="$(cat "$STATE/ux/$SLUG/confirm.hard" 2>/dev/null || true)"
+      else
+        RED="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1])).get("hardFail",[])))' "$STATE/shots/$SLUG/journeys/walk.json" 2>/dev/null || true)"
+      fi
+      # Same relaxation ux-gate applies: known environment artefacts never convict a PR.
+      KNOWN="$STATE/ux-known-artifacts.txt"
+      if [ -n "$RED" ] && [ -s "$KNOWN" ]; then
+        RED="$(printf '%s\n' "$RED" | grep -v -F -f "$KNOWN" || true)"
+      fi
+      if [ -n "$RED" ]; then
+        # ux-gate's own policy: a confirm that cannot run keeps the first walk's
+        # red (fail closed). Expiring inside the gate must not turn a red into
+        # "unavailable", which would leave the PR verified but never landed.
+        say "#$N $SLUG: UX gate exceeded ${GATE_MAX}s; keeping the walk red (fail closed)"
+        mkdir -p "$STATE/ux/$SLUG"
+        { echo "ux gate exceeded ${GATE_MAX}s before a verdict (walk red preserved)."
+          echo "First-walk failures kept (fail closed):"
+          printf '%s\n' "$RED"; } > "$STATE/ux/$SLUG/ux.txt" 2>/dev/null || true
+        cp "$STATE/ux/$SLUG/ux.txt" "$STATE/merge/$SLUG.ux.txt" 2>/dev/null || true
+        urc=1
+      else
+        # No first-walk evidence: a hang here is infra, not the PR — unavailable
+        # plus cooldown, never a sendback, never a merge.
+        say "#$N $SLUG: UX gate exceeded ${GATE_MAX}s -> unavailable (not merging)"
+        mkdir -p "$STATE/ux/$SLUG"
+        echo "ux gate exceeded ${GATE_MAX}s (merge.sh bound; no verdict)" > "$STATE/ux/$SLUG/unavailable.txt"
+        COOL_MIN="${RSI_UX_COOLDOWN_MIN:-30}"; case "$COOL_MIN" in ''|*[!0-9]*) COOL_MIN=30;; esac
+        [ "$COOL_MIN" -gt 0 ] && printf '%s %s %s\n' "$(( $(date +%s) + COOL_MIN * 60 ))" "$DH" "ux gate exceeded ${GATE_MAX}s" > "$STATE/merge/$SLUG.uxcooldown"
+        urc=2
+      fi
     fi
     fi
     SC="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(" ".join("%s=%s"%kv for kv in d["scores"].items()), "mean=%s"%d["mean"])' "$STATE/ux/$SLUG/scores.json" 2>/dev/null)"

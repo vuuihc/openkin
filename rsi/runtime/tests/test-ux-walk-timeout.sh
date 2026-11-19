@@ -5,7 +5,7 @@
 # Measured 2026-11-19: one UI PR's walk ran 40 minutes; merge.sh -> ux-gate.sh ->
 # ux-walk.sh -> heavy.sh -> node was unbounded at every step, so from outside the
 # lane nobody could tell slow from dead. The bound is now RSI_WALK_MAX_S (default
-# 1800s) around the walker, with an outer RSI_UX_GATE_MAX_S (default 2400s) in
+# 1800s) around the walker, with an outer RSI_UX_GATE_MAX_S (default 5400s) in
 # merge.sh that maps exit 124 to "unavailable + cooldown, no sendback, not merged".
 #
 # This suite drives the build-free --timeout-probe seam in ux-walk.sh: no UI
@@ -16,8 +16,16 @@
 #   3. a child that finishes keeps its own status even when the deadline is in
 #      the same tick — a polling loop used to relabel that answer as a timeout;
 #   4. a fast non-zero exit is not a timeout;
-#   5. merge.sh's wiring: the outer bound and the 124 -> unavailable mapping are
-#      what turn a wedged gate into a next-cycle retry.
+#   5. a deadline identity read that fails is "cannot inspect", not "pid reused":
+#      the tree is still killed (fail closed);
+#   6. a watchdog flag set while the child is still alive does not relabel the
+#      child's own non-signal exit as 124;
+#   7. merge.sh's wiring: the outer bound, the 124 -> unavailable mapping, and
+#      the preserved red's sources (the first walk under state/shots, a finished
+#      confirm's clearance, known artefacts) — what turns a wedged gate into a
+#      next-cycle retry instead of a false-red sendback;
+#   8. merge.sh clears the slug's confirm evidence before the gate runs, so an
+#      outer 124 cannot read a previous attempt's tree as this attempt's red.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
@@ -89,11 +97,88 @@ RC=$?
 [ ! -e "$OUT4/UNAVAILABLE" ] || fail "fast failure: mislabelled as a timeout"
 pass "fast failure: keeps its own exit code, no timeout label"
 
-# 5. wiring: the outer gate bound exists and 124 is not a pass
+# 5. a deadline identity read that fails must still kill the tree. An empty
+#    `ps` answer is "cannot inspect", not a reused pid; reading it as a mismatch
+#    would leave the hung walker running. The stub answers the identity read,
+#    then fails every later call (the deadline read).
+OUT5="$T/o5"; mkdir -p "$OUT5"
+PSCOUNT="$T/pscount"; REAL_PS="$(command -v ps)"
+export PSCOUNT REAL_PS
+cat > "$T/psstub.bash" <<'SH'
+ps() {
+  local n=0
+  [ -f "$PSCOUNT" ] && n="$(cat "$PSCOUNT")"
+  n=$((n + 1)); printf '%s\n' "$n" > "$PSCOUNT"
+  [ "$n" -eq 1 ] && { "$REAL_PS" "$@"; return; }
+  return 1
+}
+SH
+T0="$(date +%s)"
+BASH_ENV="$T/psstub.bash" RSI_WALK_MAX_S=1 bash "$WALK" --timeout-probe "$OUT5" bash "$T/stub.sh" "$OUT5" >/dev/null 2>&1
+RC=$?
+EL=$(( $(date +%s) - T0 ))
+[ "$RC" -eq 2 ] || fail "blind deadline read: expected exit 2 (unavailable), got $RC"
+[ -s "$OUT5/UNAVAILABLE" ] || fail "blind deadline read: no UNAVAILABLE marker"
+[ "$EL" -le 5 ] || fail "blind deadline read: took ${EL}s; an unreadable ps skipped the kill"
+CPID="$(cat "$OUT5/child.pid" 2>/dev/null || echo '')"
+[ -n "$CPID" ] || fail "blind deadline read: stub never wrote child.pid"
+for _ in 1 2 3 4 5; do kill -0 "$CPID" 2>/dev/null || break; sleep 1; done
+kill -0 "$CPID" 2>/dev/null && fail "blind deadline read: grandchild $CPID survived (fail-open kill)"
+pass "blind deadline read: an unreadable identity still kills the tree (fail closed)"
+
+# 6. the watchdog can set its flag and lose the race: the child finishes on its
+#    own, with a non-signal status, after the flag exists. That status is the
+#    answer; only a signal death (rc >= 128) is the no-verdict 124. rsi_kill_tree
+#    is a no-op so the race is constructed every run, not left to timing.
+OUT6="$T/o6"; mkdir -p "$OUT6"
+RSI_CTRL="$T/ctrl" bash -c '
+  set -u
+  source "$1"
+  rsi_kill_tree() { :; }
+  bounded_run 1 bash -c "sleep 3; exit 7"
+  printf "%s\n" "$?" > "$2/rc"
+' _ "$REPO/rsi/runtime/common.sh" "$OUT6" || true
+RC="$(cat "$OUT6/rc" 2>/dev/null || echo none)"
+[ "$RC" = 7 ] || fail "flag race: expected rc 7 (the child's own answer), got $RC"
+pass "flag race: a non-signal exit keeps its status even after the watchdog flag"
+
+# 7. wiring: the outer gate bound exists and 124 is not a pass
 grep -q 'bounded_run "$GATE_MAX" bash "$RSI_DIR/runtime/ux-gate.sh"' "$MERGE" \
   || fail "wiring: merge.sh calls ux-gate.sh without bounded_run"
 grep -q 'if \[ "$urc" -eq 124 \]' "$MERGE" \
   || fail "wiring: merge.sh does not map 124 to unavailable"
-pass "wiring: merge.sh bounds the gate and maps 124 to unavailable"
+# An outer expiry that lands during the confirmation re-walk must keep the first
+# walk's red (ux-gate's own fail-closed rule), not turn it into "unavailable".
+grep -q 'keeping the walk red' "$MERGE" \
+  || fail "wiring: merge.sh can turn a walk red into unavailable on outer expiry"
+# Fixed string: `if [ -n "$RED" ]` alone also prefixes the known-artefact filter.
+grep -qF 'if [ -n "$RED" ]; then' "$MERGE" \
+  || fail "wiring: merge.sh has no red-preserving branch"
+# ux-gate writes the first walk to $STATE/shots/<slug>/journeys/walk.json;
+# $STATE/ux/<slug>/walk.json exists nowhere, and red from it makes the branch dead.
+grep -qF '"$STATE/shots/$SLUG/journeys/walk.json"' "$MERGE" \
+  || fail "wiring: merge.sh reads the first walk from a path no script writes"
+# A confirm that finished rewrote the red set: prefer it, and a line it cleared
+# (empty confirm.hard) must not be sent back on an outer expiry.
+grep -qF 'if [ -e "$STATE/ux/$SLUG/confirm.json" ]; then' "$MERGE" \
+  || fail "wiring: merge.sh does not check whether the confirm finished"
+grep -qF '"$STATE/ux/$SLUG/confirm.hard"' "$MERGE" \
+  || fail "wiring: merge.sh ignores a finished confirm's surviving reds"
+# Known environment artefacts are printed but never convict, as in ux-gate.
+grep -qF 'grep -v -F -f "$KNOWN"' "$MERGE" \
+  || fail "wiring: merge.sh does not drop known walk artefacts"
+pass "wiring: merge.sh bounds the gate, maps 124, and reads a preserved red from ux-gate's paths"
+
+# 8. ux-gate clears confirm.json only below its first walk, so a stale file from
+#    an earlier attempt on the same slug must be gone before the gate starts:
+#    otherwise an outer 124 during this attempt's build/seed/walk reads the
+#    previous tree's confirm.hard and sends back reds this head never produced.
+RM_LINE="$(grep -nF 'rm -f "$STATE/ux/$SLUG/confirm.json" "$STATE/ux/$SLUG/confirm.hard"' "$MERGE" | head -1 | cut -d: -f1)"
+GATE_LINE="$(grep -nF 'bounded_run "$GATE_MAX" bash "$RSI_DIR/runtime/ux-gate.sh"' "$MERGE" | head -1 | cut -d: -f1)"
+[ -n "$RM_LINE" ] || fail "stale confirm: merge.sh does not clear the slug's confirm evidence before the gate"
+[ -n "$GATE_LINE" ] || fail "stale confirm: the ux-gate bounded_run call moved"
+[ "$RM_LINE" -lt "$GATE_LINE" ] \
+  || fail "stale confirm: clearing (line $RM_LINE) is not before the gate call (line $GATE_LINE)"
+pass "stale confirm: the gate's confirm evidence is cleared before it runs"
 
 echo "all cases passed"

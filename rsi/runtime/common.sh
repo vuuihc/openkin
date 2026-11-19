@@ -152,23 +152,37 @@ rsi_kill_tree() {
 # straddles the deadline. The watchdog only kills a process it can still
 # identify as the one started here, because a reaped pid can be reused.
 bounded_run() { # secs cmd...
-  local secs="$1" p ident flag w rc; shift
+  local secs="$1" p ident flag w rc now _i; shift
   flag="$(mktemp "${TMPDIR:-/tmp}/bounded-run.XXXXXX")" || return 2
   rm -f "$flag"
   "$@" & p=$!
-  ident="$(ps -o lstart= -p "$p" 2>/dev/null | tr -d ' \n' || true)"
-  ( sleep "$secs"
-    if [ -n "$ident" ]; then
-      [ "$(ps -o lstart= -p "$p" 2>/dev/null | tr -d ' \n' || true)" = "$ident" ] || exit 0
-    else
-      kill -0 "$p" 2>/dev/null || exit 0    # no ps: fail closed for a bound, never hang
-    fi
+  # Pin the child's identity while it is certainly alive: a reaped pid can be
+  # reused, and the watchdog must not freeze a stranger. The read is retried
+  # briefly because the first call can race the fork.
+  ident=""
+  for _i in 1 2 3 4 5; do
+    ident="$(ps -o lstart= -p "$p" 2>/dev/null | tr -d ' \n' || true)"
+    [ -n "$ident" ] && break
+    kill -0 "$p" 2>/dev/null || break
+    sleep 0.05
+  done
+  ( sp=""
+    # A cancelled watchdog must not leave its sleep behind for the whole ceiling.
+    trap '[ -n "${sp:-}" ] && kill "$sp" 2>/dev/null; exit 0' TERM INT
+    sleep "$secs" & sp=$!; wait "$sp" || exit 0
+    now="$(ps -o lstart= -p "$p" 2>/dev/null | tr -d ' \n' || true)"
+    # An empty read is a failed inspection, not a verdict: fall back to liveness
+    # (fail closed). A non-empty read that disagrees is a reused pid: leave it.
+    if [ -n "$ident" ] && [ -n "$now" ] && [ "$now" != "$ident" ]; then exit 0; fi
+    kill -0 "$p" 2>/dev/null || exit 0
     printf 'timeout\n' > "$flag" 2>/dev/null || true
     rsi_kill_tree "$p"
   ) >/dev/null 2>&1 & w=$!
   wait "$p"; rc=$?
   kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
-  if [ -s "$flag" ]; then rm -f "$flag"; return 124; fi
+  # The child's own answer wins even when the watchdog raced it: only a signal
+  # death from the watchdog (rc >= 128) is the no-verdict 124.
+  if [ -s "$flag" ] && [ "$rc" -ge 128 ] 2>/dev/null; then rm -f "$flag"; return 124; fi
   rm -f "$flag"
   return $rc
 }

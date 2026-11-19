@@ -147,6 +147,32 @@ describe("the phone's cold files deep link", () => {
     await backTo("/sessions", 0);
   });
 
+  it("a cold PR address gets its conversation beneath it", async () => {
+    // The PR tab is the panel's surface, not a place of its own: Back from the
+    // address closes the panel by landing on the conversation.
+    window.history.replaceState({ idx: 0, key: "seed" }, "", "/tasks/example?panel=pr");
+    expect(synthesizePhoneParent()).toBe(true);
+    expect(here()).toBe("/tasks/example?panel=pr");
+    expect((window.history.state as { idx?: number }).idx).toBe(2);
+
+    await backTo("/tasks/example", 1);
+    await backTo("/sessions", 0);
+
+    // A remembered file is not a stop either: it names nothing the reader
+    // passed through.
+    window.history.replaceState(
+      { idx: 0, key: "seed" },
+      "",
+      "/tasks/example?panel=pr&file=notes.md",
+    );
+    expect(synthesizePhoneParent()).toBe(true);
+    expect(here()).toBe("/tasks/example?panel=pr&file=notes.md");
+    expect((window.history.state as { idx?: number }).idx).toBe(2);
+
+    await backTo("/tasks/example", 1);
+    await backTo("/sessions", 0);
+  });
+
   it("a cold file-list deep link gets the conversation beneath it", async () => {
     window.history.replaceState({ idx: 0, key: "seed" }, "", "/tasks/example?panel=files");
     expect(synthesizePhoneParent()).toBe(true);

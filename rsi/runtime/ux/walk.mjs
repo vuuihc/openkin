@@ -1066,8 +1066,9 @@ function checkJ10Contract(spec) {
 }
 // J7's contract: a notification tap must prove it landed on the card the
 // notification named — not just photograph whatever loaded. Without these
-// rules a blank deep link, a landing on the wrong card, and a Back that
-// strands the reader are all green today:
+// rules a blank deep link, a landing on the wrong card, a Back that strands
+// the reader, and a decision card floating over the phone's list are all
+// green today:
 //   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json]
 function checkJ7Contract(spec) {
   const steps = (((spec || {}).journeys || {}).J7 || {}).steps;
@@ -1114,6 +1115,44 @@ function checkJ7Contract(spec) {
     }
     if (idx(([op, sel]) => op === 'focus' && required(sel) && bare(sel).includes(rowSel), backAt + 1) >= 0) {
       errs.push('J7 reopens the row with focus+Enter after Back; it must tap the row (click ' + rowSel + '), so a surface covering the row reddens the walk');
+    }
+    // The phone list after Back is the strip, not the card. A count of the
+    // Approve control is the only step that sees a decision surface floating
+    // over the rows; without it the pre-#252 layout ships green (the
+    // committed FloatingApproval mutant deletes exactly that proof). The
+    // count is scoped and sits before the reopen tap: at Mac the list's card
+    // is legitimate, and after the tap the same selector counts the
+    // conversation's own card instead of the list's.
+    const approveCount = (st) => Array.isArray(st) && st[0] === 'count' && required(st[1])
+      && bare(st[1]).includes('批准') && bare(st[1]).includes('Approve');
+    const listCountAt = idx((st) => approveCount(st) && String(st[2]) === '0', backAt + 1);
+    if (listCountAt < 0) {
+      errs.push('J7 never counts the Approve control on the phone list after Back (a required count css=… 批准 … Approve … 0); the card over the list would ship green');
+    } else {
+      if (rowClickAt >= 0 && listCountAt > rowClickAt) {
+        errs.push('J7 counts the Approve control only after reopening the conversation; the count must prove the phone list itself after Back');
+      }
+      const phoneScopeAt = idx((st) => st[0] === 'vp' && String(st[1]).trim() === 'phone', backAt + 1);
+      if (phoneScopeAt < 0 || phoneScopeAt > listCountAt) {
+        errs.push('J7 counts the Approve control on the phone list without the phone scope (vp phone) before it; at Mac the card on the list is legitimate, so an unscoped count asserts the wrong thing at that width');
+      }
+      const clearScopeAt = idx((st) => st[0] === 'vp' && String(st[1] || '').trim() === '', listCountAt + 1);
+      if (clearScopeAt < 0 || (rowClickAt >= 0 && clearScopeAt > rowClickAt)) {
+        errs.push('J7 leaves the phone scope in force after the list count (a vp "" must follow it); the reopen and the rest of the journey must run at both widths');
+      }
+    }
+    // The reopen must put the card back with a positive count of the same
+    // control: a wait finds a node with the id, the count proves the decision
+    // surface came back.
+    const reopenedCardAt = idx(cardWait, backAt + 1);
+    const reopenCountAt = reopenedCardAt < 0 ? -1 : idx((st) => approveCount(st)
+      && /^\d+$/.test(String(st[2])) && String(st[2]) !== '0', reopenedCardAt + 1);
+    if (reopenedCardAt >= 0 && reopenCountAt < 0) {
+      errs.push('J7 never counts the Approve control after reopening the conversation (a required count css=… 批准 … Approve …, not 0)');
+    }
+    const backCardAt = idx(([op, name]) => op === 'shot' && bare(name) === 'back-card', backAt + 1);
+    if (reopenCountAt >= 0 && backCardAt >= 0 && reopenCountAt > backCardAt) {
+      errs.push('the `back-card` shot must follow the Approve count, so the photograph is of a card that was read');
     }
   }
   return errs;
@@ -1517,6 +1556,9 @@ function checkJ12Contract(spec) {
 const J13_DEEP_LINK = /panel=files&file=/;
 const J13_PREVIEW = /预览|Preview/;
 const J13_SOURCE = /源码|Code/;
+// The PR tab's label is `pr.title` — "Pull Request" / "Pull request" — in both
+// catalogs, so the surface is read by the selected tab, not by a testid.
+const J13_PR_TAB = /Pull [Rr]equest/;
 // The seeded conversation's own prompt (journeys_seed.py). Every seeded
 // conversation carries the same fake reply, so only the prompt says which one
 // the Mac's cold start reopened.
@@ -1698,6 +1740,60 @@ function checkJ13Contract(spec) {
       const sameAddressAt = steps.findIndex((st, i) => i > sourceAt && i < (previewAt > sourceAt ? previewAt : steps.length) && Array.isArray(st) && (st[0] === 'search' || st[0] === 'url') && /file=/.test(sel(st, 1)));
       if (sameAddressAt < 0) errs.push('J13 never asserts the address stayed on the file across the preview/source switch (search …file=…)');
     }
+  }
+
+  // Each PR proof must precede its own shot. A selected tab or address
+  // read later in the walk cannot cover a deleted cold or refresh assertion.
+  const prUrl = '/tasks/{conversation}?panel=pr';
+  const exact = (op, value) => (st) => st[0] === op && sel(st, 1) === value;
+  const prSearch = exact('search', '^\\?panel=pr$');
+  const cleanPrSearch = exact('search', '^$');
+  const prTab = (op) => (st) => st[0] === op && /aria-selected.*true/.test(sel(st, 1)) && J13_PR_TAB.test(sel(st, 1));
+  const conversation = exact('url', '^/tasks/{conversation}$');
+  const region = (st) => st[0] === 'wait' && /role=region/.test(sel(st, 1));
+  const backProof = [
+    ['system Back', (st) => st[0] === 'history-back'],
+    ['conversation address', conversation], ['empty query', cleanPrSearch],
+    ['PR tab gone', prTab('gone')], ['conversation visible', region],
+  ];
+  const prLegs = [
+    ['pr-cold', [
+      ['cold PR load', exact('goto', prUrl)], ['PR address', prSearch],
+      ['selected PR tab', prTab('wait')],
+    ]],
+    ['pr-refresh', [
+      ['refresh load', exact('goto', prUrl)], ['PR address', prSearch],
+      ['selected PR tab', prTab('wait')],
+    ]],
+    ['pr-back', backProof],
+    ['pr-forward', [
+      ['system Forward', (st) => st[0] === 'history-forward'],
+      ['PR address', prSearch], ['selected PR tab', prTab('wait')],
+    ]],
+    ['pr-open', [
+      ['conversation load', exact('goto', '/tasks/{conversation}')],
+      ['empty query', cleanPrSearch],
+      ['session actions', (st) => st[0] === 'click' && /会话操作|Session actions/.test(sel(st, 1))],
+      ['action sheet', (st) => st[0] === 'wait' && /role=dialog/.test(sel(st, 1))],
+      ['PR row press', exact('click', '/^Pull [Rr]equest$/')],
+      ['PR address', prSearch], ['selected PR tab', prTab('wait')],
+    ]],
+    ['pr-back-sheet', backProof],
+  ];
+  let previousShot = idx(exact('shot', 'file-source-again'));
+  for (const [name, reads] of prLegs) {
+    const shot = idx(exact('shot', name), previousShot + 1);
+    if (shot < 0) {
+      errs.push(`J13 PR has no ${name} shot in walk order`);
+      continue;
+    }
+    let cursor = previousShot;
+    for (const [label, predicate] of reads) {
+      const found = steps.findIndex((st, i) => i > cursor && i < shot && Array.isArray(st) && predicate(st));
+      if (found < 0) errs.push(`J13 PR ${name} never proves ${label} before its shot`);
+      else cursor = found;
+    }
+    previousShot = shot;
   }
 
   // A page or locale diff that no longer selects J13 would let the phone's
@@ -2228,13 +2324,13 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J4 reads the cover\'s 工作方式 block, sends the pre-filled prompt, edits the file, and proves the same cut on the cover and in the agent\'s receipt');
   console.log('spec ok: J5 opens the running row\'s menu and pins rename, pin, archive, delete and a disabled 运行中 line');
   console.log('spec ok: J6 changes the default agent at both widths, proves it persisted and hosts the next new chat, then restores it');
-  console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
+  console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, counts no Approve on the phone list after Back, and reopens the card');
   console.log('spec ok: J8 taps a changed line at 390, saves the sheet, sends the tray, and proves path, hunk and quote');
   console.log('spec ok: J9 keeps the shell, the scroll and the draft across a switch');
   console.log('spec ok: J10 approves the deep-linked card, walks all four footer entries, and finds it gone on the return');
   console.log('spec ok: J11 keeps the shell, the scroll and the draft across the phone\'s switches');
   if (spec.journeys && spec.journeys.J12) console.log('spec ok: J12 walks the phone\'s edge back, row reveal and hold-to-reorder as real touch and reads the consequences');
-  if (spec.journeys && spec.journeys.J13) console.log('spec ok: J13 walks the phone file link through Back to the list and the conversation, and the HTML preview/source switch without leaving the file address');
+  if (spec.journeys && spec.journeys.J13) console.log('spec ok: J13 walks the phone file link through Back to the list and the conversation, the PR tab as an address (cold, refreshed, Forward, Back closes only the panel), and the HTML preview/source switch without leaving the file address');
   if (spec.journeys && spec.journeys.J14) console.log('spec ok: J14 reopens the last conversation on the Mac, finds no conversation rows in ⌘K, and draws the phone home as one list at three levels');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
@@ -2587,6 +2683,14 @@ async function stepLocator(page, sel, opts = {}) {
 async function historyBack(page) {
   const before = page.url();
   await page.goBack({ waitUntil: 'domcontentloaded', timeout: WAIT_MS }).catch(() => null);
+  return pollUntil(page, () => page.url() !== before, 3000);
+}
+// The other half of the same promise: an entry Back left has to be reachable
+// again. A page that rewrote its address on arrival (a replace instead of a
+// read) has no forward entry, which is exactly what this fails on.
+async function historyForward(page) {
+  const before = page.url();
+  await page.goForward({ waitUntil: 'domcontentloaded', timeout: WAIT_MS }).catch(() => null);
   return pollUntil(page, () => page.url() !== before, 3000);
 }
 // A `?` prefix means the same thing for every op: absent or not visible is a
@@ -3128,6 +3232,15 @@ for (const j of want) {
           const moved = await historyBack(page);
           if (!moved) { hardFail.push(`${j}/${vpName}: history-back had no history entry to return to`); continue; }
           log.push('history back');
+          await page.waitForTimeout(400);
+        } else if (op === 'history-forward') {
+          // The browser's own Forward. An address the page left by rewriting
+          // history (a replace where a read should have been) has nothing
+          // ahead of it; like `history-back`, a missing entry is a hard
+          // failure because the queue is the promise under test.
+          const moved = await historyForward(page);
+          if (!moved) { hardFail.push(`${j}/${vpName}: history-forward had no forward entry to return to`); continue; }
+          log.push('history forward');
           await page.waitForTimeout(400);
         } else if (op === 'value') {
           const { optional, value: sel } = optionalOf(a);
