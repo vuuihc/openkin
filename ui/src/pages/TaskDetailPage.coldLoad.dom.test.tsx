@@ -5,7 +5,6 @@ import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { Task } from "../api/client";
 import { setLocale } from "../i18n";
-import { BRAND_MARK_PATH } from "../components/BrandMark";
 import TaskDetailPage from "./TaskDetailPage";
 
 /**
@@ -202,25 +201,28 @@ describe("a cold entry into a conversation", () => {
     expect(screen.getByTestId("chat-stream").getAttribute("data-loading")).toBe("false");
   });
 
-  it("shows the Kin waiting mark instead of a full-page skeleton when no row exists", () => {
+  it("shows the iOS wheel instead of a full-page skeleton when no row exists", () => {
     open();
     // A header bar and two message bubbles pulsing at a layout that does not
-    // exist yet read as a page that failed to load. The mark is what is true:
+    // exist yet read as a page that failed to load. The wheel is what is true:
     // the console is bringing the conversation back.
     expect(document.querySelectorAll(".animate-pulse").length).toBe(0);
     expect(screen.queryByTestId("mobile-header")).toBeNull();
     expect(screen.queryByTestId("composer")).toBeNull();
     const status = screen.getByRole("status", { name: /Loading/ });
-    // The same tile and K as the boot screen, so boot → first paint is one
-    // identity (BrandMark pins both against ui/index.html).
-    expect(status.querySelector("svg path")?.getAttribute("d")).toBe(BRAND_MARK_PATH);
+    // The standard iOS activity indicator, not the boot screen's K tile: the
+    // owner overruled the tile for the in-console wait (2026-11-19).
+    const wheel = status.querySelector(".kin-ios-spinner");
+    expect(wheel?.getAttribute("aria-hidden")).toBe("true");
+    expect(wheel?.querySelectorAll("span")).toHaveLength(12);
+    expect(status.querySelector("svg")).toBeNull();
   });
 
-  it("keeps the slow-connect hint with the waiting mark and removes both on detail arrival", () => {
+  it("keeps the slow-connect hint with the waiting wheel and removes both on detail arrival", () => {
     slow.value = true;
     open();
     expect(
-      screen.getByRole("status", { name: /Loading/ }).querySelector(`path[d="${BRAND_MARK_PATH}"]`),
+      screen.getByRole("status", { name: /Loading/ }).querySelector(".kin-ios-spinner"),
     ).toBeTruthy();
     expect(screen.getByText(/Still connecting/)).toBeTruthy();
     act(() => {
@@ -231,7 +233,7 @@ describe("a cold entry into a conversation", () => {
     expect(screen.getByTestId("mobile-header").textContent).toContain("Fresh title");
   });
 
-  it("leaves the brand mark for the real page once the detail answers", () => {
+  it("leaves the wait surface for the real page once the detail answers", () => {
     open();
     act(() => {
       store.resolve({ ...cached, title: "Fresh title", status: "succeeded" });
