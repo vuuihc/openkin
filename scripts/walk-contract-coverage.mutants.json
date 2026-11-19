@@ -1,0 +1,23 @@
+[
+  {
+    "label": "a journey lands in the index with no contract (J15)",
+    "file": "rsi/runtime/ux/journeys.json",
+    "test": "python3 -B scripts/journeys_walk_test.py JourneyContractCoverageTest.test_every_journey_has_a_contract_and_a_test_class",
+    "old": "    \"J13\": \"journeys/J13.json\",\n    \"J14\": \"journeys/J14.json\"",
+    "new": "    \"J13\": \"journeys/J13.json\",\n    \"J14\": \"journeys/J14.json\",\n    \"J15\": \"journeys/J14.json\""
+  },
+  {
+    "label": "the J13 contract's test class is renamed away",
+    "file": "scripts/journeys_walk_test.py",
+    "test": "python3 -B scripts/journeys_walk_test.py JourneyContractCoverageTest.test_every_journey_has_a_contract_and_a_test_class",
+    "old": "class WalkJ13ContractTest(",
+    "new": "class WalkJ13ContractTestRenamed("
+  },
+  {
+    "label": "J9's contract is defined but --check-spec never calls it",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py JourneyContractCoverageTest.test_the_check_spec_dispatch_calls_every_contract",
+    "old": "  const j9 = checkJ9Contract(spec);",
+    "new": "  const j9 = [];"
+  }
+]
