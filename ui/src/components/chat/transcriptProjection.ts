@@ -828,8 +828,7 @@ export function buildChatItems(
           flushStream();
           streamNoteKey = null;
           progressRef.current = null;
-          const compactionId =
-            typeof p.compaction_id === "string" ? p.compaction_id : "";
+          const compactionId = typeof p.compaction_id === "string" ? p.compaction_id : "";
           upsertCompaction(sp, model, text, messageKey, !partial, ev.seq, compactionId);
           break;
         }
@@ -1088,8 +1087,7 @@ export function buildChatItems(
         // summary even when no chunk arrived; failed or cancelled is not a
         // compaction at all and says so in the reader's language.
         if (p.code === "context_compacted") {
-          const compactionId =
-            typeof p.compaction_id === "string" ? p.compaction_id : "";
+          const compactionId = typeof p.compaction_id === "string" ? p.compaction_id : "";
           const status = typeof p.status === "string" ? p.status : "";
           flushStream();
           streamNoteKey = null;

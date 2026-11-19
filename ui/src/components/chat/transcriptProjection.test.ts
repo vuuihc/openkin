@@ -3704,7 +3704,11 @@ describe("context compaction", () => {
     expect(running.some((item) => item.kind === "meta")).toBe(false);
 
     const settled = buildChatItems(
-      [userTurn(), compactionUpdate(2, "cmp-1", "in_progress"), compactionUpdate(3, "cmp-1", "completed", SUMMARY)],
+      [
+        userTurn(),
+        compactionUpdate(2, "cmp-1", "in_progress"),
+        compactionUpdate(3, "cmp-1", "completed", SUMMARY),
+      ],
       "kin",
       undefined,
       false,
@@ -3716,7 +3720,11 @@ describe("context compaction", () => {
 
   it("a one-shot summary opens without chunks", () => {
     const items = buildChatItems(
-      [userTurn(), compactionUpdate(2, "cmp-1", "completed", SUMMARY), answer(3, "Fixed the parser.")],
+      [
+        userTurn(),
+        compactionUpdate(2, "cmp-1", "completed", SUMMARY),
+        answer(3, "Fixed the parser."),
+      ],
       "kin",
     );
 
@@ -3797,7 +3805,12 @@ describe("context compaction", () => {
     // transcript persisted by an older build has no code. It still folds into
     // one quiet line instead of becoming meta prose.
     const items = buildChatItems(
-      [userTurn(), compactionNotice(2), compactionChunk(3, SUMMARY_FIRST), compactionFinal(4, SUMMARY)],
+      [
+        userTurn(),
+        compactionNotice(2),
+        compactionChunk(3, SUMMARY_FIRST),
+        compactionFinal(4, SUMMARY),
+      ],
       "kin",
     );
 
