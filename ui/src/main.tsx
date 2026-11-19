@@ -16,6 +16,7 @@ import { useAppStore } from "./store/appStore";
 import { loginVisit, withoutLoginHash } from "./lib/loginLink";
 import { hubAnswers, hubBootPlan } from "./lib/hubBoot";
 import { checkConsoleVersion } from "./lib/consoleVersion";
+import { ConsoleReady } from "./lib/consoleInteractive";
 import { currentHubUrl, hubConfigPlugin } from "./lib/hubConfig";
 import { initTheme } from "./lib/theme";
 import { cleanupLegacyWebPush } from "./lib/legacyWebPush";
@@ -185,6 +186,9 @@ void (async () => {
     <StrictMode>
       <AstryxProvider>
         <BrowserRouter>
+          {/* Reports the first committed screen to the desktop shell; the
+              splash is gone at this point. Renders nothing. */}
+          <ConsoleReady />
           <App />
         </BrowserRouter>
       </AstryxProvider>

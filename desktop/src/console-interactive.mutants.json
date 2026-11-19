@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the mark is never stamped: report received, trace dropped",
+    "file": "desktop/src/console-interactive.ts",
+    "test": "node --test desktop/src/console-interactive.test.ts",
+    "old": "    marked = true;\n    deps.trace(\"console-interactive\");\n    return true;",
+    "new": "    marked = true;\n    // MUTANT: the report is accepted but the mark is never written.\n    return true;"
+  },
+  {
+    "label": "the once-per-launch guard is removed",
+    "file": "desktop/src/console-interactive.ts",
+    "test": "node --test desktop/src/console-interactive.test.ts",
+    "old": "    if (marked) return false;\n",
+    "new": ""
+  }
+]
