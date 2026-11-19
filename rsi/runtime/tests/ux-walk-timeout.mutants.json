@@ -61,5 +61,12 @@
     "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
     "old": "      if [ -e \"$STATE/ux/$SLUG/confirm.json\" ]; then",
     "new": "      if false; then"
+  },
+  {
+    "label": "stale confirm evidence survives into the gate: an outer 124 reads a previous attempt's tree and sends back reds this head never produced",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "    rm -f \"$STATE/ux/$SLUG/confirm.json\" \"$STATE/ux/$SLUG/confirm.hard\"",
+    "new": "    :"
   }
 ]

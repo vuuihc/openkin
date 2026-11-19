@@ -23,7 +23,9 @@
 #   7. merge.sh's wiring: the outer bound, the 124 -> unavailable mapping, and
 #      the preserved red's sources (the first walk under state/shots, a finished
 #      confirm's clearance, known artefacts) — what turns a wedged gate into a
-#      next-cycle retry instead of a false-red sendback.
+#      next-cycle retry instead of a false-red sendback;
+#   8. merge.sh clears the slug's confirm evidence before the gate runs, so an
+#      outer 124 cannot read a previous attempt's tree as this attempt's red.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
@@ -166,5 +168,17 @@ grep -qF '"$STATE/ux/$SLUG/confirm.hard"' "$MERGE" \
 grep -qF 'grep -v -F -f "$KNOWN"' "$MERGE" \
   || fail "wiring: merge.sh does not drop known walk artefacts"
 pass "wiring: merge.sh bounds the gate, maps 124, and reads a preserved red from ux-gate's paths"
+
+# 8. ux-gate clears confirm.json only below its first walk, so a stale file from
+#    an earlier attempt on the same slug must be gone before the gate starts:
+#    otherwise an outer 124 during this attempt's build/seed/walk reads the
+#    previous tree's confirm.hard and sends back reds this head never produced.
+RM_LINE="$(grep -nF 'rm -f "$STATE/ux/$SLUG/confirm.json" "$STATE/ux/$SLUG/confirm.hard"' "$MERGE" | head -1 | cut -d: -f1)"
+GATE_LINE="$(grep -nF 'bounded_run "$GATE_MAX" bash "$RSI_DIR/runtime/ux-gate.sh"' "$MERGE" | head -1 | cut -d: -f1)"
+[ -n "$RM_LINE" ] || fail "stale confirm: merge.sh does not clear the slug's confirm evidence before the gate"
+[ -n "$GATE_LINE" ] || fail "stale confirm: the ux-gate bounded_run call moved"
+[ "$RM_LINE" -lt "$GATE_LINE" ] \
+  || fail "stale confirm: clearing (line $RM_LINE) is not before the gate call (line $GATE_LINE)"
+pass "stale confirm: the gate's confirm evidence is cleared before it runs"
 
 echo "all cases passed"

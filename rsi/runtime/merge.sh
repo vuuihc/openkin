@@ -1046,6 +1046,10 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
     # and that second walk has the same RSI_WALK_MAX_S ceiling, so the default
     # leaves room for both (2 x 1800s) plus the vision dispatch.
     GATE_MAX="${RSI_UX_GATE_MAX_S:-5400}"; case "$GATE_MAX" in ''|*[!0-9]*) GATE_MAX=5400;; esac
+    # This attempt's evidence only: ux-gate clears confirm.json below its first walk, so an
+    # earlier attempt on the same slug would otherwise leave it readable to the 124 branch if
+    # this attempt expires during build/seed/walk, and the sendback would carry a past tree's red.
+    rm -f "$STATE/ux/$SLUG/confirm.json" "$STATE/ux/$SLUG/confirm.hard"
     bounded_run "$GATE_MAX" bash "$RSI_DIR/runtime/ux-gate.sh" "$WT" "$SLUG" "$ITEM" "$N" "$DH" "$ROLE"; urc=$?
     if [ "$urc" -eq 124 ]; then
       # The first walk's evidence is $SHOTS/walk.json (ux-gate.sh), not $STATE/ux.
