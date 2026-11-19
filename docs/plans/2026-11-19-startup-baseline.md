@@ -1,9 +1,11 @@
 # Startup baseline — 2026-11-19
 
-**Status: measured and attributed.** The wall clock now decomposes into named
-segments that add up, and `store-open` has been measured against a synthetic
-database at the live file size. This slice is measurement only: it did not
-attempt, and does not claim, a speed-up.
+**Status: measured and attributed.** The daemon's wall clock decomposes into
+named segments that add up, `store-open` has been measured against a synthetic
+database at the live file size, and the desktop shell now has an isolated
+spawn → daemon-ready → first-paint number measured without touching the live
+node. This work is measurement only: it did not attempt, and does not claim, a
+speed-up.
 
 ## Current position (现在的位置)
 
@@ -13,7 +15,7 @@ attempt, and does not claim, a speed-up.
 | Whole-wall attribution (`process`, `ready→health`) | green — segments sum to the wall clock within 4–5 ms (flooring only) |
 | Empty-DB baseline, 3 runs | green — table 1 below |
 | Real-size `store-open` (150.7 MiB synthetic) | green — 38ms cold / 37ms warm, file at 99.1% of target |
-| Desktop shell measurement (Electron spawn → first paint) | not in this slice (slice `-c`) |
+| Desktop shell measurement (Electron spawn → first paint) | green — `./scripts/desktop-startup.sh --runs 2`: first paint 3726 / 1828 ms (median **2777 ms**), daemon-gated |
 | Fix | not attempted, intentionally |
 | `~/.kin/kin.db` opened, copied or instrumented | **never** |
 
@@ -147,10 +149,64 @@ in any end-to-end explanation of 「启动巨慢」.
 
 ## Desktop
 
-Not in this slice. Measuring Electron spawn → window → first console paint is
-the `-c` remainder, and it is blocked on how the desktop shell boots an
-isolated daemon (the shell currently attaches to the live `:7777` node, so a
-measurement run needs a separate binary/state/port without disturbing it).
+`./scripts/desktop-startup.sh --runs 2 --json` builds `./kin` (gitignored
+build output) and `desktop/dist`, then launches the real Electron shell once
+per run (twice with `--runs 2`). Each run gets `mktemp` state and userData
+directories and a freshly reserved port, exported as `KIN_STATE_DIR`,
+`KIN_DESKTOP_USER_DATA` and `KIN_PORT` — the same two variables `kin serve`
+already reads, which the shell now resolves
+instead of hardcoding `~/.kin` and `:7777`. The shell emits
+`[kin-desktop] trace <name> <ms>` lines (`desktop/src/startup-trace.ts`, same
+switch and origin plausibility rule as the daemon), so one launch is attributed
+from spawn to window paint.
+
+| Mark | Run 1 | Run 2 | Median |
+|---|---:|---:|---:|
+| `process` (spawn → main.ts) | 855 ms | 283 ms | 569 ms |
+| `app-ready` | 1094 ms | 430 ms | 762 ms |
+| `sidecar-start` | 1282 ms | 547 ms | 914 ms |
+| `sidecar-ready` | 3289 ms | 1642 ms | 2466 ms |
+| `window-created` | 3442 ms | 1694 ms | 2568 ms |
+| `window-ready-to-show` | 3726 ms | 1828 ms | **2777 ms** |
+| `window-shown` | 3738 ms | 1848 ms | 2793 ms |
+| `window-first-load` | 3872 ms | 1828 ms | 2850 ms |
+| **first paint** (`window-ready-to-show`) | 3726 ms | 1828 ms | **2777 ms** |
+| **shell total** (last mark) | 3872 ms | 1848 ms | **2860 ms** |
+
+Measured on macOS 27.2.1 arm64 at load average `38.41 23.54 13.37` (other
+lanes run on this machine). Run 1 was the first launch of the invocation and
+run 2 reused the caches it warmed, which is most of the `process` difference;
+an earlier invocation whose first launch did follow the build showed the same
+pattern more strongly (`process` 2932 ms, then 996 ms). `window-first-load`
+can arrive a millisecond or two before `ready-to-show`, so shell total is the
+last mark, not a named one.
+
+The result is **daemon-gated**, as `main.ts` implies: `mainWindow.show("/")`
+runs only after `sidecar.ensureRunning()` resolves. From the medians,
+`sidecar-start` → `sidecar-ready` is **1552 ms**, larger than the daemon's own
+407–440 ms to healthy in table 1: the shell also spawns `kin supervise` (which
+starts `kin serve`), probes the binary version, and polls health every 250 ms
+on a heavily loaded machine. First paint lands **311 ms** after
+`sidecar-ready` (window creation plus URL load). The other edges are Electron's
+own init (spawn → `app-ready`, 762 ms median) and the 209 ms from
+`window-created` to first paint.
+
+What this does **not** measure: renderer parse/script time beyond
+`did-finish-load` (no CDP first-contentful-paint), the packaged `.dmg`/asar
+build (this is the dev shell), a purged disk cache, or SPA hydration after the
+load event.
+
+```bash
+./scripts/desktop-startup.sh --runs 2          # table
+./scripts/desktop-startup.sh --runs 2 --json   # machine-readable
+./scripts/desktop-startup.sh --selftest        # parser/containment red-green, no Electron
+```
+
+Safety: every run uses `mktemp` directories and a reserved port; a state
+directory under `$HOME/.kin` is refused before anything is opened. The script
+kills only the Electron process group it started and the daemon that answered
+on its own reserved port. If Electron cannot launch (no GUI session), it
+prints `SKIP: <reason>` and exits 2 rather than inventing a number.
 
 ## Reproduce
 
@@ -160,6 +216,7 @@ measurement run needs a separate binary/state/port without disturbing it).
 ./scripts/startup-baseline.sh --selftest                        # red/green: 12 phase lines
 ./scripts/startup-baseline.sh --selftest --db-fixture-size 157986816
 ./scripts/startup-baseline.sh --runs 3 --json                   # machine-readable form
+./scripts/desktop-startup.sh --runs 2 --json                    # desktop shell, isolated
 ```
 
 The script boots throwaway instances only: `mktemp` state directory,
