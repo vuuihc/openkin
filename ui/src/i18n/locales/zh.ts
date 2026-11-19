@@ -413,6 +413,12 @@ const zh = {
       exportTitle: "Kin 对话摘录",
       selectMessage: "选择这条{role}消息",
     },
+    compaction: {
+      label: "上下文已压缩",
+      running: "正在压缩上下文…",
+      show: "上下文已压缩 · 查看摘要",
+      hide: "上下文已压缩 · 收起摘要",
+    },
     progress: {
       running: "进行中",
       done: "完成",
