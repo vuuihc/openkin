@@ -2,10 +2,12 @@
 
 **Status: measured and attributed.** The daemon's wall clock decomposes into
 named segments that add up, `store-open` has been measured against a synthetic
-database at the live file size, and the desktop shell now has an isolated
+database at the live file size, and the desktop shell has an isolated
 spawn → daemon-ready → first-paint number measured without touching the live
-node. This work is measurement only: it did not attempt, and does not claim, a
-speed-up.
+node. The shell-side instrumentation lands here; the runner that produces the
+number is the follow-up slice `-d` (the combined diff was over the 1000-line
+landing cap). This work is measurement only: it did not attempt, and does not
+claim, a speed-up.
 
 ## Current position (现在的位置)
 
@@ -15,7 +17,7 @@ speed-up.
 | Whole-wall attribution (`process`, `ready→health`) | green — segments sum to the wall clock within 4–5 ms (flooring only) |
 | Empty-DB baseline, 3 runs | green — table 1 below |
 | Real-size `store-open` (150.7 MiB synthetic) | green — 38ms cold / 37ms warm, file at 99.1% of target |
-| Desktop shell measurement (Electron spawn → first paint) | green — `./scripts/desktop-startup.sh --runs 2`: first paint 3726 / 1828 ms (median **2777 ms**), daemon-gated |
+| Desktop shell measurement (Electron spawn → first paint) | instrumented — env-isolated daemon + 8 trace marks; first paint 3726 / 1828 ms (median **2777 ms**), measured with the runner that lands as slice `-d` |
 | Fix | not attempted, intentionally |
 | `~/.kin/kin.db` opened, copied or instrumented | **never** |
 
@@ -149,16 +151,17 @@ in any end-to-end explanation of 「启动巨慢」.
 
 ## Desktop
 
-`./scripts/desktop-startup.sh --runs 2 --json` builds `./kin` (gitignored
-build output) and `desktop/dist`, then launches the real Electron shell once
-per run (twice with `--runs 2`). Each run gets `mktemp` state and userData
-directories and a freshly reserved port, exported as `KIN_STATE_DIR`,
-`KIN_DESKTOP_USER_DATA` and `KIN_PORT` — the same two variables `kin serve`
-already reads, which the shell now resolves
+The runner `scripts/desktop-startup.sh` is follow-up slice `-d`: it builds
+`./kin` (gitignored build output) and `desktop/dist`, then launches the real
+Electron shell once per run (twice with `--runs 2`). Each run gets `mktemp`
+state and userData directories and a freshly reserved port, exported as
+`KIN_STATE_DIR`, `KIN_DESKTOP_USER_DATA` and `KIN_PORT` — the same two
+variables `kin serve` already reads, which the shell now resolves
 instead of hardcoding `~/.kin` and `:7777`. The shell emits
 `[kin-desktop] trace <name> <ms>` lines (`desktop/src/startup-trace.ts`, same
 switch and origin plausibility rule as the daemon), so one launch is attributed
-from spawn to window paint.
+from spawn to window paint. The table below was measured with that runner on
+this branch before it was split out.
 
 | Mark | Run 1 | Run 2 | Median |
 |---|---:|---:|---:|
@@ -196,17 +199,16 @@ What this does **not** measure: renderer parse/script time beyond
 build (this is the dev shell), a purged disk cache, or SPA hydration after the
 load event.
 
-```bash
-./scripts/desktop-startup.sh --runs 2          # table
-./scripts/desktop-startup.sh --runs 2 --json   # machine-readable
-./scripts/desktop-startup.sh --selftest        # parser/containment red-green, no Electron
-```
+Until slice `-d` lands, the marks can be read from any launch with
+`KIN_STARTUP_TRACE=1`: one `[kin-desktop] trace <name> <ms>` line per mark on
+stdout.
 
-Safety: every run uses `mktemp` directories and a reserved port; a state
-directory under `$HOME/.kin` is refused before anything is opened. The script
-kills only the Electron process group it started and the daemon that answered
-on its own reserved port. If Electron cannot launch (no GUI session), it
-prints `SKIP: <reason>` and exits 2 rather than inventing a number.
+Runner safety (slice `-d`): every run uses `mktemp` directories and a reserved
+port; a state directory under `$HOME/.kin` is refused before anything is
+opened. The script kills only the Electron process group it started and the
+daemon that answered on its own reserved port. If Electron cannot launch (no
+GUI session), it prints `SKIP: <reason>` and exits 2 rather than inventing a
+number.
 
 ## Reproduce
 
@@ -216,7 +218,6 @@ prints `SKIP: <reason>` and exits 2 rather than inventing a number.
 ./scripts/startup-baseline.sh --selftest                        # red/green: 12 phase lines
 ./scripts/startup-baseline.sh --selftest --db-fixture-size 157986816
 ./scripts/startup-baseline.sh --runs 3 --json                   # machine-readable form
-./scripts/desktop-startup.sh --runs 2 --json                    # desktop shell, isolated
 ```
 
 The script boots throwaway instances only: `mktemp` state directory,
