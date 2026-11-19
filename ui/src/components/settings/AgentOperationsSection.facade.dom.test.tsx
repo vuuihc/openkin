@@ -289,7 +289,7 @@ describe("the Operations section on the shared facade (E4b)", () => {
 });
 
 describe("the Operations section's remaining controls on the facade (E4c)", () => {
-  it("the discovered list and its connect action are facade buttons", async () => {
+  it("the discovered list and its add-to-catalog action are facade buttons", async () => {
     // One connected product leaves the other installed product discovered.
     writeConnectedFamilies(["claude-code"]);
     const first = await renderLoaded();
@@ -306,12 +306,14 @@ describe("the Operations section's remaining controls on the facade (E4c)", () =
     expectFacade(hide);
     expect(hide.className).toContain("text-kin-blue-ink");
 
-    const connect = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
+    const connect = screen.getByRole("button", {
+      name: "Add Codex to catalog",
+    }) as HTMLButtonElement;
     expectFacade(connect, "secondary");
     expect(connect.disabled).toBe(false);
     first.unmount();
 
-    // A full catalog disables Connect and keeps the reason in its `title`.
+    // A full catalog disables the add action and keeps the reason in its `title`.
     localStorage.clear();
     const ten = Array.from({ length: 10 }, (_, i) =>
       i === 0 ? claude : product({ id: `agent-${i}`, name: `Agent ${String(i).padStart(2, "0")}` }),
@@ -320,11 +322,11 @@ describe("the Operations section's remaining controls on the facade (E4c)", () =
     client.listAgents.mockResolvedValue([...ten, codex]);
     const second = await renderLoaded();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    const full = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
+    const full = screen.getByRole("button", { name: "Add Codex to catalog" }) as HTMLButtonElement;
     expectFacade(full, "secondary");
     expect(full.disabled).toBe(true);
     expect(full.getAttribute("title")).toBe(
-      "The catalog is full. Remove or merge one before connecting another.",
+      "The catalog is full. Remove one before adding another.",
     );
     second.unmount();
 
@@ -335,7 +337,9 @@ describe("the Operations section's remaining controls on the facade (E4c)", () =
     useAppStore.setState({ wsStatus: "disconnected", reconnectGen: 0, toasts: [] });
     await renderLoaded();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    const offline = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
+    const offline = screen.getByRole("button", {
+      name: "Add Codex to catalog",
+    }) as HTMLButtonElement;
     expectFacade(offline, "secondary");
     expect(offline.disabled).toBe(true);
     expect(offline.getAttribute("title")).toBeNull();
