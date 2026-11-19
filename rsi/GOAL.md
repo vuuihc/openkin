@@ -230,7 +230,12 @@ a packaged build), `KIN-CONTINUE-003` (its own surface; after P9), and every par
 
 Landed so far: item 1 (`R-startup-handshake`) merged `903f3b5c` (#417) on 2026-11-20 — health is probed
 before `kin version` starts and a spawned daemon is polled at 50 ms; the 2026-11-20 re-measure puts the
-handshake edge at a **595 ms** median, inside the 700 ms bar below.
+handshake edge at a **595 ms** median, inside the 700 ms bar below. Item 2 (`R-window-before-daemon`) merged
+`b47032f1` (#418) on 2026-11-20 — `window-ready-to-show` precedes `sidecar-ready` in both measurement runs,
+the shell's own boot surface is what the person sees first, and `window-first-load` fires once, with 390/1100
+boot-surface shots in `rsi/state/shots/window-before-daemon/`. Residual: the settled-console half of done-means
+2 has no fresh shots at those widths, because #418 touched no `ui/` file and left the console visually unchanged
+(the merge lane's UX walk is its evidence).
 
 **Why this and not features.** Ethan's own report (「启动巨慢」, `rsi/state/dogfood/dogfood-20261118-four-defects.md`
 D1) is finally a number, and it is the first thing every dogfood meets. The 2026-11-19 baseline
