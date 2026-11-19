@@ -13,7 +13,10 @@
 # Hermetic: mktemp -d only. No git repo, no network, no state dirs, no gh. RSI_CTRL points at a
 # temp tree holding PAUSE, so even an unwired seam falls through the dispatcher without side effects.
 #
-# Exercises merge.sh --ceo-ok-check, which runs the same ceo_ok_verdict() the hold block calls.
+# Exercises merge.sh --ceo-ok-check, which runs the same ceo_ok_verdict() the hold block calls, and
+# --ceo-hold-check / --dispatch-rows-check, which run the same ceo_hold_skip() and row filter the
+# dispatcher uses: a non-empty marker must release the .blocked skip and the needs-ceo/hold labels,
+# otherwise the promise (the next verifier cycle merges, no manual hold edit) is never kept.
 # Prints "PASS <case>" per case and exits non-zero on the first failure.
 # Set RSI_TEST_ONLY=<case name> to run one case.
 set -u
@@ -103,6 +106,71 @@ no_hold_unrelated_paths() {
   check ABSENT "$UNRELATED"; expect_nohold no-hold-unrelated-paths
 }
 
+# --- dispatcher holds: the marker releases the skip, not only the verifier's path check ----------
+# A held deps/migrations/auth PR writes <slug>.blocked and the dispatcher used to skip it forever;
+# the needs-ceo/hold labels are the same hold one step earlier. Both skips call ceo_hold_skip().
+SM="$T/ctrl/rsi/state/merge"; mkdir -p "$SM"
+# The row filter imports these two; copying (not linking) keeps common.sh's +x heal off the real tree.
+mkdir -p "$T/ctrl/rsi/runtime"
+cp "$HERE/../item_marker.py" "$HERE/../review-tier.py" "$T/ctrl/rsi/runtime/"
+
+# check_hold <slug> <labels> — the dispatcher's hold skip for one row. Sets RC and OUT.
+check_hold() {
+  RSI_CTRL="$T/ctrl" bash "$MERGE" --ceo-hold-check "$1" "${2:-}" > "$T/out" 2>&1
+  RC=$?; OUT="$(cat "$T/out")"
+}
+expect_skip() { # <case>
+  [ "$RC" -eq 1 ] || fail "$1: rc=$RC, want 1 ($OUT)"
+  case "$OUT" in SKIP*) ;; *) fail "$1: output is '$OUT', want a SKIP line" ;; esac
+}
+expect_allow() { # <case>
+  [ "$RC" -eq 0 ] || fail "$1: rc=$RC, want 0 ($OUT)"
+  [ "$OUT" = ALLOW ] || fail "$1: output is '$OUT', want ALLOW"
+}
+
+# A .blocked hold no longer skips a slug whose marker is non-empty.
+release_clears_blocked_hold() {
+  : > "$SM/a.blocked"; rm -f "$SM/a.ceo-ok"
+  check_hold a ""; expect_skip release-clears-blocked-hold
+  printf '%s\n' "$GOOD" > "$SM/a.ceo-ok"
+  check_hold a ""; expect_allow release-clears-blocked-hold
+  rm -f "$SM/a.blocked" "$SM/a.ceo-ok"
+}
+
+# An empty marker is not an approval: the hold stays exactly as it was.
+empty_marker_keeps_blocked_hold() {
+  : > "$SM/b.blocked"; : > "$SM/b.ceo-ok"
+  check_hold b ""; expect_skip empty-marker-keeps-blocked-hold
+  rm -f "$SM/b.blocked" "$SM/b.ceo-ok"
+}
+
+# The needs-ceo and hold labels are the same CEO hold, released by the same marker.
+release_clears_label_hold() {
+  rm -f "$SM/c.ceo-ok"
+  check_hold c "needs-ceo"; expect_skip release-clears-label-hold
+  check_hold c "ui,hold"; expect_skip release-clears-label-hold
+  printf '%s\n' "$GOOD" > "$SM/c.ceo-ok"
+  check_hold c "needs-ceo"; expect_allow release-clears-label-hold
+  check_hold c "ui,hold"; expect_allow release-clears-label-hold
+  rm -f "$SM/c.ceo-ok"
+}
+
+# The row filter hands a labelled PR to the loop with its labels instead of dropping it (the old
+# filter did), so the exemption above is reachable at all.
+labelled_row_reaches_the_loop() {
+  local out
+  out="$(printf '%s' '[
+    {"number":7,"headRefName":"rsi/held-pr","isDraft":false,"labels":[{"name":"needs-ceo"}],"title":"t","body":"","files":[]},
+    {"number":8,"headRefName":"rsi/draft-pr","isDraft":true,"labels":[],"title":"t","body":""},
+    {"number":9,"headRefName":"feat/x","isDraft":false,"labels":[],"title":"t","body":""}
+  ]' | RSI_CTRL="$T/ctrl" bash "$MERGE" --dispatch-rows-check 2>&1)" \
+    || fail "labelled-row-reaches-the-loop: row filter failed: $out"
+  printf '%s\n' "$out" | grep -q $'^7\theld-pr\t.*\tneeds-ceo$' \
+    || fail "labelled-row-reaches-the-loop: no needs-ceo row: $out"
+  if printf '%s\n' "$out" | grep -qE 'draft-pr|feat/x'; then fail "labelled-row-reaches-the-loop: a dropped head survived: $out"; fi
+  return 0
+}
+
 run() { # <case name> <function>
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   "$2" || exit 1
@@ -119,4 +187,8 @@ run refuse-marker-without-time refuse_marker_without_time
 run refuse-marker-for-another-pr refuse_marker_for_another_pr
 run refuse-placeholder-source refuse_placeholder_source
 run no-hold-unrelated-paths no_hold_unrelated_paths
+run release-clears-blocked-hold release_clears_blocked_hold
+run empty-marker-keeps-blocked-hold empty_marker_keeps_blocked_hold
+run release-clears-label-hold release_clears_label_hold
+run labelled-row-reaches-the-loop labelled_row_reaches_the_loop
 echo ALL-PASS

@@ -476,9 +476,54 @@ ceo_ok_verdict() { # <marker-file> <changed-paths-file> <pr> -> 0 clear, 1 hold,
   return 0
 }
 
+# The same marker also releases the dispatcher's holds, not just the verifier's path check. A held PR
+# writes <slug>.blocked (:857) and the dispatcher used to skip it forever, so the "next cycle merges"
+# claim was false; the needs-ceo/hold labels are the same hold one step earlier (MANDATE red line 4).
+# Both skips now consult this one rule: a non-empty marker releases the skip, and the verifier then
+# re-validates the marker against the PR number and the PR's own path list, so a stale or malformed
+# marker costs one re-verification and can never merge anything.
+ceo_ok_clears_hold() { [ -s "$STATE/merge/$1.ceo-ok" ]; }
+ceo_hold_skip() { # <slug> <labels-csv> -> 0 and a reason on stdout when the dispatcher must skip
+  local slug="$1" ls=" $(printf '%s' "${2:-}" | tr ',' ' ') " l
+  for l in $ls; do case "$l" in hold|needs-ceo) ceo_ok_clears_hold "$slug" || { echo "labelled hold (needs CEO)"; return 0; } ;; esac; done
+  if [ -e "$STATE/merge/$slug.blocked" ] && ! ceo_ok_clears_hold "$slug"; then
+    echo "blocked (needs CEO)"; return 0
+  fi
+  return 1
+}
+
+# gh `pr list` JSON (number,headRefName,isDraft,labels,title,files,body) -> TSV rows for the dispatcher
+# loop: number, slug, title, tier, labels. needs-ceo/hold is a CEO hold, not a permanent exclusion, so
+# the labels travel with the row and ceo_hold_skip() applies it (a non-empty .ceo-ok releases it).
+dispatch_rows() {
+  STATE="$STATE" RSI_DIR="$RSI_DIR" TIERPY="$RSI_DIR/runtime/review-tier.py" python3 -c '
+import json,sys,os,subprocess
+sys.path.insert(0, os.path.join(os.environ["RSI_DIR"], "runtime"))
+from item_marker import parse_item
+st=os.environ["STATE"]; rows=[]
+for p in json.load(sys.stdin):
+    h=p["headRefName"]
+    if not h.startswith("rsi/") or h.startswith("rsi/dream-") or h.startswith("rsi/ceo-") or p["isDraft"]: continue
+    slug=h[4:]; item=parse_item(p.get("body") or "")
+    try: att=int(open("%s/merge/%s.attempts" % (st,slug)).read().strip() or 0)
+    except Exception: att=0
+    tier="large"
+    try:
+        if "files" not in p: raise ValueError("no files")
+        out=subprocess.run(["python3",os.environ["TIERPY"],"--title",p["title"],"--item",item,"--attempts",str(att),"--gh-json","-"],input=json.dumps(p.get("files") or []),capture_output=True,text=True,timeout=20).stdout.split()
+        tier=out[0] if out else "large"
+    except Exception: pass
+    rows.append((0 if tier=="small" else 1, p["number"], slug, p["title"].replace("\t"," "), tier, ",".join(sorted(l["name"] for l in p["labels"]))))
+for _,n,slug,title,tier,labs in sorted(rows):   # small-safe first, then PR number
+    print("%d\t%s\t%s\t%s\t%s" % (n,slug,title,tier,labs))'
+}
+
 # ------------------------------------------------------------------ dispatcher
 if [ "${1:-}" != "--one" ]; then
   [ "${1:-}" = "--resolve-generated" ] && { gen_resolve "${2:?worktree required}"; exit $?; }
+  # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: the dispatcher's row filter on PR JSON
+  # on stdin, so a needs-ceo/hold row is proven to reach the loop with its labels for ceo_hold_skip().
+  if [ "${1:-}" = "--dispatch-rows-check" ]; then dispatch_rows; exit $?; fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the queue-time carry step 1 applies
   # after sync_main, with lists of paths on disk. No locks, fetch, gate, review, merge or dispatch.
   if [ "${1:-}" = "--queue-carry-check" ]; then
@@ -515,6 +560,13 @@ if [ "${1:-}" != "--one" ]; then
       1) echo "HOLD $CEO_OK_REASON"; exit 1 ;;
       *) echo "NOHOLD no deps/migrations/auth path changed"; exit 0 ;;
     esac
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: the dispatcher's CEO-hold skip — the
+  # same ceo_hold_skip() the PR loop calls, so the exemption is proven at the call site's function.
+  if [ "${1:-}" = "--ceo-hold-check" ]; then
+    [ $# -ge 3 ] || { echo "usage: merge.sh --ceo-hold-check <slug> <labels-csv>" >&2; exit 2; }
+    if r="$(ceo_hold_skip "$2" "${3:-}")"; then echo "SKIP $r"; exit 1; fi
+    echo "ALLOW"; exit 0
   fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: run the same carry_forward() the land
   # loop calls, with lists of paths on disk. No gate, no review, no relaunch.
@@ -579,26 +631,7 @@ if [ "${1:-}" != "--one" ]; then
   PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,files,body 2>/dev/null)"
   echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || { sleep 3; PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,files,body 2>/dev/null)"; }
   echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,body 2>/dev/null)"
-  PRS="$(printf '%s' "$PRJ" | STATE="$STATE" RSI_DIR="$RSI_DIR" TIERPY="$RSI_DIR/runtime/review-tier.py" python3 -c '
-import json,sys,os,subprocess
-sys.path.insert(0, os.path.join(os.environ["RSI_DIR"], "runtime"))
-from item_marker import parse_item
-st=os.environ["STATE"]; rows=[]
-for p in json.load(sys.stdin):
-    h=p["headRefName"]; ls={l["name"] for l in p["labels"]}
-    if not h.startswith("rsi/") or h.startswith("rsi/dream-") or h.startswith("rsi/ceo-") or p["isDraft"] or ls & {"hold","needs-ceo"}: continue
-    slug=h[4:]; item=parse_item(p.get("body") or "")
-    try: att=int(open("%s/merge/%s.attempts" % (st,slug)).read().strip() or 0)
-    except Exception: att=0
-    tier="large"
-    try:
-        if "files" not in p: raise ValueError("no files")
-        out=subprocess.run(["python3",os.environ["TIERPY"],"--title",p["title"],"--item",item,"--attempts",str(att),"--gh-json","-"],input=json.dumps(p.get("files") or []),capture_output=True,text=True,timeout=20).stdout.split()
-        tier=out[0] if out else "large"
-    except Exception: pass
-    rows.append((0 if tier=="small" else 1, p["number"], slug, p["title"].replace("\t"," "), tier))
-for _,n,slug,title,tier in sorted(rows):   # small-safe first, then PR number
-    print("%d\t%s\t%s\t%s" % (n,slug,title,tier))')"
+  PRS="$(printf '%s' "$PRJ" | dispatch_rows)"
   [ -z "$PRS" ] && { say "no open rsi PRs"; exit 0; }
   ACTIVE="$(python3 "$LANES_PY" slugs)"
   running=0; running_big=0
@@ -606,11 +639,11 @@ for _,n,slug,title,tier in sorted(rows):   # small-safe first, then PR number
     [ -d "$l" ] && kill -0 "$(cat "$l/pid" 2>/dev/null || echo 0)" 2>/dev/null || continue
     running=$((running+1)); rs="$(basename "$l" .lock)"; [ "$(cat "$STATE/merge/$rs.tier" 2>/dev/null)" = small ] || running_big=$((running_big+1))
   done
-  while IFS=$'\t' read -r -u 3 N SLUG TITLE TIER; do
+  while IFS=$'\t' read -r -u 3 N SLUG TITLE TIER LABELS; do
     [ -z "$N" ] && continue
     echo "$ACTIVE" | grep -qx "$SLUG" && { say "#$N $SLUG: lane active, skip"; continue; }
     [ -e "$STATE/sendback/$SLUG.md" ] && { say "#$N $SLUG: waiting for rework"; continue; }
-    [ -e "$STATE/merge/$SLUG.blocked" ] && { say "#$N $SLUG: blocked (needs CEO)"; continue; }
+    if r="$(ceo_hold_skip "$SLUG" "$LABELS")"; then say "#$N $SLUG: $r"; continue; fi
     L="$STATE/merge/$SLUG.lock"
     if [ -d "$L" ]; then if kill -0 "$(cat "$L/pid" 2>/dev/null || echo 0)" 2>/dev/null; then continue; fi; rm -rf "$L"; fi
     # sol (ChatGPT allowance) exhausted: large-tier reviews need it and would only loop on 429. Wait for it;

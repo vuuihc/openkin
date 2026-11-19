@@ -19,5 +19,19 @@
     "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
     "old": "  [ \"$last\" = \"pr $pr\" ] || { CEO_OK_REASON=\"the marker does not approve PR #$pr (last field: ${last:-none})\"; return 1; }",
     "new": "  :"
+  },
+  {
+    "label": "forget the .blocked exemption: a held deps/migrations/auth PR is skipped even after the owner approved it",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  if [ -e \"$STATE/merge/$slug.blocked\" ] && ! ceo_ok_clears_hold \"$slug\"; then",
+    "new": "  if [ -e \"$STATE/merge/$slug.blocked\" ]; then"
+  },
+  {
+    "label": "forget the label exemption: a needs-ceo/hold PR is skipped even after the owner approved it",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  for l in $ls; do case \"$l\" in hold|needs-ceo) ceo_ok_clears_hold \"$slug\" || { echo \"labelled hold (needs CEO)\"; return 0; } ;; esac; done",
+    "new": "  for l in $ls; do case \"$l\" in hold|needs-ceo) { echo \"labelled hold (needs CEO)\"; return 0; } ;; esac; done"
   }
 ]
