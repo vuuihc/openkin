@@ -9,15 +9,19 @@ import { checkConsoleVersion, type ConsoleVersionDeps } from "./consoleVersion";
  * so "a second document" is simply a second wrapper over the same backing map.
  */
 
-function memoryStorage(backing = new Map<string, string>()) {
+type TestStorage = ConsoleVersionDeps["storage"];
+
+function memoryStorage(backing = new Map<string, string>()): TestStorage {
   return {
     getItem: (key: string) => backing.get(key) ?? null,
-    setItem: (key: string, value: string) => void backing.set(key, value),
+    setItem: (key: string, value: string) => {
+      backing.set(key, value);
+    },
   };
 }
 
 /** Private mode or a sandboxed frame: every storage access throws. */
-function brokenStorage() {
+function brokenStorage(): TestStorage {
   return {
     getItem: (): string | null => {
       throw new Error("storage unavailable");
@@ -36,7 +40,7 @@ function setup(
     html?: string;
     ok?: boolean;
     reject?: boolean;
-    storage?: ReturnType<typeof memoryStorage>;
+    storage?: TestStorage;
   } = {},
 ) {
   const fetchImpl = vi.fn(async () => {
