@@ -171,8 +171,8 @@ only fed a readiness print loop (`Available`, `Binary`, `Reason`).
 
 - `TestListProbesRegistrationsConcurrently` — 74 fakes, every `Status` and
   `Models` sleeps 3 ms. Against the pre-concurrency implementation:
-  `List probed 74 registrations serially: 692.612ms (want < 200ms; 74 × 3ms
-  for Status + Models is ~444ms sequential)`. The bound was first set to
+  `List probed 74 registrations serially: 660.893209ms (want < 200ms; 74 ×
+  (3ms Status + 3ms Models) is ~444ms sequential)`. The bound was first set to
   60 ms; ten runs under `GOMAXPROCS=2` (the setting `scripts/check.sh` uses)
   produced 60.9 ms and 64.5 ms, so it was raised to 200 ms — still 2.2× below
   the sequential floor and ~3× above the measured concurrent range (40–65 ms).

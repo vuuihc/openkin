@@ -67,8 +67,8 @@ func TestListProbesRegistrationsConcurrently(t *testing.T) {
 	}
 	if elapsed >= 200*time.Millisecond {
 		t.Fatalf("List probed %d registrations serially: %v (want < 200ms; "+
-			"%d × %v for Status + Models is ~%v sequential)",
-			listProbeCount, elapsed, listProbeCount, probeSleep, listProbeCount*2*probeSleep)
+			"%d × (%v Status + %v Models) is ~%v sequential)",
+			listProbeCount, elapsed, listProbeCount, probeSleep, probeSleep, listProbeCount*2*probeSleep)
 	}
 }
 
