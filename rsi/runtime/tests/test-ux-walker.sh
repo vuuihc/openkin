@@ -19,6 +19,12 @@
 # ux-walker.mutants.json proves the selection, the slot and the dist
 # consistency each go red when their line is reverted.
 #
+# A journey selection that names nothing must not walk nothing: `J9 J11` used
+# to walk only J9 (the third positional won alone) and `--journeys J9,J99` used
+# to filter the unknown id away and exit 0, so a green run could name a journey
+# nobody walked. The selection cases pin the join, the --files meaning and the
+# walker's named refusals, all before --base, playwright or Chrome.
+#
 # Hermetic: bash, python3 and coreutils in temp dirs; npm/go/node are booby
 # traps (exit 97), so a seam that fell through to the build or walk path
 # cannot pass — except in the build-decision cases, where npm records the
@@ -147,6 +153,92 @@ rc=$?
 grep -q 'usage:' "$T/seam5.err" || fail "$case_name: no usage line: $(cat "$T/seam5.err")"
 grep -q '<worktree>' "$T/seam5.err" || fail "$case_name: usage does not name the worktree"
 grep -q 'booby trap' "$T/seam5.err" && fail "$case_name: reached a build/walk command"
+pass "$case_name"
+
+# --- 6-12: a selection names journeys it can honour, or it refuses --------------
+# Two silent under-runs were possible on 2026-11-20: `ux-walk.sh "$PWD" "$OUT"
+# J9 J11` read only the third positional and walked J9, and `--journeys
+# J9,J99` filtered the unknown id away and exited 0 having walked only J9 (an
+# all-unknown list walked nothing at all). Both printed a green result, so a
+# screenshot or evidence claim naming a journey nobody ran was indistinguishable
+# from a real one. The shell now builds one selection from every positional, and
+# the walker refuses an id it cannot honour before --base, playwright or Chrome.
+UXDIR="$REPO/rsi/runtime/ux"
+select_walk() { # <--journeys LIST | --files PATH>: resolved ids, refusal on stderr
+  "$REAL_NODE" "$UXDIR/walk.mjs" --select --spec "$UXDIR/journeys.json" "$@" 2>"$T/select.err"
+}
+
+case_name="walk_selects_two"
+out="$(select_walk --journeys J9,J11)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/select.err"))"
+[ "$out" = "$(printf 'J9\nJ11')" ] \
+  || fail "$case_name: printed '$(printf '%s' "$out" | tr '\n' ' ')', wanted J9 then J11"
+[ ! -s "$T/select.err" ] || fail "$case_name: wrote to stderr: $(cat "$T/select.err")"
+pass "$case_name"
+
+case_name="walk_refuses_unknown_journey"
+out="$(select_walk --journeys J9,J99)"; rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2"
+[ -z "$out" ] || fail "$case_name: printed ids for a selection it cannot honour: $out"
+[ "$(width "$T/select.err")" = 1 ] \
+  || fail "$case_name: stderr is not one line: $(cat "$T/select.err")"
+grep -q 'J99' "$T/select.err" \
+  || fail "$case_name: the refusal does not name J99: $(cat "$T/select.err")"
+grep -q 'known:' "$T/select.err" \
+  || fail "$case_name: the refusal does not list the known ids: $(cat "$T/select.err")"
+grep -q 'J9' "$T/select.err" && grep -q 'J14' "$T/select.err" \
+  || fail "$case_name: the known-ids list looks truncated: $(cat "$T/select.err")"
+pass "$case_name"
+
+case_name="walk_refuses_empty_selection"
+out="$(select_walk --journeys NOPE)"; rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2"
+[ -z "$out" ] || fail "$case_name: printed ids for an unknown-only selection: $out"
+# An empty changed-files list resolves to no journey either; walking zero while
+# claiming a selection is the same silent under-run.
+: > "$T/no-files.txt"
+out="$(select_walk --files "$T/no-files.txt")"; rc=$?
+[ $rc -eq 2 ] || fail "$case_name: empty --files exited $rc, wanted 2"
+[ -z "$out" ] || fail "$case_name: empty --files printed ids: $out"
+pass "$case_name"
+
+case_name="walk_select_default_is_all"
+out="$(select_walk)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/select.err"))"
+want="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1], encoding="utf-8"))["journeys"]))' \
+  "$UXDIR/journeys.json")"
+[ "$out" = "$want" ] \
+  || fail "$case_name: the default is no longer every journey in spec order: $out"
+pass "$case_name"
+
+case_name="walk_args_join_positionals"
+out="$(bash "$SEAM" --select-args J9 J11 2>"$T/args.err")"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/args.err"))"
+[ "$out" = "--journeys J9,J11" ] \
+  || fail "$case_name: got '$out', wanted every positional joined: --journeys J9,J11"
+out="$(bash "$SEAM" --select-args "J9 J11" 2>>"$T/args.err")"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: quoted list exited $rc ($(cat "$T/args.err"))"
+[ "$out" = "--journeys J9,J11" ] \
+  || fail "$case_name: quoted list got '$out', wanted --journeys J9,J11"
+out="$(bash "$SEAM" --select-args 2>>"$T/args.err")"; rc=$?
+[ $rc -eq 0 ] && [ -z "$out" ] \
+  || fail "$case_name: no selection printed something and exited $rc: $out"
+grep -q 'booby trap' "$T/args.err" && fail "$case_name: reached a build/walk command"
+pass "$case_name"
+
+case_name="walk_args_refuse_two_files"
+bash "$SEAM" --select-args @a.txt @b.txt >"$T/args2.out" 2>"$T/args2.err"; rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2"
+[ ! -s "$T/args2.out" ] || fail "$case_name: printed to stdout: $(cat "$T/args2.out")"
+[ "$(width "$T/args2.err")" = 1 ] || fail "$case_name: stderr is not one line: $(cat "$T/args2.err")"
+grep -q 'usage:' "$T/args2.err" || fail "$case_name: no usage line: $(cat "$T/args2.err")"
+grep -q 'booby trap' "$T/args2.err" && fail "$case_name: reached a build/walk command"
+pass "$case_name"
+
+case_name="walk_args_single_at_file_unchanged"
+out="$(bash "$SEAM" --select-args @a.txt 2>"$T/args3.err")"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/args3.err"))"
+[ "$out" = "--files a.txt" ] || fail "$case_name: got '$out', wanted --files a.txt"
 pass "$case_name"
 
 # --- build decision: a coherent dist is the only reason to skip the build -------
@@ -313,6 +405,34 @@ grep -qi 'heavy slot\|machine-wide' "$OUT7/UNAVAILABLE" \
 [ ! -f "$REC" ] || fail "$case_name: the walker ran under RSI_NO_HEAVY: $(cat "$REC")"
 [ ! -d "$CTRL/rsi/state/heavy/slot1" ] \
   || fail "$case_name: a heavy slot was taken under RSI_NO_HEAVY"
+pass "$case_name"
+
+# --- 7b: the real walk joins every positional, not only the third --------------
+# The --select-args seam above calls select_args "$@" after shift, but the walk
+# reads its own slice, "${@:3}". Every other real-path case passes two
+# positionals at most, where "${3:-}" and "${@:3}" are identical, so reverting
+# the walk to "${3:-}" (the original silent under-run: `J9 J11` walked only J9)
+# stayed green. This case drives the real walk to the walker and records the
+# argv the walker was handed.
+case_name="test_real_walk_joins_every_positional"
+WT12="$T/wt-join"; mkdir -p "$WT12"
+# Case-local record/ready paths: KIN_STUB_READY and REC are exported above, so
+# assigning them here would leak an already-existing ready marker into case 8
+# and race its stub daemon.
+OUT12="$T/out-join"; REC12="$T/walk-join.rec"; READY12="$T/walk-join.ready"
+rm -f "$REC12" "$READY12"
+node() { printf '%s\n' "$@" > "$REC"; }
+export -f node
+env -u RSI_HEAVY_HELD -u RSI_NO_HEAVY UX_KIN_BIN="$STUB" REC="$REC12" KIN_STUB_READY="$READY12" \
+  bash "$SEAM" "$WT12" "$OUT12" J9 J11 > "$T/walk-join.out" 2>&1
+rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(tail -c 300 "$T/walk-join.out"))"
+[ -f "$REC12" ] || fail "$case_name: the walker never ran"
+joined=" $(tr '\n' ' ' < "$REC12") "
+case "$joined" in
+  *" --journeys J9,J11 "*) ;;
+  *) fail "$case_name: the walker got '$(tr '\n' ' ' < "$REC12")', wanted --journeys J9,J11" ;;
+esac
 pass "$case_name"
 
 # --- 8: the daemon is told which claude to run, not merely pointed at it ------
@@ -511,4 +631,4 @@ PY
 [ $rc -eq 0 ] || fail "$case_name: $out"
 pass "$case_name"
 
-echo "ux-walker contract: 18/18 cases passed"
+echo "ux-walker contract: 26/26 cases passed"

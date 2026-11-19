@@ -2623,13 +2623,37 @@ if (resolveJ5) {
   else console.log('J5 ' + applyJ5Fields(clickStep[1], target));
   process.exit(0);
 }
-let want = arg('journeys', '') ? arg('journeys').split(',') : null;
-if (!want && arg('files')) { // map changed files -> journeys
-  const files = fs.readFileSync(arg('files'), 'utf8').split('\n').filter(Boolean); const set = new Set();
-  for (const f of files) { const hit = spec.paths.find(([re]) => new RegExp('^(' + re + ')').test(f) || re.split('|').some((p) => f.startsWith(p))); (hit ? hit[1] : Object.keys(spec.journeys)).forEach((j) => set.add(j)); }
-  want = [...set];
+// Resolve the caller's selection before the --base requirement, so a claim
+// about which journeys were walked is answered without a daemon or a browser.
+// A named id that matches no journey, or a selection that resolves to nothing,
+// is refused (exit 2, one line): silently filtering it down leaves a green walk
+// that names a journey nobody ran (2026-11-20, `--journeys J9,J99` walked only
+// J9 and `--journeys J99` walked nothing, both exit 0).
+function selectJourneys(spec, journeysArg, filesArg) {
+  const known = Object.keys(spec.journeys || {});
+  const check = (ids, where) => {
+    const missing = ids.filter((id) => !known.includes(id));
+    if (missing.length) {
+      throw new Error('selection refused: unknown journey ' + missing.join(', ')
+        + (where ? ' ' + where : '') + ' (known: ' + known.join(', ') + ')');
+    }
+    if (!ids.length) throw new Error('selection refused: the selection names no journey (known: ' + known.join(', ') + ')');
+    return ids;
+  };
+  if (journeysArg) return check(journeysArg.split(',').map((id) => id.trim()).filter(Boolean));
+  if (filesArg) { // map changed files -> journeys
+    const files = fs.readFileSync(filesArg, 'utf8').split('\n').filter(Boolean); const set = new Set();
+    for (const f of files) { const hit = spec.paths.find(([re]) => new RegExp('^(' + re + ')').test(f) || re.split('|').some((p) => f.startsWith(p))); (hit ? hit[1] : known).forEach((j) => set.add(j)); }
+    return check([...set], 'in the paths table');
+  }
+  return known; // no selection: every journey, in spec order (unchanged)
 }
-want = (want && want.length ? want : Object.keys(spec.journeys)).filter((j) => spec.journeys[j]);
+let want;
+try { want = selectJourneys(spec, arg('journeys', ''), arg('files')); }
+catch (e) { console.error(e.message); process.exit(2); }
+// `--select` prints the resolved ids and exits before --base, playwright and
+// Chrome (the build-free seam the walker suite proves the refusal through).
+if (process.argv.includes('--select')) { want.forEach((id) => console.log(id)); process.exit(0); }
 if (!base) { console.error('--base required'); process.exit(2); }
 let chromium; try { ({ chromium } = require(process.env.PW_CORE || path.join(process.env.HOME, '.kin/ux-proto-tools/node_modules/playwright-core'))); } catch (e) { console.error('playwright-core missing: ' + e.message); process.exit(2); }
 fs.mkdirSync(out, { recursive: true });
