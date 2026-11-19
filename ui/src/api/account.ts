@@ -145,6 +145,18 @@ export function clearAuthErrorFromURL(): void {
 let accountProbeUnanswered = false;
 let placeholderRetired = false;
 
+/**
+ * Whether the probe still has no answer.
+ *
+ * The placeholder may already be retired by an earlier visit-gate decision
+ * (StrictMode runs App's mount effect twice), so `account.enabled === false`
+ * alone cannot tell "the daemon has no accounts" apart from "the question is
+ * still open". App's mount effect asks this before closing the gate.
+ */
+export function isAccountProbeUnanswered(): boolean {
+  return accountProbeUnanswered;
+}
+
 /** Say that the pre-render account probe has no answer yet. */
 export function beginUnansweredAccountProbe(): void {
   accountProbeUnanswered = true;

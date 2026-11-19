@@ -23,7 +23,7 @@ import MachineTaskPage from "./pages/MachineTaskPage";
 import AgentSessionDetailPage from "./pages/AgentSessionDetailPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AccountScreen from "./components/AccountScreen";
-import { applyVisitGate } from "./api/account";
+import { applyVisitGate, isAccountProbeUnanswered } from "./api/account";
 import { dispatchWS, useAppStore, type AuthState } from "./store/appStore";
 import { clearSessionViewed } from "./lib/sessionViewed";
 import { useMachines } from "./hooks/useMachines";
@@ -78,7 +78,11 @@ export default function App() {
         return;
       }
       if (!account.enabled) {
-        requireToken("missing");
+        // StrictMode's first pass already retired the unanswered placeholder,
+        // so `enabled: false` here may still mean "no answer yet", not "this
+        // daemon has no accounts". The deadline path already opened the gate;
+        // closing it now would show the token screen it avoided.
+        if (!isAccountProbeUnanswered()) requireToken("missing");
         return;
       }
     }
