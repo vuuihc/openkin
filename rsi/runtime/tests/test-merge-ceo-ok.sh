@@ -15,8 +15,9 @@
 #
 # Exercises merge.sh --ceo-ok-check, which runs the same ceo_ok_verdict() the hold block calls, and
 # --ceo-hold-check / --dispatch-rows-check, which run the same ceo_hold_skip() and row filter the
-# dispatcher uses: a non-empty marker must release the .blocked skip and the needs-ceo/hold labels,
-# otherwise the promise (the next verifier cycle merges, no manual hold edit) is never kept.
+# dispatcher uses: a marker naming this PR must release an older .blocked skip and the
+# needs-ceo/hold labels, while a marker for another PR or a re-block written after the marker must
+# not, otherwise the promise (the next verifier cycle merges, no manual hold edit) is never kept.
 # Prints "PASS <case>" per case and exits non-zero on the first failure.
 # Set RSI_TEST_ONLY=<case name> to run one case.
 set -u
@@ -114,9 +115,9 @@ SM="$T/ctrl/rsi/state/merge"; mkdir -p "$SM"
 mkdir -p "$T/ctrl/rsi/runtime"
 cp "$HERE/../item_marker.py" "$HERE/../review-tier.py" "$T/ctrl/rsi/runtime/"
 
-# check_hold <slug> <labels> — the dispatcher's hold skip for one row. Sets RC and OUT.
+# check_hold <slug> <labels> [pr] — the dispatcher's hold skip for one row. Sets RC and OUT.
 check_hold() {
-  RSI_CTRL="$T/ctrl" bash "$MERGE" --ceo-hold-check "$1" "${2:-}" > "$T/out" 2>&1
+  RSI_CTRL="$T/ctrl" bash "$MERGE" --ceo-hold-check "$1" "${2:-}" "${3:-352}" > "$T/out" 2>&1
   RC=$?; OUT="$(cat "$T/out")"
 }
 expect_skip() { # <case>
@@ -128,13 +129,23 @@ expect_allow() { # <case>
   [ "$OUT" = ALLOW ] || fail "$1: output is '$OUT', want ALLOW"
 }
 
-# A .blocked hold no longer skips a slug whose marker is non-empty.
+# A .blocked hold older than the marker no longer skips a slug the marker approves.
 release_clears_blocked_hold() {
-  : > "$SM/a.blocked"; rm -f "$SM/a.ceo-ok"
+  : > "$SM/a.blocked"; rm -f "$SM/a.ceo-ok"; touch -t 202601010000 "$SM/a.blocked"
   check_hold a ""; expect_skip release-clears-blocked-hold
   printf '%s\n' "$GOOD" > "$SM/a.ceo-ok"
   check_hold a ""; expect_allow release-clears-blocked-hold
   rm -f "$SM/a.blocked" "$SM/a.ceo-ok"
+}
+
+# A block written after the approval is a new hold (a re-block, or a hold for another reason) and
+# outranks the marker: releasing it every dispatch would run a full gate + review per cycle on a PR
+# the loop has already decided to hold, and each block trips notify/consec_blocked again.
+reblock_after_marker_keeps_hold() {
+  printf '%s\n' "$GOOD" > "$SM/d.ceo-ok"; touch -t 202601010000 "$SM/d.ceo-ok"
+  : > "$SM/d.blocked"
+  check_hold d ""; expect_skip reblock-after-marker-keeps-hold
+  rm -f "$SM/d.blocked" "$SM/d.ceo-ok"
 }
 
 # An empty marker is not an approval: the hold stays exactly as it was.
@@ -153,6 +164,17 @@ release_clears_label_hold() {
   check_hold c "needs-ceo"; expect_allow release-clears-label-hold
   check_hold c "ui,hold"; expect_allow release-clears-label-hold
   rm -f "$SM/c.ceo-ok"
+}
+
+# The marker is bound to its PR, and the verifier does not re-validate it for a red-line PR with no
+# deps/migrations/auth path: without this check a stale marker on a reused slug releases the label
+# and gate+review alone decide. A marker naming this PR still releases it.
+wrong_pr_marker_keeps_label_hold() {
+  printf '%s\n' 'source=thread thread-9 · quote "ship it" · 2026-11-19T09:00+08:00 · pr 111' > "$SM/e.ceo-ok"
+  check_hold e "needs-ceo" 352; expect_skip wrong-pr-marker-keeps-label-hold
+  check_hold e "hold" 352; expect_skip wrong-pr-marker-keeps-label-hold
+  check_hold e "needs-ceo" 111; expect_allow wrong-pr-marker-keeps-label-hold
+  rm -f "$SM/e.ceo-ok"
 }
 
 # The row filter hands a labelled PR to the loop with its labels instead of dropping it (the old
@@ -188,7 +210,9 @@ run refuse-marker-for-another-pr refuse_marker_for_another_pr
 run refuse-placeholder-source refuse_placeholder_source
 run no-hold-unrelated-paths no_hold_unrelated_paths
 run release-clears-blocked-hold release_clears_blocked_hold
+run reblock-after-marker-keeps-hold reblock_after_marker_keeps_hold
 run empty-marker-keeps-blocked-hold empty_marker_keeps_blocked_hold
 run release-clears-label-hold release_clears_label_hold
+run wrong-pr-marker-keeps-label-hold wrong_pr_marker_keeps_label_hold
 run labelled-row-reaches-the-loop labelled_row_reaches_the_loop
 echo ALL-PASS

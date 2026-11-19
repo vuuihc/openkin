@@ -434,6 +434,12 @@ ci_first_decision() { # <wt> <branch> <gate-file> <reviewed-file> <ci-state> <ma
 #   source=thread <id> · quote "<the owner's words>" · <YYYY-MM-DDTHH:MM±HH:MM> · pr <number>
 # Every field must be present and non-empty; a placeholder source, a missing quote/time and a marker
 # for another PR are all invalid, so the hold stays exactly as it was.
+ceo_ok_last_field() { # <marker-file> -> the marker's last `·` field, trimmed
+  local line
+  line="$(sed -n '1p' "$1" | tr -d '\r' | sed -E 's/[[:space:]]+$//')"
+  line="${line##*·}"
+  printf '%s\n' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+}
 ceo_ok_verdict() { # <marker-file> <changed-paths-file> <pr> -> 0 clear, 1 hold, 2 not applicable
   # 2 = no deps/migrations/auth path changed; the marker never clears any other hold.
   local marker="$1" changed="$2" pr="$3" line src last
@@ -470,23 +476,28 @@ ceo_ok_verdict() { # <marker-file> <changed-paths-file> <pr> -> 0 clear, 1 hold,
   fi
   # 4. the last field is `pr <N>`, and N is the PR being merged: a stale marker must not approve a
   #    later PR that reuses the slug.
-  last="$(printf '%s' "${line##*·}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  last="$(ceo_ok_last_field "$marker")"
   [ "$last" = "pr $pr" ] || { CEO_OK_REASON="the marker does not approve PR #$pr (last field: ${last:-none})"; return 1; }
   CEO_OK_REASON="source=$src quote=\"$(printf '%s\n' "$line" | sed -E 's/.*quote[[:space:]]*=?"([^"]+)".*/\1/')\""
   return 0
 }
 
 # The same marker also releases the dispatcher's holds, not just the verifier's path check. A held PR
-# writes <slug>.blocked (:857) and the dispatcher used to skip it forever, so the "next cycle merges"
-# claim was false; the needs-ceo/hold labels are the same hold one step earlier (MANDATE red line 4).
-# Both skips now consult this one rule: a non-empty marker releases the skip, and the verifier then
-# re-validates the marker against the PR number and the PR's own path list, so a stale or malformed
-# marker costs one re-verification and can never merge anything.
-ceo_ok_clears_hold() { [ -s "$STATE/merge/$1.ceo-ok" ]; }
-ceo_hold_skip() { # <slug> <labels-csv> -> 0 and a reason on stdout when the dispatcher must skip
-  local slug="$1" ls=" $(printf '%s' "${2:-}" | tr ',' ' ') " l
-  for l in $ls; do case "$l" in hold|needs-ceo) ceo_ok_clears_hold "$slug" || { echo "labelled hold (needs CEO)"; return 0; } ;; esac; done
-  if [ -e "$STATE/merge/$slug.blocked" ] && ! ceo_ok_clears_hold "$slug"; then
+# writes <slug>.blocked and the dispatcher used to skip it forever, so the "next cycle merges" claim
+# was false; the needs-ceo/hold labels are the same hold one step earlier (MANDATE red line 4).
+# Both skips now consult this one rule, bound to the PR: the marker's last field must be `pr <N>`, so
+# a stale marker on a reused slug cannot release a label (the verifier never re-validates the marker
+# for a red-line PR with no deps/migrations/auth path). A .blocked written after the marker is a new
+# hold — a re-block or a different hold — and outranks the approval; only an older block yields.
+ceo_ok_clears_hold() { # <slug> <pr> -> 0 when the marker approves that exact PR
+  local m="$STATE/merge/$1.ceo-ok"
+  [ -s "$m" ] && [ -n "${2:-}" ] || return 1
+  [ "$(ceo_ok_last_field "$m")" = "pr $2" ]
+}
+ceo_hold_skip() { # <slug> <labels-csv> <pr> -> 0 and a reason on stdout when the dispatcher must skip
+  local slug="$1" ls=" $(printf '%s' "${2:-}" | tr ',' ' ') " pr="${3:-}" l
+  for l in $ls; do case "$l" in hold|needs-ceo) ceo_ok_clears_hold "$slug" "$pr" || { echo "labelled hold (needs CEO)"; return 0; } ;; esac; done
+  if [ -e "$STATE/merge/$slug.blocked" ] && { ! ceo_ok_clears_hold "$slug" "$pr" || ! [ "$STATE/merge/$slug.ceo-ok" -nt "$STATE/merge/$slug.blocked" ]; }; then
     echo "blocked (needs CEO)"; return 0
   fi
   return 1
@@ -494,7 +505,7 @@ ceo_hold_skip() { # <slug> <labels-csv> -> 0 and a reason on stdout when the dis
 
 # gh `pr list` JSON (number,headRefName,isDraft,labels,title,files,body) -> TSV rows for the dispatcher
 # loop: number, slug, title, tier, labels. needs-ceo/hold is a CEO hold, not a permanent exclusion, so
-# the labels travel with the row and ceo_hold_skip() applies it (a non-empty .ceo-ok releases it).
+# the labels travel with the row and ceo_hold_skip() applies it (a marker naming this PR releases it).
 dispatch_rows() {
   STATE="$STATE" RSI_DIR="$RSI_DIR" TIERPY="$RSI_DIR/runtime/review-tier.py" python3 -c '
 import json,sys,os,subprocess
@@ -564,8 +575,8 @@ if [ "${1:-}" != "--one" ]; then
   # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: the dispatcher's CEO-hold skip — the
   # same ceo_hold_skip() the PR loop calls, so the exemption is proven at the call site's function.
   if [ "${1:-}" = "--ceo-hold-check" ]; then
-    [ $# -ge 3 ] || { echo "usage: merge.sh --ceo-hold-check <slug> <labels-csv>" >&2; exit 2; }
-    if r="$(ceo_hold_skip "$2" "${3:-}")"; then echo "SKIP $r"; exit 1; fi
+    [ $# -ge 4 ] || { echo "usage: merge.sh --ceo-hold-check <slug> <labels-csv> <pr-number>" >&2; exit 2; }
+    if r="$(ceo_hold_skip "$2" "${3:-}" "$4")"; then echo "SKIP $r"; exit 1; fi
     echo "ALLOW"; exit 0
   fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: run the same carry_forward() the land
@@ -643,7 +654,7 @@ if [ "${1:-}" != "--one" ]; then
     [ -z "$N" ] && continue
     echo "$ACTIVE" | grep -qx "$SLUG" && { say "#$N $SLUG: lane active, skip"; continue; }
     [ -e "$STATE/sendback/$SLUG.md" ] && { say "#$N $SLUG: waiting for rework"; continue; }
-    if r="$(ceo_hold_skip "$SLUG" "$LABELS")"; then say "#$N $SLUG: $r"; continue; fi
+    if r="$(ceo_hold_skip "$SLUG" "$LABELS" "$N")"; then say "#$N $SLUG: $r"; continue; fi
     L="$STATE/merge/$SLUG.lock"
     if [ -d "$L" ]; then if kill -0 "$(cat "$L/pid" 2>/dev/null || echo 0)" 2>/dev/null; then continue; fi; rm -rf "$L"; fi
     # sol (ChatGPT allowance) exhausted: large-tier reviews need it and would only loop on 429. Wait for it;

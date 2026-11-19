@@ -24,14 +24,28 @@
     "label": "forget the .blocked exemption: a held deps/migrations/auth PR is skipped even after the owner approved it",
     "file": "rsi/runtime/merge.sh",
     "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
-    "old": "  if [ -e \"$STATE/merge/$slug.blocked\" ] && ! ceo_ok_clears_hold \"$slug\"; then",
+    "old": "  if [ -e \"$STATE/merge/$slug.blocked\" ] && { ! ceo_ok_clears_hold \"$slug\" \"$pr\" || ! [ \"$STATE/merge/$slug.ceo-ok\" -nt \"$STATE/merge/$slug.blocked\" ]; }; then",
     "new": "  if [ -e \"$STATE/merge/$slug.blocked\" ]; then"
+  },
+  {
+    "label": "release a .blocked written after the marker: a re-block is re-verified (gate + review) every dispatch",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": " || ! [ \"$STATE/merge/$slug.ceo-ok\" -nt \"$STATE/merge/$slug.blocked\" ]",
+    "new": ""
   },
   {
     "label": "forget the label exemption: a needs-ceo/hold PR is skipped even after the owner approved it",
     "file": "rsi/runtime/merge.sh",
     "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
-    "old": "  for l in $ls; do case \"$l\" in hold|needs-ceo) ceo_ok_clears_hold \"$slug\" || { echo \"labelled hold (needs CEO)\"; return 0; } ;; esac; done",
+    "old": "  for l in $ls; do case \"$l\" in hold|needs-ceo) ceo_ok_clears_hold \"$slug\" \"$pr\" || { echo \"labelled hold (needs CEO)\"; return 0; } ;; esac; done",
     "new": "  for l in $ls; do case \"$l\" in hold|needs-ceo) { echo \"labelled hold (needs CEO)\"; return 0; } ;; esac; done"
+  },
+  {
+    "label": "release the label on any non-empty marker: a stale marker from a reused slug merges a red-line PR",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  [ \"$(ceo_ok_last_field \"$m\")\" = \"pr $2\" ]",
+    "new": "  :"
   }
 ]
