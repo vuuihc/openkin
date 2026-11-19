@@ -1210,10 +1210,7 @@ function ProgressCard({
             />
           )}
           <span
-            className={[
-              "min-w-0 flex-1 truncate",
-              hasFailure ? "text-kin-red-ink" : "",
-            ].join(" ")}
+            className={["min-w-0 flex-1 truncate", hasFailure ? "text-kin-red-ink" : ""].join(" ")}
             title={summary}
           >
             {summary}

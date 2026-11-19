@@ -110,9 +110,7 @@ describe("a running turn's prose", () => {
       note(3, "reasoning", "waiting on the listing"),
     ];
     render(<ChatStream events={running} hostSpeaker="kin" loading />);
-    expect(
-      screen.getByText(t("chat.progress.summaryRunning", { activity: "shell" })),
-    ).toBeTruthy();
+    expect(screen.getByText(t("chat.progress.summaryRunning", { activity: "shell" }))).toBeTruthy();
   });
 
   it("leaves an earlier round folded while a later round runs", () => {

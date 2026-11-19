@@ -52,10 +52,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn() as unknown as Element["scrollIntoView"];
 });
 
-function renderStream(
-  events: TaskEvent[],
-  props: Partial<ComponentProps<typeof ChatStream>> = {},
-) {
+function renderStream(events: TaskEvent[], props: Partial<ComponentProps<typeof ChatStream>> = {}) {
   return render(<ChatStream events={events} hostSpeaker="kin" {...props} />);
 }
 
@@ -76,13 +73,15 @@ describe("one wait cue", () => {
     expect(cues).toHaveLength(1);
     expect(dotsInside(cues[0])).toBe(3);
   });
-
 });
 
 describe("a narration note", () => {
   it("a narration note shows no label", () => {
     setLocale("en");
-    const events = [userMessage(1, "please fix the parser"), note(2, "assistant", "the parser is fine")];
+    const events = [
+      userMessage(1, "please fix the parser"),
+      note(2, "assistant", "the parser is fine"),
+    ];
     const { container } = renderStream(events, { loading: true });
 
     const row = container.querySelector<HTMLElement>('[data-message-key="note-2"]');
@@ -151,7 +150,11 @@ describe("a folded tool card", () => {
 
   it("a failed call still says so", () => {
     setLocale("en");
-    const events = [userMessage(1, "run it"), toolCall(2, "call-1"), toolResult(3, "call-1", false)];
+    const events = [
+      userMessage(1, "run it"),
+      toolCall(2, "call-1"),
+      toolResult(3, "call-1", false),
+    ];
     const { container } = renderStream(events);
 
     const toggle = disclosure(container);
