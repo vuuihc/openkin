@@ -265,7 +265,7 @@ TERM/HUP/INT (`rsi/runtime/ux/walk-mutant-test.sh` `trap_restore_dist`, plus `sc
 handler from #338) and a merge archives its sendback (#346 `6ea5b433`).
 
 1. **The escalation ledger cannot say what it bought.** `c00f66fe` (#357): `review_note` records blocker/major
-   lines (`rsi/runtime/dispatch.sh:136`); `escalate.py:832` prints `Worth it: caught N of M` weekly.
+   lines (`rsi/runtime/dispatch.sh:136`); `f66b4144` (#360): `escalate.py:832` prints `Worth it: caught N of M` weekly.
 2. **A number a person typed drifts.** `4640d9b3` (#356): `plan_status_prefix` writes `PLAN.md`'s `状态：…`
    count sentence from the registry; `--check` fails on drift (`plan_problems`, `scripts/stories.py:294`).
 
