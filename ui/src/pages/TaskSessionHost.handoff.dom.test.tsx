@@ -273,7 +273,7 @@ describe("the keep-alive host and a just-created conversation", () => {
     expect(screen.getByTestId("pending-handoff").textContent).toBe("hello");
   });
 
-  it("keeps a cold entry without a snapshot on the branded waiting state", () => {
+  it("keeps a cold entry without a snapshot on the wheel waiting state", () => {
     live.reset([]);
     open("/tasks/task-cold");
 
@@ -281,7 +281,10 @@ describe("the keep-alive host and a just-created conversation", () => {
     expect(screen.queryByTestId("mobile-header")).toBeNull();
     expect(screen.queryByTestId("composer")).toBeNull();
     const status = screen.getByRole("status", { name: /Loading/ });
-    expect(status.querySelector("svg")).toBeTruthy();
+    const wheel = status.querySelector(".kin-ios-spinner");
+    expect(wheel?.getAttribute("aria-hidden")).toBe("true");
+    expect(wheel?.querySelectorAll("span")).toHaveLength(12);
+    expect(status.querySelector("svg")).toBeNull();
   });
 
   it("repaints the open tab when another surface renames the conversation", () => {
