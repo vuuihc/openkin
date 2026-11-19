@@ -1,13 +1,13 @@
 # Startup baseline — 2026-11-19
 
-**Status: measured and attributed.** The daemon's wall clock decomposes into
-named segments that add up, `store-open` has been measured against a synthetic
-database at the live file size, and the desktop shell has an isolated
-spawn → daemon-ready → first-paint number measured without touching the live
-node. The shell-side instrumentation lands here; the runner that produces the
-number is the follow-up slice `-d` (the combined diff was over the 1000-line
-landing cap). This work is measurement only: it did not attempt, and does not
-claim, a speed-up.
+**Status: measured and attributed; the first shell-side fix is recorded below.** The
+daemon's wall clock decomposes into named segments that add up, `store-open`
+has been measured against a synthetic database at the live file size, and the
+desktop shell has an isolated spawn → daemon-ready → first-paint number
+measured without touching the live node. The shell-side instrumentation and
+its runner are on `main` (`scripts/desktop-startup.sh`). The 2026-11-19
+numbers below are the baseline the first fix is measured against and are left
+as measured; §「2026-11-20 — the startup handshake」 records the before/after.
 
 ## Current position (现在的位置)
 
@@ -17,8 +17,9 @@ claim, a speed-up.
 | Whole-wall attribution (`process`, `ready→health`) | green — segments sum to the wall clock within 4–5 ms (flooring only) |
 | Empty-DB baseline, 3 runs | green — table 1 below |
 | Real-size `store-open` (150.7 MiB synthetic) | green — 38ms cold / 37ms warm, file at 99.1% of target |
-| Desktop shell measurement (Electron spawn → first paint) | instrumented — env-isolated daemon + 8 trace marks; first paint 3726 / 1828 ms (median **2777 ms**), measured with the runner that lands as slice `-d` |
-| Fix | not attempted, intentionally |
+| Desktop shell measurement (Electron spawn → first paint) | instrumented — env-isolated daemon + 8 trace marks; first paint 3726 / 1828 ms (median **2777 ms**) on 2026-11-19, measured with `scripts/desktop-startup.sh` |
+| Shell handshake `sidecar-start` → `sidecar-ready` | measured 2026-11-20 — median **915 ms before**, **595 ms after**; see §「2026-11-20 — the startup handshake」 |
+| Fix | daemon untouched; the shell's pre-daemon work fixed 2026-11-20 (see that section) |
 | `~/.kin/kin.db` opened, copied or instrumented | **never** |
 
 ## What was measured
@@ -151,17 +152,16 @@ in any end-to-end explanation of 「启动巨慢」.
 
 ## Desktop
 
-The runner `scripts/desktop-startup.sh` is follow-up slice `-d`: it builds
-`./kin` (gitignored build output) and `desktop/dist`, then launches the real
-Electron shell once per run (twice with `--runs 2`). Each run gets `mktemp`
+The runner `scripts/desktop-startup.sh` builds `./kin` (gitignored build
+output) and `desktop/dist`, then launches the real Electron shell once per run
+(twice with `--runs 2`). Each run gets `mktemp`
 state and userData directories and a freshly reserved port, exported as
 `KIN_STATE_DIR`, `KIN_DESKTOP_USER_DATA` and `KIN_PORT` — the same two
 variables `kin serve` already reads, which the shell now resolves
 instead of hardcoding `~/.kin` and `:7777`. The shell emits
 `[kin-desktop] trace <name> <ms>` lines (`desktop/src/startup-trace.ts`, same
 switch and origin plausibility rule as the daemon), so one launch is attributed
-from spawn to window paint. The table below was measured with that runner on
-this branch before it was split out.
+from spawn to window paint. The table below was measured with that runner.
 
 | Mark | Run 1 | Run 2 | Median |
 |---|---:|---:|---:|
@@ -199,16 +199,81 @@ What this does **not** measure: renderer parse/script time beyond
 build (this is the dev shell), a purged disk cache, or SPA hydration after the
 load event.
 
-Until slice `-d` lands, the marks can be read from any launch with
-`KIN_STARTUP_TRACE=1`: one `[kin-desktop] trace <name> <ms>` line per mark on
-stdout.
+The marks can be read from any launch with `KIN_STARTUP_TRACE=1`: one
+`[kin-desktop] trace <name> <ms>` line per mark on stdout.
+`./scripts/desktop-startup.sh --runs N --json` does that against a throwaway
+daemon and reports the per-mark table and medians.
 
-Runner safety (slice `-d`): every run uses `mktemp` directories and a reserved
-port; a state directory under `$HOME/.kin` is refused before anything is
-opened. The script kills only the Electron process group it started and the
-daemon that answered on its own reserved port. If Electron cannot launch (no
-GUI session), it prints `SKIP: <reason>` and exits 2 rather than inventing a
-number.
+Runner safety: every run uses `mktemp` directories and a reserved port; a
+state directory under `$HOME/.kin` is refused before anything is opened. The
+script kills only the Electron process group it started and the daemon that
+answered on its own reserved port. If Electron cannot launch (no GUI session),
+it prints `SKIP: <reason>` and exits 2 rather than inventing a number.
+
+## 2026-11-20 — the startup handshake
+
+**Status: green.** `desktop/src/daemon-handshake.ts` now owns the shell's first
+conversation with the daemon, and the preparatory work no longer sits in front
+of the health probe:
+
+- health is the first question (one loopback GET);
+- `kin version` starts beside it and is awaited only where its label is used,
+  bounded at 250 ms after health answers;
+- a spawned daemon is polled every **50 ms**, not 250 ms, so the readiness edge
+  is the daemon's boot plus at most one poll;
+- `/api/version` starts the moment health answers, also bounded by the label
+  wait;
+- the rival-daemon wait (`daemon-rival.ts`) is unchanged: a kin process already
+  on the machine gets its chance before a second daemon is spawned, and a
+  stuck one still means `unavailable`.
+
+`desktop/src/main.ts` is untouched: the window still shows only after
+`ensureRunning()` resolves. This section shortens the handshake; showing the
+window before that resolution is a separate delivery.
+
+### Before / after
+
+Same invocation on this machine: `./scripts/desktop-startup.sh --runs 3
+--json`. "Before" is `46cebbf3` with the old handshake; "after" is the worktree
+that added `daemon-handshake.ts`. Each invocation builds once and launches the
+real shell three times against a throwaway daemon.
+
+| Mark | Before median | After median |
+|---|---:|---:|
+| `process` | 219 ms | 222 ms |
+| `app-ready` | 295 ms | 295 ms |
+| `sidecar-start` | 373 ms | 362 ms |
+| `sidecar-ready` | 1288 ms | 957 ms |
+| **handshake edge** (`sidecar-ready − sidecar-start`) | **915 ms** | **595 ms** |
+| `window-created` | 1349 ms | 1010 ms |
+| first paint (`window-ready-to-show`) | 1524 ms | 1171 ms |
+| shell total (last mark) | 1538 ms | 1186 ms |
+
+Per-run handshake edge — before: `2177, 915, 591` ms; after: `1312, 542, 595`
+ms. Run 1 of each invocation pays cold caches (the first launch of a fresh
+build); it is kept in the median rather than discarded.
+
+Load average (`uptime`) — before, around the invocation: `7.35 6.23 6.33` →
+`7.46 6.48 6.41`; after: `6.35 6.39 6.39` → `14.94 8.79 7.27` (other lanes
+share this machine, and the after run's builds landed on it). The medians are
+reported as measured, not normalised; the two warm runs after the change are
+542 and 595 ms.
+
+Reading: the shell's pre-daemon steps no longer dominate the edge. What remains
+is the spawned daemon's own boot (407 ms cold in table 1, measured on a
+quieter machine), at most one 50 ms poll, and one loopback `/api/version`
+round trip. This runner does not trace inside the daemon, so the 595 ms is not
+split further here — `scripts/startup-baseline.sh` is the instrument for that
+half. The 2026-11-19 desktop numbers above are left as measured; they were
+taken on a different load average and are the baseline this section is
+compared against, not a prediction.
+
+Red/green: `desktop/src/daemon-handshake.test.ts` (12 tests, including order,
+cadence, cancellation, and never-settling labels);
+`./scripts/mutants.py desktop/src/daemon-handshake.mutants.json` restores the
+old order (`await expected` before the first probe) and the order test fails
+(`not ok 1 - probes health before it runs the version binary`), then restores
+the module byte for byte.
 
 ## Reproduce
 

@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the old order: await the version binary before the first health probe",
+    "file": "desktop/src/daemon-handshake.ts",
+    "test": "node --test desktop/src/daemon-handshake.test.ts",
+    "old": "  // The cheapest question first: is a daemon already answering? This used to\n  // sit behind a `kin version` exec, which cost more than the answer.\n  let healthy = await opts.probeHealth();\n  if (!current()) return { state: \"superseded\" };\n\n  // The label is only ever a warning or a status string. Start it now — it is\n  // a process, and the daemon work below gives it time — and await it only\n  // after health answers.\n  const expected = labelled(opts.binaryVersion());",
+    "new": "  // The label is only ever a warning or a status string. Start it now — it is\n  // a process, and the daemon work below gives it time — and await it only\n  // after health answers.\n  const expected = labelled(opts.binaryVersion());\n  // MUTANT: the old order — the version process in front of the first probe.\n  await expected;\n  // The cheapest question first: is a daemon already answering? This used to\n  // sit behind a `kin version` exec, which cost more than the answer.\n  let healthy = await opts.probeHealth();\n  if (!current()) return { state: \"superseded\" };"
+  }
+]
