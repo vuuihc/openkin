@@ -56,16 +56,20 @@ function DownloadButton({ name, downloadURL }: { name: string; downloadURL: stri
   };
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      <button
-        type="button"
+    // Download is a peer of "Open in…", so it wears the same facade and the
+    // same geometry; a raw `<button>` with its own padding made the two
+    // side-by-side controls different heights. The alert stays in this column
+    // under the button, and `DownloadPreview` top-aligns the row so a failed
+    // download never pulls the neighbouring control out of line.
+    <div className="flex flex-col items-start gap-1">
+      <Button
+        variant="secondary"
         onClick={() => void download()}
         disabled={busy}
-        // eslint-disable-next-line kin/no-legacy-class -- the viewer's download control has not migrated to `Button` yet
-        className="kin-btn-secondary inline-flex items-center px-3 py-1.5 text-caption disabled:opacity-60"
+        className="flex-none px-2 py-1 text-caption"
       >
         {busy ? t("workspace.viewer.downloading") : t("workspace.viewer.download")}
-      </button>
+      </Button>
       {error && (
         <div role="alert" className="text-caption text-kin-muted max-w-md">
           {error}
@@ -179,9 +183,21 @@ export function DownloadPreview({
       <div role={announce ? "alert" : undefined} className="text-caption text-kin-muted max-w-md">
         {message}
       </div>
-      <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+      {/*
+        Top-aligned, not centred: the download column grows downward when its
+        alert appears, and centring would move "Open in…" up with it. The menu
+        keeps its word here — this pane has room, and the compact viewers that
+        hide it below `sm` are not this one.
+      */}
+      <div className="mt-2 flex flex-wrap items-start justify-center gap-2">
         <DownloadButton name={name} downloadURL={downloadURL} />
-        {openIn && <OpenInMenu root={openIn.root} relativePath={openIn.relativePath} />}
+        {openIn && (
+          <OpenInMenu
+            root={openIn.root}
+            relativePath={openIn.relativePath}
+            alwaysShowLabel
+          />
+        )}
       </div>
     </div>
   );

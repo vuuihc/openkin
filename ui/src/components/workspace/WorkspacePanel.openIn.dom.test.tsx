@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiError } from "../../api/client";
 import { t } from "../../i18n";
@@ -75,7 +75,7 @@ function changedFile(name: string): ChangedFile {
  * how the existing tests open one. That absolute form is the trap this suite
  * exists to catch — the open-in menu refuses absolute "relative" paths.
  */
-function openFile(name: string) {
+function openFile(name: string, props: { selectedWorkspaceId?: string } = {}) {
   readTaskSourceFile.mockResolvedValue({
     path: name,
     content: "",
@@ -83,7 +83,13 @@ function openFile(name: string) {
     truncated: false,
   });
   const view = render(
-    <WorkspacePanel taskId="task-1" cwd={CWD} changedFiles={[changedFile(name)]} events={[]} />,
+    <WorkspacePanel
+      taskId="task-1"
+      cwd={CWD}
+      changedFiles={[changedFile(name)]}
+      events={[]}
+      {...props}
+    />,
   );
   fireEvent.click(screen.getByTitle(`${CWD}/${name}`));
   return view;
@@ -151,6 +157,61 @@ describe("a file the console cannot draw", () => {
 
     expect(screen.getByText(t("workspace.viewer.binaryHintDesktop"))).toBeTruthy();
     expect(screen.queryByText(t("workspace.viewer.binaryHint"))).toBeNull();
+  });
+
+  it("does not promise open-in where the menu cannot point", () => {
+    // A generation view previews a snapshot: the bytes route names the
+    // generation, while an "Open in…" path would resolve inside the source
+    // checkout. The menu is left out, so the hint must not mention it.
+    openFile("report.pdf", { selectedWorkspaceId: "gen-2" });
+
+    expect(screen.queryByRole("button", { name: t("workspace.openWith.button") })).toBeNull();
+    expect(screen.getByText(t("workspace.viewer.binaryHint"))).toBeTruthy();
+    expect(screen.queryByText(t("workspace.viewer.binaryHintDesktop"))).toBeNull();
+  });
+
+  it("draws Download and Open in… as equal peers, with the menu's word kept", async () => {
+    fetchFileBytes.mockResolvedValue(new Blob(["%PDF-"], { type: "application/pdf" }));
+
+    openFile("report.pdf");
+
+    const download = downloadButton();
+    const trigger = openInTrigger();
+    // One facade and one geometry: side by side, the two secondary controls
+    // must not differ in padding or height.
+    for (const control of [download, trigger]) {
+      expect(control.className).toContain("kin-btn-secondary");
+      expect(control.className).toContain("px-2");
+      expect(control.className).toContain("py-1");
+      expect(control.className).toContain("text-caption");
+    }
+    // The compact viewers hide this label below `sm`; the download pane has
+    // room, so here it stays a word at every width instead of an icon pair.
+    const label = within(trigger).getByText(t("workspace.openWith.button"));
+    expect(label.className).not.toContain("hidden");
+    expect(label.className).not.toContain("sm:inline");
+
+    fireEvent.click(download);
+    await waitFor(() => expect(saved).toHaveLength(1));
+  });
+
+  it("keeps Open in… in place when a download fails", async () => {
+    fetchFileBytes.mockRejectedValue(new ApiError(500, "the daemon refused the bytes"));
+
+    openFile("report.pdf");
+
+    const trigger = openInTrigger();
+    fireEvent.click(downloadButton());
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("the daemon refused the bytes");
+    // The alert grows the download column downward. The row is top-aligned,
+    // so the menu beside it stays level with the Download button instead of
+    // being re-centred against the taller column.
+    const row = trigger.parentElement;
+    expect(row?.className).toContain("items-start");
+    expect(row?.contains(alert)).toBe(true);
+    expect(row?.contains(downloadButton())).toBe(true);
   });
 });
 

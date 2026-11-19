@@ -33,7 +33,12 @@ import {
 } from "../../lib/changedFiles";
 import WorkspaceGenerationPicker from "./WorkspaceGenerationPicker";
 import { isKinDesktop } from "../../lib/desktop";
-import { projectLabel, shortPath, toWorkspaceRelativePath } from "../../lib/paths";
+import {
+  projectLabel,
+  shortPath,
+  toAbsoluteWorkspacePath,
+  toWorkspaceRelativePath,
+} from "../../lib/paths";
 import { IconBack, IconPanel, IconSearch, IconSpinner, IconX } from "../icons";
 import Button from "../ui/Button";
 import Tabs from "../ui/Tabs";
@@ -933,6 +938,24 @@ export default function WorkspacePanel({
     };
   }, [selectedPath, preview, cwd, workspaceView, taskId]);
 
+  /**
+   * Where the undrawable file lives, for the desktop "Open in…" menu.
+   *
+   * The menu joins a workspace-relative path onto a local root, so it only
+   * exists when there is one: without a root or a path inside it, the menu
+   * renders nothing. A generation view is left out too — its bytes route names
+   * the generation while `openIn` would point the app at the checkout `cwd`,
+   * opening the wrong copy. The desktop hint that promises the menu is gated on
+   * this same value, so the copy never offers a control that is not drawn.
+   */
+  const binaryOpenIn = useMemo(() => {
+    if (workspaceView.kind === "generation" || !selectedPath) return null;
+    const relativePath = toWorkspaceRelativePath(cwd, selectedPath);
+    const root = normalizeFileResponse(file)?.root || cwd;
+    if (!relativePath || !root) return null;
+    return toAbsoluteWorkspacePath(root, relativePath) ? { root, relativePath } : null;
+  }, [workspaceView, selectedPath, cwd, file]);
+
   const diff: FileDiffSnippet | null = useMemo(() => {
     if (!selectedPath || !events || events.length === 0) return null;
     return extractFileDiff(events, selectedPath);
@@ -1464,18 +1487,16 @@ export default function WorkspacePanel({
                 key={`${selectedPath}:${previewNonce}`}
                 name={selectedPath}
                 downloadURL={fileBytes.download}
+                // The rail reports absolute paths; the menu joins a
+                // workspace-relative one onto the root and refuses absolute
+                // inputs, so `binaryOpenIn` converts the path first and is
+                // null whenever the menu cannot be drawn.
                 message={tr(
-                  isKinDesktop()
+                  isKinDesktop() && binaryOpenIn
                     ? "workspace.viewer.binaryHintDesktop"
                     : "workspace.viewer.binaryHint",
                 )}
-                // The rail reports absolute paths; the menu joins a
-                // workspace-relative one onto the root and refuses absolute
-                // inputs, so the path is converted before it is handed over.
-                openIn={{
-                  root: normalizeFileResponse(file)?.root || cwd,
-                  relativePath: toWorkspaceRelativePath(cwd, selectedPath),
-                }}
+                openIn={binaryOpenIn ?? undefined}
               />
             ) : selectedPath && preview === "table" && !tableAsCode ? (
               <DelimitedTablePane
