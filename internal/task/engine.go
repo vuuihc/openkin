@@ -210,6 +210,13 @@ type Engine struct {
 	// workspaceCommitting marks tasks past the last cancellable point before
 	// an irreversible fast-forward.
 	workspaceCommitting map[string]string
+	// workspaceCommitSettles marks the commit windows whose turn end answers the
+	// messages queued during them (settlePromptsQueuedDuringFinalization). The
+	// adapter run loop arms it beside the commit flag and clearWorkspaceCompletion
+	// drops it with the flag. A window without it -- the orchestrated finisher,
+	// whose turn end lives in orchestrate.go -- keeps refusing a follow-up rather
+	// than accepting one nothing there would deliver.
+	workspaceCommitSettles map[string]bool
 	// pendingFollowUp is applied after an in-flight turn is interrupted (steer / insert prompt).
 	pendingFollowUp map[string]pendingFollowUp
 	// queuedMessage labels the message the task's not-yet-started run exists to
@@ -367,31 +374,32 @@ func newEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent 
 		bus.SetOwnerResolver(st.TaskOwner)
 	}
 	return &Engine{
-		store:               st,
-		agents:              agents,
-		bus:                 bus,
-		events:              events,
-		maxConcurrent:       maxConcurrent,
-		handles:             make(map[string]adapter.RunHandle),
-		stepHandles:         make(map[workerStepKey]adapter.RunHandle),
-		canceledSteps:       make(map[workerStepKey]bool),
-		canceled:            make(map[string]bool),
-		activeRuns:          make(map[string]string),
-		workspaceCommitting: make(map[string]string),
-		pendingFollowUp:     make(map[string]pendingFollowUp),
-		queuedMessage:       make(map[string]string),
-		criticalPersistFail: make(map[string]error),
-		persistGaps:         make(map[string]*persistGap),
-		ctx:                 ctx,
-		cancel:              cancel,
-		entropy:             rand.Reader,
-		approvalWaiters:     make(map[string][]chan store.Approval),
-		userQuestionWaiters: make(map[string][]chan store.UserQuestion),
-		approvalTTL:         store.DefaultApprovalTTL,
-		limitWaitCancel:     make(map[string]context.CancelFunc),
-		limitNotifyCancel:   make(map[string]context.CancelFunc),
-		quotaNotified:       make(map[string]int64),
-		anchors:             workspace.NewAnchorResolver(),
+		store:                  st,
+		agents:                 agents,
+		bus:                    bus,
+		events:                 events,
+		maxConcurrent:          maxConcurrent,
+		handles:                make(map[string]adapter.RunHandle),
+		stepHandles:            make(map[workerStepKey]adapter.RunHandle),
+		canceledSteps:          make(map[workerStepKey]bool),
+		canceled:               make(map[string]bool),
+		activeRuns:             make(map[string]string),
+		workspaceCommitting:    make(map[string]string),
+		workspaceCommitSettles: make(map[string]bool),
+		pendingFollowUp:        make(map[string]pendingFollowUp),
+		queuedMessage:          make(map[string]string),
+		criticalPersistFail:    make(map[string]error),
+		persistGaps:            make(map[string]*persistGap),
+		ctx:                    ctx,
+		cancel:                 cancel,
+		entropy:                rand.Reader,
+		approvalWaiters:        make(map[string][]chan store.Approval),
+		userQuestionWaiters:    make(map[string][]chan store.UserQuestion),
+		approvalTTL:            store.DefaultApprovalTTL,
+		limitWaitCancel:        make(map[string]context.CancelFunc),
+		limitNotifyCancel:      make(map[string]context.CancelFunc),
+		quotaNotified:          make(map[string]int64),
+		anchors:                workspace.NewAnchorResolver(),
 	}
 }
 
@@ -3030,6 +3038,8 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	currentRun := e.activeRuns[id] == exec.ID
 	if currentRun {
 		e.workspaceCommitting[id] = exec.ID
+		// This turn end settles the queue the commit window collects below.
+		e.workspaceCommitSettles[id] = true
 	}
 	wasCanceled := e.canceled[id]
 	pf, hasFollowUp := e.pendingFollowUp[id]
@@ -3063,6 +3073,11 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 				e.bus.PublishEvent(ev)
 			}
 			_, _ = e.finishRun(ctx, id, exec.ID, StatusFailed, nil, nil)
+			// Messages accepted during the commit window are still in the queue. This
+			// turn cannot hand them to a new run, so report them rather than leaving
+			// them parked on a task that has just failed.
+			e.clearWorkspaceCompletion(id, exec.ID)
+			e.settlePromptsQueuedDuringFinalization(ctx, id, "workspace finalization failed")
 			e.pump()
 			return
 		}
@@ -3072,6 +3087,11 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 				e.bus.PublishEvent(ev)
 			}
 			_, _ = e.finishRun(ctx, id, exec.ID, e.endStatusForDelivery(err), nil, nil)
+			// The follow-up could not be applied, so any message accepted during the
+			// commit window has no run to go to either: report it instead.
+			e.clearWorkspaceCompletion(id, exec.ID)
+			e.settlePromptsQueuedDuringFinalization(ctx, id,
+				fmt.Sprintf("the follow-up could not be applied: %s", err))
 		} else {
 			e.clearActiveRun(id, exec.ID)
 		}
@@ -3112,19 +3132,6 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 			e.pump()
 			return
 		}
-	} else if workspaceErr != nil && !wasCanceled {
-		// The run ends here and the workspace is mid-flight, so nothing will deliver
-		// these -- and cancel is not the reason, so cancel's count report does not
-		// cover it. Say it out loud instead of leaving the queue looking alive.
-		if pending, perr := e.store.ListPendingPrompts(ctx, id); perr == nil && len(pending) > 0 {
-			payload, _ := json.Marshal(map[string]any{
-				"message": fmt.Sprintf("%d queued prompt(s) not delivered: workspace finalization failed", len(pending)),
-				"count":   len(pending),
-			})
-			if ev, appendErr := e.persistRunEvent(ctx, id, exec.ID, "error", payload); appendErr == nil {
-				e.bus.PublishEvent(ev)
-			}
-		}
 	}
 
 	// Lazy promotion: if a read-only turn created a ready workspace, re-queue
@@ -3164,6 +3171,14 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 			_ = e.store.UpdateTask(ctx, id, store.TaskPatch{FinishedAt: &now})
 		}
 		e.clearActiveRun(id, exec.ID)
+		// Cancel discarded the queue it found; a message sent while the workspace
+		// was still committing arrived after that, and a canceled turn does not hand
+		// it to a new run. Say so rather than parking it on a task nobody will run.
+		// Clear the flag first: the report is the last thing this turn does, and a
+		// message sent after it must be delivered by its own accept path, not left
+		// in a commit window that is already over. The deferred clear is idempotent.
+		e.clearWorkspaceCompletion(id, exec.ID)
+		e.settlePromptsQueuedDuringFinalization(ctx, id, "the task was canceled")
 		// Ensure broadcast of final state.
 		if t2, err := e.store.GetTask(ctx, id); err == nil {
 			e.bus.PublishTask(t2)
@@ -3226,6 +3241,18 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 
 	_, _ = e.finishRun(ctx, id, exec.ID, final, exitCode, nil)
 	e.clearWorkspaceCompletion(id, exec.ID)
+	// The flag is cleared, so a message sent from here on is delivered by its own
+	// accept path. One accepted while it was set is still in the queue: the
+	// boundary drain above ran before finalization ended, so this is the turn's
+	// last chance to answer it. A turn that failed to finalize or was canceled
+	// does not hand the queue to a new run -- it reports it instead.
+	settleReason := ""
+	if wasCanceled {
+		settleReason = "the task was canceled"
+	} else if workspaceErr != nil {
+		settleReason = "workspace finalization failed"
+	}
+	e.settlePromptsQueuedDuringFinalization(ctx, id, settleReason)
 	// After failed finish, apply default wait/switch policy on the open limit card.
 	if final == StatusFailed {
 		if info, _, ok := e.latestOpenLimitHit(ctx, id); ok {
@@ -3260,8 +3287,43 @@ func (e *Engine) clearWorkspaceCompletion(taskID, executionID string) {
 	e.mu.Lock()
 	if e.workspaceCommitting[taskID] == executionID {
 		delete(e.workspaceCommitting, taskID)
+		delete(e.workspaceCommitSettles, taskID)
 	}
 	e.mu.Unlock()
+}
+
+// settlePromptsQueuedDuringFinalization answers the messages a user sent while
+// this turn was finalizing its workspace. FollowUpWith accepts those instead of
+// refusing them -- on a turn end that settles them; only an interrupt is still
+// refused, because the commit point means the turn cannot be stopped and a
+// message stops nothing -- so something must deliver them once the workspace has
+// settled.
+//
+// This is the last drain before the task goes quiet. The turn boundary drains
+// the queue before finalization ends, so a message that arrived after that drain
+// is still waiting here; without this it would sit in the queue of a terminal
+// task until the user happened to send another one. reason is empty when the
+// queue may be delivered; otherwise it names why this turn cannot hand the
+// messages to a new run, and they are reported instead of left looking
+// deliverable. Nothing leaves this function silently parked.
+//
+// The delivery is the user's own message, so it may revive the task this turn
+// just finished, exactly as a follow-up sent a moment later would
+// (deliverQueuedPromptReviving). applyFollowUp pumps the run it queues; callers
+// pump again for the turn they are ending.
+func (e *Engine) settlePromptsQueuedDuringFinalization(ctx context.Context, taskID, reason string) {
+	if reason != "" {
+		pending, err := e.store.ListPendingPrompts(ctx, taskID)
+		if err != nil || len(pending) == 0 {
+			return
+		}
+		e.reportUndelivered(ctx, taskID, fmt.Errorf(
+			"%d queued prompt(s) not delivered: %s", len(pending), reason))
+		return
+	}
+	if _, _, err := e.deliverQueuedPromptReviving(ctx, taskID); err != nil {
+		e.reportUndelivered(ctx, taskID, err)
+	}
 }
 
 func (e *Engine) populateEstimatedUsageCost(ctx context.Context, record *store.UsageRecord) string {
