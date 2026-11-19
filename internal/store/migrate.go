@@ -7,7 +7,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 48
+const schemaVersion = 49
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -841,6 +841,7 @@ CREATE TABLE IF NOT EXISTS pr_observations (
   head_oid      TEXT NOT NULL DEFAULT '',
   ci_state      TEXT NOT NULL DEFAULT '',
   ci_summary    TEXT NOT NULL DEFAULT '',
+  reviews       TEXT NOT NULL DEFAULT '',
   comments_seen INTEGER NOT NULL DEFAULT 0,
   source        TEXT NOT NULL DEFAULT '',
   observed_at   INTEGER,
@@ -2671,6 +2672,41 @@ CREATE INDEX IF NOT EXISTS idx_push_subscriptions_created ON push_subscriptions(
 		v = 48
 	}
 
+	if v == 48 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 049: %w", err)
+		}
+		// A pull request's reviews are one snapshot column beside ci_summary.
+		// Empty means never read — every row written before this column existed
+		// included — while "[]" means the read succeeded and there are none. The
+		// default is what makes old rows read as the honest value rather than as
+		// a pull request nobody reviewed.
+		var exists int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('pr_observations') WHERE name = 'reviews'`,
+		).Scan(&exists); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("inspect pr_observations.reviews: %w", err)
+		}
+		if exists == 0 {
+			if _, err := tx.Exec(
+				`ALTER TABLE pr_observations ADD COLUMN reviews TEXT NOT NULL DEFAULT ''`,
+			); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("add pr_observations.reviews: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 49`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 049: %w", err)
+		}
+		v = 49
+	}
+
 	// Every path out of here has to reach the same shape, so the assertion runs
 	// on the upgraded path too rather than only on the already-current one.
 	return s.ensureCurrentSchema()
@@ -2719,6 +2755,9 @@ func (s *Store) ensureCurrentSchema() error {
 		return err
 	}
 	if err := s.ensureTaskArchiveSchema(); err != nil {
+		return err
+	}
+	if err := s.ensurePRObservationReviewsSchema(); err != nil {
 		return err
 	}
 	if err := s.ensureSessionShareSchema(); err != nil {
@@ -2905,6 +2944,38 @@ func (s *Store) ensureRoutineConversationSchema() error {
 		`ALTER TABLE routines ADD COLUMN conversation_mode TEXT NOT NULL DEFAULT ''`,
 	); err != nil {
 		return fmt.Errorf("add routines.conversation_mode: %w", err)
+	}
+	return nil
+}
+
+// ensurePRObservationReviewsSchema adds the reviews snapshot to a
+// `pr_observations` table written before the column existed.
+//
+// Same reasoning as ensureRoutineConversationSchema: a version number says which
+// migrations ran, not what the tables look like. Empty is the honest value for
+// every row that predates the column -- reviews never read -- and is exactly
+// what the migration's default writes.
+func (s *Store) ensurePRObservationReviewsSchema() error {
+	present, err := s.tableExists("pr_observations")
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	var exists int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('pr_observations') WHERE name = 'reviews'`,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("inspect pr_observations.reviews: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
+	if _, err := s.db.Exec(
+		`ALTER TABLE pr_observations ADD COLUMN reviews TEXT NOT NULL DEFAULT ''`,
+	); err != nil {
+		return fmt.Errorf("add pr_observations.reviews: %w", err)
 	}
 	return nil
 }

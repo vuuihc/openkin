@@ -314,3 +314,56 @@ func TestADeviceAgentTableFromBeforeTheConsoleColumnsIsRepairedOnOpen(t *testing
 		t.Fatalf("agents after the next hello = %+v", agents)
 	}
 }
+
+// A database whose version says 49 but whose pr_observations table lost the
+// reviews column is repaired on open. The version number records which
+// migrations ran, not what the table looks like.
+func TestADatabaseAt49WithoutTheColumnIsRepairedOnOpen(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kin.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: testPRBranch, TaskID: testPRTask,
+		Number: number(42), State: "open", Title: "Add the thing",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Hand the table back the shape it had before the column existed, while
+	// claiming the current version.
+	if _, err := s.db.ExecContext(ctx,
+		`ALTER TABLE pr_observations DROP COLUMN reviews; PRAGMA user_version = 49;`); err != nil {
+		t.Fatalf("simulate a version 49 database without reviews: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen a version 49 database whose pr_observations has no reviews: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	var exists int
+	if err := reopened.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pragma_table_info('pr_observations') WHERE name = 'reviews'`,
+	).Scan(&exists); err != nil {
+		t.Fatalf("inspect the repaired table: %v", err)
+	}
+	if exists != 1 {
+		t.Fatal("the reviews column was not restored on open")
+	}
+	got, ok, err := reopened.GetPRObservation(ctx, testPRRepo, testPRBranch)
+	if err != nil || !ok {
+		t.Fatalf("the existing row cannot be read after the repair: ok=%v err=%v", ok, err)
+	}
+	if got.Title != "Add the thing" || got.Number == nil || *got.Number != 42 {
+		t.Fatalf("the existing row changed: %+v", got)
+	}
+	if got.Reviews != "" {
+		t.Fatalf("reviews = %q, want empty (never read)", got.Reviews)
+	}
+}
