@@ -1,6 +1,6 @@
 import type { TaskEvent } from "../api/client";
 import { resolveSpeaker } from "../components/chat/eventMeta";
-import { displayUserPrompt } from "./attachments";
+import { displayUserPrompt, parseUserPrompt, type UserImage } from "./attachments";
 
 /**
  * A user message the console is already showing while the send is still in
@@ -24,6 +24,12 @@ export type PendingSend = {
   id: string;
   /** What the reader sees, already normalised by `displayUserPrompt`. */
   text: string;
+  /**
+   * Pictures the bubble draws, parsed from the raw prompt before it was
+   * normalised. The text alone cannot carry them: `displayUserPrompt` keeps
+   * only the filename summary, and the handoff match depends on that shape.
+   */
+  images: UserImage[];
   /** Highest event seq the transcript held when the send started. */
   startSeq: number;
 };
@@ -49,7 +55,13 @@ export function pendingSend(rawText: string, events: TaskEvent[]): PendingSend {
   for (const event of events) {
     if (event.seq > startSeq) startSeq = event.seq;
   }
-  return { id: nextPendingSendId(), text: displayUserPrompt(rawText), startSeq };
+  const parsed = parseUserPrompt(rawText);
+  return {
+    id: nextPendingSendId(),
+    text: parsed.text,
+    images: parsed.images,
+    startSeq,
+  };
 }
 
 /** The visible text of a user message event, or null when it is not one. */

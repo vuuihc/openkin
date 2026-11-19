@@ -192,22 +192,123 @@ PY
     printf 'ux-gate: %s\n' "$CONF_SUMMARY"
   fi
 fi
+# 1c. When the confirm walk reproduced nothing, its evidence is the only evidence about this
+# PR (R-ux-gate-confirm-carry, 2026-11-19). #389's first walk hard-failed 33 lines, the confirm
+# walk on the same tree reproduced 0, and the reviewer still scored density=2 feedback=2 off the
+# flaked first-walk screenshots: a below-3 verdict, a rework round and a block for evidence the
+# gate had just disproved. CONFIRM_ONLY marks that state: §2 points the reviewer at
+# $UXD/confirm and names the flakes as not evidence, and §2c grounds a below-3 axis in that walk
+# or records no verdict. Every other state (reproduced > 0, no confirm.json, flaked == 0) keeps
+# today's path exactly.
+CONFIRM_ONLY=0
+# Only a confirm decision that completed sets the flag: a partial write can leave
+# confirm.json behind while the first walk's HARD is kept (CRSN set), and that state
+# must not both bill those lines and call them not evidence.
+if [ -s "$CONF_JSON" ] && [ -z "${CRSN:-}" ]; then
+  if python3 - "$CONF_JSON" >/dev/null 2>&1 <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+sys.exit(0 if d.get("reproduced") == 0 and int(d.get("flaked") or 0) > 0 else 1)
+PY
+  then CONFIRM_ONLY=1; fi
+fi
+# A below-3 axis in the CONFIRM_ONLY state must be grounded in the confirm walk's own evidence:
+# a screenshot file that exists under $UXD/confirm, or a line from confirm/walk.json. The axis
+# word on the machine `UX_SCORES:` line never counts, same rule as ungrounded_axes. accepts_review
+# keeps ungrounded_axes: merge.sh reuses a cached review with the same CLI and semantics as before.
+ungrounded_axes_confirm() { # <review-file> <confirm-dir> -> comma list of below-3 axes with no confirm evidence
+  python3 - "$1" "$2" <<'PY'
+import json, os, re, sys
+txt = open(sys.argv[1], errors="replace").read()
+cdir = sys.argv[2]
+axes = ["clarity", "density", "consistency", "feedback", "keyboard"]
+m = re.findall(r"UX_SCORES:\s*(.+)", txt)
+sc = {}
+if m:
+    for k, v in re.findall(r"(\w+)\s*=\s*([1-5])\b", m[-1]):
+        sc[k] = int(v)
+tokens = []
+for root, _dirs, files in os.walk(cdir):
+    for f in files:
+        if f.endswith(".png"):
+            tokens.append(f)
+# Ground on walk.json's parsed values, not its source lines: the walker writes
+# JSON.stringify(..., null, 1), so each value arrives quoted and escaped and a finding
+# that quotes the same failure in plain text could never match it. The values a finding
+# can legitimately quote are the hard-failure lines, each screen's screenshot name and
+# notes, and its lint readings (as key=value, so a bare number cannot ground any line).
+try:
+    walk = json.load(open(os.path.join(cdir, "walk.json"), errors="replace"))
+except (OSError, ValueError):
+    walk = {}
+def _strings(node):
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, list):
+        for v in node:
+            yield from _strings(v)
+if isinstance(walk, dict):
+    for t in _strings(walk.get("hardFail")):
+        if t.strip():
+            tokens.append(t)
+    screens = walk.get("screens")
+    for screen in screens if isinstance(screens, list) else []:
+        if not isinstance(screen, dict):
+            continue
+        for t in _strings([screen.get("name"), screen.get("notes")]):
+            if t.strip():
+                tokens.append(t)
+        lint = screen.get("lint")
+        if isinstance(lint, dict):
+            tokens.extend("%s=%s" % (k, json.dumps(v)) for k, v in lint.items())
+def grounded(line):
+    return any(tok in line for tok in tokens)
+gaps = []
+for a in axes:
+    if a not in sc or sc[a] >= 3:
+        continue
+    found = False
+    for line in txt.splitlines():
+        if re.match(r"^\s*[-*_>#]*\s*UX_(SCORES|VERDICT):", line):
+            continue
+        if re.search(r"(?i)\b%s\b" % a, line) and grounded(line):
+            found = True
+            break
+    if not found:
+        gaps.append(a)
+print(",".join(gaps))
+PY
+}
+ground_gaps() { # <review-file> -> below-3 axes not grounded in the evidence the reviewer was told to use
+  if [ "$CONFIRM_ONLY" = 1 ]; then ungrounded_axes_confirm "$1" "$UXD/confirm"; else ungrounded_axes "$1"; fi
+}
 # 2. vision review
 BASELINE="$STATE/shots/baseline"   # walk of the installed build before the programme (empty daemon); refresh with ux-walk.sh on current main
 APPROVED_PROTO="$STATE/ux-proto/final"
 BODY="$($GH pr view "$N" --repo "$GH_REPO" --json body --jq .body 2>/dev/null | head -c 3000 | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null)"
 PR_SHOTS="$(ls "$STATE/shots/$SLUG"/*.png 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
 PF="$STATE/briefs/$SLUG-ux-review.md"; mkdir -p "$STATE/briefs"
+# A confirm-only run's evidence is the confirm walk; every other run keeps $SHOTS.
+EVID="$SHOTS"; [ "$CONFIRM_ONLY" = 1 ] && EVID="$UXD/confirm"
 {
   echo "You are the UX REVIEWER (read-only) for PR #$N (item $ITEM, branch rsi/$SLUG, worktree $WT). The worker was a different model."
   echo "Follow $RSI_DIR/roles/ux-reviewer.md and the rubric in $RSI_DIR/UX-RUBRIC.md EXACTLY. Do not run builds or tests."
-  echo "Evidence you MUST open with the Read tool (images are viewable): the walk screenshots in $SHOTS (names are <journey>-<viewport>-<n>-<step>.png; the matching .aria.txt is the accessibility tree), and $SHOTS/walk.json (objective lint per screen: small tap targets, search boxes, overflow, console errors)."
+  echo "Evidence you MUST open with the Read tool (images are viewable): the walk screenshots in $EVID (names are <journey>-<viewport>-<n>-<step>.png; the matching .aria.txt is the accessibility tree), and $EVID/walk.json (objective lint per screen: small tap targets, search boxes, overflow, console errors)."
   [ -n "$PR_SHOTS" ] && echo "PR feature screenshots captured at 390x844 and 1100x760 (MUST also open with the Read tool, especially when a sub-surface such as workspace diffs or filtered states is not seeded in the generic journey walk): $PR_SHOTS"
   echo "Compare against: the BEFORE screenshots in $BASELINE (same names where they exist; the installed build before this programme) and the target prototype in $APPROVED_PROTO (the clickable shell Ethan approved; the product should converge on it, not on the old UI)."
   echo "Look at the attached diff only to explain what you see (do not run git/shell; the diff is provided). What the PR claims: $BODY"
   [ -n "$HARD" ] && { echo; echo "Walk hard failures (each is an automatic reject unless you can show it is a walker artefact):"; echo "$HARD"; }
   [ -n "$UX_IGNORED" ] && { echo; echo "Known walk artefacts ignored for this run (pre-existing fixture gap, not a defect of this PR; still report it as 'not verifiable: needs seed data'):"; echo "$UX_IGNORED"; }
-  echo "Note: a throwaway daemon may be EMPTY (see $SHOTS/seed.log); then judge empty/loading states and structure, and say 'not verifiable: needs seed data' for what you cannot see. Never invent what the screen shows."
+  if [ "$CONFIRM_ONLY" = 1 ]; then
+    echo
+    echo "A second walk on the same tree did not reproduce these first-walk failures, so they are not evidence about this PR — do not score or ground an axis on them:"
+    tail -n +2 "$UXD/confirm.txt" 2>/dev/null
+    echo "The confirm walk's own screenshots and walk.json ($UXD/confirm) are the evidence this PR is reviewed on. A below-3 axis must cite a file under $EVID or a line from its walk.json; a finding grounded only in the flakes above is not a verdict."
+  fi
+  echo "Note: a throwaway daemon may be EMPTY (see $EVID/seed.log); then judge empty/loading states and structure, and say 'not verifiable: needs seed data' for what you cannot see. Never invent what the screen shows."
   echo
   echo "Output format (last lines, exactly): "
   echo "UX_SCORES: clarity=N density=N consistency=N feedback=N keyboard=N      (integers 1-5; 3 = acceptable, 5 = as good as T3 Code)"
@@ -238,21 +339,27 @@ run_review() { # <prompt-file> <out-file> [fresh] -> DRC; fresh=1 never reuses t
 }
 run_review "$PF" "$UXR"; DRC=$?
 [ "${DRC:-0}" -ne 0 ] && ! grep -qE 'UX_SCORES:' "$UXR" 2>/dev/null && unavailable "ux reviewer unavailable: dispatch exit $DRC"
-# 2c. Grounding is decided by `ungrounded_axes` (defined above with `accepts_review`, before any
-# state is touched, because merge.sh shares it for cached-review reuse): `GAPS` is the axes < 3
-# that no finding line names.
-GAPS="$(ungrounded_axes "$UXR" 2>/dev/null || true)"
+# 2c. Grounding is decided by `ground_gaps`: the shared `ungrounded_axes` rule, or the stricter
+# confirm-evidence rule when the confirm walk reproduced nothing. `GAPS` is the axes < 3 that no
+# finding line grounds. A flaked-only red is handled like an ungrounded axis — re-ask once, then
+# "no verdict" — never a sendback and never a merge.
+GAPS="$(ground_gaps "$UXR" 2>/dev/null)" || unavailable "grounding check failed; no verdict"
 UX_REASKED=0; export UX_REASKED
 if [ -n "$GAPS" ]; then
   echo "ux-gate: reviewer scored $GAPS below 3 without naming it in a finding — re-asking once"
   UXR2="$UXD/review.2.txt"; rm -f "$UXR2"
   { cat "$PF"; echo; echo "--- second pass ---"; \
-    echo "Your previous answer scored $GAPS below 3, but its findings never name that axis. Re-answer this review."; \
+    if [ "$CONFIRM_ONLY" = 1 ]; then
+      echo "Your previous answer scored $GAPS below 3, but it grounds that score only in failures the confirm walk could not reproduce. Those are not evidence about this PR. Re-answer this review from the confirm walk's own evidence ($EVID screenshots and walk.json)."
+      echo "These are the first-walk failures the second walk on the same tree did not reproduce:"; tail -n +2 "$UXD/confirm.txt" 2>/dev/null
+    else
+      echo "Your previous answer scored $GAPS below 3, but its findings never name that axis. Re-answer this review."
+    fi; \
     echo "For every axis you score below 3, write one finding line that STARTS with the axis name, names the screenshot file, and says what is missing or wrong. If you cannot point at the evidence, raise the score to 3."; \
     echo "Keep the last two lines exactly UX_SCORES: ... and UX_VERDICT: ..."; echo; echo "Your previous answer:"; cat "$UXR"; } > "$PF.2"
   run_review "$PF.2" "$UXR2" fresh || true
   if grep -qE 'UX_SCORES:' "$UXR2" 2>/dev/null; then cp "$UXR2" "$UXR"; UX_REASKED=1; export UX_REASKED; fi
-  GAPS="$(ungrounded_axes "$UXR" 2>/dev/null || true)"
+  GAPS="$(ground_gaps "$UXR" 2>/dev/null)" || unavailable "grounding check failed after the re-ask; no verdict"
   if [ -n "$GAPS" ]; then
     [ "$UX_REASKED" = 1 ] \
       && unavailable "reviewer scored $GAPS below 3 without naming the evidence (asked twice); no verdict" \
