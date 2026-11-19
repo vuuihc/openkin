@@ -33,5 +33,19 @@
     "test": "cd desktop && node --test src/window.wiring.test.ts",
     "old": "      if (isConsoleURL(url)) traceStartup(\"window-first-load\");",
     "new": "      traceStartup(\"window-first-load\");"
+  },
+  {
+    "label": "a give-up replaces a console that already loaded",
+    "file": "desktop/src/boot-window.ts",
+    "test": "cd desktop && node --test src/boot-window.test.ts",
+    "old": "      if (phase === \"ready\" || phase === \"idle\" || phase === \"failed\") return;",
+    "new": "      if (phase === \"idle\" || phase === \"failed\") return;"
+  },
+  {
+    "label": "a recovery after the failure leaves the failure page up for good",
+    "file": "desktop/src/boot-window.ts",
+    "test": "cd desktop && node --test src/boot-window.test.ts",
+    "old": "      if (phase === \"failed\") {\n        // A daemon finally answered after the retry gave up: the failure page\n        // is replaced by the console exactly once, like any other recovery.\n        phase = \"ready\";\n        failedReason = null;\n        failureShown = false;\n        // A background failure nobody has looked at stays in the menu bar; the\n        // next show() opens the console directly.\n        if (!bootShown && !host.hasWindow()) return;\n        host.showConsole(target);\n        return;\n      }",
+    "new": "      if (phase === \"failed\") return;"
   }
 ]
