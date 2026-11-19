@@ -721,11 +721,63 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     expect(await screen.findByText("sessions page")).toBeTruthy();
   });
 
-  it("⌘Enter starts a chat from the cover", async () => {
+  it("⌘Enter waits for the new-chat link before it presses", async () => {
+    const projectRead = deferred<Project>();
+    client.getProject.mockReturnValue(projectRead.promise);
     renderPage();
-    await screen.findByText("alpha");
 
-    fireEvent.keyDown(window, { key: "Enter", metaKey: true });
+    // The key press only means something once the cover knows where a chat
+    // goes: the keydown gate ignores a press while the project read is still
+    // resolving, so the press waits for the control whose href it reads.
+    // Resolve inside act: the link and the passive effect that publishes its
+    // href come from the same commit, so finding the link alone does not prove
+    // the listener carries the href — only a flushed effect does.
+    await act(async () => {
+      projectRead.resolve({ ...project });
+      await projectRead.promise;
+    });
+    const link = await screen.findByRole("link", { name: "New chat" });
+    expect(link.getAttribute("href")).toBe("/new?cwd=%2Fwork%2Falpha");
+
+    // dispatchEvent's false: the page took the key and canceled the default.
+    expect(fireEvent.keyDown(window, { key: "Enter", metaKey: true })).toBe(false);
+    expect(await screen.findByText("new chat page")).toBeTruthy();
+  });
+
+  it("⌘Enter before the cover is ready does nothing", async () => {
+    const projectRead = deferred<Project>();
+    client.getProject.mockReturnValue(projectRead.promise);
+    const view = renderPage();
+
+    // Still resolving: the cover draws its skeleton, no project name is on
+    // screen, and no control exists for the key to start from. This is the
+    // window the old case could race into by accident.
+    await waitFor(() => expect(view.container.querySelector(".animate-pulse")).toBeTruthy());
+    expect(screen.queryByText("alpha")).toBeNull();
+    expect(screen.queryByRole("link", { name: "New chat" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
+
+    // The page does not claim the key while it has nowhere to send it:
+    // `fireEvent` returns dispatchEvent's false only when a listener called
+    // preventDefault, so a taken press and an ignored one are distinguishable.
+    expect(fireEvent.keyDown(window, { key: "Enter", metaKey: true })).toBe(true);
+    // Give a stray navigation a real window to land, so "nothing happened"
+    // is an assertion rather than a query that ran too early.
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 50));
+    });
+    expect(screen.queryByText("new chat page")).toBeNull();
+    expect(screen.queryByText("alpha")).toBeNull();
+    expect(view.container.querySelector(".animate-pulse")).toBeTruthy();
+
+    // The moment the control exists the same press works.
+    await act(async () => {
+      projectRead.resolve({ ...project });
+      await projectRead.promise;
+    });
+    const link = await screen.findByRole("link", { name: "New chat" });
+    expect(link.getAttribute("href")).toBe("/new?cwd=%2Fwork%2Falpha");
+    expect(fireEvent.keyDown(window, { key: "Enter", metaKey: true })).toBe(false);
     expect(await screen.findByText("new chat page")).toBeTruthy();
   });
 
