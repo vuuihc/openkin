@@ -179,7 +179,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(screen.getAllByText("Available").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Sign-in required").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Default").length).toBeGreaterThan(0);
-    expect(screen.getByText("2 / 10 connected")).toBeTruthy();
+    expect(screen.getByText("2 / 10 in catalog")).toBeTruthy();
   });
 
   it("offers an install entry when nothing is connected", async () => {
@@ -195,6 +195,30 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(screen.getByRole("button", { name: "Connect" })).toBeTruthy();
   });
 
+  it("calls a runnable discovery available outside the catalog, not disconnected", async () => {
+    // The daemon says the product is installed and available: Kin can run it
+    // right now. The only missing step is a person's decision to spend one of
+    // the ten slots, so the row must not read "Not connected".
+    const gemini = product({ id: "gemini-cli", name: "Gemini CLI" });
+    writeConnectedFamilies(["codex"]);
+    client.listAgents.mockResolvedValue([gemini, codex]);
+    renderPage();
+
+    expect(await screen.findByText("1 / 10 in catalog")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "View" }));
+
+    expect(await screen.findByText("Gemini CLI")).toBeTruthy();
+    expect(screen.getByText("Available — not in your catalog")).toBeTruthy();
+    expect(screen.queryByText("Not connected")).toBeNull();
+    expect(screen.getByRole("button", { name: "Add to catalog" })).toBeTruthy();
+
+    // The confirmation speaks the same verb.
+    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Add Gemini CLI to the catalog?")).toBeTruthy();
+    expect(readConnectedFamilies()).not.toContain("gemini");
+  });
+
   it("keeps a discovery out of the catalog until the confirmation returns", async () => {
     writeConnectedFamilies(["claude", "codex"]);
     client.listAgents.mockResolvedValue([claude, codex, cursor]);
@@ -203,7 +227,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     // The catalog is the products Kin can host; the sighting is a prompt.
     expect(screen.queryAllByText("Cursor")).toHaveLength(0);
-    expect(screen.getByText("1 discovered, not connected")).toBeTruthy();
+    expect(screen.getByText("1 discovered, not in the catalog")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
@@ -257,10 +281,10 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     client.listAgents.mockResolvedValue([...ten, cursor]);
     renderPage();
 
-    expect(await screen.findByText("10 / 10 connected")).toBeTruthy();
+    expect(await screen.findByText("10 / 10 in catalog")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     expect(
-      screen.getByText("The catalog is full. Remove or merge one before connecting another."),
+      screen.getByText("The catalog is full. Remove one before adding another."),
     ).toBeTruthy();
     expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(
       true,
@@ -414,7 +438,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(screen.getAllByText("Claude Code").length).toBeGreaterThan(0);
     // Removal is a catalog decision, not an uninstall: the agent is still on
     // the machine, so it is offered for connecting again.
-    expect(screen.getByText("1 discovered, not connected")).toBeTruthy();
+    expect(screen.getByText("1 discovered, not in the catalog")).toBeTruthy();
   });
 
   it("asks the shared machine snapshot to reload after setting a default here", async () => {
@@ -610,10 +634,10 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     renderPage();
 
     expect(
-      await screen.findByText("1 connected product(s) this machine no longer reports"),
+      await screen.findByText("1 product(s) in the catalog this machine no longer reports"),
     ).toBeTruthy();
     // The header and the cap count the same slots: ten, not the nine rows.
-    expect(screen.getByText("10 / 10 connected")).toBeTruthy();
+    expect(screen.getByText("10 / 10 in catalog")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     // Nine rows plus the lost family is ten slots: the catalog is full, and a
     // hole nobody can see would otherwise block every new product forever.
@@ -629,7 +653,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
       ),
     );
     expect(readConnectedFamilies()).not.toContain("vanished");
-    expect(screen.queryByText("1 connected product(s) this machine no longer reports")).toBeNull();
+    expect(screen.queryByText("1 product(s) in the catalog this machine no longer reports")).toBeNull();
   });
 
   it("cancels a connect that is still in flight", async () => {

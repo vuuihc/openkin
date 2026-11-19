@@ -31,6 +31,7 @@ import { useT } from "../../i18n/react";
 import {
   agentCatalogState,
   CATALOG_LIMIT,
+  discoveredStatus,
   openInstallURL,
   planAgentCatalog,
   seedCatalogFamilies,
@@ -793,7 +794,17 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
         return;
       }
       setConnectFor(null);
-      pushToast(tr("agents.connectedToast", { name: a.name || a.id }), "info");
+      // The verb follows what actually happened: a runnable product was added
+      // to the catalog, not newly connected to the machine.
+      pushToast(
+        tr(
+          discoveredStatus(a) === "notInCatalog"
+            ? "agents.addToCatalogToast"
+            : "agents.connectedToast",
+          { name: a.name || a.id },
+        ),
+        "info",
+      );
     } catch (e) {
       // A canceled attempt already restored the catalog; its failure has no
       // dialog left to explain it.
@@ -1644,25 +1655,33 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
               </Button>
             </div>
             <ul className="mt-2 divide-y divide-[var(--kin-hairline)]">
-              {plan.discovered.map((a) => (
-                <li key={a.id} className="flex items-center justify-between gap-3 py-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-strong text-kin-text">{a.name}</div>
-                    <div className="truncate text-caption text-kin-muted" title={a.reason}>
-                      {a.reason || tr("agents.notConnected")}
+              {plan.discovered.map((a) => {
+                const status = discoveredStatus(a);
+                return (
+                  <li key={a.id} className="flex items-center justify-between gap-3 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-strong text-kin-text">{a.name}</div>
+                      <div className="truncate text-caption text-kin-muted" title={a.reason}>
+                        {a.reason ||
+                          tr(
+                            status === "notInCatalog"
+                              ? "agents.availableNotInCatalog"
+                              : "agents.notConnected",
+                          )}
+                      </div>
                     </div>
-                  </div>
-                  <Button
-                    variant="secondary"
-                    className="min-h-11 shrink-0 px-3 text-strong"
-                    disabled={offline || full}
-                    title={full ? tr("agents.connectFull") : undefined}
-                    onClick={() => beginConnect(a)}
-                  >
-                    {tr("agents.connect")}
-                  </Button>
-                </li>
-              ))}
+                    <Button
+                      variant="secondary"
+                      className="min-h-11 shrink-0 px-3 text-strong"
+                      disabled={offline || full}
+                      title={full ? tr("agents.connectFull") : undefined}
+                      onClick={() => beginConnect(a)}
+                    >
+                      {tr(status === "notInCatalog" ? "agents.addToCatalog" : "agents.connect")}
+                    </Button>
+                  </li>
+                );
+              })}
             </ul>
             {full && (
               <p className="mt-2 text-caption text-kin-orange-ink">{tr("agents.connectFull")}</p>
@@ -1677,7 +1696,16 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
           // request finishes on its own and still rolls back on failure.
           onClose={closeConnect}
           dialog
-          title={connectFor ? tr("agents.connectTitle", { name: connectFor.name }) : undefined}
+          title={
+            connectFor
+              ? tr(
+                  discoveredStatus(connectFor) === "notInCatalog"
+                    ? "agents.addToCatalogTitle"
+                    : "agents.connectTitle",
+                  { name: connectFor.name },
+                )
+              : undefined
+          }
           footer={
             <>
               <SheetPrimaryButton
@@ -1687,7 +1715,12 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                 {connecting
                   ? tr("agents.connecting")
                   : connectFor
-                    ? tr("agents.connectAction", { name: connectFor.name })
+                    ? tr(
+                        discoveredStatus(connectFor) === "notInCatalog"
+                          ? "agents.addToCatalogAction"
+                          : "agents.connectAction",
+                        { name: connectFor.name },
+                      )
                     : tr("agents.connect")}
               </SheetPrimaryButton>
               <SheetSecondaryButton onClick={closeConnect}>
@@ -1699,7 +1732,12 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
           {connectFor && (
             <div className="space-y-3">
               <p className="text-body leading-5 text-kin-secondary">
-                {tr("agents.connectIntro", { name: connectFor.name })}
+                {tr(
+                  discoveredStatus(connectFor) === "notInCatalog"
+                    ? "agents.addToCatalogIntro"
+                    : "agents.connectIntro",
+                  { name: connectFor.name },
+                )}
               </p>
               <div className="rounded-xl border border-kin-blue/30 bg-kin-blue/5 px-3 py-2.5">
                 <p className="text-strong font-medium text-kin-text">

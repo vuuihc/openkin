@@ -47,6 +47,25 @@ export function agentCatalogState(a: AgentInfo): AgentCatalogState {
   return "not_installed";
 }
 
+/**
+ * Why a discovered product is not in the catalog.
+ *
+ * "Not connected" was read as "Kin cannot reach this agent", which is false for
+ * a product the daemon says is installed and available: the machine can run it
+ * right now, and the only missing step is a person spending one of the ten
+ * catalog slots. The two cases need different words because they lead to
+ * different actions — add it to the catalog, versus make it runnable first.
+ *
+ * There is no liveness fact here, and this deliberately does not invent one:
+ * installed = the binary was found, available = the daemon will run it. A
+ * historical session is not a connection.
+ */
+export type DiscoveredStatus = "notInCatalog" | "notConnected";
+
+export function discoveredStatus(a: AgentInfo): DiscoveredStatus {
+  return a.installed && a.available ? "notInCatalog" : "notConnected";
+}
+
 /** Agents that can host/run a task right now. */
 export function runnableAgents(agents: AgentInfo[]): AgentInfo[] {
   return agents.filter((a) => a.available);

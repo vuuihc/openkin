@@ -4,6 +4,7 @@ import {
   agentCatalogState,
   catalogProducts,
   CATALOG_LIMIT,
+  discoveredStatus,
   isNativeAgent,
   planAgentCatalog,
   runnableAgents,
@@ -67,6 +68,23 @@ describe("agentCatalogState (KIN-AGENTS-001)", () => {
       install_url: "https://cursor.com",
     });
     expect(agentCatalogState(a)).toBe("not_installed");
+  });
+});
+
+describe("discoveredStatus", () => {
+  it("calls a runnable product not in the catalog, not disconnected", () => {
+    // The machine can run it right now; the only thing missing is a person's
+    // decision to put it in the ten-slot catalog.
+    expect(discoveredStatus(agent({ id: "claude-code", name: "Claude Code", installed: true, available: true }))).toBe(
+      "notInCatalog",
+    );
+  });
+
+  it("calls a product the machine cannot run not connected", () => {
+    expect(discoveredStatus(agent({ id: "claude-code", name: "Claude Code", installed: true }))).toBe(
+      "notConnected",
+    );
+    expect(discoveredStatus(agent({ id: "claude-code", name: "Claude Code" }))).toBe("notConnected");
   });
 });
 
