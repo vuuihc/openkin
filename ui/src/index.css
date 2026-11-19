@@ -232,6 +232,22 @@
   .pt-safe {
     padding-top: env(safe-area-inset-top);
   }
+  /* The session panel is a full-bleed overlay on a phone and it covers
+     `MobileHeader` — the bar that would otherwise spend the top inset — so
+     the overlay spends it itself below `md`. From `md` up the shell root
+     spends it once for both columns (`md:pt-safe`) and the overlay sits
+     inside that padding, so this must stay phone-scoped or it would double.
+
+     Written as a real media query, not `max-md:pt-safe`: `.pt-safe` is a
+     plain class in this layer rather than a Tailwind `@utility`, so the
+     variant generates no rule at all (the built stylesheet has zero
+     `max-md\:pt-safe` selectors). Keep the 0.02px guard in step with
+     Tailwind's 768px `md`. */
+  @media (max-width: 767.98px) {
+    .panel-top-inset {
+      padding-top: env(safe-area-inset-top);
+    }
+  }
   /* Phone-only floor for the app's controls, which are drawn at desktop density
      (17–40px). One wrapper around everything a thumb can reach, instead of a
      per-page set of sizes. The `pointer: coarse` arm is what keeps the floor on
