@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import {
   DAEMON_BASE,
   DAEMON_PORT,
+  STATE_DIR,
   TOKEN_PATH,
   kinBinaryPath,
   isDev,
@@ -139,8 +140,7 @@ export class Sidecar {
       if (outcome === "stuck") {
         this.status = {
           state: "unavailable",
-          reason:
-            "a kin daemon process is running but not answering on :7777 — not starting a second one",
+          reason: `a kin daemon process is running but not answering on :${DAEMON_PORT} — not starting a second one`,
         };
         console.error(`[kin-desktop] ${this.status.reason}`);
         return this.status;
@@ -193,19 +193,30 @@ export class Sidecar {
     if (generation !== this.generation || this.stopping) return this.status;
 
     console.log(
-      `[kin-desktop] no daemon on :7777; spawning ${bin} supervise (dev=${isDev()})`,
+      `[kin-desktop] no daemon on :${DAEMON_PORT}; spawning ${bin} supervise (dev=${isDev()})`,
     );
     try {
       const child = spawn(bin, ["supervise"], {
         // The daemon is a durable background service. It must outlive the
         // Electron shell when the user quits the menu-bar app.
         stdio: ["ignore", "ignore", "ignore"],
-        env: { ...process.env },
+        // Explicit on top of the inherited environment: the child must agree
+        // with the port and state directory the shell probes and reads. The
+        // resolved values are today's defaults when nothing was exported.
+        env: {
+          ...process.env,
+          KIN_PORT: String(DAEMON_PORT),
+          KIN_STATE_DIR: STATE_DIR,
+        },
         detached: true,
       });
       this.child = child;
       this.weStarted = true;
       const pid = child.pid ?? -1;
+      // Named as soon as the process exists, not only once it is healthy: a
+      // launcher interrupted during the health wait must still know which
+      // supervisor this shell owns, so cleanup never has to guess from a port.
+      console.log(`[kin-desktop] daemon spawned pid=${pid}`);
       child.on("exit", (code, signal) => {
         if (this.child !== child) return;
         console.log(
@@ -226,7 +237,7 @@ export class Sidecar {
                 : `daemon exited (code=${code})`,
           };
           // A busy state directory is not a crash, and retrying cannot change
-          // it: the other daemon owns ~/.kin until it stops. So do not restart
+          // it: the other daemon owns that directory until it stops. So do not restart
           // here; the shell's own recovery, or the next Start, asks again.
           if (!this.stopping && code !== STATE_DIR_BUSY_EXIT) this.scheduleRestart();
         }
