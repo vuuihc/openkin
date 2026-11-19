@@ -2929,21 +2929,23 @@ describe("note sources", () => {
     expect(noteSourceOf({ sidechain: true, role: "reasoning" })).toBe("subagent");
   });
 
-  it("labels every source with a key that resolves in both locales", () => {
-    // The design's table, spelled out: each source names its own wording.
+  it("labels every source that has a voice of its own, and only those", () => {
+    // The design's table, spelled out: thinking, plan and subagent answer "who
+    // said this". Narration is the host's own column and carries no label.
     expect((["reasoning", "plan", "note", "subagent"] as const).map(noteLabelKey)).toEqual([
       "chat.progress.thinking",
       "chat.progress.plan",
-      "chat.progress.note",
+      null,
       "chat.progress.subagent",
     ]);
     // Nothing typechecks an i18n path, and a missing one renders itself: the
     // label would read "chat.progress.thinking" on screen.
-    for (const source of ["reasoning", "plan", "note", "subagent"] as const) {
+    for (const source of ["reasoning", "plan", "subagent"] as const) {
       const key = noteLabelKey(source);
+      expect(key).not.toBeNull();
       for (const locale of ["zh", "en"] as const) {
         setLocale(locale);
-        expect(t(key)).not.toBe(key);
+        expect(t(key!)).not.toBe(key);
       }
     }
     setLocale("zh");

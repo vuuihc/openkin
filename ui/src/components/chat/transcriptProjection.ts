@@ -99,15 +99,13 @@ export function noteNeedsAttribution(note: NoteStep, hostSpeaker: string): boole
  */
 export function noteLabelKey(
   source: NoteSource,
-):
-  | "chat.progress.thinking"
-  | "chat.progress.plan"
-  | "chat.progress.note"
-  | "chat.progress.subagent" {
+): "chat.progress.thinking" | "chat.progress.plan" | "chat.progress.subagent" | null {
   if (source === "reasoning") return "chat.progress.thinking";
   if (source === "plan") return "chat.progress.plan";
   if (source === "subagent") return "chat.progress.subagent";
-  return "chat.progress.note";
+  // Narration is the agent's own voice in its own column; a word in front of it
+  // would answer a question nobody asked.
+  return null;
 }
 
 export type ProgressStep = ToolStep | NoteStep;
