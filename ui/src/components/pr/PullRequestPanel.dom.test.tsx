@@ -97,6 +97,112 @@ describe("PullRequestPanel", () => {
     expect(screen.getByText(t("pr.ciSuccess", { total: "3" }))).toBeTruthy();
   });
 
+  it("renders each review's author, state and body", async () => {
+    mocked.getTaskPullRequest.mockResolvedValue(
+      snapshot({
+        observations: [
+          observation({
+            reviews: JSON.stringify([
+              { author: "ada", state: "COMMENTED", body: "Could this be a helper?" },
+              { author: "grace", state: "APPROVED", body: "Looks right to me." },
+            ]),
+          }),
+        ],
+      }),
+    );
+    setup();
+
+    await screen.findByText(PR_NUMBER);
+    expect(screen.getByText("ada")).toBeTruthy();
+    expect(screen.getByText("grace")).toBeTruthy();
+    expect(screen.getByText(t("pr.reviewStateCommented"))).toBeTruthy();
+    expect(screen.getByText(t("pr.reviewStateApproved"))).toBeTruthy();
+    expect(screen.getByText("Could this be a helper?")).toBeTruthy();
+    expect(screen.getByText("Looks right to me.")).toBeTruthy();
+  });
+
+  it("says the reviews were never read in one line", async () => {
+    // '' is "nobody has asked", not "nobody reviewed". The panel has to say
+    // which one it is, or an unread pull request looks like a quiet one.
+    mocked.getTaskPullRequest.mockResolvedValue(
+      snapshot({ observations: [observation({ reviews: "" })] }),
+    );
+    setup();
+
+    await screen.findByText(PR_NUMBER);
+    expect(screen.getByText(t("pr.reviewsNeverRead"))).toBeTruthy();
+    expect(screen.queryByText(t("pr.reviewsNone"))).toBeNull();
+    expect(screen.queryByText("ada")).toBeNull();
+  });
+
+  it("says none when the snapshot carries an empty array", async () => {
+    // '[]' is a successful read that found nothing: a different answer from
+    // never having read at all.
+    mocked.getTaskPullRequest.mockResolvedValue(
+      snapshot({ observations: [observation({ reviews: "[]" })] }),
+    );
+    setup();
+
+    await screen.findByText(PR_NUMBER);
+    expect(screen.getByText(t("pr.reviewsNone"))).toBeTruthy();
+    expect(screen.queryByText(t("pr.reviewsNeverRead"))).toBeNull();
+  });
+
+  it("keeps the failing-check names it already shows", async () => {
+    // The reviews sit under the CI line, not instead of it.
+    mocked.getTaskPullRequest.mockResolvedValue(
+      snapshot({
+        observations: [
+          observation({
+            ci_state: "failure",
+            ci_summary: JSON.stringify({
+              total: 2,
+              passed: 0,
+              failed: 2,
+              pending: 0,
+              failing: ["lint", "unit"],
+            }),
+            reviews: JSON.stringify([
+              { author: "ada", state: "CHANGES_REQUESTED", body: "Please split this." },
+              { author: "grace", state: "COMMENTED", body: "Same thought." },
+            ]),
+          }),
+        ],
+      }),
+    );
+    setup();
+
+    await screen.findByText(PR_NUMBER);
+    expect(
+      screen.getByText(t("pr.ciFailureNamed", { total: "2", failed: "2", names: "lint, unit" })),
+    ).toBeTruthy();
+    expect(screen.getByText("ada")).toBeTruthy();
+    expect(screen.getByText("Please split this.")).toBeTruthy();
+    expect(screen.getByText("grace")).toBeTruthy();
+  });
+
+  it("keeps the newest five reviews and folds the older one into a line", async () => {
+    // Five keeps the card scannable. The daemon stores reviews oldest-first,
+    // so the cap must keep the tail: the newest approval or change request is
+    // the decision a person came for. The parser keeps every entry — only the
+    // render caps.
+    const many = Array.from({ length: 6 }, (_, i) => ({
+      author: `author-${i + 1}`,
+      state: "COMMENTED",
+      body: `note ${i + 1}`,
+    }));
+    mocked.getTaskPullRequest.mockResolvedValue(
+      snapshot({ observations: [observation({ reviews: JSON.stringify(many) })] }),
+    );
+    setup();
+
+    await screen.findByText(PR_NUMBER);
+    expect(screen.getByText("author-6")).toBeTruthy();
+    expect(screen.getByText("author-2")).toBeTruthy();
+    expect(screen.queryByText("author-1")).toBeNull();
+    expect(screen.getByText(t("pr.reviewsMore", { more: "1" }))).toBeTruthy();
+  });
+
   it("renders no second surface when embedded", async () => {
     mocked.getTaskPullRequest.mockResolvedValue(snapshot());
     const onClose = vi.fn();
