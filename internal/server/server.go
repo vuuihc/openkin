@@ -326,21 +326,32 @@ func ServeWith(version string, flags ServeFlags) error {
 	}
 	startup.mark("agents")
 	routingCatalog = routing.NewCatalog(st, reg.Has)
-	for _, info := range reg.List(ctx, "") {
-		if info.Available {
-			if info.Binary != "" {
-				fmt.Printf("agent %s: %s\n", info.ID, info.Binary)
+	startup.mark("engine-routing")
+	// Boot prints readiness only, so it asks for Status and not for the rest of
+	// List: a provider's model discovery is not readiness (droid execs its own
+	// binary for it, ~180 ms measured cold), and it is only needed by surfaces
+	// that actually offer a model choice. Those call List on demand.
+	for _, id := range reg.IDs() {
+		registration, ok := reg.Get(id)
+		if !ok {
+			continue
+		}
+		status := registration.Status(ctx)
+		if status.Available {
+			if status.Binary != "" {
+				fmt.Printf("agent %s: %s\n", id, status.Binary)
 			} else {
-				fmt.Printf("agent %s: ready\n", info.ID)
+				fmt.Printf("agent %s: ready\n", id)
 			}
 		} else {
-			reason := info.Reason
+			reason := status.Reason
 			if reason == "" {
 				reason = "unavailable"
 			}
-			fmt.Printf("agent %s: %s\n", info.ID, reason)
+			fmt.Printf("agent %s: %s\n", id, reason)
 		}
 	}
+	startup.mark("engine-catalog")
 
 	maxConcurrent := task.DefaultMaxConcurrent
 	if v, err := st.GetSetting(ctx, "task.max_concurrent"); err == nil {
@@ -353,6 +364,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		pref, err := st.GetSetting(c, "agent.default")
 		return strings.TrimSpace(pref), err
 	}
+	startup.mark("engine-workspace")
 	// Native notifications: one event becomes a desktop banner through the
 	// event bus and an APNs alert for every registered iPhone. The node that
 	// runs the engine owns both, so a device token never has to be forwarded to
@@ -366,6 +378,7 @@ func ServeWith(version string, flags ServeFlags) error {
 	if apnsClient != nil {
 		apnsSender = apnsClient
 	}
+	startup.mark("engine-notifier")
 	// `kin notify apns` writes settings from another process, so the daemon
 	// reads them per delivery rather than pinning the startup snapshot. An
 	// unconfigured node is a normal state, not an error to log on every event.
@@ -515,6 +528,7 @@ func ServeWith(version string, flags ServeFlags) error {
 	if err != nil {
 		return err
 	}
+	startup.mark("engine-configure")
 	startup.mark("engine-build")
 	defer eng.Close()
 	if err := eng.Start(context.Background()); err != nil {
