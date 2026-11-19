@@ -99,15 +99,13 @@ export function noteNeedsAttribution(note: NoteStep, hostSpeaker: string): boole
  */
 export function noteLabelKey(
   source: NoteSource,
-):
-  | "chat.progress.thinking"
-  | "chat.progress.plan"
-  | "chat.progress.note"
-  | "chat.progress.subagent" {
+): "chat.progress.thinking" | "chat.progress.plan" | "chat.progress.subagent" | null {
   if (source === "reasoning") return "chat.progress.thinking";
   if (source === "plan") return "chat.progress.plan";
   if (source === "subagent") return "chat.progress.subagent";
-  return "chat.progress.note";
+  // Narration is the agent's own voice in its own column; a word in front of it
+  // would answer a question nobody asked.
+  return null;
 }
 
 export type ProgressStep = ToolStep | NoteStep;
@@ -1656,6 +1654,12 @@ export function summarizeProgressStatus(
   state: "running" | "done" | "failed" | "partial_failed";
   doneTools: number;
   failedTools: number;
+  /**
+   * Failed steps when the card holds no tools at all: the notes are then what
+   * the state was derived from, so the failure sentence has to count them too.
+   * Always zero on a card with tools, where the state ignores note statuses.
+   */
+  failedNotes: number;
   totalTools: number;
 } {
   const tools = flattenProgressSteps(steps).filter(
@@ -1677,6 +1681,8 @@ export function summarizeProgressStatus(
     state,
     doneTools,
     failedTools,
+    // `statusSteps` is the notes exactly when there are no tools.
+    failedNotes: tools.length > 0 ? 0 : failed,
     totalTools: tools.length,
   };
 }
