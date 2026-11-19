@@ -861,6 +861,8 @@ const en: MessageTree = {
       readOnlyTruncated: "File is truncated — read-only",
       imageFailed: "This image could not be previewed.",
       binaryHint: "This file type cannot be shown here. Download it to open it.",
+      binaryHintDesktop:
+        "This file cannot be shown here. Download it, or open it in an installed app on this Mac.",
       download: "Download",
       downloading: "Preparing…",
       downloadFailed: "Unable to download this file.",
