@@ -1,13 +1,15 @@
 # Startup baseline — 2026-11-19
 
-**Status: measured and attributed; the first shell-side fix is recorded below.** The
+**Status: measured and attributed; both shell-side fixes are recorded below,
+and the startup number is reproducible from `main` in one command.** The
 daemon's wall clock decomposes into named segments that add up, `store-open`
 has been measured against a synthetic database at the live file size, and the
 desktop shell has an isolated spawn → daemon-ready → first-paint number
 measured without touching the live node. The shell-side instrumentation and
 its runner are on `main` (`scripts/desktop-startup.sh`). The 2026-11-19
-numbers below are the baseline the first fix is measured against and are left
-as measured; §「2026-11-20 — the startup handshake」 records the before/after.
+numbers below are the baseline the fixes are measured against and are left
+as measured; §「2026-11-20 — the startup handshake」 and §「2026-11-20 — the
+window paints first」 record the before/after.
 
 ## Current position (现在的位置)
 
@@ -17,9 +19,9 @@ as measured; §「2026-11-20 — the startup handshake」 records the before/aft
 | Whole-wall attribution (`process`, `ready→health`) | green — segments sum to the wall clock within 4–5 ms (flooring only) |
 | Empty-DB baseline, 3 runs | green — table 1 below |
 | Real-size `store-open` (150.7 MiB synthetic) | green — 38ms cold / 37ms warm, file at 99.1% of target |
-| Desktop shell measurement (Electron spawn → first paint) | instrumented — env-isolated daemon + 8 trace marks; first paint 3726 / 1828 ms (median **2777 ms**) on 2026-11-19, measured with `scripts/desktop-startup.sh` |
+| Desktop shell measurement (Electron spawn → first paint) | re-measured 2026-11-20 on `b47032f1` — env-isolated daemon + 8 trace marks; first paint is now the **boot surface**, median **555 ms** (2453 / 555 / 537 ms); the console load follows `sidecar-ready` at 1329 ms median; `scripts/desktop-startup.sh`; see §「the window paints first」 |
 | Shell handshake `sidecar-start` → `sidecar-ready` | measured 2026-11-20 — median **915 ms before**, **595 ms after**; see §「2026-11-20 — the startup handshake」 |
-| Fix | daemon untouched; the shell's pre-daemon work fixed 2026-11-20 (see that section) |
+| Fix | daemon untouched; both shell fixes landed 2026-11-20 — #417 `903f3b5c` (handshake) and #418 `b47032f1` (window paints before the daemon answers) |
 | `~/.kin/kin.db` opened, copied or instrumented | **never** |
 
 ## What was measured
@@ -161,7 +163,8 @@ variables `kin serve` already reads, which the shell now resolves
 instead of hardcoding `~/.kin` and `:7777`. The shell emits
 `[kin-desktop] trace <name> <ms>` lines (`desktop/src/startup-trace.ts`, same
 switch and origin plausibility rule as the daemon), so one launch is attributed
-from spawn to window paint. The table below was measured with that runner.
+from spawn to window paint. The table below is the 2026-11-19 **old
+baseline**, measured with that runner, before #418 changed the shape.
 
 | Mark | Run 1 | Run 2 | Median |
 |---|---:|---:|---:|
@@ -184,8 +187,12 @@ pattern more strongly (`process` 2932 ms, then 996 ms). `window-first-load`
 can arrive a millisecond or two before `ready-to-show`, so shell total is the
 last mark, not a named one.
 
-The result is **daemon-gated**, as `main.ts` implies: `mainWindow.show("/")`
-runs only after `sidecar.ensureRunning()` resolves. From the medians,
+**Superseded on 2026-11-20 by #418 `b47032f1`; the window now paints a boot
+surface before the daemon answers — see §「2026-11-20 — the window paints
+first」.** The numbers and edges below are kept as the *old* baseline: they
+describe the daemon-gated shape this tree had on 2026-11-19, where
+`mainWindow.show("/")` ran only after `sidecar.ensureRunning()` resolved. From
+the medians,
 `sidecar-start` → `sidecar-ready` is **1552 ms**, larger than the daemon's own
 407–440 ms to healthy in table 1: the shell also spawns `kin supervise` (which
 starts `kin serve`), probes the binary version, and polls health every 250 ms
@@ -227,9 +234,10 @@ of the health probe:
   on the machine gets its chance before a second daemon is spawned, and a
   stuck one still means `unavailable`.
 
-`desktop/src/main.ts` is untouched: the window still shows only after
-`ensureRunning()` resolves. This section shortens the handshake; showing the
-window before that resolution is a separate delivery.
+`desktop/src/main.ts` was untouched by this section: the window still waited
+for `sidecar.ensureRunning()` to resolve. That was fixed the same day by #418
+`b47032f1`, which shows the window before that resolution — see §「2026-11-20
+— the window paints first」.
 
 ### Before / after
 
@@ -274,6 +282,74 @@ cadence, cancellation, and never-settling labels);
 old order (`await expected` before the first probe) and the order test fails
 (`not ok 1 - probes health before it runs the version binary`), then restores
 the module byte for byte.
+
+## 2026-11-20 — the window paints first
+
+**Status: green.** #418 `b47032f1` moved the window above the daemon await:
+`desktop/src/main.ts` calls `boot.start(...)` before
+`await sidecar.ensureRunning()`, and `boot.settle("ready")` swaps the console
+in when health answers; `boot.settle("unavailable")` keeps the boot surface up
+instead of loading a URL nothing answers. First paint is now a local, wordless
+**boot page** — not the console — and `window-first-load` is emitted only for
+the daemon URL (`desktop/src/window.ts`), so it still marks the one console
+load. The shell measured below is that commit's `desktop/src/`.
+
+The runner proves the "one console load" rule rather than assuming it:
+`missing_marks()` requires each of the 8 marks to appear **exactly once**, so a
+second `window-first-load` would fail the run instead of being averaged away.
+
+### Measurement
+
+Same invocation as the handshake section: `./scripts/desktop-startup.sh --runs
+3 --json`, one build and three launches of the real shell against throwaway
+daemons, on this branch at `b47032f1` (the working-tree change in this row is
+comments and this document, so the built shell is that commit). macOS 27.2.1
+arm64, 8 CPUs. Every run kept all 8 marks exactly once — exactly one
+`window-first-load` per run, for the console load.
+
+| Mark | Run 1 | Run 2 | Run 3 | Median |
+|---|---:|---:|---:|---:|
+| `process` (spawn → main.ts) | 2088 | 215 | 223 | 223 |
+| `app-ready` | 2171 | 281 | 302 | 302 |
+| `sidecar-start` | 2264 | 365 | 375 | 375 |
+| `window-created` | 2327 | 423 | 424 | 424 |
+| `window-ready-to-show` | 2453 | 555 | 537 | **555** |
+| `window-shown` | 2460 | 577 | 550 | 577 |
+| `sidecar-ready` | 3998 | 1192 | 1104 | 1192 |
+| `window-first-load` | 4113 | 1329 | 1220 | 1329 |
+| **first paint** (`window-ready-to-show`) | 2453 | 555 | 537 | **555** |
+| **shell total** (last mark) | 4113 | 1329 | 1220 | **1329** |
+
+The new relation holds in every run and in the median:
+`window-created` → `window-ready-to-show` → `window-shown` all land **before**
+`sidecar-ready` — first paint at 2453/555/537 ms and `window-shown` at
+2460/577/550 ms, against daemon readiness at 3998/1192/1104 ms. The window no
+longer waits for the daemon, and the boot surface is what first paint
+contains. `window-first-load` is still the console load and still follows
+`sidecar-ready` (4113/1329/1220 ms, so the swap costs 115/137/116 ms); it is
+also the shell total. Run 1 is the first launch after the build and pays cold
+caches (`process` 2088 ms against 215/223 ms); it is kept in the median rather
+than discarded.
+
+Load average (`uptime`), immediately before → after the invocation:
+`6.46 5.91 5.88` → `8.50 6.44 6.07`. The handshake section's after invocation
+ran at `6.35 6.39 6.39` → `14.94 8.79 7.27`, so the two invocations had
+**different load** and their medians are not a controlled A/B.
+
+Against the handshake section's after column, where the marks are comparable:
+`process` 222 → 223 ms and `app-ready` 295 → 302 ms (unchanged, as expected —
+this change moved work, it did not remove it); `sidecar-start` 362 → 375 ms;
+first paint 1171 → **555 ms**. `window-created` moved from 1010 ms (after
+`sidecar-ready` at 957 ms) to 424 ms (well before it), which is the whole
+change: the window is created right after `sidecar-start`, at the top of the
+launch, and the daemon is awaited behind it.
+
+Reading: what remains between `sidecar-start` and `sidecar-ready` is the
+daemon's own boot plus at most one 50 ms poll and one loopback `/api/version`
+round trip — the same residual the handshake section names. First paint no
+longer sits behind it; the console's load (`window-first-load`) is the only
+part of the launch that still does. This runner does not trace inside the
+daemon; `scripts/startup-baseline.sh` is the instrument for that half.
 
 ## Reproduce
 
