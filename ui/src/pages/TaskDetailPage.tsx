@@ -1763,6 +1763,23 @@ export default function TaskDetailPage({
   }
 
   /**
+   * Whether this task's checkout can name a path — the same rule
+   * `onOpenWorkspacePath` applies, asked *before* a control is drawn.
+   *
+   * The transcript, the worker timeline, the changed-files bar and the approval
+   * card all show paths the stream reported, and those paths are not always
+   * inside the checkout (a worktree's own state file, an absolute path from a
+   * neighbouring repo). A control there could only toast. They pass this
+   * predicate instead of re-deriving it, so this function stays the one owner.
+   * Absent for surfaces with no cwd (`FloatingApproval`, `ApprovalsPage`),
+   * which keep the control they had.
+   */
+  function canOpenWorkspacePath(filePath: string): boolean {
+    if (!task) return false;
+    return toWorkspaceRelativePath(task.cwd, filePath) != null;
+  }
+
+  /**
    * A file chosen in the finder. The search answers for the checkout, so that
    * is where the file opens: a generation is a snapshot of the work, and the
    * file just found may not exist in the one that happened to be on screen.
@@ -1996,6 +2013,7 @@ export default function TaskDetailPage({
               if (!settled) void decideAndKeep(entry.id, "denied");
             }}
             onOpenPath={onOpenWorkspacePath}
+            canOpenPath={canOpenWorkspacePath}
           />
         ) : (
           <UserQuestionCard
@@ -2255,6 +2273,7 @@ export default function TaskDetailPage({
           <ChangedFilesBar
             files={changedFiles}
             onOpenPath={onOpenWorkspacePath}
+            canOpenPath={canOpenWorkspacePath}
             onOpenPanel={openFilesPanel}
             reviewActions={terminal}
             onKeepAll={onKeepAllChanges}
@@ -2305,6 +2324,7 @@ export default function TaskDetailPage({
               <WorkerTimeline
                 rows={workerRows}
                 onOpenPath={onOpenWorkspacePath}
+                canOpenPath={canOpenWorkspacePath}
                 // A settled task has nothing left to stop; a stale running row is
                 // the poll's problem, not a button the reader can use.
                 onStop={isTerminal(task.status) ? undefined : onStopWorker}
@@ -2313,6 +2333,7 @@ export default function TaskDetailPage({
               <ChatStream
                 events={events}
                 onOpenPath={onOpenWorkspacePath}
+                canOpenPath={canOpenWorkspacePath}
                 fallbackUserPrompt={fallbackPrompt.text}
                 fallbackUserPromptImages={fallbackPrompt.images}
                 messageScope={task.id}

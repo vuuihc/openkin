@@ -9,6 +9,12 @@ import { fileBaseName } from "./workspacePreview";
 type Props = {
   files: ChangedFile[];
   onOpenPath: (path: string) => void;
+  /**
+   * Whether the task checkout can name this path. Absent keeps today's
+   * behaviour — every row opens — and false turns that row into a static fact
+   * rather than a control that would only toast an error.
+   */
+  canOpenPath?: (path: string) => boolean;
   onOpenPanel?: () => void;
   /**
    * When true, show Keep / Discard bulk actions (isolated worktree + terminal task).
@@ -31,6 +37,7 @@ type Props = {
 export default function ChangedFilesBar({
   files,
   onOpenPath,
+  canOpenPath,
   onOpenPanel,
   reviewActions = false,
   onKeepAll,
@@ -108,10 +115,15 @@ export default function ChangedFilesBar({
 
   /** Open the dual-pane diff panel, focusing the heaviest mutation first. */
   const openDiffPanel = (path?: string) => {
+    const openable = (candidate: string) => canOpenPath?.(candidate) ?? true;
     if (path) {
-      onOpenPath(path);
+      // The row is only a control when it can keep this promise; the guard
+      // keeps the rule here rather than trusting every call site.
+      if (openable(path)) onOpenPath(path);
     } else {
-      const first = ordered[0];
+      // The heaviest change may be outside the checkout. Fall through to the
+      // heaviest one it can name, and still open the panel if none can be.
+      const first = ordered.find((file) => openable(file.path));
       if (first) onOpenPath(first.path);
     }
     onOpenPanel?.();
@@ -228,33 +240,48 @@ export default function ChangedFilesBar({
           {preview.map((f) => {
             const name = fileBaseName(f.path);
             const dir = f.path.slice(0, Math.max(0, f.path.length - name.length));
+            const face = (
+              <>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-body font-medium text-kin-text">{name}</span>
+                  {dir ? (
+                    <span className="block truncate text-caption font-mono text-kin-muted">
+                      {dir}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="flex-none text-caption font-mono tabular-nums">
+                  <FileSize
+                    additions={f.additions}
+                    deletions={f.deletions}
+                    label={t("workspace.changed.noLineDelta")}
+                  />
+                </span>
+              </>
+            );
             return (
               <li key={`${f.action}:${f.path}:${f.seq}`}>
-                {/* eslint-disable-next-line kin/no-raw-button -- an option row in the list; the row is the hit area, not an action. */}
-                <button
-                  type="button"
-                  onClick={() => openDiffPanel(f.path)}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--kin-fill)] transition-colors"
-                  title={f.path}
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-body font-medium text-kin-text">
-                      {name}
+                {(canOpenPath?.(f.path) ?? true) ? (
+                  // eslint-disable-next-line kin/no-raw-button -- an option row in the list; the row is the hit area, not an action.
+                  <button
+                    type="button"
+                    onClick={() => openDiffPanel(f.path)}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--kin-fill)] transition-colors"
+                    title={f.path}
+                  >
+                    {face}
+                  </button>
+                ) : (
+                  // The file was changed, so the row and its numbers stay. The
+                  // one thing removed is the hit area: opening it could only
+                  // toast "outside this workspace".
+                  <div className="w-full flex items-center gap-2 px-3 py-1.5 text-left">
+                    {face}
+                    <span className="flex-none text-caption text-kin-muted" title={f.path}>
+                      {t("workspace.outsideWorkspace")}
                     </span>
-                    {dir ? (
-                      <span className="block truncate text-caption font-mono text-kin-muted">
-                        {dir}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="flex-none text-caption font-mono tabular-nums">
-                    <FileSize
-                      additions={f.additions}
-                      deletions={f.deletions}
-                      label={t("workspace.changed.noLineDelta")}
-                    />
-                  </span>
-                </button>
+                  </div>
+                )}
               </li>
             );
           })}

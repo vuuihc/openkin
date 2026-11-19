@@ -88,6 +88,57 @@ describe("the round evidence card", () => {
     expect(onOpenPath).toHaveBeenCalledWith(PATH);
   });
 
+  it("an outside path is a marker, not a control", () => {
+    const inside = "/work/a.ts";
+    const outside = "/elsewhere/b.ts";
+    const twoFiles: RoundEvidence = {
+      files: [
+        { path: inside, action: "edit", tool: "edit", seq: 2, additions: 1, deletions: 1 },
+        { path: outside, action: "edit", tool: "edit", seq: 3, additions: 2, deletions: 1 },
+      ],
+      totalFiles: 2,
+      additions: 3,
+      deletions: 2,
+      hasStats: true,
+      events: [],
+      source: "tools",
+    };
+    const onOpenPath = vi.fn();
+    const { container } = render(
+      <RoundEvidenceCard
+        evidence={twoFiles}
+        onOpenPath={onOpenPath}
+        canOpenPath={(path) => path.startsWith("/work/")}
+      />,
+    );
+
+    // One file is open at a time, so walk the two rows in turn.
+    const rows = disclosures(container).slice(1);
+    fireEvent.click(rows[0]);
+    const controls = screen.getAllByRole("button", {
+      name: new RegExp(t("workspace.openFile")),
+    });
+    expect(controls).toHaveLength(1);
+    expect(controls[0].getAttribute("title")).toBe(inside);
+    fireEvent.click(controls[0]);
+    expect(onOpenPath).toHaveBeenCalledTimes(1);
+    expect(onOpenPath).toHaveBeenCalledWith(inside);
+
+    fireEvent.click(rows[1]);
+    expect(
+      screen.queryByRole("button", {
+        name: `${t("workspace.openFile")} · ${shortPath(outside, 48)}`,
+      }),
+    ).toBeNull();
+    const marker = screen.getByText(t("workspace.outsideWorkspace"));
+    expect(marker.tagName).not.toBe("BUTTON");
+    expect(marker.closest("button")).toBeNull();
+    expect(marker.closest('[role="button"]')).toBeNull();
+    expect(marker.getAttribute("title")).toBe(outside);
+    // The row itself survives: its path, action and size are still drawn.
+    expect(screen.getByText(shortPath(outside, 40))).toBeTruthy();
+  });
+
   it("the scope sentence stays visible in both states", () => {
     const { container } = render(<RoundEvidenceCard evidence={evidence} />);
 

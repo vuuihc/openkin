@@ -18,6 +18,13 @@ type Props = {
   onDeny: () => void;
   onOpenPath?: (path: string) => void;
   /**
+   * Whether the task checkout can name this path. Absent means the control is
+   * drawn as it always was — `FloatingApproval` and the approvals page hold no
+   * cwd and pass nothing. False turns the link into a static marker, so the
+   * card never offers an action that can only toast an error.
+   */
+  canOpenPath?: (path: string) => boolean;
+  /**
    * Whether `a`/`d` answer *this* card. The transcript binds them; a card
    * floating over some other screen does not — the letters there would promise
    * a key that decides a different approval, or nothing at all.
@@ -32,6 +39,7 @@ export default function ApprovalCard({
   onApprove,
   onDeny,
   onOpenPath,
+  canOpenPath,
   showKeys = true,
 }: Props) {
   const tr = useT();
@@ -164,17 +172,31 @@ export default function ApprovalCard({
             {toolName}
           </span>
           {filePath ? (
-            // A quiet inline control, not a filled action: keep the link's
-            // mono/blue/underline and compact line box, and add only the
-            // shared focus ring.
-            <Button
-              variant="quiet"
-              onClick={() => onOpenPath?.(filePath)}
-              className="block max-w-full min-h-0! truncate px-0 py-0 text-left text-body font-mono font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline"
-              title={filePath}
-            >
-              {shortPath(filePath, 48)}
-            </Button>
+            canOpenPath && !canOpenPath(filePath) ? (
+              // Outside the checkout there is no panel a link could open. The
+              // path stays a fact, the sentence that used to be a toast sits
+              // where the link was, and neither is a control.
+              <span className="flex min-w-0 items-baseline gap-1.5">
+                <span className="min-w-0 truncate font-mono text-body text-kin-muted">
+                  {shortPath(filePath, 48)}
+                </span>
+                <span className="flex-none text-caption text-kin-muted" title={filePath}>
+                  {tr("workspace.outsideWorkspace")}
+                </span>
+              </span>
+            ) : (
+              // A quiet inline control, not a filled action: keep the link's
+              // mono/blue/underline and compact line box, and add only the
+              // shared focus ring.
+              <Button
+                variant="quiet"
+                onClick={() => onOpenPath?.(filePath)}
+                className="block max-w-full min-h-0! truncate px-0 py-0 text-left text-body font-mono font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline"
+                title={filePath}
+              >
+                {shortPath(filePath, 48)}
+              </Button>
+            )
           ) : (
             <span className="font-mono text-kin-secondary truncate">
               {command ? shortPath(command, 48) : ""}

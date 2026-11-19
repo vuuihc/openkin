@@ -2,8 +2,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { t } from "../../i18n";
+import { shortPath } from "../../lib/paths";
 import WorkerTimeline from "./WorkerTimeline";
 import type { WorkerRow } from "./workerActivity";
+import type { ToolStep } from "../chat/transcriptProjection";
 
 function row(patch: Partial<WorkerRow> = {}): WorkerRow {
   return {
@@ -80,6 +82,40 @@ describe("WorkerTimeline", () => {
     const other = screen.getByRole("button", { name: t("task.workerStop") });
     expect((other as HTMLButtonElement).disabled).toBe(true);
     expect((stopping as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("the path predicate reaches a tool row's file chip", () => {
+    const tool = (key: string, path: string): ToolStep => ({
+      kind: "tool",
+      key,
+      speaker: "kin",
+      name: "edit",
+      summary: path,
+      status: "done",
+      input: { path, old_string: "a", new_string: "b" },
+      output: "applied",
+    });
+    const outside = "/elsewhere/b.ts";
+    const inside = "/work/a.ts";
+    render(
+      <WorkerTimeline
+        rows={[
+          row({
+            total: 2,
+            activity: [tool("tool-a", inside), tool("tool-b", outside)],
+          }),
+        ]}
+        onOpenPath={vi.fn()}
+        canOpenPath={(path) => path.startsWith("/work/")}
+      />,
+    );
+
+    // The live row opens itself, so both chips are already drawn.
+    expect(screen.getByRole("button", { name: shortPath(inside, 28) })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: shortPath(outside, 28) })).toBeNull();
+    const marker = screen.getByText(t("workspace.outsideWorkspace"));
+    expect(marker.tagName).not.toBe("BUTTON");
+    expect(marker.getAttribute("title")).toBe(outside);
   });
 
   it("shows each row's own token total when the adapter reported one", () => {
