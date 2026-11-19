@@ -234,15 +234,17 @@
   }
   /* The session panel is a full-bleed overlay on a phone and it covers
      `MobileHeader` — the bar that would otherwise spend the top inset — so
-     the overlay spends it itself below `md`. From `md` up the shell root
-     spends it once for both columns (`md:pt-safe`) and the overlay sits
-     inside that padding, so this must stay phone-scoped or it would double.
+     the overlay spends it itself below `md`. Above `md` the shell root is
+     meant to spend it once for both columns, but its `md:pt-safe` emits no
+     rule today: `.pt-safe` is a plain class in this layer, not a Tailwind
+     `@utility` (the built stylesheet has one `.pt-safe` and zero
+     `md\:pt-safe` / `max-md\:pt-safe` selectors). So 768–1023 is a known,
+     pre-existing gap with its own row; this rule stays phone-scoped, which is
+     also what keeps the inset from doubling once the shell's variant is real.
 
-     Written as a real media query, not `max-md:pt-safe`: `.pt-safe` is a
-     plain class in this layer rather than a Tailwind `@utility`, so the
-     variant generates no rule at all (the built stylesheet has zero
-     `max-md\:pt-safe` selectors). Keep the 0.02px guard in step with
-     Tailwind's 768px `md`. */
+     Written as a real media query, not `max-md:pt-safe`, because that variant
+     generates no rule at all for the same reason. Keep the 0.02px guard in
+     step with Tailwind's 768px `md`. */
   @media (max-width: 767.98px) {
     .panel-top-inset {
       padding-top: env(safe-area-inset-top);
