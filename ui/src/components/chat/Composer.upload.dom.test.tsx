@@ -165,6 +165,37 @@ describe("Composer upload placeholders", () => {
     expect(persisted.every((item) => !item.id.startsWith("pending-"))).toBe(true);
   });
 
+  it("keeps Send disabled while an overlapping upload is still pending", async () => {
+    const user = userEvent.setup();
+    const { onSubmit, box } = setup();
+    const first = deferred<Upload>();
+    const second = deferred<Upload>();
+    mockedUpload
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+
+    pick([file("a.png")]);
+    await user.type(box, "hello");
+
+    // Paste is not gated by the picker's disabled state, so a second addFiles
+    // can run while the first is still in flight.
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: { files: [file("b.png")] } });
+    fireEvent(box, paste);
+    expect(screen.getAllByTestId("composer-attachment")).toHaveLength(2);
+
+    // The faster call landing must not re-enable Send: the other call's
+    // placeholder is still pending.
+    await act(async () => first.resolve(upload("a.png")));
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(screen.getByRole("button", { name: "Send" }).closest("form")!);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await act(async () => second.resolve(upload("b.png")));
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
   it("removes or marks one failed file without dropping its siblings", async () => {
     const { onAttachmentsChange } = setup();
     const failed = deferred<Upload>();

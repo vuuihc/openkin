@@ -264,7 +264,11 @@ export default function Composer({
   // after the caret moved on is stale, and stale answers are dropped.
   const fileSearchSeq = useRef(0);
   const [items, setItems] = useState<StripItem[]>(initialAttachments);
-  const [uploading, setUploading] = useState(false);
+  // Derived from the strip, not tracked alongside it: two addFiles calls can
+  // overlap (a paste while a pick is still uploading), and a shared boolean
+  // cleared by the faster call would re-enable Send while the other call's
+  // placeholders are still pending.
+  const uploading = items.some(isPending);
   const [viewing, setViewing] = useState<UserImage | null>(null);
   // The live strip, because state is a render snapshot and the upload loop
   // writes after awaits; a controller per file lets removal abort its request.
@@ -539,7 +543,6 @@ export default function Composer({
       return;
     }
     commitItems([...itemsRef.current, ...placeholders]);
-    setUploading(true);
     try {
       for (const entry of placeholders) {
         const controller = new AbortController();
@@ -597,7 +600,6 @@ export default function Composer({
         }
       }
     } finally {
-      if (mounted.current) setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   }
@@ -643,7 +645,16 @@ export default function Composer({
     // Sending is allowed with only attachments (no text), but never mid-upload:
     // a pending placeholder has no server path, so it must not reach the prompt.
     const ready = completedOf(itemsRef.current);
-    if ((!text && ready.length === 0) || disabled || blockSend || busy || stopping || uploading)
+    if (
+      (!text && ready.length === 0) ||
+      disabled ||
+      blockSend ||
+      busy ||
+      stopping ||
+      // The live strip, not the render snapshot: an upload committed in this
+      // tick must block the send even before React re-renders.
+      itemsRef.current.some(isPending)
+    )
       return;
     const payload = withAttachments(text, ready);
     // Snapshot so a failed send can restore the composer + draft persistence.
