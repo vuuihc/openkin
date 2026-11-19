@@ -101,7 +101,9 @@ export default function ToolStepRow({
               {tr("chat.progress.subagent")}
             </span>
           )}
-          <span className="flex-1 min-w-0 break-words text-kin-secondary">{tool.summary}</span>
+          <span className="flex-1 min-w-0 whitespace-normal break-words text-kin-secondary">
+            {tool.summary}
+          </span>
           {tool.status !== "running" && tool.durationMs != null && (
             // How long this one call took. A running call has no duration yet,
             // and a number that does not tick would be a lie.
