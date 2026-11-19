@@ -19,6 +19,10 @@ import { describe, expect, it } from "vitest";
  * that render inside the shell must therefore keep their own `pt-safe` scoped
  * to phones, or an iPad in full screen would reserve the status bar twice.
  *
+ * The reconnect strip is the exception: while it is shown on a page-owned
+ * route it is the topmost element on the phone, so the page below yields the
+ * inset to it (`topInset` on the phone bar, a guard on the early returns).
+ *
  * Two kinds of case, and both are needed. The token cases prove a component
  * still *asks* for the inset; the generated-CSS cases compile the real
  * `index.css` with the real config and prove Tailwind emits a rule for it. A
@@ -98,13 +102,12 @@ async function loadModule(id: string, base: string) {
 const OPTIONS = { base: BASE, loadStylesheet, loadModule };
 
 /**
- * Every source file that applies a `*pt-safe` token. `PanelSurface` is listed
- * ahead of its own migration to `max-md:pt-safe` (R-panel-top-inset), so the
- * guard covers the panel skin the moment it adopts the variant.
+ * Every source file that applies a `pt-safe` token. `PanelSurface` is
+ * deliberately absent: its phone skin is `panel-top-inset`, and the panel case
+ * below rejects any `pt-safe` variant there.
  */
 const SAFE_CONSUMERS = [
   "src/components/layout/AppShell.tsx",
-  "src/components/layout/PanelSurface.tsx",
   "src/pages/TaskDetailPage.tsx",
   "src/components/mobile/MobileHeader.tsx",
   "src/components/mobile/SessionsHeader.tsx",
@@ -114,7 +117,9 @@ const SAFE_CONSUMERS = [
 function usedSafeTokens(): string[] {
   return [
     ...new Set(
-      SAFE_CONSUMERS.flatMap(classTokens).filter((token) => /^(?:[a-z-]+:)*pt-safe$/.test(token)),
+      SAFE_CONSUMERS.flatMap(classTokens).filter((token) =>
+        /^(?:[a-z0-9-]+:)*pt-safe$/.test(token),
+      ),
     ),
   ];
 }
@@ -169,8 +174,9 @@ describe("top safe-area inset ownership", () => {
 
   it("keeps the reconnect strip from spending it a second time below the shell's edge", () => {
     // The strip is in flow below the shell's padded top edge, so on desktop it
-    // must not carry the inset. It still owns it on a phone, where the session
-    // page's MobileHeader sits below the strip.
+    // must not carry the inset. It still owns it on a phone, where it is the
+    // topmost element on a page-owned route and the page below yields it (the
+    // disconnected case below).
     expect(classTokens("src/components/layout/AppShell.tsx")).toContain("max-md:pt-safe");
     // Any unqualified `pt-safe` left in AppShell belongs to the phone-only
     // detail-route spacer, which is `md:hidden` and therefore never stacks
@@ -188,6 +194,45 @@ describe("top safe-area inset ownership", () => {
     const tokens = classTokens("src/pages/TaskDetailPage.tsx");
     expect(tokens).not.toContain("pt-safe");
     expect(tokens.filter((token) => token === "max-md:pt-safe").length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps the strip the only spender on a session page while the link is down", () => {
+    // The strip owns the notch while it is shown; every page-owned top edge
+    // below it must yield, or the page starts one inset below the strip.
+    const page = "src/pages/TaskDetailPage.tsx";
+    const file = ts.createSourceFile(
+      page,
+      source(page),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    const yielded: string[] = [];
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isConditionalExpression(node) &&
+        node.whenFalse.getText(file).replace(/\s+/g, "") === '"max-md:pt-safe"'
+      ) {
+        yielded.push(node.condition.getText(file).replace(/\s+/g, " "));
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+    // One per early return: cold start, load error, not found.
+    expect(yielded).toHaveLength(3);
+    for (const condition of yielded) {
+      expect(condition).toBe('wsStatus === "disconnected"');
+    }
+
+    // The normal session bar yields the same way, through `TaskHeader`.
+    expect(source(page)).toMatch(/topInset=\{wsStatus !== "disconnected"\}/);
+    expect(source("src/components/task/TaskHeader.tsx")).toMatch(/topInset=\{topInset\}/);
+
+    // The flag becomes the class here, defaulting to the spend so every other
+    // bar keeps the inset it owns.
+    const mobile = "src/components/mobile/MobileHeader.tsx";
+    expect(source(mobile)).toMatch(/topInset\?: boolean/);
+    expect(source(mobile)).toMatch(/topInset \? "pt-safe" : ""/);
   });
 
   it("keeps the phone's top bar owning the inset on phones", () => {
@@ -218,7 +263,7 @@ describe("top safe-area inset generation", () => {
     expect(found[0].text).toContain("padding-top: env(safe-area-inset-top)");
   });
 
-  it("every pt-safe variant the tree uses is emitted", async () => {
+  it("every pt-safe variant these consumers use is emitted", async () => {
     const tokens = usedSafeTokens();
     // The three shapes the shell relies on. A fourth is fine; a missing one is
     // not, so the list is read from the tree and each token must compile.
@@ -234,17 +279,17 @@ describe("top safe-area inset generation", () => {
   it("keeps the panel overlay spending the phone's top inset", () => {
     // The overlay covers `MobileHeader`, which is the bar that owns the top
     // inset on a phone, so below `md` the surface itself has to spend it.
-    // Above `md` the shell root is meant to spend it once for both columns,
-    // but its `md:pt-safe` emits no rule today (`.pt-safe` is a plain class,
-    // not a `@utility`) — so this guard stays phone-scoped and no `pt-safe`
-    // variant may appear here either, or a phone would get a second helping.
+    // Above `md` the shell root's `md:pt-safe` spends it once for both
+    // columns, so this guard stays phone-scoped. No `pt-safe` variant may
+    // appear here either: the skin is the one spender on the overlay, and a
+    // variant would make it two.
     const tokens = classTokens("src/components/layout/PanelSurface.tsx");
     expect(tokens).toContain("panel-top-inset");
     expect(tokens.filter((t) => /(^|:)pt-safe$/.test(t))).toEqual([]);
-    // And the class must be emitted CSS, not a Tailwind variant name. `.pt-safe`
-    // is a plain class in `@layer utilities`, not a Tailwind `@utility`, so
-    // `max-md:pt-safe` generates no rule at all (measured in the built
-    // stylesheet) — the phone guard has to be a real media query.
+    // And the class must be emitted CSS, not a Tailwind variant name: the
+    // panel skin owns a real media query in `@layer utilities`, beside
+    // `pt-safe` rather than derived from it, so the phone guard does not
+    // depend on how the token is generated.
     expect(source("src/index.css")).toMatch(
       /@media \(max-width: 767\.98px\) \{\s*\.panel-top-inset\s*\{\s*padding-top: env\(safe-area-inset-top\);/,
     );

@@ -126,6 +126,12 @@ export type TaskHeaderProps = {
    * widths are built on (TASTE 17).
    */
   onShowList: () => void;
+  /**
+   * Whether the phone bar spends the top safe-area inset. False while the
+   * shell's reconnect strip is above this page: the strip owns the notch
+   * then, and a bar that spent it too would push the session down one inset.
+   */
+  topInset?: boolean;
 };
 
 export default function TaskHeader({
@@ -151,6 +157,7 @@ export default function TaskHeader({
   onBack,
   onOpenActions,
   onShowList,
+  topInset = true,
 }: TaskHeaderProps) {
   const tr = useT();
   // This browser's renames, the same map the list's row menu writes
@@ -172,6 +179,7 @@ export default function TaskHeader({
         The status survives as the subtitle; everything else is one tap away.
       */}
       <MobileHeader
+        topInset={topInset}
         title={title}
         subtitle={
           // The project and branch are what the session belongs to; the round's

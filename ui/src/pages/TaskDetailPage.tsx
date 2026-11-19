@@ -1894,6 +1894,13 @@ export default function TaskDetailPage({
     }
   }
 
+  /*
+    Who spends the phone's top inset on this route. While the link is down the
+    shell's reconnect strip is the topmost element and pads itself for the
+    notch (`AppShell`'s `max-md:pt-safe`), so these early returns and the
+    `TaskHeader` below must leave it alone — two spenders start the page one
+    inset below the strip.
+  */
   if (loading && !task) {
     // A cold start lands here: the address is a conversation whose row has not
     // arrived yet. This used to draw a skeleton of the header and two bubbles —
@@ -1901,10 +1908,16 @@ export default function TaskDetailPage({
     // The brand mark is what is actually true during that wait: the console is
     // restoring the session. It is one element, it fades in once, and the real
     // page replaces it as soon as the detail answers.
-    // `max-md:pt-safe`: on a phone this route does not reserve the top inset
-    // yet, and centring the mark under the sensor housing is not centred.
+    // `max-md:pt-safe` unless the reconnect strip above already spent it: on
+    // a phone this route reserves the inset itself, and centring the mark
+    // under the sensor housing is not centred.
     return (
-      <div className="flex-1 flex min-h-0 flex-col items-center justify-center gap-4 bg-kin-bg px-6 max-md:pt-safe">
+      <div
+        className={[
+          "flex-1 flex min-h-0 flex-col items-center justify-center gap-4 bg-kin-bg px-6",
+          wsStatus === "disconnected" ? "" : "max-md:pt-safe",
+        ].join(" ")}
+      >
         <div role="status" aria-label={tr("common.loading")} className="kin-brand-enter">
           <BrandMark />
         </div>
@@ -1915,7 +1928,12 @@ export default function TaskDetailPage({
 
   if (error && !task) {
     return (
-      <div className="flex-1 px-6 pb-6 space-y-3 max-md:pt-safe">
+      <div
+        className={[
+          "flex-1 px-6 pb-6 space-y-3",
+          wsStatus === "disconnected" ? "" : "max-md:pt-safe",
+        ].join(" ")}
+      >
         <Link
           to="/"
           onClick={(event) => {
@@ -1939,7 +1957,12 @@ export default function TaskDetailPage({
 
   if (!task) {
     return (
-      <div className="flex-1 px-6 pb-6 space-y-3 max-md:pt-safe">
+      <div
+        className={[
+          "flex-1 px-6 pb-6 space-y-3",
+          wsStatus === "disconnected" ? "" : "max-md:pt-safe",
+        ].join(" ")}
+      >
         <Link
           to="/"
           onClick={(event) => {
@@ -2227,6 +2250,9 @@ export default function TaskDetailPage({
           onStop={onStop}
           onBack={goBack}
           onOpenActions={() => setActionsOpen(true)}
+          // The shell's reconnect strip, when shown, is the topmost element
+          // and already spends the phone top inset; the bar yields to it.
+          topInset={wsStatus !== "disconnected"}
           // One surface at a time: bringing the list back closes the panel
           // rather than leaving both columns to squeeze the conversation.
           onShowList={() => closeFilesPanel()}
