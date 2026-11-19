@@ -16,14 +16,22 @@ const SOURCE = readFileSync(
   existsSync("src/window.ts") ? "src/window.ts" : "desktop/src/window.ts",
   "utf8",
 );
+const MAIN = readFileSync(
+  existsSync("src/main.ts") ? "src/main.ts" : "desktop/src/main.ts",
+  "utf8",
+);
 
 /** The source between two anchors, so assertions are scoped, not global. */
 function slice(from: string, to: string): string {
-  const start = SOURCE.indexOf(from);
-  const end = SOURCE.indexOf(to, start + 1);
+  return sliceOf(SOURCE, from, to);
+}
+
+function sliceOf(source: string, from: string, to: string): string {
+  const start = source.indexOf(from);
+  const end = source.indexOf(to, start + 1);
   assert.ok(start >= 0, `missing anchor ${from}`);
   assert.ok(end > start, `missing anchor ${to} after ${from}`);
-  return SOURCE.slice(start, end);
+  return source.slice(start, end);
 }
 
 describe("the window remembers how it was left", () => {
@@ -87,5 +95,66 @@ describe("the window remembers how it was left", () => {
     assert.ok(maximize < show, "maximize must run before show");
     assert.ok(fullScreen > show, "full screen must run after show");
     assert.equal(SOURCE.match(/\.maximize\(\)/g)?.length, 1, "maximize is called outside ready-to-show");
+  });
+});
+
+/**
+ * P10 item 2 — the window opens before the daemon answers.
+ *
+ * The coordinator's order is proven in `boot-window.test.ts`. What only the
+ * wiring can hold is *where* those calls sit: the boot page's load must not be
+ * mistaken for the console's first load (the startup measurement reads that
+ * mark), and `main.ts` must show the window before it awaits the sidecar, with
+ * the background branch deciding first.
+ */
+describe("the boot window opens before the daemon is awaited", () => {
+  it("the boot page's load is not the console's window-first-load", () => {
+    // `scripts/desktop-startup.sh` reads `window-first-load` as "the console's
+    // first load" and requires it exactly once. The boot page is a file:// URL
+    // and must not emit it, or every run would report two.
+    const finished = sliceOf(SOURCE, 'on("did-finish-load"', 'on("did-navigate-in-page"');
+    const guard = finished.indexOf("isConsoleURL(");
+    const mark = finished.indexOf('traceStartup("window-first-load")');
+    assert.ok(guard > 0, "the mark is not guarded by the console URL check");
+    assert.ok(
+      mark > guard,
+      "the boot page's load would be counted as the console's first load",
+    );
+  });
+
+  it("the window is shown before the sidecar is awaited", () => {
+    // `await sidecar.ensureRunning()` is the gate that used to hold the window
+    // back for the whole daemon start. In the same startup body, the boot show
+    // must come first.
+    const body = sliceOf(
+      MAIN,
+      'traceStartup("sidecar-start")',
+      'traceStartup("sidecar-ready")',
+    );
+    const boot = body.indexOf("boot.start(");
+    const awaited = body.indexOf("await sidecar.ensureRunning()");
+    assert.ok(boot >= 0, "main.ts never starts the boot window");
+    assert.ok(awaited > 0, "the sidecar is no longer awaited at startup");
+    assert.ok(
+      boot < awaited,
+      "the boot window is shown only after the sidecar was awaited",
+    );
+  });
+
+  it("a background launch never shows a boot window", () => {
+    // A login-item launch idles in the menu bar. The branch has to decide
+    // before the boot show, not after it put a window on screen.
+    const body = sliceOf(
+      MAIN,
+      'traceStartup("sidecar-start")',
+      'traceStartup("sidecar-ready")',
+    );
+    const background = body.indexOf("isBackgroundLaunch()");
+    const boot = body.indexOf("boot.start(");
+    assert.ok(background > 0, "the background-launch branch is gone");
+    assert.ok(
+      background < boot,
+      "a background launch would show the boot window before checking",
+    );
   });
 });

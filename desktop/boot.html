@@ -1,0 +1,92 @@
+<!doctype html>
+<!--
+  The desktop shell's boot surface, loaded by `MainWindow.showBoot()` before
+  the daemon answers and replaced in place by the console.
+
+  Deliberately wordless and self-contained: no text means no i18n debt and
+  nothing stale to translate, and no external URL means the page paints even
+  when the daemon is not up yet. `scripts/build.mjs` copies it verbatim next to
+  the bundled main process; the mark and pulse match the console's own splash
+  in `ui/index.html` so the handover has nothing to flash.
+-->
+<html lang="zh-Hans">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+    />
+    <title>Kin</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #0e0e10;
+      }
+      .kin-boot {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+        cursor: default;
+      }
+      .kin-boot-mark {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 64px;
+        height: 64px;
+        border-radius: 14.5px;
+        overflow: hidden;
+        background: #282828;
+        box-shadow:
+          inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+          0 16px 40px -8px rgba(0, 0, 0, 0.55);
+      }
+      .kin-boot-ring {
+        position: absolute;
+        width: 88px;
+        height: 88px;
+        border-radius: 21px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        animation: kin-boot-pulse 2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+      }
+      @keyframes kin-boot-pulse {
+        0%,
+        100% {
+          transform: scale(0.95);
+          opacity: 0.45;
+        }
+        50% {
+          transform: scale(1.06);
+          opacity: 0.12;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .kin-boot-ring {
+          animation: none;
+          opacity: 0.25;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="kin-boot" aria-hidden="true">
+      <div class="kin-boot-ring"></div>
+      <div class="kin-boot-mark">
+        <svg viewBox="0 0 512 512" width="64" height="64" aria-hidden="true">
+          <rect width="512" height="512" fill="#282828" />
+          <path
+            d="M116 116H219V210L396 23V116L263 256L396 396V489L219 302V396H116Z"
+            fill="#ffffff"
+          />
+        </svg>
+      </div>
+    </div>
+  </body>
+</html>
