@@ -35,6 +35,8 @@ import Markdown from "../Markdown";
 import RoundEvidenceCard from "./RoundEvidenceCard";
 import ToolStepRow from "./ToolStepRow";
 import { formatSharedHTML, formatSharedText, type SharedMessage } from "./shareExport";
+import UserAttachments from "./UserAttachments";
+import type { UserImage } from "../../lib/attachments";
 import {
   buildChatItems,
   findSpeakerModel,
@@ -63,12 +65,14 @@ const EMPTY_QUEUED: Set<number> = new Set();
 const NO_FIND_HITS: readonly string[] = [];
 
 /** One local copy of a send the daemon has not echoed yet. */
-export type PendingUserMessage = { key: string; text: string };
+export type PendingUserMessage = { key: string; text: string; images?: UserImage[] };
 
 type Props = {
   events: TaskEvent[];
   /** Fallback first user bubble when create hasn't seeded events yet. */
   fallbackUserPrompt?: string;
+  /** Pictures that fallback prompt carried; the text alone no longer names them. */
+  fallbackUserPromptImages?: UserImage[];
   /**
    * User messages the composer has already handed over but the transcript does
    * not contain yet. They are drawn as ordinary user bubbles at the end of the
@@ -158,6 +162,7 @@ type Props = {
 export default function ChatStream({
   events,
   fallbackUserPrompt,
+  fallbackUserPromptImages,
   pendingUserMessages,
   trailing,
   loading = false,
@@ -204,6 +209,7 @@ export default function ChatStream({
         key: message.key,
         speaker: "user",
         text: message.text,
+        images: message.images,
         partial: false,
       })),
     ];
@@ -470,6 +476,7 @@ export default function ChatStream({
             activeFindKey={activeFindKey}
             speaker={turn.item.speaker}
             text={turn.item.text}
+            images={turn.item.images}
             partial={turn.item.partial}
             queued={queued}
             // Whether the control may show at all is the row's call: it is the
@@ -624,7 +631,12 @@ export default function ChatStream({
         />
       )}
       {!hasUserMsg && fallbackUserPrompt?.trim() && (
-        <MessageRow speaker="user" text={fallbackUserPrompt} partial={false} />
+        <MessageRow
+          speaker="user"
+          text={fallbackUserPrompt}
+          images={fallbackUserPromptImages}
+          partial={false}
+        />
       )}
 
       {turns.map((turn, turnIdx) => {
@@ -1377,6 +1389,8 @@ export type MessageRowProps = {
   activeFindKey?: string | null;
   speaker: string;
   text: string;
+  /** Pictures this user message carried, drawn above its body. */
+  images?: UserImage[];
   partial?: boolean;
   /** Still waiting for a turn: the daemon has it queued, not answered. */
   queued?: boolean;
@@ -1400,6 +1414,7 @@ const MessageRow = memo(function MessageRow({
   activeFindKey,
   speaker,
   text,
+  images,
   partial,
   queued = false,
   onUnqueue,
@@ -1505,6 +1520,7 @@ const MessageRow = memo(function MessageRow({
               </span>
             )}
           </div>
+          {images && images.length > 0 && <UserAttachments images={images} />}
           <div
             className="max-w-full min-w-0 px-3.5 py-2.5 rounded-2xl rounded-br-md text-strong sm:text-subtitle leading-prose whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
             style={{
@@ -1560,6 +1576,16 @@ const MessageRow = memo(function MessageRow({
   );
 }, sameRow);
 
+/**
+ * Pictures are parsed fresh on every projection, so identity is never equal
+ * even when nothing about them changed; compare what they would draw.
+ */
+function sameImages(a?: readonly UserImage[], b?: readonly UserImage[]): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((image, index) => image.name === b[index].name && image.src === b[index].src);
+}
+
 /** Same reasoning as `sameMessage`: compare what is drawn, not the closures. */
 export function sameRow(a: MessageRowProps, b: MessageRowProps): boolean {
   return (
@@ -1567,6 +1593,7 @@ export function sameRow(a: MessageRowProps, b: MessageRowProps): boolean {
     a.activeFindKey === b.activeFindKey &&
     a.speaker === b.speaker &&
     a.text === b.text &&
+    sameImages(a.images, b.images) &&
     a.partial === b.partial &&
     a.queued === b.queued &&
     // Presence, not identity: the control is there or it is not, and the fresh

@@ -40,6 +40,16 @@ describe("a pending send", () => {
     const send = pendingSend("look\n\nAttached file:\n- notes.txt: /Users/me/secret/notes.txt", []);
     expect(send.text).toBe("look\n\nAttached file: notes.txt");
   });
+
+  it("carries the images parsed from the raw prompt", () => {
+    const raw = "look\n\nAttached image:\n- shot.png: /Users/me/.kin/uploads/abc.png";
+    const send = pendingSend(raw, []);
+    expect(send.text).toBe("look\n\nAttached image: shot.png");
+    expect(send.images).toEqual([{ name: "shot.png", src: "/api/uploads/abc.png" }]);
+    // Handoff matching compares this text against the event's, so the
+    // normalised shape must be identical on both sides.
+    expect(userMessageText(userEvent(1, raw))).toBe(send.text);
+  });
 });
 
 describe("userMessageText", () => {

@@ -21,14 +21,39 @@ pr_state() { # <slug> -> prints OPEN|MERGED|CLOSED; non-zero when the state cann
 # lane per pass: a newer rework whose slug sorted earlier took every free slot while an older one
 # waited. 2026-11-19: `panel-topmost` (18:32) was claimed at 18:44 and `stale-console` (15:21) had
 # been waiting since then. Name breaks an mtime tie so the pick stays deterministic.
-sendbacks_by_age() { # prints $STATE/sendback/*.md, oldest mtime first
-  python3 - "$STATE/sendback" <<'PY'
-import glob, os, sys
-files = [p for p in glob.glob(os.path.join(sys.argv[1], "*.md")) if os.path.isfile(p)]
-for p in sorted(files, key=lambda f: (os.path.getmtime(f), f)):
-    print(p)
-PY
+# One stat per path, and a path that is gone by then is dropped, not fatal: merge.sh archives a
+# sendback into sendback/done/ the moment its PR lands, concurrently with this scan, so the glob
+# and the stat can disagree. A raised FileNotFoundError exited python non-zero, the process
+# substitution yielded nothing, and that pass claimed no rework at all — every queued sendback
+# lost a pulse, not just the vanished one (2026-11-19).
+# `_sendback-order` (stdin: one path per line) is a hidden test seam, the same shape as
+# RSI_PR_STATE_CMD above: sendbacks_by_age pipes the production glob through it, and
+# test-lane-autofill.sh feeds it fixed paths so the missing-file case needs no timed race.
+sendback_order() {
+  # -c, not a heredoc: the heredoc would own stdin and swallow the piped paths.
+  python3 -c '
+import os, stat, sys
+
+def key(p):
+    try:
+        st = os.stat(p)          # the only stat: an isfile() before it would stat twice
+    except OSError:              # archived between the glob and here: drop it, keep the queue
+        return None
+    if not stat.S_ISREG(st.st_mode):
+        return None
+    return (st.st_mtime, p)
+
+paths = [line.strip() for line in sys.stdin if line.strip()]
+for path, name in sorted(k for k in map(key, paths) if k):
+    print(name)
+'
 }
+
+sendbacks_by_age() { # prints $STATE/sendback/*.md, oldest mtime first
+  printf '%s\n' "$STATE"/sendback/*.md | sendback_order
+}
+
+if [ "$CMD" = _sendback-order ]; then sendback_order; exit 0; fi
 
 launch() { # n
   nohup /bin/bash "$SELF" run "$1" >> "$RUNS/$(date +%F-%H%M%S)-lane$1.log" 2>&1 < /dev/null &

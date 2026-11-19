@@ -439,6 +439,31 @@ describe("transcriptProjection", () => {
     expect(plans.map((plan) => plan.text)).toEqual(["· old plan", "· new plan"]);
   });
 
+  it("a user message carries its inline images", () => {
+    const raw = "look\n\nAttached image:\n- shot.png: /Users/me/.kin/uploads/abc.png";
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: raw }],
+        }),
+      ],
+      "kin",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "message",
+        speaker: "user",
+        text: "look\n\nAttached image: shot.png",
+        images: [{ name: "shot.png", src: "/api/uploads/abc.png" }],
+      },
+    ]);
+    // The absolute path stays with the agent; nothing drawn carries it.
+    expect(JSON.stringify(items)).not.toContain("/Users/");
+  });
+
   it("starts a new round for prompts that do not reach the transcript as words", () => {
     // A prompt starts a round whatever it looks like once it is in the event
     // stream. Two shapes leave the message case early: a text that reads as a
