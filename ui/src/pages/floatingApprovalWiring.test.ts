@@ -89,6 +89,23 @@ describe("the floating approval's wiring", () => {
     expect(cardAt).toBeGreaterThan(elseAt);
   });
 
+  it("keeps the strip out of an open panel's own bottom controls", () => {
+    const floating = source("src/components/cards/FloatingApproval.tsx");
+    const surface = source("src/components/layout/PanelSurface.tsx");
+
+    // The column's width is the offset the strip has to clear; the store
+    // counts it per shape, and the container registers the shape it drew.
+    expect(floating).toMatch(/usePanelColumnOpen\(\)/);
+    expect(floating).toContain("lg:right-[calc(380px+1.5rem)]");
+    expect(surface).toMatch(/addPanel\(shape\)/);
+    expect(surface).toMatch(/removePanel\(shape\)/);
+
+    // A covering panel must not measure the conversation's band behind it;
+    // it clears the panel's own docked regions instead.
+    expect(floating).toMatch(/panelOpen && !\(panelColumn && window\.innerWidth >= 1024\)/);
+    expect(floating).toContain("\"[role='complementary'] section[aria-label]\"");
+  });
+
   it("answers through the one shared decision path", () => {
     expect(shell).toMatch(/useApprovalDecision\(\)/);
     expect(shell).toMatch(/busy=\{approvalDecision\.busy\}/);

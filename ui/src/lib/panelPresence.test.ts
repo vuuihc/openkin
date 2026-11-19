@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addPanel, panelOpenCount, removePanel, subscribePanels } from "./panelPresence";
+import {
+  addPanel,
+  panelColumnCount,
+  panelOpenCount,
+  removePanel,
+  subscribePanels,
+} from "./panelPresence";
 
 /**
  * How many visible panels are open, as one value.
@@ -14,7 +20,10 @@ import { addPanel, panelOpenCount, removePanel, subscribePanels } from "./panelP
 afterEach(() => {
   // A test that leaks a registration would make the next one pass for the
   // wrong reason; the components remember to clean up, so the tests should too.
-  while (panelOpenCount() > 0) removePanel();
+  while (panelOpenCount() > 0) {
+    if (panelColumnCount() > 0) removePanel("column");
+    else removePanel("overlay");
+  }
 });
 
 describe("panelPresence", () => {
@@ -44,5 +53,26 @@ describe("panelPresence", () => {
     // Closing one leaves the other open: the strip stays, the card stays away.
     removePanel();
     expect(panelOpenCount()).toBe(1);
+  });
+
+  it("counts the column panels on their own", () => {
+    // The strip clears the 380px column, not every panel: an overlay covers
+    // the conversation, so there is no column edge to move away from.
+    addPanel("overlay");
+    expect(panelColumnCount()).toBe(0);
+
+    addPanel("column");
+    expect(panelOpenCount()).toBe(2);
+    expect(panelColumnCount()).toBe(1);
+
+    // Releasing the overlay leaves the column counted, and vice versa — the
+    // pairs are matched by shape, not by call order.
+    removePanel("overlay");
+    expect(panelOpenCount()).toBe(1);
+    expect(panelColumnCount()).toBe(1);
+
+    removePanel("column");
+    expect(panelOpenCount()).toBe(0);
+    expect(panelColumnCount()).toBe(0);
   });
 });

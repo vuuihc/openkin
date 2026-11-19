@@ -1,8 +1,9 @@
 import { useEffect, type ReactNode } from "react";
-import { addPanel, removePanel } from "../../lib/panelPresence";
+import { addPanel, removePanel, type PanelShape } from "../../lib/panelPresence";
 
 /**
- * How a panel takes its space. See the component below.
+ * How a panel takes its space, declared with the presence store that publishes
+ * it. See the component below.
  *
  * - `overlay` — full-bleed over the conversation area, for widths where a
  *   column would push the conversation under its floor (below `lg`).
@@ -10,7 +11,7 @@ import { addPanel, removePanel } from "../../lib/panelPresence";
  *   overlay below it, because 768px minus the rail, the list and 380px leaves
  *   a conversation narrower than it can read.
  */
-export type PanelShape = "overlay" | "column";
+export type { PanelShape };
 
 /**
  * The one session surface.
@@ -58,9 +59,9 @@ export default function PanelSurface({
   // way unmounting it does: the terminal closes by hiding, not by unmounting.
   useEffect(() => {
     if (hidden) return;
-    addPanel();
-    return removePanel;
-  }, [hidden]);
+    addPanel(shape);
+    return () => removePanel(shape);
+  }, [hidden, shape]);
 
   return (
     <div

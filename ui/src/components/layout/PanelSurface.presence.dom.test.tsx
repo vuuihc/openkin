@@ -2,7 +2,7 @@
 import { StrictMode } from "react";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { panelOpenCount } from "../../lib/panelPresence";
+import { panelColumnCount, panelOpenCount } from "../../lib/panelPresence";
 import PanelSurface from "./PanelSurface";
 
 /**
@@ -45,6 +45,30 @@ describe("PanelSurface presence", () => {
       </PanelSurface>,
     );
     expect(panelOpenCount()).toBe(0);
+  });
+
+  it("a column panel is counted as the column, and a hidden one is not", () => {
+    // The floating approval clears the 380px column's edge only for this
+    // shape: an overlay covers the conversation, so there is no column to
+    // stay out of.
+    const { rerender, unmount } = render(
+      <PanelSurface label="Files" shape="column">
+        body
+      </PanelSurface>,
+    );
+    expect(panelOpenCount()).toBe(1);
+    expect(panelColumnCount()).toBe(1);
+
+    rerender(
+      <PanelSurface label="Files" shape="column" hidden>
+        body
+      </PanelSurface>,
+    );
+    expect(panelOpenCount()).toBe(0);
+    expect(panelColumnCount()).toBe(0);
+
+    unmount();
+    expect(panelColumnCount()).toBe(0);
   });
 
   it("StrictMode double-mount balances back to zero", () => {

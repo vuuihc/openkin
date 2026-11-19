@@ -18,7 +18,20 @@ import { useSyncExternalStore } from "react";
  * mounted but hidden never registers: the terminal holds a live PTY behind
  * `hidden`, and nothing can be covered by a surface that is not painted.
  */
+
+/**
+ * The width a visible panel takes, mirrored from `PanelSurface`'s `PanelShape`
+ * (declared here so the store does not import the container that writes it).
+ *
+ * Only a `column` panel leaves the conversation on screen; from `lg` up it is
+ * the 380px right-hand column, and below `lg` even a column panel is the
+ * full-bleed overlay. The floating approval reads this to keep its strip over
+ * the conversation instead of inside the panel's own bottom controls.
+ */
+export type PanelShape = "overlay" | "column";
+
 let open = 0;
+let columns = 0;
 const subscribers = new Set<() => void>();
 
 function publish(): void {
@@ -37,19 +50,35 @@ export function panelOpenCount(): number {
   return open;
 }
 
-/** A visible panel took the screen. Every call needs its `removePanel`. */
-export function addPanel(): void {
+/** Visible panels that take the column beside the conversation. */
+export function panelColumnCount(): number {
+  return columns;
+}
+
+/**
+ * A visible panel took the screen. Every call needs its `removePanel` with the
+ * same shape — the count and the column count must move together or the
+ * approval offsets by a panel that is no longer there.
+ */
+export function addPanel(shape: PanelShape = "overlay"): void {
   open += 1;
+  if (shape === "column") columns += 1;
   publish();
 }
 
 /** That panel is gone — unmounted, or hidden. */
-export function removePanel(): void {
+export function removePanel(shape: PanelShape = "overlay"): void {
   open -= 1;
+  if (shape === "column") columns -= 1;
   publish();
 }
 
 /** Whether a visible panel owns the screen, so the approval keeps its strip. */
 export function usePanelOpen(): boolean {
   return useSyncExternalStore(subscribePanels, panelOpenCount, () => 0) > 0;
+}
+
+/** Whether one of the open panels is the side column. */
+export function usePanelColumnOpen(): boolean {
+  return useSyncExternalStore(subscribePanels, panelColumnCount, () => 0) > 0;
 }

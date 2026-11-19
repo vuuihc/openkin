@@ -54,6 +54,52 @@ function panel(hidden = false): ReactNode {
   );
 }
 
+/** A page band — the conversation's composer — laid out from `top` down. */
+function composerBand(top: number): HTMLDivElement {
+  const chrome = document.createElement("div");
+  chrome.setAttribute("data-kin-bottom-chrome", "");
+  chrome.getBoundingClientRect = () =>
+    ({ top, bottom: 768, left: 0, right: 390, width: 390, height: 768 - top }) as DOMRect;
+  return chrome;
+}
+
+/** The panel's own docked furniture — the comment box or the comments tray. */
+function DockedRegion({ top }: { top: number }) {
+  return (
+    <section
+      aria-label="Comment"
+      ref={(element) => {
+        if (!element) return;
+        element.getBoundingClientRect = () =>
+          ({ top, bottom: 768, left: 0, right: 390, width: 390, height: 768 - top }) as DOMRect;
+      }}
+    />
+  );
+}
+
+/**
+ * A phone-width viewport. The strip only treats a panel as covering the
+ * conversation below `lg`; jsdom is 1024 wide by default.
+ */
+function viewport(width: number, height = 768): () => void {
+  const original = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: width });
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    writable: true,
+    value: height,
+  });
+  return () => {
+    if (original) Object.defineProperty(window, "innerWidth", original);
+    else delete (window as unknown as { innerWidth?: number }).innerWidth;
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      writable: true,
+      value: 768,
+    });
+  };
+}
+
 const approveButton = () => screen.queryByRole("button", { name: new RegExp(t("chat.approve")) });
 const denyButton = () => screen.queryByRole("button", { name: new RegExp(t("chat.deny")) });
 
@@ -156,5 +202,120 @@ describe("FloatingApproval with a panel open", () => {
     expect(denyButton()).toBeNull();
     const control = screen.getByRole("button", { name: /Fix the tests/ });
     expect(control.textContent).toContain("+1");
+  });
+
+  it("keeps the strip's label, task and count 8px apart", () => {
+    // Astryx wraps the button's children in its own label span, so a `gap` on
+    // the button separated nothing and every strip-only screen read
+    // `等待处理[seed] …` with no space. The row inside the button carries it.
+    const { props } = setup({
+      raised: true,
+      expectsBottomChrome: false,
+      screenKey: "/sessions",
+    });
+    render(<FloatingApproval {...props} />);
+
+    const control = screen.getByRole("button", { name: /Fix the tests/ });
+    const row = control.querySelector("span.gap-2");
+    expect(row).not.toBeNull();
+    expect(row?.className).toContain("flex");
+    expect(row?.className).toContain("items-center");
+    // One row holds all three parts, so the gap is between them.
+    expect(screen.getByText(t("approval.floatingLabel")).parentElement).toBe(row);
+    expect(screen.getByText("Fix the tests").parentElement).toBe(row);
+    expect(screen.getByText("+1").parentElement).toBe(row);
+  });
+
+  it("moves the strip clear of the column panel's 380px", () => {
+    // At 1100 the pill used to sit inside the panel column, over the diff
+    // comment box and the comments tray header.
+    const restore = viewport(1100);
+    const chrome = composerBand(600);
+    document.body.appendChild(chrome);
+    try {
+      const { props } = setup();
+      const view = render(
+        <>
+          <PanelSurface label="Files" shape="column">
+            file body
+          </PanelSurface>
+          <FloatingApproval {...props} />
+        </>,
+      );
+
+      const aside = view.container.querySelector("aside");
+      expect(aside?.className).toContain("lg:right-[calc(380px+1.5rem)]");
+      // The conversation — and its composer — is still on screen beside the
+      // column, so the strip still clears that band.
+      expect((aside as HTMLElement).style.bottom).toBe("176px");
+    } finally {
+      chrome.remove();
+      restore();
+    }
+  });
+
+  it("does not offset for an overlay panel, which covers the conversation", () => {
+    const chrome = composerBand(600);
+    document.body.appendChild(chrome);
+    try {
+      const { props } = setup();
+      const view = render(
+        <>
+          {panel()}
+          <FloatingApproval {...props} />
+        </>,
+      );
+      expect(view.container.querySelector("aside")?.className).not.toContain(
+        "lg:right-[calc(380px+1.5rem)]",
+      );
+    } finally {
+      chrome.remove();
+    }
+  });
+
+  it("clears the panel's own comment box instead of the covered composer", () => {
+    // A full-bleed panel hides the conversation, so the composer's box is not
+    // what is on screen: measuring it parked the pill over the quoted diff
+    // line in the comment box. The strip clears the panel's docked furniture.
+    const restore = viewport(390, 844);
+    const chrome = composerBand(600);
+    document.body.appendChild(chrome);
+    try {
+      const { props } = setup();
+      const view = render(
+        <>
+          <PanelSurface label="Files">
+            <DockedRegion top={620} />
+          </PanelSurface>
+          <FloatingApproval {...props} />
+        </>,
+      );
+
+      const aside = view.container.querySelector("aside") as HTMLElement;
+      // 844 - 620 + 8: above the comment box, not above the covered composer
+      // (which would be 844 - 600 + 8 = 252px).
+      expect(aside.style.bottom).toBe("232px");
+    } finally {
+      chrome.remove();
+      restore();
+    }
+  });
+
+  it("keeps the fixed offset when a covering panel docks nothing", () => {
+    const restore = viewport(390, 844);
+    try {
+      const { props } = setup();
+      const view = render(
+        <>
+          {panel()}
+          <FloatingApproval {...props} />
+        </>,
+      );
+      // No measurement: the CSS fallback above the phone's bottom edge stands,
+      // clear of everything the panel paints.
+      expect((view.container.querySelector("aside") as HTMLElement).style.bottom).toBe("");
+    } finally {
+      restore();
+    }
   });
 });
