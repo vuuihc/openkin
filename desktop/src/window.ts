@@ -15,6 +15,7 @@ import {
   boundsPath,
   appIconPath,
 } from "./config";
+import { traceStartup } from "./startup-trace";
 import {
   MIN_HEIGHT,
   MIN_WIDTH,
@@ -38,7 +39,7 @@ const ERR_ABORTED = -3;
 export class MainWindow {
   private win: BrowserWindow | null = null;
   private token: string | null = null;
-  /** Prefer live token (e.g. ~/.kin/token) over a stale snapshot. */
+  /** Prefer the live token file over a stale snapshot. */
   private tokenSource: (() => string | null) | null = null;
   private allowClose = false;
   private pendingPath = "/";
@@ -144,6 +145,7 @@ export class MainWindow {
       },
     };
     this.win = new BrowserWindow(opts);
+    traceStartup("window-created");
 
     // Keep OS title bar as Kin even if a page sets <title> later.
     this.win.on("page-title-updated", (e) => {
@@ -160,7 +162,9 @@ export class MainWindow {
       if (state === "maximized") this.win?.maximize();
       // Still called in both states: `maximize()` shows but does not focus, and
       // `show()` on the window it already displayed only raises it.
+      traceStartup("window-ready-to-show");
       this.win?.show();
+      traceStartup("window-shown");
       // Full screen only once the window is on screen: macOS ignores the
       // request for a window that is not, and a window that is would enter the
       // Space with nothing to animate from.
@@ -212,6 +216,7 @@ export class MainWindow {
     );
 
     this.win.webContents.on("did-finish-load", () => {
+      traceStartup("window-first-load");
       this.loadAttempts = 0;
       this.clearLoadRetry();
       this.rememberPathFromURL(this.win?.webContents.getURL() ?? "");
@@ -225,7 +230,7 @@ export class MainWindow {
       this.rememberPathFromURL(url);
     });
 
-    // Navigation lockdown: only 127.0.0.1:7777
+    // Navigation lockdown: only the daemon host and resolved port.
     this.win.webContents.on("will-navigate", (event, url) => {
       if (!isAllowedURL(url)) {
         event.preventDefault();

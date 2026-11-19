@@ -17,7 +17,8 @@ import { routeNotifyMessage } from "./native-notifications";
 import { taskIdFromURL } from "./task-notifications";
 import { retryWhileUnavailable } from "./daemon-retry";
 import { registerIpcHandlers } from "./ipc";
-import { appIconPath, isDev } from "./config";
+import { appIconPath, isDev, resolveUserDataDir, TOKEN_PATH } from "./config";
+import { traceStartup } from "./startup-trace";
 import { Updater } from "./updater-wiring";
 import {
   clearDownload,
@@ -39,6 +40,10 @@ for (const stream of [process.stdout, process.stderr]) {
   stream.on("error", () => {});
 }
 
+// First mark: the launcher's KIN_STARTUP_ORIGIN_MS covers process creation,
+// dyld and Electron init before this line ran.
+traceStartup("process");
+
 // Branding before ready: unpackaged `electron .` otherwise shows "Electron"
 // in the menu bar / About / some process lists. productName only applies when packaged.
 const APP_NAME = "Kin";
@@ -48,14 +53,21 @@ process.title = APP_NAME;
 // Dev: isolate userData so singleton lock doesn't collide with a packaged
 // /Applications/Kin.app (or a zombie from a previous npm run dev).
 // Must run before requestSingleInstanceLock().
-if (process.env.KIN_DESKTOP_DEV === "1") {
+//
+// An explicit KIN_DESKTOP_USER_DATA wins: a measurement or test launch needs
+// its singleton lock in a throwaway directory, or it exits on the live
+// shell's lock before it emits a single mark.
+const explicitUserData = resolveUserDataDir(process.env);
+if (explicitUserData) {
+  app.setPath("userData", explicitUserData);
+} else if (process.env.KIN_DESKTOP_DEV === "1") {
   app.setPath("userData", join(app.getPath("appData"), "Kin-dev"));
 }
 
 const sidecar = new Sidecar();
 const mainWindow = new MainWindow();
 // Always read the live token file — tray can open the window before ensureRunning
-// finishes and writes/refreshes ~/.kin/token.
+// finishes and writes/refreshes the token.
 mainWindow.setTokenSource(() => sidecar.readToken());
 
 let tray: AppTray | null = null;
@@ -221,7 +233,7 @@ function handleWSMessage(msg: WSMessage): void {
 function connectWS(): void {
   const token = sidecar.readToken();
   if (!token) {
-    console.warn("[kin-desktop] no token at ~/.kin/token — WS deferred");
+    console.warn(`[kin-desktop] no token at ${TOKEN_PATH} — WS deferred`);
     return;
   }
   mainWindow.setToken(token);
@@ -450,6 +462,7 @@ if (!gotLock) {
   app
     .whenReady()
     .then(async () => {
+      traceStartup("app-ready");
       console.log("[kin-desktop] app ready");
       registerDeepLinkProtocol();
       applyAppBranding();
@@ -468,7 +481,7 @@ if (!gotLock) {
       }
 
       // Seed token early so a tray open during ensureRunning still has a shot
-      // when ~/.kin/token already exists from a previous serve.
+      // when the token file already exists from a previous serve.
       mainWindow.setToken(sidecar.readToken());
 
       setupTray();
@@ -493,7 +506,13 @@ if (!gotLock) {
         },
       });
 
+      traceStartup("sidecar-start");
       const status = await sidecar.ensureRunning();
+      // "unavailable" is a failed start, not a readiness edge. The measurement
+      // script asks for this mark to know a daemon answered; emitting it for a
+      // daemon that never did would label the failure a fast boot. The script
+      // also rejects the `daemon unavailable` line below.
+      if (status.state !== "unavailable") traceStartup("sidecar-ready");
       console.log("[kin-desktop] sidecar status", JSON.stringify(status));
 
       if (status.state !== "unavailable") {

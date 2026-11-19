@@ -58,6 +58,63 @@ export function parseCISummary(raw: string | undefined): CISummary | null {
   };
 }
 
+/** One review as the daemon cached it, oldest first. */
+export type Review = { author: string; state: string; body: string };
+
+/**
+ * `reviews` is a JSON array string written by the daemon, read defensively for
+ * the same reason as `ci_summary`: it caches somebody else's API.
+ *
+ * `null` means never read — the column is `''` on every row written before it
+ * existed, and a failed read leaves it that way. `[]` means a successful read
+ * that found no reviews. Collapsing the two would render "could not ask" as
+ * "nobody reviewed this", which is exactly the distinction the daemon keeps.
+ */
+export function parseReviews(raw: string | undefined): Review[] | null {
+  if (!raw) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(value)) return null;
+  const reviews: Review[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    // An entry with no author names nobody; there is nothing to show.
+    if (typeof record.author !== "string" || !record.author) continue;
+    reviews.push({
+      author: record.author,
+      state: typeof record.state === "string" ? record.state : "",
+      body: typeof record.body === "string" ? record.body : "",
+    });
+  }
+  return reviews;
+}
+
+/**
+ * How a review reads. An unknown state renders raw: the forge can add one, and
+ * a blank or colour-only cell would hide it.
+ */
+export function reviewStateLabel(tr: Translate, state: string): string {
+  switch (state) {
+    case "APPROVED":
+      return tr("pr.reviewStateApproved");
+    case "CHANGES_REQUESTED":
+      return tr("pr.reviewStateChangesRequested");
+    case "COMMENTED":
+      return tr("pr.reviewStateCommented");
+    case "DISMISSED":
+      return tr("pr.reviewStateDismissed");
+    case "PENDING":
+      return tr("pr.reviewStatePending");
+    default:
+      return state;
+  }
+}
+
 /**
  * The row to lead with: the current branch's, which is what the diff and the
  * publish button belong to.
