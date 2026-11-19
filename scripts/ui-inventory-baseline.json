@@ -12,7 +12,7 @@
     "role_listbox": {"label": "role=\"listbox\"", "occurrences": 9, "files": 6},
     "role_dialog": {"label": "role=\"dialog\"", "occurrences": 13, "files": 8},
     "role_tab": {"label": "role=\"tab\"", "occurrences": 4, "files": 4},
-    "role_status": {"label": "role=\"status\"", "occurrences": 31, "files": 20},
+    "role_status": {"label": "role=\"status\"", "occurrences": 32, "files": 20},
     "role_alert": {"label": "role=\"alert\"", "occurrences": 26, "files": 12},
     "use_anchored_panel": {"label": "useAnchoredPanel", "occurrences": 5, "files": 2},
     "create_portal": {"label": "createPortal", "occurrences": 8, "files": 4},
