@@ -17,9 +17,10 @@ discovery execs its binary for ~182 ms.
 |---|---|
 | Attribution sub-marks (`engine-routing`, `engine-catalog`, `engine-workspace`, `engine-notifier`, `engine-configure`) | green — `--selftest` emitted 17 phase lines, each once |
 | Concurrent `Registry.List` + behaviour pin | green — `TestListProbesRegistrationsConcurrently`, `TestListMatchesSequentialOrder` |
+| Probe panic containment | green — `TestListSurvivesAProbePanic` |
 | Boot prints readiness without model discovery | green — `engine-build` span 0 ms cold / 0 ms warm |
 | Same-session before/after | green — tables 1 and 3 below |
-| `go test -race ./internal/agent/... ./internal/server/...` | green — 123 tests, 2 packages |
+| `go test -race ./internal/agent/... ./internal/server/...` | green — 124 tests, 2 packages |
 | `./scripts/check.sh` | green — all 18 checks |
 | Desktop shell / UI | untouched; no rendered change |
 
@@ -145,9 +146,12 @@ only fed a readiness print loop (`Available`, `Binary`, `Reason`).
 1. **`internal/agent/registry.go` — `List` probes with a bounded fan-out.**
    One goroutine per registration under a 16-slot semaphore; results are
    written by index (`out[i]`), so order, every `Info` field, and the `Default`
-   flag match the sequential implementation. Nothing is cached: `List` still
-   answers `/api/agents` by probing, so a binary installed while the daemon
-   runs appears on the next request. `sync` only; no dependency change.
+   flag match the sequential implementation. Each probe recovers its own
+   panic: a buggy adapter row comes back unavailable with the panic as its
+   reason instead of ending the daemon, which is what an unrecovered panic in
+   a goroutine would do. Nothing is cached: `List` still answers `/api/agents`
+   by probing, so a binary installed while the daemon runs appears on the next
+   request. `sync` only; no dependency change.
 2. **`internal/server/server.go` — boot asks for readiness, not models.** The
    boot loop now walks `reg.IDs()`, gets each registration, and calls `Status`;
    the printed lines are byte-identical to the ones `List` produced because the
@@ -157,21 +161,30 @@ only fed a readiness print loop (`Available`, `Binary`, `Reason`).
    `routing.NewCatalog`), `engine-catalog` (after the readiness loop),
    `engine-workspace` (settings + `workspace.NewManager`), `engine-notifier`
    (APNs client from settings), `engine-configure` (`task.NewConfiguredEngine`).
-   Every pre-existing mark and its meaning is unchanged.
+   Every pre-existing mark is still emitted; `engine-build` now reads ~0 ms
+   because the work that used to land in it is attributed to the new
+   sub-marks.
 4. **`scripts/startup-baseline.sh`** requires the new marks exactly once and
    reports `17 phase lines`.
 
 ## Red/green
 
 - `TestListProbesRegistrationsConcurrently` — 74 fakes, every `Status` and
-  `Models` sleeps 3 ms. On the parent commit:
-  `List probed 74 registrations serially: 555.9905ms (want < 60ms; ...)`.
-  On this branch: green well under the bound.
+  `Models` sleeps 3 ms. Against the pre-concurrency implementation:
+  `List probed 74 registrations serially: 692.612ms (want < 200ms; 74 × 3ms
+  for Status + Models is ~444ms sequential)`. The bound was first set to
+  60 ms; ten runs under `GOMAXPROCS=2` (the setting `scripts/check.sh` uses)
+  produced 60.9 ms and 64.5 ms, so it was raised to 200 ms — still 2.2× below
+  the sequential floor and ~3× above the measured concurrent range (40–65 ms).
 - `TestListMatchesSequentialOrder` — 24 registrations with colliding
   priorities and distinguishable fields; asserts the concurrent `List` equals
   the sequential reference row for row (`reflect.DeepEqual`), and that the
-  returned `Models` slice is a copy. Passes on both sides of the change.
-- `go test -race ./internal/agent/... ./internal/server/...` — 123 tests, green.
+  returned `Models` slice is a copy of the plugin's own slice. Passes on both
+  sides of the change.
+- `TestListSurvivesAProbePanic` — a panicking `Status` and a panicking
+  `Models` each cost their own row (unavailable, reason `probe panicked: …`)
+  and leave order and the healthy row intact.
+- `go test -race ./internal/agent/... ./internal/server/...` — 124 tests, green.
 - `bash scripts/startup-baseline.sh --selftest` —
   `ok startup-baseline selftest: 17 phase lines, each once, in a 878ms boot`.
 - `./scripts/check.sh` — all 18 checks green.
@@ -181,7 +194,11 @@ only fed a readiness print loop (`Available`, `Binary`, `Reason`).
 - **First `/api/agents` after boot pays droid's discovery (~182 ms)** and then
   serves from the 10-minute cache. That surface is on demand; the boot is not.
   This is a deliberate trade: the answer is unchanged, only its first-call
-  latency moved off the boot path.
+  latency moved off the boot path. The same cold cache applies to a Node's
+  first `buildNodeHello → nodeAgents → reg.List` when it dials its Hub: it
+  pays the discovery once, in `runNode`'s goroutine, which does not gate the
+  `ready` mark. That cost is unmeasured here; it is bounded by the same
+  10-minute cache.
 - **Sub-millisecond resolution.** All `engine-*` rows report 0 ms because each
   is under 1 ms; the trace cannot say whether the span is 0.2 ms or 0.9 ms.
 - **The registry on this machine has 15 rows**, not the catalog's 74. The
