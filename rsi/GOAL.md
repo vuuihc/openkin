@@ -234,8 +234,8 @@ handshake edge at a **595 ms** median, inside the 700 ms bar below. Item 2 (`R-w
 `b47032f1` (#418) on 2026-11-20 — `window-ready-to-show` precedes `sidecar-ready` in both measurement runs,
 the shell's own boot surface is what the person sees first, and `window-first-load` fires once, with 390/1100
 boot-surface shots in `rsi/state/shots/window-before-daemon/`. Residual: the settled-console half of done-means
-2 has no fresh shots at those widths, because #418 touched no `ui/` file and left the console visually unchanged
-(the merge lane's UX walk is its evidence).
+2 has no fresh shots at those widths: #418 touched no `ui/` file, so the console bundle is unchanged, and the
+merge lane opened only the two boot shots — no settled-console 390/1100 shots exist yet.
 
 **Why this and not features.** Ethan's own report (「启动巨慢」, `rsi/state/dogfood/dogfood-20261118-four-defects.md`
 D1) is finally a number, and it is the first thing every dogfood meets. The 2026-11-19 baseline
