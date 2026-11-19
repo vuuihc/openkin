@@ -13,15 +13,17 @@ import {
   formatBytes,
   isImageMime,
   MAX_UPLOAD_BYTES,
-  uploadFile,
+  uploadFileWithProgress,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { isImeKeyEvent } from "../../lib/ime";
 import { filterRoles, insertRole, type AgentRole } from "../../lib/agentRoles";
 import { agentDisplayName } from "../../lib/agentMention";
 import { agentCatalogState } from "../../lib/agentCatalog";
+import type { UserImage } from "../../lib/attachments";
 import { useAppStore } from "../../store/appStore";
 import Button from "../ui/Button";
+import { ImageViewer } from "./UserAttachments";
 import {
   IconAlert,
   IconFile,
@@ -139,6 +141,33 @@ type Attachment = Upload & {
   previewUrl?: string;
 };
 
+/**
+ * A picked file that is not on the server yet, in the slot it will keep. The
+ * picture is visible before the first byte leaves; `progress` is `null` while
+ * queued and 0–100 once the request moves. It is never sendable.
+ */
+type PendingAttachment = {
+  pending: true;
+  /** Local id; replaced by the server `id` when the upload lands. */
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+  progress: number | null;
+  previewUrl?: string;
+  file: File;
+};
+
+type StripItem = Attachment | PendingAttachment;
+
+function isPending(item: StripItem): item is PendingAttachment {
+  return "pending" in item;
+}
+
+function completedOf(items: readonly StripItem[]): Attachment[] {
+  return items.filter((item): item is Attachment => !isPending(item));
+}
+
 /** One row of the @ menu: a delegation, or a file to point the agent at. */
 type MentionOption =
   { kind: "agent"; key: string; agent: AgentInfo } | { kind: "file"; key: string; path: string };
@@ -234,8 +263,48 @@ export default function Composer({
   // Which query the newest file search belongs to. An answer that arrives
   // after the caret moved on is stale, and stale answers are dropped.
   const fileSearchSeq = useRef(0);
-  const [attachments, setAttachments] = useState<Attachment[]>(initialAttachments);
+  const [items, setItems] = useState<StripItem[]>(initialAttachments);
   const [uploading, setUploading] = useState(false);
+  const [viewing, setViewing] = useState<UserImage | null>(null);
+  // The live strip, because state is a render snapshot and the upload loop
+  // writes after awaits; a controller per file lets removal abort its request.
+  const itemsRef = useRef<StripItem[]>(items);
+  const pendingSeq = useRef(0);
+  const controllers = useRef(new Map<string, AbortController>());
+  /** Files the person removed while their request was still running. */
+  const cancelled = useRef(new Set<string>());
+  const mounted = useRef(true);
+
+  /**
+   * Publish a new strip; only a changed completed set reaches the draft, so
+   * progress ticks and queued placeholders never do.
+   */
+  function commitItems(next: StripItem[]) {
+    const before = completedOf(itemsRef.current);
+    const after = completedOf(next);
+    itemsRef.current = next;
+    setItems(next);
+    const changed =
+      before.length !== after.length || before.some((item, i) => item.id !== after[i]?.id);
+    if (changed) onAttachmentsChange?.(after);
+  }
+
+  function updateItems(fn: (prev: StripItem[]) => StripItem[]) {
+    commitItems(fn(itemsRef.current));
+  }
+
+  // Abandon in-flight requests and release every blob on unmount.
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      for (const controller of controllers.current.values()) controller.abort();
+      controllers.current.clear();
+      for (const item of itemsRef.current) {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      }
+    };
+  }, []);
   const [focused, setFocused] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -310,16 +379,6 @@ export default function Composer({
     const onResize = () => adjustTextareaHeight();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  // Revoke blob previews when attachments are removed / unmounted.
-  useEffect(() => {
-    return () => {
-      for (const a of attachments) {
-        if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cleanup on unmount only
   }, []);
 
   const available = agents.filter((a) => a.available);
@@ -448,59 +507,123 @@ export default function Composer({
   async function addFiles(files: FileList | File[] | null) {
     const list = Array.from(files ?? []);
     if (list.length === 0) return;
+
+    // Every placeholder exists before the first await, in its final slot; the
+    // files behind the first say they are queued rather than looking stalled.
+    const placeholders: PendingAttachment[] = [];
+    for (const f of list) {
+      if (f.size > MAX_UPLOAD_BYTES) {
+        pushToast(
+          tr("composer.fileTooLarge", {
+            name: f.name || "file",
+            max: String(MAX_UPLOAD_BYTES >> 20),
+          }),
+          "error",
+        );
+        continue;
+      }
+      const image = isImageMime(f.type);
+      placeholders.push({
+        pending: true,
+        id: `pending-${Date.now()}-${pendingSeq.current++}`,
+        name: f.name || "file",
+        mime: f.type,
+        size: f.size,
+        progress: null,
+        previewUrl: image ? URL.createObjectURL(f) : undefined,
+        file: f,
+      });
+    }
+    if (placeholders.length === 0) {
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+    commitItems([...itemsRef.current, ...placeholders]);
     setUploading(true);
     try {
-      for (const f of list) {
-        if (f.size > MAX_UPLOAD_BYTES) {
-          pushToast(
-            tr("composer.fileTooLarge", {
-              name: f.name || "file",
-              max: String(MAX_UPLOAD_BYTES >> 20),
-            }),
-            "error",
+      for (const entry of placeholders) {
+        const controller = new AbortController();
+        controllers.current.set(entry.id, controller);
+        updateItems((prev) =>
+          prev.map((item) =>
+            item.id === entry.id && isPending(item) ? { ...item, progress: 0 } : item,
+          ),
+        );
+        try {
+          const up = await uploadFileWithProgress(
+            entry.file,
+            (percent) => {
+              // A late tick after removal or unmount finds nothing to write.
+              if (!mounted.current) return;
+              updateItems((prev) =>
+                prev.map((item) =>
+                  item.id === entry.id && isPending(item) && item.progress !== percent
+                    ? { ...item, progress: percent }
+                    : item,
+                ),
+              );
+            },
+            { signal: controller.signal },
           );
-          continue;
+          controllers.current.delete(entry.id);
+          if (!mounted.current) return;
+          if (cancelled.current.has(entry.id)) {
+            if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+            continue;
+          }
+          // Same slot, same local preview; only the identity becomes the server's.
+          updateItems((prev) =>
+            prev.map((item) =>
+              item.id === entry.id ? { ...up, previewUrl: entry.previewUrl } : item,
+            ),
+          );
+        } catch (err) {
+          controllers.current.delete(entry.id);
+          if (!mounted.current) return;
+          // Removed by the person, not failed: no toast, no ghost entry.
+          if (
+            cancelled.current.has(entry.id) ||
+            (err as { name?: string } | null)?.name === "AbortError"
+          )
+            continue;
+          const msg =
+            err instanceof Error && err.message ? err.message : tr("composer.uploadFailed");
+          // Prefer short toast; strip raw JSON bodies.
+          const clean = msg.replace(/^\{.*"error"\s*:\s*"([^"]+)".*$/s, "$1");
+          pushToast(clean || tr("composer.uploadFailed"), "error");
+          if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+          // One bad file drops only its own placeholder; the loop carries on.
+          updateItems((prev) => prev.filter((item) => item.id !== entry.id));
         }
-        const up = await uploadFile(f);
-        const previewUrl = isImageMime(up.mime || f.type) ? URL.createObjectURL(f) : undefined;
-        setAttachments((prev) => {
-          const next = [...prev, { ...up, previewUrl }];
-          onAttachmentsChange?.(next);
-          return next;
-        });
       }
-    } catch (err) {
-      const msg = err instanceof Error && err.message ? err.message : tr("composer.uploadFailed");
-      // Prefer short toast; strip raw JSON bodies.
-      const clean = msg.replace(/^\{.*"error"\s*:\s*"([^"]+)".*$/s, "$1");
-      pushToast(clean || tr("composer.uploadFailed"), "error");
     } finally {
-      setUploading(false);
+      if (mounted.current) setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   }
 
   function removeAttachment(id: string) {
-    setAttachments((prev) => {
-      const target = prev.find((a) => a.id === id);
-      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
-      const next = prev.filter((a) => a.id !== id);
-      onAttachmentsChange?.(next);
-      return next;
-    });
+    const target = itemsRef.current.find((item) => item.id === id);
+    if (!target) return;
+    if (target.previewUrl) URL.revokeObjectURL(target.previewUrl);
+    if (isPending(target)) {
+      cancelled.current.add(id);
+      controllers.current.get(id)?.abort();
+      controllers.current.delete(id);
+    }
+    commitItems(itemsRef.current.filter((item) => item.id !== id));
   }
 
   /** Append absolute paths so coding CLIs / Kin tools can read the files. */
-  function withAttachments(text: string): string {
-    if (attachments.length === 0) return text;
-    const lines = attachments
+  function withAttachments(text: string, ready: Attachment[]): string {
+    if (ready.length === 0) return text;
+    const lines = ready
       .map((a) => {
         const label = a.name || a.id;
         return `- ${label}: ${a.path}`;
       })
       .join("\n");
-    const noun =
-      attachments.length === 1 ? (isImageMime(attachments[0].mime) ? "image" : "file") : "files";
+    const noun = ready.length === 1 ? (isImageMime(ready[0].mime) ? "image" : "file") : "files";
     const block = `Attached ${noun}:\n${lines}`;
     return text ? `${text}\n\n${block}` : block;
   }
@@ -517,22 +640,17 @@ export default function Composer({
     submitIntent.current = "queue";
     // Allow send while running: a running task queues the message and answers it
     // when the round ends. Only hard-disable when parent says so.
-    // Sending is allowed with only attachments (no text), but never mid-upload.
-    if (
-      (!text && attachments.length === 0) ||
-      disabled ||
-      blockSend ||
-      busy ||
-      stopping ||
-      uploading
-    )
+    // Sending is allowed with only attachments (no text), but never mid-upload:
+    // a pending placeholder has no server path, so it must not reach the prompt.
+    const ready = completedOf(itemsRef.current);
+    if ((!text && ready.length === 0) || disabled || blockSend || busy || stopping || uploading)
       return;
-    const payload = withAttachments(text);
+    const payload = withAttachments(text, ready);
     // Snapshot so a failed send can restore the composer + draft persistence.
     const prevValue = value;
-    const prevAttachments = attachments;
+    const prevItems = itemsRef.current;
     // Revoke previews after we capture payload.
-    for (const a of attachments) {
+    for (const a of prevItems) {
       if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
     }
     setValue("");
@@ -543,8 +661,7 @@ export default function Composer({
     setSlashQuery("");
     setSlashIndex(0);
     dismissedSlash.current = null;
-    setAttachments([]);
-    onAttachmentsChange?.([]);
+    commitItems([]);
     try {
       await onSubmit(payload, interrupt ? { interrupt: true } : undefined);
     } catch (err) {
@@ -555,11 +672,10 @@ export default function Composer({
       // person is now holding.
       if (!(err as SubmitFailure | undefined)?.keepComposer) {
         // Drop blob previews (already revoked); remote upload urls still work.
-        const restored = prevAttachments.map(({ previewUrl: _p, ...rest }) => rest);
+        const restored = completedOf(prevItems).map(({ previewUrl: _p, ...rest }) => rest);
         setValue(prevValue);
         onValueChange?.(prevValue);
-        setAttachments(restored);
-        onAttachmentsChange?.(restored);
+        commitItems(restored);
       }
       // Parent handlers usually toast; never let an unhandled rejection
       // leave the composer in a cleared-but-failed state without feedback.
@@ -742,7 +858,7 @@ export default function Composer({
     }
   }
 
-  const expanded = Boolean(value.trim()) || attachments.length > 0 || focused || uploading;
+  const expanded = Boolean(value.trim()) || items.length > 0 || focused || uploading;
   /**
    * There is something to send and the composer can send it now. The send
    * control carries the accent only then; an empty box shows the same control
@@ -756,7 +872,7 @@ export default function Composer({
     !busy &&
     !stopping &&
     !uploading &&
-    (value.trim().length > 0 || attachments.length > 0);
+    (value.trim().length > 0 || completedOf(items).length > 0);
   // "agents & files" only when a file row is on screen or on its way. A search
   // that failed leaves an agent menu, and a title promising files would name a
   // section that is not there.
@@ -927,14 +1043,25 @@ export default function Composer({
           expanded ? "sm:px-3 sm:py-2.5" : "sm:px-2.5 sm:py-1.5",
         ].join(" ")}
       >
-        {attachments.length > 0 && (
+        {items.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
-            {attachments.map((a) => {
+            {items.map((a) => {
               const image = isImageMime(a.mime);
-              const src = a.previewUrl || authenticatedURL(a.url);
+              const pending = isPending(a);
+              const remote = pending ? "" : a.url;
+              // The tile authenticates its <img>; the viewer does its own.
+              const src = a.previewUrl || authenticatedURL(remote);
+              const viewerSrc = a.previewUrl || remote;
+              const progressText = pending
+                ? a.progress == null
+                  ? tr("composer.uploadQueued")
+                  : tr("composer.uploadingPercent", { percent: String(a.progress) })
+                : "";
               return (
                 <div
                   key={a.id}
+                  data-testid="composer-attachment"
+                  data-pending={pending ? "true" : undefined}
                   className={
                     image
                       ? "relative group w-14 h-14 rounded-lg overflow-hidden border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill-strong)]"
@@ -943,27 +1070,55 @@ export default function Composer({
                   title={`${a.name} (${formatBytes(a.size)})`}
                 >
                   {image ? (
-                    <img src={src} alt={a.name} className="w-full h-full object-cover" />
+                    <Button
+                      variant="quiet"
+                      onClick={() => setViewing({ name: a.name, src: viewerSrc })}
+                      aria-label={
+                        pending
+                          ? `${tr("composer.viewImage", { name: a.name })} · ${progressText}`
+                          : tr("composer.viewImage", { name: a.name })
+                      }
+                      className="block h-full w-full rounded-lg p-0 hover:bg-transparent"
+                    >
+                      <img src={src} alt={a.name} className="w-full h-full object-cover" />
+                      {pending && (
+                        <span
+                          data-testid="composer-upload-progress"
+                          className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/60 py-0.5 text-center text-micro leading-3 text-white"
+                        >
+                          {a.progress == null ? "…" : `${a.progress}%`}
+                        </span>
+                      )}
+                    </Button>
                   ) : (
                     <>
                       <IconFile size={14} className="text-kin-muted shrink-0" />
                       <div className="min-w-0">
                         <div className="text-body text-kin-text truncate">{a.name}</div>
-                        <div className="text-caption text-kin-muted">{formatBytes(a.size)}</div>
+                        <div
+                          className={
+                            pending ? "text-caption text-kin-blue" : "text-caption text-kin-muted"
+                          }
+                        >
+                          {pending ? progressText : formatBytes(a.size)}
+                        </div>
                       </div>
                     </>
                   )}
                   <button
                     type="button"
-                    onClick={() => removeAttachment(a.id)}
+                    onClick={(event) => {
+                      // A sibling, not a child, of the open-the-viewer control:
+                      // removing must never open the picture it is removing.
+                      event.stopPropagation();
+                      removeAttachment(a.id);
+                    }}
                     data-touch-mini
                     className={
-                      // `text-white` on a black scrim, not `-on-brand`: the
-                      // backdrop is the user's own image, not a token fill, and
-                      // white-over-scrim is the one pairing that survives an
-                      // arbitrary photograph in either scheme.
+                      // White on a black scrim survives an arbitrary photo in
+                      // either scheme; a phone has no hover, so only `sm` hides it.
                       image
-                        ? "touch-mini absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        ? "touch-mini absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                         : "touch-mini ml-1 w-4 h-4 rounded-full bg-black/40 text-white flex items-center justify-center opacity-70 hover:opacity-100 shrink-0"
                     }
                     aria-label={tr("composer.removeFile")}
@@ -1219,6 +1374,7 @@ export default function Composer({
           </div>
         </div>
       </div>
+      <ImageViewer image={viewing} onClose={() => setViewing(null)} />
     </form>
   );
 }
