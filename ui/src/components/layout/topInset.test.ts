@@ -225,8 +225,17 @@ describe("top safe-area inset ownership", () => {
     }
 
     // The normal session bar yields the same way, through `TaskHeader`.
-    expect(source(page)).toMatch(/topInset=\{wsStatus !== "disconnected"\}/);
     expect(source("src/components/task/TaskHeader.tsx")).toMatch(/topInset=\{topInset\}/);
+
+    // The files/PR overlay mounts inside the page row, below the strip, so it
+    // yields through the same flag: one call for the session bar, one for the
+    // panels. The flag defaults to spending, so every other `PanelSurface`
+    // mount keeps the inset its phone bar owns.
+    expect(source(page).match(/topInset=\{wsStatus !== "disconnected"\}/g)).toHaveLength(2);
+    expect(source("src/components/task/TaskPanels.tsx")).toMatch(/topInset=\{topInset\}/);
+    const surface = "src/components/layout/PanelSurface.tsx";
+    expect(source(surface)).toMatch(/topInset = true/);
+    expect(source(surface)).toMatch(/topInset \? "panel-top-inset" : ""/);
 
     // The flag becomes the class here, defaulting to the spend so every other
     // bar keeps the inset it owns.

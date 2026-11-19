@@ -2510,6 +2510,7 @@ export default function TaskDetailPage({
         machine={machine}
         panel={panel}
         active={active}
+        topInset={wsStatus !== "disconnected"}
         panelCtx={panelCtx}
         usage={usage}
         usageLoading={usageLoading}
