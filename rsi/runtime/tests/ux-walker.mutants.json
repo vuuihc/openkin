@@ -24,7 +24,7 @@
     "label": "walk no longer takes the heavy slot: a parallel build can starve the transcript again",
     "file": "rsi/runtime/ux-walk.sh",
     "test": "bash rsi/runtime/tests/test-ux-walker.sh",
-    "old": "bash \"$RSI_DIR/runtime/heavy.sh\" node \"$WALKER\" \"${ARGS[@]}\" > \"$OUT/walk.log\" 2>&1; rc=$?",
+    "old": "bounded_run \"$WALK_MAX_S\" bash \"$RSI_DIR/runtime/heavy.sh\" node \"$WALKER\" \"${ARGS[@]}\" > \"$OUT/walk.log\" 2>&1; rc=$?",
     "new": "node \"$WALKER\" \"${ARGS[@]}\" > \"$OUT/walk.log\" 2>&1; rc=$?"
   },
   {

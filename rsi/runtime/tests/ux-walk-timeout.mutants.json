@@ -1,0 +1,30 @@
+[
+  {
+    "label": "freeze removed from the tree kill: a parent respawns a child while the kill walks, and the replacement survives",
+    "file": "rsi/runtime/common.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "  kill -STOP \"$root\" 2>/dev/null || true",
+    "new": "  :"
+  },
+  {
+    "label": "timeout verdict ignored: a wedged walk's 143 is read as the walker's own answer",
+    "file": "rsi/runtime/common.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "  if [ -s \"$flag\" ]; then rm -f \"$flag\"; return 124; fi",
+    "new": "  if false; then rm -f \"$flag\"; return 124; fi"
+  },
+  {
+    "label": "a timeout is relabelled as a normal walker answer: the gate would keep the PR in limbo or pass it",
+    "file": "rsi/runtime/ux-walk.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "  [ \"$rc\" -eq 124 ] && unavail \"walker exceeded ${WALK_MAX_S}s (RSI_WALK_MAX_S)\"",
+    "new": "  :"
+  },
+  {
+    "label": "outer gate bound no longer mapped to unavailable: a wedged gate would be read as a verdict",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "    if [ \"$urc\" -eq 124 ]; then",
+    "new": "    if [ \"$urc\" -eq 999 ]; then"
+  }
+]
