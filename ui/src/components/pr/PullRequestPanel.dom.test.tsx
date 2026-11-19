@@ -181,9 +181,11 @@ describe("PullRequestPanel", () => {
     expect(screen.getByText("grace")).toBeTruthy();
   });
 
-  it("folds the sixth review into one line", async () => {
-    // Five keeps the card scannable; the rest is still counted rather than
-    // silently missing. The parser keeps every entry — only the render caps.
+  it("keeps the newest five reviews and folds the older one into a line", async () => {
+    // Five keeps the card scannable. The daemon stores reviews oldest-first,
+    // so the cap must keep the tail: the newest approval or change request is
+    // the decision a person came for. The parser keeps every entry — only the
+    // render caps.
     const many = Array.from({ length: 6 }, (_, i) => ({
       author: `author-${i + 1}`,
       state: "COMMENTED",
@@ -195,8 +197,9 @@ describe("PullRequestPanel", () => {
     setup();
 
     await screen.findByText(PR_NUMBER);
-    expect(screen.getByText("author-5")).toBeTruthy();
-    expect(screen.queryByText("author-6")).toBeNull();
+    expect(screen.getByText("author-6")).toBeTruthy();
+    expect(screen.getByText("author-2")).toBeTruthy();
+    expect(screen.queryByText("author-1")).toBeNull();
     expect(screen.getByText(t("pr.reviewsMore", { more: "1" }))).toBeTruthy();
   });
 

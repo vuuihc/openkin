@@ -408,9 +408,16 @@ function Reviews({ reviews }: { reviews: Review[] | null }) {
   if (reviews.length === 0) {
     return <p className="mt-2 text-caption text-kin-muted">{tr("pr.reviewsNone")}</p>;
   }
-  const shown = reviews.slice(0, REVIEWS_SHOWN);
+  // The daemon stores reviews oldest-first, so keep the tail: the newest
+  // approval or change request is the one a person is looking for.
+  const shown = reviews.slice(-REVIEWS_SHOWN);
   return (
     <ul className="mt-2 divide-y divide-[var(--kin-hairline)] border-t border-[var(--kin-hairline)] text-caption">
+      {reviews.length > shown.length && (
+        <li className="py-1.5 text-kin-muted">
+          {tr("pr.reviewsMore", { more: String(reviews.length - shown.length) })}
+        </li>
+      )}
       {shown.map((review, index) => (
         <li key={`${review.author}-${index}`} className="py-1.5">
           <div className="flex flex-wrap items-baseline gap-x-2">
@@ -428,11 +435,6 @@ function Reviews({ reviews }: { reviews: Review[] | null }) {
           )}
         </li>
       ))}
-      {reviews.length > shown.length && (
-        <li className="py-1.5 text-kin-muted">
-          {tr("pr.reviewsMore", { more: String(reviews.length - shown.length) })}
-        </li>
-      )}
     </ul>
   );
 }

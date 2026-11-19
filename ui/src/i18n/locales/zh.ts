@@ -948,7 +948,7 @@ const zh = {
     ciFailureNamed: "{total} 项检查中 {failed} 项失败：{names}",
     reviewsNeverRead: "尚未读取评审。",
     reviewsNone: "该 Pull Request 没有评审。",
-    reviewsMore: "另有 {more} 条",
+    reviewsMore: "另有 {more} 条更早",
     reviewStateApproved: "已批准",
     reviewStateChangesRequested: "要求修改",
     reviewStateCommented: "已评论",

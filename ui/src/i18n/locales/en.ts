@@ -973,7 +973,7 @@ const en: MessageTree = {
     ciFailureNamed: "{failed} of {total} checks failed: {names}",
     reviewsNeverRead: "Reviews have not been read yet.",
     reviewsNone: "No reviews on this pull request.",
-    reviewsMore: "+{more} more",
+    reviewsMore: "+{more} earlier",
     reviewStateApproved: "Approved",
     reviewStateChangesRequested: "Changes requested",
     reviewStateCommented: "Commented",
