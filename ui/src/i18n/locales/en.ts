@@ -430,6 +430,14 @@ const en: MessageTree = {
       exportTitle: "Kin conversation excerpt",
       selectMessage: "Select this {role} message",
     },
+    compaction: {
+      label: "Context compacted",
+      running: "Compacting context…",
+      failed: "Context compaction failed",
+      cancelled: "Context compaction cancelled",
+      show: "Context compacted · view summary",
+      hide: "Context compacted · hide summary",
+    },
     progress: {
       running: "running",
       done: "done",

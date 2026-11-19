@@ -2,11 +2,13 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
-import type { Task, TaskEvent, TaskUsage } from "../../api/client";
+import type { Approval, Task, TaskEvent, TaskUsage } from "../../api/client";
 import type { ChangedFile } from "../../lib/changedFiles";
+import { panelOpenCount } from "../../lib/panelPresence";
 import type { PanelContext } from "../../lib/panels";
 import type { PublishDraft } from "../../lib/publishDraft";
 import { t } from "../../i18n";
+import FloatingApproval from "../cards/FloatingApproval";
 import TaskPanels, { type TaskPanelsProps } from "./TaskPanels";
 
 // The viewer is the only thing that loads monaco, which jsdom cannot resolve.
@@ -84,6 +86,17 @@ const task: Task = {
   event_epoch: 0,
 };
 
+function approval(id: string, taskId: string, createdAt: number): Approval {
+  return {
+    id,
+    task_id: taskId,
+    kind: "tool",
+    payload: { tool: "write_file", input: { path: "/tmp/a.txt" } },
+    decision: "pending",
+    created_at: createdAt,
+  };
+}
+
 const remoteMachine = { text: "node-1", known: true };
 
 const draft: PublishDraft = { title: "Fix the panels", body: "Body" };
@@ -140,6 +153,41 @@ describe("TaskPanels", () => {
   it("renders the workspace surface under its translated title", () => {
     setup({ panel: "files" });
     expect(screen.getByRole("complementary", { name: t("workspace.title") })).toBeTruthy();
+  });
+
+  it("a panel remembered in a hidden pane does not take the screen", () => {
+    // The host keeps visited conversations mounted and hides the ones off
+    // screen, so a panel left open in one of them is mounted too — but it is
+    // not painted and can cover nothing. Registering it would make the
+    // floating approval keep only its strip on an unrelated screen, and the
+    // decision card would never mount there.
+    setup({ panel: "files", active: false });
+    expect(panelOpenCount()).toBe(0);
+
+    render(
+      <FloatingApproval
+        approvals={[approval("approval-1", task.id, 100)]}
+        titleFor={() => task.title}
+        busy={{}}
+        onDecide={vi.fn()}
+        onOpenTask={vi.fn()}
+        raised={false}
+        screenKey={`/tasks/${task.id}`}
+        expectsBottomChrome={false}
+      />,
+    );
+
+    // The card, not just the strip: with nothing visible owning the screen,
+    // this approval has nothing to be kept off.
+    expect(screen.getByRole("button", { name: new RegExp(t("chat.approve")) })).toBeTruthy();
+    expect(screen.getByRole("button", { name: new RegExp(t("chat.deny")) })).toBeTruthy();
+  });
+
+  it("the pane on screen registers its open panel", () => {
+    // The other half of the contract: the `hidden` wiring above must not stop
+    // the pane the reader is actually looking at from registering.
+    setup({ panel: "files", active: true });
+    expect(panelOpenCount()).toBe(1);
   });
 
   it("renders no publish surface without a machine", () => {

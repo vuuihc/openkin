@@ -533,6 +533,90 @@ func TestUpdatesThisClientDoesNotModelAreTolerated(t *testing.T) {
 	}
 }
 
+// A compaction update is a state machine, not a status line. The console has
+// to settle a compaction from the protocol — running, settled with its summary,
+// or honestly failed — and the English title alone cannot say which.
+func TestCompactionUpdateCarriesProtocolState(t *testing.T) {
+	const summary = "The messages after this summary are the most recent messages from before compaction."
+	for _, tc := range []struct {
+		name         string
+		update       string
+		wantStatus   string
+		wantSummary  string
+		wantSeverity string
+	}{
+		{
+			name:         "in progress",
+			update:       `{"sessionUpdate":"compaction_update","compactionId":"cmp-1","status":"in_progress"}`,
+			wantStatus:   "in_progress",
+			wantSeverity: "info",
+		},
+		{
+			name:         "completed with its summary",
+			update:       `{"sessionUpdate":"compaction_update","compactionId":"cmp-1","status":"completed","summary":[{"type":"text","text":"The messages after this summary are the most recent messages from before compaction."}]}`,
+			wantStatus:   "completed",
+			wantSummary:  summary,
+			wantSeverity: "info",
+		},
+		{
+			name:         "failed",
+			update:       `{"sessionUpdate":"compaction_update","compactionId":"cmp-1","status":"failed"}`,
+			wantStatus:   "failed",
+			wantSeverity: "error",
+		},
+		{
+			name:         "cancelled",
+			update:       `{"sessionUpdate":"compaction_update","compactionId":"cmp-1","status":"cancelled"}`,
+			wantStatus:   "cancelled",
+			wantSeverity: "info",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			event := mapOne(t, tc.update)
+			if event.Type != "notice" {
+				t.Fatalf("event type = %q, want notice", event.Type)
+			}
+			payload := payloadOf(t, event)
+			if payload["code"] != compactionCode {
+				t.Fatalf("payload has no stable code %q: %v", compactionCode, payload)
+			}
+			if payload["compaction_id"] != "cmp-1" {
+				t.Fatalf("payload lost the compaction id: %v", payload)
+			}
+			if payload["status"] != tc.wantStatus {
+				t.Fatalf("status = %v, want %q", payload["status"], tc.wantStatus)
+			}
+			// The human title stays: an older console folds these notices by it.
+			if payload["title"] != "context compacted" {
+				t.Fatalf("title = %v, want the legacy fallback", payload["title"])
+			}
+			if payload["severity"] != tc.wantSeverity {
+				t.Fatalf("severity = %v, want %q", payload["severity"], tc.wantSeverity)
+			}
+			message, _ := payload["message"].(string)
+			if message != tc.wantSummary {
+				t.Fatalf("message = %q, want the summary %q", message, tc.wantSummary)
+			}
+		})
+	}
+}
+
+// The summary chunks and the update that settles them must build one item, and
+// the only thing that can join them is the compaction id they share.
+func TestCompactionChunkKeepsItsCompactionID(t *testing.T) {
+	event := mapOne(t, `{"sessionUpdate":"compaction_summary_chunk","compactionId":"cmp-1","content":{"type":"text","text":"The messages after "}}`)
+	if event.Type != "message" {
+		t.Fatalf("event type = %q, want message", event.Type)
+	}
+	payload := payloadOf(t, event)
+	if payload["phase"] != messagePhaseCompaction {
+		t.Fatalf("phase = %v, want %q", payload["phase"], messagePhaseCompaction)
+	}
+	if payload["compaction_id"] != "cmp-1" {
+		t.Fatalf("the chunk lost its compaction id: %v", payload)
+	}
+}
+
 func eventTypesOf(events []adapter.Event) []string {
 	types := make([]string, 0, len(events))
 	for _, event := range events {

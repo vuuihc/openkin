@@ -66,13 +66,17 @@ describe("the floating approval's wiring", () => {
     // the conversation list it used to cover, so it is pinned as structure:
     // the strip opens the task and the card renders on the other branch.
     const floating = source("src/components/cards/FloatingApproval.tsx");
-    // The card body is guarded by `!raised`, and the strip is the branch that
-    // renders instead.
-    const cardGuard = floating.indexOf("{!raised && (");
+    // The strip is also the whole surface while a visible panel owns the
+    // screen (the card covered the file body and the panel's own approval
+    // area), so both terms are pinned, not only the phone one.
+    expect(floating).toMatch(/const stripOnly = raised \|\| panelOpen;/);
+    // The card body is guarded by `!stripOnly`, and the strip is the branch
+    // that renders instead.
+    const cardGuard = floating.indexOf("{!stripOnly && (");
     const cardAt = floating.indexOf("<ApprovalCard");
     expect(cardGuard).toBeGreaterThan(-1);
     expect(cardAt).toBeGreaterThan(cardGuard);
-    const raisedAt = floating.indexOf("{raised ? (");
+    const raisedAt = floating.indexOf("{stripOnly ? (");
     const elseAt = floating.indexOf(") : (", raisedAt);
     expect(raisedAt).toBeGreaterThan(-1);
     expect(elseAt).toBeGreaterThan(raisedAt);
@@ -83,6 +87,23 @@ describe("the floating approval's wiring", () => {
     // Its name carries the count, not only the visible `+N`.
     expect(floating).toMatch(/waiting > 0 \? tr\("approval\.moreWaiting"/);
     expect(cardAt).toBeGreaterThan(elseAt);
+  });
+
+  it("keeps the strip out of an open panel's own bottom controls", () => {
+    const floating = source("src/components/cards/FloatingApproval.tsx");
+    const surface = source("src/components/layout/PanelSurface.tsx");
+
+    // The column's width is the offset the strip has to clear; the store
+    // counts it per shape, and the container registers the shape it drew.
+    expect(floating).toMatch(/usePanelColumnOpen\(\)/);
+    expect(floating).toContain("lg:right-[calc(380px+1.5rem)]");
+    expect(surface).toMatch(/addPanel\(shape\)/);
+    expect(surface).toMatch(/removePanel\(shape\)/);
+
+    // A covering panel must not measure the conversation's band behind it;
+    // it clears the panel's own docked regions instead.
+    expect(floating).toMatch(/panelOpen && !\(panelColumn && window\.innerWidth >= 1024\)/);
+    expect(floating).toContain("\"[role='complementary'] section[aria-label]\"");
   });
 
   it("answers through the one shared decision path", () => {

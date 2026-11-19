@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Approval } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { usePanelColumnOpen, usePanelOpen } from "../../lib/panelPresence";
 import ErrorBoundary from "../ErrorBoundary";
 import Button from "../ui/Button";
 import ApprovalCard from "./ApprovalCard";
@@ -53,6 +54,15 @@ export default function FloatingApproval({
   onOpenPath,
 }: Props) {
   const tr = useT();
+  // One topmost surface per screen: while a visible panel (the file viewer, the
+  // PR panel) is open, the panel is what the reader is reading and the card is
+  // not mounted at all. The strip below still names the blocked task, so the
+  // approval never goes silent. A panel that is mounted but hidden does not
+  // register — see `lib/panelPresence`.
+  const panelOpen = usePanelOpen();
+  // A panel in its column leaves the conversation on screen; that is the only
+  // shape whose right edge the strip has to stay clear of.
+  const panelColumn = usePanelColumnOpen();
   const surfaceRef = useRef<HTMLDivElement>(null);
   // Answering unmounts the card that held focus. A keyboard user would be
   // dropped to the document body, mid-queue, with nothing to tab from. The
@@ -109,13 +119,48 @@ export default function FloatingApproval({
   // and a mount (a route change, or coming back to the list) would
   // otherwise paint one frame at the fallback offset, over the composer.
   useLayoutEffect(() => {
-    if (!expectsBottomChrome || !hasAny) {
+    // A panel that paints over the whole screen leaves the conversation's band
+    // laid out behind it, so its box says nothing about what is visible —
+    // measuring it parked the strip over the panel's own comment box. Only a
+    // panel in its `lg` column leaves the conversation (and that band) on
+    // screen.
+    const coversScreen = () => panelOpen && !(panelColumn && window.innerWidth >= 1024);
+    if (!hasAny || (!expectsBottomChrome && !coversScreen())) {
       setBottom(null);
       return;
     }
     let chrome: HTMLElement | null = null;
     let resizeObserver: ResizeObserver | null = null;
     let mutations: MutationObserver | null = null;
+
+    // The panel's own bottom furniture — the diff comment box, the comments
+    // tray — is a labelled region docked at its bottom. The highest one laid
+    // out is the top of the docked stack: clearing it clears every region
+    // below, where measuring the lowest would park the strip over the comment
+    // box above it. With nothing docked the fixed offset below stands, and
+    // nothing in the panel is covered.
+    const docked = (): HTMLElement | null => {
+      let highest: HTMLElement | null = null;
+      let top = Infinity;
+      for (const region of document.querySelectorAll<HTMLElement>(
+        "[role='complementary'] section[aria-label]",
+      )) {
+        const rect = region.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) continue;
+        if (rect.top < top) {
+          top = rect.top;
+          highest = region;
+        }
+      }
+      return highest;
+    };
+
+    const findBand = (): HTMLElement | null =>
+      // Only the pane on screen marks the page's band, so this is scoped by
+      // the page rather than filtered here — a cached conversation renders the
+      // same composer, `display:none`, and measuring it would be measuring
+      // nothing.
+      coversScreen() ? docked() : document.querySelector<HTMLElement>("[data-kin-bottom-chrome]");
 
     const measure = () => {
       if (!chrome) return;
@@ -131,48 +176,76 @@ export default function FloatingApproval({
     };
 
     const attach = () => {
-      // Only the pane on screen marks its band, so this is scoped by the page
-      // rather than filtered here — a cached conversation renders the same
-      // composer, `display:none`, and measuring it would be measuring nothing.
-      const found = document.querySelector<HTMLElement>("[data-kin-bottom-chrome]");
-      if (!found) return false;
-      chrome = found;
+      const found = findBand();
+      if (!found) {
+        // Nothing to clear any more (the panel turned into a covering overlay
+        // on resize, or its docked regions went away). Drop the old band: it
+        // may still be connected behind the panel, and observing it would keep
+        // the strip parked on something the reader cannot see.
+        resizeObserver?.disconnect();
+        resizeObserver = null;
+        chrome = null;
+        return false;
+      }
+      if (found !== chrome) {
+        resizeObserver?.disconnect();
+        chrome = found;
+        // ResizeObserver is absent in jsdom; the measurement above still runs
+        // once there, which is all a test needs.
+        resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+        resizeObserver?.observe(found);
+      }
       measure();
-      window.addEventListener("resize", measure);
-      // ResizeObserver is absent in jsdom; the measurement above still runs
-      // once there, which is all a test needs.
-      resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-      resizeObserver?.observe(found);
       return true;
     };
 
+    // The panel's furniture comes and goes with the reader's taps, and focus
+    // moves with it: the comment box takes its field, saving hands focus back
+    // to the diff. That signal is enough to re-read the band without watching
+    // an editor tree that mutates on every keystroke.
+    const rescan = () => {
+      if (!attach()) setBottom(null);
+    };
+
+    document.addEventListener("focusin", rescan);
+    document.addEventListener("focusout", rescan);
+    window.addEventListener("resize", rescan);
+
     if (!attach()) {
+      setBottom(null);
       // A conversation draws its composer after the task loads, so on a cold
       // load the band is not there yet. Watch for it until it arrives or the
       // reader leaves; the observer lives no longer than the route does.
-      setBottom(null);
-      mutations = new MutationObserver(() => {
-        if (!attach()) return;
-        mutations?.disconnect();
-        mutations = null;
-      });
-      mutations.observe(document.body, { childList: true, subtree: true });
-      return () => {
-        mutations?.disconnect();
-        resizeObserver?.disconnect();
-        window.removeEventListener("resize", measure);
-      };
+      // A covering panel needs no such watch: its furniture is docked by a
+      // tap, and every tap moves focus, so `rescan` is the cheaper signal
+      // than a body observer that would wake on every transcript token.
+      if (!coversScreen()) {
+        mutations = new MutationObserver(() => {
+          if (!attach()) return;
+          mutations?.disconnect();
+          mutations = null;
+        });
+        mutations.observe(document.body, { childList: true, subtree: true });
+      }
     }
 
     return () => {
-      window.removeEventListener("resize", measure);
+      document.removeEventListener("focusin", rescan);
+      document.removeEventListener("focusout", rescan);
+      window.removeEventListener("resize", rescan);
+      mutations?.disconnect();
       resizeObserver?.disconnect();
     };
-  }, [screenKey, expectsBottomChrome, hasAny]);
+  }, [screenKey, expectsBottomChrome, hasAny, panelOpen, panelColumn]);
 
   if (!current) return null;
 
   const waiting = approvals.length - 1;
+  // The strip is the whole surface in two places: a phone tab root (the card
+  // covered the conversation list), and any screen a visible panel owns. The
+  // bottom offset above stays keyed on `raised` alone — it is about the page's
+  // own furniture, not about what is painted over it.
+  const stripOnly = raised || panelOpen;
   // The shell's task list first: it is the live row and follows a rename. The
   // title the API joined onto the approval when the list was read is the
   // fallback for a task outside that page — and approvals that arrive while
@@ -212,6 +285,11 @@ export default function FloatingApproval({
         // honest — nothing behind it moves to make room.
         "pointer-events-none fixed inset-x-3 z-40 flex flex-col gap-1.5",
         "md:inset-x-auto md:right-6 md:w-[24rem]",
+        // A column panel owns the right-hand 380px; the strip stays over the
+        // conversation instead of inside the panel's own bottom controls (the
+        // diff comment box and the comments tray). Below `lg` even a column
+        // panel is the full-bleed overlay, so this override is inert there.
+        panelColumn && "lg:right-[calc(380px+1.5rem)]",
         // Where the page has no bottom furniture to measure, the list page's
         // footer and "new chat" button decide: above them when the reader is
         // on the list, and above where they would be in a pushed screen.
@@ -238,7 +316,7 @@ export default function FloatingApproval({
         data-phone-swipe="true"
         className="bg-kin-panel pointer-events-auto flex items-center gap-2 self-start rounded-full py-1 pl-3 pr-2 shadow-e2"
       >
-        {raised ? (
+        {stripOnly ? (
           // One target, not three: the label, the task and the count are all
           // inside the button, so the whole pill answers a thumb and the name
           // says what the small parts mean. The pill's own padding and
@@ -248,19 +326,24 @@ export default function FloatingApproval({
             onClick={() => onOpenTask(current.task_id)}
             aria-label={stripLabel}
             title={tr("approval.openTask")}
-            className="min-h-11! min-w-0 gap-2 rounded-full px-0 py-0 text-caption"
+            className="min-h-11! min-w-0 rounded-full px-0 py-0 text-caption"
           >
-            <span className="shrink-0 text-caption font-semibold uppercase tracking-label text-kin-muted">
-              {tr("approval.floatingLabel")}
-            </span>
-            <span className="min-w-0 max-w-approval-title truncate text-caption font-medium text-kin-blue-ink!">
-              {titleText}
-            </span>
-            {waiting > 0 && (
-              <span className="shrink-0 rounded-full bg-kin-orange/15 px-1.5 py-0.5 text-caption font-semibold text-kin-orange-ink">
-                +{waiting}
+            {/* Astryx wraps `children` in its own label span, so a `gap` on
+                the button separates nothing between these three. One child of
+                our own keeps the label, the task and the count 8px apart. */}
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0 text-caption font-semibold uppercase tracking-label text-kin-muted">
+                {tr("approval.floatingLabel")}
               </span>
-            )}
+              <span className="min-w-0 max-w-approval-title truncate text-caption font-medium text-kin-blue-ink!">
+                {titleText}
+              </span>
+              {waiting > 0 && (
+                <span className="shrink-0 rounded-full bg-kin-orange/15 px-1.5 py-0.5 text-caption font-semibold text-kin-orange-ink">
+                  +{waiting}
+                </span>
+              )}
+            </span>
           </Button>
         ) : (
           <>
@@ -297,12 +380,13 @@ export default function FloatingApproval({
         )}
       </div>
       {/* The decision card belongs to a conversation (and to Mac), never to a
-          phone tab root: there the strip above is the whole surface. An
-          opaque base under it: `ApprovalCard`'s own surface is a translucent
-          orange tint, which is right in the transcript (a solid pane behind
-          it) and unreadable here, floating over list rows whose text showed
-          through. Same radius so the base never peeks out. */}
-      {!raised && (
+          phone tab root or a screen with a panel open: there the strip above is
+          the whole surface and the card would paint over the thing the reader
+          opened. An opaque base under it: `ApprovalCard`'s own surface is a
+          translucent orange tint, which is right in the transcript (a solid
+          pane behind it) and unreadable here, floating over list rows whose
+          text showed through. Same radius so the base never peeks out. */}
+      {!stripOnly && (
         <div className="pointer-events-auto max-h-[50dvh] overflow-y-auto kin-scroll rounded-xl bg-kin-panel md:max-h-[60dvh]">
           {/* Keyed by the approval: a payload that cannot render costs this one
               card, and the boundary's "caught" state is thrown away when the

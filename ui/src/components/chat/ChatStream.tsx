@@ -8,6 +8,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -53,6 +54,7 @@ import {
   summarizeProgressDetails,
   summarizeProgressStatus,
   type ChatItem,
+  type CompactionItem,
   type NoteStep,
   type ProgressItem,
   type Turn,
@@ -138,6 +140,12 @@ type Props = {
   /** Open a workspace path in the Files panel (from tool rows). */
   onOpenPath?: (path: string) => void;
   /**
+   * Whether the task checkout can name a path. Absent means every path is
+   * offered, exactly as before; the predicate travels down this prop thread
+   * rather than being re-derived, because the pages own the task cwd.
+   */
+  canOpenPath?: (path: string) => boolean;
+  /**
    * Find bar, controlled. The phone has no Cmd+F, so its session menu has to be
    * able to open the bar; leaving this undefined keeps the state internal and
    * the keyboard shortcut is the only way in (the desktop answer).
@@ -179,6 +187,7 @@ export default function ChatStream({
   onRetry,
   onFork,
   onOpenPath,
+  canOpenPath,
   findOpen: findOpenProp,
   onFindOpenChange,
   findShortcut = true,
@@ -519,6 +528,7 @@ export default function ChatStream({
             onRetry={onRetry}
             onFork={onFork}
             onOpenPath={onOpenPath}
+            canOpenPath={canOpenPath}
             activeFindKey={activeFindKey}
             selectionMode={sharing}
             selectedKeys={selectedKeys}
@@ -648,7 +658,11 @@ export default function ChatStream({
         return (
           <Fragment key={`round-${turnIdx}`}>
             {rendered}
-            <RoundEvidenceCard evidence={evidence} onOpenPath={onOpenPath} />
+            <RoundEvidenceCard
+              evidence={evidence}
+              onOpenPath={onOpenPath}
+              canOpenPath={canOpenPath}
+            />
           </Fragment>
         );
       })}
@@ -676,6 +690,7 @@ function AgentTurn({
   onRetry,
   onFork,
   onOpenPath,
+  canOpenPath,
   activeFindKey,
   selectionMode = false,
   selectedKeys,
@@ -700,6 +715,8 @@ function AgentTurn({
   onRetry?: (fromSeq: number) => void;
   onFork?: (fromSeq: number) => void;
   onOpenPath?: (path: string) => void;
+  /** See ChatStream's `canOpenPath`: whether the task checkout can name a path. */
+  canOpenPath?: (path: string) => boolean;
   /** The message the find bar is pointing at, if any. */
   activeFindKey?: string | null;
   selectionMode?: boolean;
@@ -798,6 +815,7 @@ function AgentTurn({
                       item.steps.some((step) => step.kind === "tool" && step.status === "running"))
                   }
                   onOpenPath={onOpenPath}
+                  canOpenPath={canOpenPath}
                   activeFindKey={activeFindKey}
                 />
               );
@@ -811,6 +829,8 @@ function AgentTurn({
                   {item.message}
                 </div>
               );
+            case "compaction":
+              return <CompactionRow key={item.key} item={item} />;
             case "meta": {
               // An asking event almost never starts a turn of its own: the agent
               // narrates, then stops to ask, so the grouping folds it into the
@@ -1031,12 +1051,13 @@ function StandaloneRow({
   item,
   slot,
 }: {
-  item: Extract<ChatItem, { kind: "error" | "meta" }>;
+  item: Extract<ChatItem, { kind: "error" | "meta" | "compaction" }>;
   /** The card this event asked for, when the console still holds one. */
   slot?: ReactNode;
 }) {
   const tr = useT();
   if (slot) return <>{slot}</>;
+  if (item.kind === "compaction") return <CompactionRow item={item} />;
   if (item.kind === "error") {
     return (
       <div className="rounded-xl border border-kin-red/30 bg-kin-red/10 px-3.5 py-2.5 text-strong text-kin-red-ink">
@@ -1045,6 +1066,82 @@ function StandaloneRow({
     );
   }
   return <p className="text-center text-caption text-kin-muted">{item.label}</p>;
+}
+
+/**
+ * One context compaction: a quiet line, and the whole summary behind it.
+ *
+ * Follows ProgressCard's disclosure without being a card — one line for one
+ * compaction. It is not a message: no avatar, no actions, no selection. While
+ * the summary streams, the line says so and draws none of the half-written
+ * text, so a paragraph the agent wrote about its own memory is never mistaken
+ * for something it said to the reader.
+ */
+function CompactionRow({ item }: { item: CompactionItem }) {
+  const tr = useT();
+  const [expanded, setExpanded] = useState(false);
+  const summaryId = useId();
+  if (item.partial) {
+    return (
+      // The line is the status: it carries the announcement the generic
+      // thinking row would otherwise make, so one moment gets one cue.
+      <p
+        data-compaction-hint
+        aria-live="polite"
+        className="flex items-center gap-1.5 text-caption text-kin-muted"
+      >
+        <span
+          className="w-1.5 h-1.5 flex-none rounded-full bg-kin-blue animate-breathe"
+          aria-hidden="true"
+        />
+        {tr("chat.compaction.running")}
+      </p>
+    );
+  }
+  // A compaction the adapter could only report as a notice has no summary to
+  // open. A disclosure that expands to an empty box is a dead control; the
+  // line still says what happened.
+  if (!item.text.trim()) {
+    return (
+      <p data-compaction-hint className="text-caption text-kin-muted">
+        {tr("chat.compaction.label")}
+      </p>
+    );
+  }
+  return (
+    <div data-compaction-hint>
+      <Button
+        variant="quiet"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        aria-controls={expanded ? summaryId : undefined}
+        className="flex w-full justify-start rounded-md p-0 text-left text-caption font-normal cursor-pointer hover:bg-transparent"
+      >
+        <span className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-kin-muted transition-colors hover:bg-[var(--kin-fill)]">
+          <span className="min-w-0 flex-1 truncate">
+            {tr(expanded ? "chat.compaction.hide" : "chat.compaction.show")}
+          </span>
+        </span>
+      </Button>
+      {expanded && (
+        // Complete, not shortened: the summary scrolls inside its own bound
+        // rather than being cut off, and keeps its line breaks as written. The
+        // region is focusable so a keyboard user can scroll the part past the
+        // fold, which has no other focusable descendant.
+        <div
+          id={summaryId}
+          role="region"
+          aria-label={tr("chat.compaction.label")}
+          tabIndex={0}
+          className="mt-0.5 ml-3 max-h-64 overflow-y-auto border-t border-[var(--kin-hairline)] px-2 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kin-focus-ring"
+        >
+          <p className="whitespace-pre-wrap break-words text-body leading-prose text-kin-text">
+            {item.text}
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Animated “thinking” row while waiting for the first assistant token. */
@@ -1113,12 +1210,15 @@ function ProgressCard({
   hostSpeaker,
   running,
   onOpenPath,
+  canOpenPath,
   activeFindKey,
 }: {
   item: ProgressItem;
   hostSpeaker: string;
   running: boolean;
   onOpenPath?: (path: string) => void;
+  /** See ChatStream's `canOpenPath`: whether the task checkout can name a path. */
+  canOpenPath?: (path: string) => boolean;
   /** The find hit the bar is pointing at, if any. */
   activeFindKey?: string | null;
 }) {
@@ -1259,6 +1359,7 @@ function ProgressCard({
                 depth={depth}
                 open={openStep === step.key}
                 onOpenPath={onOpenPath}
+                canOpenPath={canOpenPath}
                 onToggle={() => setOpenStep((cur) => (cur === step.key ? null : step.key))}
               />
             ) : (

@@ -16,7 +16,7 @@
   {
     "label": "the phone tab root draws the decision card over the seeded row again",
     "file": "ui/src/components/cards/FloatingApproval.tsx",
-    "old": "      {!raised && (",
+    "old": "      {!stripOnly && (",
     "new": "      {true && (",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J7"
   },

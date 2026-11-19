@@ -1,0 +1,23 @@
+[
+  {
+    "label": "a lock timeout fails the gate again, so the wait is billed to the branch as a rework sendback",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_timeout_skips bash rsi/runtime/tests/test-gate-lock-timeout.sh",
+    "old": "  GATE_LOCK_REASON=\"gate lock timeout on ${sha:0:8}: another verifier holds it; cycle skipped, no sendback\"\n  return 0",
+    "new": "  GATE_LOCK_REASON=\"gate failed: gate lock timeout\"\n  return 1"
+  },
+  {
+    "label": "the needs-ceo line is written on every timeout instead of once per head",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_repeat_timeout_one_line bash rsi/runtime/tests/test-gate-lock-timeout.sh",
+    "old": "    if [ \"$n\" -eq 1 ]; then",
+    "new": "    if true; then"
+  },
+  {
+    "label": "the prettier re-gate turns a lock timeout back into a gate failure (GRC=1), reaching the sendback",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_regate_timeout_skips bash rsi/runtime/tests/test-gate-lock-timeout.sh",
+    "old": "        else\n          gate_lock_decision timeout \"$SLUG\" \"$SHA\" \"$STATE\"\n          say \"#$N $SLUG: $GATE_LOCK_REASON (re-gate after auto-format); skipping this cycle\"\n          exit 0\n        fi",
+    "new": "        else GRC=1; fi"
+  }
+]
