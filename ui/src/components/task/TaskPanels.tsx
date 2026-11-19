@@ -158,6 +158,11 @@ export default function TaskPanels({
             prOpen ? tr("pr.title") : publishOpen ? tr("publish.title") : tr("workspace.title")
           }
           shape="column"
+          // The host keeps visited conversations mounted and hides the rest;
+          // a panel remembered in one of those is mounted too, but it is not
+          // on screen and cannot cover anything, so it must not register as
+          // the screen's topmost surface either.
+          hidden={!active}
         >
           <div className="h-full w-full">
             <WorkspacePanel
