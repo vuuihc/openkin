@@ -4,9 +4,15 @@ package claudecode
 import (
 	"encoding/json"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 )
+
+// maxToolOutputBytes bounds the text a tool result carries into the console.
+// The transcript keeps the raw stream; the card only needs the head of a long
+// output, and an unbounded line would be stored and shipped on every read.
+const maxToolOutputBytes = 64 * 1024
 
 // ParseLine converts one stdout line of Claude Code stream-json into zero or
 // more adapter events. Unparseable lines become raw_output; unknown JSON is
@@ -95,7 +101,8 @@ func parseMessage(role string, raw map[string]json.RawMessage, line string) []ad
 		for _, b := range blocks {
 			var bt string
 			_ = json.Unmarshal(b["type"], &bt)
-			if bt == "tool_use" {
+			switch bt {
+			case "tool_use":
 				// Reconstruct block as object for payload.
 				blockBytes, _ := json.Marshal(rawMapToAny(b))
 				events = append(events, adapter.Event{
@@ -105,7 +112,17 @@ func parseMessage(role string, raw map[string]json.RawMessage, line string) []ad
 						"content": json.RawMessage(blockBytes),
 					}),
 				})
-			} else {
+			case "tool_result":
+				// The result closes the step the matching tool_use opened, so
+				// it must not also be drawn as user text. A block with no id
+				// cannot be paired and keeps the generic message path.
+				if ev, ok := toolResultEvent(b); ok {
+					events = append(events, ev)
+					continue
+				}
+				blockBytes, _ := json.Marshal(rawMapToAny(b))
+				textBlocks = append(textBlocks, blockBytes)
+			default:
 				blockBytes, _ := json.Marshal(rawMapToAny(b))
 				textBlocks = append(textBlocks, blockBytes)
 			}
@@ -139,6 +156,74 @@ func parseMessage(role string, raw map[string]json.RawMessage, line string) []ad
 			"partial": false,
 		}),
 	}}
+}
+
+// toolResultEvent maps a tool_result block to the event that closes its step.
+// The shape matches the ACP adapter's tool_result: the id pairs it with its
+// tool_use, ok says whether the tool failed (a missing is_error means
+// success), and output is the text the tool produced. No role and no input:
+// this is a state change, not a message.
+func toolResultEvent(block map[string]json.RawMessage) (adapter.Event, bool) {
+	var toolUseID string
+	_ = json.Unmarshal(block["tool_use_id"], &toolUseID)
+	if toolUseID == "" {
+		return adapter.Event{}, false
+	}
+	var isError bool
+	_ = json.Unmarshal(block["is_error"], &isError)
+	return adapter.Event{
+		Type: "tool_result",
+		Payload: mustMarshal(map[string]any{
+			"tool_use_id": toolUseID,
+			"ok":          !isError,
+			"output":      toolResultOutput(block["content"]),
+		}),
+	}, true
+}
+
+// toolResultOutput renders a result's content as text. Claude Code sends
+// either a string or an array of content blocks; text blocks are joined with
+// newlines, and blocks this console cannot draw are left out rather than
+// JSON-dumped into the transcript.
+func toolResultOutput(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return truncateToolOutput(text)
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Type == "text" && b.Text != "" {
+			parts = append(parts, b.Text)
+		}
+	}
+	return truncateToolOutput(strings.Join(parts, "\n"))
+}
+
+// truncateToolOutput keeps a result within maxToolOutputBytes without cutting
+// a UTF-8 sequence in half; the ellipsis marks that text was dropped.
+func truncateToolOutput(value string) string {
+	if len(value) <= maxToolOutputBytes {
+		return value
+	}
+	cut := value[:maxToolOutputBytes]
+	for len(cut) > 0 {
+		r, size := utf8.DecodeLastRuneInString(cut)
+		if r != utf8.RuneError || size > 1 {
+			break
+		}
+		cut = cut[:len(cut)-1]
+	}
+	return cut + "…"
 }
 
 func parseStreamEvent(raw map[string]json.RawMessage) []adapter.Event {
