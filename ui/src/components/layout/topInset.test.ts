@@ -132,7 +132,9 @@ let generated: Promise<string> | undefined;
  */
 function generatedCss(): Promise<string> {
   generated ??= (async () => {
-    const candidates = [...new Set(["pt-safe", "md:pt-safe", "max-md:pt-safe", ...usedSafeTokens()])];
+    const candidates = [
+      ...new Set(["pt-safe", "md:pt-safe", "max-md:pt-safe", ...usedSafeTokens()]),
+    ];
     const compiler = await compile(readFileSync(join(BASE, "index.css"), "utf8"), OPTIONS);
     return compiler.build(candidates);
   })();
