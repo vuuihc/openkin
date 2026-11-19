@@ -66,7 +66,7 @@ export default function PanelSurface({
   return (
     <div
       className={[
-        "absolute inset-0 z-40 bg-[var(--kin-inspector)] safe-pad kin-zen-hide",
+        "absolute inset-0 z-40 bg-[var(--kin-inspector)] safe-pad panel-top-inset kin-zen-hide",
         // `lg:` overrides, not a second base skin: below the breakpoint the
         // panel stays the full-bleed overlay it has always been. `relative` in
         // a flex row is what puts it beside the conversation instead of over

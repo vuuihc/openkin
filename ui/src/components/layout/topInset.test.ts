@@ -93,4 +93,23 @@ describe("top safe-area inset ownership", () => {
       /\.pt-safe\s*\{\s*padding-top:\s*env\(safe-area-inset-top\);/,
     );
   });
+
+  it("keeps the panel overlay spending the phone's top inset", () => {
+    // The overlay covers `MobileHeader`, which is the bar that owns the top
+    // inset on a phone, so below `md` the surface itself has to spend it.
+    // Above `md` the shell root is meant to spend it once for both columns,
+    // but its `md:pt-safe` emits no rule today (`.pt-safe` is a plain class,
+    // not a `@utility`) — so this guard stays phone-scoped and no `pt-safe`
+    // variant may appear here either, or a phone would get a second helping.
+    const tokens = classTokens("src/components/layout/PanelSurface.tsx");
+    expect(tokens).toContain("panel-top-inset");
+    expect(tokens.filter((t) => /(^|:)pt-safe$/.test(t))).toEqual([]);
+    // And the class must be emitted CSS, not a Tailwind variant name. `.pt-safe`
+    // is a plain class in `@layer utilities`, not a Tailwind `@utility`, so
+    // `max-md:pt-safe` generates no rule at all (measured in the built
+    // stylesheet) — the phone guard has to be a real media query.
+    expect(source("src/index.css")).toMatch(
+      /@media \(max-width: 767\.98px\) \{\s*\.panel-top-inset\s*\{\s*padding-top: env\(safe-area-inset-top\);/,
+    );
+  });
 });
