@@ -14,7 +14,7 @@ Facts with the command that proves each (checked 2026-11-19):
   `Astryx programme: 62/62 slices merged`.
 - No slice is dispatchable: `python3 rsi/runtime/slices.py ready --local` prints
   `(no ready Astryx slice)`.
-- The live queue is `rsi/state/STATUS.md` (gitignored; the fill pulse is its only writer).
+- The live queue is `rsi/state/STATUS.md` (gitignored; written by the fill pulse, the daily regroom and dream — write it atomically).
 - Phases live in `rsi/GOAL.md`: P9 is current, P1–P8 are closed.
 
 ## Template — sections a live STATUS uses
