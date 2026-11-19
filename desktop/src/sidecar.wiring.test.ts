@@ -22,25 +22,41 @@ function readSource(relative: string): string {
 }
 
 describe("the sidecar starts at most one daemon", () => {
-  it("waits for a kin process that is already on the machine", () => {
+  it("hands the handshake a kin process that is already on the machine", () => {
+    // The order itself is held behaviourally in daemon-handshake.test.ts; the
+    // wiring must give it the real process list and the child it owns.
+    assert.match(SOURCE, /bringUpDaemon\(\{/);
     assert.match(SOURCE, /waitForRivalDaemon\(\{/);
     assert.match(SOURCE, /listRivals:\s*\(\)\s*=>\s*listKinDaemonPids\(DAEMON_PORT\)/);
-    assert.match(SOURCE, /if \(!healthy && !this\.child\)/);
+    assert.match(SOURCE, /ownsChild:\s*\(\)\s*=>\s*this\.child !== null/);
+    // A handshake that outlived Stop/quit must not spawn or overwrite status.
+    assert.match(
+      SOURCE,
+      /isCurrent:\s*\(\)\s*=>\s*generation === this\.generation && !this\.stopping/,
+    );
+    // The cadence and timeout are the handshake's defaults, not overridden
+    // here back to the old quarter-second poll.
+    assert.doesNotMatch(SOURCE, /pollMs:|healthTimeoutMs:/);
   });
 
   it("asks before it spawns", () => {
     const asked = SOURCE.indexOf("waitForRivalDaemon({");
-    const spawned = SOURCE.indexOf("spawn(bin,");
+    const spawn = SOURCE.indexOf("spawn: () => this.spawnDaemon()");
     assert.ok(asked > 0, "the rival question is never asked");
-    assert.ok(spawned > asked, `spawn at ${spawned} is not after the wait at ${asked}`);
+    assert.ok(spawn > asked, `spawn at ${spawn} is not after the wait at ${asked}`);
+    assert.match(SOURCE, /private spawnDaemon\(\): SpawnResult/);
+    assert.ok(SOURCE.indexOf("spawn(bin,") > 0, "the spawn implementation is gone");
   });
 
-  it("refuses to spawn onto a process that never answers", () => {
-    const stuck = SOURCE.indexOf('outcome === "stuck"');
-    const spawned = SOURCE.indexOf("spawn(bin,");
-    assert.ok(stuck > 0, "a stuck daemon is not handled");
-    assert.ok(stuck < spawned, `the stuck branch at ${stuck} is not before spawn at ${spawned}`);
-    assert.match(SOURCE.slice(stuck, spawned), /return this\.status;/);
+  it("turns a stuck rival into an unavailable status without spawning", () => {
+    // The refusal decision is the pure module's (tested there); the wiring
+    // must name the reason and surface the outcome instead of ignoring it.
+    assert.match(SOURCE, /stuckReason:\s*`a kin daemon process is running/);
+    assert.match(SOURCE, /if \(outcome\.state === "unavailable"\)/);
+    assert.match(
+      SOURCE,
+      /this\.status = \{ state: "unavailable", reason: outcome\.reason \}/,
+    );
   });
 
   it("names a daemon that lost the state-directory race", () => {
