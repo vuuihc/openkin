@@ -138,6 +138,11 @@ func TestParseMessageToolResultBecomesResultEvent(t *testing.T) {
 	if got, want := strings.Join(eventTypes(events), ","), "tool_use,tool_result"; got != want {
 		t.Fatalf("event types=%v want=%s", eventTypes(events), want)
 	}
+	// The call id must be top-level on the tool_use too: the console pairs a
+	// result by that key, and content.id alone would leave the call on seq-N.
+	if id := payloadOf(t, events[0])["tool_use_id"]; id != "toolu_01" {
+		t.Fatalf("tool_use tool_use_id=%v payload=%s", id, events[0].Payload)
+	}
 	payload := payloadOf(t, events[1])
 	if payload["tool_use_id"] != "toolu_01" {
 		t.Fatalf("tool_use_id=%v payload=%s", payload["tool_use_id"], events[1].Payload)

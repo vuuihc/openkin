@@ -136,15 +136,15 @@ func TestFakeAgentIntegrationEmitsToolResult(t *testing.T) {
 	for _, e := range evs {
 		switch e.Type {
 		case "tool_use":
+			// The console pairs steps by the top-level tool_use_id, not by
+			// the block's nested content.id.
 			var payload struct {
-				Content struct {
-					ID string `json:"id"`
-				} `json:"content"`
+				ToolUseID string `json:"tool_use_id"`
 			}
 			if err := json.Unmarshal(e.Payload, &payload); err != nil {
 				t.Fatalf("tool_use payload: %v", err)
 			}
-			toolUseID = payload.Content.ID
+			toolUseID = payload.ToolUseID
 		case "tool_result":
 			var payload struct {
 				ToolUseID string `json:"tool_use_id"`

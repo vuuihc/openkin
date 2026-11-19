@@ -10,7 +10,8 @@
         "name": "Read",
         "type": "tool_use"
       },
-      "role": "assistant"
+      "role": "assistant",
+      "tool_use_id": "toolu_01"
     }
   },
   {

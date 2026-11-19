@@ -105,12 +105,19 @@ func parseMessage(role string, raw map[string]json.RawMessage, line string) []ad
 			case "tool_use":
 				// Reconstruct block as object for payload.
 				blockBytes, _ := json.Marshal(rawMapToAny(b))
+				payload := map[string]any{
+					"role":    msg.Role,
+					"content": json.RawMessage(blockBytes),
+				}
+				// The console pairs a tool_use with its tool_result by a
+				// top-level tool_use_id; without it the call is keyed by seq
+				// and its result opens a second, duplicate step.
+				if id := jsonString(b["id"]); id != "" {
+					payload["tool_use_id"] = id
+				}
 				events = append(events, adapter.Event{
-					Type: "tool_use",
-					Payload: mustMarshal(map[string]any{
-						"role":    msg.Role,
-						"content": json.RawMessage(blockBytes),
-					}),
+					Type:    "tool_use",
+					Payload: mustMarshal(payload),
 				})
 			case "tool_result":
 				// The result closes the step the matching tool_use opened, so
