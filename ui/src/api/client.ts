@@ -1960,28 +1960,87 @@ export function isImageMime(mime: string | undefined | null): boolean {
   return !!mime && mime.startsWith("image/");
 }
 
-/** POST /api/uploads — upload a single attachment (multipart). */
-export async function uploadFile(file: File): Promise<Upload> {
+/** How long one upload may take before the request is abandoned. */
+const UPLOAD_TIMEOUT_MS = 120_000;
+
+/**
+ * The fetch credentials mode the endpoint used. XHR sends same-origin
+ * credentials either way; `withCredentials` only governs a cross-origin
+ * response, so the mapping stays visible here.
+ */
+const UPLOAD_CREDENTIALS: RequestCredentials = "same-origin";
+
+/**
+ * POST /api/uploads, reporting how much of the body has left the browser.
+ *
+ * `fetch` has no upload-progress event, so this request uses XHR. Everything
+ * the fetch path guaranteed is preserved: the bearer header, the relay query,
+ * credentials, the 20 MiB guard, 401 → `notifyUnauthorized()`, and `ApiError`
+ * with the server's text. It times out, and a removed placeholder aborts it.
+ */
+export function uploadFileWithProgress(
+  file: File,
+  onProgress?: (percent: number) => void,
+  opts: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<Upload> {
   if (file.size > MAX_UPLOAD_BYTES) {
-    throw new ApiError(413, `File too large (max ${MAX_UPLOAD_BYTES >> 20} MiB)`);
+    return Promise.reject(new ApiError(413, `File too large (max ${MAX_UPLOAD_BYTES >> 20} MiB)`));
   }
-  const form = new FormData();
-  form.append("file", file);
-  const headers = new Headers();
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(withRelayCredentials("/api/uploads"), {
-    method: "POST",
-    credentials: "same-origin",
-    body: form,
-    headers,
+  if (opts.signal?.aborted) {
+    return Promise.reject(new DOMException("Upload aborted", "AbortError"));
+  }
+  return new Promise<Upload>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+    const finish = (run: () => void) => {
+      if (settled) return;
+      settled = true;
+      opts.signal?.removeEventListener("abort", onAbort);
+      run();
+    };
+    const onAbort = () => xhr.abort();
+
+    xhr.open("POST", withRelayCredentials("/api/uploads"), true);
+    xhr.withCredentials = UPLOAD_CREDENTIALS === "include";
+    xhr.timeout = opts.timeoutMs ?? UPLOAD_TIMEOUT_MS;
+    const token = getToken();
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable || event.total <= 0) return;
+      const percent = Math.round((event.loaded / event.total) * 100);
+      onProgress?.(Math.min(100, Math.max(0, percent)));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        let parsed: Upload;
+        try {
+          parsed = JSON.parse(xhr.responseText) as Upload;
+        } catch {
+          finish(() => reject(new ApiError(xhr.status, "Invalid upload response")));
+          return;
+        }
+        finish(() => resolve(parsed));
+        return;
+      }
+      if (xhr.status === 401) notifyUnauthorized();
+      const text = xhr.responseText || xhr.statusText;
+      finish(() => reject(new ApiError(xhr.status, text)));
+    };
+    xhr.onerror = () => finish(() => reject(new ApiError(0, "Network error")));
+    xhr.ontimeout = () => finish(() => reject(new ApiError(0, "Upload timed out")));
+    xhr.onabort = () => finish(() => reject(new DOMException("Upload aborted", "AbortError")));
+
+    const form = new FormData();
+    form.append("file", file);
+    xhr.send(form);
   });
-  if (!res.ok) {
-    if (res.status === 401) notifyUnauthorized();
-    const text = await res.text().catch(() => "");
-    throw new ApiError(res.status, text || res.statusText);
-  }
-  return (await res.json()) as Upload;
+}
+
+/** POST /api/uploads — upload a single attachment (multipart). */
+export function uploadFile(file: File): Promise<Upload> {
+  return uploadFileWithProgress(file);
 }
 
 /** @deprecated use uploadFile */
