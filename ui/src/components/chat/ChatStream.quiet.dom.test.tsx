@@ -38,6 +38,20 @@ const toolCall = (seq: number, id: string) =>
     visibility: { user: true, task: true },
   });
 
+/** A progress note still streaming: the projection keeps it open. */
+const streamingNote = (seq: number, role: string, text: string) =>
+  event(seq, "message", {
+    role,
+    phase: "progress",
+    speaker: "kin",
+    content: [{ type: "text", text }],
+    partial: true,
+    visibility: { user: true, task: true },
+  });
+
+/** A round that died: the open note settles as failed. */
+const failure = (seq: number) => event(seq, "error", { message: "provider dropped the stream" });
+
 const toolResult = (seq: number, id: string, ok = true) =>
   event(seq, "tool_result", {
     speaker: "kin",
@@ -148,6 +162,19 @@ describe("a folded tool card", () => {
     expect(toggle!.querySelector(".animate-breathe")).not.toBeNull();
   });
 
+  it("a live card whose call has returned is not still calling it", () => {
+    setLocale("en");
+    // The ordinary gap between a tool result and the next call: the card is
+    // live, but nothing is in flight.
+    const events = [userMessage(1, "run it"), toolCall(2, "call-1"), toolResult(3, "call-1")];
+    const { container } = renderStream(events, { loading: true });
+
+    const toggle = disclosure(container);
+    expect(toggle!.querySelector(".animate-breathe")).not.toBeNull();
+    expect(toggle!.textContent?.trim().startsWith("Calling")).toBe(false);
+    expect(toggle!.textContent).toContain("Called shell × 1");
+  });
+
   it("a failed call still says so", () => {
     setLocale("en");
     const events = [
@@ -162,5 +189,41 @@ describe("a folded tool card", () => {
     const dot = toggle!.querySelector<HTMLElement>('[data-progress-state="failed"]');
     expect(dot).not.toBeNull();
     expect(dot!.className).toContain("bg-kin-red");
+  });
+});
+
+describe("a notes-only card", () => {
+  it("counts a failed note instead of saying 0 failed", () => {
+    setLocale("en");
+    // A settled card that held only notes: one finished, one where the round
+    // died. The state comes from the notes, so the count must too.
+    const events = [
+      userMessage(1, "please fix the parser"),
+      note(2, "assistant", "the parser is fine"),
+      streamingNote(3, "assistant", "now the provider dropped"),
+      failure(4),
+    ];
+    const { container } = renderStream(events);
+
+    const toggle = disclosure(container);
+    expect(toggle).not.toBeNull();
+    expect(toggle!.querySelector('[data-progress-state="partial_failed"]')).not.toBeNull();
+    expect(toggle!.textContent).not.toContain("0 failed");
+    expect(toggle!.textContent).toContain("1 failed");
+  });
+
+  it("does not hide a note-only failure", () => {
+    setLocale("en");
+    const events = [
+      userMessage(1, "please fix the parser"),
+      streamingNote(2, "assistant", "the provider dropped"),
+      failure(3),
+    ];
+    const { container } = renderStream(events);
+
+    const toggle = disclosure(container);
+    expect(toggle).not.toBeNull();
+    expect(toggle!.querySelector('[data-progress-state="failed"]')).not.toBeNull();
+    expect(toggle!.textContent).toContain("1 failed");
   });
 });

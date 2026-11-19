@@ -2221,6 +2221,7 @@ describe("summarizeProgressStatus", () => {
       state: "failed",
       doneTools: 0,
       failedTools: 1,
+      failedNotes: 0,
       totalTools: 1,
     });
   });
@@ -2254,6 +2255,7 @@ describe("summarizeProgressStatus", () => {
       state: "partial_failed",
       doneTools: 1,
       failedTools: 1,
+      failedNotes: 0,
       totalTools: 2,
     });
   });
@@ -2271,6 +2273,36 @@ describe("summarizeProgressStatus", () => {
     ];
 
     expect(summarizeProgressStatus(steps, false).state).toBe("failed");
+  });
+
+  it("counts a failed note when the card holds no tools", () => {
+    // A settled card can hold only notes. Its state comes from their statuses,
+    // so the failure sentence has to count them too — otherwise a red card
+    // reads "0 failed".
+    const steps: ProgressItem["steps"] = [
+      {
+        kind: "note",
+        source: "note" as const,
+        key: "ok",
+        speaker: "kin",
+        text: "Parsing.",
+        status: "done",
+      },
+      {
+        kind: "note",
+        source: "note" as const,
+        key: "bad",
+        speaker: "kin",
+        text: "The provider dropped.",
+        status: "error",
+      },
+    ];
+
+    expect(summarizeProgressStatus(steps, false)).toMatchObject({
+      state: "partial_failed",
+      failedTools: 0,
+      failedNotes: 1,
+    });
   });
 });
 

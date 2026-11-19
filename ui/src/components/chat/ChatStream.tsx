@@ -1148,24 +1148,28 @@ function ProgressCard({
 
   const notesSentence = tr("chat.progress.notes", { count: details.noteCount });
 
+  // The failures the state was derived from: tools on a card that holds any,
+  // the notes themselves on a card that holds only notes.
+  const failed = status.failedTools + status.failedNotes;
+
   // One sentence for the whole run. Composition rules, in order: a live run
-  // says what it is calling; a failed run says how many failed (never silently);
-  // a settled run says what it called. A card that only ever held notes says
-  // how many, because there is no call to name.
+  // names the call still in flight, and only that — the moment every call has
+  // returned it says what it called, because "Calling" over a settled call is
+  // a lie; a failed run says how many failed (never silently); a settled run
+  // says what it called. A card that only ever held notes says how many,
+  // because there is no call to name.
   const summary = (() => {
-    if (status.state === "running") {
-      return tr("chat.progress.summaryRunning", {
-        activity: calling || details.toolCounts || notesSentence,
-      });
+    if (status.state === "running" && calling) {
+      return tr("chat.progress.summaryRunning", { activity: calling });
     }
     if (status.state === "failed") {
-      return status.failedTools > 0
-        ? tr("chat.progress.summaryFailed", { failed: status.failedTools })
-        : notesSentence;
+      // A note-only run fails through its notes; the count follows the same
+      // steps the state came from, so this is never "0 failed".
+      return tr("chat.progress.summaryFailed", { failed });
     }
     if (status.state === "partial_failed") {
       return tr("chat.progress.summaryMixed", {
-        failed: status.failedTools,
+        failed,
         activity: details.toolCounts || notesSentence,
       });
     }
