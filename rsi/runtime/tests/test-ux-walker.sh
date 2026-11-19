@@ -309,11 +309,36 @@ grep -qi 'heavy slot\|machine-wide' "$OUT7/UNAVAILABLE" \
   || fail "$case_name: a heavy slot was taken under RSI_NO_HEAVY"
 pass "$case_name"
 
-# --- 8: the committed red proof still points at this selection ------------------
+# --- 8: the daemon is told which claude to run, not merely pointed at it ------
+# PATH order stopped being enough on 2026-11-19: with the fake first on PATH the
+# throwaway daemon still answered /api/agents with ~/.local/bin/claude (a config
+# under the real $HOME outranks PATH for this agent), so journeys_seed.py refused
+# every conversation and the walk judged PR #366 against an empty daemon. A stub
+# binary records the environment it was started with and exits, which proves the
+# pin without a build, a browser or a model call.
+case_name="test_fake_agent_is_pinned_for_the_daemon"
+WTP="$T/wt-fake-pin"; mkdir -p "$WTP/scripts/journeys_fake_agent"
+printf '#!/bin/sh\nexit 1\n' > "$WTP/scripts/journeys_fake_agent/claude"
+chmod +x "$WTP/scripts/journeys_fake_agent/claude"
+STUB="$T/kin-env-stub"; DUMP="$T/kin-env.txt"; rm -f "$DUMP"
+printf '#!/bin/sh\nenv > "%s"\nexit 1\n' "$DUMP" > "$STUB"; chmod +x "$STUB"
+OUTP="$T/out-fake-pin"; mkdir -p "$OUTP"
+env -u RSI_HEAVY_HELD -u RSI_NO_HEAVY UX_KIN_BIN="$STUB" \
+  bash "$SEAM" "$WTP" "$OUTP" >"$T/fake-pin.out" 2>&1
+rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2 when the stub daemon dies ($(tail -c 300 "$T/fake-pin.out"))"
+[ -f "$DUMP" ] || fail "$case_name: the stub daemon never started"
+grep -qx "KIN_CLAUDE_BIN=$WTP/scripts/journeys_fake_agent/claude" "$DUMP" \
+  || fail "$case_name: the daemon was not told which claude to run (no pin in its environment)"
+grep -q "^PATH=$WTP/scripts/journeys_fake_agent:" "$DUMP" \
+  || fail "$case_name: the fake is no longer first on the daemon's PATH"
+pass "$case_name"
+
+# --- 9: the committed red proof still points at this selection ------------------
 # scripts/mutants.py runs this script unmutated, then with entry.old replaced;
-# the selection entry must go red in case 2, the slot entry in case 6. This
-# case keeps the manifest from rotting into a pattern that no longer occurs
-# (which would silently retire a proof).
+# the selection entry must go red in case 2, the slot entry in case 6, the pin
+# entry in case 8. This case keeps the manifest from rotting into a pattern that
+# no longer occurs (which would silently retire a proof).
 case_name="test_mutant_manifest_changes_the_selection"
 [ -f "$MANIFEST" ] || fail "$case_name: no rsi/runtime/tests/ux-walker.mutants.json"
 python3 - "$MANIFEST" "$UXWALK" <<'PY' || exit 1
@@ -346,4 +371,4 @@ PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
 
-echo "ux-walker contract: 13/13 cases passed"
+echo "ux-walker contract: 14/14 cases passed"
