@@ -14,6 +14,35 @@ SMALL_SLOTS="${RSI_MERGE_SMALL_SLOTS:-1}"        # extra slot only small-safe PR
 unset SB_FIXLIST SB_GATEFAILS
 say() { echo "[$(date +%T)] $*"; }
 attempts() { cat "$STATE/merge/$1.attempts" 2>/dev/null || echo 0; }
+# The machine-wide gate lock: claim by mkdir, reclaim a lock whose pid is dead, otherwise poll
+# until max seconds have passed. RSI_GATE_LOCK_POLL shortens only the poll cadence, for the
+# hermetic seam (tests/test-gate-lock-timeout.sh); production keeps 15 s and the same max in
+# seconds, so the stale-pid reclaim and the wait length behave exactly as before.
+mklock() { local d="$1" max="$2" w=0; while ! mkdir "$d" 2>/dev/null; do o="$(cat "$d/pid" 2>/dev/null)"; if [ -n "$o" ] && ! kill -0 "$o" 2>/dev/null; then rm -rf "$d"; continue; fi; sleep "${RSI_GATE_LOCK_POLL:-15}"; w=$((w+15)); [ $w -gt "$max" ] && return 1; done; echo $$ > "$d/pid"; }
+# A gate-lock wait is loop contention between verifiers, not a verdict on the branch. #387
+# (2026-11-19) waited the full 1800 s and was then sent back as "gate failed: gate lock
+# timeout": a rework lane, one of three attempts, and a worker editing code nobody had proved
+# wrong. A timeout now skips the cycle (SKIP/0, no sendback, no attempt); the same head timing
+# out twice leaves exactly one needs-ceo line, and the per-(slug, head) marker keeps a skip
+# storm from writing one every ten minutes.
+gate_lock_decision() { # <acquired|timeout> <slug> <sha> <state-dir> -> 0 SKIP / 1 GATE; sets GATE_LOCK_REASON
+  local outcome="$1" slug="$2" sha="$3" state="$4" marker n
+  if [ "$outcome" != timeout ]; then
+    GATE_LOCK_REASON="gate lock acquired on ${sha:0:8}"; return 1
+  fi
+  marker="$state/merge/$slug.gatelock-timeout.$sha"
+  n="$(cat "$marker" 2>/dev/null)"
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac   # malformed marker: no reminder, never a failed skip
+  if [ "$n" -lt 2 ]; then
+    echo "$((n + 1))" > "$marker"
+    if [ "$n" -eq 1 ]; then
+      printf -- '- %s PR rsi/%s: gate lock timed out twice on %s; both cycles skipped, no sendback (loop contention, not the branch)\n' \
+        "$(date '+%F %H:%M')" "$slug" "${sha:0:8}" >> "$state/needs-ceo.md"
+    fi
+  fi
+  GATE_LOCK_REASON="gate lock timeout on ${sha:0:8}: another verifier holds it; cycle skipped, no sendback"
+  return 0
+}
 item_id() { # slug body -> the marker's id, else R-<slug>: the one reader and the one fallback rule
   local id
   id="$(printf '%s\n' "$2" | python3 "$RSI_DIR/runtime/item_marker.py")"
@@ -571,6 +600,22 @@ if [ "${1:-}" != "--one" ]; then
     fi
     echo "SYNC $CI_FIRST_REASON"; exit 1
   fi
+  # Hermetic seam for rsi/runtime/tests/test-gate-lock-timeout.sh: the same mklock() and
+  # gate_lock_decision() the gate body calls, against a state dir whose .gate.lock may be held
+  # by a live pid or left stale by a dead one. No gh, fetch, gate, review or dispatch; the max
+  # wait defaults to 0 so a held lock gives up on the first poll instead of waiting 1800 s.
+  if [ "${1:-}" = "--gate-lock-check" ]; then
+    [ $# -ge 4 ] && [ -n "$4" ] || { echo "usage: merge.sh --gate-lock-check <slug> <sha> <state-dir> [max-wait]" >&2; exit 2; }
+    GLSLUG="$2"; GLSHA="$3"; GLSTATE="$4"
+    if mklock "$GLSTATE/.gate.lock" "${5:-0}"; then
+      rm -rf "$GLSTATE/.gate.lock"
+      gate_lock_decision acquired "$GLSLUG" "$GLSHA" "$GLSTATE"; GLRC=$?
+    else
+      gate_lock_decision timeout "$GLSLUG" "$GLSHA" "$GLSTATE"; GLRC=$?
+    fi
+    [ $GLRC -eq 0 ] && { echo "SKIP $GATE_LOCK_REASON"; exit 0; }
+    echo "GATE $GATE_LOCK_REASON"; exit 1
+  fi
   # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: run the same ceo_ok_verdict() the hold
   # block calls, against a marker file, a changed-path list and a PR number. No lock, fetch, gh.
   if [ "${1:-}" = "--ceo-ok-check" ]; then
@@ -705,7 +750,6 @@ V="$STATE/merge/$SLUG.verified"; RV="$STATE/merge/$SLUG.reviewed"; PREV="$STATE/
 QW=""; if [ -s "$STATE/merge/$SLUG.queued_at" ]; then QW=" queue_wait=$(( (T0 - $(cat "$STATE/merge/$SLUG.queued_at")) / 60 ))m"; rm -f "$STATE/merge/$SLUG.queued_at"; fi
 say "#$N $SLUG ($ITEM) verifier start$QW"; [ -n "$QW" ] && echo "$(date '+%F %H:%M') #$N $SLUG verifier_started$QW tier=$(cat "$STATE/merge/$SLUG.tier" 2>/dev/null || echo ?)" >> "$STATE/merge/cycles.log"
 
-mklock() { local d="$1" max="$2" w=0; while ! mkdir "$d" 2>/dev/null; do o="$(cat "$d/pid" 2>/dev/null)"; if [ -n "$o" ] && ! kill -0 "$o" 2>/dev/null; then rm -rf "$d"; continue; fi; sleep 15; w=$((w+15)); [ $w -gt "$max" ] && return 1; done; echo $$ > "$d/pid"; }
 sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 transient failure
   # Any sync ends a CI-first hold: the head this marker bounded is gone, so a later pending CI
   # starts its own fresh window instead of inheriting an expired one.
@@ -985,8 +1029,7 @@ fi
 GATE_OK=1; GATE_NOTE=""; GATE_OUTSIDE=0
 if [ $NEED_GATE -eq 1 ]; then
   say "#$N $SLUG: gate on ${SHA:0:8} ($SIZE lines)"
-  if ! mklock "$STATE/.gate.lock" 1800; then GATE_OK=0; GATE_NOTE="gate lock timeout"; say "#$N: gate lock timeout"
-  else
+  if mklock "$STATE/.gate.lock" 1800; then
     # Workers often build before their last edit: regenerate web/dist/index.html (the only tracked build output) so a stale bundle
     # never bounces a PR. Pushed so CI sees the same file. The install is repaired first: behind a `-d` test a stale or symlinked
     # tree made this build die silently, leaving the dist stale so gate.sh then failed the PR for a second, unrelated reason.
@@ -1012,18 +1055,27 @@ if [ $NEED_GATE -eq 1 ]; then
         SHA="$($GIT -C "$WT" rev-parse HEAD)"; GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"
         if mklock "$STATE/.gate.lock" 1800; then
           ( cd "$WT" && bash "$RSI_DIR/runtime/gate.sh" "$WT" ) > "$GL" 2>&1; GRC=$?; rm -rf "$STATE/.gate.lock"; $GIT -C "$WT" checkout -q -- . 2>/dev/null
-        else GRC=1; fi
+        else
+          gate_lock_decision timeout "$SLUG" "$SHA" "$STATE"
+          say "#$N $SLUG: $GATE_LOCK_REASON (re-gate after auto-format); skipping this cycle"
+          exit 0
+        fi
       fi
     fi
     GATE_OUTSIDE=0
     if [ $GRC -ne 0 ] || ! grep -q '^GATE_RESULT=PASS' "$GL"; then
       if outside_tests_only "$WT" "$GL" && [ ! -e "$STATE/merge/$SLUG.gate-outside-retry.$SHA" ]; then
-        touch "$STATE/merge/$SLUG.gate-outside-retry.$SHA"
         say "#$N $SLUG: gate failed only on tests outside the PR footprint (or known-flaky): $(tr -d '\n' < "$STATE/merge/$SLUG.outside-reason.txt"); rerunning gate once"
         GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"
         if mklock "$STATE/.gate.lock" 1800; then
+          # Consumed only when the retry really runs: a lock-timeout skip keeps it for the next cycle.
+          touch "$STATE/merge/$SLUG.gate-outside-retry.$SHA"
           ( cd "$WT" && bash "$RSI_DIR/runtime/gate.sh" "$WT" ) > "$GL" 2>&1; GRC=$?; rm -rf "$STATE/.gate.lock"; $GIT -C "$WT" checkout -q -- . 2>/dev/null
-        else GRC=1; fi
+        else
+          gate_lock_decision timeout "$SLUG" "$SHA" "$STATE"
+          say "#$N $SLUG: $GATE_LOCK_REASON (outside-footprint re-gate); skipping this cycle"
+          exit 0
+        fi
       fi
     fi
     if [ $GRC -ne 0 ] || ! grep -q '^GATE_RESULT=PASS' "$GL"; then
@@ -1031,6 +1083,10 @@ if [ $NEED_GATE -eq 1 ]; then
       outside_tests_only "$WT" "$GL" && GATE_OUTSIDE=1
       say "#$N $SLUG: gate FAIL: $GATE_NOTE$([ $GATE_OUTSIDE -eq 1 ] && echo ' (outside-footprint or known-flaky tests)')"
     fi
+  else
+    gate_lock_decision timeout "$SLUG" "$SHA" "$STATE"
+    say "#$N $SLUG: $GATE_LOCK_REASON"
+    exit 0
   fi
 fi
 if [ -n "$REVPID" ]; then
