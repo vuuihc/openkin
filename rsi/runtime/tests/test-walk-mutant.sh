@@ -635,6 +635,89 @@ fi
 rm -f "$log" "$spec_tmp"
 pass "$case_name"
 
+# Waiting for the diff editor is not waiting for its gutter: Monaco paints
+# glyphs lazily per rendered line, so a slow walk finds only line 1's glyph
+# and the `nth=4` tap hard-fails while a lucky walk on the same tree passes
+# (#389's first walk lost 11 J8 steps to it; its confirm walk reproduced none).
+# The journey scrolls the diff, waits for the last glyph and counts all six
+# before the tap. Each clause below is a separate way for that proof to be
+# deleted while the rest of the journey still walks.
+case_name="test_j8_spec_rejects_a_glyph_tap_without_the_paint_proof"
+command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$WT/rsi/runtime/ux/spec.py" "$WALKER" <<'PY' || fail "$case_name: a J8 glyph tap without the paint proof was accepted"
+import copy
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+index, specpy, walker = sys.argv[1:]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", index]))
+steps = spec["journeys"]["J8"]["steps"]
+
+def glyph_wait(st):
+    return (st[0] == "wait" and str(st[1]).startswith("css=")
+            and "kin-diff-comment-glyph" in str(st[1]) and "nth=5" in str(st[1]))
+
+def diff_scroll(st):
+    return (st[0] == "scroll" and str(st[1]).startswith("css=")
+            and "monaco-diff-editor" in str(st[1]))
+
+def six_count(st):
+    return (st[0] == "count" and str(st[1]).startswith("css=")
+            and "kin-diff-comment-glyph" in str(st[1]) and str(st[2]) == "6")
+
+tap = next((i for i, st in enumerate(steps)
+            if st[0] == "click" and "kin-diff-comment-glyph" in str(st[1])), -1)
+assert tap >= 0, "J8 has no glyph tap to guard"
+for label, pred in (("diff scroll", diff_scroll), ("paint wait", glyph_wait),
+                    ("six-glyph count", six_count)):
+    assert any(pred(st) for st in steps[:tap]), "J8 has no %s before the tap" % label
+
+def run(mutant):
+    with tempfile.TemporaryDirectory(prefix="j8-paint-") as tmp:
+        target = Path(tmp) / "spec.json"
+        target.write_text(json.dumps(mutant))
+        result = subprocess.run(["node", walker, "--check-spec", "--spec", str(target)],
+                                capture_output=True, text=True)
+    return result.returncode, result.stdout + result.stderr
+
+rc, out = run(copy.deepcopy(spec))
+assert rc == 0, "the good J8 spec was rejected:\n" + out
+
+mutants = {
+    "missing paint wait": ("no paint proof", glyph_wait),
+    "missing diff scroll": ("never scrolls the diff", diff_scroll),
+    "missing six-glyph count": ("never asserts all six glyphs", six_count),
+}
+for label, (needle, drop) in mutants.items():
+    mutant = copy.deepcopy(spec)
+    before = mutant["journeys"]["J8"]["steps"]
+    kept = [st for st in before if not drop(st)]
+    assert len(kept) < len(before), label + " removed no step"
+    mutant["journeys"]["J8"]["steps"] = kept
+    rc, out = run(mutant)
+    assert rc != 0, label + " deletion still passed --check-spec"
+    assert needle in out, label + " was rejected for another reason:\n" + out
+
+# A proof placed after the tap is no proof: the tap is the step that hard-fails.
+mutant = copy.deepcopy(spec)
+steps = mutant["journeys"]["J8"]["steps"]
+tap = next(i for i, st in enumerate(steps)
+           if st[0] == "click" and "kin-diff-comment-glyph" in str(st[1]))
+diff_wait = next(i for i, st in enumerate(steps) if st[0] == "wait"
+                 and str(st[1]) == "css=.monaco-diff-editor")
+steps.insert(diff_wait + 1, steps.pop(tap))
+rc, out = run(mutant)
+assert rc != 0, "a tap before the paint proof still passed --check-spec"
+assert "paint proof must come before the tap" in out, \
+    "a tap before the paint proof was rejected for another reason:\n" + out
+print("J8 paint proof ok: good spec passes; the wait, the scroll, the six-glyph count "
+      "and the pre-tap order are each required")
+PY
+pass "$case_name"
+
 case_name="test_j7_spec_rejects_a_keyboard_reopen_instead_of_a_tap"
 command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
 spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
@@ -952,4 +1035,4 @@ print("J13 PR contract rejects all twelve deleted address or surface proofs")
 PYTEST
 pass "$case_name"
 
-echo "walk-mutant contract: 18/18 cases passed"
+echo "walk-mutant contract: 19/19 cases passed"
