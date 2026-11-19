@@ -3,6 +3,11 @@
   "viewports": [
     "phone"
   ],
+  "desktopBridge": {
+    "apps": [
+      { "id": "finder", "label": "Finder", "labelKey": "finder" }
+    ]
+  },
   "steps": [
     ["goto", "/sessions"],
     ["wait", "css=[data-session-row=\"{conversation}\"]"],
@@ -130,6 +135,18 @@
     ["search", "^$"],
     ["gone", "css=[role='tab'][aria-selected='true']:has-text('Pull request'), [role='tab'][aria-selected='true']:has-text('Pull Request')"],
     ["wait", "css=[role=region][tabindex='-1']"],
-    ["shot", "pr-back-sheet"]
+    ["shot", "pr-back-sheet"],
+
+    ["goto", "/tasks/{conversation}?panel=files&file=report.pdf"],
+    ["search", "^\\?panel=files&file=report\\.pdf$"],
+    ["wait", "css=[data-pane='viewer']"],
+    ["wait", "css=[data-pane='viewer'] button[aria-haspopup='menu']"],
+    ["shot", "file-binary"],
+    ["click", "css=[data-pane='viewer'] button[aria-haspopup='menu']"],
+    ["wait", "css=[role=menu]"],
+    ["wait", "css=[role=menu] [role=menuitem]:has-text('Finder')"],
+    ["shot", "file-binary-open-in"],
+    ["key", "Escape"],
+    ["gone", "css=[role=menu]"]
   ]
 }
