@@ -210,6 +210,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-throughput.sh || return 1
   bash rsi/runtime/tests/test-lanes-history.sh || return 1
   bash rsi/runtime/tests/test-lane-spare-pressure.sh || return 1
+  bash rsi/runtime/tests/test-claim-merged.sh || return 1
   bash rsi/runtime/tests/test-runtime-modes.sh || return 1
   bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
   bash rsi/runtime/tests/test-gate-carry.sh || return 1
