@@ -3,10 +3,13 @@
 # tracked worktree is dirty but already byte-identical to it (the state a landed loop PR
 # leaves behind), while a real local change or an unpublished local commit still blocks.
 # A tree it cannot move is never silent: `--sync-check` exits 1 and names the lag and the paths.
+# It also pins `--status`'s merge-lane line: it must count the per-PR verifier locks
+# (state/merge/<slug>.lock holding a live pid, merge.sh's convention) and the legacy
+# state/.merge.lock as `legacy`, instead of reading the legacy lock alone.
 #
 # Hermetic: temp bare origin + work clone per case, fixed git identities, temp HOME,
-# RSI_CTRL points at the work clone, and run.sh is invoked as `--sync-check` so no
-# lock, daemon fetch or launchd check runs. Prints "PASS <case>" per case; exits
+# RSI_CTRL points at the work clone, and run.sh is invoked as `--sync-check`/`--status`
+# so no lock, daemon fetch or launchd check runs. Prints "PASS <case>" per case; exits
 # non-zero on the first failure.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -223,5 +226,62 @@ sync
 [ "$(head_now)" = "$ORIGIN_SHA" ] || fail "rename-dest: HEAD did not become origin/main: $ERR"
 grep -q 'adopted untracked renamed.sh' <<<"$ERR" || fail "rename-dest: the adopt was not reported: $ERR"
 pass "rename-destination-identical-adopts"
+
+# 12. `--status`'s merge-lane line must report what is actually running: one lock per PR under
+#     state/merge/<slug>.lock holding the verifier's pid (merge.sh's mkdir + `echo $$ > pid`),
+#     plus the legacy state/.merge.lock named `legacy`. Dead-pid or pid-less locks are not
+#     running. (2026-11-19 16:55: two `merge.sh --one` verifications were live (#390 gate in
+#     npm test, #384 journey walk) while the line read `idle`, so a patrol could stack a
+#     `pulse --force` on top of them — the overlap showed up as fake reds and reworked PRs.)
+pair status
+STATE="$WORK/rsi/state"
+mkdir -p "$STATE" "$WORK/rsi/runtime"
+printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$WORK/rsi/runtime/lanes.py"
+# status [env...] — run only `--status` against $WORK; RSI_MAX_OPEN_PRS=0 keeps it off `gh`.
+# Sets RC, SOUT and SERR.
+status() {
+  env RSI_CTRL="$WORK" RSI_MAX_OPEN_PRS=0 "$@" bash "$RUN" --status >"$T/sout" 2>"$T/serr"; RC=$?
+  SOUT="$(cat "$T/sout")"; SERR="$(cat "$T/serr")"
+}
+merge_line() { grep '^merge lane: ' "$T/sout"; }
+
+# 12a. No locks at all: exactly `merge lane: idle`.
+status
+[ "$RC" = 0 ] || { printf '%s\n' "$SERR" >&2; fail "status-idle: expected exit 0, got $RC"; }
+[ "$(merge_line)" = "merge lane: idle" ] \
+  || fail "status-idle: expected 'merge lane: idle', got: $(merge_line)"
+pass "status-idle-with-no-locks"
+
+# 12b. Two live per-PR locks: counted, and both slugs named alphabetically.
+mkdir -p "$STATE/merge/panel-exit.lock" "$STATE/merge/doc-open-external.lock"
+sleep 300 & lp1=$!
+sleep 300 & lp2=$!
+echo "$lp1" > "$STATE/merge/panel-exit.lock/pid"
+echo "$lp2" > "$STATE/merge/doc-open-external.lock/pid"
+status
+line="$(merge_line)"
+kill "$lp1" "$lp2" 2>/dev/null; wait "$lp1" "$lp2" 2>/dev/null
+[ "$line" = "merge lane: 2 running (doc-open-external, panel-exit)" ] \
+  || fail "status-live: expected 2 running (doc-open-external, panel-exit), got: $line"
+pass "status-names-two-live-verifications"
+
+# 12c. A reaped pid and a lock with no pid file are not running.
+mkdir -p "$STATE/merge/dead.lock" "$STATE/merge/nopid.lock"
+( : ) & dp=$!; wait "$dp" 2>/dev/null
+echo "$dp" > "$STATE/merge/dead.lock/pid"
+status
+[ "$(merge_line)" = "merge lane: idle" ] \
+  || fail "status-dead: a dead pid was counted, got: $(merge_line)"
+rm -rf "$STATE/merge"
+pass "status-ignores-a-dead-pid"
+
+# 12d. The legacy single-instance lock stays visible, named `legacy`.
+mkdir -p "$STATE/.merge.lock"
+echo $$ > "$STATE/.merge.lock/pid"
+status
+[ "$(merge_line)" = "merge lane: 1 running (legacy)" ] \
+  || fail "status-legacy: expected 1 running (legacy), got: $(merge_line)"
+rm -rf "$STATE/.merge.lock"
+pass "status-counts-the-legacy-lock"
 
 echo "all cases passed"

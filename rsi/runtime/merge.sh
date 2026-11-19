@@ -427,9 +427,124 @@ ci_first_decision() { # <wt> <branch> <gate-file> <reviewed-file> <ci-state> <ma
   return 1
 }
 
+# ------------------------------------------------------------------ CEO approval marker
+# Only the CEO writes state/merge/<slug>.ceo-ok (same ownership rule as *.size-ok). One line, four
+# fields in this order, recording the owner's approval of THIS PR so clearing the hold leaves a
+# durable record of what was approved, where and when:
+#   source=thread <id> · quote "<the owner's words>" · <YYYY-MM-DDTHH:MM±HH:MM> · pr <number>
+# Every field must be present and non-empty; a placeholder source, a missing quote/time and a marker
+# for another PR are all invalid, so the hold stays exactly as it was.
+ceo_ok_last_field() { # <marker-file> -> the marker's last `·` field, trimmed
+  local line
+  line="$(sed -n '1p' "$1" | tr -d '\r' | sed -E 's/[[:space:]]+$//')"
+  line="${line##*·}"
+  printf '%s\n' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+}
+ceo_ok_verdict() { # <marker-file> <changed-paths-file> <pr> -> 0 clear, 1 hold, 2 not applicable
+  # 2 = no deps/migrations/auth path changed; the marker never clears any other hold.
+  local marker="$1" changed="$2" pr="$3" line src last
+  CEO_OK_REASON=""
+  [ -r "$changed" ] || return 2
+  grep -qE '^(go\.mod|ui/package\.json|internal/store/.*migrat|.*migrations?/|internal/auth)' "$changed" || return 2
+  if [ ! -s "$marker" ]; then
+    CEO_OK_REASON="no owner approval marker at $marker"
+    return 1
+  fi
+  line="$(sed -n '1p' "$marker" | tr -d '\r' | sed -E 's/[[:space:]]+$//')"
+  # 1. source= must name something real (not empty, not a TODO/unknown/<id> placeholder).
+  case "$line" in
+    source=*) src="${line#source=}"; src="${src%%·*}"; src="$(printf '%s' "$src" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" ;;
+    *) src="" ;;
+  esac
+  case " $src " in
+    *" TODO "*|*" unknown "*|*" Unknown "*) src="" ;;
+  esac
+  case "$src" in *"<"*) src="" ;; esac
+  if [ -z "$src" ]; then
+    CEO_OK_REASON="the marker has no usable source= (missing, TODO, unknown or placeholder)"
+    return 1
+  fi
+  # 2. quote="..." must carry the owner's own words.
+  if ! printf '%s\n' "$line" | grep -qE 'quote[[:space:]]*=?"[^"]+"'; then
+    CEO_OK_REASON="the marker has no quoted owner statement"
+    return 1
+  fi
+  # 3. an ISO-8601 timestamp, offset optional.
+  if [[ ! "$line" =~ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2} ]]; then
+    CEO_OK_REASON="the marker has no ISO-8601 timestamp"
+    return 1
+  fi
+  # 4. the last field is `pr <N>`, and N is the PR being merged: a stale marker must not approve a
+  #    later PR that reuses the slug.
+  last="$(ceo_ok_last_field "$marker")"
+  [ "$last" = "pr $pr" ] || { CEO_OK_REASON="the marker does not approve PR #$pr (last field: ${last:-none})"; return 1; }
+  CEO_OK_REASON="source=$src quote=\"$(printf '%s\n' "$line" | sed -E 's/.*quote[[:space:]]*=?"([^"]+)".*/\1/')\""
+  return 0
+}
+
+# The same marker also releases the dispatcher's holds, not just the verifier's path check. A held PR
+# writes <slug>.blocked and the dispatcher used to skip it forever, so the "next cycle merges" claim
+# was false; the needs-ceo/hold labels are the same hold one step earlier (MANDATE red line 4).
+# Both skips now consult this one rule, bound to the PR: the marker's last field must be `pr <N>`, so
+# a stale marker on a reused slug cannot release a label (the verifier never re-validates the marker
+# for a red-line PR with no deps/migrations/auth path). A .blocked written after the marker is a new
+# hold — a re-block or a different hold — and outranks the approval; only an older block yields.
+ceo_ok_clears_hold() { # <slug> <pr> -> 0 when the marker approves that exact PR
+  local m="$STATE/merge/$1.ceo-ok"
+  [ -s "$m" ] && [ -n "${2:-}" ] || return 1
+  [ "$(ceo_ok_last_field "$m")" = "pr $2" ]
+}
+ceo_hold_skip() { # <slug> <labels-csv> <pr> -> 0 and a reason on stdout when the dispatcher must skip
+  local slug="$1" ls=" $(printf '%s' "${2:-}" | tr ',' ' ') " pr="${3:-}" l
+  for l in $ls; do case "$l" in hold|needs-ceo) ceo_ok_clears_hold "$slug" "$pr" || { echo "labelled hold (needs CEO)"; return 0; } ;; esac; done
+  if [ -e "$STATE/merge/$slug.blocked" ] && { ! ceo_ok_clears_hold "$slug" "$pr" || ! [ "$STATE/merge/$slug.ceo-ok" -nt "$STATE/merge/$slug.blocked" ]; }; then
+    echo "blocked (needs CEO)"; return 0
+  fi
+  return 1
+}
+
+# gh `pr list` JSON (number,headRefName,isDraft,labels,title,files,body) -> TSV rows for the dispatcher
+# loop: number, slug, title, tier, labels. needs-ceo/hold is a CEO hold, not a permanent exclusion, so
+# the labels travel with the row and ceo_hold_skip() applies it (a marker naming this PR releases it).
+# The head/draft rule is rsi/runtime/pr_select.py, shared with common.sh's backpressure counter. The
+# default therefore passes no labels — the hold rule fires one step later — while
+# --candidate-labels applies it here, which is what the selection seam means by a candidate.
+dispatch_rows() {
+  STATE="$STATE" RSI_DIR="$RSI_DIR" TIERPY="$RSI_DIR/runtime/review-tier.py" \
+    PR_SELECT_LABELS="${1:-}" python3 -c '
+import json,sys,os,subprocess
+sys.path.insert(0, os.path.join(os.environ["RSI_DIR"], "runtime"))
+from item_marker import parse_item
+from pr_select import is_candidate
+st=os.environ["STATE"]; rows=[]
+labels_here = os.environ.get("PR_SELECT_LABELS") == "--candidate-labels"
+for p in json.load(sys.stdin):
+    h=p["headRefName"]
+    if not is_candidate(h, p["isDraft"], p["labels"] if labels_here else ()): continue
+    slug=h[4:]; item=parse_item(p.get("body") or "")
+    try: att=int(open("%s/merge/%s.attempts" % (st,slug)).read().strip() or 0)
+    except Exception: att=0
+    tier="large"
+    try:
+        if "files" not in p: raise ValueError("no files")
+        out=subprocess.run(["python3",os.environ["TIERPY"],"--title",p["title"],"--item",item,"--attempts",str(att),"--gh-json","-"],input=json.dumps(p.get("files") or []),capture_output=True,text=True,timeout=20).stdout.split()
+        tier=out[0] if out else "large"
+    except Exception: pass
+    rows.append((0 if tier=="small" else 1, p["number"], slug, p["title"].replace("\t"," "), tier, ",".join(sorted(l["name"] for l in p["labels"]))))
+for _,n,slug,title,tier,labs in sorted(rows):   # small-safe first, then PR number
+    print("%d\t%s\t%s\t%s\t%s" % (n,slug,title,tier,labs))'
+}
+
 # ------------------------------------------------------------------ dispatcher
 if [ "${1:-}" != "--one" ]; then
   [ "${1:-}" = "--resolve-generated" ] && { gen_resolve "${2:?worktree required}"; exit $?; }
+  # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: the dispatcher's row filter on PR JSON
+  # on stdin, so a needs-ceo/hold row is proven to reach the loop with its labels for ceo_hold_skip().
+  if [ "${1:-}" = "--dispatch-rows-check" ]; then dispatch_rows; exit $?; fi
+  # Hermetic seam for rsi/runtime/tests/test-merge-pr-select.sh: the merge lane's PR selection —
+  # the same dispatch_rows() the loop calls — over gh `pr list` JSON on stdin, with the
+  # needs-ceo/hold labels applied because a held PR is not a candidate. No gh, fetch or state write.
+  if [ "${1:-}" = "--pr-select-check" ]; then dispatch_rows --candidate-labels; exit $?; fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the queue-time carry step 1 applies
   # after sync_main, with lists of paths on disk. No locks, fetch, gate, review, merge or dispatch.
   if [ "${1:-}" = "--queue-carry-check" ]; then
@@ -455,6 +570,24 @@ if [ "${1:-}" != "--one" ]; then
       echo "HOLD $CI_FIRST_REASON"; exit 0
     fi
     echo "SYNC $CI_FIRST_REASON"; exit 1
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: run the same ceo_ok_verdict() the hold
+  # block calls, against a marker file, a changed-path list and a PR number. No lock, fetch, gh.
+  if [ "${1:-}" = "--ceo-ok-check" ]; then
+    [ $# -ge 4 ] || { echo "usage: merge.sh --ceo-ok-check <marker-file> <changed-paths-file> <pr-number>" >&2; exit 2; }
+    ceo_ok_verdict "$2" "$3" "$4"; rc=$?
+    case $rc in
+      0) echo "CLEAR $CEO_OK_REASON"; exit 0 ;;
+      1) echo "HOLD $CEO_OK_REASON"; exit 1 ;;
+      *) echo "NOHOLD no deps/migrations/auth path changed"; exit 0 ;;
+    esac
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: the dispatcher's CEO-hold skip — the
+  # same ceo_hold_skip() the PR loop calls, so the exemption is proven at the call site's function.
+  if [ "${1:-}" = "--ceo-hold-check" ]; then
+    [ $# -ge 4 ] || { echo "usage: merge.sh --ceo-hold-check <slug> <labels-csv> <pr-number>" >&2; exit 2; }
+    if r="$(ceo_hold_skip "$2" "${3:-}" "$4")"; then echo "SKIP $r"; exit 1; fi
+    echo "ALLOW"; exit 0
   fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: run the same carry_forward() the land
   # loop calls, with lists of paths on disk. No gate, no review, no relaunch.
@@ -519,26 +652,7 @@ if [ "${1:-}" != "--one" ]; then
   PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,files,body 2>/dev/null)"
   echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || { sleep 3; PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,files,body 2>/dev/null)"; }
   echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,body 2>/dev/null)"
-  PRS="$(printf '%s' "$PRJ" | STATE="$STATE" RSI_DIR="$RSI_DIR" TIERPY="$RSI_DIR/runtime/review-tier.py" python3 -c '
-import json,sys,os,subprocess
-sys.path.insert(0, os.path.join(os.environ["RSI_DIR"], "runtime"))
-from item_marker import parse_item
-st=os.environ["STATE"]; rows=[]
-for p in json.load(sys.stdin):
-    h=p["headRefName"]; ls={l["name"] for l in p["labels"]}
-    if not h.startswith("rsi/") or h.startswith("rsi/dream-") or h.startswith("rsi/ceo-") or p["isDraft"] or ls & {"hold","needs-ceo"}: continue
-    slug=h[4:]; item=parse_item(p.get("body") or "")
-    try: att=int(open("%s/merge/%s.attempts" % (st,slug)).read().strip() or 0)
-    except Exception: att=0
-    tier="large"
-    try:
-        if "files" not in p: raise ValueError("no files")
-        out=subprocess.run(["python3",os.environ["TIERPY"],"--title",p["title"],"--item",item,"--attempts",str(att),"--gh-json","-"],input=json.dumps(p.get("files") or []),capture_output=True,text=True,timeout=20).stdout.split()
-        tier=out[0] if out else "large"
-    except Exception: pass
-    rows.append((0 if tier=="small" else 1, p["number"], slug, p["title"].replace("\t"," "), tier))
-for _,n,slug,title,tier in sorted(rows):   # small-safe first, then PR number
-    print("%d\t%s\t%s\t%s" % (n,slug,title,tier))')"
+  PRS="$(printf '%s' "$PRJ" | dispatch_rows)"
   [ -z "$PRS" ] && { say "no open rsi PRs"; exit 0; }
   ACTIVE="$(python3 "$LANES_PY" slugs)"
   running=0; running_big=0
@@ -546,11 +660,11 @@ for _,n,slug,title,tier in sorted(rows):   # small-safe first, then PR number
     [ -d "$l" ] && kill -0 "$(cat "$l/pid" 2>/dev/null || echo 0)" 2>/dev/null || continue
     running=$((running+1)); rs="$(basename "$l" .lock)"; [ "$(cat "$STATE/merge/$rs.tier" 2>/dev/null)" = small ] || running_big=$((running_big+1))
   done
-  while IFS=$'\t' read -r -u 3 N SLUG TITLE TIER; do
+  while IFS=$'\t' read -r -u 3 N SLUG TITLE TIER LABELS; do
     [ -z "$N" ] && continue
     echo "$ACTIVE" | grep -qx "$SLUG" && { say "#$N $SLUG: lane active, skip"; continue; }
     [ -e "$STATE/sendback/$SLUG.md" ] && { say "#$N $SLUG: waiting for rework"; continue; }
-    [ -e "$STATE/merge/$SLUG.blocked" ] && { say "#$N $SLUG: blocked (needs CEO)"; continue; }
+    if r="$(ceo_hold_skip "$SLUG" "$LABELS" "$N")"; then say "#$N $SLUG: $r"; continue; fi
     L="$STATE/merge/$SLUG.lock"
     if [ -d "$L" ]; then if kill -0 "$(cat "$L/pid" 2>/dev/null || echo 0)" 2>/dev/null; then continue; fi; rm -rf "$L"; fi
     # sol (ChatGPT allowance) exhausted: large-tier reviews need it and would only loop on 429. Wait for it;
@@ -757,7 +871,19 @@ if [ "$SIZE" = 0 ] && $GIT -C "$WT" diff --quiet origin/main HEAD; then
   echo "$N" > "$STATE/merge/$SLUG.empty"; exit 0
 fi
 HOLD=""
-echo "$CH" | grep -qE '^(go\.mod|ui/package\.json|internal/store/.*migrat|.*migrations?/|internal/auth)' && HOLD="touches deps/migrations/auth (MANDATE: needs CEO + ADR)"
+if echo "$CH" | grep -qE '^(go\.mod|ui/package\.json|internal/store/.*migrat|.*migrations?/|internal/auth)'; then
+  # Only the CEO writes state/merge/<slug>.ceo-ok (same ownership rule as *.size-ok): the owner's
+  # approval of this exact PR, quoted. A valid marker clears this one hold; the gate and the
+  # independent review below still run, and a missing/invalid marker leaves today's hold intact.
+  CHF="$STATE/merge/$SLUG.changed-paths"
+  printf '%s\n' "$CH" > "$CHF"
+  if ceo_ok_verdict "$STATE/merge/$SLUG.ceo-ok" "$CHF" "$N"; then
+    say "#$N $SLUG: CEO approval marker clears the deps/migrations/auth hold ($CEO_OK_REASON)"
+  else
+    HOLD="touches deps/migrations/auth (MANDATE: needs CEO + ADR)"
+  fi
+  rm -f "$CHF"
+fi
 # CEO 2026-11-15 (Ethan: Astryx overhaul approved): the Astryx foundation slices F1-F3 may change ui/package.json, but only
 # for the programme's packages. Anything else in package.json (or go.mod/migrations/auth) still holds for the CEO.
 if [ -n "$HOLD" ] && echo "$ITEM" | grep -qE '^F[123]$' && ! echo "$CH" | grep -qE '^(go\.mod|internal/store/.*migrat|.*migrations?/|internal/auth)'; then

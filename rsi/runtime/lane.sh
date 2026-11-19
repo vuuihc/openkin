@@ -17,6 +17,44 @@ pr_state() { # <slug> -> prints OPEN|MERGED|CLOSED; non-zero when the state cann
   else "$GH" pr view "rsi/$1" --repo "$GH_REPO" --json state --jq .state; fi
 }
 
+# Oldest sendback first. The glob used to walk them alphabetically, and autofill fills one idle
+# lane per pass: a newer rework whose slug sorted earlier took every free slot while an older one
+# waited. 2026-11-19: `panel-topmost` (18:32) was claimed at 18:44 and `stale-console` (15:21) had
+# been waiting since then. Name breaks an mtime tie so the pick stays deterministic.
+# One stat per path, and a path that is gone by then is dropped, not fatal: merge.sh archives a
+# sendback into sendback/done/ the moment its PR lands, concurrently with this scan, so the glob
+# and the stat can disagree. A raised FileNotFoundError exited python non-zero, the process
+# substitution yielded nothing, and that pass claimed no rework at all — every queued sendback
+# lost a pulse, not just the vanished one (2026-11-19).
+# `_sendback-order` (stdin: one path per line) is a hidden test seam, the same shape as
+# RSI_PR_STATE_CMD above: sendbacks_by_age pipes the production glob through it, and
+# test-lane-autofill.sh feeds it fixed paths so the missing-file case needs no timed race.
+sendback_order() {
+  # -c, not a heredoc: the heredoc would own stdin and swallow the piped paths.
+  python3 -c '
+import os, stat, sys
+
+def key(p):
+    try:
+        st = os.stat(p)          # the only stat: an isfile() before it would stat twice
+    except OSError:              # archived between the glob and here: drop it, keep the queue
+        return None
+    if not stat.S_ISREG(st.st_mode):
+        return None
+    return (st.st_mtime, p)
+
+paths = [line.strip() for line in sys.stdin if line.strip()]
+for path, name in sorted(k for k in map(key, paths) if k):
+    print(name)
+'
+}
+
+sendbacks_by_age() { # prints $STATE/sendback/*.md, oldest mtime first
+  printf '%s\n' "$STATE"/sendback/*.md | sendback_order
+}
+
+if [ "$CMD" = _sendback-order ]; then sendback_order; exit 0; fi
+
 launch() { # n
   nohup /bin/bash "$SELF" run "$1" >> "$RUNS/$(date +%F-%H%M%S)-lane$1.log" 2>&1 < /dev/null &
   disown 2>/dev/null || true
@@ -35,7 +73,7 @@ if [ "$CMD" = autofill ]; then
   rsi_allow_workers || { echo "volc budget: not filling rework lanes until next Asia/Singapore day"; exit 0; }
   # Astryx programme first: `autofill astryx` takes only sendbacks whose item is a slice id (or Q3a); `autofill rest` the others.
   SCOPE="${2:-all}"
-  for sb in "$STATE"/sendback/*.md; do
+  while IFS= read -r sb; do
     [ -e "$sb" ] || continue
     slug="$(basename "$sb" .md)"
     # A size-only sendback must not open a rework lane while its waiver stands: the cap it asks
@@ -79,7 +117,7 @@ if [ "$CMD" = autofill ]; then
     [ "${#paths_arr[@]}" -gt 0 ] || { echo "rework $slug: no paths, skipping"; continue; }
     item="$(sed -n 's/^item: *//p' "$sb" | head -1)"; item="${item:-R-$slug}"
     python3 "$LANES_PY" claim "$idle" --slug "$slug" --item "$item" --brief "$sb" --mode rework --paths "${paths_arr[@]}" && launch "$idle"
-  done
+  done < <(sendbacks_by_age)
   exit 0
 fi
 

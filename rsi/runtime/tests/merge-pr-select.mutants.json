@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the selector goes back to skipping every rsi/ceo-* head, so a legitimate CEO-named PR never reaches the gate",
+    "file": "rsi/runtime/pr_select.py",
+    "test": "RSI_TEST_ONLY=ceo-pr-claimed bash rsi/runtime/tests/test-merge-pr-select.sh",
+    "old": "    if head == CONTROL_BRANCH:",
+    "new": "    if head.startswith(\"rsi/ceo-\"):"
+  },
+  {
+    "label": "the control branch is no longer special, so the loop's own rsi/ceo-loop branch is dispatched as a deliverable",
+    "file": "rsi/runtime/pr_select.py",
+    "test": "RSI_TEST_ONLY=control-branch-skipped bash rsi/runtime/tests/test-merge-pr-select.sh",
+    "old": "    if head == CONTROL_BRANCH:\n        return False",
+    "new": "    if False:\n        return False"
+  }
+]

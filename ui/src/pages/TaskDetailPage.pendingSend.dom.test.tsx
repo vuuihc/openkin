@@ -137,11 +137,14 @@ vi.mock("../components/chat/Composer", () => ({
     </button>
   ),
 }));
+type MockImage = { name: string; src: string };
+
 vi.mock("../components/chat/ChatStream", () => ({
   default: ({
     loading,
     events,
     pendingUserMessages,
+    fallbackUserPromptImages,
   }: {
     loading?: boolean;
     events?: readonly {
@@ -149,7 +152,8 @@ vi.mock("../components/chat/ChatStream", () => ({
       type: string;
       payload?: { speaker?: string; content?: readonly { text?: string }[] };
     }[];
-    pendingUserMessages?: readonly { key: string; text: string }[];
+    pendingUserMessages?: readonly { key: string; text: string; images?: readonly MockImage[] }[];
+    fallbackUserPromptImages?: readonly MockImage[];
   }) => (
     <div data-testid="chat">
       <span data-testid="loading">{String(Boolean(loading))}</span>
@@ -163,7 +167,13 @@ vi.mock("../components/chat/ChatStream", () => ({
       {(pendingUserMessages ?? []).map((message) => (
         <span key={message.key} data-testid="pending-user">
           {message.text}
+          {(message.images ?? []).map((image) => (
+            <span key={image.src} data-testid="pending-image" data-src={image.src} />
+          ))}
         </span>
+      ))}
+      {(fallbackUserPromptImages ?? []).map((image) => (
+        <span key={image.src} data-testid="fallback-image" data-src={image.src} />
       ))}
     </div>
   ),
@@ -199,7 +209,7 @@ beforeEach(() => {
 
 describe("a send handed over from the new-conversation route", () => {
   it("keeps the bubble across a missing detail and settles it once, on the server copy", () => {
-    handOffPendingSend("task-1", { id: "handoff-1", text: "hello", startSeq: 0 });
+    handOffPendingSend("task-1", { id: "handoff-1", text: "hello", images: [], startSeq: 0 });
     store.setDetail({ loaded: false });
     open();
 
@@ -251,14 +261,14 @@ describe("a send handed over from the new-conversation route", () => {
   });
 
   it("never draws a handoff meant for another conversation", () => {
-    handOffPendingSend("task-2", { id: "handoff-2", text: "elsewhere", startSeq: 0 });
+    handOffPendingSend("task-2", { id: "handoff-2", text: "elsewhere", images: [], startSeq: 0 });
     store.setDetail({ loaded: false });
     open();
     expect(screen.queryByTestId("pending-user")).toBeNull();
   });
 
   it("does not replay the handoff on a later visit to the same conversation", () => {
-    handOffPendingSend("task-1", { id: "handoff-1", text: "hello", startSeq: 0 });
+    handOffPendingSend("task-1", { id: "handoff-1", text: "hello", images: [], startSeq: 0 });
     store.setDetail({ loaded: false });
     const first = open();
     expect(screen.getAllByTestId("pending-user")).toHaveLength(1);
@@ -271,7 +281,7 @@ describe("a send handed over from the new-conversation route", () => {
   });
 
   it("keeps the handed-off message when the detail request fails", () => {
-    handOffPendingSend("task-1", { id: "handoff-1", text: "hello", startSeq: 0 });
+    handOffPendingSend("task-1", { id: "handoff-1", text: "hello", images: [], startSeq: 0 });
     store.setDetail({ loaded: true, error: new Error("detail failed") });
     open();
 
@@ -333,5 +343,44 @@ describe("sending a follow-up", () => {
       api.rejectSend(new Error("refused"));
     });
     expect(screen.queryByTestId("pending-user")).toBeNull();
+  });
+});
+
+describe("images in a sent prompt", () => {
+  it("hands the pending send's images to the stream", () => {
+    handOffPendingSend("task-1", {
+      id: "handoff-img",
+      text: "look\n\nAttached image: shot.png",
+      images: [{ name: "shot.png", src: "/api/uploads/abc.png" }],
+      startSeq: 0,
+    });
+    store.setDetail({ loaded: false });
+    open();
+
+    expect(screen.getByTestId("pending-image").getAttribute("data-src")).toBe(
+      "/api/uploads/abc.png",
+    );
+  });
+
+  it("derives the cold page's fallback images from the task prompt", () => {
+    store.setDetail({
+      task: {
+        id: "task-1",
+        title: "Conversation",
+        status: "succeeded",
+        agent: "kin",
+        cwd: "/work",
+        prompt: "look\n\nAttached image:\n- shot.png: /Users/me/.kin/uploads/abc.png",
+        tokens_in: 0,
+        tokens_out: 0,
+        event_epoch: 0,
+        created_at: 1,
+      },
+    });
+    open();
+
+    expect(screen.getByTestId("fallback-image").getAttribute("data-src")).toBe(
+      "/api/uploads/abc.png",
+    );
   });
 });

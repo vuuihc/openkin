@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the walk keeps alphabetical order, so a newer rework whose name sorts earlier starves the older one",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_oldest_sendback_is_claimed_first bash rsi/runtime/tests/test-lane-autofill.sh",
+    "old": "for path, name in sorted(k for k in map(key, paths) if k):",
+    "new": "for path, name in sorted((p, p) for p in paths):"
+  },
+  {
+    "label": "newest first inverts the queue, so the sendback that waited longest is picked last",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_oldest_sendback_is_claimed_first bash rsi/runtime/tests/test-lane-autofill.sh",
+    "old": "for path, name in sorted(k for k in map(key, paths) if k):",
+    "new": "for path, name in sorted((-os.path.getmtime(p), p) for p in paths):"
+  }
+]
