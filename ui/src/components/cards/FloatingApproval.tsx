@@ -134,23 +134,25 @@ export default function FloatingApproval({
     let mutations: MutationObserver | null = null;
 
     // The panel's own bottom furniture — the diff comment box, the comments
-    // tray — is a labelled region docked at its bottom. The lowest one laid
-    // out is the edge the strip clears; with nothing docked the fixed offset
-    // below stands, and nothing in the panel is covered.
+    // tray — is a labelled region docked at its bottom. The highest one laid
+    // out is the top of the docked stack: clearing it clears every region
+    // below, where measuring the lowest would park the strip over the comment
+    // box above it. With nothing docked the fixed offset below stands, and
+    // nothing in the panel is covered.
     const docked = (): HTMLElement | null => {
-      let lowest: HTMLElement | null = null;
-      let top = -Infinity;
+      let highest: HTMLElement | null = null;
+      let top = Infinity;
       for (const region of document.querySelectorAll<HTMLElement>(
         "[role='complementary'] section[aria-label]",
       )) {
         const rect = region.getBoundingClientRect();
         if (rect.width === 0 && rect.height === 0) continue;
-        if (rect.top > top) {
+        if (rect.top < top) {
           top = rect.top;
-          lowest = region;
+          highest = region;
         }
       }
-      return lowest;
+      return highest;
     };
 
     const findBand = (): HTMLElement | null =>
@@ -175,7 +177,16 @@ export default function FloatingApproval({
 
     const attach = () => {
       const found = findBand();
-      if (!found) return false;
+      if (!found) {
+        // Nothing to clear any more (the panel turned into a covering overlay
+        // on resize, or its docked regions went away). Drop the old band: it
+        // may still be connected behind the panel, and observing it would keep
+        // the strip parked on something the reader cannot see.
+        resizeObserver?.disconnect();
+        resizeObserver = null;
+        chrome = null;
+        return false;
+      }
       if (found !== chrome) {
         resizeObserver?.disconnect();
         chrome = found;
@@ -193,8 +204,7 @@ export default function FloatingApproval({
     // to the diff. That signal is enough to re-read the band without watching
     // an editor tree that mutates on every keystroke.
     const rescan = () => {
-      if (chrome && !chrome.isConnected) chrome = null;
-      if (!attach() && !chrome) setBottom(null);
+      if (!attach()) setBottom(null);
     };
 
     document.addEventListener("focusin", rescan);

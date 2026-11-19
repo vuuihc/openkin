@@ -318,4 +318,72 @@ describe("FloatingApproval with a panel open", () => {
       restore();
     }
   });
+
+  it("clears the whole docked stack, not only the lowest region", () => {
+    // On a narrow viewport the diff comment box sits above the comments tray.
+    // Measuring the lowest region parked the strip over the comment box's
+    // Save/Cancel controls; the highest region is the edge to clear.
+    const restore = viewport(390, 844);
+    const chrome = composerBand(600);
+    document.body.appendChild(chrome);
+    try {
+      const { props } = setup();
+      const view = render(
+        <>
+          <PanelSurface label="Files">
+            <DockedRegion top={560} />
+            <DockedRegion top={700} />
+          </PanelSurface>
+          <FloatingApproval {...props} />
+        </>,
+      );
+
+      const aside = view.container.querySelector("aside") as HTMLElement;
+      // 844 - 560 + 8: above the comment box, not above the tray below it
+      // (which would be 844 - 700 + 8 = 152px).
+      expect(aside.style.bottom).toBe("292px");
+    } finally {
+      chrome.remove();
+      restore();
+    }
+  });
+
+  it("drops the offset when a column panel becomes the covering overlay", () => {
+    // At 1100 the column leaves the composer on screen, so the strip clears
+    // it. Resized below `lg` the same panel is the full-bleed overlay: the
+    // composer is still connected behind it, but measuring it would park the
+    // strip over the panel. The stale band is dropped and the fixed offset
+    // stands instead.
+    const restore = viewport(1100);
+    const chrome = composerBand(600);
+    document.body.appendChild(chrome);
+    try {
+      const { props } = setup();
+      const view = render(
+        <>
+          <PanelSurface label="Files" shape="column">
+            file body
+          </PanelSurface>
+          <FloatingApproval {...props} />
+        </>,
+      );
+
+      const aside = view.container.querySelector("aside") as HTMLElement;
+      expect(aside.style.bottom).toBe("176px");
+
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        writable: true,
+        value: 800,
+      });
+      fireEvent(window, new Event("resize"));
+
+      // The band is still in the document, but behind the overlay now.
+      expect(chrome.isConnected).toBe(true);
+      expect(aside.style.bottom).toBe("");
+    } finally {
+      chrome.remove();
+      restore();
+    }
+  });
 });
