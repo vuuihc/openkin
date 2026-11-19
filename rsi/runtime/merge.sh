@@ -427,6 +427,55 @@ ci_first_decision() { # <wt> <branch> <gate-file> <reviewed-file> <ci-state> <ma
   return 1
 }
 
+# ------------------------------------------------------------------ CEO approval marker
+# Only the CEO writes state/merge/<slug>.ceo-ok (same ownership rule as *.size-ok). One line, four
+# fields in this order, recording the owner's approval of THIS PR so clearing the hold leaves a
+# durable record of what was approved, where and when:
+#   source=thread <id> · quote "<the owner's words>" · <YYYY-MM-DDTHH:MM±HH:MM> · pr <number>
+# Every field must be present and non-empty; a placeholder source, a missing quote/time and a marker
+# for another PR are all invalid, so the hold stays exactly as it was.
+ceo_ok_verdict() { # <marker-file> <changed-paths-file> <pr> -> 0 clear, 1 hold, 2 not applicable
+  # 2 = no deps/migrations/auth path changed; the marker never clears any other hold.
+  local marker="$1" changed="$2" pr="$3" line src last
+  CEO_OK_REASON=""
+  [ -r "$changed" ] || return 2
+  grep -qE '^(go\.mod|ui/package\.json|internal/store/.*migrat|.*migrations?/|internal/auth)' "$changed" || return 2
+  if [ ! -s "$marker" ]; then
+    CEO_OK_REASON="no owner approval marker at $marker"
+    return 1
+  fi
+  line="$(sed -n '1p' "$marker" | tr -d '\r' | sed -E 's/[[:space:]]+$//')"
+  # 1. source= must name something real (not empty, not a TODO/unknown/<id> placeholder).
+  case "$line" in
+    source=*) src="${line#source=}"; src="${src%%·*}"; src="$(printf '%s' "$src" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" ;;
+    *) src="" ;;
+  esac
+  case " $src " in
+    *" TODO "*|*" unknown "*|*" Unknown "*) src="" ;;
+  esac
+  case "$src" in *"<"*) src="" ;; esac
+  if [ -z "$src" ]; then
+    CEO_OK_REASON="the marker has no usable source= (missing, TODO, unknown or placeholder)"
+    return 1
+  fi
+  # 2. quote="..." must carry the owner's own words.
+  if ! printf '%s\n' "$line" | grep -qE 'quote[[:space:]]*=?"[^"]+"'; then
+    CEO_OK_REASON="the marker has no quoted owner statement"
+    return 1
+  fi
+  # 3. an ISO-8601 timestamp, offset optional.
+  if [[ ! "$line" =~ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2} ]]; then
+    CEO_OK_REASON="the marker has no ISO-8601 timestamp"
+    return 1
+  fi
+  # 4. the last field is `pr <N>`, and N is the PR being merged: a stale marker must not approve a
+  #    later PR that reuses the slug.
+  last="$(printf '%s' "${line##*·}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  [ "$last" = "pr $pr" ] || { CEO_OK_REASON="the marker does not approve PR #$pr (last field: ${last:-none})"; return 1; }
+  CEO_OK_REASON="source=$src quote=\"$(printf '%s\n' "$line" | sed -E 's/.*quote[[:space:]]*=?"([^"]+)".*/\1/')\""
+  return 0
+}
+
 # ------------------------------------------------------------------ dispatcher
 if [ "${1:-}" != "--one" ]; then
   [ "${1:-}" = "--resolve-generated" ] && { gen_resolve "${2:?worktree required}"; exit $?; }
@@ -455,6 +504,17 @@ if [ "${1:-}" != "--one" ]; then
       echo "HOLD $CI_FIRST_REASON"; exit 0
     fi
     echo "SYNC $CI_FIRST_REASON"; exit 1
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: run the same ceo_ok_verdict() the hold
+  # block calls, against a marker file, a changed-path list and a PR number. No lock, fetch, gh.
+  if [ "${1:-}" = "--ceo-ok-check" ]; then
+    [ $# -ge 4 ] || { echo "usage: merge.sh --ceo-ok-check <marker-file> <changed-paths-file> <pr-number>" >&2; exit 2; }
+    ceo_ok_verdict "$2" "$3" "$4"; rc=$?
+    case $rc in
+      0) echo "CLEAR $CEO_OK_REASON"; exit 0 ;;
+      1) echo "HOLD $CEO_OK_REASON"; exit 1 ;;
+      *) echo "NOHOLD no deps/migrations/auth path changed"; exit 0 ;;
+    esac
   fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: run the same carry_forward() the land
   # loop calls, with lists of paths on disk. No gate, no review, no relaunch.
@@ -757,7 +817,19 @@ if [ "$SIZE" = 0 ] && $GIT -C "$WT" diff --quiet origin/main HEAD; then
   echo "$N" > "$STATE/merge/$SLUG.empty"; exit 0
 fi
 HOLD=""
-echo "$CH" | grep -qE '^(go\.mod|ui/package\.json|internal/store/.*migrat|.*migrations?/|internal/auth)' && HOLD="touches deps/migrations/auth (MANDATE: needs CEO + ADR)"
+if echo "$CH" | grep -qE '^(go\.mod|ui/package\.json|internal/store/.*migrat|.*migrations?/|internal/auth)'; then
+  # Only the CEO writes state/merge/<slug>.ceo-ok (same ownership rule as *.size-ok): the owner's
+  # approval of this exact PR, quoted. A valid marker clears this one hold; the gate and the
+  # independent review below still run, and a missing/invalid marker leaves today's hold intact.
+  CHF="$STATE/merge/$SLUG.changed-paths"
+  printf '%s\n' "$CH" > "$CHF"
+  if ceo_ok_verdict "$STATE/merge/$SLUG.ceo-ok" "$CHF" "$N"; then
+    say "#$N $SLUG: CEO approval marker clears the deps/migrations/auth hold ($CEO_OK_REASON)"
+  else
+    HOLD="touches deps/migrations/auth (MANDATE: needs CEO + ADR)"
+  fi
+  rm -f "$CHF"
+fi
 # CEO 2026-11-15 (Ethan: Astryx overhaul approved): the Astryx foundation slices F1-F3 may change ui/package.json, but only
 # for the programme's packages. Anything else in package.json (or go.mod/migrations/auth) still holds for the CEO.
 if [ -n "$HOLD" ] && echo "$ITEM" | grep -qE '^F[123]$' && ! echo "$CH" | grep -qE '^(go\.mod|internal/store/.*migrat|.*migrations?/|internal/auth)'; then

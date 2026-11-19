@@ -1,0 +1,23 @@
+[
+  {
+    "label": "drop the marker check: the deps/migrations/auth hold always holds, so an owner-approved PR can never pass",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  CEO_OK_REASON=\"source=$src quote=\\\"$(printf '%s\\n' \"$line\" | sed -E 's/.*quote[[:space:]]*=?\"([^\"]+)\".*/\\1/')\\\"\"\n  return 0",
+    "new": "  return 1"
+  },
+  {
+    "label": "accept a marker with no quote: the owner's own words stop being required",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  if ! printf '%s\\n' \"$line\" | grep -qE 'quote[[:space:]]*=?\"[^\"]+\"'; then",
+    "new": "  if false; then"
+  },
+  {
+    "label": "ignore the approved pr number: a stale marker approves a later PR on the same slug",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  [ \"$last\" = \"pr $pr\" ] || { CEO_OK_REASON=\"the marker does not approve PR #$pr (last field: ${last:-none})\"; return 1; }",
+    "new": "  :"
+  }
+]
