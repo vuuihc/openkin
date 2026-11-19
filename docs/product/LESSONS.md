@@ -943,6 +943,36 @@ jsdom 的「无列表行」路径上验证。
 `TaskDetailPage.coldLoad.dom.test.tsx`、`BrandMark.dom.test.tsx`；`rsi/state/shots/entry-wait/`
 的 390×844 / 1100×760 真 daemon 前后截图。
 
+## 2026-11-19 · 一次走查的红不是缺陷，5 次独立复现才是
+seen: 1
+
+发生了什么：2026-11-19T16:05 的一次 Mac J9 走查里，`scroll-kept` 在
+`[seed] Morning planning` → `[seed] Failed migration` → 切回之后落在 2618，要求 320±48，
+看上去像 `TaskDetailPage` 的对话切换丢了滚动位置；同批确认重走 1 次没有复现（`flaked=1`）。
+随后在 `origin/main 0407766f` 上用同一套隔离 daemon（每次全新临时状态目录，fake agent）
+连走 5 次，5 次都停在 320：
+
+| 运行 | SHA | 结果 | scroller max | shell 节点 |
+|---|---|---|---|---|
+| 1 | `0407766f` | scroll-kept 320（want 320±48） | 1066 | 同一元素 |
+| 2 | `0407766f` | scroll-kept 320（want 320±48） | 1064 | 同一元素 |
+| 3 | `0407766f` | scroll-kept 320（want 320±48） | 1065 | 同一元素 |
+| 4 | `0407766f` | scroll-kept 320（want 320±48） | 1065 | 同一元素 |
+| 5 | `0407766f` | scroll-kept 320（want 320±48） | 1071 | 同一元素 |
+
+为什么没拦住：一次红加一次未复现，两个样本都太小，分不清「真缺陷偶发」与「走查抖动」；
+怀疑只留在 follow-up 里，下一个人还得从头再走一遍。
+
+规则：一次走查的红不算缺陷，直到 5 次独立复现给出结论；5 次全绿就把运行表和 SHA 记进台账、
+关闭怀疑，不让它在下一次 fill 里复活。改动只允许是这条证据，不改产品代码，也不放宽 48px
+容差或删掉 `scroll-kept` 步骤。
+
+证据：ux-walk.sh J9 run 1 · SHA 0407766f · PASS scroll-kept 320 (max 1066), shell same element
+证据：ux-walk.sh J9 run 2 · SHA 0407766f · PASS scroll-kept 320 (max 1064), shell same element
+证据：ux-walk.sh J9 run 3 · SHA 0407766f · PASS scroll-kept 320 (max 1065), shell same element
+证据：ux-walk.sh J9 run 4 · SHA 0407766f · PASS scroll-kept 320 (max 1065), shell same element
+证据：ux-walk.sh J9 run 5 · SHA 0407766f · PASS scroll-kept 320 (max 1071), shell same element
+
 ## 评审复盘与协议
 
 KIN-CONTINUE-001 审了五轮才过。事实：77 个文件、+5025/−1335（源码 +2836、测试 +2099），

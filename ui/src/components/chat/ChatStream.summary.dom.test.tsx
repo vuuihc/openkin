@@ -68,9 +68,10 @@ describe("a settled turn's summary row", () => {
 
     const toggle = header(container);
     expect(toggle).not.toBeNull();
-    // State, tool counts and elapsed time on the one header line.
-    expect(toggle!.textContent).toContain(t("chat.progress.done"));
-    expect(toggle!.textContent).toContain("shell × 1");
+    // One sentence: what was called, how many, and the elapsed time.
+    expect(toggle!.textContent).toContain(
+      t("chat.progress.summaryDone", { activity: "shell × 1" }),
+    );
     expect(toggle!.textContent).toContain("2s");
     expect(container.querySelector("[data-progress-duration]")?.textContent).toContain("2s");
 
