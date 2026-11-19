@@ -20,11 +20,17 @@
 #      report each mark in arrival order, `first-paint` (window-ready-to-show)
 #      and `shell-total` (window-first-load).
 #
-# Expected shape: daemon-gated. main.ts calls `mainWindow.show("/")` only after
-# `sidecar.ensureRunning()` resolves, so first paint necessarily comes after
-# `sidecar-ready`. The gap is the finding, not a failure. A daemon that never
-# becomes healthy emits no `sidecar-ready`, and the run fails instead of
-# reporting the remaining marks.
+# Expected shape (since #418, b47032f1): the window paints a local boot surface
+# before the daemon answers. main.ts calls `boot.start(...)` above
+# `await sidecar.ensureRunning()`, so `window-created`, `window-ready-to-show`
+# and `window-shown` all precede `sidecar-ready`; first paint contains the boot
+# page, not the console. When health answers, `boot.settle("ready")` swaps the
+# console in, and `window-first-load` is emitted only for that console load —
+# exactly once per run, which the required-mark check below enforces (a second
+# `window-first-load` would appear more than once and fail the run). The gap
+# from `sidecar-start` to `sidecar-ready` is the daemon's own boot, not a
+# window waiting on it. A daemon that never becomes healthy emits no
+# `sidecar-ready`, and the run fails instead of reporting the remaining marks.
 #
 # Safety: never touches the live node on :7777, ~/.kin, or
 # ~/Library/Application Support/Kin*. Every run uses mktemp directories and a
@@ -540,6 +546,8 @@ print("%-*s %8s" % (width, "shell-total", medians.get("shell-total")))
 print()
 print("first-paint is window-ready-to-show; shell-total is the last mark.")
 print("did-finish-load can arrive a millisecond before ready-to-show.")
-print("A daemon-gated boot shows a large sidecar-start -> sidecar-ready gap:")
-print("mainWindow.show() runs only after sidecar.ensureRunning() resolves.")
+print("Since #418 the boot is not daemon-gated: window-ready-to-show precedes")
+print("sidecar-ready (the boot surface paints first); the sidecar-start ->")
+print("sidecar-ready gap is the daemon's own boot, and window-first-load fires")
+print("once, for the console load that replaces the boot surface.")
 PY
