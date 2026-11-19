@@ -1984,9 +1984,7 @@ export function uploadFileWithProgress(
   opts: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<Upload> {
   if (file.size > MAX_UPLOAD_BYTES) {
-    return Promise.reject(
-      new ApiError(413, `File too large (max ${MAX_UPLOAD_BYTES >> 20} MiB)`),
-    );
+    return Promise.reject(new ApiError(413, `File too large (max ${MAX_UPLOAD_BYTES >> 20} MiB)`));
   }
   if (opts.signal?.aborted) {
     return Promise.reject(new DOMException("Upload aborted", "AbortError"));

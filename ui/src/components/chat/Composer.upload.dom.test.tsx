@@ -161,9 +161,7 @@ describe("Composer upload placeholders", () => {
       "hello\n\nAttached image:\n- a.png: /Users/me/.kin/uploads/a.png",
       undefined,
     );
-    const persisted = onAttachmentsChange.mock.calls.flatMap(
-      (call) => call[0] as { id: string }[],
-    );
+    const persisted = onAttachmentsChange.mock.calls.flatMap((call) => call[0] as { id: string }[]);
     expect(persisted.every((item) => !item.id.startsWith("pending-"))).toBe(true);
   });
 
@@ -179,9 +177,7 @@ describe("Composer upload placeholders", () => {
     await act(async () => failed.reject(new ApiError(500, "disk full")));
     await act(async () => kept.resolve(upload("good.png")));
 
-    await waitFor(() =>
-      expect(screen.getAllByTestId("composer-attachment")).toHaveLength(1),
-    );
+    await waitFor(() => expect(screen.getAllByTestId("composer-attachment")).toHaveLength(1));
     expect(screen.getByAltText("good.png")).toBeTruthy();
     expect(screen.queryByAltText("bad.png")).toBeNull();
     expect(onAttachmentsChange).toHaveBeenLastCalledWith([

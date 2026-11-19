@@ -13,13 +13,7 @@ import Button from "../ui/Button";
  * shell's padding; from `md` up the same sheet is a centred dialog. The close
  * control is visible and named, and every dismissal reaches one `onClose`.
  */
-export function ImageViewer({
-  image,
-  onClose,
-}: {
-  image: UserImage | null;
-  onClose: () => void;
-}) {
+export function ImageViewer({ image, onClose }: { image: UserImage | null; onClose: () => void }) {
   const tr = useT();
   return (
     <Sheet
