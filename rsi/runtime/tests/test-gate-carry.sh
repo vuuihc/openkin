@@ -15,6 +15,7 @@
 # Set RSI_TEST_ONLY=<case name> to run one case (used to show the red run per case).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/../../.." && pwd)"
 MERGE="$(cd "$HERE/.." && pwd)/merge.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 R=""; RC=0; V=""
@@ -265,6 +266,94 @@ test_keeps_the_non_code_carry() {
   expect_carry c8
 }
 
+# A PR that changes neither scripts/ nor ui/ is unaffected by main creating a script the gate does
+# not run. Today's blanket scripts/ shared-dir rule re-gates this.
+test_carries_backend_pr_past_an_unrelated_scripts_move() {
+  reset_stubs; new_repo c9
+  set_line "$R/internal/workspace/diff.go" 1 pr
+  commit_pr c9
+  g checkout -q main
+  printf '#!/bin/bash\necho desktop\n' > "$R/scripts/desktop-startup.sh"
+  move_main c9
+  check c9 scripts/desktop-startup.sh
+  expect_carry c9
+}
+
+# scripts/check.sh is the whole gate body: a move to it changes what every PR's verification means.
+test_regates_when_main_moves_check_sh() {
+  reset_stubs; new_repo c10
+  set_line "$R/internal/workspace/diff.go" 1 pr
+  commit_pr c10
+  g checkout -q main
+  printf '#!/bin/bash\necho gate\n' > "$R/scripts/check.sh"
+  move_main c10
+  check c10 scripts/check.sh
+  expect_regate c10
+}
+
+# A script the gate starts (here the inventory ratchet) is gate-relevant even for a PR far from it.
+test_regates_when_main_moves_a_gate_script() {
+  reset_stubs; new_repo c11
+  set_line "$R/internal/workspace/diff.go" 1 pr
+  commit_pr c11
+  g checkout -q main
+  printf '#!/usr/bin/env python3\n' > "$R/scripts/check-ui-inventory.py"
+  move_main c11
+  check c11 scripts/check-ui-inventory.py
+  expect_regate c11
+}
+
+# A PR that edits scripts/ is in the surface itself: any script move may change what its own gate
+# or runtime behaviour means, so it re-gates even when the moved script is not one the gate runs.
+test_regates_when_the_pr_touches_scripts_for_a_scripts_move() {
+  reset_stubs; new_repo c12
+  printf '#!/bin/bash\npr\n' > "$R/scripts/foo.sh"
+  commit_pr c12
+  g checkout -q main
+  printf '#!/bin/bash\necho desktop\n' > "$R/scripts/desktop-startup.sh"
+  move_main c12
+  check c12 scripts/desktop-startup.sh
+  expect_regate c12
+}
+
+# A UI PR's gate ends in the inventory, lint-guard and vitest jobs the gate scripts drive, so a
+# script move can change how its tree is judged: never carry a UI PR past one.
+test_regates_when_the_pr_touches_ui_for_a_scripts_move() {
+  reset_stubs; new_repo c13
+  set_line "$R/ui/src/pages/SettingsPage.tsx" 1 pr
+  commit_pr c13
+  g checkout -q main
+  printf '#!/bin/bash\necho desktop\n' > "$R/scripts/desktop-startup.sh"
+  move_main c13
+  check c13 scripts/desktop-startup.sh
+  expect_regate c13
+}
+
+# The deny-list's completeness pin: every scripts/ path the real gate body mentions must re-gate.
+# A script the gate starts later and nobody adds to GATE_SCRIPTS fails here instead of silently
+# carrying. Comments are scanned too: extra tokens only make the deny-list stricter, a miss is
+# what would let a real gate script carry.
+test_regates_every_script_the_gate_runs() {
+  reset_stubs; new_repo c14
+  set_line "$R/internal/workspace/diff.go" 1 pr
+  commit_pr c14
+  g checkout -q main
+  printf '#!/bin/bash\necho desktop\n' > "$R/scripts/desktop-startup.sh"
+  move_main c14
+  local p seen=0
+  grep -oE 'scripts/[A-Za-z0-9._/-]+' "$ROOT/scripts/check.sh" | sort -u > "$T/gate-scripts.txt"
+  grep -qxF 'scripts/check.sh' "$T/gate-scripts.txt" \
+    || fail "c14: the gate-body scan did not find scripts/check.sh; the scan is broken"
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    check c14 "$p"
+    expect_regate c14
+    seen=$(( seen + 1 ))
+  done < "$T/gate-scripts.txt"
+  [ "$seen" -ge 11 ] \
+    || fail "c14: scanned only $seen gate scripts; the scan is broken or scripts/check.sh lost a job"
+}
+
 # The land loop must not continue into ci_state after a carry: seconds after sync_main pushed the
 # carried head there are no checks yet, and ci_state reads an empty check list as green, so the same
 # process could squash-merge the carried head before CI ever ran. The loop itself needs gh and a
@@ -315,6 +404,24 @@ test_queue_carries_disjoint_main_move() {
     || fail "q1: gate file is '$(cat "$QUEUE_V" 2>/dev/null)', want '$NEWSHA PASS reviewer'"
   [ "$(cat "$QUEUE_RV" 2>/dev/null)" = "$QUEUE_DH PASS $NEWSHA reviewer" ] \
     || fail "q1: reviewed file is '$(cat "$QUEUE_RV" 2>/dev/null)', want '$QUEUE_DH PASS $NEWSHA reviewer'"
+}
+
+# The same scripts-leaf case through the step-1 seam: a backend PR carries past a main move in a
+# script the gate does not run, and the DH-keyed review cache moves with it.
+test_queue_carries_backend_pr_past_an_unrelated_scripts_move() {
+  reset_stubs; new_repo q7
+  set_line "$R/internal/workspace/diff.go" 1 pr
+  commit_pr q7
+  OLD="$(g rev-parse HEAD)"; write_gate q7 "$OLD"
+  g checkout -q main
+  printf '#!/bin/bash\necho desktop\n' > "$R/scripts/desktop-startup.sh"
+  move_main q7
+  queue_check q7 "$OLD" scripts/desktop-startup.sh
+  [ "$RC" -eq 0 ] || fail "q7: re-gated, expected a carry ($(tr '\n' ' ' < "$T/q7.qout"))"
+  [ "$(cat "$QUEUE_V" 2>/dev/null)" = "$NEWSHA PASS reviewer" ] \
+    || fail "q7: gate file is '$(cat "$QUEUE_V" 2>/dev/null)', want '$NEWSHA PASS reviewer'"
+  [ "$(cat "$QUEUE_RV" 2>/dev/null)" = "$QUEUE_DH PASS $NEWSHA reviewer" ] \
+    || fail "q7: reviewed file is '$(cat "$QUEUE_RV" 2>/dev/null)', want '$QUEUE_DH PASS $NEWSHA reviewer'"
 }
 
 # Main moving the PR's own file invalidates the gate: gated on the merged tree it may now behave
@@ -414,9 +521,16 @@ run test_regates_when_main_moves_the_prs_own_go_package
 run test_regates_when_main_moves_the_shared_go_api
 run test_regates_when_the_ui_safety_step_fails
 run test_keeps_the_non_code_carry
+run test_carries_backend_pr_past_an_unrelated_scripts_move
+run test_regates_when_main_moves_check_sh
+run test_regates_when_main_moves_a_gate_script
+run test_regates_when_the_pr_touches_scripts_for_a_scripts_move
+run test_regates_when_the_pr_touches_ui_for_a_scripts_move
+run test_regates_every_script_the_gate_runs
 run test_carry_exits_the_land_loop_before_ci_state
 run test_queue_carry_exits_before_the_land_loop
 run test_queue_carries_disjoint_main_move
+run test_queue_carries_backend_pr_past_an_unrelated_scripts_move
 run test_queue_regates_when_main_moves_the_prs_own_file
 run test_queue_regates_when_main_moves_a_shared_surface
 run test_queue_no_carry_when_head_is_stale

@@ -224,7 +224,8 @@ gen_resolve() { # worktree -> 0 resolved and committed; 1 anything else (caller 
 main_move_verdict() { # <incoming-paths> <pr-changed-paths> — sets MOVE_TAG (CARRY|CARRY-UI|REGATE)
   # and MOVE_REASON. The one disjoint classifier: origin/main moved under a verified PR. CARRY when
   # every incoming path is disjoint from the PR's own files and packages and from the shared
-  # surfaces, CARRY-UI when a ui leaf moved (alone or beside disjoint Go packages), REGATE otherwise. The callers decide what a CARRY
+  # surfaces (a scripts/ path is shared only when the gate runs it or the PR is in scripts/ or ui/),
+  # CARRY-UI when a ui leaf moved (alone or beside disjoint Go packages), REGATE otherwise. The callers decide what a CARRY
   # means (carry the gate across a merge, or skip the step-1 sync entirely). Bias: every path this
   # cannot positively classify re-gates.
   # A here-document inside $( ) is mis-parsed by the macOS /bin/bash 3.2 this script runs on
@@ -250,11 +251,23 @@ def dropped(p):
 shared_dirs = (
     "ui/src/components/ui/", "ui/src/components/layout/", "ui/src/design/",
     "ui/src/lib/", "ui/src/api/", "ui/src/store/", "ui/src/hooks/", "ui/src/i18n/",
-    "cmd/", "internal/api/", ".github/", "desktop/", "mobile/", "scripts/", "web/",
+    "cmd/", "internal/api/", ".github/", "desktop/", "mobile/", "web/",
 )
 shared_files = {
     "ui/src/index.css", "ui/src/App.tsx", "ui/src/main.tsx",
     "ui/package.json", "ui/package-lock.json", "go.mod", "go.sum",
+}
+# scripts/ is different: one script the gate starts is a shared surface, every other script is a
+# leaf. Deny-list, not an allow-list, so a new script carries by default and only a gate job makes
+# it shared. The completeness pin in rsi/runtime/tests/test-gate-carry.sh
+# (test_regates_every_script_the_gate_runs) reads the real scripts/check.sh and fails when a script
+# it mentions is missing here, so adding a check job cannot silently widen the carry.
+GATE_SCRIPTS = {
+    "scripts/check.sh", "scripts/check-openapi.sh", "scripts/check-api-coverage.sh",
+    "scripts/install-hub.test.sh", "scripts/stories.py", "scripts/check-ui-inventory.py",
+    "scripts/check-ui-inventory.test.py", "scripts/ui_lint_guard_test.py",
+    "scripts/ui-lint-guard.sh", "scripts/journeys_walk_test.py",
+    "scripts/journeys_smoke_test.py",
 }
 # A PR's Go package is internal/<pkg>/: a sibling file in it can change the package's behaviour.
 pr_pkgs = {"/".join(p.split("/")[:2]) + "/" for p in pr_files
@@ -268,6 +281,15 @@ for p in incoming:
         continue
     if p in shared_files or p.startswith(shared_dirs):
         print("REGATE\tshared surface moved: %s" % p); sys.exit()
+    if p.startswith("scripts/"):
+        # A leaf script is disjoint from a backend-only PR, but a gate script changes what every
+        # PR's verification means, and a PR in scripts/ or ui/ is the surface the script judges.
+        if p in GATE_SCRIPTS:
+            print("REGATE\tthe gate runs this script: %s" % p); sys.exit()
+        if any(q.startswith(("scripts/", "ui/")) for q in pr_files):
+            print("REGATE\tthe PR touches scripts/ or ui/: %s" % p); sys.exit()
+        carry.append(p)  # a script leaf is not a ui leaf: no build/inventory safety step
+        continue
     if p.startswith(("ui/src/components/", "ui/src/pages/")):
         if p in pr_set:
             print("REGATE\tthe PR's own file moved: %s" % p); sys.exit()
