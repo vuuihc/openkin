@@ -25,6 +25,12 @@ export type KinDesktopAPI = {
     path: string,
     appId: ExternalAppId,
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * Tell the shell the console committed its first screen. Fire and forget:
+   * the startup mark is the shell's to keep, and a missing listener must
+   * never surface in the console. Optional so an older shell still fits.
+   */
+  markConsoleInteractive?: () => void;
 };
 
 const api: KinDesktopAPI = {
@@ -35,6 +41,9 @@ const api: KinDesktopAPI = {
   listExternalApps: () => ipcRenderer.invoke("kin:list-external-apps"),
   openInApp: (path, appId) =>
     ipcRenderer.invoke("kin:open-in-app", { path, appId }),
+  markConsoleInteractive: () => {
+    ipcRenderer.send("kin:console-interactive");
+  },
 };
 
 contextBridge.exposeInMainWorld("kinDesktop", api);

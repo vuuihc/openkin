@@ -8,6 +8,9 @@ import {
   openPathInApp,
   type ExternalAppId,
 } from "./open-external";
+import { createConsoleInteractiveRecorder } from "./console-interactive";
+import { isConsoleURL } from "./console-url";
+import { traceStartup } from "./startup-trace";
 
 type SelectDirectoryOpts = {
   defaultPath?: string;
@@ -19,6 +22,24 @@ let registered = false;
 export function registerIpcHandlers(): void {
   if (registered) return;
   registered = true;
+
+  // The console reports its first committed screen here. The recorder is
+  // built once per launch, so a reload cannot stamp the mark twice, and a
+  // boot page or about:blank frame is refused by the URL rule.
+  const recordConsoleInteractive = createConsoleInteractiveRecorder({
+    trace: traceStartup,
+    isConsoleURL,
+  });
+  ipcMain.on("kin:console-interactive", (event) => {
+    try {
+      recordConsoleInteractive(
+        event.senderFrame?.url ?? event.sender.getURL(),
+      );
+    } catch {
+      // A report from a frame that is already gone is not a startup mark,
+      // and never a reason to take the shell down.
+    }
+  });
 
   ipcMain.handle(
     "kin:select-directory",

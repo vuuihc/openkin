@@ -33,6 +33,12 @@ export type KinDesktopAPI = {
     path: string,
     appId: ExternalAppId,
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * Tell the desktop shell the console committed its first screen. Optional:
+   * the same console runs in a plain browser, and an older shell has no
+   * listener for it.
+   */
+  markConsoleInteractive?: () => void;
 };
 
 declare global {
