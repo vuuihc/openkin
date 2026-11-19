@@ -84,13 +84,16 @@ new_case() {
   CASE="$1"
   ST="$T/$CASE.state"; FIX="$T/$CASE.fix"; LOG="$T/$CASE.walks.log"; RLOG="$T/$CASE.reviews.log"
   rm -rf "$ST" "$FIX" "$LOG" "$RLOG"; mkdir -p "$ST" "$FIX"
+  rm -f "$CTRL/rsi/runtime/dispatch.sh"   # only a case that stubs dispatch may install it
   SHOTS="$ST/shots/$SLUG/journeys"; UXD="$ST/ux/$SLUG"; BODY="$ST/merge/$SLUG.ux.txt"
   : > "$LOG"; : > "$RLOG"
 }
 fixture() { printf '%s\n' "$2" > "$FIX/$1.txt"; }
-run_gate() {
-  RSI_CTRL="$CTRL" RSI_UX_STATE="$ST" RSI_UX_COOLDOWN_MIN=0 \
-  RSI_UX_WALK_CMD='bash "$WALK_STUB" "$1" "${2:-}"' RSI_UX_REVIEW_CMD='bash "$REVIEW_STUB" "$1"' \
+run_gate() { # [dispatch] — dispatch mode leaves the review hook empty so the gate calls dispatch.sh
+  local hook='bash "$REVIEW_STUB" "$1"'
+  [ "${1:-}" = dispatch ] && hook=''
+  RSI_CTRL="$CTRL" RSI_UX_STATE="$ST" RSI_UX_COOLDOWN_MIN=0 RSI_UX_REVIEW_CMD="$hook" \
+  RSI_UX_WALK_CMD='bash "$WALK_STUB" "$1" "${2:-}"' \
   WALKS_LOG="$LOG" REVIEWS_LOG="$RLOG" FIX="$FIX" \
     bash "$CTRL/rsi/runtime/ux-gate.sh" "$WT" "$SLUG" "$ITEM" "$PR" deadbeef1234 reviewer \
     > "$T/$CASE.out" 2>&1
@@ -197,6 +200,74 @@ UX_VERDICT: FAIL'
   [ ! -s "$BODY" ] || fail "reask-no-review: a sendback body was written"
 }
 
+# A bolded/bulleted machine line is still a machine line: the exclusion must cover the token
+# anywhere a markdown finding could dress it up, or `**UX_SCORES:** ... feedback=2` grounds the
+# axis it names while the decision parser still reads its scores.
+test_bolded_scores_line_does_not_ground() {
+  new_case bolded_scores_line
+  fixture 1 'Everything looks right.
+**UX_SCORES:** clarity=4 density=4 consistency=4 feedback=2 keyboard=4
+**UX_VERDICT:** FAIL'
+  fixture 2 'feedback: after-wait-390.png has no wait cue while the turn runs.
+UX_SCORES: clarity=4 density=4 consistency=4 feedback=2 keyboard=4
+UX_VERDICT: FAIL'
+  run_gate
+  [ "$(reviews)" = 2 ] || fail "bolded-scores: $(reviews) reviews, want 2 (a bolded machine line is not a finding)"
+  [ "$RC" -eq 1 ] || fail "bolded-scores: exit $RC, want 1"
+}
+
+# The fresh re-ask must not be swallowed by dispatch.sh's escalate --check, which reuses the
+# strong-ux cache the first call wrote for the same SHA (dispatch.sh:354-377). The stub below
+# behaves like that reuse: a matching cache is echoed instead of calling the reviewer. The gate
+# must delete it before the fresh dispatch, so the reviewer really is asked again.
+test_reask_dispatch_does_not_reuse_cache() {
+  new_case reask_dispatch
+  mkdir -p "$ST/merge"
+  SHA_HEAD="$(/usr/bin/git -C "$WT" rev-parse HEAD)"
+  printf '%s FAIL\n' "$SHA_HEAD" > "$ST/merge/$SLUG.strong-ux"
+  cat > "$ST/merge/$SLUG.strong-ux.txt" <<'EOF'
+Everything the PR changed looks right; no regression observed.
+UX_SCORES: clarity=4 density=4 consistency=4 feedback=2 keyboard=4
+UX_VERDICT: FAIL
+EOF
+  fixture 1 'feedback: after-wait-390.png shows no wait cue while the turn runs.
+UX_SCORES: clarity=4 density=4 consistency=4 feedback=2 keyboard=4
+UX_VERDICT: FAIL'
+  cat > "$CTRL/rsi/runtime/dispatch.sh" <<'SH'
+#!/bin/bash
+set -u
+wt="$2"; tag="$4"; slug="${tag#merge-}"; slug="${slug%-ux}"
+st="$RSI_UX_STATE"; sha="$(git -C "$wt" rev-parse HEAD 2>/dev/null || true)"
+if [ -s "$st/merge/$slug.strong-ux" ] && [ "$(awk '{print $1}' "$st/merge/$slug.strong-ux")" = "$sha" ] && [ -s "$st/merge/$slug.strong-ux.txt" ]; then
+  cat "$st/merge/$slug.strong-ux.txt"; exit 0
+fi
+exec bash "$REVIEW_STUB" "$3"
+SH
+  chmod +x "$CTRL/rsi/runtime/dispatch.sh"
+  run_gate dispatch
+  [ "$RC" -eq 1 ] || fail "reask-dispatch: exit $RC, want 1 ($(tail -3 "$T/$CASE.out" | tr '\n' ' '))"
+  [ "$(reviews)" = 1 ] || fail "reask-dispatch: $(reviews) reviewer calls, want 1 (first pass from the cache, re-ask must be real)"
+  grep -Fq 'feedback: after-wait-390.png' "$BODY" || fail "reask-dispatch: the re-ask's evidence is not billed"
+  if [ -e "$UXD/unavailable.txt" ]; then fail "reask-dispatch: the fresh re-ask reused the cache; the reviewer was never asked again"; fi
+}
+
+# merge.sh reuses a cached strong UX review only when this predicate accepts it, so the
+# gate-side decision cannot drift into a cache: completeness, every axis >= 3, mean >= 3.5
+# and grounding of any below-3 axis.
+test_accepts_review_predicate() {
+  new_case accepts_review
+  acc() { RSI_CTRL="$CTRL" RSI_UX_STATE="$ST" bash "$CTRL/rsi/runtime/ux-gate.sh" --accepts-review "$1" >/dev/null 2>&1; echo $?; }
+  printf 'UX_SCORES: clarity=4 density=4 consistency=4 feedback=4 keyboard=4\nUX_VERDICT: PASS\n' > "$T/acc-pass.txt"
+  printf 'Everything looks right.\nUX_SCORES: clarity=4 density=4 consistency=4 feedback=2 keyboard=4\n' > "$T/acc-ungrounded.txt"
+  printf 'UX_SCORES: clarity=3 density=3 consistency=3 feedback=3 keyboard=3\nUX_VERDICT: PASS\n' > "$T/acc-mean.txt"
+  printf 'UX_SCORES: clarity=4 density=4 consistency=4 feedback=4\nUX_VERDICT: PASS\n' > "$T/acc-incomplete.txt"
+  [ "$(acc "$T/acc-pass.txt")" = 0 ] || fail "accepts-review: a passing, grounded review was rejected"
+  [ "$(acc "$T/acc-ungrounded.txt")" = 1 ] || fail "accepts-review: an ungrounded feedback=2 was accepted"
+  [ "$(acc "$T/acc-mean.txt")" = 1 ] || fail "accepts-review: mean 3.0 was accepted"
+  [ "$(acc "$T/acc-incomplete.txt")" = 1 ] || fail "accepts-review: an incomplete score line was accepted"
+  [ "$(acc "$T/acc-missing.txt")" = 1 ] || fail "accepts-review: a missing file was accepted"
+}
+
 test_mutant_manifest_points_at_this_gate() {
   [ -s "$MANIFEST" ] || fail "manifest: $MANIFEST is missing"
   python3 - "$MANIFEST" "$GATE" <<'PY'
@@ -230,6 +301,9 @@ run test_ungrounded_twice_is_unavailable
 run test_scores_line_alone_does_not_ground
 run test_mean_only_fail_is_not_reasked
 run test_reask_without_a_review_is_unavailable
+run test_bolded_scores_line_does_not_ground
+run test_reask_dispatch_does_not_reuse_cache
+run test_accepts_review_predicate
 run test_mutant_manifest_points_at_this_gate
 [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo "ux-gate grounded-red contract: $RAN/$RAN cases passed"

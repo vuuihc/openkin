@@ -10,8 +10,15 @@
     "label": "the machine UX_SCORES line counts as a finding, so the #383 shape is never re-asked",
     "file": "rsi/runtime/ux-gate.sh",
     "test": "RSI_TEST_ONLY=test_scores_line_alone_does_not_ground bash rsi/runtime/tests/test-ux-gate-grounded-red.sh",
-    "old": "body = \"\\n\".join(l for l in txt.splitlines() if not l.startswith((\"UX_SCORES:\", \"UX_VERDICT:\")))",
+    "old": "body = \"\\n\".join(l for l in txt.splitlines() if not re.match(r\"^\\s*[-*_>#]*\\s*UX_(SCORES|VERDICT):\", l))",
     "new": "body = txt"
+  },
+  {
+    "label": "only a column-0 machine line is excluded, so a bolded UX_SCORES line grounds every axis it names",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_bolded_scores_line_does_not_ground bash rsi/runtime/tests/test-ux-gate-grounded-red.sh",
+    "old": "not re.match(r\"^\\s*[-*_>#]*\\s*UX_(SCORES|VERDICT):\", l)",
+    "new": "not l.startswith((\"UX_SCORES:\", \"UX_VERDICT:\"))"
   },
   {
     "label": "twice-ungrounded is sent back instead of recorded as no verdict",
@@ -26,5 +33,19 @@
     "test": "RSI_TEST_ONLY=test_ungrounded_red_is_reasked_once_then_grounded bash rsi/runtime/tests/test-ux-gate-grounded-red.sh",
     "old": "  run_review \"$PF.2\" \"$UXR2\" fresh || true",
     "new": "  :"
+  },
+  {
+    "label": "the fresh re-ask keeps the first call's strong-ux cache, so dispatch reuse means the reviewer is never called again",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_reask_dispatch_does_not_reuse_cache bash rsi/runtime/tests/test-ux-gate-grounded-red.sh",
+    "old": "    [ \"${3:-}\" = fresh ] && rm -f \"$STATE/merge/$SLUG.strong-ux\" \"$STATE/merge/$SLUG.strong-ux.txt\"",
+    "new": "    :"
+  },
+  {
+    "label": "the reuse predicate accepts an ungrounded or below-threshold cached review",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_accepts_review_predicate bash rsi/runtime/tests/test-ux-gate-grounded-red.sh",
+    "old": "sys.exit(0 if all(a in sc for a in axes) and all(sc[a] >= 3 for a in axes) and sum(sc[a] for a in axes) / 5 >= 3.5 else 1)",
+    "new": "sys.exit(0)"
   }
 ]
