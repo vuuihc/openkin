@@ -1,14 +1,18 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vuuihc/openkin/internal/store"
 )
@@ -58,6 +62,14 @@ type PullRequest struct {
 	BaseBranch string
 	HeadOID    string
 	CI         CIStatus
+	// Reviews is the JSON array of {author, state, body} the last reviews read
+	// returned, oldest first. It is an answer only when ReviewsRead is set:
+	// empty with ReviewsRead false means the read failed, or was never asked,
+	// which is a different fact from an empty array. A failed read leaves the
+	// observation's previous array in place rather than reporting "none".
+	Reviews string
+	// ReviewsRead reports that Reviews holds an answer from the forge.
+	ReviewsRead bool
 }
 
 // reader answers the one question this package asks.
@@ -115,6 +127,26 @@ type apiRunner interface {
 	Name() string
 }
 
+// headerRunner is a transport that can also report a response's Link header.
+//
+// Everything that reads a single object is happy with a body, so the extra
+// capability is a second interface rather than a change to apiRunner: a
+// transport that cannot report the header still answers the reviews read, one
+// page deep. Both real transports can.
+type headerRunner interface {
+	apiGetWithHeaders(ctx context.Context, path string, query [][2]string) ([]byte, string, error)
+}
+
+// getWithHeaders asks for a body and, when the transport can, the Link header
+// that names the other pages of a list.
+func getWithHeaders(ctx context.Context, runner apiRunner, path string, query [][2]string) ([]byte, string, error) {
+	if h, ok := runner.(headerRunner); ok {
+		return h.apiGetWithHeaders(ctx, path, query)
+	}
+	body, err := runner.apiGet(ctx, path, query)
+	return body, "", err
+}
+
 // httpReader answers queries by calling the GitHub REST API directly. Used with
 // no credential at all, which is enough for public repositories.
 type httpReader struct {
@@ -132,6 +164,13 @@ func newHTTPReader() *httpReader {
 func (r *httpReader) Name() string { return SourceAnonymous }
 
 func (r *httpReader) apiGet(ctx context.Context, path string, query [][2]string) ([]byte, error) {
+	body, _, err := r.apiGetWithHeaders(ctx, path, query)
+	return body, err
+}
+
+// apiGetWithHeaders is apiGet plus the response's Link header, which is the
+// only place GitHub names the other pages of a list.
+func (r *httpReader) apiGetWithHeaders(ctx context.Context, path string, query [][2]string) ([]byte, string, error) {
 	url := r.baseURL + path
 	if len(query) > 0 {
 		parts := make([]string, 0, len(query))
@@ -142,7 +181,7 @@ func (r *httpReader) apiGet(ctx context.Context, path string, query [][2]string)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
@@ -151,31 +190,31 @@ func (r *httpReader) apiGet(ctx context.Context, path string, query [][2]string)
 
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 	// Bounded: a pull request payload is kilobytes, and the body of a failure
 	// is worth reading only far enough to explain it.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		return body, nil
+		return body, resp.Header.Get("Link"), nil
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, fmt.Errorf("%w: GET %s", ErrNotFound, path)
+		return nil, "", fmt.Errorf("%w: GET %s", ErrNotFound, path)
 	case resp.StatusCode == http.StatusUnauthorized:
-		return nil, fmt.Errorf("%w: GET %s", ErrNotAuthenticated, path)
+		return nil, "", fmt.Errorf("%w: GET %s", ErrNotAuthenticated, path)
 	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
 		// A secondary rate limit also lands on 403, so the header is what
 		// distinguishes "slow down" from "you may not read this".
 		if resp.Header.Get("X-RateLimit-Remaining") == "0" || resp.StatusCode == http.StatusTooManyRequests {
-			return nil, fmt.Errorf("%w: GET %s", ErrRateLimited, path)
+			return nil, "", fmt.Errorf("%w: GET %s", ErrRateLimited, path)
 		}
-		return nil, fmt.Errorf("github refused GET %s: %s", path, firstLine(body))
+		return nil, "", fmt.Errorf("github refused GET %s: %s", path, firstLine(body))
 	default:
-		return nil, fmt.Errorf("GET %s: HTTP %d: %s", path, resp.StatusCode, firstLine(body))
+		return nil, "", fmt.Errorf("GET %s: HTTP %d: %s", path, resp.StatusCode, firstLine(body))
 	}
 }
 
@@ -193,6 +232,51 @@ func (r ghReader) apiGet(ctx context.Context, path string, query [][2]string) ([
 		args = append(args, "-f", kv[0]+"="+kv[1])
 	}
 	return r.client.Run(ctx, args...)
+}
+
+// apiGetWithHeaders asks gh to print the response headers too. That is the only
+// way this transport can see the Link header, because gh's JSON output is the
+// body alone.
+func (r ghReader) apiGetWithHeaders(ctx context.Context, path string, query [][2]string) ([]byte, string, error) {
+	args := []string{"api", "--method", "GET", "--include", strings.TrimPrefix(path, "/")}
+	for _, kv := range query {
+		args = append(args, "-f", kv[0]+"="+kv[1])
+	}
+	out, err := r.client.Run(ctx, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	body, link := splitGHHeaders(out)
+	return body, link, nil
+}
+
+// splitGHHeaders separates the header block `gh api --include` prints from the
+// body and returns the Link header, if any.
+//
+// gh prints what the HTTP response carried, so the separator is CRLF; a version
+// that printed LF would be a formatting change, not a different answer, and
+// both are accepted. Output that does not start with a status line is body only
+// — the command answered, and losing the body over a missing header block would
+// turn a readable answer into a failed read.
+func splitGHHeaders(out []byte) (body []byte, link string) {
+	if !bytes.HasPrefix(out, []byte("HTTP/")) {
+		return out, ""
+	}
+	for _, sep := range [][]byte{[]byte("\r\n\r\n"), []byte("\n\n")} {
+		i := bytes.Index(out, sep)
+		if i < 0 {
+			continue
+		}
+		for _, line := range strings.Split(string(out[:i]), "\n") {
+			line = strings.TrimRight(line, "\r")
+			name, value, ok := strings.Cut(line, ":")
+			if ok && strings.EqualFold(strings.TrimSpace(name), "Link") {
+				link = strings.TrimSpace(value)
+			}
+		}
+		return out[i+len(sep):], link
+	}
+	return out, ""
 }
 
 // ---------------------------------------------------------------------------
@@ -253,15 +337,21 @@ func lookup(ctx context.Context, runner apiRunner, repo Repo, branch string) (Lo
 		CI: CIStatus{State: CINone},
 	}
 
-	ci, err := readCI(ctx, runner, repo, pr.Head.SHA)
-	if err != nil {
-		// The pull request itself was read successfully; only its checks were
-		// not. Reporting the pull request with an unknown CI state is more
-		// useful than discarding a good answer, and the console renders
-		// "none" as "not reported" rather than as success.
-		return LookupResult{PR: out, Source: runner.Name()}, nil
+	// The pull request itself was read successfully; only its checks may not
+	// have been. Reporting it with an unknown CI state is more useful than
+	// discarding a good answer, and the console renders "none" as "not
+	// reported" rather than as success.
+	if ci, err := readCI(ctx, runner, repo, pr.Head.SHA); err == nil {
+		out.CI = ci
 	}
-	out.CI = ci
+	// The reviews are a second question about a thing that exists, and one a
+	// failed check read does not make unreadable. A reviews read that fails is
+	// not a reviews answer: ReviewsRead stays false, and the writer leaves the
+	// previous array in place rather than reporting "none".
+	if reviews, err := readReviews(ctx, runner, repo, pr.Number); err == nil {
+		out.Reviews = reviews
+		out.ReviewsRead = true
+	}
 	return LookupResult{PR: out, Source: runner.Name()}, nil
 }
 
@@ -312,6 +402,161 @@ func readCheckRuns(ctx context.Context, runner apiRunner, base string) ([]checkR
 		})
 	}
 	return checks, nil
+}
+
+// Bounds on one snapshot of reviews. The payload is untrusted input — anyone
+// who can review the pull request controls its text — so the boundary is where
+// it is cut down, not the renderer.
+const (
+	maxReviews      = 20
+	maxReviewAuthor = 100
+	maxReviewBody   = 4000
+)
+
+// apiReview mirrors the fields this package reads from GitHub's review payload.
+type apiReview struct {
+	User struct {
+		Login string `json:"login"`
+	} `json:"user"`
+	State string `json:"state"`
+	Body  string `json:"body"`
+}
+
+// review is one review as the observation stores it. The state is the forge's
+// word, not a Kin verdict; a word this build does not know is stored as
+// UNKNOWN, which the panel renders as a neutral review.
+type review struct {
+	Author string `json:"author"`
+	State  string `json:"state"`
+	Body   string `json:"body"`
+}
+
+// readReviews reads a pull request's reviews into the JSON array the
+// observation stores, or returns an error that leaves the previous array (or
+// ”) in place.
+//
+// GitHub returns reviews oldest first, so the first page of a long history is
+// the oldest one. per_page=100 asks for as much as one page holds, and the
+// response's rel="last" link names the newest page, which is where "the newest
+// twenty" lives. A transport that cannot report the Link header answers with
+// the page it was given; that page is stored as it is and never relabelled
+// "newest".
+func readReviews(ctx context.Context, runner apiRunner, repo Repo, number int) (string, error) {
+	path := fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews", repo.Owner, repo.Name, number)
+	body, link, err := getWithHeaders(ctx, runner, path, [][2]string{{"per_page", "100"}})
+	if err != nil {
+		return "", err
+	}
+	var raw []apiReview
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return "", fmt.Errorf("decode reviews: %w", err)
+	}
+	if last := linkRel(link, "last"); last != "" {
+		// Page one is the page already in hand; following a link back to it
+		// would spend a request to learn nothing.
+		if page := pageOf(last); page > 1 {
+			query := [][2]string{{"per_page", "100"}, {"page", strconv.Itoa(page)}}
+			pageBody, _, pageErr := getWithHeaders(ctx, runner, path, query)
+			if pageErr != nil {
+				// The newest page was named and could not be read. Answering
+				// with the first page would store the oldest reviews as the
+				// newest, so the read fails and the previous array stands.
+				return "", pageErr
+			}
+			if err := json.Unmarshal(pageBody, &raw); err != nil {
+				return "", fmt.Errorf("decode reviews: %w", err)
+			}
+		}
+	}
+	out, err := json.Marshal(newestReviews(raw, maxReviews))
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// newestReviews keeps the newest n of a list the forge returned oldest first,
+// preserving their relative order, and bounds the text each one carries.
+func newestReviews(raw []apiReview, n int) []review {
+	if len(raw) > n {
+		raw = raw[len(raw)-n:]
+	}
+	out := make([]review, 0, len(raw))
+	for _, r := range raw {
+		state := r.State
+		switch state {
+		case "APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING":
+		default:
+			// Never infer approval — or anything else — from a word this build
+			// does not know.
+			state = "UNKNOWN"
+		}
+		out = append(out, review{
+			Author: boundRunes(r.User.Login, maxReviewAuthor),
+			State:  state,
+			Body:   boundRunes(r.Body, maxReviewBody),
+		})
+	}
+	return out
+}
+
+// boundRunes truncates s to at most max runes, keeping the head and cutting at
+// a rune boundary so the stored text stays valid UTF-8.
+func boundRunes(s string, max int) string {
+	if max <= 0 || utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	n := 0
+	for i := range s {
+		if n == max {
+			return s[:i]
+		}
+		n++
+	}
+	return s
+}
+
+// linkRel returns the URL a Link header gives for one relation, or "".
+//
+// The header is a comma-separated list of <url>; rel="name" pairs. Parsing it
+// rather than searching for the relation name keeps a URL that happens to
+// contain `rel="last"` from being taken for the relation itself.
+func linkRel(header, rel string) string {
+	for _, part := range strings.Split(header, ",") {
+		fields := strings.Split(part, ";")
+		if len(fields) < 2 {
+			continue
+		}
+		target := strings.TrimSpace(fields[0])
+		if !strings.HasPrefix(target, "<") || !strings.HasSuffix(target, ">") {
+			continue
+		}
+		target = target[1 : len(target)-1]
+		for _, f := range fields[1:] {
+			name, value, ok := strings.Cut(strings.TrimSpace(f), "=")
+			if !ok || !strings.EqualFold(strings.TrimSpace(name), "rel") {
+				continue
+			}
+			if strings.Trim(strings.TrimSpace(value), `"`) == rel {
+				return target
+			}
+		}
+	}
+	return ""
+}
+
+// pageOf returns the page number a GitHub list URL points at, zero when it
+// names none.
+func pageOf(raw string) int {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(u.Query().Get("page"))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 func readCommitStatuses(ctx context.Context, runner apiRunner, base string) ([]checkResult, error) {

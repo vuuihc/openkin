@@ -183,3 +183,30 @@ func TestObservePRRefusesADirectoryOutsideTheRoots(t *testing.T) {
 		t.Fatal("a directory outside the roots was answered")
 	}
 }
+
+// The reviews cross the node→Hub hop with the rest of the pull request. The wire
+// field is a string for a reason: ” means "not read" and an array — including
+// [] — means an answer, and the Hub has to receive that distinction rather than
+// infer it.
+func TestObservePRCarriesReviewsAcrossTheHop(t *testing.T) {
+	root := t.TempDir()
+	repo := gitRepo(t, filepath.Join(root, "repo"))
+	gitCmdIn(t, repo, "remote", "add", "origin", "https://github.com/owner/app.git")
+	r, conn := repoOn(t, root)
+	reviews := `[{"author":"alice","state":"APPROVED","body":"Looks good"},` +
+		`{"author":"bob","state":"CHANGES_REQUESTED","body":"Needs a test"}]`
+	observing(t, r, github.LookupResult{
+		Source: github.SourceGH,
+		PR: &github.PullRequest{
+			Number:      number(42),
+			State:       "open",
+			Reviews:     reviews,
+			ReviewsRead: true,
+		},
+	}, nil)
+
+	found := observeIn(t, r, conn, repo)
+	if found.Reviews != reviews {
+		t.Fatalf("reviews = %q, want the array the read returned", found.Reviews)
+	}
+}

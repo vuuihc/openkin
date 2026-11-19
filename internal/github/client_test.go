@@ -2,12 +2,18 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
+
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 func TestParseCanonical(t *testing.T) {
@@ -118,8 +124,12 @@ type fakeRunner struct {
 	name      string
 	onCall    func(string)
 	responses map[string][]byte
-	errs      map[string]error
-	calls     []string
+	// links is the Link header each path answers with, keyed like responses. An
+	// answer for one page of a list is keyed "path?page=N", so a read that
+	// follows rel="last" gets a different body than the first page did.
+	links map[string]string
+	errs  map[string]error
+	calls []string
 	// queries records the parameters each call carried. Discarding them was how
 	// a wrong or dropped filter could pass the whole suite unnoticed.
 	queries [][][2]string
@@ -128,18 +138,35 @@ type fakeRunner struct {
 func (f *fakeRunner) Name() string { return f.name }
 
 func (f *fakeRunner) apiGet(_ context.Context, path string, query [][2]string) ([]byte, error) {
+	body, _, err := f.answer(path, query)
+	return body, err
+}
+
+// apiGetWithHeaders is the header-aware call the reviews read uses. The other
+// reads keep calling apiGet, which is the same answer without the Link.
+func (f *fakeRunner) apiGetWithHeaders(_ context.Context, path string, query [][2]string) ([]byte, string, error) {
+	return f.answer(path, query)
+}
+
+func (f *fakeRunner) answer(path string, query [][2]string) ([]byte, string, error) {
 	if f.onCall != nil {
 		f.onCall(path)
 	}
 	f.calls = append(f.calls, path)
 	f.queries = append(f.queries, query)
-	if err, ok := f.errs[path]; ok {
-		return nil, err
+	key := path
+	for _, kv := range query {
+		if kv[0] == "page" {
+			key = path + "?page=" + kv[1]
+		}
 	}
-	if body, ok := f.responses[path]; ok {
-		return body, nil
+	if err, ok := f.errs[key]; ok {
+		return nil, "", err
 	}
-	return nil, fmt.Errorf("unexpected path %s", path)
+	if body, ok := f.responses[key]; ok {
+		return body, f.links[key], nil
+	}
+	return nil, "", fmt.Errorf("unexpected path %s", path)
 }
 
 // The list request is the one that establishes read access and identifies the
@@ -609,5 +636,276 @@ func TestEscapeQueryEncodesUTF8(t *testing.T) {
 		if decoded != in {
 			t.Errorf("escapeQuery(%q) round-tripped to %q", in, decoded)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Reviews
+// ---------------------------------------------------------------------------
+
+// reviewListJSON encodes the review payload a fake forge answers with.
+func reviewListJSON(t *testing.T, reviews []map[string]any) []byte {
+	t.Helper()
+	body, err := json.Marshal(reviews)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+// A refresh reads the reviews too, and the row's array is the answer with the
+// author, the forge's state and the body, oldest first as GitHub returns them.
+func TestLookupReadsReviewsIntoTheObservation(t *testing.T) {
+	runner := &fakeRunner{
+		name: SourceGH,
+		responses: map[string][]byte{
+			"/repos/owner/repo/pulls":                  []byte(`[{"number":7,"state":"open","head":{"sha":"abc"},"base":{"ref":"main"}}]`),
+			"/repos/owner/repo/commits/abc/check-runs": []byte(`{"check_runs":[]}`),
+			"/repos/owner/repo/commits/abc/status":     []byte(`{"state":"","statuses":[]}`),
+			"/repos/owner/repo/pulls/7/reviews": []byte(`[
+				{"user":{"login":"alice"},"state":"COMMENTED","body":"Could you add a test?"},
+				{"user":{"login":"bob"},"state":"APPROVED","body":"Looks good"}]`),
+		},
+	}
+	res, err := lookup(context.Background(), runner, Repo{Owner: "owner", Name: "repo"}, "b")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if res.PR == nil {
+		t.Fatal("expected a pull request")
+	}
+	if !res.PR.ReviewsRead {
+		t.Fatalf("the reviews were not read: %q", res.PR.Reviews)
+	}
+	var got []review
+	if err := json.Unmarshal([]byte(res.PR.Reviews), &got); err != nil {
+		t.Fatalf("reviews %q are not a JSON array: %v", res.PR.Reviews, err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("reviews = %+v, want both", got)
+	}
+	if got[0].Author != "alice" || got[0].State != "COMMENTED" || got[0].Body != "Could you add a test?" {
+		t.Errorf("first review = %+v, want the oldest first", got[0])
+	}
+	if got[1].Author != "bob" || got[1].State != "APPROVED" || got[1].Body != "Looks good" {
+		t.Errorf("second review = %+v", got[1])
+	}
+}
+
+// A failed reviews read is not a reviews answer. The pull request and its checks
+// are still a good observation, and the row keeps the array it already had —
+// never ” and never [].
+func TestLookupKeepsTheLastReviewsWhenTheReadFails(t *testing.T) {
+	reader := &fakeRunner{
+		name: SourceGH,
+		responses: map[string][]byte{
+			"/repos/owner/repo/pulls":                  []byte(`[{"number":7,"state":"open","head":{"sha":"abc"},"base":{"ref":"main"}}]`),
+			"/repos/owner/repo/commits/abc/check-runs": []byte(`{"check_runs":[]}`),
+			"/repos/owner/repo/commits/abc/status":     []byte(`{"state":"","statuses":[]}`),
+		},
+		errs: map[string]error{
+			"/repos/owner/repo/pulls/7/reviews": errors.New("boom"),
+		},
+	}
+	svc, st := newTestService(t, reader)
+	ctx := context.Background()
+	repo := Repo{Owner: "owner", Name: "repo"}
+	previous := `[{"author":"a","state":"APPROVED","body":"ok"}]`
+	old := time.Now().Add(-time.Hour).UnixMilli()
+	if err := st.RecordPRObservation(ctx, store.PRObservation{
+		Repo: repo.Canonical(), HeadBranch: "b", TaskID: "t", Number: number(7), State: "open",
+		Reviews: previous, Source: SourceGH, ObservedAt: &old, AttemptedAt: old,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := lookup(ctx, reader, repo, "b")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if res.PR == nil {
+		t.Fatal("the pull request itself was read and must survive")
+	}
+	if res.PR.ReviewsRead {
+		t.Fatalf("a failed reviews read reported an answer: %q", res.PR.Reviews)
+	}
+	if err := svc.record(ctx, Target{TaskID: "t", Repo: repo, Branch: "b"}, res, time.Now()); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	obs, ok, err := st.GetPRObservation(ctx, repo.Canonical(), "b")
+	if err != nil || !ok {
+		t.Fatalf("observation: ok=%v err=%v", ok, err)
+	}
+	if obs.Reviews != previous {
+		t.Fatalf("reviews = %q, want the previous array kept", obs.Reviews)
+	}
+}
+
+// "Read, and none" is an answer: it is stored as [], which replaces a previous
+// array, and never as ” — the value that means nobody ever asked.
+func TestLookupWritesAnEmptyArrayWhenTheReadSucceedsWithNone(t *testing.T) {
+	reader := &fakeRunner{
+		name: SourceGH,
+		responses: map[string][]byte{
+			"/repos/owner/repo/pulls":                  []byte(`[{"number":7,"state":"open","head":{"sha":"abc"},"base":{"ref":"main"}}]`),
+			"/repos/owner/repo/commits/abc/check-runs": []byte(`{"check_runs":[]}`),
+			"/repos/owner/repo/commits/abc/status":     []byte(`{"state":"","statuses":[]}`),
+			"/repos/owner/repo/pulls/7/reviews":        []byte(`[]`),
+		},
+	}
+	svc, st := newTestService(t, reader)
+	ctx := context.Background()
+	repo := Repo{Owner: "owner", Name: "repo"}
+
+	res, err := lookup(ctx, reader, repo, "b")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if res.PR == nil || !res.PR.ReviewsRead {
+		t.Fatalf("an empty answer was not read: %+v", res.PR)
+	}
+	if err := svc.record(ctx, Target{TaskID: "t", Repo: repo, Branch: "b"}, res, time.Now()); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	obs, ok, err := st.GetPRObservation(ctx, repo.Canonical(), "b")
+	if err != nil || !ok {
+		t.Fatalf("observation: ok=%v err=%v", ok, err)
+	}
+	if obs.Reviews != "[]" {
+		t.Fatalf("reviews = %q, want [] — an empty answer is not a missing one", obs.Reviews)
+	}
+}
+
+// The payload is untrusted input: a long review list is cut to its newest
+// twenty, and text is bounded at the boundary rather than at a byte offset that
+// could split a rune.
+func TestReadReviewsKeepsTheNewestTwentyAndBoundsText(t *testing.T) {
+	raw := make([]map[string]any, 0, 25)
+	for i := 0; i < 25; i++ {
+		raw = append(raw, map[string]any{
+			"user":  map[string]string{"login": fmt.Sprintf("r%02d", i)},
+			"state": "COMMENTED",
+			"body":  fmt.Sprintf("body %d", i),
+		})
+	}
+	// The newest review carries every bound at once.
+	raw[24]["user"] = map[string]string{"login": strings.Repeat("a", 120)}
+	raw[24]["body"] = strings.Repeat("b", 5000)
+	raw[24]["state"] = "brand_new"
+	// A multi-byte body, to prove the truncation lands on a rune boundary.
+	raw[23]["body"] = strings.Repeat("日", 5000)
+
+	runner := &fakeRunner{
+		name:      SourceGH,
+		responses: map[string][]byte{"/repos/owner/repo/pulls/7/reviews": reviewListJSON(t, raw)},
+	}
+	gotJSON, err := readReviews(context.Background(), runner, Repo{Owner: "owner", Name: "repo"}, 7)
+	if err != nil {
+		t.Fatalf("readReviews: %v", err)
+	}
+	var got []review
+	if err := json.Unmarshal([]byte(gotJSON), &got); err != nil {
+		t.Fatalf("reviews %q are not JSON: %v", gotJSON, err)
+	}
+	if len(got) != 20 {
+		t.Fatalf("kept %d reviews, want the newest 20", len(got))
+	}
+	if got[0].Author != "r05" {
+		t.Errorf("first kept review = %q, want r05 — the oldest five were dropped", got[0].Author)
+	}
+	if got[19].Author != strings.Repeat("a", 100) || got[19].Body != strings.Repeat("b", 4000) {
+		t.Errorf("newest review = %q/%d runes, want the bounded author and a 4000-rune body",
+			got[19].Author, utf8.RuneCountInString(got[19].Body))
+	}
+	if utf8.RuneCountInString(got[19].Author) != 100 {
+		t.Errorf("author is %d runes, want 100", utf8.RuneCountInString(got[19].Author))
+	}
+	if got[19].State != "UNKNOWN" {
+		t.Errorf("state = %q, want UNKNOWN for a word the forge never uses", got[19].State)
+	}
+	multi := got[18].Body
+	if !utf8.ValidString(multi) {
+		t.Error("a multi-byte body was cut mid-rune")
+	}
+	if utf8.RuneCountInString(multi) != 4000 || strings.Trim(multi, "日") != "" {
+		t.Errorf("multi-byte body = %d runes of mixed text, want 4000 runes of 日",
+			utf8.RuneCountInString(multi))
+	}
+}
+
+// GitHub returns reviews oldest first, so the first page of a long history is
+// the wrong end of it. The newest page is the one rel="last" names, and a
+// snapshot must come from there rather than calling the oldest page newest.
+func TestReadReviewsFollowsTheLastPageLink(t *testing.T) {
+	first := []map[string]any{
+		{"user": map[string]string{"login": "ancient"}, "state": "COMMENTED", "body": "oldest"},
+	}
+	lastRaw := make([]map[string]any, 0, 25)
+	for i := 0; i < 25; i++ {
+		lastRaw = append(lastRaw, map[string]any{
+			"user":  map[string]string{"login": fmt.Sprintf("r%02d", i)},
+			"state": "APPROVED",
+			"body":  fmt.Sprintf("body %d", i),
+		})
+	}
+	runner := &fakeRunner{
+		name: SourceGH,
+		responses: map[string][]byte{
+			"/repos/owner/repo/pulls/7/reviews":        reviewListJSON(t, first),
+			"/repos/owner/repo/pulls/7/reviews?page=3": reviewListJSON(t, lastRaw),
+		},
+		links: map[string]string{
+			"/repos/owner/repo/pulls/7/reviews": `<https://api.github.com/repos/owner/repo/pulls/7/reviews?per_page=100&page=3>; rel="last", <https://api.github.com/repos/owner/repo/pulls/7/reviews?per_page=100&page=2>; rel="next"`,
+		},
+	}
+	gotJSON, err := readReviews(context.Background(), runner, Repo{Owner: "owner", Name: "repo"}, 7)
+	if err != nil {
+		t.Fatalf("readReviews: %v", err)
+	}
+	var got []review
+	if err := json.Unmarshal([]byte(gotJSON), &got); err != nil {
+		t.Fatalf("reviews %q are not JSON: %v", gotJSON, err)
+	}
+	if len(got) != 20 || got[0].Author != "r05" || got[19].Author != "r24" {
+		t.Fatalf("kept %d reviews from %q to %q, want the newest 20 of the last page",
+			len(got), got[0].Author, got[len(got)-1].Author)
+	}
+	for _, r := range got {
+		if r.Author == "ancient" {
+			t.Fatal("the first page's oldest review was kept as if it were the newest")
+		}
+	}
+	if len(runner.queries) != 2 {
+		t.Fatalf("made %d requests, want the first page and the last", len(runner.queries))
+	}
+	page := ""
+	for _, kv := range runner.queries[1] {
+		if kv[0] == "page" {
+			page = kv[1]
+		}
+	}
+	if page != "3" {
+		t.Fatalf("the second request asked for page %q, want 3", page)
+	}
+}
+
+// gh prints the response headers ahead of the body; the Link header is the only
+// thing the reviews read needs from them. Output without a header block is body
+// only — that is a readable answer, not a failed read.
+func TestSplitGHHeaders(t *testing.T) {
+	body := `[{"id":1}]`
+	link := `<https://api.github.com/repos/o/r/pulls/7/reviews?page=2>; rel="next"`
+	out := "HTTP/2.0 200 OK\r\nContent-Type: application/json\r\nLink: " + link + "\r\n\r\n" + body
+	gotBody, gotLink := splitGHHeaders([]byte(out))
+	if string(gotBody) != body {
+		t.Errorf("body = %q, want %q", gotBody, body)
+	}
+	if gotLink != link {
+		t.Errorf("link = %q, want %q", gotLink, link)
+	}
+
+	gotBody, gotLink = splitGHHeaders([]byte(body))
+	if string(gotBody) != body || gotLink != "" {
+		t.Errorf("body-only output = (%q, %q), want (%q, \"\")", gotBody, gotLink, body)
 	}
 }

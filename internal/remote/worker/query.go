@@ -976,6 +976,10 @@ type PRObserveResult struct {
 	CIState    string `json:"ci_state,omitempty"`
 	// CISummary is the check counts, as JSON, in the shape the Hub stores.
 	CISummary string `json:"ci_summary,omitempty"`
+	// Reviews is the JSON array of {author, state, body} the machine read,
+	// oldest first. Empty means the reviews were not read — never read, or the
+	// read failed — which is not the same answer as "[]".
+	Reviews string `json:"reviews,omitempty"`
 	// Reason says why there is no observation, in this machine's words: no
 	// checkout here, no origin remote, no branch, or the read itself failed.
 	Reason string `json:"reason,omitempty"`
