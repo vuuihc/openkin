@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the local claim drops the merged-log guard, so a lane is paid to redo an item whose PR already shipped",
+    "file": "rsi/runtime/lanes.py",
+    "test": "RSI_TEST_ONLY=merged-refused bash rsi/runtime/tests/test-claim-merged.sh",
+    "old": "    merged_refuse(a.item, a.redeliver, a.mode)\n",
+    "new": "    pass  # guard removed by mutant\n"
+  },
+  {
+    "label": "the merged log is read by slug (field 5) instead of item (field 6), so an unrelated item is refused",
+    "file": "rsi/runtime/lanes.py",
+    "test": "RSI_TEST_ONLY=parses-the-item-field bash rsi/runtime/tests/test-claim-merged.sh",
+    "old": "or f[6] != \"merged\" or f[5] != item:",
+    "new": "or f[6] != \"merged\" or f[4] != item:"
+  },
+  {
+    "label": "the cloud hand-off keeps no guard, so an already-merged item can still be dispatched to an external agent",
+    "file": "rsi/runtime/lanes.py",
+    "test": "RSI_TEST_ONLY=cloud-merged-refused bash rsi/runtime/tests/test-claim-merged.sh",
+    "old": "    merged_refuse(a.item, a.redeliver)\n",
+    "new": "    pass  # cloud guard removed by mutant\n"
+  }
+]

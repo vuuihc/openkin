@@ -24,11 +24,17 @@
 # cannot pass — except in the build-decision cases, where npm records the
 # expected build attempt and go stays a trap. Prints "ok: <case>" per case and
 # exits non-zero on the first failure.
+#
+# The J13 desktop-bridge cases are the one deliberate use of the real node:
+# they run walk.mjs --check-spec (spec parsing only — no browser, no daemon,
+# no build) through the absolute path captured below, so the exported node
+# booby trap still catches a bare call.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
 UXWALK="$REPO/rsi/runtime/ux-walk.sh"
 MANIFEST="$HERE/ux-walker.mutants.json"
+REAL_NODE="$(type -P node || true)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 
 pass() { echo "ok: $*"; }
@@ -371,4 +377,138 @@ PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
 
-echo "ux-walker contract: 14/14 cases passed"
+# --- 10-13: J13's undrawable-file leg is walked, and only J13 gets a bridge ----
+# The shipped "Open in…" control renders only behind Electron's
+# `window.kinDesktop` (ui/src/components/workspace/OpenInMenu.tsx), and the
+# walker is a plain browser. J13 therefore declares a journey-scoped
+# `desktopBridge`; the walker installs it as an init script, deterministic and
+# with no OS call. These cases pin the committed spec, the contract that
+# refuses a spec without the leg or without the declaration, and that the
+# bridge cannot leak into a journey that must stay a browser. Every fixture is
+# a copy of the tree's own index and journey files, so all the other journeys'
+# contracts still run against their real bodies.
+[ -n "$REAL_NODE" ] || fail "the walker's --check-spec cases need node on PATH; none found"
+UX="$REPO/rsi/runtime/ux"
+spec_fixture() { # <dir>: the index plus every journey body, relative paths intact
+  mkdir -p "$1"
+  cp "$UX/journeys.json" "$1/journeys.json"
+  cp -R "$UX/journeys" "$1/journeys"
+}
+check_spec() { # <spec>: the walker's spec contract, no browser and no daemon
+  "$REAL_NODE" "$UX/walk.mjs" --check-spec --spec "$1" 2>&1
+}
+
+case_name="j13-binary-leg-present"
+out="$(python3 - "$UX/journeys/J13.json" <<'PY' 2>&1
+import json
+import sys
+
+journey = json.load(open(sys.argv[1], encoding="utf-8"))
+steps = journey.get("steps") or []
+text = lambda step: " ".join(str(part) for part in step)  # noqa: E731
+gotos = [st for st in steps if st and st[0] == "goto" and "file=report.pdf" in text(st)]
+if not gotos:
+    raise SystemExit("J13 has no goto naming file=report.pdf")
+trigger = [st for st in steps if st and st[0] == "click" and "aria-haspopup" in text(st)]
+if not trigger:
+    raise SystemExit("J13 never presses the open-in trigger")
+menu = [st for st in steps if st and st[0] in ("wait", "count") and "role=menu" in text(st) and "menuitem" in text(st)]
+if not menu:
+    raise SystemExit("J13 never waits for a row inside the open-in menu")
+apps = ((journey.get("desktopBridge") or {}).get("apps") or [])
+if not apps:
+    raise SystemExit("J13 declares no desktopBridge apps")
+print("leg present: %d goto(s), %d trigger press(es), %d menu read(s), %d app(s)" % (len(gotos), len(trigger), len(menu), len(apps)))
+PY
+)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: the committed J13 spec is missing the leg: $out"
+pass "$case_name"
+
+case_name="j13-contract-refuses-without-leg"
+V2="$T/spec-no-leg"; spec_fixture "$V2"
+python3 - "$V2/journeys/J13.json" <<'PY' || exit 1
+import json
+import sys
+
+path = sys.argv[1]
+journey = json.load(open(path, encoding="utf-8"))
+# The whole leg: its goto, the open-in press, the menu reads and the Escape.
+marks = ("report.pdf", "aria-haspopup", "role=menu", "menuitem", "Escape")
+journey["steps"] = [st for st in journey["steps"] if not any(m in " ".join(str(p) for p in st) for m in marks)]
+json.dump(journey, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+[ $? -eq 0 ] || fail "$case_name: could not write the stripped fixture"
+out="$(check_spec "$V2/journeys.json")"; rc=$?
+[ $rc -ne 0 ] || fail "$case_name: --check-spec passed a J13 whose binary leg was stripped"
+case "$out" in
+  *report.pdf*) ;;
+  *) fail "$case_name: the refusal does not name the missing leg: $out" ;;
+esac
+pass "$case_name"
+
+case_name="desktop-bridge-scoped-to-j13"
+V3="$T/spec-bridge-leak"; spec_fixture "$V3"
+python3 - "$V3/journeys/J13.json" "$V3/journeys/J14.json" <<'PY' || exit 1
+import json
+import sys
+
+j13_path, j14_path = sys.argv[1], sys.argv[2]
+j13 = json.load(open(j13_path, encoding="utf-8"))
+bridge = j13.pop("desktopBridge")
+json.dump(j13, open(j13_path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+j14 = json.load(open(j14_path, encoding="utf-8"))
+j14["desktopBridge"] = bridge
+json.dump(j14, open(j14_path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+[ $? -eq 0 ] || fail "$case_name: could not write the leaked fixture"
+out="$(check_spec "$V3/journeys.json")"; rc=$?
+[ $rc -ne 0 ] || fail "$case_name: --check-spec passed a spec that moved the bridge onto J14"
+case "$out" in
+  *"J14 declares desktopBridge"*) ;;
+  *) fail "$case_name: the refusal does not name the leaking journey: $out" ;;
+esac
+pass "$case_name"
+
+case_name="bridge-not-installed-by-default"
+V4="$T/spec-no-bridge"; spec_fixture "$V4"
+python3 - "$V4/journeys/J13.json" <<'PY' || exit 1
+import json
+import sys
+
+path = sys.argv[1]
+journey = json.load(open(path, encoding="utf-8"))
+journey.pop("desktopBridge", None)
+json.dump(journey, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+[ $? -eq 0 ] || fail "$case_name: could not write the bridge-less fixture"
+out="$(check_spec "$V4/journeys.json")"; rc=$?
+[ $rc -ne 0 ] || fail "$case_name: --check-spec passed a J13 with no desktopBridge; the bridge could silently disappear"
+case "$out" in
+  *J13*desktopBridge*) ;;
+  *) fail "$case_name: the refusal does not say J13 needs the bridge: $out" ;;
+esac
+# The requirement is J13's alone: the tree's own spec passes, and no other
+# journey body declares a bridge. A journey without the option is a browser.
+out="$(check_spec "$UX/journeys.json")"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: the tree's own spec fails --check-spec: $out"
+out="$(python3 - "$UX/journeys" <<'PY' 2>&1
+import glob
+import json
+import os
+import sys
+
+root = sys.argv[1]
+declared = sorted(
+    os.path.basename(path)[:-5]
+    for path in glob.glob(os.path.join(root, "*.json"))
+    if "desktopBridge" in json.load(open(path, encoding="utf-8"))
+)
+if declared != ["J13"]:
+    raise SystemExit("desktopBridge is declared by %s, wanted only J13" % (declared or "nobody"))
+print("bridge scoped to J13")
+PY
+)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: $out"
+pass "$case_name"
+
+echo "ux-walker contract: 18/18 cases passed"

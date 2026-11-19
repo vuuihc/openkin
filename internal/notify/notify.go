@@ -223,13 +223,18 @@ func (s *Sender) pendingLink(ctx context.Context, taskID, itemID string) string 
 }
 
 // NotifyApproval sends an approval_requested notification.
+//
+// The title names the work and the body asks for the action. Neither prints the
+// task id: the reader has never seen one, and the tap already lands on the
+// conversation. The id still travels in Payload.TaskID, where dedupe, grouping
+// and the deep link read it.
 func (s *Sender) NotifyApproval(ctx context.Context, approvalID, taskID, title string) {
 	if title == "" {
 		title = "Approval needed"
 	}
 	body := "Task requires approval"
 	if taskID != "" {
-		body = fmt.Sprintf("Task %s needs approval", shortID(taskID))
+		body = "Needs your approval"
 	}
 	link := s.pendingLink(ctx, taskID, approvalID)
 	s.Send(ctx, Payload{
@@ -240,14 +245,16 @@ func (s *Sender) NotifyApproval(ctx context.Context, approvalID, taskID, title s
 	})
 }
 
-// NotifyUserQuestion sends an input-required notification.
+// NotifyUserQuestion sends an input-required notification. The question header
+// is the title, so the body only has to ask for the answer — printing the task
+// id would name something the reader has never seen.
 func (s *Sender) NotifyUserQuestion(ctx context.Context, questionID, taskID, title string) {
 	if title == "" {
 		title = "Input needed"
 	}
 	body := "A task needs your answer"
 	if taskID != "" {
-		body = fmt.Sprintf("Task %s needs your answer", shortID(taskID))
+		body = "Needs your answer"
 	}
 	link := s.pendingLink(ctx, taskID, questionID)
 	s.Send(ctx, Payload{
@@ -258,23 +265,22 @@ func (s *Sender) NotifyUserQuestion(ctx context.Context, questionID, taskID, tit
 	})
 }
 
-// NotifyQuota sends a quota wait/resume/block update.
+// NotifyQuota sends a quota wait/resume/block update. The title names the work
+// and the body says which moment it is in; the old copy put the state in the
+// title and then repeated it, lowercased, behind the task id in the body.
 func (s *Sender) NotifyQuota(ctx context.Context, taskID, taskTitle, status string, resetAt int64) {
-	title := "Provider quota"
+	body := "A task is waiting for a provider quota window"
 	switch status {
 	case "open", "waiting":
-		title = "Waiting for provider quota"
+		body = "Waiting for a provider quota window"
 	case "continued", "resumed":
-		title = "Provider quota available"
+		body = "Provider quota available"
 	case "blocked":
-		title = "Provider quota wait blocked"
+		body = "Provider quota wait blocked"
 	}
-	body := "A task is waiting for a provider quota window"
-	if taskID != "" {
-		body = fmt.Sprintf("Task %s: %s", shortID(taskID), strings.ToLower(title))
-	}
+	title := "Provider quota"
 	if taskTitle != "" {
-		title = taskTitle + " — " + title
+		title = taskTitle
 	}
 	link := s.DeepLink(ctx, "/tasks/"+url.PathEscape(taskID))
 	s.Send(ctx, Payload{
@@ -300,9 +306,12 @@ func (s *Sender) NotifyWorkerOffline(ctx context.Context, workerID, taskID, labe
 	if label != "" {
 		title = label + " — worker offline"
 	}
+	// The label already says which worker and that it is offline; the body says
+	// what happened to it. The raw worker id stays in Payload.ID for dedupe and
+	// grouping and is never printed.
 	body := "A remote worker lost its lease"
 	if workerID != "" {
-		body = fmt.Sprintf("Worker %s is offline", shortID(workerID))
+		body = "Its worker lease was lost"
 	}
 	link := s.DeepLink(ctx, "/tasks/"+url.PathEscape(taskID))
 	if taskID == "" {

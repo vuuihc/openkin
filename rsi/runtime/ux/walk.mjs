@@ -1616,6 +1616,32 @@ function checkJ13Contract(spec) {
   const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
   const sel = (st, i) => String((st || [])[i] ?? '');
 
+  // The desktop bridge is journey-scoped on purpose. The walker is a plain
+  // browser and the console draws `Open in…` only behind `window.kinDesktop`,
+  // so a J13 that loses the declaration walks a browser that can never draw
+  // the control — the leg fails as a missing trigger, a fixture mistake
+  // wearing a product regression's clothes. Declaring it on another journey is
+  // the same lie in reverse: the bridge would hide a real browser-path break
+  // in a walk that must stay a browser.
+  const bridge = journey.desktopBridge;
+  const bridgeApps = bridge && typeof bridge === 'object' && Array.isArray(bridge.apps) ? bridge.apps : [];
+  if (bridgeApps.length === 0) {
+    errs.push('J13 declares no desktopBridge apps; its undrawable file leg needs the shell bridge (desktopBridge.apps)');
+  }
+  bridgeApps.forEach((app, i) => {
+    if (!app || typeof app !== 'object'
+      || typeof app.id !== 'string' || app.id === ''
+      || typeof app.label !== 'string' || app.label === ''
+      || typeof app.labelKey !== 'string' || app.labelKey === '') {
+      errs.push(`J13 desktopBridge app ${i + 1} needs non-empty id, label and labelKey strings`);
+    }
+  });
+  Object.entries((spec || {}).journeys || {}).forEach(([id, body]) => {
+    if (id !== 'J13' && body && typeof body === 'object' && body.desktopBridge) {
+      errs.push(`journey ${id} declares desktopBridge; only J13 may install the desktop shell bridge`);
+    }
+  });
+
   // Phone only. The Mac draws the list and the viewer as two columns, so a
   // Mac width would walk a surface this leg never claims.
   const viewports = journey.viewports;
@@ -1735,6 +1761,38 @@ function checkJ13Contract(spec) {
     if (reopenPanelAt < 0) errs.push('J13 never proves opening Files named the list address (?panel=files with no file=)');
     if (reopenListAt < 0) errs.push("J13 never proves reopening Files shows the list (wait [data-phone-view='list'])");
     if (reopenGoneAt < 0) errs.push('J13 never proves reopening Files does not replay the earlier file (gone [data-pane=viewer])');
+  }
+
+  // Leg 1d — an undrawable file. `BINARY_EXTENSIONS` sends `report.pdf` to the
+  // download pane instead of a text viewer, and the desktop shell's `Open in…`
+  // control beside Download is the only way to hand it to another app. The
+  // walk must prove the control is offered, its menu lists a declared app, and
+  // Escape closes it without choosing one: the fake bridge never launches
+  // anything, so a click on a row would prove only that the fake answered.
+  // The leg sits at the end of the journey because every step adds a history
+  // entry, and the system-Back queue above lands on the entries it recorded.
+  const binaryAt = idx((st) => st[0] === 'goto'
+    && /[?&]file=report\.pdf(?:[&#]|$)/.test(sel(st, 1)) && sel(st, 1).includes('{conversation}'));
+  if (binaryAt < 0) {
+    errs.push('J13 never opens the seeded undrawable file (goto /tasks/{conversation}?panel=files&file=report.pdf)');
+  } else {
+    const paneAt = after(binaryAt, (st) => st[0] === 'wait' && /data-pane/.test(sel(st, 1)) && /viewer/.test(sel(st, 1)));
+    if (paneAt < 0) errs.push('J13 never waits for the download pane after opening report.pdf (wait css=[data-pane=viewer])');
+    const triggerAt = after(binaryAt, (st) => st[0] === 'click' && /data-pane/.test(sel(st, 1)) && /aria-haspopup/.test(sel(st, 1)));
+    if (triggerAt < 0) {
+      errs.push('J13 never presses the open-in trigger in the download pane (click css=[data-pane=viewer] …[aria-haspopup=menu])');
+    } else {
+      const menuAt = after(triggerAt, (st) => st[0] === 'wait' && /role=menu/.test(sel(st, 1)));
+      const rowAt = after(triggerAt, (st) => (st[0] === 'wait' || st[0] === 'count') && /menuitem/.test(sel(st, 1)));
+      const shotAt = after(triggerAt, (st) => st[0] === 'shot' && /open-in/.test(sel(st, 1)));
+      const escapeAt = after(triggerAt, (st) => st[0] === 'key' && /^Escape$/i.test(sel(st, 1)));
+      const closedAt = escapeAt < 0 ? -1 : after(escapeAt, (st) => st[0] === 'gone' && /role=menu/.test(sel(st, 1)));
+      if (menuAt < 0) errs.push('J13 never waits for the open-in menu to appear (wait css=[role=menu])');
+      if (rowAt < 0) errs.push('J13 never waits for an app row inside the open-in menu (menuitem)');
+      if (shotAt < 0) errs.push('J13 takes no shot of the open-in menu (shot file-binary-open-in)');
+      if (escapeAt < 0) errs.push('J13 never closes the open-in menu with Escape; choosing an app would launch it');
+      else if (closedAt < 0) errs.push('J13 never proves the open-in menu left the screen after Escape (gone css=[role=menu])');
+    }
   }
 
   // Leg 2 — the self-contained HTML file. The preview is pressed, the source
@@ -2363,7 +2421,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J10 approves the deep-linked card, walks all four footer entries, and finds it gone on the return');
   console.log('spec ok: J11 keeps the shell, the scroll and the draft across the phone\'s switches');
   if (spec.journeys && spec.journeys.J12) console.log('spec ok: J12 walks the phone\'s edge back, row reveal and hold-to-reorder as real touch and reads the consequences');
-  if (spec.journeys && spec.journeys.J13) console.log('spec ok: J13 walks the phone file link through Back to the list and the conversation, the PR tab as an address (cold, refreshed, Forward, Back closes only the panel), and the HTML preview/source switch without leaving the file address');
+  if (spec.journeys && spec.journeys.J13) console.log('spec ok: J13 walks the phone file link through Back to the list and the conversation, the PR tab as an address (cold, refreshed, Forward, Back closes only the panel), the HTML preview/source switch without leaving the file address, and an undrawable PDF offering the desktop shell\'s Open in… menu, closed with Escape');
   if (spec.journeys && spec.journeys.J14) console.log('spec ok: J14 reopens the last conversation on the Mac, finds no conversation rows in ⌘K, and draws the phone home as one list at three levels');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
@@ -2981,6 +3039,25 @@ for (const j of want) {
     const [w, h] = spec.viewports[vpName].split('x').map(Number); const phone = w < 700;
     const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: phone ? 2 : 1, isMobile: phone, hasTouch: phone });
     if (token) await ctx.addInitScript((t) => { try { localStorage.setItem('kin_token', t); } catch (_) {} }, token);
+    // A journey may declare the Electron shell's bridge (`desktopBridge`). The
+    // walker is otherwise a plain browser, and the console hides every
+    // desktop-only control behind `window.kinDesktop`; declaring the apps here
+    // makes the shell answer deterministically — no OS call, no launch, no
+    // installed-editor list that differs per machine — while a journey without
+    // the option stays a browser, where those controls must remain absent.
+    // checkJ13Contract refuses the option on any other journey and refuses a
+    // J13 that loses it, so the bridge cannot leak or silently disappear.
+    if (J.desktopBridge) {
+      await ctx.addInitScript((apps) => {
+        window.kinDesktop = {
+          isDesktop: true,
+          platform: 'darwin',
+          selectDirectory: async () => null,
+          listExternalApps: async () => apps,
+          openInApp: async () => ({ ok: true }),
+        };
+      }, J.desktopBridge.apps);
+    }
     const page = await ctx.newPage(); const errs = [], bad = [], soft = [];
     // The touch verbs speak CDP. The session is created only for the phone,
     // where the context is already a finger (`hasTouch`); it installs no

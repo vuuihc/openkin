@@ -13,6 +13,9 @@ that overlaps another active lane's paths is refused (exit 3).  Mutations hold a
   lanes.py cloud-claim --slug S --item ID --brief FILE --paths P [P ...]   hand a slice to an external agent (expires after 3h unlaunched)
   lanes.py cloud-list | cloud-release SLUG
   lanes.py start N PID | finish N --status S [--pr N] [--note T] | claimed
+
+Exit codes: 3 overlap/busy, 4 no such lane or lane busy, 5 bad paths, 6 missing brief,
+7 UX gate, 8 host pressure, 9 item already merged (pass --redeliver or use a new id).
 """
 import subprocess, argparse, fcntl, fnmatch, json, os, sys, time, glob, shlex
 
@@ -284,6 +287,50 @@ def cmd_idle(a):
                 return
         for n in free: print(n)
 
+def delivered_item(item):
+    """The loop's own record that `item` already landed, or None.
+
+    $STATE/merged.log carries one line per merged PR:
+        YYYY-MM-DD HH:MM PR #N <slug> <item> merged <sha> <url>
+    Only rows whose 3rd field is "PR" and 7th is "merged" count; the item is field 6.
+    Malformed rows and a missing/empty log (a fresh state dir) are ignored, so the guard
+    fails open rather than guessing.
+    """
+    if not item:
+        return None
+    try:
+        with open(os.path.join(STATE, "merged.log")) as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    for ln in reversed(lines):
+        f = ln.split()
+        if len(f) < 7 or f[2] != "PR" or f[6] != "merged" or f[5] != item:
+            continue
+        return dict(date=f[0], pr=f[3].lstrip("#"), sha=f[7] if len(f) > 7 else "?", slug=f[4])
+    return None
+
+def merged_refuse(item, redeliver, mode="new"):
+    """Refuse (exit 9) an item whose PR already merged, unless a rework or --redeliver.
+
+    Ledgers drift: an item can still read "queued" hours after its PR shipped, and a prose
+    note has failed to stop the redo four times in one day (2026-11-19). The merged log is
+    the loop's durable delivery record, so the claim is the chokepoint that reads it.
+    A rework targets an open PR, so it is never held by this guard.
+    """
+    if mode == "rework":
+        return
+    d = delivered_item(item)
+    if not d:
+        return
+    if redeliver:
+        print(f"note: {item} merged in PR #{d['pr']} ({d['sha']}); delivering again on purpose",
+              file=sys.stderr)
+        return
+    print(f"REFUSED: {item} already merged in PR #{d['pr']} ({d['sha']}, {d['date']}); "
+          f"use a new item id or pass --redeliver")
+    sys.exit(9)
+
 def ux_gate_refuse(item):
     """Slices marked "gate": "ux-approved" in astryx-slices.json (S1-S3: the visible shell) cannot be claimed until Ethan has looked at the
     prototype and created state/ux-proto/APPROVED. The merge lane enforces the same on landing (slices.py gate-ok)."""
@@ -307,6 +354,7 @@ def cmd_claim(a):
         print(f"REFUSED: declare specific files/dirs (too broad or empty: {bad or 'none given'})"); sys.exit(5)
     if not os.path.isfile(a.brief): print(f"REFUSED: brief {a.brief} missing"); sys.exit(6)
     ux_gate_refuse(a.item)
+    merged_refuse(a.item, a.redeliver, a.mode)
     press = host_pressure()
     # A targeted rework is measured in minutes (2-11 min tonight) and fixes a PR that is already in
     # review; only severe load or critical memory pressure defers reworks. New slices stay gated.
@@ -368,6 +416,7 @@ def cloud_claims(reap_expired=True):
 
 def cmd_cloud_claim(a):
     ux_gate_refuse(a.item)
+    merged_refuse(a.item, a.redeliver)
     paths = [norm(p) for p in a.paths if norm(p) not in IGNORED]
     bad = [p for p in paths if p in TOO_BROAD]
     if not paths or bad: print(f"REFUSED: declare specific files/dirs (too broad or empty: {bad or 'none given'})"); sys.exit(5)
@@ -435,8 +484,8 @@ sub.add_parser("host-ok").set_defaults(f=cmd_host_ok)
 
 sub.add_parser("slugs").set_defaults(f=cmd_slugs)
 c = sub.add_parser("claim"); c.add_argument("lane", type=int); c.add_argument("--slug", required=True); c.add_argument("--item", required=True)
-c.add_argument("--brief", required=True); c.add_argument("--mode", default="new", choices=["new", "rework"]); c.add_argument("--paths", nargs="+", default=[]); c.set_defaults(f=cmd_claim)
-cc = sub.add_parser("cloud-claim"); cc.add_argument("--slug", required=True); cc.add_argument("--item", required=True); cc.add_argument("--brief", required=True); cc.add_argument("--paths", nargs="+", default=[]); cc.set_defaults(f=cmd_cloud_claim)
+c.add_argument("--brief", required=True); c.add_argument("--mode", default="new", choices=["new", "rework"]); c.add_argument("--paths", nargs="+", default=[]); c.add_argument("--redeliver", action="store_true"); c.set_defaults(f=cmd_claim)
+cc = sub.add_parser("cloud-claim"); cc.add_argument("--slug", required=True); cc.add_argument("--item", required=True); cc.add_argument("--brief", required=True); cc.add_argument("--paths", nargs="+", default=[]); cc.add_argument("--redeliver", action="store_true"); cc.set_defaults(f=cmd_cloud_claim)
 cr = sub.add_parser("cloud-release"); cr.add_argument("slug"); cr.set_defaults(f=cmd_cloud_release)
 sub.add_parser("cloud-list").set_defaults(f=cmd_cloud_list)
 g = sub.add_parser("get"); g.add_argument("lane", type=int); g.set_defaults(f=cmd_get)
