@@ -232,8 +232,9 @@ Landed so far: item 1's ADR `d2e621ba` (#347); the column it decided, `283e70ba`
 owner-approved before merge — the `needs-ceo` stop was cleared, not bypassed), with
 `pr_observations.reviews` at `internal/store/migrate.go:844` and ordered migration 049 at `:2678-2705`;
 and the read half `301d345f` (#368) that fills it; `api/openapi.yaml:6810` documents `reviews` next to
-`ci_summary`. The panel half has not landed — `parseReviews` is absent from
-`ui/src/lib/prObservation.ts` on `main` — so it is an open PR; item 3 names its evidence seam.
+`ci_summary`. The panel half is on `main` too — `3d60898b` (#375) renders the cached reviews via
+`parseReviews` (`ui/src/lib/prObservation.ts:73`) in `ui/src/components/pr/PullRequestPanel.tsx:508` — and
+#375 names item 3's evidence seam.
 
 **Why this and not features.** P7/P8 settled the ledger: `KIN-CONTINUE-003` was covered by `d929cfa5` (#348),
 and the only two `approved` rows are the ones that need Ethan (`KIN-NOTIFY-001`, `KIN-SETTINGS-002`), and
@@ -270,8 +271,9 @@ handler from #338) and a merge archives its sendback (#346 `6ea5b433`).
    count sentence from the registry; `--check` fails on drift (`plan_problems`, `scripts/stories.py:294`).
 
 **Cut rule.** At 11-25 20:00 land what is green and queue the rest with its reason. The schema question is
-settled — the column and the read half are on `main` — so the queue is the panel half; the registry is green
-(`python3 scripts/stories.py --check`: `16 (approved 2, covered 14)`, `ok`). Do not extend the date.
+settled — the column, the read half and the panel half are all on `main` — so nothing in P9 is still
+queued; the registry is green (`python3 scripts/stories.py --check`: `16 (approved 2, covered 14)`, `ok`).
+Do not extend the date.
 
 **Out of scope** — `KIN-CONTINUE-003` (covered by `d929cfa5`; no longer a phase), PDF and Office preview (every
 in-app path crosses a decided boundary: `internal/api/secure.go` sets
