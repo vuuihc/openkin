@@ -121,7 +121,7 @@ import { modelPickerLabel, modelsForAgent } from "../lib/agentModels";
 import { panelForView, resolvePanel, type PanelContext } from "../lib/panels";
 import { dropSearchParam, parseWorkspaceLink, patchWorkspaceLink } from "../lib/workspaceDeepLink";
 import { useAppStore } from "../store/appStore";
-import { displayUserPrompt } from "../lib/attachments";
+import { parseUserPrompt } from "../lib/attachments";
 import { taskDisplayTitle } from "../lib/taskTitle";
 
 /**
@@ -673,9 +673,14 @@ export default function TaskDetailPage({
   }, [id]);
 
   const pendingUserMessages = useMemo(
-    () => pendingSends.map((send) => ({ key: send.id, text: send.text })),
+    () => pendingSends.map((send) => ({ key: send.id, text: send.text, images: send.images })),
     [pendingSends],
   );
+
+  // The first prompt drawn before its event lands. Parsed once here rather
+  // than in the stream: the raw prompt is the only copy of the pictures, and
+  // the normalised text the fallback row receives no longer names them.
+  const fallbackPrompt = useMemo(() => parseUserPrompt(task?.prompt || ""), [task?.prompt]);
 
   const isNearBottom = useCallback((el: HTMLElement, threshold = 96) => {
     return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
@@ -2308,7 +2313,8 @@ export default function TaskDetailPage({
               <ChatStream
                 events={events}
                 onOpenPath={onOpenWorkspacePath}
-                fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
+                fallbackUserPrompt={fallbackPrompt.text}
+                fallbackUserPromptImages={fallbackPrompt.images}
                 messageScope={task.id}
                 loading={!detail.loaded || !terminal || sending || awaitingReply}
                 loadingSpeaker={task.agent || "kin"}

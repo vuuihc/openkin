@@ -89,6 +89,9 @@ vi.mock("../components/mobile/MobileHeader", () => ({
     </button>
   ),
 }));
+/** What the mocked composer will submit next; most tests leave it at "hello". */
+const composer = vi.hoisted(() => ({ text: "hello" }));
+
 vi.mock("../components/chat/Composer", () => ({
   default: ({
     onSubmit,
@@ -102,26 +105,35 @@ vi.mock("../components/chat/Composer", () => ({
       data-testid="send"
       disabled={disabled}
       onClick={() => {
-        void Promise.resolve(onSubmit("hello")).catch(() => {});
+        void Promise.resolve(onSubmit(composer.text)).catch(() => {});
       }}
     >
       Start
     </button>
   ),
 }));
+type MockImage = { name: string; src: string };
+
 vi.mock("../components/chat/ChatStream", () => ({
   default: ({
     loading,
     fallbackUserPrompt,
+    fallbackUserPromptImages,
     pendingUserMessages,
   }: {
     loading?: boolean;
     fallbackUserPrompt?: string;
+    fallbackUserPromptImages?: readonly MockImage[];
     pendingUserMessages?: readonly { key: string; text: string }[];
   }) => (
     <div data-testid="chat">
       <span data-testid="loading">{String(Boolean(loading))}</span>
-      <span data-testid="pending-user">{fallbackUserPrompt ?? ""}</span>
+      <span data-testid="pending-user">
+        {fallbackUserPrompt ?? ""}
+        {(fallbackUserPromptImages ?? []).map((image) => (
+          <span key={image.src} data-testid="pending-image" data-src={image.src} />
+        ))}
+      </span>
       {(pendingUserMessages ?? []).map((message) => (
         <span key={message.key} data-testid="pending-handoff">
           {message.text}
@@ -180,6 +192,7 @@ beforeEach(() => {
   setLocale("en");
   localStorage.clear();
   localStorage.setItem("kin_draft_cwd", "/work");
+  composer.text = "hello";
   forgetPendingSend("task-9");
   api.createTask.mockClear();
   api.getTask.mockClear();
@@ -265,5 +278,21 @@ describe("starting a conversation", () => {
     });
     expect(screen.queryByTestId("pending-user")).toBeNull();
     expect(screen.getByTestId("send")).toBeTruthy();
+  });
+});
+
+describe("images in a draft send", () => {
+  it("draws the images the composer sent, before the create answers", async () => {
+    composer.text = "look\n\nAttached image:\n- shot.png: /Users/me/.kin/uploads/abc.png";
+    open();
+    await act(async () => {
+      screen.getByTestId("send").click();
+    });
+
+    expect(screen.getByTestId("pending-user").textContent).toBe("look\n\nAttached image: shot.png");
+    expect(screen.getByTestId("pending-image").getAttribute("data-src")).toBe(
+      "/api/uploads/abc.png",
+    );
+    expect(screen.getByTestId("pending-user").textContent).not.toContain("/Users/");
   });
 });
