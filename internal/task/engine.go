@@ -3073,6 +3073,11 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 				e.bus.PublishEvent(ev)
 			}
 			_, _ = e.finishRun(ctx, id, exec.ID, StatusFailed, nil, nil)
+			// Messages accepted during the commit window are still in the queue. This
+			// turn cannot hand them to a new run, so report them rather than leaving
+			// them parked on a task that has just failed.
+			e.clearWorkspaceCompletion(id, exec.ID)
+			e.settlePromptsQueuedDuringFinalization(ctx, id, "workspace finalization failed")
 			e.pump()
 			return
 		}
@@ -3082,6 +3087,11 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 				e.bus.PublishEvent(ev)
 			}
 			_, _ = e.finishRun(ctx, id, exec.ID, e.endStatusForDelivery(err), nil, nil)
+			// The follow-up could not be applied, so any message accepted during the
+			// commit window has no run to go to either: report it instead.
+			e.clearWorkspaceCompletion(id, exec.ID)
+			e.settlePromptsQueuedDuringFinalization(ctx, id,
+				fmt.Sprintf("the follow-up could not be applied: %s", err))
 		} else {
 			e.clearActiveRun(id, exec.ID)
 		}
@@ -3164,6 +3174,10 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		// Cancel discarded the queue it found; a message sent while the workspace
 		// was still committing arrived after that, and a canceled turn does not hand
 		// it to a new run. Say so rather than parking it on a task nobody will run.
+		// Clear the flag first: the report is the last thing this turn does, and a
+		// message sent after it must be delivered by its own accept path, not left
+		// in a commit window that is already over. The deferred clear is idempotent.
+		e.clearWorkspaceCompletion(id, exec.ID)
 		e.settlePromptsQueuedDuringFinalization(ctx, id, "the task was canceled")
 		// Ensure broadcast of final state.
 		if t2, err := e.store.GetTask(ctx, id); err == nil {

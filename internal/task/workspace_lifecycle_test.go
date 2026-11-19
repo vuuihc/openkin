@@ -366,6 +366,96 @@ func TestFollowUpDuringFinalizationIsDeliveredAfterTheTaskEnded(t *testing.T) {
 	waitForDeliveredPrompt(t, st, ad, task.ID, "beta")
 }
 
+// gatedFailingFinalizeRuntime holds a turn inside finalization and then fails
+// it, so a test can send a message through the commit window of a turn that is
+// about to end in failure.
+type gatedFailingFinalizeRuntime struct {
+	*fakeWorkspaceRuntime
+	started chan struct{}
+	release chan struct{}
+}
+
+func (g *gatedFailingFinalizeRuntime) InspectFinalizable(
+	ctx context.Context, meta workspace.Metadata,
+) (workspace.FinalizeInspection, error) {
+	close(g.started)
+	select {
+	case <-g.release:
+	case <-ctx.Done():
+		return workspace.FinalizeInspection{}, ctx.Err()
+	}
+	return workspace.FinalizeInspection{}, errors.New("finalize exploded")
+}
+
+// A turn interrupted with a follow-up that then fails to finalize must still
+// answer the messages its commit window accepted. Before the turn end settled
+// them, they stayed queued on a task that had just failed, with nothing saying
+// so -- the same accept-and-park the queue exists to prevent.
+func TestInterruptedTurnThatFailsToFinalizeReportsPromptsQueuedDuringFinalization(t *testing.T) {
+	ctx := context.Background()
+	ad := &overlappingRunAdapter{
+		firstRelease: make(chan struct{}),
+		firstResult:  make(chan struct{}),
+	}
+	e, st := testEngine(t, 4, ad)
+	rt := &gatedFailingFinalizeRuntime{
+		fakeWorkspaceRuntime: &fakeWorkspaceRuntime{},
+		started:              make(chan struct{}),
+		release:              make(chan struct{}),
+	}
+	e.SetWorkspaceRuntime(rt)
+
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitHandle(t, e, task.ID, 2*time.Second)
+
+	// The workspace is already finalizing when the turn is interrupted, which is
+	// what makes the turn end in the interrupted branch with a failed finalize.
+	e.mu.Lock()
+	execID := e.activeRuns[task.ID]
+	e.mu.Unlock()
+	if _, err := e.CompleteWorkspace(ctx, WorkspaceIntentRequest{
+		TaskID: task.ID, ExecutionID: execID,
+	}); err != nil {
+		t.Fatalf("complete workspace: %v", err)
+	}
+	if _, err := e.FollowUpWith(ctx, task.ID, FollowUpRequest{Prompt: "go on", Interrupt: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	close(ad.firstRelease)
+	close(ad.firstResult)
+	select {
+	case <-rt.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("workspace finalization did not start")
+	}
+
+	// Accepted by the commit-window path while the turn waits inside finalize.
+	if _, err := e.FollowUp(ctx, task.ID, "sent during finalization"); err != nil {
+		t.Fatalf("follow-up during finalization: %v", err)
+	}
+	close(rt.release)
+	_ = waitStatus(t, e, task.ID, StatusFailed, 3*time.Second)
+
+	// The report lands after the status write, so wait for it instead of reading
+	// the events once the task row says failed.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		n := reportsNaming(t, st, task.ID, 0,
+			"queued prompt(s) not delivered: workspace finalization failed")
+		if n == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("reports=%d want 1: a message accepted during a failed finalization must be reported, not parked", n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestEngineCompleteWorkspaceRejectsNonActive(t *testing.T) {
 	s, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
 	if err != nil {
