@@ -16,6 +16,12 @@ type Props = {
   root: string;
   /** Workspace-relative path currently shown in the viewer. */
   relativePath: string | null;
+  /**
+   * Keep the text label at every width. The panel's file headers are tight and
+   * drop the word below `sm`; the download pane has room, and an icon pair with
+   * no word would say less than the button it sits beside.
+   */
+  alwaysShowLabel?: boolean;
 };
 
 /** A row that exists only to say something; the menu will not let it be chosen. */
@@ -32,7 +38,7 @@ function note(id: string, label: string): MenuItem {
  * this component keeps only the desktop knowledge: which apps exist, which
  * one the reader chose, and what to do when the bridge refuses.
  */
-export default function OpenInMenu({ root, relativePath }: Props) {
+export default function OpenInMenu({ root, relativePath, alwaysShowLabel = false }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [apps, setApps] = useState<ExternalApp[] | null>(null);
@@ -107,9 +113,16 @@ export default function OpenInMenu({ root, relativePath }: Props) {
         aria-expanded={open}
         className="flex-none gap-1 px-2 py-1 text-caption"
       >
-        <IconExternal size={12} />
-        <span className="hidden sm:inline">{t("workspace.openWith.button")}</span>
-        <IconChevron size={12} className={open ? "rotate-[-90deg]" : "rotate-90"} />
+        {/* Astryx's Button wraps children in a plain span, so the row has to
+            be built here: bare children would stack icon, word and chevron
+            into three lines inside that wrapper. */}
+        <span className="inline-flex items-center gap-1">
+          <IconExternal size={12} />
+          <span className={alwaysShowLabel ? undefined : "hidden sm:inline"}>
+            {t("workspace.openWith.button")}
+          </span>
+          <IconChevron size={12} className={open ? "rotate-[-90deg]" : "rotate-90"} />
+        </span>
       </Button>
       <Menu
         // Keyed on "the list is still loading": the layer moves focus only

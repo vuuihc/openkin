@@ -837,6 +837,7 @@ const zh = {
       readOnlyTruncated: "文件已截断——只读",
       imageFailed: "无法预览这张图片。",
       binaryHint: "这类文件无法在此显示，请下载后打开。",
+      binaryHintDesktop: "这类文件无法在此显示，可下载后打开，或直接用本机应用打开。",
       download: "下载",
       downloading: "准备中…",
       downloadFailed: "无法下载此文件。",
