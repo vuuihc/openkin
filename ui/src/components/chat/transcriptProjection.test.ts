@@ -3386,3 +3386,256 @@ describe("process timing", () => {
     expect(items.find((item) => item.kind === "error")).toMatchObject({ kind: "error", message });
   });
 });
+
+/**
+ * A context compaction is not the agent's answer. The ACP adapter sends the
+ * handoff paragraph as `phase: "compaction"` message chunks and then a
+ * `context compacted` notice; the projection owes the reader one quiet item,
+ * never a body message and never two hints for one compaction.
+ */
+describe("context compaction", () => {
+  const SUMMARY_FIRST =
+    "The messages after this summary are the most recent messages from before compaction, kept verbatim.";
+  const SUMMARY_LAST = "Everything before that was folded into the summary above.";
+  const SUMMARY = `${SUMMARY_FIRST} ${SUMMARY_LAST}`;
+
+  const userTurn = () =>
+    ev(1, "message", {
+      role: "user",
+      content: [{ type: "text", text: "please fix the parser" }],
+    });
+
+  const compactionChunk = (seq: number, text: string, messageId?: string) =>
+    ev(seq, "message", {
+      role: "assistant",
+      speaker: "kin",
+      phase: "compaction",
+      partial: true,
+      content: [{ type: "text", text }],
+      visibility: { user: true, task: true },
+      ...(messageId ? { message_id: messageId, index: 0 } : {}),
+    });
+
+  const compactionFinal = (seq: number, text: string) =>
+    ev(seq, "message", {
+      role: "assistant",
+      speaker: "kin",
+      phase: "compaction",
+      partial: false,
+      content: [{ type: "text", text }],
+      visibility: { user: true, task: true },
+    });
+
+  const compactionNotice = (seq: number) =>
+    ev(seq, "notice", {
+      speaker: "acp",
+      severity: "info",
+      title: "context compacted",
+      message: "",
+    });
+
+  const answer = (seq: number, text: string) =>
+    ev(seq, "message", {
+      role: "assistant",
+      speaker: "kin",
+      partial: false,
+      content: [{ type: "text", text }],
+      visibility: { user: true, task: true },
+    });
+
+  const compactions = (items: ChatItem[]) => items.filter((item) => item.kind === "compaction");
+
+  it("a compaction is one quiet item, never the final answer", () => {
+    const items = buildChatItems(
+      [
+        userTurn(),
+        ev(2, "tool_use", {
+          speaker: "kin",
+          tool_use_id: "call-1",
+          name: "bash",
+          input: { command: "ls" },
+          visibility: { user: true, task: true },
+        }),
+        ev(3, "tool_result", {
+          speaker: "kin",
+          tool_use_id: "call-1",
+          name: "bash",
+          output: "a.ts",
+          ok: true,
+          visibility: { user: true, task: true },
+        }),
+        compactionChunk(4, "The messages after this summary "),
+        compactionChunk(5, "are the most recent messages before compaction."),
+        compactionFinal(6, SUMMARY),
+        answer(7, "Fixed the parser."),
+      ],
+      "kin",
+    );
+
+    const found = compactions(items);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ text: SUMMARY, partial: false });
+    expect(items.some((item) => item.kind === "message" && item.phase === "compaction")).toBe(
+      false,
+    );
+
+    // The real answer is the answer: the process fold must not pick the
+    // summary as the final message of the run. Before the dedicated kind the
+    // handoff paragraph was folded into the tool card as a note, which is the
+    // wall of text the reader saw.
+    const merged = mergeProcessRuns(items, true);
+    expect(
+      merged.find((item) => item.kind === "message" && item.text === "Fixed the parser."),
+    ).toMatchObject({ kind: "message" });
+    expect(compactions(merged)).toHaveLength(1);
+    for (const item of merged) {
+      if (item.kind !== "progress") continue;
+      for (const step of item.steps) {
+        expect(step.kind === "note" ? step.text : "").not.toContain(SUMMARY_FIRST);
+      }
+    }
+  });
+
+  it("compaction chunks aggregate into one item while streaming", () => {
+    const streaming = buildChatItems(
+      [userTurn(), compactionChunk(2, "The messages after "), compactionChunk(3, "this summary")],
+      "kin",
+      undefined,
+      false,
+    );
+
+    expect(compactions(streaming)).toHaveLength(1);
+    expect(compactions(streaming)[0]).toMatchObject({
+      text: "The messages after this summary",
+      partial: true,
+    });
+
+    const settled = buildChatItems(
+      [
+        userTurn(),
+        compactionChunk(2, "The messages after "),
+        compactionChunk(3, "this summary"),
+        compactionFinal(4, SUMMARY),
+      ],
+      "kin",
+    );
+
+    expect(compactions(settled)).toHaveLength(1);
+    expect(compactions(settled)[0]).toMatchObject({ text: SUMMARY, partial: false });
+  });
+
+  it("the context compacted notice folds into the compaction item", () => {
+    const items = buildChatItems(
+      [
+        userTurn(),
+        compactionChunk(2, SUMMARY_FIRST),
+        compactionNotice(3),
+        compactionFinal(4, SUMMARY),
+        compactionNotice(5),
+        answer(6, "Fixed the parser."),
+      ],
+      "kin",
+    );
+
+    expect(compactions(items)).toHaveLength(1);
+    expect(
+      items.some(
+        (item) => item.kind === "meta" && item.label.toLowerCase().includes("context compacted"),
+      ),
+    ).toBe(false);
+    expect(compactions(items)[0]).toMatchObject({ text: SUMMARY, partial: false });
+  });
+
+  it("a compaction notice with no summary yet still yields one running hint", () => {
+    const noticeOnly = buildChatItems([userTurn(), compactionNotice(2)], "kin");
+
+    expect(compactions(noticeOnly)).toHaveLength(1);
+    expect(compactions(noticeOnly)[0]).toMatchObject({ text: "", partial: true });
+    expect(
+      noticeOnly.some((item) => item.kind === "message" && item.speaker !== "user"),
+    ).toBe(false);
+
+    const chunksOnly = buildChatItems(
+      [userTurn(), compactionChunk(2, SUMMARY_FIRST)],
+      "kin",
+      undefined,
+      false,
+    );
+
+    expect(compactions(chunksOnly)).toHaveLength(1);
+    expect(compactions(chunksOnly)[0]).toMatchObject({ partial: true });
+    // The half summary is behind the disclosure, not laid into the body.
+    expect(
+      chunksOnly.some((item) => item.kind === "message" && item.speaker !== "user"),
+    ).toBe(false);
+  });
+
+  it("settling a turn settles a running compaction", () => {
+    const items = buildChatItems(
+      [userTurn(), compactionChunk(2, SUMMARY_FIRST), ev(3, "result", { is_error: false })],
+      "kin",
+      undefined,
+      false,
+    );
+
+    expect(compactions(items)).toHaveLength(1);
+    expect(compactions(items)[0]).toMatchObject({ partial: false, text: SUMMARY_FIRST });
+  });
+
+  it("a notice before the chunks is the same one item", () => {
+    const items = buildChatItems(
+      [
+        userTurn(),
+        compactionNotice(2),
+        compactionChunk(3, SUMMARY_FIRST),
+        compactionFinal(4, SUMMARY),
+      ],
+      "kin",
+    );
+
+    expect(compactions(items)).toHaveLength(1);
+    expect(compactions(items)[0]).toMatchObject({ text: SUMMARY, partial: false });
+    expect(items.some((item) => item.kind === "meta")).toBe(false);
+  });
+
+  it("two compactions in one turn are two lines", () => {
+    const first = "The first summary of the work so far.";
+    const second = "The second summary, after more work happened.";
+    const items = buildChatItems(
+      [
+        userTurn(),
+        compactionChunk(2, first.slice(0, 10)),
+        compactionFinal(3, first),
+        ev(4, "result", { is_error: false }),
+        compactionChunk(5, second.slice(0, 10)),
+        compactionFinal(6, second),
+      ],
+      "kin",
+    );
+
+    const found = compactions(items);
+    expect(found).toHaveLength(2);
+    expect(found[0]).toMatchObject({ text: first, partial: false });
+    expect(found[1]).toMatchObject({ text: second, partial: false });
+  });
+
+  it("keeps the generic thinking cue off a running compaction", () => {
+    const running = buildChatItems(
+      [userTurn(), compactionChunk(2, SUMMARY_FIRST)],
+      "kin",
+      undefined,
+      false,
+    );
+    expect(shouldShowGenericThinking(running, true)).toBe(false);
+
+    // Once it settles and nothing else has started, the agent is working
+    // again, and the dots are the honest cue.
+    const settled = buildChatItems(
+      [userTurn(), compactionFinal(2, SUMMARY)],
+      "kin",
+      undefined,
+      false,
+    );
+    expect(shouldShowGenericThinking(settled, true)).toBe(true);
+  });
+});
