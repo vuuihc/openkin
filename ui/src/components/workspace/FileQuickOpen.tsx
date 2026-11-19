@@ -183,12 +183,6 @@ export default function FileQuickOpen({ taskId, open, onClose, onOpenPath }: Pro
   // it is its own sentence below.
   const loading = trimmed !== "" && !tooLong && !current && !currentFailure;
 
-  // A new answer is a new list, so the highlight starts at its first row rather
-  // than at an index that pointed into the old one.
-  useEffect(() => {
-    setActive(0);
-  }, [current]);
-
   // The chosen row has to be on screen; a phone's keyboard leaves the list
   // short. `closest`/`scrollIntoView` are absent in jsdom, hence the guards.
   useEffect(() => {
