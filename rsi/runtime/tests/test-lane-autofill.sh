@@ -19,6 +19,12 @@
 #    MERGED/CLOSED archive the file under sendback/done/ and continue, OPEN keeps today's path,
 #    and an unreadable state fails open with one log line (a gh outage must not stall real rework).
 #
+# 3. Autofill walks the sendback queue oldest first. The glob sorted by name, and one idle slot is
+#    filled per pass, so a newer rework whose slug sorted earlier took every free lane: 2026-11-19
+#    `panel-topmost` (18:32) was claimed at 18:44 while `stale-console` (15:21) had waited 3 hours.
+#    Age order keeps every rework inside the 3-attempt circuit breaker; the loop still continues
+#    past a skipped sendback so the same pass can reach the newer one.
+#
 # Hermetic: temp RSI_CTRL (common.sh derives STATE from it), stubbed lanes.py/volc-budget.py and
 # PR state, no network, no model calls, no real gh. npm/go/node/curl are booby traps: autofill must
 # not need them. The claim cases use a local bare origin so the real fetch/diff finds a diff.
@@ -29,8 +35,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 LANE="$(cd "$HERE/.." && pwd)/lane.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 SLUG="waiver-guard"
-# Sorts after waiver-guard in the sendback glob, so a waiver for SLUG is seen first. Used to pin
-# that a waiver `continue`s the loop instead of stopping autofill for every other rework.
+# Written after waiver-guard, so it is the newer sendback when both exist (autofill walks the
+# queue oldest first). Used to pin that a waiver `continue`s the loop instead of stopping autofill
+# for every other rework.
 SLUG2="waiver-two"
 CASE=""; RC=0
 ONLY="${RSI_TEST_ONLY:-}"
@@ -162,12 +169,13 @@ test_hold_size_waiver_skips_rework() {
 
 # The skip must be `continue`, not `break`/`exit`: a waived sendback seen first must not stop the
 # pulse from filling every other pending rework (a silent stall — the incident class this loop has
-# been burned by). One claimed slug, and it must be the unwaived one.
+# been burned by). One claimed slug, and it must be the unwaived one. The waived file is also the
+# older one, so age order alone would reach it first too; the waiver's continue is what is pinned.
 test_waiver_continues_to_next_sendback() {
   new_case waiver_then_next repo
-  write_sb hold-size                      # first in glob order
+  write_sb hold-size                      # older: written first
   : > "$(st)/merge/$SLUG.size-ok"
-  write_sb_for "$SLUG2" 'gate+review'     # sorts after $SLUG, no waiver
+  write_sb_for "$SLUG2" 'gate+review'     # newer, no waiver
   run_autofill
   [ "$RC" -eq 0 ] || fail "waiver_then_next: autofill exited $RC ($(out))"
   [ "$(grep -c . "$(claim_log)" 2>/dev/null || true)" = 1 ] \
@@ -307,6 +315,28 @@ test_unknown_pr_state_fails_open() {
     || fail "unknown_state_claims: the log line does not explain the fail-open ($(out))"
 }
 
+# Autofill fills one idle slot per pass, so the order it walks the queue decides which rework gets
+# the slot. The glob sorted by name, not age: on 2026-11-19 the newer `panel-topmost` (sorts first)
+# was claimed at 18:44 while the older `stale-console` had waited since 15:21. Oldest first, and the
+# newer one is still reached in the same pass (a skip must not become a stop).
+test_oldest_sendback_is_claimed_first() {
+  new_case oldest_first repo
+  write_sb_for "$SLUG" 'gate+review'      # alphabetically first, but newer
+  write_sb_for "$SLUG2" 'gate+review'     # alphabetically last, and older
+  touch -t 202611190200 "$(st)/sendback/$SLUG.md"
+  touch -t 202611181400 "$(st)/sendback/$SLUG2.md"
+  run_autofill
+  [ "$RC" -eq 0 ] || fail "oldest_first: autofill exited $RC ($(out))"
+  [ -s "$(claim_log)" ] || fail "oldest_first: no claim for two open reworks ($(out))"
+  first="$(head -1 "$(claim_log)")"
+  case "$first" in
+    *"--slug $SLUG2 "*) ;;
+    *) fail "oldest_first: claimed the newer rework first: $(cat "$(claim_log)")" ;;
+  esac
+  grep -q -- "--slug $SLUG " "$(claim_log)" \
+    || fail "oldest_first: the older rework stopped the pass before $SLUG: $(cat "$(claim_log)")"
+}
+
 run() {
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   RAN=$((RAN+1))
@@ -325,5 +355,6 @@ run test_merged_pr_sendback_is_archived
 run test_closed_pr_sendback_is_archived
 run test_open_pr_sendback_still_claims
 run test_unknown_pr_state_fails_open
+run test_oldest_sendback_is_claimed_first
 [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS

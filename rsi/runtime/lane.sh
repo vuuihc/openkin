@@ -17,6 +17,19 @@ pr_state() { # <slug> -> prints OPEN|MERGED|CLOSED; non-zero when the state cann
   else "$GH" pr view "rsi/$1" --repo "$GH_REPO" --json state --jq .state; fi
 }
 
+# Oldest sendback first. The glob used to walk them alphabetically, and autofill fills one idle
+# lane per pass: a newer rework whose slug sorted earlier took every free slot while an older one
+# waited. 2026-11-19: `panel-topmost` (18:32) was claimed at 18:44 and `stale-console` (15:21) had
+# been waiting since then. Name breaks an mtime tie so the pick stays deterministic.
+sendbacks_by_age() { # prints $STATE/sendback/*.md, oldest mtime first
+  python3 - "$STATE/sendback" <<'PY'
+import glob, os, sys
+files = [p for p in glob.glob(os.path.join(sys.argv[1], "*.md")) if os.path.isfile(p)]
+for p in sorted(files, key=lambda f: (os.path.getmtime(f), f)):
+    print(p)
+PY
+}
+
 launch() { # n
   nohup /bin/bash "$SELF" run "$1" >> "$RUNS/$(date +%F-%H%M%S)-lane$1.log" 2>&1 < /dev/null &
   disown 2>/dev/null || true
@@ -35,7 +48,7 @@ if [ "$CMD" = autofill ]; then
   rsi_allow_workers || { echo "volc budget: not filling rework lanes until next Asia/Singapore day"; exit 0; }
   # Astryx programme first: `autofill astryx` takes only sendbacks whose item is a slice id (or Q3a); `autofill rest` the others.
   SCOPE="${2:-all}"
-  for sb in "$STATE"/sendback/*.md; do
+  while IFS= read -r sb; do
     [ -e "$sb" ] || continue
     slug="$(basename "$sb" .md)"
     # A size-only sendback must not open a rework lane while its waiver stands: the cap it asks
@@ -79,7 +92,7 @@ if [ "$CMD" = autofill ]; then
     [ "${#paths_arr[@]}" -gt 0 ] || { echo "rework $slug: no paths, skipping"; continue; }
     item="$(sed -n 's/^item: *//p' "$sb" | head -1)"; item="${item:-R-$slug}"
     python3 "$LANES_PY" claim "$idle" --slug "$slug" --item "$item" --brief "$sb" --mode rework --paths "${paths_arr[@]}" && launch "$idle"
-  done
+  done < <(sendbacks_by_age)
   exit 0
 fi
 
