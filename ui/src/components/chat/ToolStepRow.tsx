@@ -20,6 +20,7 @@ export default function ToolStepRow({
   open,
   onToggle,
   onOpenPath,
+  canOpenPath,
 }: {
   tool: ToolStep;
   /** The step's number in the box; 0 for a nested row, which shows a tick instead. */
@@ -29,6 +30,8 @@ export default function ToolStepRow({
   open: boolean;
   onToggle: () => void;
   onOpenPath?: (path: string) => void;
+  /** Whether the checkout can open this path; absent means today's answer. */
+  canOpenPath?: (path: string) => boolean;
 }) {
   const tr = useT();
   const filePath = extractPrimaryToolPath(tool.name, tool.input);
@@ -98,7 +101,9 @@ export default function ToolStepRow({
               {tr("chat.progress.subagent")}
             </span>
           )}
-          <span className="flex-1 min-w-0 break-words text-kin-secondary">{tool.summary}</span>
+          <span className="flex-1 min-w-0 whitespace-normal break-words text-kin-secondary">
+            {tool.summary}
+          </span>
           {tool.status !== "running" && tool.durationMs != null && (
             // How long this one call took. A running call has no duration yet,
             // and a number that does not tick would be a lie.
@@ -109,22 +114,33 @@ export default function ToolStepRow({
               {formatDuration(tool.durationMs)}
             </span>
           )}
-          {filePath && onOpenPath && (
-            // The chip shares the facade's focus ring and press treatment, but
-            // stays a link: no fill on hover, and the ink is the link blue rather
-            // than the quiet variant's text colour, so it sits on the content.
-            <Button
-              variant="quiet"
-              className="flex-none max-w-[40%] justify-start rounded-md p-0 pt-0.5 text-left font-mono text-caption font-normal hover:bg-transparent hover:underline"
-              title={filePath}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenPath(filePath);
-              }}
-            >
-              <span className="block truncate text-kin-blue-ink">{shortPath(filePath, 28)}</span>
-            </Button>
-          )}
+          {filePath &&
+            onOpenPath &&
+            ((canOpenPath?.(filePath) ?? true) ? (
+              // The chip shares the facade's focus ring and press treatment, but
+              // stays a link: no fill on hover, and the ink is the link blue rather
+              // than the quiet variant's text colour, so it sits on the content.
+              <Button
+                variant="quiet"
+                className="flex-none max-w-[40%] justify-start rounded-md p-0 pt-0.5 text-left font-mono text-caption font-normal hover:bg-transparent hover:underline"
+                title={filePath}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenPath(filePath);
+                }}
+              >
+                <span className="block truncate text-kin-blue-ink">{shortPath(filePath, 28)}</span>
+              </Button>
+            ) : (
+              // Outside the checkout there is nothing to open, so the chip
+              // becomes a fact: the path, muted, with no press or focus.
+              <span
+                className="flex-none max-w-[40%] truncate pt-0.5 font-mono text-caption text-kin-muted"
+                title={filePath}
+              >
+                {tr("workspace.outsideWorkspace")}
+              </span>
+            ))}
           {hasDetail && (
             <span className="flex-none text-caption text-kin-muted pt-0.5">
               {open ? tr("chat.progress.hide") : tr("chat.progress.details")}
@@ -134,18 +150,24 @@ export default function ToolStepRow({
       </Button>
       {open && hasDetail && (
         <div className="px-3 pb-2 pl-10 space-y-1.5" style={detailIndent}>
-          {filePath && onOpenPath && (
-            <Button
-              variant="quiet"
-              onClick={() => onOpenPath(filePath)}
-              className="justify-start rounded-md p-0 text-left font-mono text-caption font-normal hover:bg-transparent hover:underline"
-              title={filePath}
-            >
-              <span className="text-kin-blue-ink">
-                {tr("workspace.openFile")} · {shortPath(filePath, 48)}
+          {filePath &&
+            onOpenPath &&
+            ((canOpenPath?.(filePath) ?? true) ? (
+              <Button
+                variant="quiet"
+                onClick={() => onOpenPath(filePath)}
+                className="justify-start rounded-md p-0 text-left font-mono text-caption font-normal hover:bg-transparent hover:underline"
+                title={filePath}
+              >
+                <span className="text-kin-blue-ink">
+                  {tr("workspace.openFile")} · {shortPath(filePath, 48)}
+                </span>
+              </Button>
+            ) : (
+              <span className="block font-mono text-caption text-kin-muted" title={filePath}>
+                {tr("workspace.outsideWorkspace")}
               </span>
-            </Button>
-          )}
+            ))}
           {tool.input != null && (
             <div>
               <div className="text-micro font-semibold uppercase tracking-label text-kin-muted mb-0.5">

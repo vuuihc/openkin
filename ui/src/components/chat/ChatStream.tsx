@@ -140,6 +140,12 @@ type Props = {
   /** Open a workspace path in the Files panel (from tool rows). */
   onOpenPath?: (path: string) => void;
   /**
+   * Whether the task checkout can name a path. Absent means every path is
+   * offered, exactly as before; the predicate travels down this prop thread
+   * rather than being re-derived, because the pages own the task cwd.
+   */
+  canOpenPath?: (path: string) => boolean;
+  /**
    * Find bar, controlled. The phone has no Cmd+F, so its session menu has to be
    * able to open the bar; leaving this undefined keeps the state internal and
    * the keyboard shortcut is the only way in (the desktop answer).
@@ -181,6 +187,7 @@ export default function ChatStream({
   onRetry,
   onFork,
   onOpenPath,
+  canOpenPath,
   findOpen: findOpenProp,
   onFindOpenChange,
   findShortcut = true,
@@ -521,6 +528,7 @@ export default function ChatStream({
             onRetry={onRetry}
             onFork={onFork}
             onOpenPath={onOpenPath}
+            canOpenPath={canOpenPath}
             activeFindKey={activeFindKey}
             selectionMode={sharing}
             selectedKeys={selectedKeys}
@@ -650,7 +658,11 @@ export default function ChatStream({
         return (
           <Fragment key={`round-${turnIdx}`}>
             {rendered}
-            <RoundEvidenceCard evidence={evidence} onOpenPath={onOpenPath} />
+            <RoundEvidenceCard
+              evidence={evidence}
+              onOpenPath={onOpenPath}
+              canOpenPath={canOpenPath}
+            />
           </Fragment>
         );
       })}
@@ -678,6 +690,7 @@ function AgentTurn({
   onRetry,
   onFork,
   onOpenPath,
+  canOpenPath,
   activeFindKey,
   selectionMode = false,
   selectedKeys,
@@ -702,6 +715,8 @@ function AgentTurn({
   onRetry?: (fromSeq: number) => void;
   onFork?: (fromSeq: number) => void;
   onOpenPath?: (path: string) => void;
+  /** See ChatStream's `canOpenPath`: whether the task checkout can name a path. */
+  canOpenPath?: (path: string) => boolean;
   /** The message the find bar is pointing at, if any. */
   activeFindKey?: string | null;
   selectionMode?: boolean;
@@ -800,6 +815,7 @@ function AgentTurn({
                       item.steps.some((step) => step.kind === "tool" && step.status === "running"))
                   }
                   onOpenPath={onOpenPath}
+                  canOpenPath={canOpenPath}
                   activeFindKey={activeFindKey}
                 />
               );
@@ -1194,12 +1210,15 @@ function ProgressCard({
   hostSpeaker,
   running,
   onOpenPath,
+  canOpenPath,
   activeFindKey,
 }: {
   item: ProgressItem;
   hostSpeaker: string;
   running: boolean;
   onOpenPath?: (path: string) => void;
+  /** See ChatStream's `canOpenPath`: whether the task checkout can name a path. */
+  canOpenPath?: (path: string) => boolean;
   /** The find hit the bar is pointing at, if any. */
   activeFindKey?: string | null;
 }) {
@@ -1340,6 +1359,7 @@ function ProgressCard({
                 depth={depth}
                 open={openStep === step.key}
                 onOpenPath={onOpenPath}
+                canOpenPath={canOpenPath}
                 onToggle={() => setOpenStep((cur) => (cur === step.key ? null : step.key))}
               />
             ) : (

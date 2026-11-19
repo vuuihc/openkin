@@ -125,6 +125,74 @@ describe("KIN-RESULT-001: the changed-files summary row is one shared Button", (
   });
 });
 
+describe("R-chat-outside-file: a path the checkout cannot open", () => {
+  const outside = "/elsewhere/b.ts";
+  const inside = "/work/a.ts";
+  const files: ChangedFile[] = [
+    { path: inside, action: "write", tool: "t", seq: 1, additions: 3, deletions: 1 },
+    // The heaviest change is the one outside the checkout, so the summary's
+    // "open the heaviest change" fallback has to skip it.
+    { path: outside, action: "write", tool: "t", seq: 2, additions: 40, deletions: 2 },
+  ];
+  const canOpenPath = (path: string) => path.startsWith("/work/");
+
+  it("card: keeps the row and its stats, but offers no control", async () => {
+    const user = userEvent.setup();
+    const onOpenPath = vi.fn();
+    const onOpenPanel = vi.fn();
+    render(
+      <ChangedFilesBar
+        files={files}
+        onOpenPath={onOpenPath}
+        onOpenPanel={onOpenPanel}
+        variant="card"
+        canOpenPath={canOpenPath}
+      />,
+    );
+
+    const outsideRow = screen.getByText("b.ts").closest("li");
+    expect(outsideRow).not.toBeNull();
+    expect(outsideRow!.textContent).toContain("+40");
+    expect(outsideRow!.textContent).toContain("−2");
+    // The row is no longer a hit area: no button wraps it.
+    expect(outsideRow!.querySelector("button")).toBeNull();
+    expect(screen.getByText(t("workspace.outsideWorkspace"))).toBeTruthy();
+    // The path stays on the row, as a title rather than a promise.
+    expect(screen.getAllByTitle(outside).length).toBeGreaterThan(0);
+    for (const node of screen.getAllByTitle(outside)) {
+      expect(node.tagName).not.toBe("BUTTON");
+    }
+
+    // The summary still opens the panel, and skips the path it cannot show.
+    await user.click(screen.getByRole("button", { name: new RegExp(reviewTitle()) }));
+    expect(onOpenPanel).toHaveBeenCalledTimes(1);
+    expect(onOpenPath).not.toHaveBeenCalledWith(outside);
+    expect(onOpenPath).toHaveBeenCalledWith(inside);
+  });
+
+  it("bar: a list with nothing openable still opens the panel, without naming a file", async () => {
+    const user = userEvent.setup();
+    const onOpenPath = vi.fn();
+    const onOpenPanel = vi.fn();
+    render(
+      <ChangedFilesBar
+        files={[files[1]]}
+        onOpenPath={onOpenPath}
+        onOpenPanel={onOpenPanel}
+        canOpenPath={canOpenPath}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: new RegExp(t("workspace.changed.reviewTitle", { count: 1 })),
+      }),
+    );
+    expect(onOpenPanel).toHaveBeenCalledTimes(1);
+    expect(onOpenPath).not.toHaveBeenCalled();
+  });
+});
+
 describe("R-changed-files-bar: bulk action layout and bar affordance", () => {
   function renderBulk() {
     render(
