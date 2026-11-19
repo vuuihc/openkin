@@ -284,9 +284,9 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(await screen.findByText("10 / 10 in catalog")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     expect(screen.getByText("The catalog is full. Remove one before adding another.")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Add to catalog" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(
+      (screen.getByRole("button", { name: "Add to catalog" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("imports nothing unless Import is pressed, then asks for this machine only", async () => {
@@ -639,16 +639,16 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     // Nine rows plus the lost family is ten slots: the catalog is full, and a
     // hole nobody can see would otherwise block every new product forever.
-    expect((screen.getByRole("button", { name: "Add to catalog" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(
+      (screen.getByRole("button", { name: "Add to catalog" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove vanished" }));
 
     await waitFor(() =>
-      expect((screen.getByRole("button", { name: "Add to catalog" }) as HTMLButtonElement).disabled).toBe(
-        false,
-      ),
+      expect(
+        (screen.getByRole("button", { name: "Add to catalog" }) as HTMLButtonElement).disabled,
+      ).toBe(false),
     );
     expect(readConnectedFamilies()).not.toContain("vanished");
     expect(
@@ -689,7 +689,9 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(screen.queryAllByText("Cursor", { selector: "span.font-medium" })).toHaveLength(0);
     // And no late "connected" toast for a request the person canceled.
     expect(
-      useAppStore.getState().toasts.some((toast) => toast.message === "Cursor added to the catalog"),
+      useAppStore
+        .getState()
+        .toasts.some((toast) => toast.message === "Cursor added to the catalog"),
     ).toBe(false);
   });
 
@@ -711,7 +713,9 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
     expect(
-      await screen.findByText("Couldn't add Cursor to the catalog: this machine no longer reports it"),
+      await screen.findByText(
+        "Couldn't add Cursor to the catalog: this machine no longer reports it",
+      ),
     ).toBeTruthy();
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(readConnectedFamilies()).not.toContain("cursor");

@@ -1690,11 +1690,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
           // request finishes on its own and still rolls back on failure.
           onClose={closeConnect}
           dialog
-          title={
-            connectFor
-              ? tr("agents.addToCatalogTitle", { name: connectFor.name })
-              : undefined
-          }
+          title={connectFor ? tr("agents.addToCatalogTitle", { name: connectFor.name }) : undefined}
           footer={
             <>
               <SheetPrimaryButton
