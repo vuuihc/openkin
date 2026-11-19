@@ -39,46 +39,40 @@
       html.light .kin-boot {
         background: #e0e0e5;
       }
-      .kin-boot-mark {
+      /* The splash wheel: `IosSpinner.tsx` at size 32 — spokes 8% wide, 25%
+         tall, their centres 32% of the size out from the middle. The owner
+         asked for the iOS indicator on 2026-11-19 (D13); the shell's boot page
+         in `desktop/boot.html` draws the same wheel. The tick is twelve
+         discrete steps; a smooth sweep loses the iOS read. */
+      .kin-ios-spinner {
         position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 64px;
-        height: 64px;
-        border-radius: 14.5px;
-        overflow: hidden;
-        background: #282828;
-        box-shadow:
-          inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-          0 16px 40px -8px rgba(0, 0, 0, 0.55);
+        width: 32px;
+        height: 32px;
+        animation: kin-ios-spin 1s steps(12, end) infinite;
       }
-      .kin-boot-ring {
+      .kin-ios-spoke {
         position: absolute;
-        width: 88px;
-        height: 88px;
-        border-radius: 21px;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        animation: kin-boot-pulse 2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+        left: 50%;
+        top: 50%;
+        width: 2.56px;
+        height: 8px;
+        border-radius: 9999px;
+        /* --kin-muted-rgb (dark) in `src/design/theme.css`. */
+        background: rgb(152 152 157);
       }
-      html.light .kin-boot-ring {
-        border-color: rgba(0, 0, 0, 0.1);
+      html.light .kin-ios-spoke {
+        /* --kin-muted-rgb (light). */
+        background: rgb(92 92 97);
       }
-      @keyframes kin-boot-pulse {
-        0%,
-        100% {
-          transform: scale(0.95);
-          opacity: 0.45;
-        }
-        50% {
-          transform: scale(1.06);
-          opacity: 0.12;
+      @keyframes kin-ios-spin {
+        to {
+          transform: rotate(1turn);
         }
       }
       @media (prefers-reduced-motion: reduce) {
-        .kin-boot-ring {
+        /* Still, but present: the wheel is what says "waiting", not its motion. */
+        .kin-ios-spinner {
           animation: none;
-          opacity: 0.25;
         }
       }
     </style>
@@ -86,15 +80,88 @@
   <body class="bg-kin-bg text-kin-text antialiased">
     <div id="root">
       <div class="kin-boot" aria-hidden="true">
-        <div class="kin-boot-ring"></div>
-        <div class="kin-boot-mark">
-          <svg viewBox="0 0 512 512" width="64" height="64" aria-hidden="true">
-            <rect width="512" height="512" fill="#282828" />
-            <path
-              d="M116 116H219V210L396 23V116L263 256L396 396V489L219 302V396H116Z"
-              fill="#ffffff"
-            />
-          </svg>
+        <div class="kin-ios-spinner">
+          <span
+            class="kin-ios-spoke"
+            style="opacity: 1; transform: translate(-50%, -50%) rotate(0deg) translateY(-10.24px)"
+          ></span>
+          <span
+            class="kin-ios-spoke"
+            style="
+              opacity: 0.9227;
+              transform: translate(-50%, -50%) rotate(30deg) translateY(-10.24px);
+            "
+          ></span>
+          <span
+            class="kin-ios-spoke"
+            style="
+              opacity: 0.8455;
+              transform: translate(-50%, -50%) rotate(60deg) translateY(-10.24px);
+            "
+          ></span>
+          <span
+            class="kin-ios-spoke"
+            style="
+              opacity: 0.7682;
+              transform: translate(-50%, -50%) rotate(90deg) translateY(-10.24px);
+            "
+          ></span>
+          <span
+            class="kin-ios-spoke"
+            style="
+              opacity: 0.6909;
+              transform: translate(-50%, -50%) rotate(120deg) translateY(-10.24px);
+            "
+          ></span>
+          <span
+            class="kin-ios-spoke"
+            style="
+              opacity: 0.6136;
+              transform: translate(-50%, -50%) rotate(150deg) translateY(-10.24px);
+            "
+          ></span>
+          <span
+            class="kin-ios-spoke"
+            style="
+              opacity: 0.5364;
+              transform: translate(-50%, -50%) rotate(180deg) translateY(-10.24px);
+            "
+          ></span>
+          <span
+            class="kin-ios-spoke"
+            style="
+              opacity: 0.4591;
+              transform: translate(-50%, -50%) rotate(210deg) translateY(-10.24px);
+            "
+          ></span>
+          <span
+            class="kin-ios-spoke"
+            style="
+              opacity: 0.3818;
+              transform: translate(-50%, -50%) rotate(240deg) translateY(-10.24px);
+            "
+          ></span>
+          <span
+            class="kin-ios-spoke"
+            style="
+              opacity: 0.3045;
+              transform: translate(-50%, -50%) rotate(270deg) translateY(-10.24px);
+            "
+          ></span>
+          <span
+            class="kin-ios-spoke"
+            style="
+              opacity: 0.2273;
+              transform: translate(-50%, -50%) rotate(300deg) translateY(-10.24px);
+            "
+          ></span>
+          <span
+            class="kin-ios-spoke"
+            style="
+              opacity: 0.15;
+              transform: translate(-50%, -50%) rotate(330deg) translateY(-10.24px);
+            "
+          ></span>
         </div>
       </div>
     </div>
