@@ -22,10 +22,9 @@ rendered document.
 **The console's CSP closes the document surface.** `consoleCSP` in
 `internal/api/secure.go` sets `object-src 'none'` and carries no `frame-src`, so frames
 fall back to `default-src 'self'` and a `blob:` document frame is denied. `img-src` and
-`media-src` do carry `blob:`, because image and media previews draw bytes the console
-decodes itself — a narrow allowance for decoders the console owns, not a licence for a
-document frame. The security headers in the same file also send `X-Frame-Options: DENY`,
-and the policy carries `frame-ancestors 'none'`.
+`media-src` do carry `blob:` — a narrow allowance for decoders the console owns, not a
+licence for a document frame. The security headers in the same file also send
+`X-Frame-Options: DENY`, and the policy carries `frame-ancestors 'none'`.
 
 **No renderer is installed.** `ui/package.json`, `desktop/package.json` and `go.mod` name
 no PDF or Office parser. `rawFileType`'s own comment keeps SVG out on purpose — "as a
@@ -56,23 +55,24 @@ from the console.**
 The smallest next PR is one affordance: render the existing `OpenInMenu` beside Download
 in the undrawable-file preview — the `preview === "binary"` branch that renders
 `DownloadPreview` — passing the same workspace root the HTML pane already passes
-(`normalizeFileResponse(file)?.root || cwd`, `WorkspacePanel.tsx:1482`). The hint changes
-to name both honest routes: download the file, or, in the desktop app on this Mac, open it
-in an installed application.
+(`normalizeFileResponse(file)?.root || cwd`, `WorkspacePanel.tsx:1482`). On desktop the
+hint changes to name both honest routes: download the file, or, in the desktop app on this
+Mac, open it in an installed application.
 
 That PR adds no endpoint, no dependency and no CSP change. `OpenInMenu`'s existing
-`isKinDesktop()` gate keeps browser and phone on Download alone, so both surfaces keep the
-sentence and the button they have. "Open in…" takes an absolute path and hands it to a
-local app, so it is honest only when the node's filesystem is the shell's; when the bridge
-refuses, the menu shows the refusal rather than pretending the file opened.
+`isKinDesktop()` gate keeps browser and phone on Download alone, so the rewritten hint is
+desktop-only: those surfaces keep the sentence and the button they have. "Open in…" takes
+an absolute path and hands it to a local app, so it is honest only when the node's
+filesystem is the shell's; when the bridge refuses, the menu shows the refusal rather than
+pretending the file opened.
 
-This ADR is the decision record, not the change. The menu, the rewritten hint in both
-locales, and the 390/1100 screenshots are the next PR's delivery.
+This ADR is the decision record, not the change. The menu, the rewritten desktop hint in
+both locales, and the 390/1100 screenshots are the next PR's delivery.
 
 ## Consequences
 
-- The empty state stays honest about why: the console does not render documents, and the
-  two routes that do work are named on the pane instead of one.
+- The empty state stays honest about why: the console does not render documents, and on
+  desktop the two routes that do work are named on the pane instead of one.
 - A remote node and the phone still download. "Open in…" is desktop-only and assumes the
   node runs on the same machine as the shell — the same assumption the shell already makes
   wherever it hands a workspace path to a local app.
