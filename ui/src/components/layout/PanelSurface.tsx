@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { addPanel, removePanel } from "../../lib/panelPresence";
 
 /**
  * How a panel takes its space. See the component below.
@@ -51,6 +52,16 @@ export default function PanelSurface({
   hidden?: boolean;
   children: ReactNode;
 }) {
+  // A visible panel is the screen's topmost surface, and the floating approval
+  // reads this to keep its strip instead of painting its card over the panel
+  // body. Keyed on `hidden` so closing a panel releases the screen the same
+  // way unmounting it does: the terminal closes by hiding, not by unmounting.
+  useEffect(() => {
+    if (hidden) return;
+    addPanel();
+    return removePanel;
+  }, [hidden]);
+
   return (
     <div
       className={[

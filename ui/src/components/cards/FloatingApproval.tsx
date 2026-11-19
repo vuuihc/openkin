@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Approval } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { usePanelOpen } from "../../lib/panelPresence";
 import ErrorBoundary from "../ErrorBoundary";
 import Button from "../ui/Button";
 import ApprovalCard from "./ApprovalCard";
@@ -53,6 +54,12 @@ export default function FloatingApproval({
   onOpenPath,
 }: Props) {
   const tr = useT();
+  // One topmost surface per screen: while a visible panel (the file viewer, the
+  // PR panel) is open, the panel is what the reader is reading and the card is
+  // not mounted at all. The strip below still names the blocked task, so the
+  // approval never goes silent. A panel that is mounted but hidden does not
+  // register — see `lib/panelPresence`.
+  const panelOpen = usePanelOpen();
   const surfaceRef = useRef<HTMLDivElement>(null);
   // Answering unmounts the card that held focus. A keyboard user would be
   // dropped to the document body, mid-queue, with nothing to tab from. The
@@ -173,6 +180,11 @@ export default function FloatingApproval({
   if (!current) return null;
 
   const waiting = approvals.length - 1;
+  // The strip is the whole surface in two places: a phone tab root (the card
+  // covered the conversation list), and any screen a visible panel owns. The
+  // bottom offset above stays keyed on `raised` alone — it is about the page's
+  // own furniture, not about what is painted over it.
+  const stripOnly = raised || panelOpen;
   // The shell's task list first: it is the live row and follows a rename. The
   // title the API joined onto the approval when the list was read is the
   // fallback for a task outside that page — and approvals that arrive while
@@ -238,7 +250,7 @@ export default function FloatingApproval({
         data-phone-swipe="true"
         className="bg-kin-panel pointer-events-auto flex items-center gap-2 self-start rounded-full py-1 pl-3 pr-2 shadow-e2"
       >
-        {raised ? (
+        {stripOnly ? (
           // One target, not three: the label, the task and the count are all
           // inside the button, so the whole pill answers a thumb and the name
           // says what the small parts mean. The pill's own padding and
@@ -297,12 +309,13 @@ export default function FloatingApproval({
         )}
       </div>
       {/* The decision card belongs to a conversation (and to Mac), never to a
-          phone tab root: there the strip above is the whole surface. An
-          opaque base under it: `ApprovalCard`'s own surface is a translucent
-          orange tint, which is right in the transcript (a solid pane behind
-          it) and unreadable here, floating over list rows whose text showed
-          through. Same radius so the base never peeks out. */}
-      {!raised && (
+          phone tab root or a screen with a panel open: there the strip above is
+          the whole surface and the card would paint over the thing the reader
+          opened. An opaque base under it: `ApprovalCard`'s own surface is a
+          translucent orange tint, which is right in the transcript (a solid
+          pane behind it) and unreadable here, floating over list rows whose
+          text showed through. Same radius so the base never peeks out. */}
+      {!stripOnly && (
         <div className="pointer-events-auto max-h-[50dvh] overflow-y-auto kin-scroll rounded-xl bg-kin-panel md:max-h-[60dvh]">
           {/* Keyed by the approval: a payload that cannot render costs this one
               card, and the boundary's "caught" state is thrown away when the
