@@ -337,6 +337,25 @@ test_oldest_sendback_is_claimed_first() {
     || fail "oldest_first: the older rework stopped the pass before $SLUG: $(cat "$(claim_log)")"
 }
 
+# merge.sh archives a sendback into sendback/done/ the moment its PR lands, concurrently with the
+# autofill scan. A file that disappears between the glob and its stat used to raise
+# FileNotFoundError: python exited non-zero, the `done < <(sendbacks_by_age)` process substitution
+# yielded nothing, and the pass claimed no rework at all — every queued sendback lost a pulse, not
+# just the vanished one. The ordering must drop the missing file and print the survivors, oldest
+# first, exit 0. Deterministic: one listed path exists, one never did; no sleep, no timed race.
+# Seam: `lane.sh _sendback-order` reads one path per line on stdin, and sendbacks_by_age pipes the
+# production glob into that same command, so this exercises the code autofill runs.
+test_missing_sendback_does_not_hide_the_queue() {
+  new_case missing_sendback
+  : > "$(st)/sendback/older.md"
+  printf '%s\n%s\n' "$(st)/sendback/older.md" "$(st)/sendback/gone.md" \
+    | RSI_CTRL="$RSI_CTRL" bash "$LANE" _sendback-order > "$T/$CASE.out"
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "missing_sendback: ordering exited $rc ($(out))"
+  [ "$(cat "$T/$CASE.out")" = "$(st)/sendback/older.md" ] \
+    || fail "missing_sendback: expected only older.md, got: $(out)"
+}
+
 run() {
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   RAN=$((RAN+1))
@@ -356,5 +375,6 @@ run test_closed_pr_sendback_is_archived
 run test_open_pr_sendback_still_claims
 run test_unknown_pr_state_fails_open
 run test_oldest_sendback_is_claimed_first
+run test_missing_sendback_does_not_hide_the_queue
 [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS
