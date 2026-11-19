@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,12 +31,12 @@ func sleepProbe(ctx context.Context) {
 	}
 }
 
-// TestListProbesRegistrationsConcurrently pins the fan-out: List is on the
-// daemon's boot path with a registry of ~74 agents, and probing them one after
-// another is what made engine-build ~200 ms. 74 registrations × (3 ms Status +
-// 3 ms Models) is ~444 ms sequentially; the bound is far enough below that to
-// be unambiguous, and far enough above a bounded concurrent run to survive a
-// loaded build machine.
+// TestListProbesRegistrationsConcurrently pins the fan-out. 74 registrations ×
+// (3 ms Status + 3 ms Models) is ~444 ms sequentially, measured at 556 ms
+// before the fan-out existed. A bounded concurrent run measures 40–65 ms on
+// this machine, including runs under GOMAXPROCS=2; the 200 ms bound is 2.2×
+// below the sequential floor and 3× above the concurrent range, so neither a
+// loaded build machine nor the red side is ambiguous.
 func TestListProbesRegistrationsConcurrently(t *testing.T) {
 	entries := make([]Entry, 0, listProbeCount)
 	for i := 0; i < listProbeCount; i++ {
@@ -64,8 +65,8 @@ func TestListProbesRegistrationsConcurrently(t *testing.T) {
 	if len(list) != listProbeCount {
 		t.Fatalf("List returned %d registrations, want %d", len(list), listProbeCount)
 	}
-	if elapsed >= 60*time.Millisecond {
-		t.Fatalf("List probed %d registrations serially: %v (want < 60ms; "+
+	if elapsed >= 200*time.Millisecond {
+		t.Fatalf("List probed %d registrations serially: %v (want < 200ms; "+
 			"%d × %v for Status + Models is ~%v sequential)",
 			listProbeCount, elapsed, listProbeCount, probeSleep, listProbeCount*2*probeSleep)
 	}
@@ -150,6 +151,57 @@ func TestListMatchesSequentialOrder(t *testing.T) {
 	got[withModels].Models[0].ID = "mutated"
 	if fresh := r.List(context.Background(), ""); fresh[withModels].Models[0].ID == "mutated" {
 		t.Fatal("List returned the plugin's own Models slice instead of a copy")
+	}
+}
+
+// TestListSurvivesAProbePanic covers the failure mode the fan-out introduced:
+// probes are adapter code running in goroutines List owns, where an
+// unrecovered panic ends the process. One buggy probe must cost one row, not
+// the daemon.
+func TestListSurvivesAProbePanic(t *testing.T) {
+	r := MustRegistry(
+		Entry{
+			ID: "status-boom", Name: "Status Boom", Priority: 1, Runner: stubAdapter{},
+			Status: func(context.Context) Status { panic("status exploded") },
+		},
+		Entry{
+			ID: "models-boom", Name: "Models Boom", Priority: 2, Runner: stubAdapter{},
+			Status: func(context.Context) Status { return Status{Installed: true, Available: true} },
+			Models: func(context.Context) ModelList { panic("models exploded") },
+		},
+		Entry{ID: "fine", Name: "Fine", Priority: 3, Runner: stubAdapter{}},
+	)
+
+	list := r.List(context.Background(), "")
+	if len(list) != 3 {
+		t.Fatalf("List returned %d rows, want 3: a panic must not drop a registration", len(list))
+	}
+	if list[0].ID != "status-boom" || list[2].ID != "fine" {
+		t.Fatalf("order changed around a panic: %s, %s, %s", list[0].ID, list[1].ID, list[2].ID)
+	}
+	byID := make(map[string]Info, len(list))
+	for _, info := range list {
+		byID[info.ID] = info
+	}
+	for id, panicText := range map[string]string{
+		"status-boom": "status exploded",
+		"models-boom": "models exploded",
+	} {
+		info := byID[id]
+		if info.Available {
+			t.Errorf("%s stayed available after its probe panicked", id)
+		}
+		if !strings.Contains(info.Reason, "probe panicked") || !strings.Contains(info.Reason, panicText) {
+			t.Errorf("%s Reason = %q, want the panic named", id, info.Reason)
+		}
+	}
+	if !byID["fine"].Available {
+		t.Error("a healthy registration was collateral damage")
+	}
+	for _, info := range list {
+		if info.Default {
+			t.Errorf("%s became default although the default scan panicked", info.ID)
+		}
 	}
 }
 

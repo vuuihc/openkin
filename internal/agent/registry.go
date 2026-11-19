@@ -320,8 +320,20 @@ func (r *Registry) List(ctx context.Context, configuredDefault string) []Info {
 	if r == nil {
 		return nil
 	}
-	def := r.Default(ctx, configuredDefault)
+	def := func() (def string) {
+		// Status is adapter code, and one buggy probe must not take the daemon
+		// down. The concurrent probes below recover their own panics; this scan
+		// runs before them and gets the same treatment.
+		defer func() {
+			if p := recover(); p != nil {
+				def = ""
+			}
+		}()
+		return r.Default(ctx, configuredDefault)
+	}()
 	out := make([]Info, len(r.order))
+	// Each probe receives ctx and does the blocking I/O, so the wait for a slot
+	// is bounded by the probes already in flight.
 	sem := make(chan struct{}, listProbeFanOut)
 	var wg sync.WaitGroup
 	for i, id := range r.order {
@@ -332,12 +344,25 @@ func (r *Registry) List(ctx context.Context, configuredDefault string) []Info {
 			defer func() { <-sem }()
 
 			reg := r.byID[id]
-			st := reg.Status(ctx)
+			st := Status{}
 			models := ModelList{Source: "none", Status: "unavailable"}
-			if reg.Models != nil {
-				models = reg.Models(ctx)
-				models.Models = append([]ModelOption(nil), models.Models...)
-			}
+			func() {
+				defer func() {
+					if p := recover(); p != nil {
+						// An agent whose probe panics is not evidence of a usable
+						// agent: keep what was learned, mark it unavailable, and
+						// carry the panic as the reason.
+						st.Available = false
+						st.Reason = fmt.Sprintf("probe panicked: %v", p)
+						models = ModelList{Source: "none", Status: "unavailable"}
+					}
+				}()
+				st = reg.Status(ctx)
+				if reg.Models != nil {
+					models = reg.Models(ctx)
+					models.Models = append([]ModelOption(nil), models.Models...)
+				}
+			}()
 			out[i] = Info{
 				ID:           reg.Descriptor.ID,
 				Name:         reg.Descriptor.Name,
