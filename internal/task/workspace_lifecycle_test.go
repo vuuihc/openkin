@@ -195,6 +195,177 @@ func TestCancelRejectsAfterWorkspaceCommitPoint(t *testing.T) {
 	}
 }
 
+// finalizingTask inserts a running task and marks its workspace past the commit
+// point. The commit point is set directly, the same hermetic seam
+// TestCancelRejectsAfterWorkspaceCommitPoint uses: no process, no timers.
+func finalizingTask(t *testing.T, e *Engine, st *store.Store, id string) store.Task {
+	t.Helper()
+	task := store.Task{
+		ID: id, Title: "finalizing", Agent: "claude-code",
+		Cwd: "/tmp", Prompt: "alpha", Status: StatusRunning, CreatedAt: store.NowMilli(),
+	}
+	if err := st.InsertTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	e.workspaceCommitting[task.ID] = "execution-1"
+	// The adapter run loop arms the settle capability beside the flag; a window
+	// without it (the orchestrated finisher) keeps refusing messages.
+	e.workspaceCommitSettles[task.ID] = true
+	e.mu.Unlock()
+	return task
+}
+
+// A message sent while the workspace is finishing must wait, not be refused.
+// The commit point exists so a turn cannot be *stopped* past it; a message stops
+// nothing, and the turn end that follows finalization already drains the queue.
+func TestFollowUpDuringWorkspaceFinalizationIsQueued(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	task := finalizingTask(t, e, st, "01FINALIZEQUEUED000000001")
+
+	if _, err := e.FollowUp(ctx, task.ID, "beta"); err != nil {
+		t.Fatalf("a message sent while the workspace finalizes should be accepted: %v", err)
+	}
+
+	queued, err := st.ListPendingPrompts(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queued) != 1 || queued[0].Prompt != "beta" {
+		t.Fatalf("queue = %+v, want the message that was just sent", queued)
+	}
+	got, err := st.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusRunning {
+		t.Fatalf("status = %s, want running: accepting a message must not move the turn", got.Status)
+	}
+	ad.mu.Lock()
+	started := ad.started
+	ad.mu.Unlock()
+	if started != 0 {
+		t.Fatalf("adapter started %d run(s), want 0: the message must wait for the boundary", started)
+	}
+}
+
+// An interrupt is the one thing still refused at the commit point: it stops the
+// turn, and past that point a turn cannot be stopped.
+func TestInterruptDuringFinalizationIsStillRefused(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	task := finalizingTask(t, e, st, "01FINALIZEINTERRUPT000001")
+
+	_, err := e.FollowUpWith(ctx, task.ID, FollowUpRequest{Prompt: "stop", Interrupt: true})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("interrupt error = %v, want ErrConflict", err)
+	}
+	got, err := st.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusRunning {
+		t.Fatalf("status = %s, want running", got.Status)
+	}
+	if queued, err := st.ListPendingPrompts(ctx, task.ID); err != nil || len(queued) != 0 {
+		t.Fatalf("queue = %+v (err %v), want empty", queued, err)
+	}
+}
+
+// waitForDeliveredPrompt waits for the turn a settle started to finish the
+// message, then proves it was the only one: one adapter start, empty queue.
+func waitForDeliveredPrompt(t *testing.T, st *store.Store, ad *fakeAdapter, id, text string) {
+	t.Helper()
+	ctx := context.Background()
+	specs := waitForStarts(t, ad, 1, 2*time.Second)
+	if !strings.Contains(specs[0].Prompt, text) {
+		t.Fatalf("first run prompt = %q, want the message sent during finalization", specs[0].Prompt)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got, err := st.GetTask(ctx, id)
+		if err == nil && got.Status == StatusSucceeded && strings.Contains(got.Prompt, text) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the delivered turn did not finish: task=%+v err=%v", got, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	ad.mu.Lock()
+	started := ad.started
+	ad.mu.Unlock()
+	if started != 1 {
+		t.Fatalf("adapter started %d run(s), want exactly 1", started)
+	}
+	if left, err := st.ListPendingPrompts(ctx, id); err != nil || len(left) != 0 {
+		t.Fatalf("queue after delivery = %+v (err %v), want empty", left, err)
+	}
+}
+
+// A message accepted during finalization is delivered once the workspace
+// settles. It is the user's own message, so it may revive the task the turn
+// just finished -- the same delivery a follow-up sent a moment later gets.
+func TestFollowUpDuringFinalizationIsDeliveredWhenFinalizationEnds(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	task := finalizingTask(t, e, st, "01FINALIZEDELIVERED000001")
+
+	if _, err := e.FollowUp(ctx, task.ID, "beta"); err != nil {
+		t.Fatalf("follow-up: %v", err)
+	}
+	// The production turn end: the run writes its terminal status, the commit
+	// flag clears, and the turn settles the queue it could not drain before
+	// finalization ended.
+	e.mu.Lock()
+	e.activeRuns[task.ID] = "execution-1"
+	e.mu.Unlock()
+	if _, err := e.finishRun(ctx, task.ID, "execution-1", StatusSucceeded, nil, nil); err != nil {
+		t.Fatalf("finish run: %v", err)
+	}
+	e.clearWorkspaceCompletion(task.ID, "execution-1")
+	e.settlePromptsQueuedDuringFinalization(ctx, task.ID, "")
+
+	waitForDeliveredPrompt(t, st, ad, task.ID, "beta")
+}
+
+// The message can also arrive after the turn wrote its terminal status but
+// before the commit flag cleared. That is the window where the boundary drain
+// has already run: if the settle does not take the message, nothing does. The
+// task is terminal at accept time and delivery still revives it.
+func TestFollowUpDuringFinalizationIsDeliveredAfterTheTaskEnded(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	task := finalizingTask(t, e, st, "01FINALIZETERMINAL00000001")
+
+	e.mu.Lock()
+	e.activeRuns[task.ID] = "execution-1"
+	e.mu.Unlock()
+	if _, err := e.finishRun(ctx, task.ID, "execution-1", StatusSucceeded, nil, nil); err != nil {
+		t.Fatalf("finish run: %v", err)
+	}
+	// finishRun does not clear the commit flag; production clears it after.
+	if _, err := e.FollowUp(ctx, task.ID, "beta"); err != nil {
+		t.Fatalf("follow-up during the commit window: %v", err)
+	}
+	ad.mu.Lock()
+	started := ad.started
+	ad.mu.Unlock()
+	if started != 0 {
+		t.Fatalf("adapter started %d run(s) while the workspace was committing, want 0", started)
+	}
+
+	e.clearWorkspaceCompletion(task.ID, "execution-1")
+	e.settlePromptsQueuedDuringFinalization(ctx, task.ID, "")
+
+	waitForDeliveredPrompt(t, st, ad, task.ID, "beta")
+}
+
 func TestEngineCompleteWorkspaceRejectsNonActive(t *testing.T) {
 	s, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
 	if err != nil {
