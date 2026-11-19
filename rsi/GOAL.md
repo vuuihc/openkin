@@ -288,15 +288,17 @@ the person still sees the static splash in `ui/index.html:81-82`. That is the la
 **Done means**
 1. The console's first usable moment is measured: one `console-interactive` mark through the existing
    `[kin-desktop] trace` channel, stamped on the shell's clock, emitted by the console document only after its
-   first screen commits and at most once per launch; `./scripts/desktop-startup.sh --runs 3` reports it while
-   every existing mark keeps its meaning; a mutant that fires it early (or never) turns its test red; the
-   `console-interactive − sidecar-ready` gap is recorded with the load average.
+   first screen commits and at most once per launch; the runner gains it in its wait set — `console-interactive`
+   added to `REQUIRED` (or an equivalent per-mark wait), so a run that never emits it fails instead of reporting
+   a shorter table; `./scripts/desktop-startup.sh --runs 3` reports it while every existing mark keeps its
+   meaning; a mutant that fires it early (or never) turns its test red; the `console-interactive − sidecar-ready`
+   gap is recorded with the load average.
 2. The handover is bounded and honest: the bound comes from item 1's number and is written down before the
    fix; the splash is never replaced by a blank frame or by an error a retry would clear; the fix re-measures
    in the same session, and 390/1100 shots show splash → console.
 3. The number is reproducible from `main` by one command, and the doc names what it does not prove (the dev
-   shell rather than the packaged `.dmg`, the ~1 ms IPC hop, "interactive" ≠ data loaded, the phone webview
-   measured separately).
+   shell rather than the packaged `.dmg`, the renderer→shell IPC hop, "interactive" ≠ data loaded, the phone
+   webview measured separately).
 
 **Out of scope** — the packaged `.dmg`/asar boot; the daemon's remaining boot (242/201 ms to healthy after
 `9a64408a`, `docs/plans/2026-11-20-engine-build.md`; its own row only if a number demands it); the phone
