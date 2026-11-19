@@ -200,6 +200,9 @@ func ServeWith(version string, flags ServeFlags) error {
 	// old log as an undated wall of EOF and reconnect lines.
 	timestampStderr()
 	startup := startupTraceFromEnv(os.Stderr, time.Now)
+	// Closes the pre-ServeWith edge: when the launcher exported its spawn
+	// instant, this line reports exec, dyld and runtime init as one segment.
+	startup.mark("process")
 
 	stateDir, err := remote.StateDir()
 	if err != nil {
