@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
@@ -150,5 +152,65 @@ func TestRoutineSilentNoPush(t *testing.T) {
 	got, _ := st.GetTask(ctx, task.ID)
 	if got.RoutineNoteworthy || !got.RoutineUnread || got.RoutineTLDR != "0 new PRs" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+// terminalOnlyNotifier exposes the task-ending half of a notifier but not its
+// routine methods, which is the shape that sends the routine hooks down their
+// fallback path. The fallback still renders through the real notify.Sender, so
+// this test reads the copy a person would actually get.
+type terminalOnlyNotifier struct{ sender *notify.Sender }
+
+func (terminalOnlyNotifier) NotifyApproval(context.Context, string, string, string) {}
+
+func (n terminalOnlyNotifier) NotifyTaskTerminal(ctx context.Context, taskID, taskTitle, status string) {
+	n.sender.NotifyTaskTerminal(ctx, taskID, taskTitle, status)
+}
+
+// The routine fallbacks used to reuse the terminal notification with the
+// machine words "noteworthy" and "disabled" as the status, which reached the
+// banner as "Task <id> is noteworthy". They must read like the terminal states
+// do; the enum stays in the event's Status field, where it is never shown.
+func TestRoutineFallbackUsesHumanCopy(t *testing.T) {
+	rec := &notifyRecorder{}
+	e := &Engine{notify: terminalOnlyNotifier{sender: &notify.Sender{
+		BaseURLOverride: "https://kin.example.com", Events: rec,
+	}}}
+	ctx := context.Background()
+
+	e.pushRoutine(ctx, store.Task{ID: "task-1", Title: "Morning planning"}, true)
+	e.pushRoutineFailure(ctx, store.Routine{ID: "routine-1", Title: "Nightly audit"}, "auto-disabled after 3 failures")
+
+	events := rec.waitFor(t, 2)
+	byID := map[string]notify.Event{}
+	for _, ev := range events {
+		low := strings.ToLower(ev.Title + " " + ev.Body)
+		for _, leak := range []string{"noteworthy", "disabled"} {
+			if strings.Contains(low, leak) {
+				t.Fatalf("%q leaked into the banner: %q / %q", leak, ev.Title, ev.Body)
+			}
+		}
+		if ev.Body == "" || ev.Body == ev.Title {
+			t.Fatalf("banner reads as %q / %q", ev.Title, ev.Body)
+		}
+		byID[ev.ID] = ev
+	}
+
+	report := byID["task-1"]
+	if report.Title != "Morning planning" || report.Body == "" {
+		t.Fatalf("routine report banner = %q / %q", report.Title, report.Body)
+	}
+	if report.Status != "noteworthy" {
+		t.Fatalf("routine report status = %q, want the machine token kept for dedupe", report.Status)
+	}
+	failure := byID["routine-1"]
+	if failure.Title != "Nightly audit" || failure.Body == "" {
+		t.Fatalf("routine failure banner = %q / %q", failure.Title, failure.Body)
+	}
+	if failure.Status != "disabled" {
+		t.Fatalf("routine failure status = %q, want the machine token kept for dedupe", failure.Status)
+	}
+	if report.Body == failure.Body {
+		t.Fatalf("report and failure read the same: %q", report.Body)
 	}
 }
