@@ -63,6 +63,9 @@ function workspaceTrail(pathname: string, search: string): string[] | null {
   // A lone `file` with no `panel` names no panel; it is a stale leftover.
   if (!link?.explicit) return null;
   const conversation = `${pathname}${patchWorkspaceLink(search, null)}`;
+  // The PR tab is a surface of the panel, not a stop the reader passed
+  // through; a `file` beside it is the panel's memory, not a second place.
+  if (link.panel === "pr") return [conversation];
   if (!link.file) return [conversation];
   const list = `${pathname}${patchWorkspaceLink(search, { panel: "files", file: null })}`;
   return [conversation, list];

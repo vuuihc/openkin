@@ -2364,6 +2364,9 @@ class WalkJ13ContractTest(unittest.TestCase):
         file list, conversation, session list. Then Files, reopened from the
         conversation through the action sheet, must show the list — the file
         the reader left belongs to a history entry, not to the panel's memory.
+        Two more Backs close the PR tab's address — the cold `?panel=pr` one
+        (after a reload and a Forward) and the in-session press — and each
+        must return to the conversation with the query cleared.
         """
         code, out = self.check()
         self.assertEqual(code, 0, out)
@@ -2371,8 +2374,12 @@ class WalkJ13ContractTest(unittest.TestCase):
         steps = load_spec()["journeys"]["J13"]["steps"]
 
         history = [i for i, step in enumerate(steps) if step[0] == "history-back"]
-        self.assertEqual(len(history), 3, "J13 must press the system Back three times")
-        first, second, third = history
+        self.assertEqual(
+            len(history), 5,
+            "J13 must press the system Back three times on the file queue "
+            "and twice from the PR address",
+        )
+        first, second, third, pr_back, pr_sheet_back = history
         self.assertTrue(
             any(step[0] == "search" and "panel=files" in str(step[1])
                 and "file=" not in str(step[1]) for step in steps[first:second]),
@@ -2401,9 +2408,35 @@ class WalkJ13ContractTest(unittest.TestCase):
             "the third system Back must reach the session list",
         )
 
+        # The PR tab's address (R-panel-exit) adds the last two presses. Each
+        # must close only the panel: the address returns to the conversation,
+        # the query is clean, and the selected PR tab leaves the screen.
+        self.assertTrue(
+            any(step[0] == "history-forward" for step in steps[pr_back:pr_sheet_back]),
+            "Forward must return to the PR address after Back closed the panel",
+        )
+        for start, end, label in ((pr_back, pr_sheet_back, "the cold PR address"),
+                                  (pr_sheet_back, len(steps), "the in-session PR press")):
+            window = steps[start + 1:end]
+            self.assertTrue(
+                any(step[0] == "url" and "/tasks/" in str(step[1]) for step in window),
+                f"Back from {label} must land on the conversation",
+            )
+            self.assertTrue(
+                any(step[0] == "search" and str(step[1]) == "^$" for step in window),
+                f"Back from {label} must clear the query",
+            )
+            self.assertTrue(
+                any(step[0] == "gone" and "aria-selected" in str(step[1])
+                    and "Pull" in str(step[1]) for step in window),
+                f"Back from {label} must take the selected PR tab off the screen",
+            )
+
         shots = [step[1] for step in steps if step[0] == "shot"]
         for name in ("history-back-file", "history-back-list", "history-back-conversation",
-                     "history-back-sessions", "files-no-replay"):
+                     "history-back-sessions", "files-no-replay",
+                     "pr-cold", "pr-refresh", "pr-back", "pr-forward", "pr-open",
+                     "pr-back-sheet"):
             self.assertIn(name, shots)
 
         # Files, reopened from the conversation through the action sheet, is
