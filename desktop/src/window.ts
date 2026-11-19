@@ -24,7 +24,6 @@ import {
   type RestoredWindow,
   type SavedBounds,
 } from "./window-bounds";
-import { approvalPath } from "./native-notifications";
 
 const WINDOW_TITLE = "Kin";
 
@@ -32,6 +31,9 @@ const WINDOW_TITLE = "Kin";
 const WINDOW_BG = "#0e0e10";
 
 const DEFAULT_BOUNDS = { width: 1100, height: 760 };
+
+/** The wordless boot surface, copied next to the bundle by build.mjs. */
+const BOOT_PAGE = join(__dirname, "boot.html");
 
 /** Chromium ERR_ABORTED — user/navigation cancelled; do not retry. */
 const ERR_ABORTED = -3;
@@ -43,6 +45,8 @@ export class MainWindow {
   private tokenSource: (() => string | null) | null = null;
   private allowClose = false;
   private pendingPath = "/";
+  /** The window is showing the boot page and the console has not loaded yet. */
+  private booting = false;
   private loadRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private loadAttempts = 0;
 
@@ -81,17 +85,64 @@ export class MainWindow {
     const wantsRestore = path == null || path === "" || path === "/";
     if (this.win && !this.win.isDestroyed()) {
       if (!wantsRestore) {
-        this.navigate(path);
+        if (this.booting) {
+          // The console must not load before the daemon answers; remember
+          // where to land instead of navigating a dead URL.
+          this.pendingPath = asConsolePath(path);
+        } else {
+          this.navigate(path);
+        }
       }
-      if (this.win.isMinimized()) this.win.restore();
-      this.win.show();
-      this.win.focus();
-      this.showDock();
+      this.reveal();
       return;
     }
     // Fresh window: prefer an explicit deep-link, else last known path, else home.
-    const target = wantsRestore ? this.pendingPath || "/" : path;
+    const target = asConsolePath(wantsRestore ? this.pendingPath || "/" : path);
+    this.pendingPath = target;
     this.create(target);
+  }
+
+  /**
+   * Put the window on screen with the wordless boot page, before the daemon
+   * answers. The console path is remembered; `enterConsole()` replaces the
+   * page in place once the daemon settles. Asking again only reveals the
+   * window — the boot page is never loaded twice.
+   */
+  showBoot(path?: string): void {
+    if (path != null && path !== "") {
+      this.pendingPath = asConsolePath(path);
+    }
+    if (this.win && !this.win.isDestroyed()) {
+      this.reveal();
+      return;
+    }
+    this.booting = true;
+    this.create(this.pendingPath || "/");
+  }
+
+  /**
+   * The daemon answered: put the console on screen at `path`.
+   *
+   * When the boot surface is up this is the in-place swap and the only place
+   * `window-first-load` may come from; when no window exists (a background
+   * launch) it behaves like `show()`.
+   */
+  enterConsole(path: string): void {
+    if (!this.win || this.win.isDestroyed()) {
+      this.booting = false;
+      this.create(asConsolePath(path));
+      return;
+    }
+    if (this.booting) {
+      this.reloadWhenReady(path);
+      return;
+    }
+    this.show(path);
+  }
+
+  /** Bring the existing window forward without loading a page. */
+  revealWindow(): void {
+    this.reveal();
   }
 
   hide(): void {
@@ -101,12 +152,6 @@ export class MainWindow {
     this.hideDockIfNoWindows();
   }
 
-  openApproval(approvalId: string, taskId?: string): void {
-    // The approval lives in its conversation; the link names both, like the
-    // node's push. Without a task the list is the landing.
-    this.show(approvalPath(approvalId, taskId));
-  }
-
   /**
    * Re-load the current (or given) path once the daemon/token is known ready.
    * Used after sidecar.ensureRunning so a white failed first paint recovers
@@ -114,9 +159,19 @@ export class MainWindow {
    */
   reloadWhenReady(path?: string): void {
     if (!this.win || this.win.isDestroyed()) return;
+    this.booting = false;
     this.loadAttempts = 0;
     this.clearLoadRetry();
     this.navigate(path ?? this.pendingPath);
+  }
+
+  /** Show, restore and focus the existing window. */
+  private reveal(): void {
+    if (!this.win || this.win.isDestroyed()) return;
+    if (this.win.isMinimized()) this.win.restore();
+    this.win.show();
+    this.win.focus();
+    this.showDock();
   }
 
   private create(path: string): void {
@@ -202,6 +257,17 @@ export class MainWindow {
       (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
         if (!isMainFrame) return;
         if (errorCode === ERR_ABORTED) return;
+        if (this.booting) {
+          // Retrying here would navigate the daemon URL the boot surface
+          // exists to avoid; the settle path loads the console when there is
+          // something to answer it.
+          console.warn(
+            "[kin-desktop] boot page failed to load",
+            errorCode,
+            errorDescription,
+          );
+          return;
+        }
         console.warn(
           "[kin-desktop] did-fail-load",
           errorCode,
@@ -216,10 +282,15 @@ export class MainWindow {
     );
 
     this.win.webContents.on("did-finish-load", () => {
-      traceStartup("window-first-load");
+      const url = this.win?.webContents.getURL() ?? "";
+      // The boot page is the shell's own file, not the console. The startup
+      // measurement reads this mark as "the console's first load" and requires
+      // it exactly once, so only a daemon URL may emit it — not the boot page,
+      // and not the window's initial about:blank.
+      if (isConsoleURL(url)) traceStartup("window-first-load");
       this.loadAttempts = 0;
       this.clearLoadRetry();
-      this.rememberPathFromURL(this.win?.webContents.getURL() ?? "");
+      this.rememberPathFromURL(url);
     });
 
     // SPA client-side routes (pushState) — keep last path so recreate restores session.
@@ -246,12 +317,24 @@ export class MainWindow {
       return { action: "deny" };
     });
 
-    this.navigate(path);
+    if (this.booting) {
+      this.loadBootPage();
+    } else {
+      this.navigate(path);
+    }
+  }
+
+  /** Load the local boot page. Never a daemon URL, never a retry. */
+  private loadBootPage(): void {
+    if (!this.win || this.win.isDestroyed()) return;
+    this.clearLoadRetry();
+    console.log("[kin-desktop] boot page", this.pendingPath);
+    void this.win.loadFile(BOOT_PAGE);
   }
 
   private navigate(path: string): void {
     if (!this.win || this.win.isDestroyed()) return;
-    this.pendingPath = path.startsWith("/") ? path : `/${path}`;
+    this.pendingPath = asConsolePath(path);
     const tok = this.resolveToken();
     const base = DAEMON_BASE.replace(/\/$/, "");
     const p = this.pendingPath;
@@ -365,6 +448,21 @@ export class MainWindow {
     if (!visible) {
       app.dock.hide();
     }
+  }
+}
+
+function asConsolePath(path: string): string {
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+/** The daemon console itself — http(s) on the one host and port. */
+function isConsoleURL(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    return isAllowedURL(url);
+  } catch {
+    return false;
   }
 }
 

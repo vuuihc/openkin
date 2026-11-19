@@ -1,5 +1,5 @@
 import * as esbuild from "esbuild";
-import { mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,4 +30,9 @@ await esbuild.build({
   outfile: join(outdir, "preload.js"),
 });
 
-console.log("desktop: bundled → dist/main.js + dist/preload.js");
+// The boot surface is a plain file, not a bundle: `showBoot()` loads it with
+// `loadFile` before the daemon answers. Copied verbatim (no processing) so it
+// stays readable and cannot pick up a build-time dependency.
+copyFileSync(join(root, "boot.html"), join(outdir, "boot.html"));
+
+console.log("desktop: bundled → dist/main.js + dist/preload.js + dist/boot.html");
