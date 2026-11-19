@@ -449,6 +449,39 @@ function checkJ8Contract(spec) {
     if (notesAt >= 0 && glyphAt < notesAt) errs.push('J8 taps the glyph before the seeded file is open');
     if (diffWaitAt >= 0 && glyphAt < diffWaitAt) errs.push('J8 taps the glyph before the diff is open');
   }
+  // Waiting for the diff editor is not waiting for the gutter: Monaco paints
+  // glyphs lazily per rendered line, so a slow walk has only line 1's glyph and
+  // the `nth=` tap hard-fails while a lucky walk on the same tree passes
+  // (#389's first walk lost 11 J8 steps this way, its confirm walk none). The
+  // diff is scrolled, the last glyph is waited for, and all six are counted
+  // before the tap, so the tap cannot race the painter. The count is instant,
+  // so it must follow the wait rather than stand alone.
+  if (glyphAt >= 0) {
+    const scrollAt = idx((st) => st[0] === 'scroll' && /^css=/.test(sel(st, 1)) && /monaco-diff-editor/.test(sel(st, 1)));
+    const paintAt = idx((st) => st[0] === 'wait' && /^css=/.test(sel(st, 1))
+      && /kin-diff-comment-glyph/.test(sel(st, 1)) && />>\s*nth=5\b/.test(sel(st, 1)));
+    const sixAt = idx((st) => st[0] === 'count' && /^css=/.test(sel(st, 1))
+      && /kin-diff-comment-glyph/.test(sel(st, 1)) && String(st[2]) === '6');
+    if (scrollAt < 0) {
+      errs.push('J8 never scrolls the diff before the glyph tap (scroll css=.monaco-diff-editor …); Monaco paints glyphs per rendered line, so the nth= tap can find only line 1 painted');
+    } else if (scrollAt > glyphAt) {
+      errs.push('J8 scrolls the diff after the glyph tap; the paint proof must come before the tap');
+    }
+    if (paintAt < 0) {
+      errs.push('J8 taps the glyph with no paint proof (wait css=.kin-diff-comment-glyph >> nth=5 before the tap); the tap otherwise races Monaco\'s per-line glyph paint');
+    } else if (paintAt > glyphAt) {
+      errs.push('J8 waits for the painted glyphs after the tap; the paint proof must come before the tap');
+    } else if (scrollAt >= 0 && paintAt < scrollAt) {
+      errs.push('J8 waits for painted glyphs before it scrolls the diff; the scroll is what paints them');
+    }
+    if (sixAt < 0) {
+      errs.push('J8 never asserts all six glyphs are painted (count css=.kin-diff-comment-glyph 6) before the tap');
+    } else if (sixAt > glyphAt) {
+      errs.push('J8 counts the painted glyphs after the tap; the count must prove the whole set first');
+    } else if (paintAt >= 0 && sixAt < paintAt) {
+      errs.push('J8 counts the glyphs before its paint wait; the count is instant and would race the painter');
+    }
+  }
   // The sheet names the seeded line, so a tap that landed on another changed
   // line is caught right here rather than at the tray or the transcript.
   const boxAt = idx((st) => cssWait(st, /section\[aria-label/) && /notes\.md:5/.test(sel(st, 1)) && /aria-label\^=/.test(sel(st, 1)));
