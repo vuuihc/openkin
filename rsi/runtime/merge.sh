@@ -506,15 +506,21 @@ ceo_hold_skip() { # <slug> <labels-csv> <pr> -> 0 and a reason on stdout when th
 # gh `pr list` JSON (number,headRefName,isDraft,labels,title,files,body) -> TSV rows for the dispatcher
 # loop: number, slug, title, tier, labels. needs-ceo/hold is a CEO hold, not a permanent exclusion, so
 # the labels travel with the row and ceo_hold_skip() applies it (a marker naming this PR releases it).
+# The head/draft rule is rsi/runtime/pr_select.py, shared with common.sh's backpressure counter. The
+# default therefore passes no labels — the hold rule fires one step later — while
+# --candidate-labels applies it here, which is what the selection seam means by a candidate.
 dispatch_rows() {
-  STATE="$STATE" RSI_DIR="$RSI_DIR" TIERPY="$RSI_DIR/runtime/review-tier.py" python3 -c '
+  STATE="$STATE" RSI_DIR="$RSI_DIR" TIERPY="$RSI_DIR/runtime/review-tier.py" \
+    PR_SELECT_LABELS="${1:-}" python3 -c '
 import json,sys,os,subprocess
 sys.path.insert(0, os.path.join(os.environ["RSI_DIR"], "runtime"))
 from item_marker import parse_item
+from pr_select import is_candidate
 st=os.environ["STATE"]; rows=[]
+labels_here = os.environ.get("PR_SELECT_LABELS") == "--candidate-labels"
 for p in json.load(sys.stdin):
     h=p["headRefName"]
-    if not h.startswith("rsi/") or h.startswith("rsi/dream-") or h.startswith("rsi/ceo-") or p["isDraft"]: continue
+    if not is_candidate(h, p["isDraft"], p["labels"] if labels_here else ()): continue
     slug=h[4:]; item=parse_item(p.get("body") or "")
     try: att=int(open("%s/merge/%s.attempts" % (st,slug)).read().strip() or 0)
     except Exception: att=0
@@ -535,6 +541,10 @@ if [ "${1:-}" != "--one" ]; then
   # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: the dispatcher's row filter on PR JSON
   # on stdin, so a needs-ceo/hold row is proven to reach the loop with its labels for ceo_hold_skip().
   if [ "${1:-}" = "--dispatch-rows-check" ]; then dispatch_rows; exit $?; fi
+  # Hermetic seam for rsi/runtime/tests/test-merge-pr-select.sh: the merge lane's PR selection —
+  # the same dispatch_rows() the loop calls — over gh `pr list` JSON on stdin, with the
+  # needs-ceo/hold labels applied because a held PR is not a candidate. No gh, fetch or state write.
+  if [ "${1:-}" = "--pr-select-check" ]; then dispatch_rows --candidate-labels; exit $?; fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the queue-time carry step 1 applies
   # after sync_main, with lists of paths on disk. No locks, fetch, gate, review, merge or dispatch.
   if [ "${1:-}" = "--queue-carry-check" ]; then

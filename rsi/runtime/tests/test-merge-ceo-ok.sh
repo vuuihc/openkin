@@ -111,9 +111,10 @@ no_hold_unrelated_paths() {
 # A held deps/migrations/auth PR writes <slug>.blocked and the dispatcher used to skip it forever;
 # the needs-ceo/hold labels are the same hold one step earlier. Both skips call ceo_hold_skip().
 SM="$T/ctrl/rsi/state/merge"; mkdir -p "$SM"
-# The row filter imports these two; copying (not linking) keeps common.sh's +x heal off the real tree.
+# The row filter imports these from the temp RSI_DIR; copying (not linking) keeps common.sh's
+# +x heal off the real tree.
 mkdir -p "$T/ctrl/rsi/runtime"
-cp "$HERE/../item_marker.py" "$HERE/../review-tier.py" "$T/ctrl/rsi/runtime/"
+cp "$HERE/../item_marker.py" "$HERE/../review-tier.py" "$HERE/../pr_select.py" "$T/ctrl/rsi/runtime/"
 
 # check_hold <slug> <labels> [pr] — the dispatcher's hold skip for one row. Sets RC and OUT.
 check_hold() {
