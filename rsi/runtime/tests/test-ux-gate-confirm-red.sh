@@ -9,6 +9,13 @@
 # reproduced failures survive, flakes are recorded (never billed), a new confirm failure is
 # kept, and a confirm that cannot run keeps the first red. A green run walks once.
 #
+# 2026-11-19 (R-ux-gate-confirm-carry): #389's first walk hard-failed 33 lines and the confirm
+# walk on the same tree reproduced 0, yet the reviewer still scored density=2 feedback=2 off
+# the flaked first-walk screenshots: a below-3 verdict, a rework round and a block for evidence
+# the gate itself had just disproved. When confirm.json says reproduced=0 flaked>0 the prompt
+# now hands the reviewer the confirm walk instead of $SHOTS, names the flakes as not evidence,
+# and a below-3 axis is grounded only by confirm-walk evidence; otherwise it is "no verdict".
+#
 # Hermetic: a temp control tree (common.sh + ux-gate.sh, so RSI_DIR and STATE resolve there),
 # a throwaway git repo with an origin/main ref, and stubs for the walk, the reviewer and gh.
 # npm/go/node/gh/curl are booby traps (exit 97), so a seam that reached a build, a daemon or
@@ -80,9 +87,18 @@ printf 'png\n' > "$dir/seed-1-1.png"
 SH
 chmod +x "$WALK_STUB"
 
+# Reviewer stub. Every call appends its prompt path to $REVIEW_LOG and copies the prompt to
+# $PROMPT_DIR/<n>.md, so a case can prove what the gate actually handed the reviewer. Call N
+# reads fixtures from $FIX/N.txt (no fixture = a passing review), the same numbering as the
+# walker's own fixtures but a separate counter.
 REVIEW_STUB="$T/bin/review.sh"
 cat > "$REVIEW_STUB" <<'SH'
 #!/bin/bash
+set -u
+printf '%s\n' "$1" >> "$REVIEW_LOG"
+n="$(wc -l < "$REVIEW_LOG" | tr -d ' ')"
+cp "$1" "$PROMPT_DIR/$n.md"
+if [ -s "$FIX/$n.txt" ]; then cat "$FIX/$n.txt"; exit 0; fi
 printf 'looks fine\n'
 printf 'UX_SCORES: clarity=4 density=4 consistency=4 feedback=4 keyboard=4\n'
 printf 'UX_VERDICT: %s\n' "${REVIEW_VERDICT:-PASS}"
@@ -93,12 +109,14 @@ export WALK_STUB REVIEW_STUB
 
 new_case() {
   CASE="$1"
-  ST="$T/$CASE.state"; FIX="$T/$CASE.fix"; LOG="$T/$CASE.walks.log"
-  rm -rf "$ST" "$FIX" "$LOG"; mkdir -p "$ST" "$FIX"
+  ST="$T/$CASE.state"; FIX="$T/$CASE.fix"; LOG="$T/$CASE.walks.log"; RLOG="$T/$CASE.reviews.log"
+  PDIR="$T/$CASE.prompts"
+  rm -rf "$ST" "$FIX" "$LOG" "$RLOG" "$PDIR"; mkdir -p "$ST" "$FIX" "$PDIR"
   SHOTS="$ST/shots/$SLUG/journeys"; UXD="$ST/ux/$SLUG"; BODY="$ST/merge/$SLUG.ux.txt"
-  : > "$LOG"
+  : > "$LOG"; : > "$RLOG"
 }
 fixture() { printf '%s\n' "$2" > "$FIX/$1.json"; }
+rev_fixture() { printf '%s\n' "$2" > "$FIX/$1.txt"; }
 # hard_section — the lines the sendback bills under `walk hard failures:` (up to the blank line).
 hard_section() {
   awk '/^walk hard failures:$/ { on=1; next } on && /^$/ { exit } on { print }' "$BODY"
@@ -106,13 +124,18 @@ hard_section() {
 run_gate() {
   RSI_CTRL="$CTRL" RSI_UX_STATE="$ST" RSI_UX_COOLDOWN_MIN=0 \
   RSI_UX_WALK_CMD='bash "$WALK_STUB" "$1" "${2:-}"' RSI_UX_REVIEW_CMD='bash "$REVIEW_STUB" "$1"' \
-  WALKS_LOG="$LOG" FIX="$FIX" \
+  WALKS_LOG="$LOG" REVIEW_LOG="$RLOG" PROMPT_DIR="$PDIR" FIX="$FIX" \
     bash "$CTRL/rsi/runtime/ux-gate.sh" "$WT" "$SLUG" "$ITEM" "$PR" deadbeef1234 reviewer \
     > "$T/$CASE.out" 2>&1
   RC=$?
 }
 walks() { wc -l < "$LOG" | tr -d ' '; }
+reviews() { wc -l < "$RLOG" | tr -d ' '; }
+prompt_has() { grep -Fq "$2" "$PDIR/$1.md"; }
 score_field() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["walk_confirm"][sys.argv[2]])' "$UXD/scores.json" "$1"; }
+
+FLAKE="J9/mac: scroll-kept [role=region][tabindex='-1'] is at 0, want 320±48"
+flake_json() { printf '{"hardFail":["%s"],"screens":[]}\n' "$FLAKE"; }
 
 # --- cases -----------------------------------------------------------------------------------
 
@@ -272,6 +295,80 @@ test_stale_confirm_evidence_does_not_poison() {
   [ "$(score_field flaked)" = 1 ] || fail "stale-confirm: the flake was not counted"
 }
 
+# R-ux-gate-confirm-carry case 1: when the confirm walk reproduced nothing, the reviewer must
+# open the confirm walk, not the flaked first walk, and the prompt must say the flakes are not
+# evidence about this PR. With a passing review the gate merges. RED on the branch base, where
+# the prompt still named $SHOTS and never listed the flakes.
+test_flaked_only_red_reviews_confirm_evidence() {
+  new_case flaked_only_pass
+  fixture 1 "$(flake_json)"
+  run_gate
+  [ "$RC" -eq 0 ] || fail "flaked-only-pass: exit $RC, want 0 ($(tail -3 "$T/$CASE.out" | tr '\n' ' '))"
+  [ ! -s "$BODY" ] || fail "flaked-only-pass: a sendback body was written: $(head -3 "$BODY" | tr '\n' ' ')"
+  [ "$(walks)" = 2 ] || fail "flaked-only-pass: $(walks) walks, want exactly 2"
+  [ "$(reviews)" = 1 ] || fail "flaked-only-pass: $(reviews) reviews, want 1"
+  prompt_has 1 "the walk screenshots in $UXD/confirm (" \
+    || fail "flaked-only-pass: the prompt does not name the confirm walk: $(grep -i 'walk screenshots' "$PDIR/1.md" | head -1)"
+  prompt_has 1 "$UXD/confirm/walk.json" || fail "flaked-only-pass: the prompt does not name the confirm walk.json"
+  prompt_has 1 "the walk screenshots in $SHOTS (" && fail "flaked-only-pass: the prompt still names the flaked first walk"
+  prompt_has 1 "$FLAKE" || fail "flaked-only-pass: the prompt does not list the flaked line verbatim"
+  prompt_has 1 "not evidence about this PR" || fail "flaked-only-pass: the prompt does not say the flakes are not evidence"
+  [ "$(score_field reproduced)" = 0 ] || fail "flaked-only-pass: scores.json walk_confirm.reproduced is not 0"
+  [ "$(score_field flaked)" = 1 ] || fail "flaked-only-pass: scores.json walk_confirm.flaked is not 1"
+}
+
+# R-ux-gate-confirm-carry case 2: a below-3 axis grounded only in a flaked line is today's
+# ungrounded axis. Re-asked once with the flakes spelled out; a second answer that still quotes
+# only the flake is "no verdict" (exit 2), never a sendback (exit 1) and never a merge.
+test_flaked_only_red_below_three_is_unavailable() {
+  new_case flaked_only_ungrounded
+  fixture 1 "$(flake_json)"
+  rev_fixture 1 "density: $FLAKE
+UX_SCORES: clarity=4 density=2 consistency=4 feedback=4 keyboard=4
+UX_VERDICT: FAIL"
+  rev_fixture 2 "density: $FLAKE
+UX_SCORES: clarity=4 density=2 consistency=4 feedback=4 keyboard=4
+UX_VERDICT: FAIL"
+  run_gate
+  [ "$RC" -eq 2 ] || fail "flaked-only-ungrounded: exit $RC, want 2 (no verdict, not a sendback)"
+  [ "$(reviews)" = 2 ] || fail "flaked-only-ungrounded: $(reviews) reviews, want 2 (one re-ask)"
+  [ ! -s "$BODY" ] || fail "flaked-only-ungrounded: a sendback body was written"
+  grep -Fq 'density' "$UXD/unavailable.txt" || fail "flaked-only-ungrounded: the reason does not name the axis"
+  grep -Fq 'asked twice' "$UXD/unavailable.txt" || fail "flaked-only-ungrounded: the reason does not say it was asked twice"
+  prompt_has 2 "$FLAKE" || fail "flaked-only-ungrounded: the re-ask does not spell out the flaked line"
+}
+
+# R-ux-gate-confirm-carry case 3 (fail-closed): when the confirm walk reproduces the line, the
+# first walk is the evidence, nothing is called a flake, and the red still sends the PR back.
+test_reproduced_red_still_reviews_first_walk() {
+  new_case reproduced_first_walk
+  fixture 1 "$(flake_json)"
+  fixture 2 "$(flake_json)"
+  run_gate
+  [ "$RC" -eq 1 ] || fail "reproduced-first-walk: exit $RC, want 1 ($(tail -3 "$T/$CASE.out" | tr '\n' ' '))"
+  [ "$(reviews)" = 1 ] || fail "reproduced-first-walk: $(reviews) reviews, want 1"
+  prompt_has 1 "the walk screenshots in $SHOTS (" || fail "reproduced-first-walk: the prompt does not name the first walk"
+  prompt_has 1 "not evidence about this PR" && fail "reproduced-first-walk: the flaked preamble leaked into a reproduced red"
+  hard_section | grep -Fq 'scroll-kept' || fail "reproduced-first-walk: the reproduced line is not billed"
+  grep -Fq 'reproduced=1 flaked=0' "$BODY" || fail "reproduced-first-walk: the body does not count the reproduced line"
+}
+
+# The composition rule: a below-3 axis that DOES name confirm-walk evidence stays a normal
+# sendback. Without this, the new branch would make every below-3 score unavailable, which
+# would hide a real defect the confirm walk did reproduce on screen.
+test_flaked_only_grounded_below_three_is_a_red() {
+  new_case flaked_only_grounded
+  fixture 1 "$(flake_json)"
+  rev_fixture 1 "density: seed-1-1.png (confirm walk) shows a cramped empty state; the transcript is clipped.
+UX_SCORES: clarity=4 density=2 consistency=4 feedback=4 keyboard=4
+UX_VERDICT: FAIL"
+  run_gate
+  [ "$RC" -eq 1 ] || fail "flaked-only-grounded: exit $RC, want 1 ($(tail -3 "$T/$CASE.out" | tr '\n' ' '))"
+  [ "$(reviews)" = 1 ] || fail "flaked-only-grounded: $(reviews) reviews, want 1 (confirm evidence needs no re-ask)"
+  [ ! -e "$UXD/unavailable.txt" ] || fail "flaked-only-grounded: a grounded confirm finding was recorded as unavailable"
+  grep -Fq 'density: seed-1-1.png' "$BODY" || fail "flaked-only-grounded: the confirm evidence line is not billed"
+}
+
 # The manifest must keep pointing at this gate and this suite: a rotted `old` would retire
 # the red proof silently.
 test_mutant_manifest_points_at_this_gate() {
@@ -321,6 +418,10 @@ run test_unattributable_failure_skips_confirm
 run test_step_named_failure_is_confirmed
 run test_known_artefact_does_not_count_as_reproduced
 run test_stale_confirm_evidence_does_not_poison
+run test_flaked_only_red_reviews_confirm_evidence
+run test_flaked_only_red_below_three_is_unavailable
+run test_reproduced_red_still_reviews_first_walk
+run test_flaked_only_grounded_below_three_is_a_red
 run test_mutant_manifest_points_at_this_gate
 [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo "ux-gate confirm-red contract: $RAN/$RAN cases passed"
