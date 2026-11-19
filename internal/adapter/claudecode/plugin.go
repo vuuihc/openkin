@@ -99,7 +99,10 @@ func (f *PluginFactory) Open(ctx context.Context) (agent.Registration, error) {
 				return agent.Status{
 					Installed: false,
 					Available: false,
-					Reason:    fmt.Sprintf("claude binary not found (%q)", bin),
+					// The resolver's sentence names every place it looked;
+					// discarding it leaves a person unable to tell a missing
+					// install from a detection bug.
+					Reason: fmt.Sprintf("claude binary not found: %v", err),
 				}
 			}
 			return agent.Status{Installed: true, Available: true, Binary: path}

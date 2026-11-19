@@ -179,7 +179,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(screen.getAllByText("Available").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Sign-in required").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Default").length).toBeGreaterThan(0);
-    expect(screen.getByText("2 / 10 connected")).toBeTruthy();
+    expect(screen.getByText("2 / 10 in catalog")).toBeTruthy();
   });
 
   it("offers an install entry when nothing is connected", async () => {
@@ -192,7 +192,31 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(await screen.findByText("No agents yet")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Install an agent" }));
     expect(await screen.findByText("Discovered on this machine")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Connect" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add Cursor to catalog" })).toBeTruthy();
+  });
+
+  it("calls a runnable discovery available outside the catalog, not disconnected", async () => {
+    // The daemon says the product is installed and available: Kin can run it
+    // right now. The only missing step is a person's decision to spend one of
+    // the ten slots, so the row must not read "Not connected".
+    const gemini = product({ id: "gemini-cli", name: "Gemini CLI" });
+    writeConnectedFamilies(["codex"]);
+    client.listAgents.mockResolvedValue([gemini, codex]);
+    renderPage();
+
+    expect(await screen.findByText("1 / 10 in catalog")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "View" }));
+
+    expect(await screen.findByText("Gemini CLI")).toBeTruthy();
+    expect(screen.getByText("Available — not in your catalog")).toBeTruthy();
+    expect(screen.queryByText("Not connected")).toBeNull();
+    expect(screen.getByRole("button", { name: "Add Gemini CLI to catalog" })).toBeTruthy();
+
+    // The confirmation speaks the same verb.
+    fireEvent.click(screen.getByRole("button", { name: "Add Gemini CLI to catalog" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Add Gemini CLI to the catalog?")).toBeTruthy();
+    expect(readConnectedFamilies()).not.toContain("gemini");
   });
 
   it("keeps a discovery out of the catalog until the confirmation returns", async () => {
@@ -203,17 +227,23 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     // The catalog is the products Kin can host; the sighting is a prompt.
     expect(screen.queryAllByText("Cursor")).toHaveLength(0);
-    expect(screen.getByText("1 discovered, not connected")).toBeTruthy();
+    expect(screen.getByText("1 discovered, not in the catalog")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Cursor to catalog" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Connect Cursor?")).toBeTruthy();
+    expect(within(dialog).getByText("Add Cursor to the catalog?")).toBeTruthy();
     expect(within(dialog).getByText(/does not import Cursor's history sessions/i)).toBeTruthy();
+    // Cursor is installed but not available; the intro must not claim Kin can
+    // already run it.
+    expect(
+      within(dialog).getByText("Kin found Cursor on this machine. It is not in your catalog yet."),
+    ).toBeTruthy();
+    expect(within(dialog).queryByText(/already run/i)).toBeNull();
     // Reading the explanation changes nothing on its own.
     expect(screen.getAllByText("Cursor")).toHaveLength(1);
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Connect Cursor" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(await screen.findByText("Cursor", { selector: "span.font-medium" })).toBeTruthy();
@@ -221,7 +251,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(readConnectedFamilies()).toContain("cursor");
   });
 
-  it("keeps a failed connect out of the catalog and offers a retry", async () => {
+  it("keeps a failed add out of the catalog and offers a retry", async () => {
     writeConnectedFamilies(["claude", "codex"]);
     // The first read is fine; every read after it fails, so the confirmation's
     // reread is the one that breaks no matter how many reads the shell makes.
@@ -235,13 +265,13 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Cursor to catalog" }));
     const dialog = await screen.findByRole("dialog");
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Connect Cursor" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
     expect(
-      await screen.findByText(/Couldn't connect Cursor: Error: daemon went away/),
+      await screen.findByText(/Couldn't add Cursor to the catalog: Error: daemon went away/),
     ).toBeTruthy();
     // The dialog stays open so the same button is the retry, and the catalog
     // did not grow a row that only exists because a request failed.
@@ -257,14 +287,12 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     client.listAgents.mockResolvedValue([...ten, cursor]);
     renderPage();
 
-    expect(await screen.findByText("10 / 10 connected")).toBeTruthy();
+    expect(await screen.findByText("10 / 10 in catalog")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
+    expect(screen.getByText("The catalog is full. Remove one before adding another.")).toBeTruthy();
     expect(
-      screen.getByText("The catalog is full. Remove or merge one before connecting another."),
-    ).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+      (screen.getByRole("button", { name: "Add Cursor to catalog" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("imports nothing unless Import is pressed, then asks for this machine only", async () => {
@@ -414,7 +442,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(screen.getAllByText("Claude Code").length).toBeGreaterThan(0);
     // Removal is a catalog decision, not an uninstall: the agent is still on
     // the machine, so it is offered for connecting again.
-    expect(screen.getByText("1 discovered, not connected")).toBeTruthy();
+    expect(screen.getByText("1 discovered, not in the catalog")).toBeTruthy();
   });
 
   it("asks the shared machine snapshot to reload after setting a default here", async () => {
@@ -610,26 +638,29 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     renderPage();
 
     expect(
-      await screen.findByText("1 connected product(s) this machine no longer reports"),
+      await screen.findByText("1 product(s) in the catalog this machine no longer reports"),
     ).toBeTruthy();
     // The header and the cap count the same slots: ten, not the nine rows.
-    expect(screen.getByText("10 / 10 connected")).toBeTruthy();
+    expect(screen.getByText("10 / 10 in catalog")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     // Nine rows plus the lost family is ten slots: the catalog is full, and a
     // hole nobody can see would otherwise block every new product forever.
-    expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(
+      (screen.getByRole("button", { name: "Add Cursor to catalog" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove vanished" }));
 
     await waitFor(() =>
-      expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(
-        false,
-      ),
+      expect(
+        (screen.getByRole("button", { name: "Add Cursor to catalog" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
     );
     expect(readConnectedFamilies()).not.toContain("vanished");
-    expect(screen.queryByText("1 connected product(s) this machine no longer reports")).toBeNull();
+    expect(
+      screen.queryByText("1 product(s) in the catalog this machine no longer reports"),
+    ).toBeNull();
   });
 
   it("cancels a connect that is still in flight", async () => {
@@ -647,9 +678,9 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Cursor to catalog" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Connect Cursor" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
     // Cancel is a decision: the answer that arrives later must not add it.
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -665,7 +696,9 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(screen.queryAllByText("Cursor", { selector: "span.font-medium" })).toHaveLength(0);
     // And no late "connected" toast for a request the person canceled.
     expect(
-      useAppStore.getState().toasts.some((toast) => toast.message === "Cursor connected"),
+      useAppStore
+        .getState()
+        .toasts.some((toast) => toast.message === "Cursor added to the catalog"),
     ).toBe(false);
   });
 
@@ -682,12 +715,14 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Cursor to catalog" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Connect Cursor" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
     expect(
-      await screen.findByText("Couldn't connect Cursor: this machine no longer reports it"),
+      await screen.findByText(
+        "Couldn't add Cursor to the catalog: this machine no longer reports it",
+      ),
     ).toBeTruthy();
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(readConnectedFamilies()).not.toContain("cursor");
@@ -712,9 +747,9 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Cursor to catalog" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Connect Cursor" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
     await act(async () => {
       useAppStore.setState({ reconnectGen: 1 });
@@ -1004,7 +1039,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Cursor to catalog" }));
 
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
