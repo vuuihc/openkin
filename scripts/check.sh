@@ -203,6 +203,7 @@ job_shell_test() {
   bash rsi/runtime/format-changed.test.sh || return 1
   bash rsi/runtime/tests/node-stamp-test.sh || return 1
   bash rsi/runtime/tests/test-escalate.sh || return 1
+  bash rsi/runtime/tests/test-weekly-report.sh || return 1
   bash rsi/runtime/tests/test-gate-backpressure.sh || return 1
   bash rsi/runtime/tests/test-outside-tests.sh || return 1
   bash rsi/runtime/tests/test-throughput.sh || return 1

@@ -5,7 +5,7 @@
 //   node walk.mjs --resolve-j5 DIR/seed.log [--spec path/to/journeys.json]   (print the resolved J5 row-menu step or skip; no browser)
 //   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
 //   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
-//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J7's landing contract, J9's Mac switch, J11's phone switch and J12's thumb gestures; no browser)
+//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J1's phone search/approve/deny leg, J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J6's default-agent change/reload/restore, J7's landing contract, J9's Mac switch, J11's phone switch and J12's thumb gestures; no browser)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
 // Ops are documented in journeys.json `_doc`. One op is not listed there
 // because it belongs to one story: `history-back` is the browser's own Back
@@ -1867,11 +1867,334 @@ function checkJ14Contract(spec) {
   }
   return errs;
 }
+// J1's contract: the phone leg must find last week's chat, search and filter
+// the list, and then decide two real cards — approve one, deny another —
+// reading each answer's control off the screen. Every one of those steps can
+// be deleted today with the gate green; only a 20-minute browser walk notices,
+// and only if it happens to fail. The deep links reason about the seed's
+// placeholders (`--resolve-j1` fills them), never about an invented id.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ1Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J1) || {};
+  const steps = journey.steps;
+  // Registration is the point: deleting the one index line must be loud, or
+  // the phone's search/approve/deny walk can be retired by an edit no gate
+  // notices.
+  if (!journey.title && !Array.isArray(steps)) return ['J1 is not in the spec'];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J1 has no steps'];
+  const errs = [];
+  const required = (v) => typeof v === 'string' && !v.startsWith('?');
+  const bare = (v) => String(v).replace(/^\?/, '');
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st, i));
+
+  // Phone only: the search field, the filter sheet and the approval card are
+  // the 390px surfaces; a Mac width would walk a layout this leg never claims.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'phone') {
+    errs.push('J1 is the phone approve/deny proof: its viewports must be exactly ["phone"]');
+  }
+
+  // Only setup steps — a fill or a click — may be optional. Every `gone`,
+  // `wait`, `count`, `url`, `key`, `focus`, `value` and `active` is a proof,
+  // and a `?`-prefixed proof that misses is logged as `skipped`: the walk
+  // stays green while the decision is dead. (The decisions' own presses are
+  // pinned as mandatory below, so an optional click cannot hide one.)
+  steps.forEach((st) => {
+    if (!Array.isArray(st)) return;
+    if (!st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'))) return;
+    if (st[0] !== 'fill' && st[0] !== 'click') {
+      errs.push('J1 step ' + JSON.stringify(st) + ' is optional; only a fill or a click setup step may be optional, every proof must be mandatory');
+    }
+  });
+
+  // The list is searched and filtered before either decision: deleting any of
+  // the three leaves the walk starting on a card, not on the list a person
+  // actually uses to find last week's chat.
+  const firstTaskAt = idx((st) => st[0] === 'goto' && /\/tasks\//.test(bare(sel(st, 1))));
+  const searchAt = idx((st) => st[0] === 'fill' && /input\[type=search\]/.test(sel(st, 1)) && sel(st, 2).trim() !== '');
+  const filterAt = idx((st) => st[0] === 'click' && /筛选|Filter/.test(sel(st, 1)));
+  const escapeAt = idx((st) => st[0] === 'key' && sel(st, 1) === 'Escape');
+  if (searchAt < 0) errs.push('J1 never searches the list before the decisions (fill … input[type=search] with a term)');
+  if (filterAt < 0) errs.push('J1 never opens the search filter before the decisions (click 筛选 / Filter)');
+  if (escapeAt < 0) errs.push('J1 never closes the search filter with Escape before the decisions');
+  if (searchAt >= 0 && filterAt >= 0 && filterAt < searchAt) {
+    errs.push('J1 opens the filter before it searches; the search leg is fill, filter, Escape');
+  }
+  if (filterAt >= 0 && escapeAt >= 0 && escapeAt < filterAt) {
+    errs.push('J1 presses Escape before it opens the filter; the search leg is fill, filter, Escape');
+  }
+  if (firstTaskAt >= 0) {
+    if (searchAt > firstTaskAt) errs.push('J1 searches the list only after the first decision; the search leg must come first');
+    if (filterAt > firstTaskAt) errs.push('J1 opens the filter only after the first decision; the search leg must come first');
+    if (escapeAt > firstTaskAt) errs.push('J1 presses Escape only after the first decision; the search leg must come first');
+  }
+
+  // Each decision is a landing, a press and a consequence. The deep link must
+  // name the seed's own placeholders; the press must follow the landing; and a
+  // mandatory `gone` must follow the press, because a card still showing its
+  // control after the walk says it decided was never decided.
+  const APPROVE = /批准|Approve/;
+  const DENY = /拒绝|Deny/;
+  const linkAt = (name) => idx((st) => st[0] === 'goto' && required(sel(st, 1))
+    && /\/tasks\//.test(bare(sel(st, 1))) && bare(sel(st, 1)).includes('{' + name + '.conversation}'));
+  const pressAt = (re) => idx((st) => st[0] === 'click' && required(sel(st, 1)) && re.test(bare(sel(st, 1))));
+  const goneAt = (re, from) => idx((st) => st[0] === 'gone' && required(sel(st, 1)) && re.test(bare(sel(st, 1))), from);
+  const approveAt = linkAt('approve');
+  const approvePress = pressAt(APPROVE);
+  const approveGone = approvePress < 0 ? -1 : goneAt(APPROVE, approvePress + 1);
+  const denyAt = linkAt('deny');
+  const denyPress = pressAt(DENY);
+  const denyGone = denyPress < 0 ? -1 : goneAt(DENY, denyPress + 1);
+  if (approveAt < 0) {
+    errs.push('J1 has no required approve deep link naming {approve.conversation} and focus={approve.focus}');
+  } else if (!bare(sel(steps[approveAt], 1)).includes('{approve.focus}')) {
+    errs.push('J1\'s approve deep link never names focus={approve.focus}; the card it opens is whatever landed');
+  }
+  if (approvePress < 0) errs.push('J1 never presses the approve control (批准 / Approve)');
+  else if (approveAt >= 0 && approvePress < approveAt) errs.push('J1 presses approve before the approve deep link lands on the card');
+  if (approveGone < 0) errs.push('J1 never proves the approve control left the screen after the answer (gone 批准 / Approve)');
+  else if (denyAt >= 0 && approveGone > denyAt) {
+    errs.push('J1 reads the approve control gone only after the deny card landed; the approve answer must be proven on its own card');
+  }
+  if (denyAt < 0) {
+    errs.push('J1 has no required deny deep link naming {deny.conversation} and focus={deny.focus}');
+  } else if (!bare(sel(steps[denyAt], 1)).includes('{deny.focus}')) {
+    errs.push('J1\'s deny deep link never names focus={deny.focus}; the card it opens is whatever landed');
+  }
+  if (denyPress < 0) errs.push('J1 never presses the deny control (拒绝 / Deny)');
+  else if (denyAt >= 0 && denyPress < denyAt) errs.push('J1 presses deny before the deny deep link lands on the card');
+  if (denyGone < 0) errs.push('J1 never proves the deny control left the screen after the answer (gone 拒绝 / Deny)');
+
+  // Two decisions, two cards: a copy-paste that points the deny leg at the
+  // approve conversation approves and denies the same card, and the second
+  // press lands on something already answered. The approve conversation is
+  // decided first, and the deny link must not borrow either approve
+  // placeholder (nor the approve link a deny one).
+  if (approveAt >= 0 && denyAt >= 0) {
+    const approveLink = bare(sel(steps[approveAt], 1));
+    const denyLink = bare(sel(steps[denyAt], 1));
+    if (/\{approve\.(conversation|focus)\}/.test(denyLink) || /\{deny\.(conversation|focus)\}/.test(approveLink)) {
+      errs.push('J1 points both decisions at the same conversation: the approve and deny deep links must name different placeholders');
+    }
+    if (denyAt < approveAt) errs.push('J1 denies before it approves: the approve conversation must be decided first');
+  }
+
+  // No Mac-only input: a hover is a mouse a phone does not have, a platform
+  // chord is the desktop's shortcut, and a viewport scope is a leg that never
+  // runs at 390.
+  steps.forEach((st) => {
+    if (!Array.isArray(st)) return;
+    if (st[0] === 'hover') errs.push('J1 hovers a control; the phone walk must press, not hover (Mac-only input)');
+    if (st[0] === 'vp' && String(st[1] || '') !== '') errs.push('J1 scopes steps to ' + JSON.stringify(st[1]) + '; a Mac-only viewport scope has no place in the phone leg');
+    if (st[0] === 'key' && /meta|cmd|ctrl|alt/i.test(sel(st, 1))) errs.push('J1 presses the Mac-only chord ' + JSON.stringify(sel(st, 1)));
+  });
+
+  // A mandatory press must be followed by the state it changed before the next
+  // press starts; the optional filter click is setup, and its proof is the
+  // `gone` after each answer.
+  const ASSERT_OPS = new Set(['wait', 'gone', 'count', 'url', 'search', 'value', 'active']);
+  const clicks = steps.map((st, i) => i).filter((i) => Array.isArray(steps[i]) && steps[i][0] === 'click' && required(steps[i][1]));
+  clicks.forEach((at, k) => {
+    const next = k + 1 < clicks.length ? clicks[k + 1] : steps.length;
+    if (!steps.some((st, i) => i > at && i < next && Array.isArray(st) && ASSERT_OPS.has(st[0]))) {
+      errs.push(`J1's click at step ${at + 1} (${sel(steps[at], 1)}) is never followed by an assertion before the next click`);
+    }
+  });
+
+  // The paths table selects the journeys `--files` walks, first match wins. A
+  // list or conversation diff that drops J1 would let the phone's decisions
+  // rot without the gate ever walking them.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ1 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J1');
+  };
+  for (const file of ['ui/src/pages/SessionsPage.tsx', 'ui/src/components/mobile/MobileList.tsx', 'ui/src/pages/TaskDetailPage.tsx']) {
+    if (!mapsToJ1(file)) {
+      errs.push(`the paths table does not map ${file} to J1; a diff there would not walk the phone search/approve/deny leg`);
+    }
+  }
+  return errs;
+}
+// J6's contract: the settings leg must change the default agent, prove the
+// next new chat hosts it, and put the old value back. The chain is four
+// settings surfaces (the legacy `/agents` redirect included), the default row
+// read in both locales, both agents counted in the picker, the pick, the save,
+// a reload that proves persistence, the `/new` read, and the restore.
+// Deleting any one leaves the walk green while the default silently stayed —
+// or leaves the daemon hosting Codex for every later journey.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ6Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J6) || {};
+  const steps = journey.steps;
+  // Registration is the point: deleting the one index line must be loud, or
+  // the settings walk can be retired by an edit no gate notices.
+  if (!journey.title && !Array.isArray(steps)) return ['J6 is not in the spec'];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J6 has no steps'];
+  const errs = [];
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st, i));
+  const after = (from, pred) => (from < 0 ? -1 : idx(pred, from + 1));
+  const SAVE = /保存默认 agent|Save default agent/;
+  const STATUS = /\[role=['"]?status['"]?\]/;
+  const SAVED = /已保存|Saved/;
+
+  // No optional steps at all: every address, count, wait and click is a
+  // proof, and a `?`-prefixed step that misses is logged as `skipped` — the
+  // walk stays green while the default never changed.
+  steps.forEach((st) => {
+    if (Array.isArray(st) && st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'))) {
+      errs.push('J6 step ' + JSON.stringify(st) + ' is optional; every J6 proof must be mandatory');
+    }
+  });
+
+  // The default is changed at the phone and read at the Mac (the walk runs
+  // both widths); one viewport would walk half the story.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 2 || viewports[0] !== 'phone' || viewports[1] !== 'mac') {
+    errs.push('J6 changes and reads the default at both widths: its viewports must be exactly ["phone","mac"]');
+  }
+
+  // The restore leg's first press — the picker option that puts claude-code
+  // back — bounds the Codex leg, so a Codex leg that lost its save cannot
+  // borrow the restore leg's.
+  const restoreAt = idx((st) => st[0] === 'click' && sel(st, 1).includes('(claude-code)'));
+  const beforeRestore = (i) => restoreAt < 0 || i < restoreAt;
+
+  // The choice under test: the Codex picker option. Everything that reads the
+  // before-picture must precede it.
+  const pickAt = idx((st) => st[0] === 'click' && sel(st, 1).includes('(codex)'));
+
+  // The four surfaces are a chain: 设置 → 运维 → the legacy /agents redirect
+  // → providers. Each is its own address, and all precede the choice.
+  const surfaces = ['/settings', '/settings?tab=operations', '/agents', '/settings?tab=providers'];
+  const surfaceAts = surfaces.map((p) => idx((st) => st[0] === 'goto' && sel(st, 1) === p));
+  surfaceAts.forEach((at, k) => {
+    if (at < 0) errs.push(`J6 never visits ${surfaces[k]} among the settings surfaces before it chooses an agent`);
+    else if (pickAt >= 0 && at > pickAt) errs.push(`J6's settings surfaces are out of order: ${surfaces[k]} must be visited before the first agent choice`);
+  });
+  for (let k = 1; k < surfaceAts.length; k += 1) {
+    if (surfaceAts[k - 1] >= 0 && surfaceAts[k] >= 0 && surfaceAts[k] < surfaceAts[k - 1]) {
+      errs.push(`J6 visits ${surfaces[k]} before ${surfaces[k - 1]}; the settings surfaces are a chain`);
+    }
+  }
+
+  // The default row is read in both locales before the change: the walk shows
+  // the before-picture, not only the after.
+  const descAt = idx((st) => st[0] === 'wait' && sel(st, 1).includes('#default-agent-desc')
+    && sel(st, 1).includes('新建对话默认用它') && sel(st, 1).includes('A new chat starts with this agent'));
+  if (descAt < 0) {
+    errs.push('J6 never reads the default-agent row in both locales (wait #default-agent-desc … 新建对话默认用它 … A new chat starts with this agent)');
+  } else if (pickAt >= 0 && descAt > pickAt) {
+    errs.push('J6 reads the default-agent row only after it chose an agent; the row is the before-picture');
+  }
+
+  // Both agents must be listed before the choice: a picker that quietly lost
+  // one option cannot offer the change the leg claims.
+  const countAt = (tag) => idx((st) => st[0] === 'count' && sel(st, 1).includes('(' + tag + ')') && sel(st, 2) === '1');
+  const claudeCountAt = countAt('claude-code');
+  const codexCountAt = countAt('codex');
+  // The counts read the open list: a count moved before the trigger press
+  // would find no visible option, and the browser walk would fail for a
+  // reason the spec check should have named first.
+  const openAt = idx((st) => st[0] === 'click' && sel(st, 1).includes('aria-describedby') && sel(st, 1).includes('aria-haspopup'));
+  if (claudeCountAt < 0) errs.push('J6 never counts the picker listing claude-code exactly once (count … (claude-code) 1)');
+  if (codexCountAt < 0) errs.push('J6 never counts the picker listing codex exactly once (count … (codex) 1)');
+  [['claude-code', claudeCountAt], ['codex', codexCountAt]].forEach(([tag, at]) => {
+    if (at >= 0 && pickAt >= 0 && at > pickAt) errs.push(`J6 counts the picker's ${tag} option only after the choice; both agents must be listed first`);
+    if (at >= 0 && openAt >= 0 && at < openAt) errs.push(`J6 counts the picker's ${tag} option before the picker is opened; the count must read the open list`);
+  });
+
+  // The choice and the save: the trigger must move to codex, the save must be
+  // pressed, and the status must say it landed. Three separate proofs — a
+  // press nobody reads is a photograph of a page that may not have moved.
+  const codexTriggerAt = after(pickAt, (st, i) => beforeRestore(i) && st[0] === 'wait' && /aria-label/.test(sel(st, 1)) && sel(st, 1).includes('(codex)'));
+  const saveAt = after(codexTriggerAt, (st, i) => beforeRestore(i) && st[0] === 'click' && SAVE.test(sel(st, 1)));
+  const savedAt = after(saveAt, (st, i) => beforeRestore(i) && st[0] === 'wait' && STATUS.test(sel(st, 1)) && SAVED.test(sel(st, 1)));
+  if (pickAt < 0) errs.push('J6 never chooses Codex in the agent picker (click … (codex))');
+  if (codexTriggerAt < 0) errs.push("J6 never proves the picker's trigger switched to codex (wait … aria-label … (codex))");
+  if (saveAt < 0) errs.push('J6 never saves the new default (click 保存默认 agent / Save default agent)');
+  if (savedAt < 0) errs.push('J6 never proves the save landed (wait [role=status] … 已保存 / Saved)');
+
+  // Persistence: the page that saved the default cannot prove it — the walk
+  // must reload /settings?tab=providers and read codex off the trigger again,
+  // and it must do so before /new (the new chat reads the daemon's value, and
+  // a reload after /new would prove the next chat, not this one).
+  const reloadAt = after(savedAt, (st, i) => beforeRestore(i) && st[0] === 'goto' && sel(st, 1).includes('/settings?tab=providers'));
+  const persistedAt = after(reloadAt, (st, i) => beforeRestore(i) && st[0] === 'wait' && /aria-label/.test(sel(st, 1)) && sel(st, 1).includes('(codex)'));
+  const newAt = after(savedAt, (st, i) => beforeRestore(i) && st[0] === 'goto' && sel(st, 1) === '/new');
+  if (reloadAt < 0) {
+    errs.push('J6 never reloads the settings page after the save (goto /settings?tab=providers); a default that only lives in the page that saved it is not persisted');
+  }
+  if (persistedAt < 0) {
+    errs.push('J6 never proves the default persisted across the reload (wait trigger … (codex) after the reload goto)');
+  }
+  if (persistedAt >= 0 && newAt >= 0 && persistedAt > newAt) {
+    errs.push('J6 reads the persisted default only after it opens /new; the reload proof must precede the new chat');
+  }
+
+  // The next new chat hosts it: the composer's run-settings trigger names
+  // Codex. This is the user-visible consequence of the change.
+  const hostsAt = after(newAt, (st, i) => beforeRestore(i) && st[0] === 'wait' && /运行设置|Run settings/.test(sel(st, 1)) && /Codex/.test(sel(st, 1)));
+  if (newAt < 0) errs.push('J6 never opens a new chat after the save (goto /new)');
+  if (hostsAt < 0) errs.push('J6 never proves the next new chat hosts Codex (goto /new then wait 运行设置 … Codex)');
+
+  // The restore leg leaves the daemon as found: the shipped default is
+  // claude-code, and a walk that ends hosting Codex poisons every later
+  // journey against the same daemon.
+  if (restoreAt < 0) {
+    errs.push('J6 never restores the shipped default after the Codex read (click … (claude-code))');
+  } else {
+    if (hostsAt >= 0 && restoreAt < hostsAt) {
+      errs.push('J6 restores the default before it reads the new chat hosting Codex');
+    }
+    const restoreTriggerAt = after(restoreAt, (st) => st[0] === 'wait' && /aria-label/.test(sel(st, 1)) && sel(st, 1).includes('(claude-code)'));
+    const restoreSaveAt = after(restoreTriggerAt, (st) => st[0] === 'click' && SAVE.test(sel(st, 1)));
+    const restoreSavedAt = after(restoreSaveAt, (st) => st[0] === 'wait' && STATUS.test(sel(st, 1)) && SAVED.test(sel(st, 1)));
+    const restoreNewAt = after(restoreSavedAt, (st) => st[0] === 'goto' && sel(st, 1) === '/new');
+    const restoreHostsAt = after(restoreNewAt, (st) => st[0] === 'wait' && /运行设置|Run settings/.test(sel(st, 1)) && /Claude Code/.test(sel(st, 1)));
+    if (restoreTriggerAt < 0) errs.push('J6 never proves the trigger returned to claude-code (wait … (claude-code))');
+    if (restoreSaveAt < 0) errs.push('J6 never saves the restored default; the walk leaves the daemon hosting Codex');
+    if (restoreSavedAt < 0) errs.push('J6 never proves the restore save landed (wait [role=status] … 已保存 / Saved)');
+    if (restoreNewAt < 0) errs.push('J6 never opens a new chat after the restore (goto /new)');
+    if (restoreHostsAt < 0) errs.push('J6 never proves the restored new chat hosts Claude Code (goto /new then wait 运行设置 … Claude Code)');
+  }
+
+  // Every click must be followed by the state it changed before the next
+  // click starts; a press with no read is a photograph of a page that may not
+  // have moved.
+  const ASSERT_OPS = new Set(['wait', 'gone', 'count', 'url', 'search', 'value', 'active']);
+  const clicks = steps.map((st, i) => i).filter((i) => Array.isArray(steps[i]) && steps[i][0] === 'click');
+  clicks.forEach((at, k) => {
+    const next = k + 1 < clicks.length ? clicks[k + 1] : steps.length;
+    if (!steps.some((st, i) => i > at && i < next && Array.isArray(st) && ASSERT_OPS.has(st[0]))) {
+      errs.push(`J6's click at step ${at + 1} (${sel(steps[at], 1)}) is never followed by an assertion before the next click`);
+    }
+  });
+
+  // The paths table selects the journeys `--files` walks, first match wins. A
+  // settings diff that drops J6 would let the default-agent walk rot without
+  // the gate ever walking it.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ6 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J6');
+  };
+  for (const file of ['ui/src/pages/SettingsPage.tsx', 'ui/src/pages/AgentsPage.tsx', 'ui/src/components/settings/ProviderSettingsSection.tsx']) {
+    if (!mapsToJ6(file)) {
+      errs.push(`the paths table does not map ${file} to J6; a diff there would not walk the default-agent change`);
+    }
+  }
+  return errs;
+}
 if (process.argv.includes('--check-spec')) {
+  const j1 = checkJ1Contract(spec);
   const j2 = checkJ2Contract(spec);
   const j3 = checkJ3Contract(spec);
   const j4 = checkJ4Contract(spec);
   const j5 = checkJ5Contract(spec);
+  const j6 = checkJ6Contract(spec);
   const j7 = checkJ7Contract(spec);
   const j8 = checkJ8Contract(spec);
   const j9 = checkJ9Contract(spec);
@@ -1880,11 +2203,13 @@ if (process.argv.includes('--check-spec')) {
   const j12 = checkJ12Contract(spec);
   const j13 = checkJ13Contract(spec);
   const j14 = checkJ14Contract(spec);
-  if (j2.length || j3.length || j4.length || j5.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length || j14.length) {
+  if (j1.length || j2.length || j3.length || j4.length || j5.length || j6.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length || j14.length) {
+    if (j1.length) { console.log('spec red: J1'); j1.forEach((e) => console.log(' - ' + e)); }
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
     if (j4.length) { console.log('spec red: J4'); j4.forEach((e) => console.log(' - ' + e)); }
     if (j5.length) { console.log('spec red: J5'); j5.forEach((e) => console.log(' - ' + e)); }
+    if (j6.length) { console.log('spec red: J6'); j6.forEach((e) => console.log(' - ' + e)); }
     if (j7.length) { console.log('spec red: J7'); j7.forEach((e) => console.log(' - ' + e)); }
     if (j8.length) { console.log('spec red: J8'); j8.forEach((e) => console.log(' - ' + e)); }
     if (j9.length) { console.log('spec red: J9'); j9.forEach((e) => console.log(' - ' + e)); }
@@ -1895,12 +2220,14 @@ if (process.argv.includes('--check-spec')) {
     if (j14.length) { console.log('spec red: J14'); j14.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
+  console.log('spec ok: J1 searches the list, filters it, and approves one card and denies another with both controls read gone');
   console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
   console.log('spec ok: J2 keeps a saved comment across a rerun — re-anchored to its new line, then 该行已变化 when the quoted line is gone');
   console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
   console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
   console.log('spec ok: J4 reads the cover\'s 工作方式 block, sends the pre-filled prompt, edits the file, and proves the same cut on the cover and in the agent\'s receipt');
   console.log('spec ok: J5 opens the running row\'s menu and pins rename, pin, archive, delete and a disabled 运行中 line');
+  console.log('spec ok: J6 changes the default agent at both widths, proves it persisted and hosts the next new chat, then restores it');
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
   console.log('spec ok: J8 taps a changed line at 390, saves the sheet, sends the tray, and proves path, hunk and quote');
   console.log('spec ok: J9 keeps the shell, the scroll and the draft across a switch');
