@@ -32,6 +32,16 @@
 # window waiting on it. A daemon that never becomes healthy emits no
 # `sidecar-ready`, and the run fails instead of reporting the remaining marks.
 #
+# Once the console document has loaded, React still has to commit a screen:
+# `main.tsx` awaits the Hub/auth probe before `createRoot(...).render(...)`.
+# Since R-console-interactive the renderer reports that first commit over IPC
+# and the shell stamps `console-interactive` on the same clock, so the gap from
+# `sidecar-ready` to a usable console is measured instead of assumed. The mark
+# is refused unless the reporting frame is the console's own URL and is stamped
+# at most once per launch (a reload must not produce a second one). `shell-total`
+# stays pinned to `window-first-load`: the new mark is deliberately later, and
+# redefining an existing name would silently change every earlier table.
+#
 # Safety: never touches the live node on :7777, ~/.kin, or
 # ~/Library/Application Support/Kin*. Every run uses mktemp directories and a
 # reserved port; a state directory under $HOME/.kin is refused before anything
@@ -65,7 +75,7 @@ POLL_S=0.2
 # Marks the finding needs, in the order the shell emits them. Each must appear
 # exactly once in a run; the first line of defence against a half-launched
 # shell that would otherwise look like a very fast one.
-REQUIRED="process app-ready sidecar-start sidecar-ready window-created window-ready-to-show window-shown window-first-load"
+REQUIRED="process app-ready sidecar-start sidecar-ready window-created window-ready-to-show window-shown window-first-load console-interactive"
 
 ELECTRON="$ROOT/desktop/node_modules/.bin/electron"
 
@@ -386,15 +396,18 @@ noise that must be ignored
 [kin-desktop] trace window-ready-to-show 1460
 [kin-desktop] trace window-shown 1462
 [kin-desktop] trace window-first-load 1603
+[kin-desktop] trace console-interactive 1780
 [kin-desktop] trace this line is not a mark
 EOF
 
   trace_marks "$fixture" >"$marks"
-  [[ "$(wc -l <"$marks" | tr -d ' ')" == "8" ]] ||
-    fail "selftest: expected 8 parsed marks, got $(wc -l <"$marks" | tr -d ' ')"
+  [[ "$(wc -l <"$marks" | tr -d ' ')" == "9" ]] ||
+    fail "selftest: expected 9 parsed marks, got $(wc -l <"$marks" | tr -d ' ')"
   [[ -z "$(missing_marks "$marks")" ]] || fail "selftest: a complete fixture reported missing:$(missing_marks "$marks")"
   [[ "$(awk -F'\t' '$1 == "window-first-load" { print $2 }' "$marks")" == "1603" ]] ||
     fail "selftest: window-first-load did not parse to 1603ms"
+  [[ "$(awk -F'\t' '$1 == "console-interactive" { print $2 }' "$marks")" == "1780" ]] ||
+    fail "selftest: console-interactive did not parse to 1780ms"
 
   # A run with one required mark absent must be rejected.
   awk -F'\t' '$1 != "window-shown"' "$marks" >"$broken"
@@ -427,7 +440,7 @@ print("FAIL: port %d is already listening" % port, file=sys.stderr)
 sys.exit(1)
 PY
 
-  echo "ok desktop-startup selftest: 8 mark lines parsed, required-mark check rejects a gap, \$HOME/.kin refused, reserved port free"
+  echo "ok desktop-startup selftest: 9 mark lines parsed, required-mark check rejects a gap, \$HOME/.kin refused, reserved port free"
   exit 0
 }
 
@@ -493,10 +506,10 @@ def summary(marks):
     return {
         "marks": by_name,
         "first_paint_ms": by_name.get("window-ready-to-show"),
-        # The last mark that arrived. did-finish-load can precede ready-to-show
-        # by a millisecond or two, so naming one specific mark here would make
-        # the total smaller than first paint in some runs.
-        "shell_total_ms": max(ms for _idx, _name, ms in marks),
+        # Pinned to the console's load, not "the last mark": since
+        # R-console-interactive a later mark exists by design, and redefining
+        # shell-total would silently change every table measured before it.
+        "shell_total_ms": by_name.get("window-first-load"),
     }
 
 runs_out = []
@@ -544,10 +557,12 @@ print("%s %s" % ("-" * width, "-" * 8))
 print("%-*s %8s" % (width, "first-paint", medians.get("first-paint")))
 print("%-*s %8s" % (width, "shell-total", medians.get("shell-total")))
 print()
-print("first-paint is window-ready-to-show; shell-total is the last mark.")
+print("first-paint is window-ready-to-show; shell-total is window-first-load.")
 print("did-finish-load can arrive a millisecond before ready-to-show.")
 print("Since #418 the boot is not daemon-gated: window-ready-to-show precedes")
 print("sidecar-ready (the boot surface paints first); the sidecar-start ->")
 print("sidecar-ready gap is the daemon's own boot, and window-first-load fires")
 print("once, for the console load that replaces the boot surface.")
+print("console-interactive follows window-first-load: the renderer's first")
+print("committed screen, reported over IPC and stamped on the shell's clock.")
 PY

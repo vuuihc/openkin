@@ -9,13 +9,12 @@ import {
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
-  DAEMON_HOST,
-  DAEMON_PORT,
   DAEMON_BASE,
   boundsPath,
   appIconPath,
 } from "./config";
 import { traceStartup } from "./startup-trace";
+import { isAllowedURL, isConsoleURL } from "./console-url";
 import { failureCopy, failureLocale, type FailureReason } from "./boot-failure";
 import {
   MIN_HEIGHT,
@@ -501,34 +500,6 @@ export class MainWindow {
 
 function asConsolePath(path: string): string {
   return path.startsWith("/") ? path : `/${path}`;
-}
-
-/** The daemon console itself — http(s) on the one host and port. */
-function isConsoleURL(url: string): boolean {
-  try {
-    const u = new URL(url);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
-    return isAllowedURL(url);
-  } catch {
-    return false;
-  }
-}
-
-function isAllowedURL(url: string): boolean {
-  try {
-    const u = new URL(url);
-    if (u.protocol === "about:") return true;
-    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
-    if (u.hostname !== DAEMON_HOST && u.hostname !== "localhost") return false;
-    const port = u.port
-      ? Number(u.port)
-      : u.protocol === "https:"
-        ? 443
-        : 80;
-    return port === DAEMON_PORT;
-  } catch {
-    return false;
-  }
 }
 
 function loadWindow(): RestoredWindow {
