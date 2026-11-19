@@ -3918,6 +3918,8 @@ export interface components {
             ci_state?: "none" | "pending" | "success" | "failure";
             /** @description JSON string of check counts and failing check names. */
             ci_summary?: string;
+            /** @description JSON array of {author, state, body} from the last successful reviews read, ordered as the forge returned it (oldest first). Empty means reviews were never read, including every row written before the column existed; "[]" means the read succeeded and the pull request carries none. A failed read never writes "[]": it keeps the previous array, or leaves the value empty. */
+            reviews?: string;
             /**
              * @description Which reader answered. An anonymous read cannot see private repositories, so the two are not interchangeable.
              * @enum {string}
