@@ -17,6 +17,10 @@ const SOURCE = readFileSync(
   "utf8",
 );
 
+function readSource(relative: string): string {
+  return readFileSync(existsSync(relative) ? relative : `desktop/${relative}`, "utf8");
+}
+
 describe("the sidecar starts at most one daemon", () => {
   it("waits for a kin process that is already on the machine", () => {
     assert.match(SOURCE, /waitForRivalDaemon\(\{/);
@@ -57,5 +61,59 @@ describe("the sidecar starts at most one daemon", () => {
       /if \(!this\.stopping && code !== STATE_DIR_BUSY_EXIT\)\s*this\.scheduleRestart\(\);/,
       "a busy state directory is restarted like a crash",
     );
+  });
+});
+
+describe("the shell's daemon coordinates", () => {
+  it("the shell never assumes :7777 or ~/.kin", () => {
+    // `kin serve` already reads KIN_PORT and KIN_STATE_DIR. A measurement run
+    // exports both, and the shell must probe the same port it hands the child;
+    // otherwise it watches :7777 while the throwaway daemon serves elsewhere.
+    // The default still lives in config.ts's resolver — that is the only place
+    // allowed to know it.
+    const config = readSource("src/config.ts");
+    const sidecar = readSource("src/sidecar.ts");
+    const api = readSource("src/daemon-api.ts");
+
+    // The resolvers take an injected env (config.env.test.ts pins their
+    // defaults), so the wiring assertion is that the module hands them the
+    // real process environment and that both keys are read.
+    assert.match(config, /KIN_PORT/, "config.ts does not read KIN_PORT");
+    assert.match(config, /KIN_STATE_DIR/, "config.ts does not read KIN_STATE_DIR");
+    assert.match(
+      config,
+      /DAEMON_PORT\s*=\s*resolveDaemonPort\(process\.env\)/,
+      "DAEMON_PORT is not derived from the process environment",
+    );
+    assert.match(
+      config,
+      /STATE_DIR\s*=\s*resolveStateDir\(process\.env,\s*homedir\(\)\)/,
+      "STATE_DIR is not derived from the process environment",
+    );
+
+    assert.doesNotMatch(
+      sidecar,
+      /no daemon on :7777/,
+      "the spawn log still names the default port",
+    );
+    assert.match(
+      sidecar,
+      /KIN_PORT:\s*String\(DAEMON_PORT\)/,
+      "the spawned daemon is not told the port the shell probes",
+    );
+    assert.match(
+      sidecar,
+      /KIN_STATE_DIR:\s*STATE_DIR/,
+      "the spawned daemon is not told the state directory the shell reads",
+    );
+
+    // Comments included: a path here is how the hardcode comes back.
+    for (const [name, source] of [
+      ["config.ts", config],
+      ["sidecar.ts", sidecar],
+      ["daemon-api.ts", api],
+    ] as const) {
+      assert.ok(!source.includes("~/.kin"), `${name} hardcodes ~/.kin`);
+    }
   });
 });
