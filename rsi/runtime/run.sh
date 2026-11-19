@@ -177,8 +177,16 @@ case "$MODE" in
       echo "no idle lane, no cloud brief pending, no dispatchable R-* row. $LANES_TXT"; exit 0
     fi
     date +%s > "$STATE/last_fill";;
-  daily) [ $FORCE -eq 0 ] && ls "$RUNS"/${TODAY}*-daily.jsonl >/dev/null 2>&1 && { echo "skip: daily already ran today"; exit 0; }; MAXSECS=5400; PROMPT_FILE="$RSI_DIR/runtime/prompts/daily.md";;
-  dream) [ $FORCE -eq 0 ] && [ -s "$STATE/reports/$TODAY-morning.md" ] && { echo "skip: report exists"; exit 0; }; MAXSECS=5400; PROMPT_FILE="$RSI_DIR/runtime/prompts/dream.md";;
+  daily)
+    [ $FORCE -eq 0 ] && ls "$RUNS"/${TODAY}*-daily.jsonl >/dev/null 2>&1 && { echo "skip: daily already ran today"; exit 0; }
+    MAXSECS=5400; PROMPT_FILE="$RSI_DIR/runtime/prompts/daily.md"
+    # Refresh the weekly worth-it report before the run: dream.md reads it, and a stale
+    # heading is how the 2026-11-18 brief had to re-derive the numbers by hand.
+    [ $DRY -eq 0 ] && rsi_refresh_weekly_report;;
+  dream)
+    [ $FORCE -eq 0 ] && [ -s "$STATE/reports/$TODAY-morning.md" ] && { echo "skip: report exists"; exit 0; }
+    MAXSECS=5400; PROMPT_FILE="$RSI_DIR/runtime/prompts/dream.md"
+    [ $DRY -eq 0 ] && rsi_refresh_weekly_report;;
 esac
 LOG="$RUNS/$STAMP-$MODE.jsonl"
 FLAGS="NO_MERGE=$([ -e "$STATE/NO_MERGE" ] && echo yes || echo no) DRY_RUN=$DRY"

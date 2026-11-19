@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the J14 contract is never called from --check-spec",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ14ContractTest",
+    "old": "  const j13 = checkJ13Contract(spec);\n  const j14 = checkJ14Contract(spec);",
+    "new": "  const j13 = checkJ13Contract(spec);\n  const j14 = [];"
+  },
+  {
+    "label": "checkJ14Contract returns no errors at all",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ14ContractTest.test_j14_without_palette_zero_rows_is_red",
+    "old": "  if (!Array.isArray(steps) || steps.length === 0) return ['J14 has no steps'];\n  const errs = [];",
+    "new": "  if (!Array.isArray(steps) || steps.length === 0) return ['J14 has no steps'];\n  return [];\n  const errs = [];"
+  },
+  {
+    "label": "the J9 composer identity pin after the return is deleted",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ9ContractTest.test_j9_pins_the_composer_element",
+    "old": "  if (backAt >= 0 && composerBack < 0) {\n    errs.push('J9 never tags the same composer element again after the return (node css=… composer); a per-route re-key would go unseen');\n  }\n",
+    "new": ""
+  }
+]

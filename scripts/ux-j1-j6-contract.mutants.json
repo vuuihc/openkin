@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the J1 and J6 contracts are never called from --check-spec",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ1ContractTest WalkJ6ContractTest",
+    "old": "  const j1 = checkJ1Contract(spec);\n  const j2 = checkJ2Contract(spec);\n  const j3 = checkJ3Contract(spec);\n  const j4 = checkJ4Contract(spec);\n  const j5 = checkJ5Contract(spec);\n  const j6 = checkJ6Contract(spec);",
+    "new": "  const j1 = [];\n  const j2 = checkJ2Contract(spec);\n  const j3 = checkJ3Contract(spec);\n  const j4 = checkJ4Contract(spec);\n  const j5 = checkJ5Contract(spec);\n  const j6 = [];"
+  },
+  {
+    "label": "checkJ1Contract returns no errors at all",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ1ContractTest.test_j1_without_the_approve_proof_is_red",
+    "old": "  if (!journey.title && !Array.isArray(steps)) return ['J1 is not in the spec'];\n  if (!Array.isArray(steps) || steps.length === 0) return ['J1 has no steps'];\n  const errs = [];",
+    "new": "  if (!journey.title && !Array.isArray(steps)) return ['J1 is not in the spec'];\n  if (!Array.isArray(steps) || steps.length === 0) return ['J1 has no steps'];\n  return [];\n  const errs = [];"
+  },
+  {
+    "label": "the J6 reload/persistence pin is deleted",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ6ContractTest.test_j6_without_the_reload_persistence_is_red",
+    "old": "  if (reloadAt < 0) {\n    errs.push('J6 never reloads the settings page after the save (goto /settings?tab=providers); a default that only lives in the page that saved it is not persisted');\n  }\n  if (persistedAt < 0) {\n    errs.push('J6 never proves the default persisted across the reload (wait trigger … (codex) after the reload goto)');\n  }\n",
+    "new": ""
+  }
+]

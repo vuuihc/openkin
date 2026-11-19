@@ -45,9 +45,13 @@ MEM_AVAIL_MIN_MB = float(os.environ.get("RSI_MEM_AVAIL_MIN_MB", "2048"))
 SWAP_USED_MAX_MB = float(os.environ.get("RSI_SWAP_USED_MAX_MB", "12288"))
 # The second simultaneous local worker is optional capacity: 16 GB is the scarce resource on
 # this Mac (Ethan 2026-11-18), so a spare lane starts only with real headroom. The FIRST worker
-# keeps the ordinary thresholds above; reworks are never held by this gate.
+# keeps the ordinary thresholds above; reworks are never held by this gate. Headroom is current
+# VM pressure plus free swap, never used swap: macOS keeps swapped pages allocated after the
+# pressure passes, so used swap is a cumulative high-water readout (2026-11-19: 2706 MB used
+# with pressure normal, refusing every spare lane for a day).
 LANE2_MEM_MIN_MB = float(os.environ.get("RSI_LANE2_MEM_MIN_MB", "5120"))
-LANE2_SWAP_MAX_MB = float(os.environ.get("RSI_LANE2_SWAP_MAX_MB", "1536"))
+LANE2_PRESSURE_MAX = int(os.environ.get("RSI_LANE2_PRESSURE_MAX", "1"))
+LANE2_SWAP_FREE_MIN_MB = float(os.environ.get("RSI_LANE2_SWAP_FREE_MIN_MB", "512"))
 
 def swap_usage_mb():
     """Return (used_mb, free_mb) from sysctl vm.swapusage, or (None, None)."""
@@ -98,13 +102,22 @@ def spare_lane_pressure():
     Two agent lanes plus a merge-lane gate plus a browser walk is what swapped this machine
     hard on 2026-11-18; the spare lane is what yields to the NAS instead. Only consulted when
     one local lane is already active (the first worker is governed by host_pressure).
+
+    Used swap is not the measure: macOS keeps swapped pages allocated after pressure has
+    passed, so "swap used" is a cumulative high-water readout — 2706 MB with
+    kern.memorystatus_vm_pressure_level = 1 refused every second lane on 2026-11-19. The
+    11-18 protection is warning-or-worse VM pressure plus a real swap-free headroom floor,
+    both read fresh; an unreadable probe fails open, as before.
     """
     avail = avail_mem_mb()
     if avail is not None and avail < LANE2_MEM_MIN_MB:
         return "avail mem %.0fMB < %.0fMB" % (avail, LANE2_MEM_MIN_MB)
-    used = swap_used_mb()
-    if used is not None and used > LANE2_SWAP_MAX_MB:
-        return "swap used %.0fMB > %.0fMB" % (used, LANE2_SWAP_MAX_MB)
+    lvl = vm_pressure_level()
+    if lvl is not None and lvl > LANE2_PRESSURE_MAX:
+        return "vm_pressure_level %d > %d" % (lvl, LANE2_PRESSURE_MAX)
+    free = swap_free_mb()
+    if free is not None and free < LANE2_SWAP_FREE_MIN_MB:
+        return "swap free %.0fMB < %.0fMB" % (free, LANE2_SWAP_FREE_MIN_MB)
     return ""
 
 def host_pressure():
@@ -236,10 +249,14 @@ def cmd_status(a):
         press = host_pressure()
         avail = avail_mem_mb()
         used = swap_used_mb()
-        print("loadavg1=%.1f max=%.0f mem_avail_mb=%s swap_used_mb=%s%s" % (
+        lvl = vm_pressure_level()
+        swfree = swap_free_mb()
+        print("loadavg1=%.1f max=%.0f mem_avail_mb=%s swap_used_mb=%s vm_pressure=%s swap_free_mb=%s%s" % (
             os.getloadavg()[0], load_max(),
             ("%.0f" % avail) if avail is not None else "-1",
             ("%.0f" % used) if used is not None else "-1",
+            ("%d" % lvl) if lvl is not None else "-1",
+            ("%.0f" % swfree) if swfree is not None else "-1",
             (" PRESSURE: " + press if press else "")))
     except Exception: pass
 

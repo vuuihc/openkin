@@ -203,10 +203,12 @@ job_shell_test() {
   bash rsi/runtime/format-changed.test.sh || return 1
   bash rsi/runtime/tests/node-stamp-test.sh || return 1
   bash rsi/runtime/tests/test-escalate.sh || return 1
+  bash rsi/runtime/tests/test-weekly-report.sh || return 1
   bash rsi/runtime/tests/test-gate-backpressure.sh || return 1
   bash rsi/runtime/tests/test-outside-tests.sh || return 1
   bash rsi/runtime/tests/test-throughput.sh || return 1
   bash rsi/runtime/tests/test-lanes-history.sh || return 1
+  bash rsi/runtime/tests/test-lane-spare-pressure.sh || return 1
   bash rsi/runtime/tests/test-runtime-modes.sh || return 1
   bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
   bash rsi/runtime/tests/test-gate-carry.sh || return 1
@@ -231,6 +233,8 @@ job_shell_test() {
   bash rsi/runtime/tests/test-reviewer-misses.sh || return 1
   bash rsi/runtime/tests/test-live-config-ignore.sh || return 1
   bash rsi/runtime/tests/test-lane-bash-timeout.sh || return 1
+  bash rsi/runtime/tests/test-dispatch-codex-timeout.sh || return 1
+  bash rsi/runtime/tests/test-dispatch-review-findings.sh || return 1
   bash rsi/runtime/tests/test-lane-pr-retry.sh || return 1
   bash rsi/runtime/nas/tests/test-nas.sh || return 1
   bash rsi/runtime/nas/tests/test-install-preflight.sh || return 1
