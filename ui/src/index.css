@@ -608,11 +608,14 @@
 .kin-scrim-enter {
   animation: kin-scrim-in 160ms ease-out;
 }
-/* The mark shown while a cold start restores the session fades in once. It is
-   deliberately not a loop: a wait is not progress, and a pulse under the brand
-   reads as "still working" even when the app is only waiting on one answer.
-   `prefers-reduced-motion` drops the fade below with the other entrances. */
-@keyframes kin-brand-in {
+/* The wait surface fades in once when a cold start restores the session or a
+   list-row entry opens the transcript slot. It is deliberately not a loop: a
+   wait is not progress, and a pulse under the wheel reads as "still working"
+   even when the app is only waiting on one answer.
+   `prefers-reduced-motion` drops the fade below with the other entrances.
+   `kin-brand-enter` is the pre-rename name the held `TaskDetailPage.tsx`
+   still emits; it goes away with the `BrandMark` → `IosSpinner` rename. */
+@keyframes kin-wait-in {
   from {
     opacity: 0;
   }
@@ -620,54 +623,26 @@
     opacity: 1;
   }
 }
+.kin-wait-enter,
 .kin-brand-enter {
-  animation: kin-brand-in 180ms ease-out;
+  animation: kin-wait-in 180ms ease-out;
 }
 /*
-  The Kin brand tile — the same square `ui/index.html` paints before any script
-  runs. Its geometry and K path are copied from that file deliberately (the
-  boot screen cannot import a component), and `BrandMark.dom.test.tsx` reads
-  both and fails when they drift.
+  The iOS activity indicator (`IosSpinner.tsx`) drawn while a conversation's
+  detail has not answered. The twelve spokes and their descending opacities are
+  the component; this file owns the tick: one full turn in twelve discrete
+  steps. `steps(12, end)` — not a smooth sweep — is what reads as iOS.
 
-  These are plain custom properties, not `--kin-*` theme tokens: the tile does
-  not switch with the scheme, exactly as the boot screen keeps the same
-  near-black square in light and dark, and the `--kin-*` layer is reserved for
-  values that resolve per scheme.
+  The wheel does not switch colour with the scheme by itself: it paints
+  `currentColor`, and the component's default ink is the muted token.
 */
-:root {
-  --brand-tile: #282828;
-  --brand-tile-ink: #ffffff;
-}
-.kin-brand-mark {
-  background: var(--brand-tile);
-  border-radius: 14.5px;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 16px 40px -8px rgba(0, 0, 0, 0.55);
-}
-.kin-brand-mark svg {
-  fill: var(--brand-tile-ink);
-}
-/* The ring is the boot screen's own pulse, kept as the entry path's one moving
-   part. `prefers-reduced-motion` below leaves it visible and still. */
-.kin-brand-ring {
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 21px;
-  animation: kin-brand-pulse 2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
-}
-html.light .kin-brand-ring {
-  border-color: rgba(0, 0, 0, 0.1);
-}
-@keyframes kin-brand-pulse {
-  0%,
-  100% {
-    transform: scale(0.95);
-    opacity: 0.45;
+@keyframes kin-ios-spin {
+  to {
+    transform: rotate(1turn);
   }
-  50% {
-    transform: scale(1.06);
-    opacity: 0.12;
-  }
+}
+.kin-ios-spinner {
+  animation: kin-ios-spin 1s steps(12, end) infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   /* The JS normally sends `data-motion="fade"` already. This block is the belt
@@ -683,15 +658,15 @@ html.light .kin-brand-ring {
   [data-motion="none"] > * {
     animation: none;
   }
+  .kin-wait-enter,
   .kin-brand-enter,
   .kin-sheet-enter,
   .kin-scrim-enter {
     animation: none;
   }
-  /* Still, but present: the ring is part of the mark, not an indicator. */
-  .kin-brand-ring {
+  /* Still, but present: the wheel is what says "waiting", not its motion. */
+  .kin-ios-spinner {
     animation: none;
-    opacity: 0.25;
   }
   .kin-dot,
   .kin-dash {
