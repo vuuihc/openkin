@@ -6,7 +6,8 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import type { Approval } from "../../api/client";
 import { decideApproval } from "../../api/client";
-import { setLocale } from "../../i18n";
+import { setLocale, t } from "../../i18n";
+import { shortPath } from "../../lib/paths";
 import { useApprovalDecision } from "../../hooks/useApprovalDecision";
 import ApprovalCard from "./ApprovalCard";
 
@@ -356,6 +357,38 @@ describe("the approval card", () => {
 
     await userEvent.click(path);
     expect(onOpenPath).toHaveBeenCalledWith("/repo/src/app.tsx");
+  });
+
+  it("an outside path is a marker, not a control", async () => {
+    const onOpenPath = vi.fn();
+    const outside = "/elsewhere/b.ts";
+    const withPath: Approval = {
+      ...pending,
+      payload: { tool: "write_file", input: { path: outside } },
+    };
+    render(
+      <MemoryRouter>
+        <ApprovalCard
+          approval={withPath}
+          busy={null}
+          onApprove={() => {}}
+          onDeny={() => {}}
+          onOpenPath={onOpenPath}
+          canOpenPath={() => false}
+        />
+      </MemoryRouter>,
+    );
+
+    // No control names the path, so nothing offers an action that would only
+    // toast an error.
+    expect(screen.queryByRole("button", { name: outside })).toBeNull();
+    const marker = screen.getByText(t("workspace.outsideWorkspace"));
+    expect(marker.tagName).not.toBe("BUTTON");
+    expect(marker.closest('[role="button"]')).toBeNull();
+    expect(marker.getAttribute("title")).toBe(outside);
+    // The path itself is still a fact on the card.
+    expect(screen.getByText(shortPath(outside, 48))).toBeTruthy();
+    expect(onOpenPath).not.toHaveBeenCalled();
   });
 
   it("says the run stopped when the engine denied what was pending", () => {

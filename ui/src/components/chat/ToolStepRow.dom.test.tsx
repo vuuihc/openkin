@@ -104,6 +104,58 @@ describe("a tool step row", () => {
     expect(view.container.querySelector("[data-tool-duration]")).toBeNull();
   });
 
+  it("an outside path is a marker in the chip and the detail link, not a control", () => {
+    const inside = "/work/a.ts";
+    const outside = "/elsewhere/b.ts";
+    const onOpenPath = vi.fn();
+    const editable = (key: string, path: string) => step({ key, summary: path, input: { path } });
+    render(
+      <>
+        <ToolStepRow
+          tool={editable("tool-a", inside)}
+          index={1}
+          open
+          onToggle={vi.fn()}
+          onOpenPath={onOpenPath}
+          canOpenPath={(path) => path.startsWith("/work/")}
+        />
+        <ToolStepRow
+          tool={editable("tool-b", outside)}
+          index={2}
+          open
+          onToggle={vi.fn()}
+          onOpenPath={onOpenPath}
+          canOpenPath={(path) => path.startsWith("/work/")}
+        />
+      </>,
+    );
+
+    // Inside the checkout both controls are exactly what they were.
+    const chip = screen.getByRole("button", { name: shortPath(inside, 28) });
+    const link = screen.getByRole("button", {
+      name: `${t("workspace.openFile")} · ${shortPath(inside, 48)}`,
+    });
+    fireEvent.click(chip);
+    fireEvent.click(link);
+    expect(onOpenPath.mock.calls).toEqual([[inside], [inside]]);
+
+    // Outside it, neither control names the path; the marker stands where each
+    // one was, and carries the full path without being a control itself.
+    expect(screen.queryByRole("button", { name: shortPath(outside, 28) })).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: `${t("workspace.openFile")} · ${shortPath(outside, 48)}`,
+      }),
+    ).toBeNull();
+    const markers = screen.getAllByText(t("workspace.outsideWorkspace"));
+    expect(markers).toHaveLength(2);
+    for (const marker of markers) {
+      expect(marker.tagName).not.toBe("BUTTON");
+      expect(marker.closest('[role="button"]')).toBeNull();
+      expect(marker.getAttribute("title")).toBe(outside);
+    }
+  });
+
   it("the detail block's open-file control passes the same path", () => {
     const onOpenPath = vi.fn();
     render(<ToolStepRow tool={step()} index={1} open onToggle={vi.fn()} onOpenPath={onOpenPath} />);
