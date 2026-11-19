@@ -1517,6 +1517,9 @@ function checkJ12Contract(spec) {
 const J13_DEEP_LINK = /panel=files&file=/;
 const J13_PREVIEW = /预览|Preview/;
 const J13_SOURCE = /源码|Code/;
+// The PR tab's label is `pr.title` — "Pull Request" / "Pull request" — in both
+// catalogs, so the surface is read by the selected tab, not by a testid.
+const J13_PR_TAB = /Pull [Rr]equest/;
 // The seeded conversation's own prompt (journeys_seed.py). Every seeded
 // conversation carries the same fake reply, so only the prompt says which one
 // the Mac's cold start reopened.
@@ -1698,6 +1701,60 @@ function checkJ13Contract(spec) {
       const sameAddressAt = steps.findIndex((st, i) => i > sourceAt && i < (previewAt > sourceAt ? previewAt : steps.length) && Array.isArray(st) && (st[0] === 'search' || st[0] === 'url') && /file=/.test(sel(st, 1)));
       if (sameAddressAt < 0) errs.push('J13 never asserts the address stayed on the file across the preview/source switch (search …file=…)');
     }
+  }
+
+  // Each PR proof must precede its own shot. A selected tab or address
+  // read later in the walk cannot cover a deleted cold or refresh assertion.
+  const prUrl = '/tasks/{conversation}?panel=pr';
+  const exact = (op, value) => (st) => st[0] === op && sel(st, 1) === value;
+  const prSearch = exact('search', '^\\?panel=pr$');
+  const cleanPrSearch = exact('search', '^$');
+  const prTab = (op) => (st) => st[0] === op && /aria-selected.*true/.test(sel(st, 1)) && J13_PR_TAB.test(sel(st, 1));
+  const conversation = exact('url', '^/tasks/{conversation}$');
+  const region = (st) => st[0] === 'wait' && /role=region/.test(sel(st, 1));
+  const backProof = [
+    ['system Back', (st) => st[0] === 'history-back'],
+    ['conversation address', conversation], ['empty query', cleanPrSearch],
+    ['PR tab gone', prTab('gone')], ['conversation visible', region],
+  ];
+  const prLegs = [
+    ['pr-cold', [
+      ['cold PR load', exact('goto', prUrl)], ['PR address', prSearch],
+      ['selected PR tab', prTab('wait')],
+    ]],
+    ['pr-refresh', [
+      ['refresh load', exact('goto', prUrl)], ['PR address', prSearch],
+      ['selected PR tab', prTab('wait')],
+    ]],
+    ['pr-back', backProof],
+    ['pr-forward', [
+      ['system Forward', (st) => st[0] === 'history-forward'],
+      ['PR address', prSearch], ['selected PR tab', prTab('wait')],
+    ]],
+    ['pr-open', [
+      ['conversation load', exact('goto', '/tasks/{conversation}')],
+      ['empty query', cleanPrSearch],
+      ['session actions', (st) => st[0] === 'click' && /会话操作|Session actions/.test(sel(st, 1))],
+      ['action sheet', (st) => st[0] === 'wait' && /role=dialog/.test(sel(st, 1))],
+      ['PR row press', exact('click', '/^Pull [Rr]equest$/')],
+      ['PR address', prSearch], ['selected PR tab', prTab('wait')],
+    ]],
+    ['pr-back-sheet', backProof],
+  ];
+  let previousShot = idx(exact('shot', 'file-source-again'));
+  for (const [name, reads] of prLegs) {
+    const shot = idx(exact('shot', name), previousShot + 1);
+    if (shot < 0) {
+      errs.push(`J13 PR has no ${name} shot in walk order`);
+      continue;
+    }
+    let cursor = previousShot;
+    for (const [label, predicate] of reads) {
+      const found = steps.findIndex((st, i) => i > cursor && i < shot && Array.isArray(st) && predicate(st));
+      if (found < 0) errs.push(`J13 PR ${name} never proves ${label} before its shot`);
+      else cursor = found;
+    }
+    previousShot = shot;
   }
 
   // A page or locale diff that no longer selects J13 would let the phone's
@@ -2234,7 +2291,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J10 approves the deep-linked card, walks all four footer entries, and finds it gone on the return');
   console.log('spec ok: J11 keeps the shell, the scroll and the draft across the phone\'s switches');
   if (spec.journeys && spec.journeys.J12) console.log('spec ok: J12 walks the phone\'s edge back, row reveal and hold-to-reorder as real touch and reads the consequences');
-  if (spec.journeys && spec.journeys.J13) console.log('spec ok: J13 walks the phone file link through Back to the list and the conversation, and the HTML preview/source switch without leaving the file address');
+  if (spec.journeys && spec.journeys.J13) console.log('spec ok: J13 walks the phone file link through Back to the list and the conversation, the PR tab as an address (cold, refreshed, Forward, Back closes only the panel), and the HTML preview/source switch without leaving the file address');
   if (spec.journeys && spec.journeys.J14) console.log('spec ok: J14 reopens the last conversation on the Mac, finds no conversation rows in ⌘K, and draws the phone home as one list at three levels');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
@@ -2587,6 +2644,14 @@ async function stepLocator(page, sel, opts = {}) {
 async function historyBack(page) {
   const before = page.url();
   await page.goBack({ waitUntil: 'domcontentloaded', timeout: WAIT_MS }).catch(() => null);
+  return pollUntil(page, () => page.url() !== before, 3000);
+}
+// The other half of the same promise: an entry Back left has to be reachable
+// again. A page that rewrote its address on arrival (a replace instead of a
+// read) has no forward entry, which is exactly what this fails on.
+async function historyForward(page) {
+  const before = page.url();
+  await page.goForward({ waitUntil: 'domcontentloaded', timeout: WAIT_MS }).catch(() => null);
   return pollUntil(page, () => page.url() !== before, 3000);
 }
 // A `?` prefix means the same thing for every op: absent or not visible is a
@@ -3128,6 +3193,15 @@ for (const j of want) {
           const moved = await historyBack(page);
           if (!moved) { hardFail.push(`${j}/${vpName}: history-back had no history entry to return to`); continue; }
           log.push('history back');
+          await page.waitForTimeout(400);
+        } else if (op === 'history-forward') {
+          // The browser's own Forward. An address the page left by rewriting
+          // history (a replace where a read should have been) has nothing
+          // ahead of it; like `history-back`, a missing entry is a hard
+          // failure because the queue is the promise under test.
+          const moved = await historyForward(page);
+          if (!moved) { hardFail.push(`${j}/${vpName}: history-forward had no forward entry to return to`); continue; }
+          log.push('history forward');
           await page.waitForTimeout(400);
         } else if (op === 'value') {
           const { optional, value: sel } = optionalOf(a);
