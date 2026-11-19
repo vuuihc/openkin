@@ -166,6 +166,10 @@ export default function SessionRow({
   // The Mac sidebar is a pointer surface with a keyboard: its edit is confirmed
   // with Enter. A touch surface has neither key, so it draws explicit controls.
   const desktop = shell === "sidebar" && !coarse;
+  // Density follows the pointer, not the shell. A mouse packs the sidebar row
+  // at the scale's 36px step; a finger — the phone page, or the sidebar on an
+  // iPad — keeps the 44px target it can actually hit.
+  const dense = shell === "sidebar" && !coarse;
   // The row's title element is what the action trigger is described by, so a
   // screen reader hears which conversation a "More" belongs to.
   const titleId = `session-row-title-${row.task?.id ?? row.session?.id}`;
@@ -282,7 +286,8 @@ export default function SessionRow({
     // The press animation belongs to a control. While editing, the shell is a
     // plain row: it must not look tappable and must not navigate.
     renaming ? "" : "kin-row-press",
-    "flex min-h-11 w-full items-center gap-2.5 py-2.5 text-left",
+    "flex w-full items-center gap-2.5 text-left",
+    dense ? "min-h-9 py-1.5" : "min-h-11 py-2.5",
     gutter,
     selectionMode && selected ? "bg-[var(--kin-fill)]" : "",
     active ? "bg-[var(--kin-fill-strong)]" : "",
