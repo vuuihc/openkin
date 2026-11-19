@@ -199,8 +199,10 @@ describe("the Mac sidebar list", () => {
 
     // #47: the deepest level used to be the machine, because the project row
     // wore the section-heading style and its gutter matched the conversation's.
-    // One 16px step per level, and type weight descending, makes the tree read
-    // as depth. `data-sidebar-indent` names the step without measuring layout.
+    // One step in per level, and type weight descending, makes the tree read as
+    // depth. The fine pointer's conversation step is the scale's 12px one since
+    // the density pass; the project step is untouched and still 16px.
+    // `data-sidebar-indent` names the step without measuring layout.
     const machine = screen.getByRole("heading", { name: /This machine/ });
     expect(machine.className).toContain("text-body");
     expect(machine.className).toContain("font-semibold");
@@ -211,7 +213,7 @@ describe("the Mac sidebar list", () => {
 
     const sessionStep = document.querySelector('[data-sidebar-indent="session"]');
     expect(sessionStep).not.toBeNull();
-    expect(sessionStep?.className).toContain("pl-4");
+    expect(sessionStep?.className).toContain("pl-3");
 
     const projectHeading = screen.getByRole("button", { name: "alpha" });
     const projectLabel = Array.from(projectHeading.querySelectorAll("span")).find(

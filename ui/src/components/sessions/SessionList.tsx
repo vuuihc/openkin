@@ -1742,11 +1742,18 @@ function ProjectBucket({
     ? tr("sessions.imported", { count: String(bucket.rows.length) })
     : bucket.label;
   const gutter = shell === "sidebar" ? "px-2" : "px-4";
+  // The same pointer rule the rows follow: the Mac's mouse gets the compact
+  // header gap, a finger keeps the roomier one it has always had.
+  const dense = shell === "sidebar" && !coarse;
   const pinnedProject = pinnedProjects.some((cwd) => bucketKeyFor(cwd) === bucket.key);
 
   return (
     <section className="pb-1">
-      <div className={`group/proj relative flex items-center gap-0.5 ${gutter} pb-1 pt-4`}>
+      <div
+        className={`group/proj relative flex items-center gap-0.5 ${gutter} pb-1 ${
+          dense ? "pt-2" : "pt-4"
+        }`}
+      >
         <Button
           variant="quiet"
           onClick={() => {
@@ -1917,10 +1924,16 @@ function ProjectBucket({
         ) : null}
       </div>
 
+      {/* The conversation block is one step in from the project block. A mouse
+          takes the scale's 12px step; a finger keeps 16px so the level stays
+          as legible as it was on touch. 12, not 8: the row's own leading
+          avatar and gutter spend 56px before its title, so an 8px block step
+          would land the title exactly on the project label and flatten the
+          three levels #26 exists to keep apart. */}
       {!collapsed && (
         <div
           data-sidebar-indent={shell === "sidebar" ? "session" : undefined}
-          className={shell === "sidebar" ? "pl-4" : undefined}
+          className={shell === "sidebar" ? (dense ? "pl-3" : "pl-4") : undefined}
         >
           {rows.map((row) => (
             <SessionRow
