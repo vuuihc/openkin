@@ -283,9 +283,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect(await screen.findByText("10 / 10 in catalog")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    expect(
-      screen.getByText("The catalog is full. Remove one before adding another."),
-    ).toBeTruthy();
+    expect(screen.getByText("The catalog is full. Remove one before adding another.")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(
       true,
     );
@@ -653,7 +651,9 @@ describe("the agents console (KIN-AGENTS-001)", () => {
       ),
     );
     expect(readConnectedFamilies()).not.toContain("vanished");
-    expect(screen.queryByText("1 product(s) in the catalog this machine no longer reports")).toBeNull();
+    expect(
+      screen.queryByText("1 product(s) in the catalog this machine no longer reports"),
+    ).toBeNull();
   });
 
   it("cancels a connect that is still in flight", async () => {
