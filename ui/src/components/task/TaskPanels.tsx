@@ -37,6 +37,12 @@ export type TaskPanelsProps = {
    * panes mounted and hides the rest, so a panel can be open and invisible.
    */
   active?: boolean;
+  /**
+   * Whether the panel spends the phone's top inset itself. The page turns this
+   * off while the reconnect strip is shown: the strip is then the topmost
+   * element and already pads, and the panel sits below it inside `<main>`.
+   */
+  topInset?: boolean;
   /** What the panel registry was asked about — publish's gate is read from it. */
   panelCtx: PanelContext;
   usage: TaskUsage | null;
@@ -89,6 +95,7 @@ export default function TaskPanels({
   machine,
   panel,
   active = true,
+  topInset = true,
   panelCtx,
   usage,
   usageLoading,
@@ -163,6 +170,7 @@ export default function TaskPanels({
           // on screen and cannot cover anything, so it must not register as
           // the screen's topmost surface either.
           hidden={!active}
+          topInset={topInset}
         >
           <div className="h-full w-full">
             <WorkspacePanel

@@ -225,10 +225,54 @@ exactly as in P7 item 3.
 **Out of scope** — `KIN-NOTIFY-001` (its last acceptance row needs a real iPhone), `KIN-SETTINGS-002` (needs
 a packaged build), `KIN-CONTINUE-003` (its own surface; after P9), and every parked row above.
 
-## Current phase (P9) — 把评审读进来，不用回 GitHub
-<!-- phase: P9-review-in-place target=2026-11-25T20:00 -->
+## Current phase (P10) — 打开就要快
+<!-- phase: P10-open-fast target=2026-11-23T20:00 -->
 
-Landed so far: item 1's ADR `d2e621ba` (#347); the column it decided, `283e70ba` (#352,
+Landed so far: item 1 (`R-startup-handshake`) merged `903f3b5c` (#417) on 2026-11-20 — health is probed
+before `kin version` starts and a spawned daemon is polled at 50 ms; the 2026-11-20 re-measure puts the
+handshake edge at a **595 ms** median, inside the 700 ms bar below. Item 2 (`R-window-before-daemon`) merged
+`b47032f1` (#418) on 2026-11-20 — `window-ready-to-show` precedes `sidecar-ready` in both measurement runs,
+the shell's own boot surface is what the person sees first, and `window-first-load` fires once, with 390/1100
+boot-surface shots in `rsi/state/shots/window-before-daemon/`. Residual: the settled-console half of done-means
+2 has no fresh shots at those widths: #418 touched no `ui/` file, so the console bundle is unchanged, and the
+merge lane opened only the two boot shots — no settled-console 390/1100 shots exist yet.
+
+**Why this and not features.** Ethan's own report (「启动巨慢」, `rsi/state/dogfood/dogfood-20261118-four-defects.md`
+D1) is finally a number, and it is the first thing every dogfood meets. The 2026-11-19 baseline
+(`docs/plans/2026-11-19-startup-baseline.md`) measured the daemon at **407 ms** to healthy but the desktop window
+at a median **2777 ms** to first paint, and **1552 ms** of that gap was the shell's own
+`sidecar-start → sidecar-ready` handshake — longer than the daemon it was waiting for. The pre-daemon steps were
+serial: `sidecar.ts` awaited a whole `kin version` process before its first health probe and polled every 250 ms;
+#417 (`903f3b5c`) probes health first, starts the label beside it, and polls a spawned daemon at 50 ms, and the
+2026-11-20 re-measure puts that edge at a **595 ms** median. P1–P9 never touched this path because no walk can
+see it: the window is simply absent.
+
+**Done means**
+1. The handshake stops costing more than the daemon: no process spawn (`kin version`) is awaited in front of the
+   health probe, the spawn wait polls at ≤50 ms, and the post-health version read starts as soon as health answers.
+   Proven by behavioural tests on an injected handshake (not source strings) plus a mutant that restores the old
+   order and turns them red, and measured by `./scripts/desktop-startup.sh --runs 3` before and after in the same
+   session: `sidecar-start → sidecar-ready` median ≤ 700 ms on a quiet machine, with the load average recorded.
+2. The window paints before the daemon answers: `window-ready-to-show` precedes `sidecar-ready`, the shell's own
+   boot surface is what the person sees (never an Electron error page, never a blank frame), and the console
+   replaces it once health answers without a second `window-first-load`. 390/1100 shots of the boot surface and of
+   the settled console.
+3. The number is reproducible from `main` by one command: the doc's stale "Until slice `-d` lands" lines are
+   replaced by the current recipe, and its desktop table is re-measured on `main` with the load average rather than
+   carried over from a branch.
+
+**Out of scope** — the packaged `.dmg`/asar boot (the dev shell is what is measured), renderer hydration after
+`did-finish-load`, the daemon's `engine-build` phase (207/226 ms; its own row after this phase), the phone, and
+anything that starts a second daemon or opens `~/.kin`.
+
+**Cut rule.** At 11-23 20:00 land what is green, queue the rest with the reason, and do not extend the date. If
+item 2 is not green by then, land item 1 alone with its measured floor: it is the edge that costs the most, and
+item 2 inherits whatever headroom it leaves.
+
+## Closed phase (P9) — 把评审读进来，不用回 GitHub
+<!-- closed-phase: P9-review-in-place target=2026-11-25T20:00 -->
+
+Closed 2026-11-20, all three items landed: item 1's ADR `d2e621ba` (#347); the column it decided, `283e70ba` (#352,
 owner-approved before merge — the `needs-ceo` stop was cleared, not bypassed), with
 `pr_observations.reviews` at `internal/store/migrate.go:844` and ordered migration 049 at `:2678-2705`;
 and the read half `301d345f` (#368) that fills it; `api/openapi.yaml:6810` documents `reviews` next to

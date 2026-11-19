@@ -30,6 +30,7 @@ export default function PanelSurface({
   className,
   hidden = false,
   shape = "overlay",
+  topInset = true,
   children,
 }: {
   /** Accessible name — the panel's own title, already translated. */
@@ -51,6 +52,15 @@ export default function PanelSurface({
    * the attribute says so out loud rather than leaving it to a class name.
    */
   hidden?: boolean;
+  /**
+   * Whether the surface spends the phone's top safe-area inset itself.
+   *
+   * It does by default, because the overlay mounts over `MobileHeader`, the bar
+   * that owns the inset on a phone. While the reconnect strip is shown it is
+   * the topmost element and the shell already pads for it, so the page's panels
+   * yield through this flag instead of starting one inset below the strip.
+   */
+  topInset?: boolean;
   children: ReactNode;
 }) {
   // A visible panel is the screen's topmost surface, and the floating approval
@@ -66,7 +76,8 @@ export default function PanelSurface({
   return (
     <div
       className={[
-        "absolute inset-0 z-40 bg-[var(--kin-inspector)] safe-pad panel-top-inset kin-zen-hide",
+        "absolute inset-0 z-40 bg-[var(--kin-inspector)] safe-pad kin-zen-hide",
+        topInset ? "panel-top-inset" : "",
         // `lg:` overrides, not a second base skin: below the breakpoint the
         // panel stays the full-bleed overlay it has always been. `relative` in
         // a flex row is what puts it beside the conversation instead of over
