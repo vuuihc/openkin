@@ -127,15 +127,50 @@ unset _rsi_sh
 
 # Reap a process and its descendants (children first). Never signals pid 1.
 # Used on lane exit/timeout so a killed worker cannot leave vitest/go/node/agy behind.
+# Freeze each parent before enumerating its children: a live parent whose first
+# child dies can fork a replacement while the loop is still walking, and that
+# replacement then outlives this function (measured in PR #376's review).
 rsi_kill_tree() {
   local root="${1:-}" c
   [ -n "$root" ] && [ "$root" -gt 1 ] 2>/dev/null || return 0
+  kill -STOP "$root" 2>/dev/null || true
   for c in $(pgrep -P "$root" 2>/dev/null || true); do
     rsi_kill_tree "$c"
   done
   kill -TERM "$root" 2>/dev/null || true
   sleep 0.3
   kill -KILL "$root" 2>/dev/null || true
+  kill -CONT "$root" 2>/dev/null || true   # only matters if KILL was denied; never leave it stopped
+}
+
+# Like with_timeout, but for a wait whose children must not survive it: the walk
+# runs heavy.sh -> node -> Chromium, and killing only the direct child leaves the
+# walker driving the browser after the gate has moved on. Returns 124 at the
+# ceiling so the caller can say "no verdict" instead of guessing a failure.
+# The parent blocks in wait(), so a child that finishes keeps its own status; a
+# polling loop would relabel a fast failure as a timeout whenever the poll tick
+# straddles the deadline. The watchdog only kills a process it can still
+# identify as the one started here, because a reaped pid can be reused.
+bounded_run() { # secs cmd...
+  local secs="$1" p ident flag w rc; shift
+  flag="$(mktemp "${TMPDIR:-/tmp}/bounded-run.XXXXXX")" || return 2
+  rm -f "$flag"
+  "$@" & p=$!
+  ident="$(ps -o lstart= -p "$p" 2>/dev/null | tr -d ' \n' || true)"
+  ( sleep "$secs"
+    if [ -n "$ident" ]; then
+      [ "$(ps -o lstart= -p "$p" 2>/dev/null | tr -d ' \n' || true)" = "$ident" ] || exit 0
+    else
+      kill -0 "$p" 2>/dev/null || exit 0    # no ps: fail closed for a bound, never hang
+    fi
+    printf 'timeout\n' > "$flag" 2>/dev/null || true
+    rsi_kill_tree "$p"
+  ) >/dev/null 2>&1 & w=$!
+  wait "$p"; rc=$?
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  if [ -s "$flag" ]; then rm -f "$flag"; return 124; fi
+  rm -f "$flag"
+  return $rc
 }
 
 with_timeout() { # secs cmd...   (macOS has no `timeout`)
