@@ -225,20 +225,20 @@ exactly as in P7 item 3.
 **Out of scope** — `KIN-NOTIFY-001` (its last acceptance row needs a real iPhone), `KIN-SETTINGS-002` (needs
 a packaged build), `KIN-CONTINUE-003` (its own surface; after P9), and every parked row above.
 
-## Current phase (P10) — 打开就要快
-<!-- phase: P10-open-fast target=2026-11-23T20:00 -->
+## Closed phase (P10) — 打开就要快
+<!-- closed-phase: P10-open-fast target=2026-11-23T20:00 -->
 
-Landed so far: item 1 (`R-startup-handshake`) merged `903f3b5c` (#417) on 2026-11-20 — health is probed
-before `kin version` starts and a spawned daemon is polled at 50 ms; the 2026-11-20 re-measure puts the
-handshake edge at a **595 ms** median, inside the 700 ms bar below. Item 2 (`R-window-before-daemon`) merged
-`b47032f1` (#418) on 2026-11-20 — `window-ready-to-show` precedes `sidecar-ready` in both measurement runs,
-the shell's own boot surface is what the person sees first, and `window-first-load` fires once, with 390/1100
-boot-surface shots in `rsi/state/shots/window-before-daemon/`. The settled-console half is now measured:
-`rsi/state/shots/settled-console-shots/console-1100x760.png` and `console-390x844.png` are the J9/J11 `list`
-screens captured by `rsi/runtime/ux-walk.sh "$PWD" "$OUT" "J9,J11"` on `2b78ee75`, each showing the seeded
-`[seed] Project Alpha` list from the `index-DOj2fOK9.js` entry chunk that `web/dist/index.html` names; the
-console still loads once per run — one `window-first-load` — per `docs/plans/2026-11-19-startup-baseline.md`
-§「2026-11-20 — the window paints first」.
+Closed 2026-11-20, all three items landed: item 1 (`R-startup-handshake`) `903f3b5c` (#417) — health is
+probed before `kin version` starts and a spawned daemon is polled at 50 ms, the handshake edge at a **595 ms**
+median; item 2 (`R-window-before-daemon`) `b47032f1` (#418) — `window-ready-to-show` precedes
+`sidecar-ready` in every run, the shell's own boot surface is what the person sees first, and the settled
+console is captured as `rsi/state/shots/settled-console-shots/console-1100x760.png` and `console-390x844.png`
+(`71f1d77b`, #425); item 3 (`R-remeasure`) `7e3776e0` (#420) — the desktop table was re-measured on `main`
+with the load average, recorded as §「2026-11-20 — the window paints first」 of
+`docs/plans/2026-11-19-startup-baseline.md`. Two mechanism rows landed in the same window: `9a64408a` (#421)
+took up the `engine-build` row P10 put out of scope (`engine-build` 188/190 → 0/0 ms, total-to-healthy
+242/201 ms), and `ad009bef` (#423) drew the iOS wait cue on the shell and console splash. P10 closed early;
+its target date is unchanged.
 
 **Why this and not features.** Ethan's own report (「启动巨慢」, `rsi/state/dogfood/dogfood-20261118-four-defects.md`
 D1) is finally a number, and it is the first thing every dogfood meets. The 2026-11-19 baseline
@@ -271,6 +271,42 @@ anything that starts a second daemon or opens `~/.kin`.
 **Cut rule.** At 11-23 20:00 land what is green, queue the rest with the reason, and do not extend the date. If
 item 2 is not green by then, land item 1 alone with its measured floor: it is the edge that costs the most, and
 item 2 inherits whatever headroom it leaves.
+
+## Current phase (P11) — 控制台接管
+<!-- phase: P11-console-ready target=2026-11-24T20:00 -->
+
+**Why this and not features.** P10 made the edge a person can see from outside the window cheap: the window
+paints its own boot surface at a **555 ms** median and the daemon answers at a **1192 ms** median, both measured
+on `b47032f1` (§「2026-11-20 — the window paints first」 of `docs/plans/2026-11-19-startup-baseline.md`). But the
+console that replaces that surface finishes loading at a **1329 ms** median (`window-first-load`), and **nothing
+measures when it can be used**. The same doc's "What this does not measure" paragraph says so: "renderer
+parse/script time beyond `did-finish-load` (no CDP first-contentful-paint)". `ui/src/main.tsx:160-196` awaits
+the auth probe before `createRoot().render()`, so "load finished" is not "usable", and until the probe resolves
+the person still sees the static splash in `ui/index.html:81-82`. That is the last unmeasured edge of
+「启动巨慢」, and every later fix needs its number.
+
+**Done means**
+1. The console's first usable moment is measured: one `console-interactive` mark through the existing
+   `[kin-desktop] trace` channel, stamped on the shell's clock, emitted by the console document only after its
+   first screen commits and at most once per launch; the runner gains it in its wait set — `console-interactive`
+   added to `REQUIRED` (or an equivalent per-mark wait), so a run that never emits it fails instead of reporting
+   a shorter table; `./scripts/desktop-startup.sh --runs 3` reports it while every existing mark keeps its
+   meaning; a mutant that fires it early (or never) turns its test red; the `console-interactive − sidecar-ready`
+   gap is recorded with the load average.
+2. The handover is bounded and honest: the bound comes from item 1's number and is written down before the
+   fix; the splash is never replaced by a blank frame or by an error a retry would clear; the fix re-measures
+   in the same session, and 390/1100 shots show splash → console.
+3. The number is reproducible from `main` by one command, and the doc names what it does not prove (the dev
+   shell rather than the packaged `.dmg`, the renderer→shell IPC hop, "interactive" ≠ data loaded, the phone
+   webview measured separately).
+
+**Out of scope** — the packaged `.dmg`/asar boot; the daemon's remaining boot (242/201 ms to healthy after
+`9a64408a`, `docs/plans/2026-11-20-engine-build.md`; its own row only if a number demands it); the phone
+webview's first load (same console, separate measure); F4 switch latency (measured, not this phase); every
+parked row in `rsi/STATUS.md`.
+
+**Cut rule.** At 11-24 20:00 land what is green and queue the rest with its reason; do not extend the date. If
+item 1 is not green by then, land it alone — the number is what every later fix is judged against.
 
 ## Closed phase (P9) — 把评审读进来，不用回 GitHub
 <!-- closed-phase: P9-review-in-place target=2026-11-25T20:00 -->
