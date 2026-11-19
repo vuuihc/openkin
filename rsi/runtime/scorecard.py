@@ -23,7 +23,9 @@ their first cell, `YYYY-MM-DD HH:MM`; older rows are ignored but left alone.
 Outcome buckets come from the FPY cell (`pass`/`1st` -> merged, `patched`,
 `rework`/`failed`, `blocked`, `pending`), falling back to the result text for
 rows older than the FPY convention (`MERGED ...`, `no commits`, `blocked ...`).
-A delivered item is a merged or patched row; its PR cell is printed as-is.
+The delivered list keeps one entry per PR cell whose result says `MERGED` (the
+item name when the row has no PR), so a PR that needed a review round is named
+once; the FPY buckets above are still counted per row.
 
 The fold block is bounded by HTML comment markers, so a second run replaces the
 block instead of stacking, and every other byte of the file is preserved.
@@ -173,14 +175,21 @@ def fold_block(rows: list[Row], days: float, end: datetime) -> list[str]:
     out = [BEGIN, "### Weekly fold · %g days ending %s" % (days, end.strftime("%F"))]
     out.append(totals_line(rows))
     out.append(cost_line(rows))
-    delivered = [r for r in rows if r.outcome in ("merged", "patched")]
+    # One entry per merged PR: rows a PR needed on the way there (review FAIL,
+    # UX FAIL, gate FAIL) also carry FPY=patched, so keying on the FPY bucket
+    # would list the same PR several times and list PRs that never merged.
+    delivered: dict[str, Row] = {}
+    for r in rows:
+        if r.result.lower().startswith("merged"):
+            key = r.pr if r.pr not in ("", "-") else r.item
+            delivered.setdefault(key, r)
     if not delivered:
         out.append("- delivered: none")
     else:
         out.append("- delivered:")
-        for r in delivered:
+        for r in delivered.values():
             pr = "" if r.pr in ("", "-") else " " + r.pr
-            out.append("  - %s%s · %s" % (r.item, pr, r.outcome))
+            out.append("  - %s%s · merged" % (r.item, pr))
     out.append(END)
     return out
 

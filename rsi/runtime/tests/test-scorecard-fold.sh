@@ -60,6 +60,18 @@ fixture_report() { # state-dir
   } > "$1/scorecard.md"
 }
 
+# A PR's review-FAIL row also lands FPY=patched; only the MERGED row delivers.
+fixture_delivered() { # state-dir
+  mkdir -p "$1"
+  {
+    header
+    row "$(ts 2)" R-zeta "review FAIL (2 blockers, \$0.4000)" "[#7](https://example.com/pull/7)" patched
+    row "$(ts 1)" R-zeta "MERGED abc1234" "[#7](https://example.com/pull/7)" patched
+    row "$(ts 0)" R-eta "review FAIL (1 blocker)" "[#8](https://example.com/pull/8)" patched
+    printf '\n## Weekly fold\n(empty)\n'
+  } > "$1/scorecard.md"
+}
+
 block() { # file -> the fold block, markers included
   python3 - "$1" <<'PY'
 import sys
@@ -174,5 +186,17 @@ fixture_window "$F"
 ( cd "$T/t6" && RSI_STATE="$F" python3 "$S" fold --days 7 ) || bad rsi-state-seam-exit
 block "$F/scorecard.md" | grep -qF 'rows: 3' || bad rsi-state-seam-block
 ok rsi-state-env-is-honoured
+
+# --- 7. delivered names a merged PR once, and never a PR that only failed review ---
+F="$T/t7/state"
+fixture_delivered "$F"
+python3 "$S" fold --days 7 --state "$F" || bad delivered-fold-exit
+B="$(block "$F/scorecard.md")" || bad delivered-block-missing
+[ "$(printf '%s\n' "$B" | grep -cF '[#7]')" -eq 1 ] || { printf '%s\n' "$B"; bad delivered-pr-named-twice; }
+[ "$(printf '%s\n' "$B" | grep -c '^  - R-zeta')" -eq 1 ] || { printf '%s\n' "$B"; bad delivered-item-named-twice; }
+printf '%s\n' "$B" | grep -qF 'R-zeta [#7](https://example.com/pull/7) · merged' || { printf '%s\n' "$B"; bad delivered-not-labelled-merged; }
+printf '%s\n' "$B" | grep -qF '[#8]' && { printf '%s\n' "$B"; bad delivered-names-never-merged-pr; }
+printf '%s\n' "$B" | grep -qF 'patched: 3' || { printf '%s\n' "$B"; bad delivered-fpy-bucket-lost; }
+ok fold-delivered-is-one-entry-per-merged-pr
 
 echo ALL-PASS
