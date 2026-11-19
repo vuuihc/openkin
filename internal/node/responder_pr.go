@@ -104,6 +104,11 @@ func (r *Responder) observePR(ctx context.Context, asked worker.PRObserveParams)
 		if summary, err := json.Marshal(pr.CI); err == nil {
 			out.CISummary = string(summary)
 		}
+		if pr.ReviewsRead {
+			// Only an answer crosses the hop. A failed read leaves the field
+			// empty, which the Hub reads as "not read" and does not write.
+			out.Reviews = pr.Reviews
+		}
 	}
 	return out, nil
 }
