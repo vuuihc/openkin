@@ -1965,7 +1965,7 @@ const en: MessageTree = {
     hideDiscovered: "Hide",
     discoveredTitle: "Discovered on this machine",
     discoveredHint:
-      "These products already run on this machine. Adding one puts it in the catalog; it imports no history.",
+      "These products are installed on this machine. Adding one puts it in the catalog; it imports no history.",
     notConnected: "Not connected",
     availableNotInCatalog: "Available — not in your catalog",
     connect: "Connect",
@@ -1976,7 +1976,7 @@ const en: MessageTree = {
     addToCatalogIntro: "Kin can already run {name} on this machine. It is not in your catalog yet.",
     connectWillTitle: "What it does",
     connectWillBody:
-      "Adds one available agent. Recheck, sign-in, limits and actions work like any other.",
+      "Adds one agent to your catalog. Recheck, sign-in, limits and actions work like any other.",
     connectWontTitle: "What it does not do",
     connectWontBody:
       "Does not import {name}'s history sessions; does not change the default agent or provider settings.",
@@ -1986,6 +1986,8 @@ const en: MessageTree = {
     addToCatalogAction: "Add {name} to catalog",
     connecting: "Connecting…",
     connectFailed: "Couldn't connect {name}: {reason}",
+    addingToCatalog: "Adding…",
+    addToCatalogFailed: "Couldn't add {name} to the catalog: {reason}",
     connectMissing: "this machine no longer reports it",
     connectedToast: "{name} connected",
     addToCatalogToast: "{name} added to the catalog",

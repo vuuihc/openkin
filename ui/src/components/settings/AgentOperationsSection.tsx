@@ -786,7 +786,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
         setConnectedFamilies(before);
         writeConnectedFamilies(before);
         setConnectError(
-          tr("agents.connectFailed", {
+          tr("agents.addToCatalogFailed", {
             name: a.name || a.id,
             reason: tr("agents.connectMissing"),
           }),
@@ -794,24 +794,18 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
         return;
       }
       setConnectFor(null);
-      // The verb follows what actually happened: a runnable product was added
-      // to the catalog, not newly connected to the machine.
-      pushToast(
-        tr(
-          discoveredStatus(a) === "notInCatalog"
-            ? "agents.addToCatalogToast"
-            : "agents.connectedToast",
-          { name: a.name || a.id },
-        ),
-        "info",
-      );
+      // Every discovered row spends a catalog slot; none of them connects the
+      // product to the machine, so the toast uses the same verb as the button.
+      pushToast(tr("agents.addToCatalogToast", { name: a.name || a.id }), "info");
     } catch (e) {
       // A canceled attempt already restored the catalog; its failure has no
       // dialog left to explain it.
       if (attempt !== connectAttempt.current) return;
       setConnectedFamilies(before);
       writeConnectedFamilies(before);
-      setConnectError(tr("agents.connectFailed", { name: a.name || a.id, reason: messageOf(e) }));
+      setConnectError(
+        tr("agents.addToCatalogFailed", { name: a.name || a.id, reason: messageOf(e) }),
+      );
     } finally {
       if (attempt === connectAttempt.current) setConnecting(false);
     }
@@ -1677,7 +1671,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                       title={full ? tr("agents.connectFull") : undefined}
                       onClick={() => beginConnect(a)}
                     >
-                      {tr(status === "notInCatalog" ? "agents.addToCatalog" : "agents.connect")}
+                      {tr("agents.addToCatalog")}
                     </Button>
                   </li>
                 );
@@ -1698,12 +1692,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
           dialog
           title={
             connectFor
-              ? tr(
-                  discoveredStatus(connectFor) === "notInCatalog"
-                    ? "agents.addToCatalogTitle"
-                    : "agents.connectTitle",
-                  { name: connectFor.name },
-                )
+              ? tr("agents.addToCatalogTitle", { name: connectFor.name })
               : undefined
           }
           footer={
@@ -1713,15 +1702,10 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                 disabled={connecting || full || offline || !connectFor}
               >
                 {connecting
-                  ? tr("agents.connecting")
+                  ? tr("agents.addingToCatalog")
                   : connectFor
-                    ? tr(
-                        discoveredStatus(connectFor) === "notInCatalog"
-                          ? "agents.addToCatalogAction"
-                          : "agents.connectAction",
-                        { name: connectFor.name },
-                      )
-                    : tr("agents.connect")}
+                    ? tr("agents.addToCatalogAction", { name: connectFor.name })
+                    : tr("agents.addToCatalog")}
               </SheetPrimaryButton>
               <SheetSecondaryButton onClick={closeConnect}>
                 {tr("common.cancel")}
@@ -1732,12 +1716,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
           {connectFor && (
             <div className="space-y-3">
               <p className="text-body leading-5 text-kin-secondary">
-                {tr(
-                  discoveredStatus(connectFor) === "notInCatalog"
-                    ? "agents.addToCatalogIntro"
-                    : "agents.connectIntro",
-                  { name: connectFor.name },
-                )}
+                {tr("agents.addToCatalogIntro", { name: connectFor.name })}
               </p>
               <div className="rounded-xl border border-kin-blue/30 bg-kin-blue/5 px-3 py-2.5">
                 <p className="text-strong font-medium text-kin-text">

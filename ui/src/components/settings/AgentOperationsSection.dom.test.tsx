@@ -192,7 +192,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(await screen.findByText("No agents yet")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Install an agent" }));
     expect(await screen.findByText("Discovered on this machine")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Connect" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add to catalog" })).toBeTruthy();
   });
 
   it("calls a runnable discovery available outside the catalog, not disconnected", async () => {
@@ -230,14 +230,14 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(screen.getByText("1 discovered, not in the catalog")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Connect Cursor?")).toBeTruthy();
+    expect(within(dialog).getByText("Add Cursor to the catalog?")).toBeTruthy();
     expect(within(dialog).getByText(/does not import Cursor's history sessions/i)).toBeTruthy();
     // Reading the explanation changes nothing on its own.
     expect(screen.getAllByText("Cursor")).toHaveLength(1);
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Connect Cursor" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(await screen.findByText("Cursor", { selector: "span.font-medium" })).toBeTruthy();
@@ -259,13 +259,13 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
     const dialog = await screen.findByRole("dialog");
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Connect Cursor" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
     expect(
-      await screen.findByText(/Couldn't connect Cursor: Error: daemon went away/),
+      await screen.findByText(/Couldn't add Cursor to the catalog: Error: daemon went away/),
     ).toBeTruthy();
     // The dialog stays open so the same button is the retry, and the catalog
     // did not grow a row that only exists because a request failed.
@@ -284,7 +284,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(await screen.findByText("10 / 10 in catalog")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     expect(screen.getByText("The catalog is full. Remove one before adding another.")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(
+    expect((screen.getByRole("button", { name: "Add to catalog" }) as HTMLButtonElement).disabled).toBe(
       true,
     );
   });
@@ -639,14 +639,14 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     // Nine rows plus the lost family is ten slots: the catalog is full, and a
     // hole nobody can see would otherwise block every new product forever.
-    expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(
+    expect((screen.getByRole("button", { name: "Add to catalog" }) as HTMLButtonElement).disabled).toBe(
       true,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Remove vanished" }));
 
     await waitFor(() =>
-      expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(
+      expect((screen.getByRole("button", { name: "Add to catalog" }) as HTMLButtonElement).disabled).toBe(
         false,
       ),
     );
@@ -671,9 +671,9 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Connect Cursor" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
     // Cancel is a decision: the answer that arrives later must not add it.
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -689,7 +689,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(screen.queryAllByText("Cursor", { selector: "span.font-medium" })).toHaveLength(0);
     // And no late "connected" toast for a request the person canceled.
     expect(
-      useAppStore.getState().toasts.some((toast) => toast.message === "Cursor connected"),
+      useAppStore.getState().toasts.some((toast) => toast.message === "Cursor added to the catalog"),
     ).toBe(false);
   });
 
@@ -706,12 +706,12 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Connect Cursor" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
     expect(
-      await screen.findByText("Couldn't connect Cursor: this machine no longer reports it"),
+      await screen.findByText("Couldn't add Cursor to the catalog: this machine no longer reports it"),
     ).toBeTruthy();
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(readConnectedFamilies()).not.toContain("cursor");
@@ -736,9 +736,9 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Connect Cursor" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Cursor to catalog" }));
 
     await act(async () => {
       useAppStore.setState({ reconnectGen: 1 });
@@ -1028,7 +1028,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to catalog" }));
 
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));

@@ -132,7 +132,7 @@
 
 | 层级 | 位置 | Given / When / Then |
 |---|---|---|
-| 组件 | `ui/src/components/settings/AgentOperationsSection.dom.test.tsx`（新建，文件含 `KIN-AGENTS-001`） | Given 两个 agent，一个未登录一个可用 When 打开页面 Then 两行状态文字不同且默认 agent 有标记；Given 没有 agent Then 显示安装入口；Given 发现一个未接入的 agent Then 不改变目录，点「接入」并确认后才出现这一行；Given 已接入 10 个 Then 「接入」禁用并说明 |
+| 组件 | `ui/src/components/settings/AgentOperationsSection.dom.test.tsx`（新建，文件含 `KIN-AGENTS-001`） | Given 两个 agent，一个未登录一个可用 When 打开页面 Then 两行状态文字不同且默认 agent 有标记；Given 没有 agent Then 显示安装入口；Given 发现一个未加入目录的 agent Then 不改变目录，点「加入目录」并确认后才出现这一行；Given 已加入目录 10 个 Then 「加入目录」禁用并说明 |
 | 单元 | `ui/src/lib/agentCatalog.test.ts`（已有，扩充） | Given 目录顺序与安装状态 When 排序 Then 可用的在前、默认的置顶；Given 超过 10 个产品 When 截取目录 Then 最多 10 个且同产品的传输变体只算一个 |
 | 单元 | `ui/src/lib/agentLimits.test.ts`（已有，扩充） | Given 额度等待中 When 读标签 Then 显示原因与等待时长 |
 | 单元 | `ui/src/lib/usage.test.ts`（已有，扩充） | Given 一个区间没有任务 When 汇总 Then 是「没有用量」而不是 0 花费 |
