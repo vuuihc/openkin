@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/routing"
 	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/toolpath"
 )
 
 func listAgentProviders(reg *agent.Registry) []agent.ProviderInfo {
@@ -186,6 +188,39 @@ func addPresenceEvidence(row *agent.ProviderInfo, p detect.Presence) {
 	}
 }
 
+// claudeKnownLocations are the places a Claude Code install lives when PATH
+// does not carry it — which is the normal shape for a daemon started by
+// launchd. A person who runs `claude` in a terminal may never have these on
+// the daemon's PATH.
+func claudeKnownLocations() []string {
+	known := make([]string, 0, 4)
+	if home, err := os.UserHomeDir(); err == nil {
+		known = append(known,
+			filepath.Join(home, ".claude", "local", "claude"),
+			filepath.Join(home, ".local", "bin", "claude"),
+		)
+	}
+	return append(known,
+		"/opt/homebrew/bin/claude",
+		"/usr/local/bin/claude",
+	)
+}
+
+// resolveAgentBinary finds an agent's executable the way git and gh already
+// are found: an explicit override, then the known install locations, then a
+// PATH whose refused wrapper directories are filtered out.
+//
+// Detection used to be a bare exec.LookPath, so whether an agent counted as
+// installed depended on the PATH of whatever started the daemon. Bare names
+// are searched; an absolute name is already an answer (the plugin applies
+// KIN_CLAUDE_BIN before asking) and is only validated.
+func resolveAgentBinary(name, envVar string, known ...string) (string, error) {
+	if filepath.IsAbs(name) {
+		return toolpath.Resolve(toolpath.Spec{Name: filepath.Base(name), Known: []string{name}})
+	}
+	return toolpath.Resolve(toolpath.Spec{Name: name, EnvVar: envVar, Known: known})
+}
+
 // buildAgentRegistry is the composition root for built-in agent plugins.
 // One registration line per plugin is acceptable; behavioral ID switches are not.
 // Tier-2 generic CLI agents are assembled from detect.GenericInvocations().
@@ -206,6 +241,12 @@ func buildAgentRegistry(
 		claudecode.NewPluginFactory(claudecode.PluginConfig{
 			DaemonURL: daemonURL,
 			TokenFunc: tokenFn,
+			// Status, the lazy-workspace probe and every turn resolve `claude`
+			// through this, so a daemon with launchd's PATH still finds an
+			// install the person uses from their shell.
+			LookPath: func(file string) (string, error) {
+				return resolveAgentBinary(file, "KIN_CLAUDE_BIN", claudeKnownLocations()...)
+			},
 		}),
 		codex.NewPluginFactory(),
 		droid.NewPluginFactory(droid.PluginConfig{
