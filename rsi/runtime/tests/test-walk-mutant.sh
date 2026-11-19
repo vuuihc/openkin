@@ -45,8 +45,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 12:
-    raise SystemExit("manifest must be exactly twelve entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 13:
+    raise SystemExit("manifest must be exactly thirteen entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -209,10 +209,21 @@ if 'window.location.assign("/sessions")' not in phone["new"] or "navigate(-1)" i
     raise SystemExit("the J11 mutant does not turn the phone's Back into a document load")
 if "R-f4-switch-phone" not in phone["new"]:
     raise SystemExit("the J11 mutant does not name the item it breaks (no R-f4-switch-phone marker)")
-print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
+# The J13 mutant must refuse the PR tab's address in the parser: the tab still
+# opens, but `?panel=pr` names no place, so a cold arrival draws no PR surface
+# and the walk's selected-tab waits redden while the query bytes stay put.
+# Breaking the patcher instead would leave the cold leg green.
+panel_exit = next((e for e in entries if e["file"] == "ui/src/lib/workspaceDeepLink.ts"), None)
+if panel_exit is None:
+    raise SystemExit("no J13 entry for ui/src/lib/workspaceDeepLink.ts")
+if '"pr"' not in panel_exit["old"] or '"pr"' in panel_exit["new"]:
+    raise SystemExit("the J13 mutant does not refuse the PR panel value in parseWorkspaceLink")
+if "--walk-once J13" not in panel_exit["test"]:
+    raise SystemExit("the J13 entry's `test` does not walk J13 (--walk-once J13)")
+print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
       % (j3["file"], j7["file"], j10["file"], follow["file"], review["file"],
          rerun["file"], stop["file"], shell["file"], pr["file"], rowmenu["file"],
-         phone["file"]))
+         phone["file"], panel_exit["file"]))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
@@ -896,4 +907,49 @@ case "$err" in *"$tmp/journeys/J9.json"*) ;; *) rm -rf "$tmp"; fail "$case_name:
 rm -rf "$tmp"
 pass "$case_name"
 
-echo "walk-mutant contract: 17/17 cases passed"
+# Each PR proof belongs to its own leg. A later PR search or selected tab
+# cannot make up for one deleted from the cold arrival, reload or Forward.
+case_name="test_j13_spec_rejects_missing_pr_address_proofs"
+python3 - "$SPEC_INDEX" "$SPECPY" "$WALKER" <<'PYTEST' || fail "$case_name: a missing PR proof was accepted"
+import copy
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+index, specpy, walker = sys.argv[1:]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", index]))
+steps = spec["journeys"]["J13"]["steps"]
+cold = next(i for i, st in enumerate(steps) if st == ["goto", "/tasks/{conversation}?panel=pr"])
+forward = next(i for i, st in enumerate(steps) if st[0] == "history-forward")
+sheet = next(i for i, st in enumerate(steps) if st == ["click", "/^Pull [Rr]equest$/"])
+cases = {
+    "cold address read": cold + 1,
+    "cold selected tab": cold + 2,
+    "refresh load": cold + 4,
+    "refresh address read": cold + 5,
+    "refresh selected tab": cold + 6,
+    "cold Back": cold + 8,
+    "Forward": forward,
+    "Forward address read": forward + 1,
+    "Forward selected tab": forward + 2,
+    "action-sheet PR press": sheet,
+    "action-sheet address read": sheet + 1,
+    "action-sheet selected tab": sheet + 2,
+}
+with tempfile.TemporaryDirectory(prefix="j13-pr-contract-") as tmp:
+    target = Path(tmp) / "spec.json"
+    for label, pos in cases.items():
+        mutant = copy.deepcopy(spec)
+        del mutant["journeys"]["J13"]["steps"][pos]
+        target.write_text(json.dumps(mutant))
+        result = subprocess.run(["node", walker, "--check-spec", "--spec", str(target)],
+                                capture_output=True, text=True)
+        assert result.returncode != 0, label + " deletion passed"
+        assert "J13" in result.stdout + result.stderr, label + " failed for another reason"
+print("J13 PR contract rejects all twelve deleted address or surface proofs")
+PYTEST
+pass "$case_name"
+
+echo "walk-mutant contract: 18/18 cases passed"
