@@ -4,13 +4,166 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/acp"
+	"github.com/vuuihc/openkin/internal/adapter/claudecode"
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/store"
 )
+
+// writeExecutable puts a tiny executable at path, creating its directory.
+func writeExecutable(t *testing.T, path string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf '2.0.0'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// A daemon started by launchd carries a minimal PATH: Claude Code installed
+// under ~/.local/bin (or ~/.claude/local, Homebrew) is on the machine and not
+// on that PATH. The resolver has to find it anyway, or Settings reports the
+// agent as 未接入 while the person runs `claude` all day.
+func TestResolveAgentBinaryFindsKnownLocationOutsidePATH(t *testing.T) {
+	home := t.TempDir()
+	bin := writeExecutable(t, filepath.Join(home, ".local", "bin", "claude"))
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("KIN_CLAUDE_BIN", "")
+
+	got, err := resolveAgentBinary("claude", "KIN_CLAUDE_BIN",
+		filepath.Join(home, ".claude", "local", "claude"),
+		bin,
+		"/opt/homebrew/bin/claude",
+		"/usr/local/bin/claude",
+	)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if got != bin {
+		t.Fatalf("resolved=%q want %q", got, bin)
+	}
+}
+
+// When it genuinely is not installed, the sentence a person reads must name
+// what was searched — "claude binary not found" alone is why nobody could tell
+// detection from a missing install.
+func TestResolveAgentBinaryReportsWhereItLooked(t *testing.T) {
+	home := t.TempDir()
+	known := []string{
+		filepath.Join(home, ".claude", "local", "claude"),
+		filepath.Join(home, ".local", "bin", "claude"),
+		"/opt/homebrew/bin/claude",
+		"/usr/local/bin/claude",
+	}
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("KIN_CLAUDE_BIN", "")
+
+	_, err := resolveAgentBinary("claude", "KIN_CLAUDE_BIN", known...)
+	if err == nil {
+		t.Fatal("expected an error when nothing is installed")
+	}
+	msg := err.Error()
+	for _, want := range append([]string{"claude"}, known...) {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error %q does not mention %q", msg, want)
+		}
+	}
+}
+
+// The plugin reports what its LookPath says. Composing it with the resolver is
+// the whole fix: the status row then names the binary that was actually found.
+func TestClaudeCodeStatusUsesResolvedBinary(t *testing.T) {
+	home := t.TempDir()
+	bin := writeExecutable(t, filepath.Join(home, ".claude", "local", "claude"))
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("KIN_CLAUDE_BIN", "")
+
+	factory := claudecode.NewPluginFactory(claudecode.PluginConfig{
+		LookPath: func(file string) (string, error) {
+			return resolveAgentBinary(file, "KIN_CLAUDE_BIN", bin)
+		},
+	})
+	registration, err := factory.Open(context.Background())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	status := registration.Status(context.Background())
+	if !status.Installed {
+		t.Fatalf("installed=false reason=%q", status.Reason)
+	}
+	if status.Binary != bin {
+		t.Fatalf("binary=%q want %q", status.Binary, bin)
+	}
+}
+
+// The resolver is only a fix if the composition root actually wires it into
+// the Claude Code plugin. Hand-building the plugin's LookPath, as the test
+// above does, leaves this seam untested: deleting the field would restore the
+// launchd-PATH bug with every test still green.
+func TestAgentRegistryFindsClaudeOutsideDaemonPATH(t *testing.T) {
+	home := t.TempDir()
+	bin := writeExecutable(t, filepath.Join(home, ".local", "bin", "claude"))
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("KIN_CLAUDE_BIN", "")
+
+	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	reg, err := buildAgentRegistry(context.Background(), st, "http://127.0.0.1:7777", nil, nil, nil, "test")
+	if err != nil {
+		t.Fatalf("build registry: %v", err)
+	}
+	registration, ok := reg.Get("claude-code")
+	if !ok {
+		t.Fatal("claude-code is not registered")
+	}
+	status := registration.Status(context.Background())
+	if !status.Installed || !status.Available {
+		t.Fatalf("installed=%v available=%v reason=%q", status.Installed, status.Available, status.Reason)
+	}
+	if status.Binary != bin {
+		t.Fatalf("binary=%q want %q", status.Binary, bin)
+	}
+}
+
+// A missing install must say where it looked. The resolver already writes that
+// sentence; this test proves the plugin forwards it to the status row a person
+// reads instead of replacing it with a bare "not found".
+func TestClaudeCodeStatusCarriesResolverReason(t *testing.T) {
+	home := t.TempDir()
+	want := filepath.Join(home, ".local", "bin", "claude")
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("KIN_CLAUDE_BIN", "")
+
+	factory := claudecode.NewPluginFactory(claudecode.PluginConfig{
+		LookPath: func(file string) (string, error) {
+			return resolveAgentBinary(file, "KIN_CLAUDE_BIN", want)
+		},
+	})
+	registration, err := factory.Open(context.Background())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	status := registration.Status(context.Background())
+	if status.Installed || status.Available {
+		t.Fatalf("installed=%v available=%v", status.Installed, status.Available)
+	}
+	if !strings.Contains(status.Reason, want) {
+		t.Fatalf("reason %q does not name %q", status.Reason, want)
+	}
+}
 
 type providerCatalogStub struct {
 	err error
