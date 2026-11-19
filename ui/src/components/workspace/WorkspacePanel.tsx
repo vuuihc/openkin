@@ -32,6 +32,7 @@ import {
   type FileDiffSnippet,
 } from "../../lib/changedFiles";
 import WorkspaceGenerationPicker from "./WorkspaceGenerationPicker";
+import { isKinDesktop } from "../../lib/desktop";
 import { projectLabel, shortPath, toWorkspaceRelativePath } from "../../lib/paths";
 import { IconBack, IconPanel, IconSearch, IconSpinner, IconX } from "../icons";
 import Button from "../ui/Button";
@@ -1463,7 +1464,18 @@ export default function WorkspacePanel({
                 key={`${selectedPath}:${previewNonce}`}
                 name={selectedPath}
                 downloadURL={fileBytes.download}
-                message={tr("workspace.viewer.binaryHint")}
+                message={tr(
+                  isKinDesktop()
+                    ? "workspace.viewer.binaryHintDesktop"
+                    : "workspace.viewer.binaryHint",
+                )}
+                // The rail reports absolute paths; the menu joins a
+                // workspace-relative one onto the root and refuses absolute
+                // inputs, so the path is converted before it is handed over.
+                openIn={{
+                  root: normalizeFileResponse(file)?.root || cwd,
+                  relativePath: toWorkspaceRelativePath(cwd, selectedPath),
+                }}
               />
             ) : selectedPath && preview === "table" && !tableAsCode ? (
               <DelimitedTablePane

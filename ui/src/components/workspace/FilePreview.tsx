@@ -62,7 +62,7 @@ function DownloadButton({ name, downloadURL }: { name: string; downloadURL: stri
         onClick={() => void download()}
         disabled={busy}
         // eslint-disable-next-line kin/no-legacy-class -- the viewer's download control has not migrated to `Button` yet
-        className="kin-btn-secondary mt-2 inline-flex items-center px-3 py-1.5 text-caption disabled:opacity-60"
+        className="kin-btn-secondary inline-flex items-center px-3 py-1.5 text-caption disabled:opacity-60"
       >
         {busy ? t("workspace.viewer.downloading") : t("workspace.viewer.download")}
       </button>
@@ -160,12 +160,18 @@ export function DownloadPreview({
   downloadURL,
   message,
   announce = false,
+  openIn,
 }: {
   name: string;
   downloadURL: string;
   message: string;
   /** The message is the answer to something that just failed, so say it. */
   announce?: boolean;
+  /**
+   * Where the file lives, so a desktop shell can offer "Open in…" next to the
+   * download. Optional: the failed-image caller has no workspace path to open.
+   */
+  openIn?: { root: string; relativePath: string | null };
 }) {
   return (
     <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
@@ -173,7 +179,10 @@ export function DownloadPreview({
       <div role={announce ? "alert" : undefined} className="text-caption text-kin-muted max-w-md">
         {message}
       </div>
-      <DownloadButton name={name} downloadURL={downloadURL} />
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+        <DownloadButton name={name} downloadURL={downloadURL} />
+        {openIn && <OpenInMenu root={openIn.root} relativePath={openIn.relativePath} />}
+      </div>
     </div>
   );
 }
