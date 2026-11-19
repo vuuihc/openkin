@@ -1,5 +1,5 @@
 #!/bin/bash
-# ux-walk.sh <worktree> <outdir> [journeys-or-@files]   Boots a THROWAWAY daemon from the worktree (temp state dir, free port, never :7777),
+# ux-walk.sh <worktree> <outdir> [journey... | @files]   Boots a THROWAWAY daemon from the worktree (temp state dir, free port, never :7777),
 # seeds it when scripts/journeys_seed.py exists, walks the journeys with rsi/runtime/ux/walk.mjs, tears the daemon down.
 # exit 0 walked | 2 could not run (reason in <outdir>/UNAVAILABLE). The walk itself holds the machine-wide
 # heavy slot (heavy.sh), like the go build and npm build shims it uses; the seed and daemon are light.
@@ -8,6 +8,8 @@
 #                             rsi/runtime/tests/test-ux-walker.sh
 #   --dist-state <worktree>   print "skip" or "build: <why>" for the worktree's web/dist and exit;
 #                             build-free seam for the same suite
+#   --select-args <journey...|@files>   print the selection the walk would pass ("--journeys J9,J11",
+#                             "--files <path>", or nothing) and exit; build-free seam for the same suite
 set -u
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
@@ -90,6 +92,31 @@ PY
 # Same answer the seam prints, as a predicate: 0 = serve the dist as it is.
 dist_ready() { [ "$(dist_state "$1")" = "skip" ]; }
 
+# The selection is every positional from the third on: "J9 J11" and "J9,J11"
+# are the same request, so spaces become commas instead of the third positional
+# winning alone (2026-11-20, `ux-walk.sh "$PWD" "$OUT" J9 J11` exited 0 having
+# walked only J9). One @file keeps its meaning (a changed-files list); two
+# selections are a usage error, never a guess. Both the seam below and the real
+# walk print through this one function, so they cannot disagree.
+select_args() {
+  local ats=0 file="" tok joined
+  for tok in "$@"; do
+    case "$tok" in @*) ats=$((ats + 1)); file="${tok#@}" ;; esac
+  done
+  if [ "$ats" -gt 0 ]; then
+    if [ "$ats" -ne 1 ] || [ "$#" -ne 1 ] || [ -z "$file" ]; then
+      echo "usage: ux-walk.sh <worktree> <outdir> [journeys... | @files]" >&2
+      return 2
+    fi
+    printf '%s\n' "--files $file"
+    return 0
+  fi
+  joined="$(printf '%s\n' "$*" | tr -s '[:space:]' ',')"
+  joined="$(printf '%s\n' "$joined" | sed -e 's/,,*/,/g' -e 's/^,//' -e 's/,$//')"
+  [ -n "$joined" ] || return 0
+  printf '%s\n' "--journeys $joined"
+}
+
 # Build-free seam: answer and exit before any build, daemon or output directory.
 if [ "${1:-}" = "--walker-for" ]; then
   [ -n "${2:-}" ] || { echo "usage: ux-walk.sh --walker-for <worktree>" >&2; exit 2; }
@@ -99,8 +126,12 @@ if [ "${1:-}" = "--dist-state" ]; then
   [ -n "${2:-}" ] || { echo "usage: ux-walk.sh --dist-state <worktree>" >&2; exit 2; }
   dist_state "$2"; exit 0
 fi
+if [ "${1:-}" = "--select-args" ]; then
+  shift
+  select_args "$@"; exit $?
+fi
 
-WT="$1"; OUT="$2"; SEL="${3:-}"; mkdir -p "$OUT"
+WT="$1"; OUT="$2"; mkdir -p "$OUT"
 unavail() { echo "$*" > "$OUT/UNAVAILABLE"; echo "[ux-walk] unavailable: $*" >&2; exit 2; }
 # The walker is the one call in the merge lane that could wait forever; on
 # 2026-11-19 a walk ran 40 minutes and from outside nobody could tell slow from
@@ -116,6 +147,9 @@ if [ "${1:-}" = "--timeout-probe" ]; then
   [ "$rc" -eq 124 ] && unavail "walker exceeded ${WALK_MAX_S}s (RSI_WALK_MAX_S)"
   exit "$rc"
 fi
+# Validate the selection before the build or the daemon, so a usage error costs
+# nothing; the value is resolved once and only used to write ARGS below.
+SEL_ARGS="$(select_args "${@:3}")" || exit 2
 TMP="$(mktemp -d)"; PID=""; trap '[ -n "$PID" ] && kill -KILL "$PID" 2>/dev/null; rm -rf "$TMP"' EXIT
 # RSI_NO_HEAVY=1 means "read code, do not build/test" (reviewers). The walk is
 # a heavy step: running it next to the gate's own build is exactly what starved
@@ -182,7 +216,11 @@ ARGS=(--base "http://127.0.0.1:$PORT" --token "$TOKEN" --out "$OUT")
 # own spec; either way the walker comes from the same tree.
 SPEC="${RSI_UX_SPEC:-$WT/rsi/runtime/ux/journeys.json}"
 [ -f "$SPEC" ] && ARGS+=(--spec "$SPEC")
-case "$SEL" in @*) ARGS+=(--files "${SEL#@}");; ?*) ARGS+=(--journeys "$SEL");; esac
+case "$SEL_ARGS" in
+  '') ;;
+  --journeys\ *) ARGS+=(--journeys "${SEL_ARGS#--journeys }") ;;
+  --files\ *) ARGS+=(--files "${SEL_ARGS#--files }") ;;
+esac
 # The mutant proof needs the task-detail answer held: the message the draft
 # showed must be on screen before the first detail GET lands. Unset (the gate)
 # adds nothing, so the walker's default 0 installs no route.
