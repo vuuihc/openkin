@@ -232,6 +232,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-control-sync.sh || return 1
   bash rsi/runtime/tests/test-install.sh || return 1
   bash rsi/runtime/tests/test-utf8-truncation.sh || return 1
+  bash rsi/runtime/tests/test-fill-claim-check.sh || return 1
   bash rsi/runtime/tests/test-reviewer-misses.sh || return 1
   bash rsi/runtime/tests/test-live-config-ignore.sh || return 1
   bash rsi/runtime/tests/test-lane-bash-timeout.sh || return 1
@@ -242,6 +243,7 @@ job_shell_test() {
   bash rsi/runtime/nas/tests/test-install-preflight.sh || return 1
   bash rsi/runtime/ux/retry-test.sh || return 1
   bash rsi/runtime/tests/test-ux-gate-confirm-red.sh || return 1
+  bash rsi/runtime/tests/test-ux-gate-grounded-red.sh || return 1
   bash rsi/runtime/tests/test-wiring.sh
 }
 

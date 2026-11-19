@@ -148,6 +148,8 @@ const panelProbe = vi.hoisted(() => ({
   selectPath: null as ((path: string) => void) | null,
   selectWorkspace: null as ((id: string | null) => void) | null,
   showFiles: null as (() => void) | null,
+  openPr: null as (() => void) | null,
+  close: null as (() => void) | null,
 }));
 
 vi.mock("../components/workspace/WorkspacePanel", () => ({
@@ -161,6 +163,8 @@ vi.mock("../components/workspace/WorkspacePanel", () => ({
     onSelectWorkspace,
     surface,
     onShowFiles,
+    onOpenPr,
+    onClose,
   }: {
     taskId: string;
     openPath?: string | null;
@@ -171,10 +175,14 @@ vi.mock("../components/workspace/WorkspacePanel", () => ({
     onSelectWorkspace?: (id: string | null) => void;
     surface?: "files" | "pr" | "publish";
     onShowFiles?: () => void;
+    onOpenPr?: () => void;
+    onClose?: () => void;
   }) => {
     panelProbe.selectPath = onSelectPath ?? null;
     panelProbe.selectWorkspace = onSelectWorkspace ?? null;
     panelProbe.showFiles = onShowFiles ?? null;
+    panelProbe.openPr = onOpenPr ?? null;
+    panelProbe.close = onClose ?? null;
     return (
       <div
         data-testid="workspace-panel"
@@ -339,6 +347,9 @@ describe("the files panel's address", () => {
       expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "pr" }),
     );
     expect(panel()?.getAttribute("data-surface")).toBe("pr");
+    // The panel changed surface, not place: the remembered file stays in the
+    // address and the address now names the PR tab.
+    expect(address()).toBe("/tasks/task-1?panel=pr&file=notes.md");
 
     // A lens tab picked from the PR surface asks the page for files (the
     // panel's own suite covers the tab; this is the page's answer).
@@ -526,6 +537,114 @@ describe("the files panel's address", () => {
     await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=files&file=src/a%20b.ts"));
     await waitFor(() => expect(panel()?.getAttribute("data-open-path")).toBe("src/a b.ts"));
     expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "files" });
+  });
+});
+
+describe("the PR panel's address", () => {
+  it("the panel's PR tab writes its address and keeps its remembered file", async () => {
+    open("?panel=files&file=notes.md");
+    await waitFor(() => expect(panel()?.getAttribute("data-open-path")).toBe("notes.md"));
+
+    act(() => panelProbe.openPr?.());
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=pr&file=notes.md"));
+    expect(historyType()).toBe("PUSH");
+    expect(panel()?.getAttribute("data-surface")).toBe("pr");
+
+    // Selecting the active tab never closes it or adds another entry.
+    const key = screen.getByTestId("location").getAttribute("data-key");
+    act(() => panelProbe.openPr?.());
+    expect(screen.getByTestId("location").getAttribute("data-key")).toBe(key);
+    expect(panel()?.getAttribute("data-surface")).toBe("pr");
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=files&file=notes.md"));
+    expect(panel()?.getAttribute("data-surface")).toBe("files");
+  });
+
+  it("the PR toggle and the panel close clear the address and Forward reopens it", async () => {
+    open("");
+    fireEvent.click(screen.getByRole("button", { name: t("pr.title") }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=pr"));
+    fireEvent.click(screen.getByRole("button", { name: t("pr.title") }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1"));
+    expect(panel()).toBeNull();
+    expect(historyType()).toBe("PUSH");
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    await waitFor(() => expect(panel()?.getAttribute("data-surface")).toBe("pr"));
+    act(() => panelProbe.close?.());
+    await waitFor(() => expect(address()).toBe("/tasks/task-1"));
+    expect(panel()).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    await waitFor(() => expect(panel()?.getAttribute("data-surface")).toBe("pr"));
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    await waitFor(() => expect(panel()).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "forward" }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=pr"));
+    expect(historyType()).toBe("POP");
+    expect(panel()?.getAttribute("data-surface")).toBe("pr");
+  });
+
+  it("a cold ?panel=pr address opens the PR surface without adding an entry", async () => {
+    open("?panel=pr");
+    const arrivalKey = screen.getByTestId("location").getAttribute("data-key");
+
+    await waitFor(() =>
+      expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "pr" }),
+    );
+    expect(panel()?.getAttribute("data-surface")).toBe("pr");
+
+    // Reading the link neither rewrites the address nor grows the history.
+    expect(address()).toBe("/tasks/task-1?panel=pr");
+    expect(screen.getByTestId("location").getAttribute("data-key")).toBe(arrivalKey);
+    expect(historyType()).toBe("POP");
+  });
+
+  it("the header's PR control gives the panel an address and Back closes only the panel", async () => {
+    open("");
+    expect(useAppStore.getState().shownPanel).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: t("pr.title") }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=pr"));
+    expect(historyType()).toBe("PUSH");
+    expect(panel()?.getAttribute("data-surface")).toBe("pr");
+    expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "pr" });
+
+    // Back follows the address: it closes the panel, not the conversation.
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1"));
+    expect(historyType()).toBe("POP");
+    await waitFor(() => expect(panel()).toBeNull());
+    expect(useAppStore.getState().shownPanel).toBeNull();
+  });
+
+  it("a refresh on ?panel=pr lands on the PR surface again", async () => {
+    const first = open("?panel=pr");
+    await waitFor(() =>
+      expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "pr" }),
+    );
+    first.unmount();
+
+    // A refresh starts from the store as the document left it, with the panel
+    // marks gone: the address alone has to reopen the surface.
+    useAppStore.setState({ shownPanel: null });
+    open("?panel=pr");
+    await waitFor(() =>
+      expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "pr" }),
+    );
+    expect(panel()?.getAttribute("data-surface")).toBe("pr");
+    expect(address()).toBe("/tasks/task-1?panel=pr");
+  });
+
+  it("a cold PR address remembers the file without opening or pulsing it", async () => {
+    open("?panel=pr&file=notes.md");
+
+    await waitFor(() =>
+      expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "pr" }),
+    );
+    // The file is the panel's memory, handed across as state; nothing opens
+    // now, so the arrival pulse is not spent.
+    await waitFor(() => expect(panel()?.getAttribute("data-open-path")).toBe("notes.md"));
+    expect(panel()?.getAttribute("data-nonce")).toBe("0");
+    expect(address()).toBe("/tasks/task-1?panel=pr&file=notes.md");
   });
 });
 

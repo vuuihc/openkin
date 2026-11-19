@@ -1,13 +1,16 @@
 /**
- * The files panel's place in the address: `/tasks/<id>?panel=files&file=<path>`.
+ * The workspace panel's place in the address:
+ * `/tasks/<id>?panel=files&file=<path>` or `/tasks/<id>?panel=pr`.
  *
- * Three states share one URL shape — conversation (no keys), file list
- * (`panel=files`), one file (`panel=files&file=…`) — and the query belongs to
- * whoever reads it. This module therefore edits the raw search string as bytes:
- * a neighbouring `%20`, a literal `+`, an unrelated parameter and its position
- * are preserved exactly. `URLSearchParams.toString()` is the wrong tool here:
- * it re-encodes every value it did not have to touch (`%20` becomes `+`), so a
- * link with a space in its filename would change under the reader's feet.
+ * The panel has three states sharing one URL shape — conversation (no keys),
+ * file list (`panel=files`), one file (`panel=files&file=…`) — and a fourth
+ * surface, the pull-request tab (`panel=pr`), which may carry the file the
+ * panel remembers. The query belongs to whoever reads it, so this module edits
+ * the raw search string as bytes: a neighbouring `%20`, a literal `+`, an
+ * unrelated parameter and its position are preserved exactly.
+ * `URLSearchParams.toString()` is the wrong tool here: it re-encodes every
+ * value it did not have to touch (`%20` becomes `+`), so a link with a space in
+ * its filename would change under the reader's feet.
  *
  * The `file` value is untrusted input: it comes from a pasted or forwarded
  * link, and the page resolves whatever it is handed against the task's
@@ -16,9 +19,11 @@
  * be mistaken for a relative one.
  */
 
+export type WorkspacePanel = "files" | "pr";
+
 export type WorkspaceLink = {
-  panel: "files";
-  /** A clean repo-relative path, or null for the list. */
+  panel: WorkspacePanel;
+  /** A clean repo-relative path, remembered behind PR, or null when absent. */
   file: string | null;
   /**
    * The address itself named the panel. A lone `file` is stale — it names no
@@ -80,13 +85,15 @@ export function parseWorkspaceLink(search: string): WorkspaceLink | null {
   const panel = segments.find((segment) => segment.decodedKey === "panel");
   const file = segments.find((segment) => segment.decodedKey === "file");
   if (!panel) {
-    // Only `panel=files` opens the panel. A bare `file` is a leftover from a
+    // Only an explicit panel value opens it. A bare `file` is a leftover from a
     // previous state, not an instruction.
     return file ? { panel: "files", file: null, explicit: false } : null;
   }
-  if (panel.value === null || decode(panel.value) !== "files") return null;
+  const value = decode(panel.value);
+  // `panel=publish` (and anything else) is another surface's word.
+  if (value !== "files" && value !== "pr") return null;
   return {
-    panel: "files",
+    panel: value,
     file: file ? cleanRelativePath(decode(file.value)) : null,
     explicit: true,
   };
@@ -104,13 +111,14 @@ function encodeWorkspacePath(path: string): string {
 
 export function patchWorkspaceLink(
   search: string,
-  next: { panel: "files"; file: string | null } | null,
+  next: { panel: WorkspacePanel; file: string | null } | null,
 ): string {
   const segments = segmentsOf(search);
   const panel = segments.find((segment) => segment.decodedKey === "panel");
   // `panel` is shared with other surfaces. When it names one of theirs, the
   // query is not ours to rewrite.
-  if (panel && decode(panel.value) !== "files") return search;
+  const value = panel ? decode(panel.value) : null;
+  if (panel && value !== "files" && value !== "pr") return search;
 
   const parts: string[] = [];
   let sawPanel = false;
@@ -119,7 +127,7 @@ export function patchWorkspaceLink(
     if (segment.decodedKey === "panel") {
       if (sawPanel) continue;
       sawPanel = true;
-      if (next) parts.push(keepOrWrite(segment, "panel", "files"));
+      if (next) parts.push(keepOrWrite(segment, "panel", next.panel));
       continue;
     }
     if (segment.decodedKey === "file") {
@@ -127,13 +135,17 @@ export function patchWorkspaceLink(
       sawFile = true;
       if (next?.file != null) {
         parts.push(keepOrWrite(segment, "file", next.file));
+      } else if (next?.panel === "pr") {
+        // The PR tab remembers the file without opening it: switching surfaces
+        // keeps the reader's place, so the pair stays exactly as it was.
+        parts.push(segment.raw);
       }
       continue;
     }
     parts.push(segment.raw);
   }
   if (next) {
-    if (!sawPanel) parts.push("panel=files");
+    if (!sawPanel) parts.push(`panel=${next.panel}`);
     if (!sawFile && next.file != null) {
       parts.push(`file=${encodeWorkspacePath(next.file)}`);
     }
