@@ -77,19 +77,35 @@ describe("the file finder", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("keeps the highlight when the answer's effects settle after a keypress", async () => {
+  it("keeps a keypress that lands between the answer's paint and its effects", async () => {
     searchTaskSourceFiles.mockImplementation(() => answer(["src/a.ts", "docs/b.md"]));
     const { onOpenPath, onClose } = renderFinder();
 
+    // The row appearing is the answer's paint. React runs the answer's passive
+    // effects in a later task, and the MutationObserver callback lands after
+    // the insertion but before that flush — the window a keypress can hit.
+    const observer = new MutationObserver(() => {
+      if (!document.getElementById("kin-file-quick-open-list-0")) return;
+      observer.disconnect();
+      fireEvent.keyDown(input(), { key: "ArrowDown" });
+    });
+    observer.observe(document.querySelector("[data-file-quick-open]")!, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    // The mock answers from the debounce's timer, outside act, the way a
+    // response lands in the browser; an act-wrapped settle would flush the
+    // effects before the keypress above can land between them.
     fireEvent.change(input(), { target: { value: "b" } });
     await screen.findByText("b.md");
 
-    fireEvent.keyDown(input(), { key: "ArrowDown" });
-    // Let any effect the answer scheduled land before the key that reads the
-    // highlight. A reset here would silently move Enter back to the first row.
+    // Let the answer's effects land, then read the highlight Enter will use.
     await act(async () => {
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    observer.disconnect();
     expect(input().getAttribute("aria-activedescendant")).toBe("kin-file-quick-open-list-1");
 
     fireEvent.keyDown(input(), { key: "Enter" });
