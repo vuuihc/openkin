@@ -416,6 +416,8 @@ const zh = {
     compaction: {
       label: "上下文已压缩",
       running: "正在压缩上下文…",
+      failed: "上下文压缩失败",
+      cancelled: "上下文压缩已取消",
       show: "上下文已压缩 · 查看摘要",
       hide: "上下文已压缩 · 收起摘要",
     },
