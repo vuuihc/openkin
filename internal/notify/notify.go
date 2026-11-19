@@ -320,13 +320,43 @@ func (s *Sender) NotifyWorkerOffline(ctx context.Context, workerID, taskID, labe
 	})
 }
 
-// NotifyTaskTerminal sends a notification when a task reaches a terminal status.
-func (s *Sender) NotifyTaskTerminal(ctx context.Context, taskID, taskTitle, status string) {
-	title := "Task " + status
-	if taskTitle != "" {
-		title = taskTitle + " — " + status
+// terminalLabel is the word a person reads for a terminal status. The raw
+// status stays in Payload.Status, because the desktop dedupe key includes it;
+// it identifies the event without ever being printed. The routine fallbacks
+// pass "noteworthy" and "disabled" through the same call, so they get human
+// words here rather than a second notification path.
+func terminalLabel(status string) string {
+	switch status {
+	case "succeeded":
+		return "Completed"
+	case "failed":
+		return "Failed"
+	case "canceled":
+		return "Canceled"
+	case "noteworthy":
+		return "Report ready"
+	case "disabled":
+		return "Turned off"
 	}
-	body := fmt.Sprintf("Task %s is %s", shortID(taskID), status)
+	// An unknown terminal state still reads as an ending; echoing the enum
+	// would be worse than saying less.
+	return "Finished"
+}
+
+// NotifyTaskTerminal sends a notification when a task reaches a terminal status.
+// The task's own title is the banner title and the state is the body: the old
+// copy, "Task 3f9a1c2b is succeeded", named something the reader had never
+// seen and called it by a name no person uses.
+func (s *Sender) NotifyTaskTerminal(ctx context.Context, taskID, taskTitle, status string) {
+	label := terminalLabel(status)
+	title := "Task " + label
+	if taskID != "" {
+		title = "Task " + shortID(taskID)
+	}
+	if taskTitle != "" {
+		title = taskTitle
+	}
+	body := label
 	link := s.DeepLink(ctx, "/tasks/"+url.PathEscape(taskID))
 	s.Send(ctx, Payload{
 		Title: title, Body: body, URL: link,
