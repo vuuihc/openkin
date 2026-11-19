@@ -71,8 +71,8 @@
     ],
     [
       "count",
-      "css=button[aria-label='批准'], button[aria-label='Approve']",
-      "2"
+      "css=[role=region][aria-label='对话'] button[aria-label='批准'], [role=region][aria-label='Conversation'] button[aria-label='Approve']",
+      "1"
     ],
     [
       "shot",
