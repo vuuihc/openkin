@@ -98,12 +98,24 @@ type initializeParams struct {
 
 // clientCapabilities declares what Kin will do for the agent.
 //
-// Everything is off. Kin implements exactly one reverse method
-// (`session/request_permission`); advertising fs or terminal here would invite
-// an agent to route its file edits and shell commands through a client that
-// would have to answer `method not found`, which is a worse failure than the
-// agent using its own tools from the start.
-type clientCapabilities struct{}
+// Kin implements exactly one reverse method (`session/request_permission`);
+// advertising fs or terminal here would invite an agent to route its file
+// edits and shell commands through a client that would have to answer `method
+// not found`, which is a worse failure than the agent using its own tools from
+// the start. The one session feature is compaction: Kin reads both
+// `compaction_update` and `compaction_summary_chunk`, and a conforming agent
+// may not send either unless it is advertised.
+type clientCapabilities struct {
+	Session sessionCapabilities `json:"session"`
+}
+
+// sessionCapabilities declares the session-scoped updates Kin understands.
+type sessionCapabilities struct {
+	// Compaction is whether the agent may report a context compaction. Without
+	// it the only compaction Kin ever hears about is a notice an agent chose
+	// to invent, which cannot say whether the compaction succeeded.
+	Compaction bool `json:"compaction"`
+}
 
 type implementation struct {
 	Name string `json:"name"`

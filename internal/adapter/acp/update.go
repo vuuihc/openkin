@@ -18,24 +18,28 @@ import (
 // that is not here is ignored without error — the protocol requires unknown
 // updates to be tolerated.
 const (
-	updateUserMessageChunk     = "user_message_chunk"
-	updateAgentMessageChunk    = "agent_message_chunk"
-	updateAgentThoughtChunk    = "agent_thought_chunk"
-	updateToolCall             = "tool_call"
-	updateToolCallUpdate       = "tool_call_update"
-	updatePlan                 = "plan"
-	updateAvailableCommands    = "available_commands_update"
-	updateCurrentMode          = "current_mode_update"
-	updateConfigOption         = "config_option_update"
-	updateSessionInfo          = "session_info_update"
-	updateUsage                = "usage_update"
-	updateNotice               = "notice"
-	updateCompaction           = "compaction_update"
-	updateCompactionChunk      = "compaction_summary_chunk"
-	toolStatusCompleted        = "completed"
-	toolStatusFailed           = "failed"
-	toolStatusPending          = "pending"
-	toolStatusInProgress       = "in_progress"
+	updateUserMessageChunk  = "user_message_chunk"
+	updateAgentMessageChunk = "agent_message_chunk"
+	updateAgentThoughtChunk = "agent_thought_chunk"
+	updateToolCall          = "tool_call"
+	updateToolCallUpdate    = "tool_call_update"
+	updatePlan              = "plan"
+	updateAvailableCommands = "available_commands_update"
+	updateCurrentMode       = "current_mode_update"
+	updateConfigOption      = "config_option_update"
+	updateSessionInfo       = "session_info_update"
+	updateUsage             = "usage_update"
+	updateNotice            = "notice"
+	updateCompaction        = "compaction_update"
+	updateCompactionChunk   = "compaction_summary_chunk"
+	toolStatusCompleted     = "completed"
+	toolStatusFailed        = "failed"
+	toolStatusPending       = "pending"
+	toolStatusInProgress    = "in_progress"
+	// compactionCode is the stable name the console settles a compaction by.
+	// The human title stays beside it for transcripts written by an older
+	// adapter that had no code to send.
+	compactionCode             = "context_compacted"
 	messageRoleReasoning       = "reasoning"
 	messagePhaseProgress       = "progress"
 	messagePhaseCompaction     = "compaction"
@@ -65,6 +69,9 @@ type contentBlock struct {
 type contentChunk struct {
 	Content   contentBlock `json:"content"`
 	MessageID string       `json:"messageId"`
+	// CompactionID is set on `compaction_summary_chunk`: it is the only thing
+	// that joins a chunk to the update that settles it.
+	CompactionID string `json:"compactionId"`
 	// Meta is the protocol's extension field. Kin only reads one thing out of
 	// it: the claude adapter marks every chunk a subagent produced with
 	// `claudeCode.parentToolUseId`, and without it a subagent's narration reads
@@ -194,7 +201,7 @@ func mapUpdate(update json.RawMessage) []adapter.Event {
 	case updateNotice:
 		return noticeEvents(update, "", "")
 	case updateCompaction:
-		return noticeEvents(update, "context compacted", "")
+		return compactionEvents(update)
 	default:
 		return nil
 	}
@@ -224,6 +231,9 @@ func chunkEvents(raw json.RawMessage, role, phase string) []adapter.Event {
 	}
 	if chunk.MessageID != "" {
 		payload["message_id"] = chunk.MessageID
+	}
+	if phase == messagePhaseCompaction && chunk.CompactionID != "" {
+		payload["compaction_id"] = chunk.CompactionID
 	}
 	if parent := parentToolUseID(chunk.Meta); parent != "" {
 		// A subagent talking. It is not the answer, so an assistant chunk becomes
@@ -642,6 +652,57 @@ func configOptionEvents(raw json.RawMessage) []adapter.Event {
 		"kind":     updateConfigOption,
 		"values":   values,
 	})}}
+}
+
+// compactionUpdate is the protocol's state machine for one compaction.
+type compactionUpdate struct {
+	CompactionID string         `json:"compactionId"`
+	Status       string         `json:"status"`
+	Summary      []contentBlock `json:"summary"`
+}
+
+// compactionEvents maps a compaction's state to the one notice the console
+// settles it from.
+//
+// The protocol says what happened — `in_progress`, `completed` with the whole
+// summary, `failed`, `cancelled` — and the console needs all of it: without
+// the status every state reads as the same successful "context compacted", and
+// without the id two compactions cannot be told apart. The human title stays
+// for the console's fallback path, which folds transcripts an older adapter
+// wrote before these fields existed.
+func compactionEvents(raw json.RawMessage) []adapter.Event {
+	var update compactionUpdate
+	if err := json.Unmarshal(raw, &update); err != nil {
+		return nil
+	}
+	severity := "info"
+	if update.Status == toolStatusFailed {
+		severity = "error"
+	}
+	payload := map[string]any{
+		"severity": severity,
+		"title":    "context compacted",
+		"message":  truncateText(contentText(update.Summary), maxNoticeTextBytes),
+		"code":     compactionCode,
+		"status":   update.Status,
+	}
+	if id := strings.TrimSpace(update.CompactionID); id != "" {
+		payload["compaction_id"] = id
+	}
+	return []adapter.Event{{Type: "notice", Payload: mustMarshal(payload)}}
+}
+
+// contentText joins the text blocks of a content-block array the way every
+// other reader of ACP content joins them: no separator, so an agent that
+// splits a sentence across blocks gets the sentence back.
+func contentText(blocks []contentBlock) string {
+	var text strings.Builder
+	for _, block := range blocks {
+		if block.Type == "text" {
+			text.WriteString(block.Text)
+		}
+	}
+	return text.String()
 }
 
 // noticeEvents records a status line the agent sent.

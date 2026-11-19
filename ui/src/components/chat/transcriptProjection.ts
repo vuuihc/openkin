@@ -358,6 +358,11 @@ export function buildChatItems(
 ): ChatItem[] {
   const items: ChatItem[] = [];
   let streamBuf = "";
+  // The compaction item each protocol compaction id opened. A chunk carries
+  // its compaction id, and the update that settles the compaction carries the
+  // same one; the id is the only thing that joins them.
+  const compactionById = new Map<string, CompactionItem>();
+
   // The seq the current streamed buffer started at: a note built from many
   // partial chunks has only this one event to be anchored to.
   let streamFromSeq = 0;
@@ -699,12 +704,14 @@ export function buildChatItems(
   };
 
   /**
-   * Fold one compaction event into the turn's single compaction item.
+   * Fold one compaction event into its item.
    *
    * Chunks aggregate, the final replaces the preview, and a settled item never
    * absorbs a later compaction: two compactions in one task are two lines, not
-   * one growing one. The item is deliberately outside `streamBuf` — the stream
-   * is the agent's answer, and a summary that entered it would be drawn as one.
+   * one growing one. A protocol event names its compaction, and the id is what
+   * joins a chunk to the update that settles it even when no chunk arrived at
+   * all. The item is deliberately outside `streamBuf` — the stream is the
+   * agent's answer, and a summary that entered it would be drawn as one.
    */
   const upsertCompaction = (
     speaker: string,
@@ -713,9 +720,24 @@ export function buildChatItems(
     messageKey: string,
     final: boolean,
     seq: number,
+    compactionId: string,
   ) => {
-    const open = compactionInTurn();
-    if (open && open.partial) {
+    const keyed = compactionId ? compactionById.get(compactionId) : undefined;
+    // A late chunk of an already-settled summary adds nothing; only the final
+    // update may restate a settled compaction.
+    if (keyed && !keyed.partial && !final) return;
+    // Without an id the turn's open item is the best hint there is. With one,
+    // only an item no id owns may be adopted — otherwise a compaction settling
+    // next to another one still running would write its summary into that
+    // other compaction's line.
+    let open = keyed;
+    if (!open && !compactionId) open = compactionInTurn() ?? undefined;
+    if (!open && compactionId) {
+      const inTurn = compactionInTurn();
+      const owned = inTurn ? [...compactionById.values()].includes(inTurn) : false;
+      if (inTurn?.partial && !owned) open = inTurn;
+    }
+    if (open && (open.partial || keyed)) {
       if (final) {
         // The final carries the whole summary. An empty final is no reason to
         // throw away the text the chunks already delivered.
@@ -726,17 +748,24 @@ export function buildChatItems(
       }
       open.speaker = speaker;
       open.model = model ?? open.model;
+      if (compactionId && !keyed) compactionById.set(compactionId, open);
       return;
     }
-    items.push({
+    const item: CompactionItem = {
       kind: "compaction",
-      key: messageKey ? `compaction-${messageKey}` : `compaction-${seq}`,
+      key: compactionId
+        ? `compaction-${compactionId}`
+        : messageKey
+          ? `compaction-${messageKey}`
+          : `compaction-${seq}`,
       speaker,
       model,
       text,
       partial: !final,
       seq,
-    });
+    };
+    items.push(item);
+    if (compactionId) compactionById.set(compactionId, item);
   };
 
   for (const ev of events) {
@@ -799,7 +828,8 @@ export function buildChatItems(
           flushStream();
           streamNoteKey = null;
           progressRef.current = null;
-          upsertCompaction(sp, model, text, messageKey, !partial, ev.seq);
+          const compactionId = typeof p.compaction_id === "string" ? p.compaction_id : "";
+          upsertCompaction(sp, model, text, messageKey, !partial, ev.seq, compactionId);
           break;
         }
         // Skip legacy expanded tool dumps from older kinagent builds.
@@ -1050,10 +1080,55 @@ export function buildChatItems(
         // for the reader is the console's job, so the code names the note and the
         // UI says it. Everything else here is the agent's own words.
         const withdrawal = p.code === "prompt_withdrawn";
+        // A compaction the adapter reported through the protocol. Its status is
+        // the truth, never the title: a failed handoff and a finished one share
+        // the words "context compacted", and only one of them produced a
+        // summary. Running stays one line; completed settles with the whole
+        // summary even when no chunk arrived; failed or cancelled is not a
+        // compaction at all and says so in the reader's language.
+        if (p.code === "context_compacted") {
+          const compactionId = typeof p.compaction_id === "string" ? p.compaction_id : "";
+          const status = typeof p.status === "string" ? p.status : "";
+          flushStream();
+          streamNoteKey = null;
+          progressRef.current = null;
+          if (status === "failed" || status === "cancelled") {
+            // The running line this replaces is gone: it promised a summary
+            // that will never come, and a spinner over failed work is a lie.
+            const running = compactionId ? compactionById.get(compactionId) : compactionInTurn();
+            if (running && running.partial) {
+              const index = items.indexOf(running);
+              if (index >= 0) items.splice(index, 1);
+              if (compactionId) compactionById.delete(compactionId);
+            }
+            const label = t(
+              status === "failed" ? "chat.compaction.failed" : "chat.compaction.cancelled",
+            );
+            items.push({
+              kind: "meta",
+              key: `compaction-${compactionId || ev.seq}`,
+              label: `${noticeSeverityMark(severity)}${message ? `${label}: ${message}` : label}`,
+            });
+            break;
+          }
+          const completed = status === "completed";
+          upsertCompaction(
+            speaker,
+            model,
+            completed ? message : "",
+            "",
+            completed,
+            ev.seq,
+            compactionId,
+          );
+          break;
+        }
         // The same compaction the summary chunks describe. Two hints for one
         // compaction is the bug; when this turn already has its item, the
         // notice adds nothing. When no summary has arrived yet, the notice is
-        // what opens the running line — never a body sentence of its own.
+        // what opens the running line — never a body sentence of its own. This
+        // is the fallback for transcripts an adapter wrote before it sent a
+        // code; a protocol notice never reaches it.
         if (title.toLowerCase() === "context compacted") {
           flushStream();
           streamNoteKey = null;

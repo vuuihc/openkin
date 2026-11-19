@@ -222,8 +222,9 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 		clientVersion = clientVersionFallback
 	}
 	if _, err := h.send(ctx, methodInitialize, initializeParams{
-		ProtocolVersion: protocolVersion,
-		ClientInfo:      implementation{Name: clientName, Version: clientVersion},
+		ProtocolVersion:    protocolVersion,
+		ClientCapabilities: clientCapabilities{Session: sessionCapabilities{Compaction: true}},
+		ClientInfo:         implementation{Name: clientName, Version: clientVersion},
 	}); err != nil {
 		h.stopProcess()
 		return nil, fmt.Errorf("initialize %s: %w", bin, err)

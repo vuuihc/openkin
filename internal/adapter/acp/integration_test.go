@@ -535,9 +535,19 @@ func TestATurnSpeaksACPOverStdio(t *testing.T) {
 		t.Fatalf("clientInfo = %+v", params.ClientInfo)
 	}
 	// Kin answers no reverse request but the permission question, so it must not
-	// claim it can serve files or a terminal.
-	if len(params.ClientCapabilities) != 0 {
-		t.Fatalf("clientCapabilities = %v, want none advertised", params.ClientCapabilities)
+	// claim it can serve files or a terminal. It does read compaction updates,
+	// and a conforming agent must not send them unless this is advertised.
+	session, _ := params.ClientCapabilities["session"].(map[string]any)
+	if session["compaction"] != true {
+		t.Fatalf("clientCapabilities = %v, want session.compaction advertised", params.ClientCapabilities)
+	}
+	for _, capability := range []string{"fs", "terminal"} {
+		if _, ok := params.ClientCapabilities[capability]; ok {
+			t.Fatalf("clientCapabilities = %v, want no %s advertised", params.ClientCapabilities, capability)
+		}
+		if _, ok := session[capability]; ok {
+			t.Fatalf("clientCapabilities = %v, want no session.%s advertised", params.ClientCapabilities, capability)
+		}
 	}
 
 	// The session and the prompt.
