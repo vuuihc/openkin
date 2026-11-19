@@ -27,9 +27,16 @@ import Button from "../ui/Button";
 export default function RoundEvidenceCard({
   evidence,
   onOpenPath,
+  canOpenPath,
 }: {
   evidence: RoundEvidence;
   onOpenPath?: (path: string) => void;
+  /**
+   * Whether the task checkout can name this path. Absent means "ask no
+   * questions", which is the behaviour every caller had before this prop
+   * existed; false turns the open control into a marker that makes no promise.
+   */
+  canOpenPath?: (path: string) => boolean;
 }) {
   const tr = useT();
   // Open on the file list: the question this card answers is answered by the
@@ -131,18 +138,29 @@ export default function RoundEvidenceCard({
                         {tr("chat.diff.truncated", { count: preview.lines.length })}
                       </p>
                     )}
-                    {onOpenPath && (
-                      <Button
-                        variant="quiet"
-                        onClick={() => onOpenPath(file.path)}
-                        className="rounded-md p-0 font-mono text-caption font-normal hover:bg-transparent hover:underline"
-                        title={file.path}
-                      >
-                        <span className="text-kin-blue-ink">
-                          {tr("workspace.openFile")} · {shortPath(file.path, 48)}
+                    {onOpenPath &&
+                      ((canOpenPath?.(file.path) ?? true) ? (
+                        <Button
+                          variant="quiet"
+                          onClick={() => onOpenPath(file.path)}
+                          className="rounded-md p-0 font-mono text-caption font-normal hover:bg-transparent hover:underline"
+                          title={file.path}
+                        >
+                          <span className="text-kin-blue-ink">
+                            {tr("workspace.openFile")} · {shortPath(file.path, 48)}
+                          </span>
+                        </Button>
+                      ) : (
+                        // A control here could only toast "outside this
+                        // workspace"; the row is still a change, so it says so
+                        // instead of offering an action it cannot perform.
+                        <span
+                          className="block font-mono text-caption text-kin-muted"
+                          title={file.path}
+                        >
+                          {tr("workspace.outsideWorkspace")}
                         </span>
-                      </Button>
-                    )}
+                      ))}
                   </div>
                 )}
               </div>
