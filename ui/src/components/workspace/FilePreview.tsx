@@ -192,11 +192,7 @@ export function DownloadPreview({
       <div className="mt-2 flex flex-wrap items-start justify-center gap-2">
         <DownloadButton name={name} downloadURL={downloadURL} />
         {openIn && (
-          <OpenInMenu
-            root={openIn.root}
-            relativePath={openIn.relativePath}
-            alwaysShowLabel
-          />
+          <OpenInMenu root={openIn.root} relativePath={openIn.relativePath} alwaysShowLabel />
         )}
       </div>
     </div>
