@@ -7,7 +7,7 @@ import {
   isProgressMessageMeta,
   resolveSpeaker,
 } from "./eventMeta";
-import { displayUserPrompt } from "../../lib/attachments";
+import { parseUserPrompt, type UserImage } from "../../lib/attachments";
 import {
   recordedRoundEvidence,
   recordedRounds,
@@ -193,6 +193,8 @@ export type ChatItem =
       speaker: string;
       model?: string;
       text: string;
+      /** Pictures a user message carried, drawable above its body. */
+      images?: UserImage[];
       partial?: boolean;
       phase?: string;
       /** Source event seq (for retry/fork). */
@@ -341,6 +343,9 @@ export function buildChatItems(
   // Why the buffer being streamed is a note at all, carried to the note it
   // becomes: the reasoning chunks and the narration chunks arrive the same way.
   let streamSource: NoteSource = "note";
+  // Pictures a streamed user preview carried. The buffer holds the normalised
+  // text, which no longer names them, so they travel beside it until flush.
+  let streamImages: UserImage[] | undefined;
   let canceledRound = false;
   const modelsBySpeaker = new Map<string, string>();
   if (streamModel) modelsBySpeaker.set(hostSpeaker, streamModel);
@@ -380,6 +385,7 @@ export function buildChatItems(
       streamProgress = false;
       streamRole = "";
       streamSource = "note";
+      streamImages = undefined;
       return;
     }
     if (streamProgress) {
@@ -424,6 +430,7 @@ export function buildChatItems(
         speaker: streamSpeaker,
         model: streamModel,
         text: streamBuf,
+        images: streamImages,
         // Once the task is terminal there is no live generation: a trailing
         // streamed chunk with no non-partial finalizer must not stay "partial"
         // (otherwise the streaming badge/cursor sticks forever).
@@ -436,6 +443,7 @@ export function buildChatItems(
     streamNoteKey = null;
     streamRole = "";
     streamSource = "note";
+    streamImages = undefined;
   };
 
   const ensureProgress = (speaker: string): ProgressItem => {
@@ -678,9 +686,13 @@ export function buildChatItems(
           canceledRound = p.interrupted === true || p.source === "interrupt";
         }
         let text = extractText(p.content) || (typeof p.text === "string" ? p.text : "");
-        // Never show local upload paths in the chat timeline.
+        // Never show local upload paths in the chat timeline. The same parse
+        // keeps the pictures, which the normalised text names but cannot draw.
+        let images: UserImage[] | undefined;
         if (sp === "user" && text) {
-          text = displayUserPrompt(text);
+          const parsed = parseUserPrompt(text);
+          text = parsed.text;
+          if (parsed.images.length > 0) images = parsed.images;
         }
         // A prompt starts a round, and a round has plans of its own: the lines
         // the previous round carried are part of what happened, not something a
@@ -761,6 +773,7 @@ export function buildChatItems(
             streamProgress = false;
             streamRole = role;
             streamSource = noteSourceOf({ role, phase, sidechain });
+            streamImages = images;
           }
         } else {
           if (sp !== "user") {
@@ -846,6 +859,7 @@ export function buildChatItems(
               speaker: sp,
               model: sp === "user" ? undefined : model,
               text,
+              images,
               phase: typeof p.phase === "string" ? p.phase : undefined,
               seq: ev.seq,
             });

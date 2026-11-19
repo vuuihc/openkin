@@ -177,6 +177,7 @@ const ROW_CLAUSES: Array<[string, (p: MessageRowProps) => MessageRowProps]> = [
   ["the find hit", (p) => ({ ...p, activeFindKey: "u1" })],
   ["the speaker", (p) => ({ ...p, speaker: "kin" })],
   ["the body", (p) => ({ ...p, text: "why so slow??" })],
+  ["the pictures", (p) => ({ ...p, images: [{ name: "shot.png", src: "/api/uploads/abc.png" }] })],
   ["the partial flag", (p) => ({ ...p, partial: true })],
   ["the queued badge", (p) => ({ ...p, queued: true })],
   ["the withdraw control", (p) => ({ ...p, onUnqueue: () => undefined })],

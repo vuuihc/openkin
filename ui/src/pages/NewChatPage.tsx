@@ -788,6 +788,7 @@ export default function NewChatPage() {
                 <ChatStream
                   events={NO_EVENTS}
                   fallbackUserPrompt={pendingSend.text}
+                  fallbackUserPromptImages={pendingSend.images}
                   loading
                   loadingSpeaker={mainAgentId}
                   hostSpeaker={mainAgentId}
