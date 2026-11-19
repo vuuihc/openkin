@@ -433,6 +433,8 @@ const en: MessageTree = {
     compaction: {
       label: "Context compacted",
       running: "Compacting context…",
+      failed: "Context compaction failed",
+      cancelled: "Context compaction cancelled",
       show: "Context compacted · view summary",
       hide: "Context compacted · hide summary",
     },
