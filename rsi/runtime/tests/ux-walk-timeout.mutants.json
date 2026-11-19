@@ -1,17 +1,17 @@
 [
   {
-    "label": "walk ceiling removed: a wedged walker holds the merge lane forever",
+    "label": "freeze removed from the tree kill: a parent respawns a child while the kill walks, and the replacement survives",
     "file": "rsi/runtime/common.sh",
     "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
-    "old": "    if [ $(( $(date +%s) - t0 )) -ge \"$secs\" ]; then",
-    "new": "    if false; then"
+    "old": "  kill -STOP \"$root\" 2>/dev/null || true",
+    "new": "  :"
   },
   {
-    "label": "only the direct child is killed: the node walker survives its wrapper and keeps driving the browser",
+    "label": "timeout verdict ignored: a wedged walk's 143 is read as the walker's own answer",
     "file": "rsi/runtime/common.sh",
     "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
-    "old": "      rsi_kill_tree \"$p\"; wait \"$p\" 2>/dev/null; return 124",
-    "new": "      kill -TERM \"$p\" 2>/dev/null; wait \"$p\" 2>/dev/null; return 124"
+    "old": "  if [ -s \"$flag\" ]; then rm -f \"$flag\"; return 124; fi",
+    "new": "  if false; then rm -f \"$flag\"; return 124; fi"
   },
   {
     "label": "a timeout is relabelled as a normal walker answer: the gate would keep the PR in limbo or pass it",
