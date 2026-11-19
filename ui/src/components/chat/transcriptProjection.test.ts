@@ -3434,6 +3434,36 @@ describe("context compaction", () => {
       message: "",
     });
 
+  // The protocol-shaped update the ACP adapter sends once it advertises the
+  // session compaction capability: a stable code, the compaction id, its
+  // status, and — once completed — the whole summary.
+  const compactionUpdate = (
+    seq: number,
+    id: string,
+    status: "in_progress" | "completed" | "failed" | "cancelled",
+    summary?: string,
+  ) =>
+    ev(seq, "notice", {
+      speaker: "acp",
+      severity: status === "failed" ? "error" : "info",
+      title: "context compacted",
+      message: summary ?? "",
+      code: "context_compacted",
+      compaction_id: id,
+      status,
+    });
+
+  const compactionChunkOf = (seq: number, text: string, id: string) =>
+    ev(seq, "message", {
+      role: "assistant",
+      speaker: "kin",
+      phase: "compaction",
+      partial: true,
+      content: [{ type: "text", text }],
+      compaction_id: id,
+      visibility: { user: true, task: true },
+    });
+
   const answer = (seq: number, text: string) =>
     ev(seq, "message", {
       role: "assistant",
@@ -3637,5 +3667,151 @@ describe("context compaction", () => {
       false,
     );
     expect(shouldShowGenericThinking(settled, true)).toBe(true);
+  });
+
+  // Protocol-driven compaction: the adapter advertises the session capability,
+  // so the console settles the compaction from `status` and never from the
+  // English title. These events carry the code the adapter writes.
+
+  it("a completed compaction settles and reveals its summary", () => {
+    const items = buildChatItems(
+      [
+        userTurn(),
+        compactionUpdate(2, "cmp-1", "in_progress"),
+        compactionChunkOf(3, SUMMARY_FIRST, "cmp-1"),
+        compactionUpdate(4, "cmp-1", "completed", SUMMARY),
+        answer(5, "Fixed the parser."),
+      ],
+      "kin",
+    );
+
+    const found = compactions(items);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ text: SUMMARY, partial: false, key: "compaction-cmp-1" });
+    expect(items.some((item) => item.kind === "meta")).toBe(false);
+  });
+
+  it("an in-progress compaction stays running until completed", () => {
+    const running = buildChatItems(
+      [userTurn(), compactionUpdate(2, "cmp-1", "in_progress")],
+      "kin",
+      undefined,
+      false,
+    );
+
+    expect(compactions(running)).toHaveLength(1);
+    expect(compactions(running)[0]).toMatchObject({ text: "", partial: true });
+    expect(running.some((item) => item.kind === "meta")).toBe(false);
+
+    const settled = buildChatItems(
+      [userTurn(), compactionUpdate(2, "cmp-1", "in_progress"), compactionUpdate(3, "cmp-1", "completed", SUMMARY)],
+      "kin",
+      undefined,
+      false,
+    );
+
+    expect(compactions(settled)).toHaveLength(1);
+    expect(compactions(settled)[0]).toMatchObject({ text: SUMMARY, partial: false });
+  });
+
+  it("a one-shot summary opens without chunks", () => {
+    const items = buildChatItems(
+      [userTurn(), compactionUpdate(2, "cmp-1", "completed", SUMMARY), answer(3, "Fixed the parser.")],
+      "kin",
+    );
+
+    const found = compactions(items);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ text: SUMMARY, partial: false });
+  });
+
+  it("a failed compaction is not compacted", () => {
+    const failed = buildChatItems(
+      [
+        userTurn(),
+        compactionUpdate(2, "cmp-1", "in_progress"),
+        compactionUpdate(3, "cmp-1", "failed", "the agent refused"),
+      ],
+      "kin",
+    );
+
+    // The spinner is gone and no disclosure claims a summary exists; the reader
+    // gets one honest line saying the compaction failed, in their language,
+    // with the agent's own reason appended when it sent one.
+    expect(compactions(failed)).toHaveLength(0);
+    expect(failed.filter((item) => item.kind === "meta")).toHaveLength(1);
+    const note = failed.find((item) => item.kind === "meta");
+    if (note?.kind !== "meta") throw new Error("expected a meta line for a failed compaction");
+    expect(note.label).toContain(t("chat.compaction.failed"));
+    expect(note.label).toContain("the agent refused");
+
+    const cancelled = buildChatItems(
+      [userTurn(), compactionUpdate(2, "cmp-2", "cancelled")],
+      "kin",
+    );
+    expect(compactions(cancelled)).toHaveLength(0);
+    expect(cancelled.filter((item) => item.kind === "meta")).toMatchObject([
+      { kind: "meta", label: t("chat.compaction.cancelled") },
+    ]);
+  });
+
+  it("two compactions with different ids are two lines", () => {
+    const first = "The first summary of the work so far.";
+    const second = "The second summary, after more work happened.";
+    const items = buildChatItems(
+      [
+        userTurn(),
+        compactionUpdate(2, "cmp-a", "completed", first),
+        compactionUpdate(3, "cmp-b", "completed", second),
+      ],
+      "kin",
+    );
+
+    const found = compactions(items);
+    expect(found).toHaveLength(2);
+    expect(found.map((item) => item.key)).toEqual(["compaction-cmp-a", "compaction-cmp-b"]);
+    expect(found[0]).toMatchObject({ text: first, partial: false });
+    expect(found[1]).toMatchObject({ text: second, partial: false });
+
+    // A compaction settling beside another one still running keeps its own
+    // line: the id, not "the last compaction in this turn", decides where a
+    // summary goes.
+    const beside = buildChatItems(
+      [
+        userTurn(),
+        compactionUpdate(2, "cmp-a", "in_progress"),
+        compactionUpdate(3, "cmp-b", "completed", second),
+      ],
+      "kin",
+      undefined,
+      false,
+    );
+    const two = compactions(beside);
+    expect(two).toHaveLength(2);
+    expect(two[0]).toMatchObject({ key: "compaction-cmp-a", text: "", partial: true });
+    expect(two[1]).toMatchObject({ key: "compaction-cmp-b", text: second, partial: false });
+  });
+
+  it("a legacy title-only notice still folds", () => {
+    // An agent that never advertised compaction sent a plain notice; the
+    // transcript persisted by an older build has no code. It still folds into
+    // one quiet line instead of becoming meta prose.
+    const items = buildChatItems(
+      [userTurn(), compactionNotice(2), compactionChunk(3, SUMMARY_FIRST), compactionFinal(4, SUMMARY)],
+      "kin",
+    );
+
+    expect(compactions(items)).toHaveLength(1);
+    expect(compactions(items)[0]).toMatchObject({ text: SUMMARY, partial: false });
+
+    // And the turn still settles one that never received a final update.
+    const settledByTurn = buildChatItems(
+      [userTurn(), compactionNotice(2), ev(3, "result", { is_error: false })],
+      "kin",
+      undefined,
+      false,
+    );
+    expect(compactions(settledByTurn)).toHaveLength(1);
+    expect(compactions(settledByTurn)[0]).toMatchObject({ text: "", partial: false });
   });
 });
