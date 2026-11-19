@@ -468,7 +468,6 @@ export default function TaskDetailPage({
   const shownPanel = useAppStore((s) => s.shownPanel);
   const showPanel = useAppStore((s) => s.showPanel);
   const hidePanel = useAppStore((s) => s.hidePanel);
-  const togglePanel = useAppStore((s) => s.togglePanel);
   // Closing the files panel spends the open-file pulse. The panel consumes the
   // path once; keeping it would replay the last "open this file" on the next
   // open and land inside a file instead of on the list, which is what a fresh
@@ -1135,13 +1134,22 @@ export default function TaskDetailPage({
     const link = parseWorkspaceLink(here.search);
     if (link === null) {
       // Back/Forward to a conversation: the address says no panel, so the pane
-      // closes. A push the page made itself already closed it.
-      if (navigationType === "POP" && filesPanelOpen) hidePanel(id);
+      // closes. A push the page made itself already closed it. Publish has no
+      // address yet, so it is not this branch's to close.
+      if (navigationType === "POP" && (filesPanelOpen || prSurfaceOpen)) hidePanel(id);
       return;
     }
     if (!link.explicit) {
       // A stale `file` names no panel: drop only that key and open nothing.
       writeWorkspaceSearch(dropSearchParam(here.search, "file"), { replace: true });
+      return;
+    }
+    if (link.panel === "pr") {
+      // The PR tab is a place now: reading its address opens the surface and
+      // rewrites no bytes and adds no entry. A remembered file is handed to
+      // the panel as state — nothing opens on arrival, so no nonce bump.
+      showPanel(id, "pr");
+      if (link.file) setWorkspaceOpenPath(link.file);
       return;
     }
     // The URL is canonical after this read (a refusal drops only `file`). It is
@@ -1174,6 +1182,7 @@ export default function TaskDetailPage({
     focusParam,
     navigationType,
     filesPanelOpen,
+    prSurfaceOpen,
     hidePanel,
     showPanel,
     workspaceOpenPath,
@@ -1811,12 +1820,22 @@ export default function TaskDetailPage({
   }
 
   /**
-   * The pull-request panel is read-only state about this session's branch, so
-   * it has no address of its own and no mirror besides the open panel: one
-   * tap either opens it or closes it, wherever the tap came from.
+   * The pull-request tab is a place the reader can share. Opening and closing
+   * it push one entry each, so Back closes the panel instead of leaving the
+   * conversation, and a refresh lands on the same surface. The file the panel
+   * remembers stays in the address (TASTE 15); `closeFilesPanel` is still the
+   * panel's one close and clears both keys.
    */
+  function showPrSurface() {
+    showPanel(id, "pr");
+    writeWorkspaceSearch(
+      patchWorkspaceLink(locationRef.current.search, { panel: "pr", file: null }),
+    );
+  }
+
   function togglePrPanel() {
-    togglePanel(id, "pr");
+    if (prSurfaceOpen) closeFilesPanel();
+    else showPrSurface();
   }
 
   /**
@@ -2456,7 +2475,7 @@ export default function TaskDetailPage({
         // The tab opens the surface; it does not toggle it. Only the header
         // button and the phone action sheet toggle, which is why the panel
         // itself cannot be the thing that decides.
-        onOpenPr={() => showPanel(id, "pr")}
+        onOpenPr={showPrSurface}
         onShowFiles={showFilesSurface}
         onKeepAll={onKeepAllChanges}
         onDiscardAll={onDiscardAllChanges}
