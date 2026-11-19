@@ -38,7 +38,7 @@
 # explains what is being decided. So the journey counts the Approve controls
 # (批准 / Approve) on the phone list after Back and requires zero; Mac is out
 # of scope on purpose, because there the card on the list is legitimate. The
-# manifest renders the card on the phone root again (`{!raised && (` ->
+# manifest renders the card on the phone root again (`{!stripOnly && (` ->
 # `{true && (`, the pre-#252 layout); the count then reads 1 and --walk-once
 # J7 prints red on that line. The old interception story no longer holds: the
 # extra card floats above the list without blocking the row tap, so the tap
