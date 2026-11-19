@@ -1,5 +1,5 @@
 {
-  "title": "Phone: a file link opens the source file, Back stops at the file list, closing the panel returns to the conversation, and a self-contained HTML file switches between page and source",
+  "title": "Phone: a file link opens the source file, Back stops at the file list, closing the panel returns to the conversation, the PR tab has an address that survives a refresh and Forward, and a self-contained HTML file switches between page and source",
   "viewports": [
     "phone"
   ],
@@ -94,6 +94,42 @@
     ["search", "^\\?panel=files&file=notes\\.md$"],
     ["wait", "css=[data-pane='viewer']"],
     ["wait", "text=Seeded for the journey walk."],
-    ["shot", "file-source-again"]
+    ["shot", "file-source-again"],
+
+    ["goto", "/tasks/{conversation}?panel=pr"],
+    ["search", "^\\?panel=pr$"],
+    ["wait", "css=[role='tab'][aria-selected='true']:has-text('Pull request'), [role='tab'][aria-selected='true']:has-text('Pull Request')"],
+    ["shot", "pr-cold"],
+    ["goto", "/tasks/{conversation}?panel=pr"],
+    ["search", "^\\?panel=pr$"],
+    ["wait", "css=[role='tab'][aria-selected='true']:has-text('Pull request'), [role='tab'][aria-selected='true']:has-text('Pull Request')"],
+    ["shot", "pr-refresh"],
+    ["history-back"],
+    ["url", "^/tasks/{conversation}$"],
+    ["search", "^$"],
+    ["gone", "css=[role='tab'][aria-selected='true']:has-text('Pull request'), [role='tab'][aria-selected='true']:has-text('Pull Request')"],
+    ["wait", "css=[role=region][tabindex='-1']"],
+    ["shot", "pr-back"],
+    ["history-forward"],
+    ["search", "^\\?panel=pr$"],
+    ["wait", "css=[role='tab'][aria-selected='true']:has-text('Pull request'), [role='tab'][aria-selected='true']:has-text('Pull Request')"],
+    ["shot", "pr-forward"],
+
+    ["goto", "/tasks/{conversation}"],
+    ["search", "^$"],
+    ["wait", "css=[role=region][tabindex='-1']"],
+    ["click", "css=button[aria-label='会话操作'], button[aria-label='Session actions']"],
+    ["wait", "css=[role=dialog]"],
+    ["wait", "css=[role=dialog] li button"],
+    ["click", "/^Pull [Rr]equest$/"],
+    ["search", "^\\?panel=pr$"],
+    ["wait", "css=[role='tab'][aria-selected='true']:has-text('Pull request'), [role='tab'][aria-selected='true']:has-text('Pull Request')"],
+    ["shot", "pr-open"],
+    ["history-back"],
+    ["url", "^/tasks/{conversation}$"],
+    ["search", "^$"],
+    ["gone", "css=[role='tab'][aria-selected='true']:has-text('Pull request'), [role='tab'][aria-selected='true']:has-text('Pull Request')"],
+    ["wait", "css=[role=region][tabindex='-1']"],
+    ["shot", "pr-back-sheet"]
   ]
 }

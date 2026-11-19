@@ -134,6 +134,53 @@ describe("workspace deep link", () => {
     );
   });
 
+  it("reads the PR panel's address", () => {
+    expect(parseWorkspaceLink("?panel=pr")).toEqual({
+      panel: "pr",
+      file: null,
+      explicit: true,
+    });
+    // A `file` under `panel=pr` is the panel's remembered file, not a second
+    // surface; it is cleaned by the same path rules as the files link.
+    expect(parseWorkspaceLink("?panel=pr&file=src/a.ts")).toEqual({
+      panel: "pr",
+      file: "src/a.ts",
+      explicit: true,
+    });
+    expect(parseWorkspaceLink("?panel=pr&file=..%2F..%2Fetc%2Fpasswd")).toEqual({
+      panel: "pr",
+      file: null,
+      explicit: true,
+    });
+    // `publish` (and anything else) is another surface's word, not this one's.
+    expect(parseWorkspaceLink("?panel=publish")).toBeNull();
+  });
+
+  it("closing removes a PR address and keeps neighbours byte for byte", () => {
+    expect(patchWorkspaceLink("?z=1&panel=pr", null)).toBe("?z=1");
+    expect(patchWorkspaceLink("?panel=pr", null)).toBe("");
+    // The remembered file belongs to the panel, so closing takes it too.
+    expect(patchWorkspaceLink("?z=1&panel=pr&file=notes.md", null)).toBe("?z=1");
+    expect(patchWorkspaceLink("?panel=pr&file=src/a%20b.ts", null)).toBe("");
+  });
+
+  it("writing the PR panel keeps the remembered file and refuses another surface's panel value", () => {
+    // The panel's place changes; the file bytes it remembers do not.
+    expect(
+      patchWorkspaceLink("?focus=ap-1&panel=files&file=src/a%20b.ts&z=1", {
+        panel: "pr",
+        file: null,
+      }),
+    ).toBe("?focus=ap-1&panel=pr&file=src/a%20b.ts&z=1");
+    // Nothing to remember is not an invitation to invent a file.
+    expect(patchWorkspaceLink("?focus=ap-1", { panel: "pr", file: null })).toBe(
+      "?focus=ap-1&panel=pr",
+    );
+    expect(patchWorkspaceLink("?panel=publish&z=1", { panel: "pr", file: null })).toBe(
+      "?panel=publish&z=1",
+    );
+  });
+
   it("leaves an unknown panel value untouched", () => {
     expect(parseWorkspaceLink("?panel=publish")).toBeNull();
     expect(parseWorkspaceLink("?panel=junk&file=src/a.ts")).toBeNull();

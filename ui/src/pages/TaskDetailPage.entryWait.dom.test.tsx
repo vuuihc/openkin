@@ -5,7 +5,6 @@ import { act, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { Task } from "../api/client";
 import { setLocale } from "../i18n";
-import { BRAND_MARK_PATH } from "../components/BrandMark";
 import TaskDetailPage from "./TaskDetailPage";
 
 /**
@@ -174,10 +173,16 @@ describe("entering a conversation from its list row", () => {
     expect(screen.queryByTestId("chat-stream")).toBeNull();
   });
 
-  it("the wait surface is the brand tile, not the blue block", () => {
+  it("the wait surface is the iOS wheel, not the brand tile", () => {
     open();
     const status = screen.getByRole("status", { name: /Loading/ });
-    expect(status.querySelector("svg path")?.getAttribute("d")).toBe(BRAND_MARK_PATH);
+    const wheel = status.querySelector(".kin-ios-spinner");
+    // The familiar twelve-spoke indicator, hidden from the a11y tree because
+    // the surrounding status role already says what is happening.
+    expect(wheel?.getAttribute("aria-hidden")).toBe("true");
+    expect(wheel?.querySelectorAll("span")).toHaveLength(12);
+    expect(status.querySelector("svg")).toBeNull();
+    expect(status.querySelector(".kin-brand-mark")).toBeNull();
     expect(status.innerHTML).not.toContain("bg-kin-blue");
   });
 
@@ -190,6 +195,7 @@ describe("entering a conversation from its list row", () => {
       ]);
     });
     expect(screen.queryByRole("status", { name: /Loading/ })).toBeNull();
+    expect(document.querySelector(".kin-ios-spinner")).toBeNull();
     expect(screen.getByTestId("chat-stream").getAttribute("data-loading")).toBe("false");
     expect(screen.getByRole("region", { name: "Conversation" })).toBeTruthy();
   });
@@ -200,6 +206,7 @@ describe("entering a conversation from its list row", () => {
       store.fail(new Error("detail failed"));
     });
     expect(screen.queryByRole("status", { name: /Loading/ })).toBeNull();
+    expect(document.querySelector(".kin-ios-spinner")).toBeNull();
     expect(screen.getByRole("alert").textContent).toContain("detail failed");
   });
 });
