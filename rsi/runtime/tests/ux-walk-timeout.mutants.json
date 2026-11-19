@@ -14,6 +14,20 @@
     "new": "  if false; then rm -f \"$flag\"; return 124; fi"
   },
   {
+    "label": "only a signal death is a timeout: a child's own exit after the watchdog flag must not become 124",
+    "file": "rsi/runtime/common.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "  if [ -s \"$flag\" ] && [ \"$rc\" -ge 128 ] 2>/dev/null; then",
+    "new": "  if [ -s \"$flag\" ] && [ \"$rc\" -ge 0 ] 2>/dev/null; then"
+  },
+  {
+    "label": "a failed identity read read as a reused pid: a blind deadline leaves the walker (and its tree) running",
+    "file": "rsi/runtime/common.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "    if [ -n \"$ident\" ] && [ -n \"$now\" ] && [ \"$now\" != \"$ident\" ]; then exit 0; fi",
+    "new": "    if [ \"$ident\" != \"$now\" ]; then exit 0; fi"
+  },
+  {
     "label": "a timeout is relabelled as a normal walker answer: the gate would keep the PR in limbo or pass it",
     "file": "rsi/runtime/ux-walk.sh",
     "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
@@ -32,6 +46,20 @@
     "file": "rsi/runtime/merge.sh",
     "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
     "old": "      if [ -n \"$RED\" ]; then",
+    "new": "      if false; then"
+  },
+  {
+    "label": "first walk read from a path no script writes: the red-preserving branch is dead and 124 becomes unavailable",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "\"$STATE/shots/$SLUG/journeys/walk.json\"",
+    "new": "\"$STATE/ux/$SLUG/walk.json\""
+  },
+  {
+    "label": "a finished confirm's clearance ignored: a flaked-only red is sent back on an outer expiry",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "      if [ -e \"$STATE/ux/$SLUG/confirm.json\" ]; then",
     "new": "      if false; then"
   }
 ]
