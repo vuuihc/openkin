@@ -102,6 +102,20 @@ fi
 
 WT="$1"; OUT="$2"; SEL="${3:-}"; mkdir -p "$OUT"
 unavail() { echo "$*" > "$OUT/UNAVAILABLE"; echo "[ux-walk] unavailable: $*" >&2; exit 2; }
+# The walker is the one call in the merge lane that could wait forever; on
+# 2026-11-19 a walk ran 40 minutes and from outside nobody could tell slow from
+# dead. The ceiling turns that into an explicit "no verdict" (exit 2, never a
+# PASS and never a red against the PR's code). RSI_WALK_MAX_S is the test/ops
+# knob; the default (30 min) is ~4x the longest observed walk.
+WALK_MAX_S="${RSI_WALK_MAX_S:-1800}"; case "$WALK_MAX_S" in ''|*[!0-9]*) WALK_MAX_S=1800;; esac
+# Build-free seam for the timeout proof: --timeout-probe <outdir> <cmd...>.
+if [ "${1:-}" = "--timeout-probe" ]; then
+  [ -n "${2:-}" ] && [ "$#" -ge 3 ] || { echo "usage: ux-walk.sh --timeout-probe <outdir> <cmd...>" >&2; exit 2; }
+  shift 2
+  bounded_run "$WALK_MAX_S" "$@"; rc=$?
+  [ "$rc" -eq 124 ] && unavail "walker exceeded ${WALK_MAX_S}s (RSI_WALK_MAX_S)"
+  exit "$rc"
+fi
 TMP="$(mktemp -d)"; PID=""; trap '[ -n "$PID" ] && kill -KILL "$PID" 2>/dev/null; rm -rf "$TMP"' EXIT
 # RSI_NO_HEAVY=1 means "read code, do not build/test" (reviewers). The walk is
 # a heavy step: running it next to the gate's own build is exactly what starved
@@ -176,6 +190,7 @@ case "$SEL" in @*) ARGS+=(--files "${SEL#@}");; ?*) ARGS+=(--journeys "$SEL");; 
 # Same selection as the seam above: one writer, so the walker and the spec
 # cannot come from different trees.
 WALKER="$(walker_for "$WT")"
-bash "$RSI_DIR/runtime/heavy.sh" node "$WALKER" "${ARGS[@]}" > "$OUT/walk.log" 2>&1; rc=$?
+bounded_run "$WALK_MAX_S" bash "$RSI_DIR/runtime/heavy.sh" node "$WALKER" "${ARGS[@]}" > "$OUT/walk.log" 2>&1; rc=$?
+[ $rc -eq 124 ] && unavail "walker exceeded ${WALK_MAX_S}s (RSI_WALK_MAX_S)"
 [ $rc -eq 2 ] && unavail "walker could not run: $(tail -c 300 "$OUT/walk.log")"
 cat "$OUT/walk.log"; exit 0
