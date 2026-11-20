@@ -252,6 +252,46 @@ describe("FloatingApproval over a changed-file row", () => {
     expect(approveButton()).toBeTruthy();
     observer.disconnect();
   });
+
+  it("brings the next approval's card back after the one on the strip is answered", async () => {
+    // Answering the oldest of a queue from the task page or the tray swaps the
+    // current approval while the strip is showing. The card that was measured
+    // is gone, and a box remembered for it says nothing about the next one:
+    // left in place, it kept the strip mounted for an approval whose card was
+    // never measured, until a reload.
+    const { props } = setupProps({
+      approvals: [approval("oldest", "task-1", 100), approval("second", "task-2", 200)],
+    });
+    const view = render(
+      <>
+        <RoundEvidenceCard evidence={evidence} />
+        <FloatingApproval {...props} />
+      </>,
+    );
+    // The row keeps the decision card off the screen; the strip is the surface
+    // and the queue is counted.
+    expect(approveButton()).toBeNull();
+    expect(screen.getByRole("button", { name: /Fix the tests/ })).toBeTruthy();
+
+    // The oldest is answered elsewhere; only the second approval is left. The
+    // row is still under the strip, so the card stays off — but it has to be
+    // the *second* approval's card that is held back, measured afresh.
+    view.rerender(
+      <>
+        <RoundEvidenceCard evidence={evidence} />
+        <FloatingApproval {...props} approvals={[approval("second", "task-2", 200)]} />
+      </>,
+    );
+    expect(approveButton()).toBeNull();
+
+    // Fold the evidence card: the row goes, and the second approval's own card
+    // must be what comes back instead of the strip forever.
+    const header = view.container.querySelector<HTMLElement>("button[aria-expanded]");
+    expect(header).not.toBeNull();
+    fireEvent.click(header!);
+    await waitFor(() => expect(approveButton()).toBeTruthy());
+    expect(denyButton()).toBeTruthy();
+  });
 });
 
 describe("rectsOverlap", () => {

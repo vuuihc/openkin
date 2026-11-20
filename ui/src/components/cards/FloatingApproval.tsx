@@ -195,6 +195,18 @@ export default function FloatingApproval({
     if (hit !== covered) setCovered(hit);
   }, [currentId, raised, panelOpen, bottom, covered]);
 
+  // A different approval is a different card, with its own height and its own
+  // box: the one remembered for the approval before it says nothing about this
+  // one. Left in place, the stale id made the strip-only branch below find
+  // nothing to rebuild, `covered` stayed true, and answering the oldest of a
+  // queue from the task page or the tray kept the next approval's card
+  // unmounted until a reload. Cleared before the measuring effect runs, so the
+  // new card mounts and is measured afresh.
+  useLayoutEffect(() => {
+    expandedBox.current = null;
+    setCovered(false);
+  }, [currentId]);
+
   // Layout, not passive: the card would otherwise paint one frame over the
   // row before the strip replaces it.
   useLayoutEffect(() => {
