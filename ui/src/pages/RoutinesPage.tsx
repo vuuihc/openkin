@@ -36,6 +36,7 @@ import {
   ROUTINE_HISTORY_MAX,
   ROUTINE_HISTORY_PAGE,
 } from "../lib/routineHistory";
+import { getHiddenRunIds, hideRunIds, unhideAll } from "../lib/routineHiddenRuns";
 import { PageListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import Button from "../components/ui/Button";
 import SheetSelect from "../components/ui/SheetSelect";
@@ -103,6 +104,9 @@ function routineFilterParams(status: RoutineStatusFilter, cwd: string) {
 function routineCursorKey(query: string, status: RoutineStatusFilter, cwd: string): string {
   return JSON.stringify([query, status, cwd.trim()]);
 }
+
+/** Shared by every render that has no stored hides for the machine on screen. */
+const NO_HIDDEN_RUNS: ReadonlySet<string> = new Set();
 
 function statusLabel(
   status: string,
@@ -252,6 +256,18 @@ export default function RoutinesPage() {
   // believed its remote routines were local would link to tasks the Hub cannot
   // serve and read its own task store under another machine's routine name.
   const remote = isRemoteDevice(deviceId) && !machine?.isSelf;
+  // The quiet runs hidden on this machine. Hiding is a local preference, not a
+  // change to the run: the stored set is keyed by machine (a hide on one device
+  // must not blank another device's rows), and a render between a switch and
+  // the re-read below reads as nothing hidden rather than as the old machine's
+  // set.
+  const [hiddenRuns, setHiddenRuns] = useState<{ scope: string; ids: ReadonlySet<string> }>(() => ({
+    scope: deviceId,
+    ids: getHiddenRunIds(deviceId),
+  }));
+  useEffect(() => {
+    setHiddenRuns({ scope: deviceId, ids: getHiddenRunIds(deviceId) });
+  }, [deviceId]);
   // The websocket handler is registered once, and it must not fold the Hub's
   // own task updates into a remote machine's feed.
   const remoteRef = useRef(remote);
@@ -725,6 +741,26 @@ export default function RoutinesPage() {
     () => runs.filter((r) => isTerminal(r.status) && !r.routine_noteworthy),
     [runs],
   );
+  // A switch renders the outgoing rows once more under the incoming machine's
+  // name, so a stored hide applies only once the rows on screen are the ones
+  // read for this machine.
+  const hidesReady = !loading && !error && loadedDevice === deviceId;
+  const hiddenIds = hiddenRuns.scope === deviceId ? hiddenRuns.ids : NO_HIDDEN_RUNS;
+  // The quiet section without this machine's hidden runs. A quiet run that is
+  // unread stays visible even if its id was stored while it was read: the
+  // sidebar badge counts unread routine runs, and a badge pointing at an
+  // invisible row is worse than a stale hide.
+  const visibleSilent = useMemo(
+    () => (hidesReady ? silent.filter((r) => r.routine_unread || !hiddenIds.has(r.id)) : silent),
+    [hidesReady, silent, hiddenIds],
+  );
+  // What the quiet section's hide action takes: finished, not noteworthy (the
+  // `silent` list already excludes those) and already read.
+  const hideableSilent = useMemo(
+    () => (hidesReady ? visibleSilent.filter((r) => !r.routine_unread) : []),
+    [hidesReady, visibleSilent],
+  );
+  const hiddenCount = hidesReady && hiddenRuns.scope === deviceId ? hiddenRuns.ids.size : 0;
   const selected = useMemo(
     () => routines.find((r) => r.id === selectedId) ?? null,
     [routines, selectedId],
@@ -995,6 +1031,26 @@ export default function RoutinesPage() {
     if (!history[r.id] && !historyLoading[r.id] && !historyError[r.id]) {
       void loadHistory(r.id);
     }
+  };
+
+  /** Hide the quiet section's read runs on this machine; the section collapses. */
+  const hideQuietRuns = () => {
+    if (hideableSilent.length === 0) return;
+    setHiddenRuns({
+      scope: deviceId,
+      ids: hideRunIds(
+        deviceId,
+        hideableSilent.map((r) => r.id),
+      ),
+    });
+    setShowSilent(false);
+  };
+
+  /** Bring every hidden run back on this machine, with the section open again. */
+  const restoreHiddenRuns = () => {
+    unhideAll(deviceId);
+    setHiddenRuns({ scope: deviceId, ids: new Set() });
+    setShowSilent(true);
   };
 
   const onMarkAllRead = async () => {
@@ -1549,7 +1605,7 @@ export default function RoutinesPage() {
               <div className="mb-3 text-caption font-semibold uppercase tracking-label text-kin-muted">
                 {tr("routines.feedSection")}
               </div>
-              {noteworthy.length === 0 && silent.length === 0 ? (
+              {noteworthy.length === 0 && silent.length === 0 && hiddenCount === 0 ? (
                 <div className="rounded-2xl border border-dashed border-[var(--kin-hairline-strong)] px-6 py-12 text-center">
                   <p className="text-subtitle leading-6 font-medium text-kin-text">
                     {tr("routines.emptyFeed")}
@@ -1585,16 +1641,33 @@ export default function RoutinesPage() {
                       ))}
                     </ul>
                   )}
-                  {silent.length > 0 && (
+                  {(visibleSilent.length > 0 || hiddenCount > 0) && (
                     <div className={noteworthy.length > 0 ? "mt-3" : undefined}>
-                      <Button variant="quiet" onClick={() => setShowSilent((v) => !v)}>
-                        {showSilent
-                          ? tr("routines.hideSilent", { count: silent.length })
-                          : tr("routines.showSilent", { count: silent.length })}
-                      </Button>
-                      {showSilent && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {visibleSilent.length > 0 && (
+                          <Button variant="quiet" onClick={() => setShowSilent((v) => !v)}>
+                            {showSilent
+                              ? tr("routines.hideSilent", { count: visibleSilent.length })
+                              : tr("routines.showSilent", { count: visibleSilent.length })}
+                          </Button>
+                        )}
+                        {hideableSilent.length > 0 && (
+                          <Button variant="quiet" onClick={hideQuietRuns}>
+                            {tr("routines.hideEnded")}
+                          </Button>
+                        )}
+                      </div>
+                      {hiddenCount > 0 && (
+                        // The restore path must survive its own success: with
+                        // every quiet run hidden this line is the only control
+                        // left in the section.
+                        <Button variant="quiet" className="mt-1" onClick={restoreHiddenRuns}>
+                          {tr("routines.hiddenEnded", { count: hiddenCount })}
+                        </Button>
+                      )}
+                      {showSilent && visibleSilent.length > 0 && (
                         <ul className="mt-3 space-y-2 opacity-80">
-                          {silent.map((run) => (
+                          {visibleSilent.map((run) => (
                             <RunCard
                               key={run.id}
                               run={run}
