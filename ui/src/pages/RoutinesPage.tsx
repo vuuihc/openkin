@@ -1466,7 +1466,10 @@ export default function RoutinesPage() {
   };
 
   return (
-    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll">
+    <div
+      ref={scrollRef}
+      className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll phone-footer-clearance"
+    >
       <div className="mx-auto max-w-5xl px-4 py-6 md:px-6">
         <div className="flex items-start justify-between gap-3">
           <div className="hidden md:block">
