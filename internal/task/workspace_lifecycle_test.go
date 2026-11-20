@@ -209,8 +209,8 @@ func finalizingTask(t *testing.T, e *Engine, st *store.Store, id string) store.T
 	}
 	e.mu.Lock()
 	e.workspaceCommitting[task.ID] = "execution-1"
-	// The adapter run loop arms the settle capability beside the flag; a window
-	// without it (the orchestrated finisher) keeps refusing messages.
+	// Both turn ends arm the settle capability beside the flag; a window without
+	// it keeps refusing messages.
 	e.workspaceCommitSettles[task.ID] = true
 	e.mu.Unlock()
 	return task

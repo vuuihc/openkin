@@ -989,6 +989,8 @@ func (e *Engine) finishOrchestratedAs(ctx context.Context, id, executionID strin
 	currentRun := e.activeRuns[id] == executionID
 	if currentRun {
 		e.workspaceCommitting[id] = executionID
+		// This turn end settles the queue the commit window collects below.
+		e.workspaceCommitSettles[id] = true
 	}
 	wasCanceled := e.canceled[id]
 	pf, hasFollowUp := e.pendingFollowUp[id]
@@ -1016,6 +1018,11 @@ func (e *Engine) finishOrchestratedAs(ctx context.Context, id, executionID strin
 		if workspaceErr != nil {
 			e.emitError(ctx, id, executionID, "workspace finalization failed before follow-up: "+workspaceErr.Error())
 			_, _ = e.finishRun(ctx, id, executionID, StatusFailed, nil, nil)
+			// Messages accepted during the commit window are still in the queue.
+			// This turn cannot hand them to a new run, so report them rather than
+			// leaving them parked on a task that has just failed.
+			e.clearWorkspaceCompletion(id, executionID)
+			e.settlePromptsQueuedDuringFinalization(ctx, id, "workspace finalization failed")
 			e.pump()
 			return
 		}
@@ -1025,6 +1032,11 @@ func (e *Engine) finishOrchestratedAs(ctx context.Context, id, executionID strin
 			// ErrConflict there -- the refusal would be reported to nobody.
 			e.reportUndelivered(ctx, id, err)
 			_, _ = e.finishRun(ctx, id, executionID, e.endStatusForDelivery(err), nil, nil)
+			// The follow-up could not be applied, so any message accepted during
+			// the commit window has no run to go to either: report it instead.
+			e.clearWorkspaceCompletion(id, executionID)
+			e.settlePromptsQueuedDuringFinalization(ctx, id,
+				fmt.Sprintf("the follow-up could not be applied: %s", err))
 		} else {
 			e.clearActiveRun(id, executionID)
 		}
@@ -1035,6 +1047,14 @@ func (e *Engine) finishOrchestratedAs(ctx context.Context, id, executionID strin
 	if wasCanceled {
 		e.clearPersistTracking(id)
 		_, _ = e.finishRun(ctx, id, executionID, StatusCanceled, nil, nil)
+		// Cancel discarded the queue it found; a message sent while the workspace
+		// was still committing arrived after that, and a canceled turn does not
+		// hand it to a new run. Say so rather than parking it on a task nobody
+		// will run. Clear the flag first: the report is the last thing this turn
+		// does, and a message sent after it must be delivered by its own accept
+		// path, not left in a commit window that is already over.
+		e.clearWorkspaceCompletion(id, executionID)
+		e.settlePromptsQueuedDuringFinalization(ctx, id, "the task was canceled")
 		e.pump()
 		return
 	}
@@ -1058,11 +1078,6 @@ func (e *Engine) finishOrchestratedAs(ctx context.Context, id, executionID strin
 			e.pump()
 			return
 		}
-	} else if pending, perr := e.store.ListPendingPrompts(ctx, id); perr == nil && len(pending) > 0 {
-		// Nothing will deliver these: the run ends here and the workspace is
-		// mid-flight. Cancel reports its own drops; this drop needs its own report.
-		e.emitError(ctx, id, executionID, fmt.Sprintf(
-			"%d queued prompt(s) not delivered: workspace finalization failed", len(pending)))
 	}
 	final := StatusSucceeded
 	if failed || e.hasCriticalPersistFailure(id) {
@@ -1083,6 +1098,19 @@ func (e *Engine) finishOrchestratedAs(ctx context.Context, id, executionID strin
 	}
 	e.clearPersistTracking(id)
 	_, _ = e.finishRun(ctx, id, executionID, final, nil, nil)
+	// The flag is cleared, so a message sent from here on is delivered by its own
+	// accept path. One accepted while it was set is still in the queue: the
+	// boundary drain above ran before finalization ended, so this is the turn's
+	// last chance to answer it. A turn that failed to finalize or was canceled
+	// does not hand the queue to a new run -- it reports it instead.
+	e.clearWorkspaceCompletion(id, executionID)
+	settleReason := ""
+	if canceled {
+		settleReason = "the task was canceled"
+	} else if workspaceErr != nil {
+		settleReason = "workspace finalization failed"
+	}
+	e.settlePromptsQueuedDuringFinalization(ctx, id, settleReason)
 	e.pump()
 }
 
