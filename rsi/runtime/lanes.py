@@ -15,7 +15,8 @@ that overlaps another active lane's paths is refused (exit 3).  Mutations hold a
   lanes.py start N PID | finish N --status S [--pr N] [--note T] | claimed
 
 Exit codes: 3 overlap/busy, 4 no such lane or lane busy, 5 bad paths, 6 missing brief,
-7 UX gate, 8 host pressure, 9 item already merged (pass --redeliver or use a new id).
+7 UX gate, 8 host pressure, 9 item already merged (pass --redeliver or use a new id),
+10 the last usable lane is reserved for an unclaimed rework.
 """
 import subprocess, argparse, fcntl, fnmatch, json, os, sys, time, glob, shlex
 
@@ -347,6 +348,15 @@ def is_valid_path(p):
         return True
     return os.path.isfile(os.path.join(HERE, "..", "..", p))
 
+def unclaimed_sendbacks():
+    """Sendbacks the rework dispatcher has not claimed yet, oldest first (by mtime)."""
+    out = []
+    for f in glob.glob(os.path.join(STATE, "sendback", "*.md")):
+        try: out.append((os.path.getmtime(f), f))
+        except OSError: continue
+    return [f for _, f in sorted(out)]
+
+
 def cmd_claim(a):
     paths = [norm(p) for p in a.paths if norm(p) not in IGNORED]
     bad = [p for p in paths if not is_valid_path(p)]
@@ -376,6 +386,18 @@ def cmd_claim(a):
                 spare = spare_lane_pressure()
                 if spare:
                     print(f"REFUSED: spare lane held ({spare}); one local worker at a time"); sys.exit(8)
+        # An open PR outranks a fresh slice: a sendback that appears while the director is still
+        # running (a merge cycle wrote it 4-10 min into the fill) used to find every usable lane
+        # taken, so the rework waited for the next merge kick (2026-11-20 09:06: #435 and #436 sat
+        # 40 min while two NEW slices ran; the 2026-11-18 lesson was the same shape). Refuse only
+        # the claim that would leave no lane at all, so the post-dispatch `autofill rest` gets one.
+        if a.mode != "rework":
+            held = unclaimed_sendbacks()
+            if held:
+                free_after = [n for n in range(1, MAX_LANES + 1) if n != a.lane and not is_active(load(n))]
+                if not free_after:
+                    print(f"REFUSED: unclaimed rework {os.path.basename(held[0])[:-3]} gets the last free lane; run `lane.sh autofill rest`")
+                    sys.exit(10)
         for c in cloud_claims():
             if c.get("item") == a.item: print(f"REFUSED: {a.item} is handed to a cloud agent ({c.get('slug')})"); sys.exit(3)
             for p in paths:
