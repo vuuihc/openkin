@@ -3733,6 +3733,45 @@ describe("context compaction", () => {
     expect(found[0]).toMatchObject({ text: SUMMARY, partial: false });
   });
 
+  // Claude Code reports a compaction through the same contract: the boundary
+  // opens the line without an id, and the summary record settles it. Exactly
+  // one folded row, and the row holds the whole summary the disclosure opens.
+  it("a boundary and its summary are one folded row with the whole summary", () => {
+    const summary = `This session is being continued from a previous conversation that ran out of context.\n\n${"A line of the folded summary.\n".repeat(699)}The last line of the folded summary.`;
+    const boundary = ev(2, "notice", {
+      severity: "info",
+      title: "context compacted",
+      message: "",
+      code: "context_compacted",
+      status: "in_progress",
+    });
+    const settled = ev(3, "notice", {
+      severity: "info",
+      title: "context compacted",
+      message: summary,
+      code: "context_compacted",
+      status: "completed",
+      compaction_id: "uuid-compact-1",
+    });
+    const items = buildChatItems(
+      [userTurn(), boundary, settled, answer(4, "Fixed the parser.")],
+      "kin",
+    );
+
+    const found = compactions(items);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ text: summary, partial: false });
+    // The handoff paragraph is the disclosure's body, never a timeline
+    // message, and the boundary left no second running row behind.
+    expect(
+      items.some(
+        (item) =>
+          item.kind === "message" &&
+          item.text.includes("This session is being continued from a previous conversation"),
+      ),
+    ).toBe(false);
+  });
+
   it("a failed compaction is not compacted", () => {
     const failed = buildChatItems(
       [
