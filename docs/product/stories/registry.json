@@ -623,7 +623,7 @@
     },
     {
       "id": "KIN-CONTINUE-004",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -639,7 +639,8 @@
       "tests": [
         "ui/src/lib/phoneSessionBuckets.test.ts",
         "ui/src/components/sessions/SessionList.phoneDevices.dom.test.tsx",
-        "ui/src/components/mobile/SessionsHeader.search.dom.test.tsx"
+        "ui/src/components/mobile/SessionsHeader.search.dom.test.tsx",
+        "ui/src/pages/SessionsPage.dom.test.tsx"
       ],
       "blockedReason": null
     },
