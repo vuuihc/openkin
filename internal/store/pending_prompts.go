@@ -121,6 +121,30 @@ func (s *Store) AppendPendingPrompt(ctx context.Context, p PendingPrompt) (Pendi
 	return p, nil
 }
 
+// UndeliveredPromptsMessage is the sentence a report carries when a turn ends
+// without delivering the messages queued behind it. It lives here because the
+// transaction that ends the task writes it and the engine's tail-window report
+// must say the same thing; tests and clients match on "not delivered".
+func UndeliveredPromptsMessage(count int, reason string) string {
+	return fmt.Sprintf("%d queued prompt(s) not delivered: %s", count, reason)
+}
+
+// pendingPromptsWatermarkTx reads a task's queue inside the caller's
+// transaction: how many messages it holds, and the highest row id among them.
+// The id is an AUTOINCREMENT rowid, so it only grows -- every message inserted
+// after this read has a larger one. That is what lets the caller's tail settle
+// tell a message accepted after the transition from one the transaction already
+// named, even when a counted message is withdrawn in between (a plain count
+// cannot: removing a named message from the head would hide a later one).
+func pendingPromptsWatermarkTx(ctx context.Context, tx *sql.Tx, taskID string) (count int, maxID int64, err error) {
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*), COALESCE(MAX(id), 0) FROM task_pending_prompts WHERE task_id = ?`, taskID,
+	).Scan(&count, &maxID); err != nil {
+		return 0, 0, fmt.Errorf("read pending prompt watermark: %w", err)
+	}
+	return count, maxID, nil
+}
+
 // ListPendingPrompts returns a task's queued messages in the order they were
 // sent, oldest first. An empty queue is an empty slice and no error.
 func (s *Store) ListPendingPrompts(ctx context.Context, taskID string) ([]PendingPrompt, error) {
