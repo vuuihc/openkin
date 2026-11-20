@@ -211,11 +211,11 @@ type Engine struct {
 	// an irreversible fast-forward.
 	workspaceCommitting map[string]string
 	// workspaceCommitSettles marks the commit windows whose turn end answers the
-	// messages queued during them (settlePromptsQueuedDuringFinalization). The
-	// adapter run loop arms it beside the commit flag and clearWorkspaceCompletion
-	// drops it with the flag. A window without it -- the orchestrated finisher,
-	// whose turn end lives in orchestrate.go -- keeps refusing a follow-up rather
-	// than accepting one nothing there would deliver.
+	// messages queued during them (settlePromptsQueuedDuringFinalization). Both
+	// turn ends arm it beside the commit flag -- the adapter run loop and the
+	// orchestrated finisher -- and clearWorkspaceCompletion drops it with the
+	// flag. A window without it keeps refusing a follow-up rather than accepting
+	// one nothing there would deliver.
 	workspaceCommitSettles map[string]bool
 	// pendingFollowUp is applied after an in-flight turn is interrupted (steer / insert prompt).
 	pendingFollowUp map[string]pendingFollowUp
