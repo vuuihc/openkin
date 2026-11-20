@@ -214,7 +214,7 @@ was up (`#root .kin-boot` = 1, the iOS wheel = 1, no text); 1800 ms later the
 console had committed (`kin-boot` = 0, wheel = 0), showing the conversation list
 and navigation, with one held request at each size, no dialog, and no page
 error. The route was released afterwards. The four shots were captured on the
-lane's machine and are not committed; the pull request lists them.
+lane's machine and are not committed.
 
 ### What it does not prove
 
@@ -258,7 +258,7 @@ The number is one command, from the repository root:
 It builds the console, `./kin` and the desktop shell, then boots three
 throwaway daemons and prints every mark and median as JSON — the values the
 tables above quote. `--runs 1` is the same command with one launch. It needs
-no earlier step and no additional flag.
+no prior build step and no additional flag.
 
 The rest is optional evidence. Each command below guards a claim; none of them
 produces the number:
