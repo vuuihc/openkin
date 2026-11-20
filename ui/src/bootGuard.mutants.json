@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the mounted handover is ignored: a console that booted still gets acted on",
+    "file": "ui/src/bootGuard.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/bootGuard.dom.test.ts",
+    "old": "  if (input.mounted) return \"wait\";\n",
+    "new": ""
+  },
+  {
+    "label": "the deadline never fires: the splash waits forever",
+    "file": "ui/src/bootGuard.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/bootGuard.dom.test.ts",
+    "old": "  if (input.elapsedMs < BOOT_DEADLINE_MS) return \"wait\";\n  return input.attempts === 0 ? \"reload\" : \"manual\";",
+    "new": "  return \"wait\";"
+  },
+  {
+    "label": "the second deadline still reloads instead of offering the button",
+    "file": "ui/src/bootGuard.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/bootGuard.dom.test.ts",
+    "old": "  return input.attempts === 0 ? \"reload\" : \"manual\";",
+    "new": "  return \"reload\";"
+  }
+]
