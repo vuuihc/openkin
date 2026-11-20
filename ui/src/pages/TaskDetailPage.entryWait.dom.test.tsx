@@ -144,9 +144,10 @@ class ResizeObserverStub {
 }
 
 // jsdom has no layout. The scroll-restore test below supplies the numbers a
-// browser would — content height, viewport height and a clamping `scrollTop` —
-// and toggles the viewport height to stand in for the keep-alive host's
-// `display:none`.
+// browser would — content height, viewport height and a clamping `scrollTop`.
+// A browser fires `scroll` after any assignment that moves it, so the setter
+// delivers that event too (after the assignment, as a browser does); the
+// viewport height toggles to stand in for the keep-alive host's `display:none`.
 const VIEWPORT = 400;
 let contentHeight = 3644;
 let viewportHeight = VIEWPORT;
@@ -164,8 +165,12 @@ function installLayout() {
   Object.defineProperty(HTMLElement.prototype, "scrollTop", {
     configurable: true,
     get: () => scrollTop,
-    set: (value: number) => {
-      scrollTop = Math.max(0, Math.min(value, Math.max(0, contentHeight - viewportHeight)));
+    set(this: HTMLElement, value: number) {
+      const next = Math.max(0, Math.min(value, Math.max(0, contentHeight - viewportHeight)));
+      if (next === scrollTop) return;
+      scrollTop = next;
+      const node = this;
+      queueMicrotask(() => node.dispatchEvent(new Event("scroll")));
     },
   });
 }
@@ -248,10 +253,12 @@ describe("entering a conversation from its list row", () => {
     expect(status.innerHTML).not.toContain("bg-kin-blue");
   });
 
-  it("resolving the detail replaces the wait surface with the transcript", () => {
+  it("resolving the detail replaces the wait surface with the transcript", async () => {
     open();
     expect(screen.getByRole("status", { name: /Loading/ })).toBeTruthy();
-    act(() => {
+    // Await the opening jump's own `scroll` event inside act, as a browser
+    // delivers it after the layout.
+    await act(async () => {
       store.resolveWith({ ...cached, title: "Fresh title", status: "succeeded" }, [
         { seq: 1, kind: "message", payload: { text: "hello" } },
       ]);
@@ -285,20 +292,22 @@ describe("entering a conversation from its list row", () => {
 describe("coming back to a conversation", () => {
   const firstTurn = { seq: 1, kind: "message", payload: { text: "hello" } };
 
-  function openWithTranscript() {
+  async function openWithTranscript() {
     const view = render(
       <MemoryRouter initialEntries={["/tasks/task-1"]}>
         <TaskDetailPage taskId="task-1" active fallbackTask={cached} />
       </MemoryRouter>,
     );
-    act(() => {
+    // Flush the opening jump's own `scroll` event before the test moves the
+    // reader, as a browser would deliver it in a later task.
+    await act(async () => {
       store.resolveWith({ ...cached, status: "succeeded" }, [firstTurn]);
     });
     return view;
   }
 
-  it("keeps the reader's place when the transcript is not laid out to it yet", () => {
-    const view = openWithTranscript();
+  it("keeps the reader's place when the transcript is not laid out to it yet", async () => {
+    const view = await openWithTranscript();
     const scroller = screen.getByRole("region", { name: t("task.transcript") });
 
     // The reader leaves the bottom and reads from 320.
@@ -326,15 +335,51 @@ describe("coming back to a conversation", () => {
     // The bookmark survives the clamped frame instead of being recorded as 0.
     expect(getSessionScroll("task-1")).toBe(320);
 
+    // A frame later the transcript reaches past the viewport but still falls
+    // short of the bookmark. The restore clamps to 100 and the browser fires
+    // `scroll` for that move too; it is not the reader moving, so the
+    // bookmark and the pending restore must survive it.
+    contentHeight = 500;
+    await act(async () => {
+      store.resolveWith({ ...cached, status: "succeeded" }, [
+        firstTurn,
+        { seq: 2, kind: "message", payload: { text: "still laying out" } },
+      ]);
+    });
+    expect(scroller.scrollTop).toBe(100);
+    expect(getSessionScroll("task-1")).toBe(320);
+
+    // Hiding and showing again at that same partial layout restores through
+    // the activate path: it clamps to the same 100, and that `scroll` must
+    // not be read as the reader moving either.
+    viewportHeight = 0;
+    scrollTop = 0;
+    view.rerender(
+      <MemoryRouter initialEntries={["/tasks/task-1"]}>
+        <TaskDetailPage taskId="task-1" active={false} fallbackTask={cached} />
+      </MemoryRouter>,
+    );
+    viewportHeight = VIEWPORT;
+    view.rerender(
+      <MemoryRouter initialEntries={["/tasks/task-1"]}>
+        <TaskDetailPage taskId="task-1" active fallbackTask={cached} />
+      </MemoryRouter>,
+    );
+    await act(async () => {});
+    expect(scroller.scrollTop).toBe(100);
+    expect(getSessionScroll("task-1")).toBe(320);
+
     // Rows land and the live conversation appends: the reader is put back at
     // their place, not pinned to the bottom of the new answer.
     contentHeight = 4000;
-    act(() => {
+    await act(async () => {
       store.resolveWith({ ...cached, status: "succeeded" }, [
         firstTurn,
-        { seq: 2, kind: "message", payload: { text: "a new answer" } },
+        { seq: 2, kind: "message", payload: { text: "still laying out" } },
+        { seq: 3, kind: "message", payload: { text: "a new answer" } },
       ]);
     });
     expect(scroller.scrollTop).toBe(320);
+    expect(getSessionScroll("task-1")).toBe(320);
   });
 });

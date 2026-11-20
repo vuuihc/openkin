@@ -465,6 +465,16 @@ export default function TaskDetailPage({
    * the reader to the bottom of a conversation they were reading.
    */
   const pendingRestoreRef = useRef<number | null>(null);
+  /**
+   * The `scrollTop` this page last set itself while restoring a place.
+   *
+   * A programmatic assignment fires the same async `scroll` event a reader's
+   * scroll does — including one the transcript clamps short of its target.
+   * That event is not the reader moving; reading it as one would clear the
+   * pending restore and record the clamped position as their place. Dropped
+   * as soon as its event arrives (or the task changes).
+   */
+  const programmaticScrollTopRef = useRef<number | null>(null);
   const markScrollReady = useCallback(() => {
     setScrollReady((prev) => (prev ? prev : true));
   }, []);
@@ -522,6 +532,7 @@ export default function TaskDetailPage({
     setSelectedWorkspaceId(undefined);
     stickToBottomRef.current = true;
     pendingRestoreRef.current = null;
+    programmaticScrollTopRef.current = null;
     listAgents()
       .then(setAgents)
       .catch(() => setAgents([]));
@@ -698,6 +709,12 @@ export default function TaskDetailPage({
   const onChatScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // A position this page just applied is not the reader moving, even though
+    // the browser fires `scroll` for it too. Drop the record (stale or not)
+    // and the event it belongs to.
+    const programmatic = programmaticScrollTopRef.current;
+    programmaticScrollTopRef.current = null;
+    if (programmatic != null && el.scrollTop === programmatic) return;
     stickToBottomRef.current = isNearBottom(el);
     // Reading at the end is what "caught up" means: drop the offer to go
     // there, whether the reader scrolled down or the content shrank to fit.
@@ -825,7 +842,11 @@ export default function TaskDetailPage({
       } else {
         const saved = savedScrollTopRef.current ?? (id ? getSessionScroll(id) : null);
         if (saved != null) {
+          const before = node.scrollTop;
           node.scrollTop = saved;
+          // The clamped value still fires `scroll`; remember it so the event
+          // is not mistaken for the reader moving (see onChatScroll).
+          if (node.scrollTop !== before) programmaticScrollTopRef.current = node.scrollTop;
           // The transcript can be shorter than the reader's place for a
           // frame while its rows lay out again. Keep the bookmark and the
           // reader's intent — recording the clamped position would read as
@@ -881,7 +902,11 @@ export default function TaskDetailPage({
     if (pending != null) {
       const node = scrollRef.current;
       if (!node || node.clientHeight <= 0) return;
+      const before = node.scrollTop;
       node.scrollTop = pending;
+      // A clamped reach still fires `scroll`; it is this restore, not the
+      // reader leaving their place (see onChatScroll).
+      if (node.scrollTop !== before) programmaticScrollTopRef.current = node.scrollTop;
       if (node.scrollTop >= pending) {
         pendingRestoreRef.current = null;
         stickToBottomRef.current = isNearBottom(node);
