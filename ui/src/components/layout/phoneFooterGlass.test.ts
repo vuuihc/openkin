@@ -52,6 +52,28 @@ describe("KIN-CONTINUE-005 footer glass", () => {
     );
   });
 
+  it("KIN-CONTINUE-005 zen hides the bar without leaving its clearance", () => {
+    const css = source("src/index.css");
+
+    // Zen hides the bar (`kin-zen-hide`); the room the bar reserved has to go
+    // with it, or the last row of every phone list stops 74px short of the
+    // safe area with nothing there to explain the gap (story scope item 6).
+    // Pinned as one block: the base clearance and the zen exception sit inside
+    // the same phone media query, and the exception is 0-2-0 specificity
+    // rather than `!important`.
+    expect(css).toMatch(
+      /@media \(max-width: 767\.98px\)\s*\{\s*\.phone-footer-clearance\s*\{[^}]*\}\s*(?:\/\*[\s\S]*?\*\/\s*)?\.kin-zen\s+\.phone-footer-clearance\s*\{[^}]*padding-bottom:\s*0(?:px)?\s*;\s*\}\s*\}/,
+    );
+
+    // The zen contract itself is untouched: the bar is still hidden by the one
+    // pair of markers, and the reconnecting banner is still status, not chrome.
+    expect(css).toMatch(/\.kin-zen\s+\.kin-zen-hide\s*\{[^}]*display:\s*none/);
+    const shell = source("src/components/layout/AppShell.tsx");
+    const banner = shell.match(/<div\b[^>]*role="status"[^>]*>/)?.[0] ?? "";
+    expect(banner).not.toBe("");
+    expect(banner).not.toContain("kin-zen-hide");
+  });
+
   it("KIN-CONTINUE-005 paints the bar with the glass and every scrolling root clears it", () => {
     const footer = source("src/components/layout/PhoneFooter.tsx");
     expect(footer).toContain("kin-glass");
