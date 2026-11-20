@@ -1,0 +1,44 @@
+[
+  {
+    "label": "the moved queue is spliced locally instead of drawn from the PUT answer",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "          if (request !== queueMoveRequestRef.current) return;\n          const next = withoutWithdrawn(prompts, withdrawnRef.current);",
+    "new": "          if (request !== queueMoveRequestRef.current) return;\n          const next = withoutWithdrawn(order.map((id) => queue.find((prompt) => prompt.id === id)!), withdrawnRef.current);"
+  },
+  {
+    "label": "a 409 is treated as an ordinary failure and the stale order is kept",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "          if (err instanceof ApiError && err.status === 409) {",
+    "new": "          if (err instanceof ApiError && err.status === 999) {"
+  },
+  {
+    "label": "the up arrow sends the down delta",
+    "file": "ui/src/components/chat/ChatStream.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/chat/ChatStream.queue.dom.test.tsx",
+    "old": "                        onClick={() => onMoveQueued(-1)}",
+    "new": "                        onClick={() => onMoveQueued(1)}"
+  },
+  {
+    "label": "the memoized row ignores a changed place in line",
+    "file": "ui/src/components/chat/ChatStream.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "    a.queuePlace === b.queuePlace &&\n    a.queueLength === b.queueLength &&\n",
+    "new": ""
+  },
+  {
+    "label": "a queue read ignores the newer request generation",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "          if (!active || request !== queueMoveRequestRef.current) return;\n          const next = withoutWithdrawn(prompts, withdrawnRef.current);",
+    "new": "          if (!active) return;\n          const next = withoutWithdrawn(prompts, withdrawnRef.current);"
+  },
+  {
+    "label": "leaving a conversation does not invalidate its reorder",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "      queueMoveRequestRef.current += 1;",
+    "new": "      // mutant: keep the abandoned request current"
+  }
+]

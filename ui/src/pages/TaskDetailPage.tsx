@@ -37,6 +37,7 @@ import {
   listQueuedPrompts,
   listWorkerSteps,
   limitContinue,
+  reorderQueuedPrompts,
   restoreTaskWorkspace,
   retryTask,
   searchTaskSourceFiles,
@@ -96,6 +97,8 @@ import {
   canRefillComposer,
   editStillRunning,
   queuedMessageSeqs,
+  queueOrderAfterMove,
+  queuePositions,
   startEdit,
   startWithdrawal,
   withoutWithdrawn,
@@ -156,6 +159,11 @@ type TaskDetailPageProps = {
  *  return must not swallow a new tab or window. */
 function keepsBrowserLink(event: ReactMouseEvent): boolean {
   return event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+}
+
+/** The same permutation, id for id. */
+function sameOrder(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
 export default function TaskDetailPage({
@@ -239,6 +247,22 @@ export default function TaskDetailPage({
   const withdrawnRef = useRef<Set<number>>(new Set());
   /** Bumped to ask the queue effect below to re-read now, not on the next poll. */
   const [queueReload, setQueueReload] = useState(0);
+  /**
+   * The newest reorder request. Answers carry their request's number and only
+   * the newest one may write the queue: a slow answer to an older tap
+   * describes an order the reader has already replaced.
+   */
+  const queueMoveRequestRef = useRef(0);
+  /** The permutation the newest in-flight move sent, so a double tap is one request. */
+  const pendingMoveRef = useRef<{ request: number; ids: number[] } | null>(null);
+  // Invalidate callbacks before another conversation renders, and on unmount.
+  useLayoutEffect(
+    () => () => {
+      queueMoveRequestRef.current += 1;
+      pendingMoveRef.current = null;
+    },
+    [id],
+  );
   const [usageLoading, setUsageLoading] = useState(true);
   const [sending, setSending] = useState(false);
   /**
@@ -566,15 +590,18 @@ export default function TaskDetailPage({
     if (!id || !task) return;
     let active = true;
     const load = () => {
+      // A read during a pending write could return the order before that write.
+      if (pendingMoveRef.current) return;
+      const request = ++queueMoveRequestRef.current;
       listQueuedPrompts(id)
         .then((prompts) => {
-          if (!active) return;
+          if (!active || request !== queueMoveRequestRef.current) return;
           const next = withoutWithdrawn(prompts, withdrawnRef.current);
           queuedPromptsRef.current = next;
           setQueuedPrompts(next);
         })
         .catch(() => {
-          if (!active) return;
+          if (!active || request !== queueMoveRequestRef.current) return;
           queuedPromptsRef.current = [];
           setQueuedPrompts([]);
         });
@@ -590,6 +617,25 @@ export default function TaskDetailPage({
 
   // Stable identity, so the stream only re-renders when the queue really changed.
   const queuedSeqs = useMemo(() => queuedMessageSeqs(queuedPrompts), [queuedPrompts]);
+
+  /**
+   * The place in line for each transcript message, keyed by its seq.
+   *
+   * The numbering comes from `queuePositions` over the queue as the daemon
+   * sent it — never from a local sort. Rows with `user_seq = 0` are waiting
+   * too and occupy a place, but have no transcript message to badge, so they
+   * are skipped here and still counted in the length.
+   */
+  const queuePlaces = useMemo(() => {
+    const byID = queuePositions(queuedPrompts);
+    const bySeq = new Map<number, number>();
+    for (const prompt of queuedPrompts) {
+      if (typeof prompt.user_seq !== "number" || prompt.user_seq <= 0) continue;
+      const place = byID.get(prompt.id);
+      if (place !== undefined) bySeq.set(prompt.user_seq, place);
+    }
+    return bySeq;
+  }, [queuedPrompts]);
 
   /**
    * Take a message back before the daemon delivers it.
@@ -647,6 +693,58 @@ export default function TaskDetailPage({
 
   /** The × in a queued message's badge: take it back and say nothing more. */
   const onWithdrawQueued = useCallback((seq: number) => withdrawQueued(seq), [withdrawQueued]);
+
+  /**
+   * The ‹ / › in a queued message's badge: move it one slot in the daemon's
+   * order.
+   *
+   * The permutation is built by `queueOrderAfterMove` from the queue as
+   * received — the row itself never re-sorts, and neither does this handler.
+   * The PUT's answer replaces the whole queue, so what the badges number next
+   * is the order the daemon accepted. A 409 means another device moved a row
+   * between this console's read and its write: the list here is stale, so say
+   * so and re-read instead of guessing. Answers carry their request number;
+   * an older answer that lands after a newer one is dropped.
+   */
+  const onMoveQueued = useCallback(
+    (seq: number, delta: -1 | 1) => {
+      const queue = queuedPromptsRef.current;
+      const row = queue.find((prompt) => prompt.user_seq === seq);
+      if (!row) return;
+      const order = queueOrderAfterMove(queue, row.id, delta);
+      if (!order) return;
+      // Two taps before the first answer describe one move, not two: sending
+      // the same permutation twice would only make the second race the first.
+      const pending = pendingMoveRef.current;
+      if (pending && sameOrder(pending.ids, order)) return;
+
+      const request = ++queueMoveRequestRef.current;
+      pendingMoveRef.current = { request, ids: order };
+      const settle = () => {
+        if (pendingMoveRef.current?.request === request) pendingMoveRef.current = null;
+      };
+      reorderQueuedPrompts(id, order).then(
+        (prompts) => {
+          settle();
+          if (request !== queueMoveRequestRef.current) return;
+          const next = withoutWithdrawn(prompts, withdrawnRef.current);
+          queuedPromptsRef.current = next;
+          setQueuedPrompts(next);
+        },
+        (err: unknown) => {
+          settle();
+          if (request !== queueMoveRequestRef.current) return;
+          if (err instanceof ApiError && err.status === 409) {
+            pushToast(tr("chat.queueOrderChanged"), "info");
+          } else {
+            pushToast(tr("chat.queueMoveFailed"), "error");
+          }
+          setQueueReload((n) => n + 1);
+        },
+      );
+    },
+    [id, pushToast, tr],
+  );
 
   useEffect(() => {
     if (!task) return;
@@ -2436,6 +2534,9 @@ export default function TaskDetailPage({
                 queuedSeqs={queuedSeqs}
                 onUnqueue={onWithdrawQueued}
                 onEditQueued={onEditQueued}
+                queuePositions={queuePlaces}
+                queueLength={queuedPrompts.length}
+                onMoveQueued={onMoveQueued}
                 pendingSlots={pendingSlots}
                 showMessageActions={terminal}
                 actionsBusy={actionBusy}

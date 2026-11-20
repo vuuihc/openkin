@@ -119,6 +119,21 @@ type Props = {
    */
   onEditQueued?: (seq: number) => void;
   /**
+   * Where each still-waiting message sits in the daemon's delivery order, keyed
+   * by the seq of the message it belongs to, one for the first. The page builds
+   * this from the queue as received; the row only draws it, because re-deriving
+   * the order here would show an arrangement the agent will not follow.
+   */
+  queuePositions?: ReadonlyMap<number, number>;
+  /** How many prompts are queued, so a lone one shows no place in line. */
+  queueLength?: number;
+  /**
+   * Move a queued message one slot, given the seq of the message it belongs to
+   * and the direction (`-1` earlier, `1` later). Undefined hides the arrows —
+   * a transcript that is not live has no order to change.
+   */
+  onMoveQueued?: (seq: number, delta: -1 | 1) => void;
+  /**
    * Scopes the mobile message-actions reveal. Message keys are `t-<seq>`, and
    * seq restarts per task while several sessions stay mounted (the tab host),
    * so without a task id one revealed message would light up the same-named
@@ -180,6 +195,9 @@ export default function ChatStream({
   queuedSeqs,
   onUnqueue,
   onEditQueued,
+  queuePositions,
+  queueLength,
+  onMoveQueued,
   messageScope = "",
   pendingSlots,
   showMessageActions = false,
@@ -492,6 +510,13 @@ export default function ChatStream({
             // one place that knows the message is still waiting.
             onUnqueue={onUnqueue && seq !== undefined ? () => onUnqueue(seq) : undefined}
             onEditQueued={onEditQueued && seq !== undefined ? () => onEditQueued(seq) : undefined}
+            queuePlace={queued && seq !== undefined ? queuePositions?.get(seq) : undefined}
+            queueLength={queueLength}
+            onMoveQueued={
+              onUnqueue && onMoveQueued && seq !== undefined
+                ? (delta) => onMoveQueued(seq, delta)
+                : undefined
+            }
             selectionMode={sharing}
             selected={selectedKeys.has(turn.item.key)}
             onToggleSelection={() => toggleSelection(turn.item.key)}
@@ -1505,6 +1530,12 @@ export type MessageRowProps = {
    * same conditions as `onUnqueue`.
    */
   onEditQueued?: () => void;
+  /** This message's place in the delivery queue, one for the first. */
+  queuePlace?: number;
+  /** How many messages are waiting; a lone one shows no place. */
+  queueLength?: number;
+  /** Move this message one slot. Undefined hides the arrows. */
+  onMoveQueued?: (delta: -1 | 1) => void;
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelection?: () => void;
@@ -1520,6 +1551,9 @@ const MessageRow = memo(function MessageRow({
   queued = false,
   onUnqueue,
   onEditQueued,
+  queuePlace,
+  queueLength,
+  onMoveQueued,
   selectionMode = false,
   selected = false,
   onToggleSelection,
@@ -1533,6 +1567,15 @@ const MessageRow = memo(function MessageRow({
   const excerpt = queued ? messageExcerpt(text) : "";
   const withdrawName = excerpt ? tr("chat.withdrawNamed", { text: excerpt }) : tr("chat.withdraw");
   const editName = excerpt ? tr("chat.editQueuedNamed", { text: excerpt }) : tr("chat.editQueued");
+  const moveUpName = excerpt
+    ? tr("chat.moveQueuedUpNamed", { text: excerpt })
+    : tr("chat.moveQueuedUp");
+  const moveDownName = excerpt
+    ? tr("chat.moveQueuedDownNamed", { text: excerpt })
+    : tr("chat.moveQueuedDown");
+  // A place only means something against a queue longer than one. `queuePlace`
+  // is the page's numbering of the daemon's order; this row never derives it.
+  const place = queued && queuePlace !== undefined && (queueLength ?? 0) > 1 ? queuePlace : null;
 
   if (isUser) {
     return (
@@ -1560,7 +1603,63 @@ const MessageRow = memo(function MessageRow({
             {queued && (
               <span className="inline-flex items-center gap-1 rounded-full bg-kin-blue/15 px-1.5 py-px text-caption font-medium text-kin-blue-ink">
                 <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
+                {place !== null && (
+                  <span
+                    data-queue-place={place}
+                    className="min-w-[1ch] text-center font-semibold tabular-nums"
+                  >
+                    {place}
+                  </span>
+                )}
                 {tr("chat.queued")}
+                {onMoveQueued && place !== null && (
+                  // The order controls sit beside the place they change. They
+                  // carry the same 44px phone floor as the × and the pencil:
+                  // this pill is a primary mid-run surface, and a thumb a few
+                  // pixels off a 10px chevron must still land on it.
+                  <>
+                    {place > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => onMoveQueued(-1)}
+                        title={tr("chat.moveQueuedUp")}
+                        aria-label={moveUpName}
+                        className="ml-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full text-kin-blue-ink/80 transition-colors hover:bg-kin-blue/15 hover:text-kin-blue-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring md:-my-1"
+                      >
+                        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                          <path
+                            d="M6.5 1.5L3 5l3.5 3.5"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            fill="none"
+                          />
+                        </svg>
+                      </button>
+                    )}
+                    {place < (queueLength ?? 0) && (
+                      <button
+                        type="button"
+                        onClick={() => onMoveQueued(1)}
+                        title={tr("chat.moveQueuedDown")}
+                        aria-label={moveDownName}
+                        className="flex h-5 w-5 flex-none items-center justify-center rounded-full text-kin-blue-ink/80 transition-colors hover:bg-kin-blue/15 hover:text-kin-blue-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring md:-my-1"
+                      >
+                        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                          <path
+                            d="M3.5 1.5L7 5l-3.5 3.5"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            fill="none"
+                          />
+                        </svg>
+                      </button>
+                    )}
+                  </>
+                )}
                 {onEditQueued && (
                   // Beside the ×, because it is the gentler half of the same
                   // thought: take the message back, but keep what it says.
@@ -1702,6 +1801,11 @@ export function sameRow(a: MessageRowProps, b: MessageRowProps): boolean {
     // uses for the save button.
     !!a.onUnqueue === !!b.onUnqueue &&
     !!a.onEditQueued === !!b.onEditQueued &&
+    // The place and the length are drawn, not just enabling: a reorder that
+    // changes them must repaint the row even though nothing else did.
+    a.queuePlace === b.queuePlace &&
+    a.queueLength === b.queueLength &&
+    !!a.onMoveQueued === !!b.onMoveQueued &&
     a.selectionMode === b.selectionMode &&
     a.selected === b.selected
   );
