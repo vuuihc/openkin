@@ -60,7 +60,7 @@ export function bootVerdict(input: {
 type BootStrings = { slow: string; retry: string };
 
 const STRINGS: { zh: BootStrings; en: BootStrings } = {
-  zh: { slow: "网络有点慢，正在重试", retry: "重新加载" },
+  zh: { slow: "网络有点慢，请重新加载", retry: "重新加载" },
   en: { slow: "The network is slow — reload to try again.", retry: "Reload" },
 };
 
