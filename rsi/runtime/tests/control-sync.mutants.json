@@ -21,6 +21,13 @@
     "new": "    :"
   },
   {
+    "label": "the dedupe check is dropped, so a re-adopted tail is appended to the pending file again",
+    "file": "rsi/runtime/run.sh",
+    "test": "bash rsi/runtime/tests/test-control-sync.sh",
+    "old": "  if [ \"$all\" = 0 ]; then",
+    "new": "  if true; then"
+  },
+  {
     "label": "the behind check is dropped, so a tree already at origin/main is adopted instead of left alone",
     "file": "rsi/runtime/run.sh",
     "test": "bash rsi/runtime/tests/test-control-sync.sh",

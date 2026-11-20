@@ -361,6 +361,7 @@ sync
 pending_now="$WORK/rsi/state/decisions-pending.md"
 [ -f "$pending_now" ] || fail "adopt-tail: no state/decisions-pending.md was written"
 grep -Fqx -- "$tail_line" "$pending_now" || fail "adopt-tail: the tail was not preserved verbatim"
+! grep -q '^++ ' "$pending_now" || fail "adopt-tail: the diff's +++ header leaked into the pending file: $(cat "$pending_now")"
 grep -Eq '^- [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \+08 · adopted from an uncommitted rsi/DECISIONS\.md tail' "$pending_now" \
   || fail "adopt-tail: the dated adoption header was missing: $(cat "$pending_now")"
 [ "$(cat "$WORK/rsi/DECISIONS.md")" = "$(git -C "$WORK" show HEAD:rsi/DECISIONS.md)" ] \
@@ -371,9 +372,16 @@ grep -q 'adopted the rsi/DECISIONS.md tail into rsi/state/decisions-pending.md' 
   || fail "adopt-tail: the adopt was not reported: $ERR"
 pass "adopt-decisions-tail-at-eof"
 
-# 15. A second sync must not duplicate the record: the tail appears exactly once.
+# 15. A second adopt must not duplicate the record: the tail appears exactly once. The tree has to
+#     reach the adopt path again, so origin/main moves on and the same tail is re-appended; a clean
+#     second sync would take the fast-forward and never exercise the dedupe.
+( cd "$T/adopt-tail/seed" && echo later > later.txt && git add later.txt \
+  && git commit -q -m "feat: later" && git push -q origin main )
+printf '%s\n' "$tail_line" >> "$WORK/rsi/DECISIONS.md"
 sync
-[ "$RC" = 0 ] || fail "adopt-idempotent: expected exit 0, got $RC"
+[ "$RC" = 0 ] || { printf '%s\n' "$ERR" >&2; fail "adopt-idempotent: expected exit 0, got $RC"; }
+[ "$(head_now)" = "$(git -C "$T/adopt-tail/origin.git" rev-parse main)" ] \
+  || fail "adopt-idempotent: HEAD did not become the new origin/main"
 [ "$(grep -Fxc -- "$tail_line" "$pending_now")" = 1 ] \
   || fail "adopt-idempotent: the tail appears $(grep -Fxc -- "$tail_line" "$pending_now") times, expected once"
 pass "adopt-decisions-tail-idempotent"

@@ -75,10 +75,9 @@ adopt_pending_decisions() {
   # are printed verbatim, prefix stripped, for the pending record.
   diff_out="$($GIT -C "$RSI_CTRL" diff -U0 HEAD 2>/dev/null)"
   tail_lines="$(printf '%s\n' "$diff_out" | awk -v total="$total" '
-    /^@@ / { if (!match($0, /\+[0-9]+/) || substr($0, RSTART + 1, RLENGTH - 1) + 0 <= total) early = 1; next }
-    /^--- / { next }
-    /^-/ { deleted = 1; next }
-    /^\+/ { print substr($0, 2); next }
+    /^@@ / { inhunk = 1; if (!match($0, /\+[0-9]+/) || substr($0, RSTART + 1, RLENGTH - 1) + 0 <= total) early = 1; next }
+    inhunk && /^-/ { deleted = 1; next }
+    inhunk && /^\+/ { print substr($0, 2); next }
     END { exit (deleted || early) ? 1 : 0 }
   ')" || return 0
   [ -n "$tail_lines" ] || return 0
