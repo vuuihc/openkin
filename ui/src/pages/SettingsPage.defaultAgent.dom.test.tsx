@@ -4,7 +4,7 @@
 //   1. 保存成功 → 共享的机器快照被要求重读（不是只刷新设置页自己的列表）；
 //   2. 保存失败 → 不重读，错误照旧显示；
 //   3. 在设置里改了默认 agent，下一次打开 /new 立刻显示新 agent，无需刷新、无需等 30 秒。
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -44,6 +44,15 @@ const baseSettings = {
 const CLAUDE = { id: "claude-code", name: "Claude Code" };
 const CODEX = { id: "codex-cli", name: "Codex CLI" };
 
+/** What one `/api/agents` row says, beyond the defaults the mock fills in. */
+type AgentFixture = {
+  id: string;
+  name: string;
+  installed?: boolean;
+  available?: boolean;
+  reason?: string;
+};
+
 const fixtures = vi.hoisted(() => ({
   settings: {} as Record<string, unknown>,
   providers: [] as ProviderEntry[],
@@ -52,7 +61,15 @@ const fixtures = vi.hoisted(() => ({
   /** True for the settings-only tests: the hook is replaced, the refresh is counted. */
   stubMachinesHook: true,
   refreshCalls: 0,
-  agents: [] as Array<{ id: string; name: string }>,
+  agents: [] as AgentFixture[],
+  /**
+   * How `listAgents` answers. `hold` keeps the read pending until the test
+   * calls `releaseAgentRead`; `reject` fails it. The default-agent row must
+   * tell the truth in all three, so the tests need to steer the read.
+   */
+  agentRead: "ok" as "ok" | "hold" | "reject",
+  releaseAgentRead: null as null | (() => void),
+  agentReadCalls: 0,
 }));
 
 vi.mock("../lib/theme", () => ({
@@ -88,17 +105,29 @@ vi.mock("../api/client", async (importOriginal) => {
       return fixtures.settings as unknown as Settings;
     }),
     /** The default flag follows the saved `agent.default`, as the daemon's does. */
-    listAgents: vi.fn(async (): Promise<AgentInfo[]> => {
-      const chosen = String(fixtures.settings["agent.default"] ?? "");
-      return fixtures.agents.map((agent) => ({
-        ...agent,
-        installed: true,
-        available: true,
-        default: agent.id === chosen,
-        model_list_source: "recommended" as const,
-        model_list_status: "available" as const,
-        permission_modes: ["default", "accept_edits", "yolo"],
-      }));
+    listAgents: vi.fn((): Promise<AgentInfo[]> => {
+      fixtures.agentReadCalls += 1;
+      const answer = (): AgentInfo[] => {
+        const chosen = String(fixtures.settings["agent.default"] ?? "");
+        return fixtures.agents.map((agent) => ({
+          installed: true,
+          available: true,
+          ...agent,
+          default: agent.id === chosen,
+          model_list_source: "recommended" as const,
+          model_list_status: "available" as const,
+          permission_modes: ["default", "accept_edits", "yolo"],
+        }));
+      };
+      if (fixtures.agentRead === "reject") {
+        return Promise.reject(new Error("agent catalog unreadable"));
+      }
+      if (fixtures.agentRead === "hold") {
+        return new Promise<AgentInfo[]>((resolve) => {
+          fixtures.releaseAgentRead = () => resolve(answer());
+        });
+      }
+      return Promise.resolve(answer());
     }),
     listProviders: vi.fn(async () => ({
       active_id: String(fixtures.settings["provider.active_id"] ?? ""),
@@ -226,6 +255,9 @@ beforeEach(() => {
   fixtures.stubMachinesHook = true;
   fixtures.refreshCalls = 0;
   fixtures.agents = [CLAUDE, CODEX];
+  fixtures.agentRead = "ok";
+  fixtures.releaseAgentRead = null;
+  fixtures.agentReadCalls = 0;
   useAppStore.setState({ wsStatus: "connected", reconnectGen: 0, toasts: [] });
   Element.prototype.scrollIntoView = vi.fn();
   Element.prototype.scrollTo = vi.fn();
@@ -285,6 +317,11 @@ describe("a saved default agent reaches the shared snapshot", () => {
     pageOnly();
     await openProviders(user);
     // Pick the other agent, then save it as the default.
+    await waitFor(() =>
+      expect(
+        (document.querySelector('[aria-haspopup="listbox"]') as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
     await user.click(document.querySelector('[aria-haspopup="listbox"]') as HTMLElement);
     const list = await screen.findByRole("listbox", {
       name: t("settings.provider.defaultAgent"),
@@ -354,5 +391,109 @@ describe("KIN-SETTINGS-001 · the default agent row says what it affects", () =>
       expect(screen.queryByRole("button", { name, hidden: true })).toBeNull();
       expect(screen.queryByRole("combobox", { name, hidden: true })).toBeNull();
     }
+  });
+});
+
+// The row used to render one option — Auto — until `/api/agents` answered, with
+// no loading word, no failure and no retry. A person could open that list,
+// choose Auto and save, rewriting the stored default from a catalog that never
+// arrived. These four rows pin the row's three states and the last-good list.
+function agentTrigger(): HTMLButtonElement {
+  return document.querySelector<HTMLButtonElement>(
+    '[aria-haspopup="listbox"]',
+  ) as HTMLButtonElement;
+}
+
+async function openAgentList(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(agentTrigger());
+  return screen.findByRole("listbox", { name: t("settings.provider.defaultAgent") });
+}
+
+describe("KIN-SETTINGS-001 · the default agent row tells the truth while the catalog is in flight", () => {
+  it("KIN-SETTINGS-001 the default agent picker cannot be opened until the agent catalog arrives", async () => {
+    fixtures.agentRead = "hold";
+    const user = userEvent.setup();
+    pageOnly();
+    await openProviders(user);
+
+    expect(await screen.findByText(t("settings.provider.agentListLoading"))).toBeTruthy();
+    expect(agentTrigger().disabled).toBe(true);
+    // An enabled one-option list is the defect: clicking must offer nothing to
+    // choose until the catalog can say what exists.
+    await user.click(agentTrigger());
+    expect(screen.queryByRole("listbox", { name: t("settings.provider.defaultAgent") })).toBeNull();
+
+    await act(async () => {
+      fixtures.releaseAgentRead?.();
+    });
+    await waitFor(() => expect(agentTrigger().disabled).toBe(false));
+    expect(screen.queryByText(t("settings.provider.agentListLoading"))).toBeNull();
+
+    const list = await openAgentList(user);
+    expect(within(list).getByRole("option", { name: /Claude Code/ })).toBeTruthy();
+    expect(within(list).getByRole("option", { name: /Codex CLI/ })).toBeTruthy();
+  });
+
+  it("KIN-SETTINGS-001 a failed agent read says so and offers a retry that reloads the catalog", async () => {
+    fixtures.agentRead = "reject";
+    const user = userEvent.setup();
+    pageOnly();
+    await openProviders(user);
+
+    expect(await screen.findByText(t("settings.provider.agentListFailed"))).toBeTruthy();
+    expect(agentTrigger().disabled).toBe(true);
+    await user.click(agentTrigger());
+    expect(screen.queryByRole("listbox", { name: t("settings.provider.defaultAgent") })).toBeNull();
+
+    fixtures.agentRead = "ok";
+    const readsBeforeRetry = fixtures.agentReadCalls;
+    await user.click(screen.getByRole("button", { name: t("common.retry") }));
+
+    await waitFor(() => expect(fixtures.agentReadCalls).toBe(readsBeforeRetry + 1));
+    await waitFor(() => expect(agentTrigger().disabled).toBe(false));
+    expect(screen.queryByText(t("settings.provider.agentListFailed"))).toBeNull();
+    const list = await openAgentList(user);
+    expect(within(list).getByRole("option", { name: /Claude Code/ })).toBeTruthy();
+    expect(within(list).getByRole("option", { name: /Codex CLI/ })).toBeTruthy();
+  });
+
+  it("KIN-SETTINGS-001 the stored default keeps its product name when it cannot run right now", async () => {
+    // Installed but not runnable: the daemon reports it, the picker used to
+    // drop it, and the trigger printed the bare id.
+    fixtures.agents = [
+      { ...CLAUDE, installed: true, available: false, reason: "verifying" },
+      CODEX,
+    ];
+    const user = userEvent.setup();
+    pageOnly();
+    await openProviders(user);
+    await waitFor(() => expect(agentTrigger().disabled).toBe(false));
+
+    expect(agentTrigger().textContent).toContain("Claude Code");
+    expect(agentTrigger().textContent?.trim()).not.toBe(CLAUDE.id);
+
+    const list = await openAgentList(user);
+    const stored = within(list).getByRole("option", { name: /Claude Code/ });
+    expect(stored.textContent).toContain(CLAUDE.id);
+    expect(stored.textContent).toContain(t("settings.provider.unavailable").trim());
+    // A runnable agent is still offered alongside it.
+    expect(within(list).getByRole("option", { name: /Codex CLI/ })).toBeTruthy();
+  });
+
+  it("KIN-SETTINGS-001 a failed agent read keeps the agents already on screen", async () => {
+    const user = userEvent.setup();
+    pageOnly();
+    await openProviders(user);
+    await waitFor(() => expect(agentTrigger().disabled).toBe(false));
+
+    // Saving re-reads the catalog (`/api/agents`). That read failing must not
+    // blank the list a person can already see — only say it is stale.
+    fixtures.agentRead = "reject";
+    await user.click(saveDefaultAgent());
+
+    expect(await screen.findByText(t("settings.provider.agentListFailed"))).toBeTruthy();
+    const list = await openAgentList(user);
+    expect(within(list).getByRole("option", { name: /Claude Code/ })).toBeTruthy();
+    expect(within(list).getByRole("option", { name: /Codex CLI/ })).toBeTruthy();
   });
 });

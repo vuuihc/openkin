@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the picker opens while the agent catalog is still loading",
+    "file": "ui/src/components/settings/ProviderSettingsSection.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.defaultAgent.dom.test.tsx",
+    "old": "            disabled={agentPickerDisabled}\n",
+    "new": "            /* mutant: no disabled while loading */\n"
+  },
+  {
+    "label": "a failed agent read says nothing and offers no retry",
+    "file": "ui/src/components/settings/ProviderSettingsSection.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.defaultAgent.dom.test.tsx",
+    "old": "          {agentCatalogFailed ? (\n            <div className=\"flex flex-wrap items-center gap-2\">\n              {/* The same live-region shape as the page's per-group errors: a\n                  new alert surface would grow the UI inventory. */}\n              <span aria-live=\"assertive\" className=\"text-caption text-kin-red-ink\">\n                {tr(\"settings.provider.agentListFailed\")}\n              </span>\n              <Button variant=\"secondary\" onClick={onRetryAgentCatalog} className=\"text-caption\">\n                {tr(\"common.retry\")}\n              </Button>\n            </div>\n          ) : null}\n",
+    "new": "          {/* mutant: no failed branch */}\n"
+  }
+]
