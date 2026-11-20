@@ -52,6 +52,12 @@ describe("the console's version watch", () => {
     const call = main.indexOf("watchConsoleVersion();");
     expect(call).toBeGreaterThan(-1);
     expect(call).toBeGreaterThan(main.indexOf("createRoot(root).render"));
+    // The boot guard injects its own module script into <head>, so the first
+    // module script in the document is not the entry chunk. Selecting it would
+    // feed `/assets/boot-guard.js` to `checkConsoleVersion`, which then answers
+    // "skipped" forever and the stale-console check silently does nothing.
+    expect(main).toContain('script[type="module"][src*="/assets/index-"]');
+    expect(main).not.toContain("querySelector<HTMLScriptElement>('script[type=\"module\"][src]')");
     expect(main).toContain('document.addEventListener("visibilitychange"');
     expect(main).toContain('document.visibilityState === "visible"');
     expect(main).toContain('window.addEventListener("pageshow"');
