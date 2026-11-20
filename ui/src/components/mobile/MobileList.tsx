@@ -10,9 +10,10 @@ import { MobileChevron } from "./MobileHeader";
  * the browser cancel a blank-content horizontal tab swipe: explicitly clip it.
  * Components that genuinely scroll horizontally own that behavior themselves.
  *
- * Nothing is reserved for a floating pill here. The phone list page's footer
- * is a flex sibling of this container (KIN-CONTINUE-002), so the scroll body
- * ends where the footer begins and the last row is never under it.
+ * The phone footer floats over this container from KIN-CONTINUE-005, so the
+ * body reserves `.phone-footer-clearance` at its end: without it the last row
+ * would come to rest under the glass. The class is shared with Routines and
+ * Settings and derives from the bar geometry in `index.css`.
  */
 export function MobileScreen({
   children,
@@ -122,9 +123,10 @@ export function MobileScreen({
     <div
       ref={ref}
       data-phone-scroll={scrollKey ? "" : undefined}
-      className={["flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll", className].join(
-        " ",
-      )}
+      className={[
+        "flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll phone-footer-clearance",
+        className,
+      ].join(" ")}
     >
       {children}
     </div>

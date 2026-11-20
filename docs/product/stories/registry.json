@@ -645,7 +645,7 @@
     },
     {
       "id": "KIN-CONTINUE-005",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -658,7 +658,10 @@
       "file": "docs/product/stories/KIN-CONTINUE-005.md",
       "surface": "",
       "ownerPaths": [],
-      "tests": [],
+      "tests": [
+        "ui/src/components/layout/PhoneFooter.glass.dom.test.tsx",
+        "ui/src/components/layout/phoneFooterGlass.test.ts"
+      ],
       "blockedReason": null
     }
   ]
