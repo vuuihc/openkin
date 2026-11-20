@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Measure how long the console the daemon embeds takes to become usable on a
- * phone-sized screen, under two cache/network conditions.
+ * phone-sized screen, under three cache/network conditions.
  *
  * P15 ("the phone opens on its bundled console") needs the number its fix will
  * be judged against. The premise is a field anecdote: on 2026-11-20 the 1.9 MB
@@ -9,6 +9,7 @@
  * attempt received 74 KB in 20 s and stalled, then took 2.9-5.3 s three times.
  * This script measures the same console in Chrome at 390x844:
  *
+ *   warm      one throwaway load, then `page.reload()` on the same context
  *   cold      a fresh context with the HTTP cache disabled
  *   throttled cold, plus Network.emulateNetworkConditions at PHONE_WEAK
  *
@@ -16,6 +17,7 @@
  *
  *   navigation-start       performance.timeOrigin (stamped before any page script)
  *   entry-chunk-bytes      resource-timing transferSize / encodedBodySize / URL
+ *   first-contentful-paint the first `paint` entry named first-contentful-paint
  *   console-usable         the first animation frame after .kin-boot has left
  *                          #root and one more frame has shown a non-splash child
  *   shell-total            navigation loadEventEnd (reported, not the headline)
@@ -37,11 +39,12 @@
  * ~/.kin, and kills only the process group it started.
  *
  * Usage:
- *   node scripts/phone-console-startup.mjs [--runs N]
+ *   node scripts/phone-console-startup.mjs [--runs N] [--json]
+ *   node scripts/phone-console-startup.mjs --self-check
  *
- * The warm (populated-cache) condition, first-contentful-paint, `--json` and
- * the synthetic `--self-check` guard harness are the deferred second slice.
- * Playwright is resolved the way rsi/runtime/ux/walk.mjs resolves it:
+ * --self-check feeds synthetic mark sets through the parser and the guards
+ * without a browser, and proves each guard exits 2 and a good set prints a
+ * number. Playwright is resolved the way rsi/runtime/ux/walk.mjs resolves it:
  * $PW_CORE, else ~/.kin/ux-proto-tools/node_modules/playwright-core; missing
  * means exit 2.
  */
@@ -58,11 +61,13 @@ const ROOT = path.resolve(HERE, "..");
 const DIST = path.join(ROOT, "web", "dist");
 const INDEX_HTML = path.join(DIST, "index.html");
 const BIN = path.join(ROOT, "kin");
+const SELF = fileURLToPath(import.meta.url);
 
 const VIEWPORT = { width: 390, height: 844 };
 const HEALTH_DEADLINE_MS = 60_000;
 const USABLE_DEADLINE_MS = 60_000;
 const LOAD_DEADLINE_MS = 15_000;
+const FCP_DEADLINE_MS = 3_000;
 
 /**
  * The throttled profile is named, not implied: a result is only comparable to
@@ -78,8 +83,17 @@ const PHONE_WEAK = {
   uploadBytesPerSecond: 750 * 1024,
 };
 
-const CONDITIONS = ["cold", "throttled"];
-const METRICS = ["console-usable", "shell-total"];
+const CONDITIONS = ["warm", "cold", "throttled"];
+const METRICS = ["first-contentful-paint", "console-usable", "shell-total"];
+
+const GUARD_NAMES = [
+  "daemon-never-healthy",
+  "splash-never-left",
+  "boot-guard-reloaded",
+  "entry-not-from-this-origin",
+  "stale-dist",
+  "console-blank-or-error",
+];
 
 class GuardFailure extends Error {
   constructor(guardName, detail) {
@@ -95,12 +109,15 @@ function guard(guardName, detail) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+let JSON_OUT = false;
 function say(line = "") {
-  process.stdout.write(`${line}\n`);
+  // JSON goes to stdout alone; progress and failures stay on stderr.
+  if (JSON_OUT) process.stderr.write(`${line}\n`);
+  else process.stdout.write(`${line}\n`);
 }
 
 function parseArgs(argv) {
-  const opts = { runs: 3, help: false };
+  const opts = { runs: 3, json: false, selfCheck: false, selfCheckCase: null, help: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--runs" || arg.startsWith("--runs=")) {
@@ -109,6 +126,13 @@ function parseArgs(argv) {
         throw new Error(`--runs must be a positive integer, got '${value ?? ""}'`);
       }
       opts.runs = Number(value);
+    } else if (arg === "--json") {
+      opts.json = true;
+    } else if (arg === "--self-check") {
+      opts.selfCheck = true;
+    } else if (arg === "--self-check-case") {
+      opts.selfCheckCase = argv[++i] ?? null;
+      if (!opts.selfCheckCase) throw new Error("--self-check-case needs a name");
     } else if (arg === "-h" || arg === "--help") {
       opts.help = true;
     } else {
@@ -123,9 +147,9 @@ function parseArgs(argv) {
 /* ------------------------------------------------------------------ */
 
 /**
- * One place where a sample becomes a number or a guard. A real run and the
- * (deferred) self-check build the same sample shape, so the guards a
- * measurement goes through are the guards proven there.
+ * One place where a sample becomes a number or a guard. A real run builds the
+ * same sample shape the self-check feeds, so proving the guards here proves
+ * the guards a measurement goes through.
  */
 function runGuards(sample) {
   if (!sample.daemonHealthy) {
@@ -183,10 +207,132 @@ function runGuards(sample) {
   return sample.usableMs;
 }
 
+function sampleFor(kind) {
+  const baseOrigin = "http://127.0.0.1:54321";
+  const good = {
+    daemonHealthy: true,
+    daemonDetail: "",
+    bootGuardReloaded: false,
+    reloadDetail: "",
+    blankOrError: null,
+    usableMs: 812.4,
+    deadlineMs: USABLE_DEADLINE_MS,
+    lastState: "",
+    entry: {
+      url: `${baseOrigin}/assets/index-abc123.js`,
+      transferSize: 1917900,
+      encodedBodySize: 1917339,
+    },
+    baseOrigin,
+    cold: true,
+    expectedEntry: "index-abc123.js",
+  };
+  switch (kind) {
+    case "good":
+      return good;
+    case "daemon-never-healthy":
+      return {
+        ...good,
+        daemonHealthy: false,
+        daemonDetail: "the daemon exited 1 before answering /api/health",
+      };
+    case "splash-never-left":
+      return { ...good, usableMs: Number.NaN, lastState: " (the splash was still in #root)" };
+    case "boot-guard-reloaded":
+      return {
+        ...good,
+        bootGuardReloaded: true,
+        reloadDetail: "the boot guard replaced the document with its own reload",
+      };
+    case "entry-not-from-this-origin":
+      return {
+        ...good,
+        entry: { ...good.entry, url: "http://127.0.0.1:59999/assets/index-abc123.js" },
+      };
+    case "entry-from-cache":
+      return { ...good, entry: { ...good.entry, transferSize: 0 } };
+    case "stale-dist":
+      return { ...good, expectedEntry: "index-newhash.js" };
+    case "console-blank-or-error":
+      return { ...good, blankOrError: "#root is empty one frame after the splash left" };
+    default:
+      throw new Error(`unknown self-check case: ${kind}`);
+  }
+}
+
+function selfCheckCase(kind) {
+  // Every case, good and bad, goes through runGuards and then the same fatal
+  // handler a real run uses.
+  const usable = runGuards(sampleFor(kind));
+  process.stdout.write(`console-usable ${Math.round(usable)}ms\n`);
+}
+
 /** Parse the entry chunk path out of the built document. */
 function parseEntry(html) {
   const match = html.match(/<script\b[^>]*\bsrc="(\/assets\/index-[^"]+\.js)"/);
   return match ? match[1] : null;
+}
+
+function selfCheck() {
+  let failures = 0;
+  const fail = (message) => {
+    failures += 1;
+    process.stderr.write(`FAIL self-check: ${message}\n`);
+  };
+
+  // Parser, without a browser or a built tree.
+  const fixture =
+    '<script type="module" src="/assets/boot-guard.js"></script>' +
+    '<script type="module" crossorigin src="/assets/index-deadbeef.js"></script>';
+  if (parseEntry(fixture) !== "/assets/index-deadbeef.js") {
+    fail(`the parser did not find the entry chunk in a fixture (got ${parseEntry(fixture)})`);
+  } else {
+    process.stdout.write("ok parser: found /assets/index-deadbeef.js and ignored boot-guard.js\n");
+  }
+  if (parseEntry("<html><body>no scripts</body></html>") !== null) {
+    fail("the parser invented an entry chunk in a document that has none");
+  } else {
+    process.stdout.write("ok parser: a document with no entry chunk parses to null\n");
+  }
+
+  const cases = [...GUARD_NAMES, "entry-from-cache"];
+  for (const kind of cases) {
+    const result = spawnSync(process.execPath, [SELF, "--self-check-case", kind], {
+      encoding: "utf8",
+      timeout: 15_000,
+    });
+    const expectedGuard = kind === "entry-from-cache" ? "entry-not-from-this-origin" : kind;
+    const firstLine = (result.stderr || "").trim().split("\n")[0] || "";
+    if (result.status !== 2) {
+      fail(`${kind} exited ${result.status}, want 2 (stderr: ${firstLine || "(empty)"})`);
+      continue;
+    }
+    if (!firstLine.startsWith(`GUARD ${expectedGuard}: `)) {
+      fail(`${kind} printed '${firstLine}', want 'GUARD ${expectedGuard}: ...'`);
+      continue;
+    }
+    process.stdout.write(`ok guard ${expectedGuard}${kind === "entry-from-cache" ? " (cold cache)" : ""}: exit 2 — ${firstLine}\n`);
+  }
+
+  const good = spawnSync(process.execPath, [SELF, "--self-check-case", "good"], {
+    encoding: "utf8",
+    timeout: 15_000,
+  });
+  if (good.status !== 0 || !/^console-usable \d+ms$/m.test(good.stdout || "")) {
+    fail(`a good sample exited ${good.status} and printed '${(good.stdout || "").trim()}', want 0 and console-usable <n>ms`);
+  } else {
+    process.stdout.write(`ok good sample: exit 0 — ${(good.stdout || "").trim()}\n`);
+  }
+
+  if (failures > 0) {
+    process.stderr.write(`FAIL phone-console-startup --self-check: ${failures} case(s) failed\n`);
+    process.exit(1);
+  }
+  process.stdout.write(
+    `ok phone-console-startup --self-check: parser checked, ${GUARD_NAMES.length} guards exit 2, ` +
+      "a good mark set prints console-usable\n",
+  );
+  process.exit(0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -414,6 +560,7 @@ function instrumentPage() {
   const state = {
     timeOrigin: performance.timeOrigin,
     docIndex: 0,
+    fcp: null,
     splashGoneAt: null,
     usableAt: null,
     usableState: null,
@@ -425,8 +572,9 @@ function instrumentPage() {
   } catch {
     // A smaller default buffer is still enough for the entry chunk.
   }
-  // sessionStorage survives a reload the boot guard would perform; a second
-  // document is how the runner sees a reload it did not ask for.
+  // sessionStorage survives the reload the warm condition performs and the one
+  // the boot guard would perform; a second document is how the runner sees a
+  // reload it did not ask for.
   try {
     const key = "kin.phone.startup.docIndex";
     const prior = Number(sessionStorage.getItem(key) || "0") || 0;
@@ -436,6 +584,18 @@ function instrumentPage() {
     state.docIndex = 1;
   }
   window.__kinStartup = state;
+
+  try {
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry.name === "first-contentful-paint" && state.fcp === null) {
+          state.fcp = entry.startTime;
+        }
+      }
+    }).observe({ type: "paint", buffered: true });
+  } catch {
+    // The runner falls back to getEntriesByType("paint") after the load.
+  }
 
   const rootEl = () => document.getElementById("root");
   const visible = (el) => {
@@ -509,6 +669,7 @@ async function readState(page) {
     return {
       timeOrigin: state.timeOrigin,
       docIndex: state.docIndex,
+      fcp: state.fcp,
       splashGoneAt: state.splashGoneAt,
       usableAt: state.usableAt,
       usableState: state.usableState,
@@ -522,6 +683,30 @@ async function collect(page, context) {
   // shell-total is reported, not required: a usable console can precede the
   // load event by a few resources. A load that never arrives is null.
   await page.waitForLoadState("load", { timeout: LOAD_DEADLINE_MS }).catch(() => {});
+  // The splash is a background and a spinner, not text or an image, so the
+  // first *contentful* paint is the first React screen — it lands just after
+  // console-usable, and its performance entry is delivered a task later. Read
+  // it late, with a bound, instead of stamping "n/a" for a paint that has not
+  // happened yet.
+  let firstContentfulPaint = null;
+  const paintDeadline = Date.now() + FCP_DEADLINE_MS;
+  while (Date.now() < paintDeadline) {
+    try {
+      firstContentfulPaint = await page.evaluate(() => {
+        const state = window.__kinStartup || {};
+        const paint = performance.getEntriesByType("paint");
+        return (
+          state.fcp ??
+          paint.find((entry) => entry.name === "first-contentful-paint")?.startTime ??
+          null
+        );
+      });
+    } catch {
+      firstContentfulPaint = null;
+    }
+    if (Number.isFinite(firstContentfulPaint)) break;
+    await sleep(50);
+  }
   const data = await page.evaluate(() => {
     const state = window.__kinStartup || {};
     const navigation = performance.getEntriesByType("navigation")[0];
@@ -531,6 +716,7 @@ async function collect(page, context) {
     return {
       timeOrigin: state.timeOrigin,
       docIndex: state.docIndex,
+      fcp: state.fcp,
       splashGoneAt: state.splashGoneAt,
       usableAt: state.usableAt,
       usableState: state.usableState,
@@ -538,6 +724,10 @@ async function collect(page, context) {
       manualAt: state.manualAt,
       entrySrc: script ? script.src : null,
       loadEventEnd: navigation ? navigation.loadEventEnd : null,
+      paint: performance.getEntriesByType("paint").map((entry) => ({
+        name: entry.name,
+        startTime: entry.startTime,
+      })),
       resources: performance.getEntriesByType("resource").map((entry) => ({
         name: entry.name,
         transferSize: entry.transferSize,
@@ -568,6 +758,12 @@ async function collect(page, context) {
         }
       }) || null;
   }
+  const fcp =
+    firstContentfulPaint ??
+    data.fcp ??
+    data.paint.find((paint) => paint.name === "first-contentful-paint")?.startTime ??
+    null;
+
   const sample = {
     daemonHealthy: true,
     bootGuardReloaded: false,
@@ -592,6 +788,7 @@ async function collect(page, context) {
     docIndex: data.docIndex,
     marks: {
       "navigation-start": data.timeOrigin,
+      "first-contentful-paint": fcp,
       "console-usable": usableMs,
       "shell-total": data.loadEventEnd && data.loadEventEnd > 0 ? data.loadEventEnd : null,
     },
@@ -645,7 +842,7 @@ async function waitForUsable(page, context) {
   });
 }
 
-async function measureCondition(browser, daemon, expectedEntry, condition, runIndex) {
+async function measureCondition(browser, daemon, expectedEntry, condition, runIndex, errors) {
   const contextOptions = {
     viewport: VIEWPORT,
     deviceScaleFactor: 1,
@@ -655,11 +852,18 @@ async function measureCondition(browser, daemon, expectedEntry, condition, runIn
   };
   const context = await browser.newContext(contextOptions);
   const page = await context.newPage();
+  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message || error}`));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(`console.error: ${message.text()}`);
+  });
   await page.addInitScript(instrumentPage);
 
-  const cdp = await context.newCDPSession(page);
-  await cdp.send("Network.enable");
-  await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
+  let cdp = null;
+  if (condition !== "warm") {
+    cdp = await context.newCDPSession(page);
+    await cdp.send("Network.enable");
+    await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
+  }
   if (condition === "throttled") {
     await cdp.send("Network.emulateNetworkConditions", {
       offline: false,
@@ -671,14 +875,49 @@ async function measureCondition(browser, daemon, expectedEntry, condition, runIn
   }
 
   const url = `${daemon.base}/`;
+  const expectedDocs = condition === "warm" ? 2 : 1;
   let result;
   try {
-    await page.goto(url, { waitUntil: "commit", timeout: 30_000 });
+    if (condition === "warm") {
+      // One throwaway load to populate this context's cache; the reload is the
+      // measured document.
+      await page.goto(url, { waitUntil: "load", timeout: 30_000 });
+      await page
+        .waitForFunction(
+          () => {
+            const root = document.getElementById("root");
+            return !!root && !root.querySelector(".kin-boot");
+          },
+          null,
+          { timeout: 15_000, polling: "raf" },
+        )
+        .catch(() => {});
+      const before = await readState(page);
+      await page.reload({ waitUntil: "commit", timeout: 30_000 });
+      // The measured document must be a new one; otherwise the "warm" row would
+      // be a second reading of the throwaway load.
+      const deadline = Date.now() + 10_000;
+      let after = null;
+      while (Date.now() < deadline) {
+        try {
+          after = await readState(page);
+        } catch {
+          after = null;
+        }
+        if (after && before && after.timeOrigin !== before.timeOrigin) break;
+        await sleep(50);
+      }
+      if (!after || !before || after.timeOrigin === before.timeOrigin) {
+        throw new Error("the measured reload did not produce a new document");
+      }
+    } else {
+      await page.goto(url, { waitUntil: "commit", timeout: 30_000 });
+    }
     result = await waitForUsable(page, {
       base: daemon.base,
-      cold: true,
+      cold: condition !== "warm",
       expectedEntry,
-      expectedDocs: 1,
+      expectedDocs,
     });
   } finally {
     await context.close().catch(() => {});
@@ -712,6 +951,28 @@ function stats(values) {
     max: Math.round(sorted[sorted.length - 1]),
     n: sorted.length,
   };
+}
+
+function summarize(rows) {
+  const summary = {};
+  for (const condition of CONDITIONS) {
+    const runs = rows.filter((row) => row.condition === condition);
+    summary[condition] = {
+      runs: runs.length,
+      marks: Object.fromEntries(
+        METRICS.map((metric) => [
+          metric,
+          stats(runs.map((row) => row.marks[metric])),
+        ]),
+      ),
+      entry: {
+        url: runs[0]?.entry?.url ?? null,
+        transferSize: runs.map((row) => row.entry?.transferSize ?? null),
+        encodedBodySize: runs.map((row) => row.entry?.encodedBodySize ?? null),
+      },
+    };
+  }
+  return summary;
 }
 
 function printTable(rows, entryFile, startedAt) {
@@ -771,9 +1032,20 @@ function printTable(rows, entryFile, startedAt) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
+  JSON_OUT = opts.json;
 
   if (opts.help) {
-    process.stdout.write("usage: node scripts/phone-console-startup.mjs [--runs N]\n");
+    process.stdout.write(
+      "usage: node scripts/phone-console-startup.mjs [--runs N] [--json] [--self-check]\n",
+    );
+    return;
+  }
+  if (opts.selfCheckCase) {
+    selfCheckCase(opts.selfCheckCase);
+    return;
+  }
+  if (opts.selfCheck) {
+    selfCheck();
     return;
   }
 
@@ -801,7 +1073,9 @@ async function main() {
   }
 
   let daemon = null;
+  let interrupted = false;
   const stop = () => {
+    interrupted = true;
     if (daemon?.child.pid) {
       try {
         process.kill(-daemon.child.pid, "SIGKILL");
@@ -821,12 +1095,15 @@ async function main() {
   try {
     daemon = await startDaemon();
     say(`daemon: ${daemon.base} (throwaway state ${daemon.stateDir})`);
-    for (let run = 1; run <= opts.runs; run++) {
+    for (let run = 1; run <= opts.runs && !interrupted; run++) {
       for (const condition of CONDITIONS) {
-        const row = await measureCondition(browser, daemon, entryFile.name, condition, run);
+        const errors = [];
+        const row = await measureCondition(browser, daemon, entryFile.name, condition, run, errors);
+        row.errors = errors.slice(0, 10);
         rows.push(row);
         say(
-          `run ${run}/${opts.runs} ${condition}: console-usable ${Math.round(row.marks["console-usable"])}ms`,
+          `run ${run}/${opts.runs} ${condition}: console-usable ${Math.round(row.marks["console-usable"])}ms` +
+            (errors.length ? ` (${errors.length} page error(s) recorded)` : ""),
         );
       }
     }
@@ -836,6 +1113,32 @@ async function main() {
     await browser.close().catch(() => {});
   }
 
+  const summary = summarize(rows);
+  if (opts.json) {
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          generatedAt: new Date().toISOString(),
+          machine: {
+            platform: os.platform(),
+            release: os.release(),
+            arch: os.arch(),
+            cpus: os.cpus().length,
+            loadavg: os.loadavg(),
+          },
+          viewport: VIEWPORT,
+          throttle: PHONE_WEAK,
+          conditions: CONDITIONS,
+          entry: entryFile,
+          runs: rows,
+          summary,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    return;
+  }
   printTable(rows, entryFile, startedAt);
 }
 
