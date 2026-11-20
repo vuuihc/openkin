@@ -211,11 +211,11 @@ type Engine struct {
 	// an irreversible fast-forward.
 	workspaceCommitting map[string]string
 	// workspaceCommitSettles marks the commit windows whose turn end answers the
-	// messages queued during them (settlePromptsQueuedDuringFinalization). The
-	// adapter run loop arms it beside the commit flag and clearWorkspaceCompletion
-	// drops it with the flag. A window without it -- the orchestrated finisher,
-	// whose turn end lives in orchestrate.go -- keeps refusing a follow-up rather
-	// than accepting one nothing there would deliver.
+	// messages queued during them (settlePromptsQueuedDuringFinalization). Both
+	// turn ends arm it beside the commit flag -- the adapter run loop and the
+	// orchestrated finisher -- and clearWorkspaceCompletion drops it with the
+	// flag. A window without it keeps refusing a follow-up rather than accepting
+	// one nothing there would deliver.
 	workspaceCommitSettles map[string]bool
 	// pendingFollowUp is applied after an in-flight turn is interrupted (steer / insert prompt).
 	pendingFollowUp map[string]pendingFollowUp
@@ -3072,12 +3072,13 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 			if ev, err := e.persistRunEvent(ctx, id, exec.ID, "error", payload); err == nil {
 				e.bus.PublishEvent(ev)
 			}
-			_, _ = e.finishRun(ctx, id, exec.ID, StatusFailed, nil, nil)
 			// Messages accepted during the commit window are still in the queue. This
-			// turn cannot hand them to a new run, so report them rather than leaving
-			// them parked on a task that has just failed.
+			// turn cannot hand them to a new run, so the report is committed with the
+			// status rather than left for a reader to arrive too late for.
+			_, reported, _ := e.finishRunWithReport(ctx, id, exec.ID, StatusFailed, nil, nil,
+				"workspace finalization failed")
 			e.clearWorkspaceCompletion(id, exec.ID)
-			e.settlePromptsQueuedDuringFinalization(ctx, id, "workspace finalization failed")
+			e.settlePromptsQueuedDuringFinalization(ctx, id, "workspace finalization failed", reported)
 			e.pump()
 			return
 		}
@@ -3086,12 +3087,14 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 			if ev, err := e.store.AppendEvent(ctx, id, "error", payload); err == nil {
 				e.bus.PublishEvent(ev)
 			}
-			_, _ = e.finishRun(ctx, id, exec.ID, e.endStatusForDelivery(err), nil, nil)
 			// The follow-up could not be applied, so any message accepted during the
-			// commit window has no run to go to either: report it instead.
+			// commit window has no run to go to either: the report is committed with
+			// the status instead.
+			reason := fmt.Sprintf("the follow-up could not be applied: %s", err)
+			_, reported, _ := e.finishRunWithReport(ctx, id, exec.ID,
+				e.endStatusForDelivery(err), nil, nil, reason)
 			e.clearWorkspaceCompletion(id, exec.ID)
-			e.settlePromptsQueuedDuringFinalization(ctx, id,
-				fmt.Sprintf("the follow-up could not be applied: %s", err))
+			e.settlePromptsQueuedDuringFinalization(ctx, id, reason, reported)
 		} else {
 			e.clearActiveRun(id, exec.ID)
 		}
@@ -3164,21 +3167,27 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		return
 	}
 	if t.Status == StatusCanceled || wasCanceled {
+		// Cancel discarded the queue it found; a message sent while the workspace
+		// was still committing arrived after that, and a canceled turn does not hand
+		// it to a new run. Say so rather than parking it on a task nobody will run.
+		// When this turn writes the cancel, the sentence commits with the status, so
+		// the notification it fires can already see it; when the cancel already
+		// wrote it, the count is zero and the settle below is the report.
+		var reported int64
 		if t.Status != StatusCanceled {
-			_, _ = e.finishRun(ctx, id, exec.ID, StatusCanceled, nil, nil)
+			_, reported, _ = e.finishRunWithReport(ctx, id, exec.ID, StatusCanceled, nil, nil,
+				"the task was canceled")
 		} else if t.FinishedAt == nil {
 			now := store.NowMilli()
 			_ = e.store.UpdateTask(ctx, id, store.TaskPatch{FinishedAt: &now})
 		}
 		e.clearActiveRun(id, exec.ID)
-		// Cancel discarded the queue it found; a message sent while the workspace
-		// was still committing arrived after that, and a canceled turn does not hand
-		// it to a new run. Say so rather than parking it on a task nobody will run.
-		// Clear the flag first: the report is the last thing this turn does, and a
-		// message sent after it must be delivered by its own accept path, not left
-		// in a commit window that is already over. The deferred clear is idempotent.
+		// Clear the flag first: anything left after the transition above was
+		// accepted in the window between it and this clear, and a message sent after
+		// it must be delivered by its own accept path, not left in a commit window
+		// that is already over. The deferred clear is idempotent.
 		e.clearWorkspaceCompletion(id, exec.ID)
-		e.settlePromptsQueuedDuringFinalization(ctx, id, "the task was canceled")
+		e.settlePromptsQueuedDuringFinalization(ctx, id, "the task was canceled", reported)
 		// Ensure broadcast of final state.
 		if t2, err := e.store.GetTask(ctx, id); err == nil {
 			e.bus.PublishTask(t2)
@@ -3239,20 +3248,24 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		}
 	}
 
-	_, _ = e.finishRun(ctx, id, exec.ID, final, exitCode, nil)
-	e.clearWorkspaceCompletion(id, exec.ID)
-	// The flag is cleared, so a message sent from here on is delivered by its own
-	// accept path. One accepted while it was set is still in the queue: the
+	// The flag is cleared below, so a message sent after that is delivered by its
+	// own accept path. One accepted while it was set is still in the queue: the
 	// boundary drain above ran before finalization ended, so this is the turn's
 	// last chance to answer it. A turn that failed to finalize or was canceled
-	// does not hand the queue to a new run -- it reports it instead.
+	// does not hand the queue to a new run -- the reason is committed with the
+	// status, so a reader of the status can already see what it stranded.
 	settleReason := ""
 	if wasCanceled {
 		settleReason = "the task was canceled"
 	} else if workspaceErr != nil {
 		settleReason = "workspace finalization failed"
 	}
-	e.settlePromptsQueuedDuringFinalization(ctx, id, settleReason)
+	_, reported, _ := e.finishRunWithReport(ctx, id, exec.ID, final, exitCode, nil, settleReason)
+	e.clearWorkspaceCompletion(id, exec.ID)
+	// Only messages accepted after the transition above (still under the commit
+	// flag) are left for this drain to report; the ones the transition named are
+	// already in its report.
+	e.settlePromptsQueuedDuringFinalization(ctx, id, settleReason, reported)
 	// After failed finish, apply default wait/switch policy on the open limit card.
 	if final == StatusFailed {
 		if info, _, ok := e.latestOpenLimitHit(ctx, id); ok {
@@ -3311,14 +3324,39 @@ func (e *Engine) clearWorkspaceCompletion(taskID, executionID string) {
 // just finished, exactly as a follow-up sent a moment later would
 // (deliverQueuedPromptReviving). applyFollowUp pumps the run it queues; callers
 // pump again for the turn they are ending.
-func (e *Engine) settlePromptsQueuedDuringFinalization(ctx context.Context, taskID, reason string) {
+//
+// reportedThroughID is the highest queue row the turn's terminal transition
+// already named in the report it committed with the status
+// (finishRunWithReport). Queue ids only grow, so a message with a larger id was
+// accepted after the transition -- in the window between the commit and the flag
+// clearing -- and is this call's to report. Without it this drain would name the
+// messages the transition already named a second time. It is an id rather than a
+// count because a named message can be withdrawn in that window: removing it
+// from the head must not hide a later message that still needs its report.
+//
+// The accept path reads the commit flag and then writes the queue row, so a
+// message whose read happened before the flag cleared can still land after this
+// drain. That pre-existing window is why the accept path must remain able to
+// deliver from the queue of a task this turn just finished.
+func (e *Engine) settlePromptsQueuedDuringFinalization(
+	ctx context.Context, taskID, reason string, reportedThroughID int64,
+) {
 	if reason != "" {
 		pending, err := e.store.ListPendingPrompts(ctx, taskID)
-		if err != nil || len(pending) == 0 {
+		if err != nil {
 			return
 		}
-		e.reportUndelivered(ctx, taskID, fmt.Errorf(
-			"%d queued prompt(s) not delivered: %s", len(pending), reason))
+		unreported := 0
+		for _, p := range pending {
+			if p.ID > reportedThroughID {
+				unreported++
+			}
+		}
+		if unreported == 0 {
+			return
+		}
+		e.reportUndelivered(ctx, taskID,
+			errors.New(store.UndeliveredPromptsMessage(unreported, reason)))
 		return
 	}
 	if _, _, err := e.deliverQueuedPromptReviving(ctx, taskID); err != nil {
@@ -3437,6 +3475,52 @@ func (e *Engine) finishRun(
 		return store.Task{}, err
 	}
 	return e.publishFinishedTask(ctx, id, status)
+}
+
+// finishRunWithReport ends the run exactly as finishRun does. When reason names
+// why this turn cannot hand its queue to a new run, the terminal status and the
+// report naming the messages still queued for the task are committed in one
+// store transaction, so a reader that can observe the status -- the terminal
+// notification, a ws task message, a client that reads the events once -- can
+// already read the reason. Publishing follows the commit in both cases; the
+// report goes out before the task so a client following the bus in order sees
+// the explanation before the status it explains.
+//
+// The id returned is the highest queue row the report named (zero when reason is
+// empty, the queue was empty, or the write lost the race for the run). Queue ids
+// only grow, so callers pass it to settlePromptsQueuedDuringFinalization, which
+// then reports only messages accepted after this transition -- even if one of
+// the named messages is withdrawn in between.
+func (e *Engine) finishRunWithReport(
+	ctx context.Context,
+	id, executionID, status string,
+	exitCode *int,
+	cost *float64,
+	reason string,
+) (store.Task, int64, error) {
+	if reason == "" {
+		t, err := e.finishRun(ctx, id, executionID, status, exitCode, cost)
+		return t, 0, err
+	}
+	e.mu.Lock()
+	if e.activeRuns[id] != executionID {
+		e.mu.Unlock()
+		return store.Task{}, 0, store.ErrConflict
+	}
+	now := e.nowMilli()
+	report, err := e.store.FinishTaskReportingPending(ctx, id, status, now, exitCode, cost, reason)
+	if err == nil && e.activeRuns[id] == executionID {
+		delete(e.activeRuns, id)
+	}
+	e.mu.Unlock()
+	if err != nil {
+		return store.Task{}, 0, err
+	}
+	if report.Written() {
+		e.bus.PublishEvent(report.Event)
+	}
+	t, err := e.publishFinishedTask(ctx, id, status)
+	return t, report.AfterID, err
 }
 
 func (e *Engine) finishQueuedRun(

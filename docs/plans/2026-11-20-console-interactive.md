@@ -19,6 +19,11 @@ all nine marks exactly once.
 | `console-interactive − sidecar-ready` | **221 ms** median of per-run gaps (178 / 306 / 221) |
 | `console-interactive − window-first-load` | **54 ms** median of per-run gaps (54 / 62 / 51) |
 | Visible change | none intended — the splash is #423's surface, unchanged |
+| Pre-render probe deadline | green — `PRE_RENDER_DEADLINE_MS = 1500` in `ui/src/lib/bootProbe.ts`; 6 Vitest tests, 6 mutants red |
+| Healthy path still decides before the render | green — the deadline is cleared when the probe answers; the 3-run measurement below never takes it |
+| Re-measured `console-interactive` | **1113 ms** median; **155 ms** after `sidecar-ready`, **44 ms** after `window-first-load` (3 runs, table below) |
+| Deadline path in a real browser | green — held `/api/auth/status`, throwaway daemon, both viewports: splash at 400 ms, console committed 1800 ms later, no dialog or page error |
+| One-time-link exchange | **unverified** — `signInWithLink` still has no bound (named under “What it does not prove”) |
 
 ## Why `window-first-load` was not "usable"
 
@@ -112,7 +117,106 @@ local work, React's first commit, the effect, and the IPC hop. The rest of the
 console document does not sit on the splash for long; the startup doc's
 unmeasured tail turns out to be small compared with the daemon edge.
 
-## What it does not prove
+## The bounded handover — R-console-handover
+
+The measurement above has an unbounded tail: `main.tsx` awaited
+`refreshAccount()` before `createRoot(root).render(...)`, and `refreshAccount()`
+had no deadline. A healthy daemon answers in tens of milliseconds; a half-open
+connection, a loaded Hub, or a relay that accepts and never answers leaves the
+iOS wheel (#423) on screen indefinitely, with nothing to say why and no retry.
+
+The handover is now bounded by `PRE_RENDER_DEADLINE_MS = 1500`.
+
+**Why 1500 ms.** The measured healthy handover is at most **306 ms** from the
+daemon answering to the first commit (worst of the three runs in the table
+above; 54 ms of it is renderer work after the document loads). 1500 ms is about
+five times that worst healthy cost, so it cannot fire on a launch that is merely
+having a slow moment, and it stays under the ~2 s point where a waiting screen
+stops reading as “loading” and starts reading as “broken”.
+`bootIntoStoredHub()` runs before this and keeps its own 2500 ms bound, so the
+worst-case first render is **~4000 ms** on the shell's stored-Hub path and
+**1500 ms** everywhere else. Both numbers are the written bound; neither path is
+allowed to sit on the splash longer.
+
+**What happens at the deadline.** The console renders immediately with the gate
+open (`setAuthOk()`), and the original probe promise is left running. When its
+answer lands:
+
+- `enabled && !authenticated` and no device token → the visit gate is applied
+  then, so the account screen appears at the moment the verdict is known;
+- authenticated → one-time credentials are cleaned (`cleanVisitCredentials()`)
+  and the gate stays open;
+- an error or NO_ACCOUNT → today's fallback: no copy, no gate change.
+
+The deadline path never produces a blank frame, a timeout-specific error, a
+`ConnectScreen` caused only by the deadline, or a second `console-interactive`
+mark. The last one is structural: `bootProbe.ts` calls `render` exactly once,
+whichever path it takes, and the desktop recorder's once-per-launch rule stays
+untouched.
+
+**Where the code lives.** The orchestration is `ui/src/lib/bootProbe.ts`, with
+the probe promise, the render callback, the gate callbacks and the deadline
+injected — the same move #427 made for the mark, so the decision is tested
+rather than sitting inside `main.tsx`. `main.tsx` keeps only wiring.
+
+**One state to hold during the wait.** At the deadline the account answer does
+not exist yet, and the store's default (`NO_ACCOUNT`) is itself a verdict —
+App's mount effect reads it as “this daemon has no accounts” and would close the
+gate on the token screen the deadline did not ask for. While the probe is
+unanswered the store therefore holds `NO_ACCOUNT` with `enabled: true`, and
+`applyVisitGate()` refuses to decide from it. The first such decision retires
+the placeholder, so an API 401 after it reads as NO_ACCOUNT (the token screen
+for a daemon with no accounts) rather than inventing a login screen the daemon
+may not be able to serve.
+
+### The run on this branch
+
+`bash scripts/desktop-startup.sh --runs 3 --json`, same command as the baseline
+above, one build and three launches of the real dev shell against throwaway
+daemons. Every value is quoted from that JSON (`per_run[].marks` and
+`median_ms`); macOS 27.2.1 arm64, 8 CPUs, other lanes active (load average
+`9.26 7.24 7.64` after the runs). Build: worktree at `890c15dd` **plus this
+delivery uncommitted**; entry chunk `/assets/index-BAvdb7Lo.js`.
+
+| Mark | Run 1 | Run 2 | Run 3 | Median |
+|---|---:|---:|---:|---:|
+| `process` | 2100 | 230 | 225 | 230 |
+| `app-ready` | 2195 | 284 | 292 | 292 |
+| `sidecar-start` | 2333 | 384 | 367 | 384 |
+| `window-created` | 2410 | 441 | 420 | 441 |
+| `window-ready-to-show` | 2546 | 560 | 534 | **560** |
+| `window-shown` | 2567 | 575 | 550 | 575 |
+| `sidecar-ready` | 3620 | 921 | 959 | 959 |
+| `window-first-load` | 3733 | 1032 | 1069 | **1069** |
+| `console-interactive` | 3790 | 1076 | 1113 | **1113** |
+
+| Gap | Run 1 | Run 2 | Run 3 | Median of per-run gaps |
+|---|---:|---:|---:|---:|
+| `console-interactive − sidecar-ready` | 170 | 155 | 154 | **155** |
+| `console-interactive − window-first-load` | 57 | 44 | 44 | **44** |
+
+Nine of nine marks in every run, each exactly once. The handover after the
+document loads is 44 ms (median of per-run gaps), and after the daemon answers
+155 ms — both far below `PRE_RENDER_DEADLINE_MS = 1500`, so no healthy launch
+took the deadline. Run 1 again pays cold caches (`process` 2100 ms against
+230/225 ms) and is kept in the median rather than discarded.
+
+### The deadline against a real browser
+
+The measurement above proves the bound does not fire on a healthy daemon; it
+cannot prove what happens when the probe never answers, because a healthy run
+never takes that path. That case was run against the production console served
+by a throwaway daemon (`mktemp` state, reserved port) in Chromium, with
+Playwright holding `**/api/auth/status` and never continuing it.
+
+At 390×844 and again at 1100×760: 400 ms after the document loaded the splash
+was up (`#root .kin-boot` = 1, the iOS wheel = 1, no text); 1800 ms later the
+console had committed (`kin-boot` = 0, wheel = 0), showing the conversation list
+and navigation, with one held request at each size, no dialog, and no page
+error. The route was released afterwards. The four shots were captured on the
+lane's machine and are not committed.
+
+### What it does not prove
 
 - **Dev shell, not the packaged `.dmg`/asar build.** A packaged app may parse
   and unpack differently.
@@ -128,15 +232,52 @@ unmeasured tail turns out to be small compared with the daemon edge.
   normalised; the invocation ran while other lanes were active (see load row).
 - **Millisecond resolution.** `Date.now()` on the main process floors each mark
   to a whole millisecond; gaps of a few milliseconds are not meaningful.
-- **No before/after claim.** This row adds measurement only; it changes no
-  product behaviour and no existing mark.
+- **No before/after claim.** The measurement rows in the first table were taken
+  before this delivery and are kept as the baseline; the re-measured rows above
+  are the same command on the branch.
+- **The one-time-link exchange is still unbounded.** `signInWithLink` keeps its
+  explicit failure path and no deadline of its own: a Hub that accepts the POST
+  and never answers still holds the splash *before* the account probe starts.
+  Only the account probe got the deadline.
+- **The healthy runs never take the deadline.** They prove the bound does not
+  fire on a daemon that answers; the deadline path itself is proven by the
+  held-route browser run, not by these marks.
+- **The deadline costs one render, not zero.** On the deadline path the console
+  commits before any account answer exists. Data that needs the account still
+  arrives after it, and a signed-out Hub gets its account screen late rather
+  than before the first frame.
 
 ## Reproduce
 
+The number is one command, from the repository root:
+
 ```bash
+./scripts/desktop-startup.sh --runs 3 --json
+```
+
+It builds the console, `./kin` and the desktop shell, then boots three
+throwaway daemons and prints every mark and median as JSON — the values the
+tables above quote. `--runs 1` is the same command with one launch. It needs
+no prior build step and no additional flag.
+
+The rest is optional evidence. Each command below guards a claim; none of them
+produces the number:
+
+```bash
+# Guard: the parser needs all nine marks and rejects a gap. Builds nothing,
+# launches no Electron, opens no network.
 bash scripts/desktop-startup.sh --selftest          # 9 parsed marks, gap rejected
-bash scripts/desktop-startup.sh --runs 3 --json     # the table above
+
+# Guards: removing the once-per-launch/URL rule or the deadline turns a suite
+# red; the script restores each file byte for byte.
 ./scripts/mutants.py desktop/src/console-interactive.mutants.json
+./scripts/mutants.py ui/src/lib/bootProbe.mutants.json   # 6/6 red
+
+# Guard: the bound is in the code and the doc, and the never-answers test
+# exists. The symbol alone is grepped in the code, so prose cannot satisfy it.
+rg -n 'PRE_RENDER_DEADLINE_MS' ui/src/lib/bootProbe.ts
+rg -n 'PRE_RENDER_DEADLINE_MS = 1500' docs/plans/2026-11-20-console-interactive.md
+cd ui && npx vitest run src/lib/bootProbe.test.ts -t 'never answers'
 ```
 
 The runner boots throwaway instances only (`mktemp` state + userData, reserved

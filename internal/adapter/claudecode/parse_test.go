@@ -271,3 +271,183 @@ func TestParseRateLimitEvent(t *testing.T) {
 		t.Fatalf("reset_at=%v", m["reset_at"])
 	}
 }
+
+// fixtureLine encodes one record in the shape Claude Code writes to its
+// transcript, so a test cannot pass on a hand-simplified line.
+func fixtureLine(t *testing.T, record map[string]any) string {
+	t.Helper()
+	line, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	return string(line)
+}
+
+// compactSummaryRecord is the record Claude Code writes after an automatic
+// compaction: the handoff paragraph is a `user` record, but it is Claude
+// Code's own scaffolding, not something either side said.
+func compactSummaryRecord(summary string) map[string]any {
+	return map[string]any{
+		"type":                      "user",
+		"isCompactSummary":          true,
+		"isSidechain":               false,
+		"isVisibleInTranscriptOnly": true,
+		"userType":                  "external",
+		"message":                   map[string]any{"role": "user", "content": summary},
+		"uuid":                      "uuid-compact-1",
+		"sessionId":                 "session-compact-1",
+	}
+}
+
+// The compaction handoff is a disclosure, not a message: no `message` event,
+// and exactly one completed notice carrying the record's id and the summary.
+func TestParseCompactSummaryIsOneNoticeNotAMessage(t *testing.T) {
+	summary := "This session is being continued from a previous conversation that ran out of context.\n\n" +
+		strings.Repeat("A line of the folded summary.\n", 700)
+	if len(summary) < 20000 {
+		t.Fatalf("fixture summary is %d bytes, want a real-sized one", len(summary))
+	}
+	events := ParseLine(fixtureLine(t, compactSummaryRecord(summary)))
+
+	if got := eventTypes(events); len(got) != 1 || got[0] != "notice" {
+		t.Fatalf("events=%v, want exactly one notice", got)
+	}
+	payload := payloadOf(t, events[0])
+	if payload["code"] != "context_compacted" {
+		t.Fatalf("code=%v payload=%s", payload["code"], events[0].Payload)
+	}
+	if payload["status"] != "completed" {
+		t.Fatalf("status=%v payload=%s", payload["status"], events[0].Payload)
+	}
+	if payload["compaction_id"] != "uuid-compact-1" {
+		t.Fatalf("compaction_id=%v payload=%s", payload["compaction_id"], events[0].Payload)
+	}
+	// The console reveals the whole summary; an adapter-side bound would make
+	// that promise false.
+	if got, _ := payload["message"].(string); got != summary {
+		t.Fatalf("summary changed in flight: got %d bytes, want %d", len(got), len(summary))
+	}
+}
+
+// Every known internal flag keeps the record out of the main column. The flag
+// list lives in sessioncatalog; this table proves each entry is honored on the
+// live path, not just by the file catalog.
+func TestParseInternalClaudeRecordsStayOutOfTranscript(t *testing.T) {
+	message := map[string]any{"role": "user", "content": "provider-injected record"}
+	cases := []struct {
+		name   string
+		record map[string]any
+	}{
+		{
+			name: "isMeta",
+			record: map[string]any{
+				"type": "user", "isMeta": true, "message": message,
+				"uuid": "uuid-meta-1", "sessionId": "session-internal-1",
+			},
+		},
+		{
+			name: "isSidechain",
+			record: map[string]any{
+				"type": "user", "isSidechain": true, "message": message,
+				"uuid": "uuid-sidechain-1", "sessionId": "session-internal-1",
+			},
+		},
+		{
+			name: "isSynthetic",
+			record: map[string]any{
+				"type": "assistant", "isSynthetic": true,
+				"message": map[string]any{"role": "assistant", "content": "synthetic turn"},
+				"uuid":    "uuid-synthetic-1", "sessionId": "session-internal-1",
+			},
+		},
+		{
+			name: "userType internal",
+			record: map[string]any{
+				"type": "user", "userType": "internal", "message": message,
+				"uuid": "uuid-user-type-1", "sessionId": "session-internal-1",
+			},
+		},
+		{
+			name: "isSummary",
+			record: map[string]any{
+				"type": "user", "isSummary": true, "message": message,
+				"uuid": "uuid-summary-1", "sessionId": "session-internal-1",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			events := ParseLine(fixtureLine(t, tc.record))
+			if len(events) != 0 {
+				t.Fatalf("events=%v, want none", eventTypes(events))
+			}
+		})
+	}
+}
+
+// The inverse proof: the fix is structural. An ordinary message that quotes
+// the continuation sentence is still a message, because nothing about its
+// content marks it internal.
+func TestParseOrdinaryMessageQuotingContinuationStillDisplays(t *testing.T) {
+	quoted := "This session is being continued from a previous conversation that ran out of context — that is what the screen said."
+	record := map[string]any{
+		"type":      "user",
+		"userType":  "external",
+		"message":   map[string]any{"role": "user", "content": quoted},
+		"uuid":      "uuid-ordinary-1",
+		"sessionId": "session-ordinary-1",
+	}
+	events := ParseLine(fixtureLine(t, record))
+
+	if got := eventTypes(events); len(got) != 1 || got[0] != "message" {
+		t.Fatalf("events=%v, want exactly one message", got)
+	}
+	payload := payloadOf(t, events[0])
+	if payload["role"] != "user" {
+		t.Fatalf("role=%v payload=%s", payload["role"], events[0].Payload)
+	}
+	if payload["content"] != quoted {
+		t.Fatalf("content=%q payload=%s", payload["content"], events[0].Payload)
+	}
+}
+
+// A boundary and the summary that follows it are one compaction, not two
+// timeline rows. The boundary opens the line without an id because its uuid
+// is not the summary's; the summary settles that line by adoption in the
+// projection, so a boundary that claimed an id would produce a second row.
+func TestParseCompactBoundaryAndSummaryMakeOneLine(t *testing.T) {
+	boundary := `{"type":"system","subtype":"compact_boundary","content":"Conversation compacted"}`
+
+	alone := ParseLine(boundary)
+	if got := eventTypes(alone); len(got) != 1 || got[0] != "notice" {
+		t.Fatalf("boundary alone events=%v, want one notice", got)
+	}
+	running := payloadOf(t, alone[0])
+	if running["code"] != "context_compacted" {
+		t.Fatalf("code=%v payload=%s", running["code"], alone[0].Payload)
+	}
+	if running["status"] == "completed" {
+		t.Fatalf("a boundary alone cannot claim the summary is complete: %s", alone[0].Payload)
+	}
+	if _, ok := running["compaction_id"]; ok {
+		t.Fatalf("a boundary owns no compaction id: %s", alone[0].Payload)
+	}
+
+	summary := "This session is being continued from a previous conversation that ran out of context."
+	events := parseAll(t, boundary, fixtureLine(t, compactSummaryRecord(summary)))
+	if got := eventTypes(events); len(got) != 2 || got[0] != "notice" || got[1] != "notice" {
+		t.Fatalf("events=%v, want the boundary notice and the summary notice", got)
+	}
+	settled := payloadOf(t, events[1])
+	if settled["status"] != "completed" || settled["compaction_id"] != "uuid-compact-1" {
+		t.Fatalf("summary payload=%s", events[1].Payload)
+	}
+	if settled["message"] != summary {
+		t.Fatalf("summary message=%q", settled["message"])
+	}
+	for _, ev := range events {
+		if ev.Type == "message" {
+			t.Fatalf("a compaction must not emit a body message: %s", ev.Payload)
+		}
+	}
+}

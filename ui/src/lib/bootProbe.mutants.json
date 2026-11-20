@@ -1,0 +1,44 @@
+[
+  {
+    "label": "the deadline never fires: the console renders only when the probe settles",
+    "file": "ui/src/lib/bootProbe.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/bootProbe.test.ts",
+    "old": "    const timer = setTimeout(() => resolve({ answered: false }), deadlineMs);",
+    "new": "    const timer = setTimeout(() => {}, deadlineMs);"
+  },
+  {
+    "label": "the late signed-out verdict is dropped after the deadline render",
+    "file": "ui/src/lib/bootProbe.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/bootProbe.test.ts",
+    "old": "  } else if (state?.enabled) {\n    // Signed out on a Hub: the honest gate, at the moment it is known.\n    deps.applyVisitGate();\n  }",
+    "new": "  } else if (state?.enabled) {\n    // MUTANT: the late verdict is dropped.\n  }"
+  },
+  {
+    "label": "the deadline fires even when the probe answered in time",
+    "file": "ui/src/lib/bootProbe.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/bootProbe.test.ts",
+    "old": "  if (early.answered) {",
+    "new": "  if (false) {"
+  },
+  {
+    "label": "the unanswered hold is released after the gate has already read it",
+    "file": "ui/src/lib/bootProbe.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/bootProbe.test.ts",
+    "old": "    deps.endUnanswered();\n    decideBeforeRender(deps, early.state);",
+    "new": "    decideBeforeRender(deps, early.state);"
+  },
+  {
+    "label": "the visit gate decides from the placeholder while the probe is unanswered",
+    "file": "ui/src/api/account.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/api/account.test.ts",
+    "old": "  if (accountProbeUnanswered) {",
+    "new": "  if (false) {"
+  },
+  {
+    "label": "the unanswered hold is never released, so a real verdict cannot apply the gate",
+    "file": "ui/src/api/account.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/api/account.test.ts",
+    "old": "export function endUnansweredAccountProbe(): void {\n  accountProbeUnanswered = false;\n}",
+    "new": "export function endUnansweredAccountProbe(): void {\n  // MUTANT: the hold is never released.\n}"
+  }
+]

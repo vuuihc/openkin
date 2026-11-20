@@ -1266,17 +1266,40 @@ func (s *Store) FinishTask(
 	costUSD *float64,
 	allowQueued bool,
 ) error {
-	switch status {
-	case "succeeded", "failed", "canceled":
-	default:
-		return fmt.Errorf("finish task with non-terminal status %q", status)
-	}
-
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin finish task: %w", err)
 	}
 	defer tx.Rollback()
+
+	if err := finishTaskTx(ctx, tx, id, status, finishedAt, exitCode, costUSD, allowQueued); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit finish task: %w", err)
+	}
+	return nil
+}
+
+// finishTaskTx applies the terminal update FinishTask exists for, inside the
+// caller's transaction. It is the shared body of every write that ends a task:
+// the status, the consumed retry intent, and the hub_seq bump are one change, so
+// a caller that must write something else with the ending (a report naming the
+// messages it could not deliver) gets both or neither.
+func finishTaskTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	id, status string,
+	finishedAt int64,
+	exitCode *int,
+	costUSD *float64,
+	allowQueued bool,
+) error {
+	switch status {
+	case "succeeded", "failed", "canceled":
+	default:
+		return fmt.Errorf("finish task with non-terminal status %q", status)
+	}
 
 	sets := []string{"status = ?", "finished_at = ?"}
 	args := []any{status, finishedAt}
@@ -1322,10 +1345,77 @@ func (s *Store) FinishTask(
 	if err := touchTaskHubSeq(ctx, tx, id); err != nil {
 		return err
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit finish task: %w", err)
-	}
 	return nil
+}
+
+// PendingPromptReport is what a terminal transition wrote about the messages it
+// could not deliver. Count is the number of queued messages the report event
+// names; it is zero when the queue was empty, and then Event is the zero value
+// and nothing was written. AfterID is the highest queue row id the report
+// counted: queue ids only grow, so a message with a larger id was accepted
+// after this transition and was not named here.
+type PendingPromptReport struct {
+	Event   Event
+	Count   int
+	AfterID int64
+}
+
+// Written reports whether the transition appended a report event.
+func (r PendingPromptReport) Written() bool { return r.Count > 0 }
+
+// FinishTaskReportingPending ends the task exactly as FinishTask does and, in
+// the same transaction, appends one `error` event naming the messages still
+// queued for it. The status and the sentence explaining what it stranded are
+// therefore one committed transition: a reader that can observe the terminal
+// row -- a terminal notification, a ws task message, a client that reads the
+// events once -- can already read the reason.
+//
+// The queue count is taken inside the transaction, so a message accepted
+// concurrently is either named by this report or still in the queue for the
+// caller to settle; it cannot fall between the two. Nothing is removed from the
+// queue: the messages stay for the user to resend, exactly as they did when the
+// report was a separate write.
+func (s *Store) FinishTaskReportingPending(
+	ctx context.Context,
+	id, status string,
+	finishedAt int64,
+	exitCode *int,
+	costUSD *float64,
+	reason string,
+) (PendingPromptReport, error) {
+	if strings.TrimSpace(reason) == "" {
+		return PendingPromptReport{}, fmt.Errorf("finish task with a pending report needs a reason")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return PendingPromptReport{}, fmt.Errorf("begin finish task: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := finishTaskTx(ctx, tx, id, status, finishedAt, exitCode, costUSD, false); err != nil {
+		return PendingPromptReport{}, err
+	}
+	count, maxID, err := pendingPromptsWatermarkTx(ctx, tx, id)
+	if err != nil {
+		return PendingPromptReport{}, err
+	}
+	if count == 0 {
+		if err := tx.Commit(); err != nil {
+			return PendingPromptReport{}, fmt.Errorf("commit finish task: %w", err)
+		}
+		return PendingPromptReport{}, nil
+	}
+	payload, _ := json.Marshal(map[string]string{
+		"message": UndeliveredPromptsMessage(count, reason),
+	})
+	ev, err := appendEventTx(ctx, tx, id, "error", payload)
+	if err != nil {
+		return PendingPromptReport{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return PendingPromptReport{}, fmt.Errorf("commit finish task with report: %w", err)
+	}
+	return PendingPromptReport{Event: ev, Count: count, AfterID: maxID}, nil
 }
 
 // AppendEvent inserts the next event for a task (monotonically increasing seq).
