@@ -75,6 +75,61 @@
           animation: none;
         }
       }
+      /* The boot guard's last state (`src/bootGuard.ts`): the deadline passed
+         twice, so the splash becomes a column holding the same wheel, one line
+         and the one action left. These rules are inline for the same reason as
+         the splash: they must paint before any stylesheet loads. The colours
+         mirror tokens in `src/design/theme.css` — muted, hairline-strong and
+         focus-ring — because the token layer is not loaded yet. */
+      .kin-boot-panel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+        max-width: 22rem;
+        padding: 24px;
+        text-align: center;
+        font:
+          400 15px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      .kin-boot-note {
+        margin: 0;
+        /* --kin-muted-rgb (dark). */
+        color: rgb(152 152 157);
+      }
+      html.light .kin-boot-note {
+        /* --kin-muted-rgb (light). */
+        color: rgb(92 92 97);
+      }
+      .kin-boot-retry {
+        min-height: 44px;
+        padding: 0 20px;
+        border: 1px solid rgba(255, 255, 255, 0.14); /* --kin-hairline-strong (dark) */
+        border-radius: 9999px;
+        background: transparent;
+        font: inherit;
+        font-weight: 600;
+        /* --kin-text (dark). The token layer has not loaded, and `inherit` from
+           an unstyled body would be black on a near-black splash. */
+        color: #f5f5f7;
+      }
+      html.light .kin-boot-retry {
+        border-color: rgba(0, 0, 0, 0.16); /* --kin-hairline-strong (light) */
+        color: #1c1c1e; /* --kin-text (light) */
+      }
+      /* The token layer's ring, spelled as the value it will resolve to: this
+         page has no custom properties yet, and an unfocused boot screen must
+         still show where the keyboard is. */
+      .kin-boot-retry:focus-visible {
+        outline: 2px solid #0a84ff; /* --kin-focus-ring (dark) */
+        outline-offset: 2px;
+      }
+      html.light .kin-boot-retry:focus-visible {
+        outline-color: #0b6fe0; /* --kin-focus-ring (light) */
+      }
     </style>
   </head>
   <body class="bg-kin-bg text-kin-text antialiased">
@@ -165,6 +220,14 @@
         </div>
       </div>
     </div>
+    <!-- The boot guard entry: `src/bootGuard.ts` bounds the splash, retries
+         once, then offers a Reload button. It comes before the console entry
+         on purpose — module scripts execute in document order, so this small
+         dependency-free chunk runs while a stalled tunnel is still delivering
+         the 1.9 MB entry. `vite.config.ts`'s `bootGuardEntry` keeps it a
+         separate file, and a tag ahead of the entry, in the built document
+         too; without that Vite would fold both into one chunk. -->
+    <script type="module" src="/src/bootGuard.ts"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
