@@ -1731,6 +1731,8 @@ const en: MessageTree = {
       invite_invalid: "That invitation is not valid or has expired.",
       login_link_invalid:
         "This sign-in link is not valid or has expired. Ask your agent for a new one.",
+      login_link_timeout:
+        "This sign-in link didn't finish signing you in. Open it again, or ask your agent for a new one.",
       login_code_invalid: "This sign-in attempt is no longer valid. Start again from the app.",
       browser_unavailable:
         "The system browser could not be opened. Sign-in through a provider needs an https:// Hub address.",

@@ -23,7 +23,7 @@ all nine marks exactly once.
 | Healthy path still decides before the render | green — the deadline is cleared when the probe answers; the 3-run measurement below never takes it |
 | Re-measured `console-interactive` | **1113 ms** median; **155 ms** after `sidecar-ready`, **44 ms** after `window-first-load` (3 runs, table below) |
 | Deadline path in a real browser | green — held `/api/auth/status`, throwaway daemon, both viewports: splash at 400 ms, console committed 1800 ms later, no dialog or page error |
-| One-time-link exchange | **unverified** — `signInWithLink` still has no bound (named under “What it does not prove”) |
+| One-time-link exchange | green — bounded by `LINK_EXCHANGE_DEADLINE_MS = 1500` in `ui/src/lib/linkExchange.ts`; a late success re-probes and opens the gate without a second render; 6 Vitest tests, 4 mutants red |
 
 ## Why `window-first-load` was not "usable"
 
@@ -235,10 +235,13 @@ state: `rsi/state/shots/console-handover/{390,1100}-{splash,console}.png`.
 - **No before/after claim.** The measurement rows in the first table were taken
   before this delivery and are kept as the baseline; the re-measured rows below
   are the same command on the branch.
-- **The one-time-link exchange is still unbounded.** `signInWithLink` keeps its
-  explicit failure path and no deadline of its own: a Hub that accepts the POST
-  and never answers still holds the splash *before* the account probe starts.
-  Only the account probe got the deadline.
+- **The one-time-link exchange is bounded too.** A `POST /api/auth/login-link`
+  that is accepted and never answered no longer holds the splash before the
+  account probe starts: `linkExchange` stops waiting at
+  `LINK_EXCHANGE_DEADLINE_MS` (1500 ms, `ui/src/lib/linkExchange.ts`), opens the
+  console with a “did not finish” message, and adopts a late success by asking
+  the account once more — no second render. Proven by
+  `ui/src/lib/linkExchange.test.ts`.
 - **The healthy runs never take the deadline.** They prove the bound does not
   fire on a daemon that answers; the deadline path itself is proven by the
   held-route browser run, not by these marks.
