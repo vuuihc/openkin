@@ -259,9 +259,7 @@ export default function TaskDetailPage({
    * timeout, and a request the network dropped must not suppress the queue
    * poll or refuse the arrows for the life of the page.
    */
-  const pendingMoveRef = useRef<{ request: number; ids: number[]; startedAt: number } | null>(
-    null,
-  );
+  const pendingMoveRef = useRef<{ request: number; ids: number[]; startedAt: number } | null>(null);
   /** A queue read the poll skipped while a move was in flight. */
   const deferredQueueReadRef = useRef(false);
   // Invalidate callbacks before another conversation renders, on unmount, and
