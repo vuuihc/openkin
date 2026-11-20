@@ -457,6 +457,14 @@ export default function TaskDetailPage({
    * display:none (keep-alive hide) resets DOM scrollTop, so we restore from here.
    */
   const savedScrollTopRef = useRef<number | null>(id ? getSessionScroll(id) : null);
+  /**
+   * A saved middle position the scroller could not reach when its pane was
+   * shown again — the transcript had not been laid out to that depth yet.
+   * Kept until it lands (or the reader scrolls) instead of recording the
+   * clamped 0, which would look like "at the end" and let the next event pin
+   * the reader to the bottom of a conversation they were reading.
+   */
+  const pendingRestoreRef = useRef<number | null>(null);
   const markScrollReady = useCallback(() => {
     setScrollReady((prev) => (prev ? prev : true));
   }, []);
@@ -513,6 +521,7 @@ export default function TaskDetailPage({
     setWorkspaceShowListNonce(0);
     setSelectedWorkspaceId(undefined);
     stickToBottomRef.current = true;
+    pendingRestoreRef.current = null;
     listAgents()
       .then(setAgents)
       .catch(() => setAgents([]));
@@ -695,6 +704,9 @@ export default function TaskDetailPage({
     if (stickToBottomRef.current) setUnseen(0);
     // Only record while laid out — hidden (display:none) panes report 0.
     if (active && el.clientHeight > 0) {
+      // The reader has taken the scroller somewhere themselves; a restore
+      // still waiting for layout must not overrule them later.
+      pendingRestoreRef.current = null;
       savedScrollTopRef.current = el.scrollTop;
       if (id) setSessionScroll(id, el.scrollTop);
     }
@@ -812,8 +824,20 @@ export default function TaskDetailPage({
         node.scrollTop = node.scrollHeight;
       } else {
         const saved = savedScrollTopRef.current ?? (id ? getSessionScroll(id) : null);
-        if (saved != null) node.scrollTop = saved;
+        if (saved != null) {
+          node.scrollTop = saved;
+          // The transcript can be shorter than the reader's place for a
+          // frame while its rows lay out again. Keep the bookmark and the
+          // reader's intent — recording the clamped position would read as
+          // "at the end" and the next event would pin them to the bottom.
+          if (node.scrollTop < saved) {
+            pendingRestoreRef.current = saved;
+            markScrollReady();
+            return true;
+          }
+        }
       }
+      pendingRestoreRef.current = null;
       stickToBottomRef.current = isNearBottom(node);
       savedScrollTopRef.current = node.scrollTop;
       if (id) setSessionScroll(id, node.scrollTop);
@@ -850,6 +874,22 @@ export default function TaskDetailPage({
   // Instant pin — never smooth-scroll the main transcript.
   useLayoutEffect(() => {
     if (!didInitialScrollRef.current) return;
+    // A place the pane could not reach when it was shown again lands as soon
+    // as the transcript grows. It owns the position until then; a send's pin
+    // waits behind the reader's own place.
+    const pending = pendingRestoreRef.current;
+    if (pending != null) {
+      const node = scrollRef.current;
+      if (!node || node.clientHeight <= 0) return;
+      node.scrollTop = pending;
+      if (node.scrollTop >= pending) {
+        pendingRestoreRef.current = null;
+        stickToBottomRef.current = isNearBottom(node);
+        savedScrollTopRef.current = node.scrollTop;
+        if (id) setSessionScroll(id, node.scrollTop);
+      }
+      return;
+    }
     if (!(stickToBottomRef.current || (sending && pinAfterSendRef.current))) return;
     // The send's pin belongs to the commit that lands its bubble. A pane that
     // cannot scroll right now (keep-alive-hidden) spends it rather than
@@ -861,7 +901,7 @@ export default function TaskDetailPage({
     stickToBottomRef.current = true;
     savedScrollTopRef.current = el.scrollTop;
     if (id) setSessionScroll(id, el.scrollTop);
-  }, [events, approvals, userQuestions, sending, id]);
+  }, [events, approvals, isNearBottom, userQuestions, sending, id]);
 
   // New output that arrived while the reader was above the fold is reported
   // once, quietly, instead of merely landing out of sight. The pill is an
@@ -893,6 +933,7 @@ export default function TaskDetailPage({
     // Instant, like every other transcript position: the reader asked for the
     // end, not for a ride through the lines in between.
     el.scrollTop = el.scrollHeight;
+    pendingRestoreRef.current = null;
     stickToBottomRef.current = true;
     savedScrollTopRef.current = el.scrollTop;
     if (id) setSessionScroll(id, el.scrollTop);

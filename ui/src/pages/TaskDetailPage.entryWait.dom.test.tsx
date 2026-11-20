@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { useSyncExternalStore, type ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { Task } from "../api/client";
 import { setLocale, t } from "../i18n";
+import { getSessionScroll } from "../lib/sessionScroll";
 import TaskDetailPage from "./TaskDetailPage";
 
 /**
@@ -142,15 +143,53 @@ class ResizeObserverStub {
   disconnect() {}
 }
 
+// jsdom has no layout. The scroll-restore test below supplies the numbers a
+// browser would — content height, viewport height and a clamping `scrollTop` —
+// and toggles the viewport height to stand in for the keep-alive host's
+// `display:none`.
+const VIEWPORT = 400;
+let contentHeight = 3644;
+let viewportHeight = VIEWPORT;
+let scrollTop = 0;
+
+function installLayout() {
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get: () => contentHeight,
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get: () => viewportHeight,
+  });
+  Object.defineProperty(HTMLElement.prototype, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value: number) => {
+      scrollTop = Math.max(0, Math.min(value, Math.max(0, contentHeight - viewportHeight)));
+    },
+  });
+}
+
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
   setLocale("en");
   localStorage.clear();
+  contentHeight = 3644;
+  viewportHeight = VIEWPORT;
+  scrollTop = 0;
+  installLayout();
   store.state.version = 0;
   store.state.loaded = false;
   store.state.task = null;
   store.state.events = [];
   store.state.error = null;
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+  Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
+  Reflect.deleteProperty(HTMLElement.prototype, "scrollTop");
 });
 
 describe("entering a conversation from its list row", () => {
@@ -231,5 +270,71 @@ describe("entering a conversation from its list row", () => {
     expect(screen.queryByRole("status", { name: /Loading/ })).toBeNull();
     expect(document.querySelector(".kin-ios-spinner")).toBeNull();
     expect(screen.getByRole("alert").textContent).toContain("detail failed");
+  });
+});
+
+/**
+ * J9: switching conversations keeps the reader's place.
+ *
+ * A pane the session host shows again can be a frame shorter than the place
+ * it was left at — the transcript is laid out again before its rows settle.
+ * That frame must not be mistaken for "the reader is at the end": recording
+ * the clamped `0` makes the next event pin them to the bottom of a
+ * conversation they were reading.
+ */
+describe("coming back to a conversation", () => {
+  const firstTurn = { seq: 1, kind: "message", payload: { text: "hello" } };
+
+  function openWithTranscript() {
+    const view = render(
+      <MemoryRouter initialEntries={["/tasks/task-1"]}>
+        <TaskDetailPage taskId="task-1" active fallbackTask={cached} />
+      </MemoryRouter>,
+    );
+    act(() => {
+      store.resolveWith({ ...cached, status: "succeeded" }, [firstTurn]);
+    });
+    return view;
+  }
+
+  it("keeps the reader's place when the transcript is not laid out to it yet", () => {
+    const view = openWithTranscript();
+    const scroller = screen.getByRole("region", { name: t("task.transcript") });
+
+    // The reader leaves the bottom and reads from 320.
+    scrollTop = 320;
+    fireEvent.scroll(scroller);
+
+    // The host hides this pane while another conversation is opened
+    // (`display:none` drops the DOM's scrollTop), then shows it again before
+    // the transcript has been laid out to that depth.
+    viewportHeight = 0;
+    scrollTop = 0;
+    view.rerender(
+      <MemoryRouter initialEntries={["/tasks/task-1"]}>
+        <TaskDetailPage taskId="task-1" active={false} fallbackTask={cached} />
+      </MemoryRouter>,
+    );
+    contentHeight = 200;
+    viewportHeight = VIEWPORT;
+    view.rerender(
+      <MemoryRouter initialEntries={["/tasks/task-1"]}>
+        <TaskDetailPage taskId="task-1" active fallbackTask={cached} />
+      </MemoryRouter>,
+    );
+
+    // The bookmark survives the clamped frame instead of being recorded as 0.
+    expect(getSessionScroll("task-1")).toBe(320);
+
+    // Rows land and the live conversation appends: the reader is put back at
+    // their place, not pinned to the bottom of the new answer.
+    contentHeight = 4000;
+    act(() => {
+      store.resolveWith({ ...cached, status: "succeeded" }, [
+        firstTurn,
+        { seq: 2, kind: "message", payload: { text: "a new answer" } },
+      ]);
+    });
+    expect(scroller.scrollTop).toBe(320);
   });
 });
