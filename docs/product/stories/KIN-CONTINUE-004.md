@@ -1,6 +1,7 @@
 # KIN-CONTINUE-004 · 手机列表：按最近活动排设备、每设备新建、搜索收成放大镜
 
-状态：draft
+状态：approved
+签字：2026-11-20 CEO 代签（`rsi/state/decisions-pending.md`；审阅页 6 条决定全部「已定」）。
 优先级：P0
 旅程：J1、J2
 归属面：`IA.md`「手机对话列表」
@@ -150,8 +151,8 @@ Mac 左栏不变：布局、设备顺序、搜索框、行操作都维持今天�
 | 层级 | 位置 | Given / When / Then |
 |---|---|---|
 | 单元 | `ui/src/lib/phoneSessionBuckets.test.ts` | Given 三台设备：本机 3 天前、远程 A 1 小时前、远程 B 在线但 7 天前 When 分组 Then 顺序是 A → 本机 → B；Given 两台都是 0 活动 When 分组 Then 本机在前；Given 一台机器没有会话 When 分组 Then 它仍出现在结果里且 buckets 为空 |
-| 组件 | `ui/src/components/sessions/DeviceNewChat.dom.test.tsx`（新） | Given 在线设备 When 点设备旁的新建 Then `setDraftMachine(该 id)` 被调用且推到 `/new`；Given 离线设备 Then 按钮 `aria-disabled`、原因可见、点击不导航；Given 无会话设备 Then 标题与新建存在、没有折叠箭头 |
-| 组件 | `ui/src/components/mobile/SessionsHeader.dom.test.tsx`（新） | Given 默认头部 When 点放大镜 Then 同一个 `SessionsSearch` 展开、焦点在输入框、`aria-expanded=true`；Given 输入「发布」 Then 地址栏 `?search=发布`；Given 有词 When Esc Then 先清词，再 Esc 才收起并回焦放大镜；Given 带 `?search=` 冷启动 Then 字段已展开 |
+| 组件 | `ui/src/components/sessions/SessionList.phoneDevices.dom.test.tsx`（新） | Given 在线设备 When 点设备旁的新建 Then `setDraftMachine(该 id)` 被调用且推到 `/new`；Given 离线设备 Then 按钮 `aria-disabled`、原因可见、点击不导航；Given 无会话设备 Then 标题与新建存在、没有折叠箭头 |
+| 组件 | `ui/src/components/mobile/SessionsHeader.search.dom.test.tsx`（新） | Given 默认头部 When 点放大镜 Then 同一个 `SessionsSearch` 展开、焦点在输入框、`aria-expanded=true`；Given 输入「发布」 Then 地址栏 `?search=发布`；Given 有词 When Esc Then 先清词，再 Esc 才收起并回焦放大镜；Given 带 `?search=` 冷启动 Then 字段已展开 |
 | 页面 | `ui/src/components/sessions/SessionList.dom.test.tsx` | Given 390 宽空列表 When 渲染 Then 头部新建仍在、空态指向它、已连接设备仍各有一个新建；Given 读失败 Then 头部与放大镜仍在、「重试」可见 |
 | 回归 | `ui/src/components/layout/Sidebar.dom.test.tsx` | Given 1100 宽 When 渲染左栏 Then 设备顺序与搜索框与今天一致，没有放大镜或每设备新建 |
 | 真浏览器 | 390 / 1100，`/sessions` | 390：点第二台设备的新建、返回、看顺序变化；点放大镜、输入、清除、Esc；离线设备按钮不可点。1100：左栏与今天一致 |
@@ -162,9 +163,10 @@ Mac 左栏不变：布局、设备顺序、搜索框、行操作都维持今天�
 ## 证据
 
 - 之前：本轮不新增截图（文档切片）；现状事实见「现在」的代码行号与 `rsi/state/reports/2026-11-20-glass-and-session-list-research.md`。
-- 之后：交付时补 390 / 1100 前后截图与 J1 走查；本轮的证据是 SVG 帧与审阅页（同一设计源）。
+- 之后：390 / 1100 前后截图与 J1 走查随实现 PR 交付（`rsi/state/shots/phone-list-deliver/`）；本轮测试见「验收」中的三个测试文件。
 
 ## 变更记录
 
 - 2026-11-20 创建（draft）。方向来自 Ethan 2026-11-20 16:51 的批准；D6（底栏玻璃/纯图标）定为单独的共享 shell 故事。合同未批准，不替代 `KIN-CONTINUE-002`；签字随第一条实现 PR。
 - 2026-11-20 拆分：原切片 1165 行超过合并门的 1000 行上限；合同与 5 张帧先落（590 行），审阅页移到签字轮单独交付（内容在 `4b33f07f`）。
+- 2026-11-20 交付：CEO 代签后翻 `approved`。手机设备组按 `lastActivityAt` 排序（本机只做 tiebreak）、无会话设备也成组、每台设备标题旁次级新建（离线 `aria-disabled` + 就地原因）、头部搜索收成放大镜（同一个 `SessionsSearch`）。Mac 左栏行为不变，由 `Sidebar.dom.test.tsx` 守住。J1/J11/J12 走查在 fill 搜索前补「点放大镜」。

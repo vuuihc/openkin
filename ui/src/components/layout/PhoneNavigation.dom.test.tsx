@@ -455,7 +455,9 @@ describe("list roots and destinations", () => {
     shell(["/sessions"]);
 
     expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
-    expect(screen.getByRole("searchbox")).toBeTruthy();
+    // KIN-CONTINUE-004: the search field is disclosed by the magnifier, which
+    // is the page's search marker while the field is closed.
+    expect(screen.getByRole("button", { name: "Search chats" })).toBeTruthy();
     const footer = document.querySelector("[data-phone-footer]");
     expect(footer).toBeTruthy();
     expect(footer?.querySelectorAll("a")).toHaveLength(4);
@@ -473,8 +475,8 @@ describe("list roots and destinations", () => {
       "scope=archived",
     );
     expect(document.querySelector("[data-phone-footer]")).toBeTruthy();
-    // Same page: the header's search and the list are still here.
-    expect(screen.getByRole("searchbox")).toBeTruthy();
+    // Same page: the header's search magnifier and the list are still here.
+    expect(screen.getByRole("button", { name: "Search chats" })).toBeTruthy();
   });
 
   it("keeps the reader's search when switching to the archive scope", () => {
