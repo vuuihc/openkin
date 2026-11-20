@@ -1132,3 +1132,102 @@ describe("groupProjectBucketsByDevice", () => {
     );
   });
 });
+
+// KIN-CONTINUE-004: the phone list orders machines by when they were last
+// used, and a machine that has never had a conversation still gets a heading
+// (and its own new-chat action). The stored link is still shared with the Mac
+// sidebar, so the default has to stay exactly what the sidebar draws.
+describe("groupProjectBucketsByDevice · phone activity order", () => {
+  const machine = (id: string, label: string, isSelf = false, online = true): Machine => ({
+    id,
+    label,
+    isSelf,
+    online,
+    roots: [],
+    agents: [],
+  });
+  const machines = [
+    machine("mac", "MacBook", true),
+    machine("nas", "Studio"),
+    machine("attic", "Attic"),
+  ];
+
+  it("orders devices by last activity, not by self or online", () => {
+    const groups = groupProjectBucketsByDevice(
+      buckets(
+        [
+          // This machine used it three days ago, the Studio an hour ago, and
+          // the Attic a week ago even though it is online.
+          task({ id: "local", cwd: "/work/alpha", created_at: 300 }),
+          task({ id: "remote", cwd: "/srv/beta", created_at: 2000, executing_device_id: "nas" }),
+          task({ id: "attic", cwd: "/srv/old", created_at: 50, executing_device_id: "attic" }),
+        ],
+        [],
+        "mac",
+      ),
+      machines,
+      "mac",
+      { order: "activity" },
+    );
+
+    expect(groups.map((group) => group.id)).toEqual(["nas", "mac", "attic"]);
+    expect(groups[0]!.lastActivityAt).toBe(2000);
+  });
+
+  it("keeps the self device first when activity ties", () => {
+    const groups = groupProjectBucketsByDevice(
+      buckets(
+        [
+          task({ id: "local", cwd: "/work/alpha", created_at: 0 }),
+          task({ id: "remote", cwd: "/srv/beta", created_at: 0, executing_device_id: "nas" }),
+        ],
+        [],
+        "mac",
+      ),
+      // Two machines only: `attic` would also tie at zero and sort by name.
+      machines.slice(0, 2),
+      "mac",
+      { order: "activity" },
+    );
+
+    expect(groups.map((group) => group.id)).toEqual(["mac", "nas"]);
+  });
+
+  it("includes a connected device with no conversations", () => {
+    const groups = groupProjectBucketsByDevice(
+      buckets([task({ id: "local", cwd: "/work/alpha", created_at: 1 })], [], "mac"),
+      machines,
+      "mac",
+      { order: "activity", includeEmptyDevices: true },
+    );
+
+    const idle = groups.find((group) => group.id === "attic");
+    expect(idle).toBeDefined();
+    expect(idle!.buckets).toEqual([]);
+    expect(idle!.count).toBe(0);
+    expect(idle!.online).toBe(true);
+    expect(idle!.isSelf).toBe(false);
+  });
+
+  it("leaves the sidebar order unchanged by default", () => {
+    const rows = buckets(
+      [
+        task({ id: "local", cwd: "/work/alpha", created_at: 100 }),
+        task({ id: "remote", cwd: "/srv/beta", created_at: 300, executing_device_id: "nas" }),
+      ],
+      [],
+      "mac",
+    );
+
+    // The sidebar still leads with this machine, then online machines: the
+    // remote machine was used more recently and still comes second.
+    expect(groupProjectBucketsByDevice(rows, machines, "mac").map((group) => group.id)).toEqual([
+      "mac",
+      "nas",
+    ]);
+    // And an idle machine is not invented for the sidebar.
+    expect(
+      groupProjectBucketsByDevice(rows, machines, "mac").map((group) => group.id),
+    ).not.toContain("attic");
+  });
+});

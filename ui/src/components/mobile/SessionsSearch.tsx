@@ -1,6 +1,7 @@
-import { useRef } from "react";
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useT } from "../../i18n/react";
+import { isImeKeyEvent } from "../../lib/ime";
 import { IconSearch, IconX } from "../icons";
 import Button from "../ui/Button";
 
@@ -20,12 +21,34 @@ import Button from "../ui/Button";
  *
  * The query lives in the URL rather than in state so the field and the list
  * cannot disagree, a reload keeps the search, and a deep link can carry one.
+ *
+ * `autoFocus` and `onDismiss` are for the phone header's magnifier
+ * (KIN-CONTINUE-004): the field is disclosed by a button, so opening it has to
+ * put the caret in it, and Escape on an empty field is the surface's signal to
+ * put the field away. Both are optional: the toolbar and the desktop header
+ * mount the field in place and neither discloses it.
  */
-export default function SessionsSearch({ className = "" }: { className?: string }) {
+export default function SessionsSearch({
+  className = "",
+  id,
+  autoFocus = false,
+  onDismiss,
+}: {
+  className?: string;
+  /** The element an opener's `aria-controls` names. */
+  id?: string;
+  autoFocus?: boolean;
+  /** Escape with an empty field: the surface that disclosed it may close it. */
+  onDismiss?: () => void;
+}) {
   const tr = useT();
   const [params, setParams] = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
   const query = params.get("search") ?? "";
+
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, [autoFocus]);
 
   function setQuery(next: string) {
     const following = new URLSearchParams(params);
@@ -41,8 +64,23 @@ export default function SessionsSearch({ className = "" }: { className?: string 
     inputRef.current?.focus();
   }
 
+  /** Escape empties the filter before it leaves: a field that closes while it
+   *  is still filtering would hide the reason the list is short. */
+  function onKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Escape" || isImeKeyEvent(event.nativeEvent)) return;
+    if (query) {
+      event.preventDefault();
+      setQuery("");
+      return;
+    }
+    if (!onDismiss) return;
+    event.preventDefault();
+    onDismiss();
+  }
+
   return (
     <div
+      id={id}
       className={[
         // The field itself draws no outline, so the pill carries the focus
         // state — in the focus-ring token, which is the only colour the tree
@@ -56,6 +94,7 @@ export default function SessionsSearch({ className = "" }: { className?: string 
         ref={inputRef}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={onKeyDown}
         placeholder={tr("sessions.searchPlaceholder")}
         aria-label={tr("sessions.searchPlaceholder")}
         type="search"

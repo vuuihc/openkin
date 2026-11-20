@@ -13,6 +13,10 @@
       "list"
     ],
     [
+      "click",
+      "?/Search chats|搜索对话/"
+    ],
+    [
       "fill",
       "?input[type=search]",
       "week"
