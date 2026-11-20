@@ -36,7 +36,7 @@ const en: MessageTree = {
     draft: "draft",
     draftChat: "New chat",
     emptyHint: "Send a message and chats will appear under project groups",
-    newSessionIn: "New session in {project}",
+    newSessionIn: "New conversation in {project}",
     sortProjects: "Sort projects",
     sortByActive: "Active first",
     sortByCreated: "Date created",
@@ -486,7 +486,7 @@ const en: MessageTree = {
     },
   },
   task: {
-    notFound: "Task not found",
+    notFound: "Conversation not found",
     loadFailed: "Failed to load",
     home: "← Home",
     running: "running",
@@ -1104,7 +1104,7 @@ const en: MessageTree = {
     cacheWrite: "Cache write",
     reasoningOutput: "Reasoning output",
     requests: "Requests",
-    taskSummary: "Task usage summary",
+    taskSummary: "Conversation usage summary",
     context: "Context",
     contextNearFull:
       "The last request is close to the model's context window. A new session starts clean; a longer one starts losing detail.",

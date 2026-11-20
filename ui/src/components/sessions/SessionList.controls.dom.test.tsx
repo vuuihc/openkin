@@ -275,7 +275,7 @@ describe("the list's recovery and paging controls", () => {
     expect(more.getAttribute("aria-haspopup")).toBe("dialog");
 
     await userEvent.click(more);
-    expect(await screen.findByRole("button", { name: "New session in alpha" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "New conversation in alpha" })).toBeTruthy();
     page.unmount();
   });
 

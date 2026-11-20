@@ -34,7 +34,7 @@ const zh = {
     draft: "草稿",
     draftChat: "新对话",
     emptyHint: "发送第一条消息后，对话会出现在下方项目分组里",
-    newSessionIn: "在 {project} 新建会话",
+    newSessionIn: "在 {project} 新建对话",
     sortProjects: "项目排序",
     sortByActive: "活跃优先",
     sortByCreated: "创建时间",
@@ -469,7 +469,7 @@ const zh = {
     },
   },
   task: {
-    notFound: "任务不存在",
+    notFound: "对话不存在",
     loadFailed: "加载失败",
     home: "← 首页",
     running: "运行中",
@@ -1076,7 +1076,7 @@ const zh = {
     cacheWrite: "缓存写入",
     reasoningOutput: "推理输出",
     requests: "请求数",
-    taskSummary: "任务用量摘要",
+    taskSummary: "对话用量摘要",
     context: "上下文",
     contextNearFull:
       "最近一次请求已接近模型的上下文窗口。新开一个会话最干净；硬撑下去会开始丢细节。",
