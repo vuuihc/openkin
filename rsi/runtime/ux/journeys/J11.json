@@ -14,6 +14,10 @@
     ],
     [
       "click",
+      "?/Search chats|搜索对话/"
+    ],
+    [
+      "click",
       "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"
     ],
     [

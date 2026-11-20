@@ -470,7 +470,9 @@ describe("continuing an imported session", () => {
     await screen.findByRole("heading", { name: "Chats" });
 
     // Imported sessions live in a folded shelf; searching opens it, the way a
-    // reader reaches one.
+    // reader reaches one. The field itself is behind the magnifier now
+    // (KIN-CONTINUE-004).
+    await user.click(screen.getByRole("button", { name: "Search chats" }));
     await user.type(screen.getByRole("searchbox"), "Yesterday");
     await user.click(await screen.findByRole("button", { name: /Yesterday session/ }));
     await waitFor(() => expect(window.location.pathname).toBe("/agent-sessions/s1"));

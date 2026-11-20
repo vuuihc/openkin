@@ -149,7 +149,9 @@ describe("closing the draft returns to the list that was left", () => {
 
     await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy());
-    expect(screen.getByRole("searchbox")).toBeTruthy();
+    // The synthesized list is the real list page, whose search now sits behind
+    // its magnifier (KIN-CONTINUE-004).
+    expect(screen.getByRole("button", { name: "Search chats" })).toBeTruthy();
   });
 
   it("returns with history.back, so the list is not pushed twice", async () => {
