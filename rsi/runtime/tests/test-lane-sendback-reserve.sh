@@ -10,7 +10,7 @@
 #
 # `lanes.py claim` now refuses a NEW claim (exit 10) only when it would leave no usable lane for a
 # sendback that has no lane yet. Reworks keep taking the last lane, and with lanes to spare the
-# guard changes nothing. The refused caller is told to run `lane.sh autofill rest`, which pulse
+# guard changes nothing. The refused caller is told to run `lane.sh autofill`, which pulse
 # already does right after `start-claimed`.
 #
 # Hermetic: stubbed sysctl/vm_stat on PATH, temp RSI_STATE, pinned thresholds, no network, no gh,
@@ -87,7 +87,8 @@ if run_case last-lane-reserved; then
   [ "$rc" -eq 10 ] || bad "last-lane-reserved: expected exit 10, got $rc (out: $O / err: $E)"
   grep -q "REFUSED: unclaimed rework link-exchange-bound gets the last free lane" <<<"$O" \
     || bad "last-lane-reserved: refusal does not name the sendback: $O"
-  grep -q "lane.sh autofill" <<<"$O" || bad "last-lane-reserved: refusal does not name autofill: $O"
+  grep -q 'run `lane.sh autofill`$' <<<"$O" \
+    || bad "last-lane-reserved: refusal does not end with autofill (old 'autofill rest'?): $O"
   [ ! -f "$ST/lanes/2.json" ] || bad "last-lane-reserved: lane 2 was written anyway"
   ok last-lane-reserved
 fi

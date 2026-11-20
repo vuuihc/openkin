@@ -354,10 +354,13 @@ def unclaimed_sendbacks():
     A file alone is not "waiting". `lane.sh` archives a sendback only at the end of its
     rework run (lane.sh:273), so for the whole run the file still sits in the queue; the
     slug an active lane already runs is filtered out, mirroring the skip at lane.sh:93.
-    Two kinds autofill never picks up are also filtered, or the reservation would persist
-    with no rework coming: a size-only sendback whose cap the CEO waived (`source:
-    hold-size` plus `merge/<slug>.size-ok`), and a sendback whose PR is already terminal
-    (autofill archives that one on its next pass).
+    A size-only sendback whose cap the CEO waived (`source: hold-size` plus
+    `merge/<slug>.size-ok`) is filtered too, because autofill never picks it up and the
+    reservation would persist with no rework coming. A sendback whose PR is already
+    terminal is not filtered here; autofill archives it on its next pass (lane.sh:101-104),
+    which is what clears it. A sendback autofill skips without archiving (no diff vs main,
+    lane.sh:112; no paths, lane.sh:117) still counts: only an archive or a claim clears a
+    queue entry.
     """
     active = set()
     for n in range(1, ALL_LANES + 1):
