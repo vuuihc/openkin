@@ -47,5 +47,33 @@
     "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
     "old": "  [ \"$(ceo_ok_last_field \"$m\")\" = \"pr $2\" ]",
     "new": "  :"
+  },
+  {
+    "label": "drop the CORS origin allow-list from the red line: a permission-boundary PR is verified and auto-merged",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "|internal/api/cors\\.go$|internal/api/secure\\.go$)",
+    "new": "|internal/api/secure\\.go$)"
+  },
+  {
+    "label": "match any internal/api path: the router joins the red line and ordinary page changes stop flowing",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "|internal/api/cors\\.go$|internal/api/secure\\.go$)",
+    "new": "|internal/api/)"
+  },
+  {
+    "label": "fail open on an unreadable changed-path list: a held deps/migrations/auth/permission PR is cleared when the list cannot be read",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  [ -r \"$chf\" ] || { REDLINE_REASON=\"changed-path list unreadable: holding (fail closed)\"; return 0; }\n",
+    "new": ""
+  },
+  {
+    "label": "exempt package.json PRs even when a red-line path changed: an F2 slice swallows the CORS middleware",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": " && ! redline_paths_core \"$chf\"",
+    "new": " && :"
   }
 ]

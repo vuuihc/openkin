@@ -406,6 +406,7 @@ GATE_SCRIPTS = {
     "scripts/ui_inventory.py", "scripts/ui_lint_guard.py", "scripts/ui_lint_guard_test.py",
     "scripts/ui-lint-guard.sh", "scripts/journeys_seed.py", "scripts/journeys_smoke.py",
     "scripts/journeys-smoke.sh", "scripts/journeys_walk_test.py", "scripts/journeys_smoke_test.py",
+    "scripts/phone-console-startup.mjs",
 }
 # A PR's Go package is internal/<pkg>/: a sibling file in it can change the package's behaviour.
 pr_pkgs = {"/".join(p.split("/")[:2]) + "/" for p in pr_files
@@ -1185,12 +1186,18 @@ ceo_ok_last_field() { # <marker-file> -> the marker's last `·` field, trimmed
   line="${line##*·}"
   printf '%s\n' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
 }
+# MANDATE red line: dependencies, migrations, auth, and permission-boundary middleware.
+# The two internal/api files are named explicitly: a broad internal/api/ prefix would also
+# match the router, and ordinary page changes there must keep the normal gate.
+redline_paths_core() { grep -qE '^(go\.mod|internal/store/.*migrat|.*migrations?/|internal/auth|internal/api/cors\.go$|internal/api/secure\.go$)' "$@"; }
+redline_paths() { grep -qE '^ui/package\.json' "$@" || redline_paths_core "$@"; }
+
 ceo_ok_verdict() { # <marker-file> <changed-paths-file> <pr> -> 0 clear, 1 hold, 2 not applicable
   # 2 = no deps/migrations/auth path changed; the marker never clears any other hold.
   local marker="$1" changed="$2" pr="$3" line src last
   CEO_OK_REASON=""
   [ -r "$changed" ] || return 2
-  grep -qE '^(go\.mod|ui/package\.json|internal/store/.*migrat|.*migrations?/|internal/auth)' "$changed" || return 2
+  redline_paths "$changed" || return 2
   if [ ! -s "$marker" ]; then
     CEO_OK_REASON="no owner approval marker at $marker"
     return 1
@@ -1224,6 +1231,31 @@ ceo_ok_verdict() { # <marker-file> <changed-paths-file> <pr> -> 0 clear, 1 hold,
   last="$(ceo_ok_last_field "$marker")"
   [ "$last" = "pr $pr" ] || { CEO_OK_REASON="the marker does not approve PR #$pr (last field: ${last:-none})"; return 1; }
   CEO_OK_REASON="source=$src quote=\"$(printf '%s\n' "$line" | sed -E 's/.*quote[[:space:]]*=?"([^"]+)".*/\1/')\""
+  return 0
+}
+
+# Step 2's hold decision, kept apart from the worktree diff so the decision site itself is testable.
+# 0 hold, 1 clear, 2 ui/package.json-only exemption for the Astryx F1-F3 slices; sets
+# REDLINE_REASON. The marker branch prints the same line the inline block used to.
+redline_hold_decision() { # <changed-paths-file> <slug> <item> <pr> -> 0 hold, 1 clear, 2 package-exemption
+  local chf="$1" slug="$2" item="$3" pr="$4"
+  REDLINE_REASON=""
+  # A list that cannot be read (failed state write, concurrent cleanup) proves nothing: hold.
+  [ -r "$chf" ] || { REDLINE_REASON="changed-path list unreadable: holding (fail closed)"; return 0; }
+  redline_paths "$chf" || { REDLINE_REASON="no dependency, migration, auth or permission-boundary path changed"; return 1; }
+  # Only the CEO writes state/merge/<slug>.ceo-ok (same ownership rule as *.size-ok): the owner's
+  # approval of this exact PR, quoted. A valid marker clears this one hold; the gate and the
+  # independent review still run, and a missing/invalid marker leaves today's hold intact.
+  if ceo_ok_verdict "$STATE/merge/$slug.ceo-ok" "$chf" "$pr"; then
+    REDLINE_REASON="CEO approval marker clears the deps/migrations/auth hold ($CEO_OK_REASON)"
+    say "#$pr $slug: $REDLINE_REASON"
+    return 1
+  fi
+  if printf '%s\n' "$item" | grep -qE '^F[123]$' && ! redline_paths_core "$chf"; then
+    REDLINE_REASON="ui/package.json only: Astryx programme slice $item"
+    return 2
+  fi
+  REDLINE_REASON="touches deps/migrations/auth or permission-boundary middleware (MANDATE: needs CEO + ADR)"
   return 0
 }
 
@@ -1453,7 +1485,19 @@ if [ "${1:-}" != "--one" ]; then
     case $rc in
       0) echo "CLEAR $CEO_OK_REASON"; exit 0 ;;
       1) echo "HOLD $CEO_OK_REASON"; exit 1 ;;
-      *) echo "NOHOLD no deps/migrations/auth path changed"; exit 0 ;;
+      *) echo "NOHOLD no deps/migrations/auth or permission-boundary path changed"; exit 0 ;;
+    esac
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: run the same redline_hold_decision()
+  # the step-2 hold block calls, against a changed-path list and a slug's marker. No lock, fetch,
+  # gate, review, merge or dispatch; the decision's say line is dropped so the verdict is one line.
+  if [ "${1:-}" = "--redline-hold-check" ]; then
+    [ $# -ge 5 ] || { echo "usage: merge.sh --redline-hold-check <changed-paths-file> <slug> <item> <pr-number>" >&2; exit 2; }
+    redline_hold_decision "$2" "$3" "$4" "$5" >/dev/null; rc=$?
+    case $rc in
+      0) echo "HOLD $REDLINE_REASON"; exit 1 ;;
+      1) echo "CLEAR $REDLINE_REASON"; exit 0 ;;
+      *) echo "EXEMPT $REDLINE_REASON"; exit 3 ;;
     esac
   fi
   # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: the dispatcher's CEO-hold skip — the
@@ -1818,23 +1862,16 @@ if [ "$SIZE" = 0 ] && $GIT -C "$WT" diff --quiet origin/main HEAD; then
   echo "$N" > "$STATE/merge/$SLUG.empty"; exit 0
 fi
 HOLD=""
-if echo "$CH" | grep -qE '^(go\.mod|ui/package\.json|internal/store/.*migrat|.*migrations?/|internal/auth)'; then
-  # Only the CEO writes state/merge/<slug>.ceo-ok (same ownership rule as *.size-ok): the owner's
-  # approval of this exact PR, quoted. A valid marker clears this one hold; the gate and the
-  # independent review below still run, and a missing/invalid marker leaves today's hold intact.
-  CHF="$STATE/merge/$SLUG.changed-paths"
-  printf '%s\n' "$CH" > "$CHF"
-  if ceo_ok_verdict "$STATE/merge/$SLUG.ceo-ok" "$CHF" "$N"; then
-    say "#$N $SLUG: CEO approval marker clears the deps/migrations/auth hold ($CEO_OK_REASON)"
-  else
-    HOLD="touches deps/migrations/auth (MANDATE: needs CEO + ADR)"
-  fi
-  rm -f "$CHF"
-fi
-# CEO 2026-11-15 (Ethan: Astryx overhaul approved): the Astryx foundation slices F1-F3 may change ui/package.json, but only
-# for the programme's packages. Anything else in package.json (or go.mod/migrations/auth) still holds for the CEO.
-if [ -n "$HOLD" ] && echo "$ITEM" | grep -qE '^F[123]$' && ! echo "$CH" | grep -qE '^(go\.mod|internal/store/.*migrat|.*migrations?/|internal/auth)'; then
-  BAD="$( ( $GIT -C "$WT" diff -U0 origin/main...HEAD -- ui/package.json | python3 -c '
+CHF="$STATE/merge/$SLUG.changed-paths"
+printf '%s\n' "$CH" > "$CHF"
+redline_hold_decision "$CHF" "$SLUG" "$ITEM" "$N"; RL=$?
+rm -f "$CHF"
+case $RL in
+  0) HOLD="$REDLINE_REASON" ;;
+  # CEO 2026-11-15 (Ethan: Astryx overhaul approved): the Astryx foundation slices F1-F3 may change
+  # ui/package.json, but only for the programme's packages. Anything else in package.json (or
+  # go.mod/migrations/auth) still holds for the CEO.
+  2) BAD="$( ( $GIT -C "$WT" diff -U0 origin/main...HEAD -- ui/package.json | python3 -c '
 import re,sys
 ok=re.compile(r"^(react|react-dom|@types/react|@types/react-dom|tailwindcss|@tailwindcss/.*|postcss|autoprefixer|@astryxdesign/.*|@stylexjs/.*)$")
 bad=[]
@@ -1844,7 +1881,8 @@ for l in sys.stdin:
         bad.append(m.group(1))
 print(" ".join(sorted(set(bad))))') )"
   [ -z "$BAD" ] && HOLD="" || HOLD="package.json change outside the Astryx programme packages: $BAD"
-fi
+  ;;
+esac
 if [ "$SIZE" -gt 1000 ]; then
   if [ -f "$STATE/merge/$SLUG.size-ok" ]; then
     say "#$N $SLUG: CEO size waiver ($SIZE lines; $STATE/merge/$SLUG.size-ok)"

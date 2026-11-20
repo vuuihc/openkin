@@ -305,6 +305,15 @@ job_walk_contract() {
   python3 -B scripts/journeys_walk_test.py || return 1
 }
 
+# The phone console baseline's parser and six guards, checked without a browser.
+# `--self-check` feeds synthetic mark sets through the same `runGuards` a real
+# measurement uses and proves each guard exits 2 and a good set prints a number;
+# no build, browser, or web/dist is needed, so a guard regression turns this job
+# red instead of quietly producing an untrustworthy median.
+job_phone_baseline_contract() {
+  node scripts/phone-console-startup.mjs --self-check || return 1
+}
+
 # The smoke summarizer reads the same journeys.json and walk.json, and its
 # fixture cases are hermetic and cheap, so they run beside the walk contract.
 job_journeys_smoke() {
@@ -328,6 +337,7 @@ start stories job_stories
 start ui-inventory job_ui_inventory
 start ui-lint-guard job_ui_lint_guard
 start walk-contract job_walk_contract
+start phone-baseline-contract job_phone_baseline_contract
 start journeys-smoke job_journeys_smoke
 
 FAILED=()

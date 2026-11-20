@@ -13,9 +13,11 @@
 # Hermetic: mktemp -d only. No git repo, no network, no state dirs, no gh. RSI_CTRL points at a
 # temp tree holding PAUSE, so even an unwired seam falls through the dispatcher without side effects.
 #
-# Exercises merge.sh --ceo-ok-check, which runs the same ceo_ok_verdict() the hold block calls, and
-# --ceo-hold-check / --dispatch-rows-check, which run the same ceo_hold_skip() and row filter the
-# dispatcher uses: a marker naming this PR must release an older .blocked skip and the
+# Exercises merge.sh --ceo-ok-check, which runs ceo_ok_verdict(), and --redline-hold-check, which
+# runs the same redline_hold_decision() the step-2 hold block calls: the CORS/secure permission
+# boundary, the Astryx package.json exemption, and the fail-closed guard for an unreadable
+# changed-path list. --ceo-hold-check / --dispatch-rows-check run the same ceo_hold_skip() and row
+# filter the dispatcher uses: a marker naming this PR must release an older .blocked skip and the
 # needs-ceo/hold labels, while a marker for another PR or a re-block written after the marker must
 # not, otherwise the promise (the next verifier cycle merges, no manual hold edit) is never kept.
 # Prints "PASS <case>" per case and exits non-zero on the first failure.
@@ -29,6 +31,8 @@ R=""; RC=0; OUT=""
 ONLY="${RSI_TEST_ONLY:-}"
 MIGRATION='internal/store/migrations/0007_add_thing.sql'
 AUTH='internal/auth/session.go'
+CORS='internal/api/cors.go'
+SECURE='internal/api/secure.go'
 UNRELATED='ui/src/components/chat/ChatStream.tsx'
 GOOD='source=thread thread-1 · quote "ship it" · 2026-11-19T09:00+08:00 · pr 352'
 
@@ -57,6 +61,25 @@ expect_hold() { # <case>
 expect_nohold() { # <case>
   [ "$RC" -eq 0 ] || fail "$1: rc=$RC, want 0 ($OUT)"
   case "$OUT" in NOHOLD*) ;; *) fail "$1: output is '$OUT', want a NOHOLD line" ;; esac
+}
+
+expect_exempt() { # <case>
+  [ "$RC" -eq 3 ] || fail "$1: rc=$RC, want 3 ($OUT)"
+  case "$OUT" in EXEMPT*) ;; *) fail "$1: output is '$OUT', want an EXEMPT line" ;; esac
+}
+
+# check_redline <item> <changed paths> [marker content | ABSENT] [pr] — call the step-2 hold
+# decision seam. The changed-paths argument is deliberately word-split: each path is one line.
+# Sets RC and OUT.
+check_redline() {
+  local slug=redline pr="${4:-352}"
+  RH="$T/redline-changed"
+  rm -f "$SM/$slug.ceo-ok"
+  printf '%s\n' $2 > "$RH"
+  [ "${3:-ABSENT}" = ABSENT ] || printf '%s\n' "$3" > "$SM/$slug.ceo-ok"
+  RSI_CTRL="$T/ctrl" bash "$MERGE" --redline-hold-check "$RH" "$slug" "$1" "$pr" > "$T/out" 2>&1
+  RC=$?; OUT="$(cat "$T/out")"
+  rm -f "$SM/$slug.ceo-ok"
 }
 
 # A migration change with a marker naming this PR and the owner's words: the class holds no more.
@@ -105,6 +128,45 @@ refuse_placeholder_source() {
 no_hold_unrelated_paths() {
   check "$GOOD" "$UNRELATED"; expect_nohold no-hold-unrelated-paths
   check ABSENT "$UNRELATED"; expect_nohold no-hold-unrelated-paths
+}
+
+# --- red-line path list: deps, migrations, auth, and permission-boundary middleware --------------
+# The CORS origin allow-list and the secure/CSRF middleware decide who may read the Hub from which
+# origin; changing either is a permission change, held exactly like go.mod/migrations/auth.
+hold_cors_origin_list() { check_redline R-x "$CORS"; expect_hold hold-cors-origin-list; }
+hold_secure_middleware() { check_redline R-x "$SECURE"; expect_hold hold-secure-middleware; }
+
+# The same marker rule clears it: valid for this PR clears, another PR's keeps the hold.
+hold_cors_marker_clears() { check_redline R-x "$CORS" "$GOOD"; expect_clear hold-cors-marker-clears; }
+hold_cors_stale_marker_keeps() {
+  check_redline R-x "$CORS" 'source=thread thread-9 · quote "ship it" · 2026-11-19T09:00+08:00 · pr 111'
+  expect_hold hold-cors-stale-marker-keeps
+}
+
+# The router and a test file are not permission boundaries: ordinary changes keep the normal gate.
+no_hold_api_router() { check_redline R-x 'internal/api/api.go'; expect_clear no-hold-api-router; }
+no_hold_cors_test_only() { check_redline R-x 'internal/api/cors_test.go'; expect_clear no-hold-cors-test-only; }
+
+# A changed-path list that cannot be read (failed state-dir write, concurrent cleanup) proves
+# nothing about the PR: hold, as the pre-change ceo_ok_verdict() path did. Failing open here would
+# clear a deps/migrations/auth/permission-boundary PR on an unreadable file.
+hold_unreadable_list() {
+  local slug=redline
+  rm -f "$SM/$slug.ceo-ok" "$T/redline-missing"
+  RSI_CTRL="$T/ctrl" bash "$MERGE" --redline-hold-check "$T/redline-missing" "$slug" R-x 352 > "$T/out" 2>&1
+  RC=$?; OUT="$(cat "$T/out")"
+  expect_hold hold-unreadable-list
+}
+
+# Existing classes still hold; unrelated paths still do not.
+hold_go_mod_still() { check_redline R-x 'go.mod'; expect_hold hold-go-mod-still; }
+no_hold_docs() { check_redline R-x 'docs/product/IA.md'; expect_clear no-hold-docs; }
+
+# The Astryx F1-F3 package.json exemption survives, and does not swallow a red-line path.
+f2_package_only_exempt() { check_redline F2 'ui/package.json'; expect_exempt f2-package-only-exempt; }
+f2_package_with_cors_stays_held() {
+  check_redline F2 'ui/package.json internal/api/cors.go'
+  expect_hold f2-package-with-cors-stays-held
 }
 
 # --- dispatcher holds: the marker releases the skip, not only the verifier's path check ----------
@@ -210,6 +272,17 @@ run refuse-marker-without-time refuse_marker_without_time
 run refuse-marker-for-another-pr refuse_marker_for_another_pr
 run refuse-placeholder-source refuse_placeholder_source
 run no-hold-unrelated-paths no_hold_unrelated_paths
+run hold-cors-origin-list hold_cors_origin_list
+run hold-secure-middleware hold_secure_middleware
+run hold-cors-marker-clears hold_cors_marker_clears
+run hold-cors-stale-marker-keeps hold_cors_stale_marker_keeps
+run no-hold-api-router no_hold_api_router
+run no-hold-cors-test-only no_hold_cors_test_only
+run hold-unreadable-list hold_unreadable_list
+run hold-go-mod-still hold_go_mod_still
+run no-hold-docs no_hold_docs
+run f2-package-only-exempt f2_package_only_exempt
+run f2-package-with-cors-stays-held f2_package_with_cors_stays_held
 run release-clears-blocked-hold release_clears_blocked_hold
 run reblock-after-marker-keeps-hold reblock_after_marker_keeps_hold
 run empty-marker-keeps-blocked-hold empty_marker_keeps_blocked_hold

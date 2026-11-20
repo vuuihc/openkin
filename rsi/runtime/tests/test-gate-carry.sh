@@ -334,7 +334,7 @@ test_regates_when_the_pr_touches_ui_for_a_scripts_move() {
 # carrying. Comments are scanned too: extra tokens only make the deny-list stricter, a miss is
 # what would let a real gate script carry. The gate also starts scripts that start or import other
 # scripts, so every script named by the gate body or the deny-list is scanned one level down as
-# well; trailing prose punctuation is stripped and only .sh/.py files are followed, because the
+# well; trailing prose punctuation is stripped and only .sh/.py/.mjs files are followed, because the
 # inventory baseline and the fake-agent binary are not scripts the gate starts.
 test_regates_every_script_the_gate_runs() {
   reset_stubs; new_repo c14
@@ -354,7 +354,7 @@ test_regates_every_script_the_gate_runs() {
   grep -qxF 'scripts/ui-inventory-baseline.json' "$T/gate-onelevel.txt" \
     || fail "c14: the one-level scan did not follow check-ui-inventory.py to its baseline; the scan is broken"
   cat "$T/gate-named.txt" "$T/gate-onelevel.txt" \
-    | sed -e 's/[.,;:)]*$//' | grep -E '\.(sh|py)$' | sort -u > "$T/gate-scripts.txt"
+    | sed -e 's/[.,;:)]*$//' | grep -E '\.(sh|py|mjs)$' | sort -u > "$T/gate-scripts.txt"
   grep -qxF 'scripts/check.sh' "$T/gate-scripts.txt" \
     || fail "c14: the gate-body scan did not find scripts/check.sh; the scan is broken"
   while IFS= read -r p; do

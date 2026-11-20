@@ -1,6 +1,6 @@
 # KIN-CONTINUE-004 · 手机列表：按最近活动排设备、每设备新建、搜索收成放大镜
 
-状态：approved
+状态：covered
 签字：2026-11-20 CEO 代签（`rsi/state/decisions-pending.md`；审阅页 6 条决定全部「已定」）。
 优先级：P0
 旅程：J1、J2
@@ -152,21 +152,40 @@ Mac 左栏不变：布局、设备顺序、搜索框、行操作都维持今天�
 |---|---|---|
 | 单元 | `ui/src/lib/phoneSessionBuckets.test.ts` | Given 三台设备：本机 3 天前、远程 A 1 小时前、远程 B 在线但 7 天前 When 分组 Then 顺序是 A → 本机 → B；Given 两台都是 0 活动 When 分组 Then 本机在前；Given 一台机器没有会话 When 分组 Then 它仍出现在结果里且 buckets 为空 |
 | 组件 | `ui/src/components/sessions/SessionList.phoneDevices.dom.test.tsx`（新） | Given 在线设备 When 点设备旁的新建 Then `setDraftMachine(该 id)` 被调用且推到 `/new`；Given 离线设备 Then 按钮 `aria-disabled`、原因可见、点击不导航；Given 无会话设备 Then 标题与新建存在、没有折叠箭头 |
-| 组件 | `ui/src/components/mobile/SessionsHeader.search.dom.test.tsx`（新） | Given 默认头部 When 点放大镜 Then 同一个 `SessionsSearch` 展开、焦点在输入框、`aria-expanded=true`；Given 输入「发布」 Then 地址栏 `?search=发布`；Given 有词 When Esc Then 先清词，再 Esc 才收起并回焦放大镜；Given 带 `?search=` 冷启动 Then 字段已展开 |
-| 页面 | `ui/src/components/sessions/SessionList.dom.test.tsx` | Given 390 宽空列表 When 渲染 Then 头部新建仍在、空态指向它、已连接设备仍各有一个新建；Given 读失败 Then 头部与放大镜仍在、「重试」可见 |
-| 回归 | `ui/src/components/layout/Sidebar.dom.test.tsx` | Given 1100 宽 When 渲染左栏 Then 设备顺序与搜索框与今天一致，没有放大镜或每设备新建 |
+| 组件 | `ui/src/components/mobile/SessionsHeader.search.dom.test.tsx`（新） | Given 默认头部 When 点放大镜 Then 同一个 `SessionsSearch` 展开、焦点在输入框、`aria-expanded=true`（「opens the same SessionsSearch field and focuses it」）；Given 输入「发布」 Then 地址栏 `?search=发布`（同一个字段的写入由 `ui/src/components/mobile/SessionsSearch.dom.test.tsx`「keeps its query in `search`, not in a neighbour's param」守住）；Given 有词 When Esc Then 先清词，再 Esc 才收起并回焦放大镜（「clears on Escape before it closes」）；Given 带 `?search=` 冷启动 Then 字段已展开（「keeps the field open while a query exists」） |
+| 页面 | `ui/src/pages/SessionsPage.dom.test.tsx` | Given 390 宽空列表 When 渲染 Then 头部新建仍在、空态指向它（「points an empty list at the new-chat button」「empty hint names the New chat control that is on screen」）、已连接设备仍各有一个新建（`SessionList.phoneDevices.dom.test.tsx`「shows a new-chat action beside every device heading」）；Given 读失败 Then 头部与放大镜仍在、「重试」可见（「keeps the footer when the list read fails」「offers a retry that refetches the list」；头部与放大镜属于同一个不随列表失败的 shell，见 `PhoneNavigation.dom.test.tsx`「is the list page: search, four entries, new chat; no drawer or dock」） |
+| 回归 | `ui/src/components/layout/Sidebar.dom.test.tsx` | Given 1100 宽 When 渲染左栏 Then 设备顺序与搜索框与今天一致，没有放大镜或每设备新建（「adds no per-device new action in the Mac sidebar」） |
 | 真浏览器 | 390 / 1100，`/sessions` | 390：点第二台设备的新建、返回、看顺序变化；点放大镜、输入、清除、Esc；离线设备按钮不可点。1100：左栏与今天一致 |
 | 视觉 | 390 / 1100 截图 | 390 对照 `01-phone-list-default.svg`、`02-phone-empty.svg`、`03-phone-offline-device.svg`、`04-phone-search-open.svg`；1100 对照 `05-mac-unchanged.svg` |
 
-测试文件里必须出现 `KIN-CONTINUE-004`。
+登记在 `registry.json` 的测试文件里必须出现 `KIN-CONTINUE-004`。
 
 ## 证据
 
-- 之前：本轮不新增截图（文档切片）；现状事实见「现在」的代码行号与 `rsi/state/reports/2026-11-20-glass-and-session-list-research.md`。
-- 之后：390 / 1100 前后截图与 J1 走查随实现 PR 交付（`rsi/state/shots/phone-list-deliver/`）；本轮测试见「验收」中的三个测试文件。
+- 实现：PR #467（`f8a05d43`）把手机列表按最近活动排序、无会话设备成组、每设备次级新建、头部搜索收成放大镜带进 `main`。本提交只结算验收台账，不改产品。
+- 测试（登记在 `registry.json`，均提到 `KIN-CONTINUE-004`）：
+  - `ui/src/lib/phoneSessionBuckets.test.ts` › `groupProjectBucketsByDevice · phone activity order`：`orders devices by last activity, not by self or online`（A → 本机 → B）、`keeps the self device first when activity ties`、`includes a connected device with no conversations`。
+  - `ui/src/components/sessions/SessionList.phoneDevices.dom.test.tsx`（8 例）：`shows a new-chat action beside every device heading`、`aims the draft at the device before opening the composer`、`disables new on an offline device and says why`（`aria-disabled` + 就地原因 + 点击不导航）、`shows a device with no conversations without a fake project row`、`does not call a failed load an empty machine`、`drops the device return once the draft is submitted`、`returns focus to the device action after the draft closes`、`keeps the header new-chat action`。
+  - `ui/src/components/mobile/SessionsHeader.search.dom.test.tsx`（5 例）：`keeps the search field collapsed until the magnifier is pressed`、`opens the same SessionsSearch field and focuses it`、`keeps the field open while a query exists`、`clears on Escape before it closes`、`reports aria-expanded on the magnifier`。输入写 `?search=` 由同一个字段自己的 `ui/src/components/mobile/SessionsSearch.dom.test.tsx`「keeps its query in `search`, not in a neighbour's param」守住。
+  - `ui/src/pages/SessionsPage.dom.test.tsx` › `the phone page's states`（新增 `// KIN-CONTINUE-004` 注释并登记进 `registry.json`）：`points an empty list at the new-chat button`、`empty hint names the New chat control that is on screen`、`keeps the footer when the list read fails`、`offers a retry that refetches the list`。
+  - 回归：`ui/src/components/layout/Sidebar.dom.test.tsx`「adds no per-device new action in the Mac sidebar」守住 Mac 左栏不变。
+- 真浏览器（390×844 / 1100×760，`rsi/state/shots/phone-list-deliver/ledger/`）：
+  - `standard/`：对发布二进制（`c30f45c9`，`main` 的当前发布；本分支只改文档，没有重新构建）跑 J1：8 屏、0 hard failure；`J1-phone-01-list.png`、`J1-phone-02-search.png` 及 aria 证明列表与放大镜展开。
+  - `fixture/`：同一个发布二进制的 throwaway daemon，28 项断言全绿（`fixture/assertions.txt`）。`/api/machines` 用 Playwright route fixture 补出 Studio（在线）与 Attic Mac（离线）；空列表与读取失败用 `/api/tasks`、`/api/projects`、`/api/agent-sessions` fixture。第二台机器在 throwaway 数据库里有一行设备记录，好让「在它上面新建」真的走到创建接口——**它不是一台真实的第二台节点**：创建出的 `ledger walk` 任务标为「远程机器」并失败，但那行任务足以让列表按最近活动把它升到最上面。
+    - `01-phone-two-devices.png`、`02-phone-offline-device.png`：三台设备；离线设备的新建禁用并就地写「离线，连上后可在这台机器上新建」。
+    - `03-phone-draft-aimed.png`：点 Studio 的新建 → `/new`，草稿机器 `studio-1`、目录 `/srv/beta`。
+    - `04-phone-order-after.png`：创建后返回，顺序从「此设备 → Attic Mac → Studio」变成「Studio → 此设备 → Attic Mac」。
+    - `05-phone-search-open.png`：点放大镜、输入 `week`，地址栏 `?search=week`，仍是同一个搜索字段。
+    - `06-phone-search-closed.png`：清除只清词；再按 Esc 收起并回焦放大镜，`aria-expanded=false`。
+    - `07-phone-read-failure.png`：头部、放大镜、底栏仍在，「重试」可见。
+    - `09-phone-empty.png`：空列表仍指向头部新建，三台设备各自有新建。
+    - `08-mac-1100.png`：Mac 左栏仍是常显搜索框，没有放大镜、没有每设备新建。
+  - 对着 `KIN-CONTINUE-004.figma/frames/` 的 5 张帧逐张看过：`01-phone-list-default.svg`、`02-phone-empty.svg`、`03-phone-offline-device.svg`、`04-phone-search-open.svg`、`05-mac-unchanged.svg`。
+- `unverified: none`。七行验收全部有测试或走查证据；真浏览器行的第二台机器、空状态与读取失败是上面说明的 fixture，而不是一台真实节点。
 
 ## 变更记录
 
 - 2026-11-20 创建（draft）。方向来自 Ethan 2026-11-20 16:51 的批准；D6（底栏玻璃/纯图标）定为单独的共享 shell 故事。合同未批准，不替代 `KIN-CONTINUE-002`；签字随第一条实现 PR。
 - 2026-11-20 拆分：原切片 1165 行超过合并门的 1000 行上限；合同与 5 张帧先落（590 行），审阅页移到签字轮单独交付（内容在 `4b33f07f`）。
 - 2026-11-20 交付：CEO 代签后翻 `approved`。手机设备组按 `lastActivityAt` 排序（本机只做 tiebreak）、无会话设备也成组、每台设备标题旁次级新建（离线 `aria-disabled` + 就地原因）、头部搜索收成放大镜（同一个 `SessionsSearch`）。Mac 左栏行为不变，由 `Sidebar.dom.test.tsx` 守住。J1/J11/J12 走查在 fill 搜索前补「点放大镜」。
+- 2026-11-21 结算：验收表第 4 行原来写着一个不存在的 `ui/src/components/sessions/SessionList.dom.test.tsx`，改成真正守住它的 `ui/src/pages/SessionsPage.dom.test.tsx` 并登记进 `registry.json`。七行全部有证据后翻 `covered`；真浏览器行用发布二进制 + `/api/machines` / `/api/tasks` fixture 走查，第二台机器不是真实节点（见「证据」）。
