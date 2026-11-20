@@ -434,19 +434,21 @@ eqi concurrency.24h.levels.0.p50 6
 eqi concurrency.24h.levels.0.tiers.unknown 2
 pass "$CASE"
 
-# 15. A 5m gate=ran run alone is level 1; a verify=0m gate=cached line is counted
-#     in cached and must not enter the duration bucket (it would otherwise add a
-#     zero-length run and make the solo run level 2).
+# 15. A 5m gate=ran run alone is level 1; verify=0m lines are not durations even
+#     when gate=ran (one is cached, one is ran here), so they count in cached and
+#     must not enter the duration bucket. A zero-length interval cannot overlap
+#     the solo run, so the level alone would miss a `dur >= 0` regression; the
+#     bucketed/n pair pins it.
 CASE=concurrency-solo-run-buckets-as-1-and-cached-runs-are-not-bucketed
 R="$T/r15"; S="$T/s15"; new_repo "$R"; origin_main "$R" HEAD
 mkdir -p "$S/merge"
-ST="$(stamps -5 -4)"; V="$(sed -n 1p <<<"$ST")"; C="$(sed -n 2p <<<"$ST")"
-printf '%s #201 a verify=5m gate=ran review=ran\n%s #202 b verify=0m gate=cached review=cached\n' \
-  "$V" "$C" > "$S/merge/cycles.log"
+ST="$(stamps -5 -4 -3)"; V="$(sed -n 1p <<<"$ST")"; C="$(sed -n 2p <<<"$ST")"; Z="$(sed -n 3p <<<"$ST")"
+printf '%s #201 a verify=5m gate=ran review=ran\n%s #202 b verify=0m gate=cached review=cached\n%s #203 c verify=0m gate=ran review=ran\n' \
+  "$V" "$C" "$Z" > "$S/merge/cycles.log"
 run_json "$R" "$S" --concurrency
-eqi concurrency.24h.runs 2
+eqi concurrency.24h.runs 3
 eqi concurrency.24h.bucketed 1
-eqi concurrency.24h.cached 1
+eqi concurrency.24h.cached 2
 eqi concurrency.24h.levels.0.level 1
 eqi concurrency.24h.levels.0.n 1
 eqi concurrency.24h.levels.0.p50 5
@@ -517,8 +519,8 @@ pass "$CASE"
 # 19. The flag is additive. No flag and --latency keep exactly their old JSON
 #     keys and human lines; --concurrency adds one JSON key and one text block
 #     after the verdict, and does not change a line above it. The two runs here
-#     touch endpoints (-5) without overlapping, so both are level 1 and the
-#     touching-endpoint rule is pinned by the p50 of 4m, not 15m.
+#     do not overlap (A ends -20, B starts -9), so both are level 1; the
+#     touching-endpoint rule is pinned by case 20.
 CASE=concurrency-flag-leaves-default-and-latency-output-alone
 R="$T/r19"; S="$T/s19"; new_repo "$R"; origin_main "$R" HEAD
 mkdir -p "$S/merge"
@@ -559,6 +561,23 @@ grep -q '^concurrency by verifier overlap, 24h (runs=2 bucketed=2 cached=0;' <<<
   || { printf '%s\n' "$OUT_C" >&2; fail "$CASE: concurrency header"; }
 grep -q '^  level 1  n=2 p50=4m p90=15m max=15m tiers=small:0 medium:0 large:0 unknown:2$' <<<"$OUT_C" \
   || { printf '%s\n' "$OUT_C" >&2; fail "$CASE: concurrency level line"; }
+pass "$CASE"
+
+# 20. Runs whose intervals merely touch do not overlap: A 5m ending -5 spans
+#     [-10,-5], B 3m ending -2 spans [-5,-2]; minute -5 is both A's end and B's
+#     start. An inclusive comparison (start2 <= end and end2 >= start) makes
+#     both overlap and buckets them at level 2.
+CASE=concurrency-touching-endpoints-do-not-overlap
+R="$T/r20"; S="$T/s20"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+ST="$(stamps -5 -2)"; A="$(sed -n 1p <<<"$ST")"; B="$(sed -n 2p <<<"$ST")"
+printf '%s #601 a verify=5m gate=ran review=ran\n%s #602 b verify=3m gate=ran review=ran\n' \
+  "$A" "$B" > "$S/merge/cycles.log"
+run_json "$R" "$S" --concurrency
+eqi concurrency.24h.runs 2
+eqi concurrency.24h.bucketed 2
+eqi concurrency.24h.levels.0.level 1
+eqi concurrency.24h.levels.0.n 2
 pass "$CASE"
 
 echo "all cases passed"

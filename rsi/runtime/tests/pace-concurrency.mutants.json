@@ -19,5 +19,12 @@
     "test": "bash rsi/runtime/tests/test-pace.sh",
     "old": "            last_start[pr] = t.group(1) if t else \"unknown\"",
     "new": "            last_start.setdefault(pr, t.group(1) if t else \"unknown\")"
+  },
+  {
+    "label": "touching endpoints count as overlap, so two runs that only meet at a minute bucket as level 2",
+    "file": "rsi/runtime/pace.py",
+    "test": "bash rsi/runtime/tests/test-pace.sh",
+    "old": "                        if j != i and start2 < end and end2 > start)",
+    "new": "                        if j != i and start2 <= end and end2 >= start)"
   }
 ]
