@@ -45,8 +45,12 @@ func waitActiveRun(t *testing.T, e *Engine, id string) string {
 // finalizing, and starts the orchestrated turn end in the background. The caller
 // holds the returned runtime's finalize gate to keep the turn inside the commit
 // window.
+//
+// beforeTurnEnd, when non-nil, runs synchronously after the commit window opens
+// and before the turn-end goroutine launches, so a test can seed state the turn
+// end reads under e.mu without racing it.
 func startOrchestratedTurnFinalizing(
-	t *testing.T, e *Engine, ctx context.Context,
+	t *testing.T, e *Engine, ctx context.Context, beforeTurnEnd func(taskID string),
 ) (taskID, executionID string, done chan struct{}) {
 	t.Helper()
 	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "start"})
@@ -59,6 +63,9 @@ func startOrchestratedTurnFinalizing(
 		TaskID: task.ID, ExecutionID: execID,
 	}); err != nil {
 		t.Fatalf("complete workspace: %v", err)
+	}
+	if beforeTurnEnd != nil {
+		beforeTurnEnd(task.ID)
 	}
 	done = make(chan struct{})
 	go func() {
@@ -83,7 +90,7 @@ func TestAnOrchestratedFollowUpDuringFinalizationIsQueued(t *testing.T) {
 	releaseGate := releaseOnce(ad.gate)
 	t.Cleanup(releaseGate)
 
-	id, execID, done := startOrchestratedTurnFinalizing(t, e, ctx)
+	id, execID, done := startOrchestratedTurnFinalizing(t, e, ctx, nil)
 	select {
 	case <-rt.finalizeStarted:
 	case <-time.After(5 * time.Second):
@@ -145,7 +152,7 @@ func TestAnOrchestratedFinalizationFailureReportsPromptsQueuedDuringFinalization
 	e.SetWorkspaceRuntime(rt)
 	t.Cleanup(func() { close(ad.gate) })
 
-	id, _, done := startOrchestratedTurnFinalizing(t, e, ctx)
+	id, _, done := startOrchestratedTurnFinalizing(t, e, ctx, nil)
 	select {
 	case <-rt.started:
 	case <-time.After(5 * time.Second):
@@ -194,12 +201,16 @@ func TestAnOrchestratedCancelReportsPromptsQueuedDuringFinalization(t *testing.T
 	e.SetWorkspaceRuntime(rt)
 	t.Cleanup(func() { close(ad.gate) })
 
-	id, _, done := startOrchestratedTurnFinalizing(t, e, ctx)
 	// The canceled state is set the way the adapter cancel tests set it: the
-	// cancel itself is not the behaviour under test, the turn end that finds it is.
-	e.mu.Lock()
-	e.canceled[id] = true
-	e.mu.Unlock()
+	// cancel itself is not the behaviour under test, the turn end that finds it
+	// is. The mark goes in before the turn end launches, because that turn end
+	// reads and deletes it as its first act under e.mu; setting it afterwards
+	// races the goroutine and can silently skip the cancel branch.
+	id, _, done := startOrchestratedTurnFinalizing(t, e, ctx, func(taskID string) {
+		e.mu.Lock()
+		e.canceled[taskID] = true
+		e.mu.Unlock()
+	})
 	select {
 	case <-rt.finalizeStarted:
 	case <-time.After(5 * time.Second):
@@ -257,7 +268,7 @@ func TestAnOrchestratedTurnEndSettlesAMessageAcceptedAfterTheDrain(t *testing.T)
 	releaseGate := releaseOnce(ad.gate)
 	t.Cleanup(releaseGate)
 
-	id, execID, done := startOrchestratedTurnFinalizing(t, e, ctx)
+	id, execID, done := startOrchestratedTurnFinalizing(t, e, ctx, nil)
 	select {
 	case <-notifier.reached:
 	case <-time.After(5 * time.Second):
