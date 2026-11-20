@@ -1,0 +1,23 @@
+[
+  {
+    "label": "call the marker Claim-check: so the gate's Claim check: line is never produced",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-lane-worker-contract.sh",
+    "old": "- A PR that changes a prose-assertion path (\\`docs/product/**\\`, \\`docs/plans/**\\`, \\`docs/adr/**\\`, \\`rsi/GOAL.md\\`, \\`rsi/DECISIONS.md\\`, \\`rsi/ASTRYX-PLAN.md\\`, \\`AGENTS.md\\`, \\`PRINCIPLE.md\\`, \\`SYSTEM_DESIGN.md\\`) carries one \\`Claim check:\\` line at column 0 — one command that proves the sentence on this branch — and its literal output under \\`Claim output:\\`, or waives it with \\`Claim check: none: <reason of at least 20 characters>\\`.",
+    "new": "- A PR that changes a prose-assertion path (\\`docs/product/**\\`, \\`docs/plans/**\\`, \\`docs/adr/**\\`, \\`rsi/GOAL.md\\`, \\`rsi/DECISIONS.md\\`, \\`rsi/ASTRYX-PLAN.md\\`, \\`AGENTS.md\\`, \\`PRINCIPLE.md\\`, \\`SYSTEM_DESIGN.md\\`) carries one \\`Claim-check:\\` line at column 0 — one command that proves the sentence on this branch — and its literal output under \\`Claim output:\\`, or waives it with \\`Claim-check: none: <reason of at least 20 characters>\\`."
+  },
+  {
+    "label": "drop the colon from the Claim output: marker",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-lane-worker-contract.sh",
+    "old": "\\`Claim output:\\`",
+    "new": "\\`Claim output\\`"
+  },
+  {
+    "label": "remove the Claim check: none: waiver sentence",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-lane-worker-contract.sh",
+    "old": " or waives it with \\`Claim check: none: <reason of at least 20 characters>\\`.",
+    "new": "."
+  }
+]

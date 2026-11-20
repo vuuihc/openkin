@@ -26,5 +26,19 @@
     "test": "RSI_TEST_ONLY=test_step_named_failure_is_confirmed bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
     "old": "    m = re.match(r\"^([A-Za-z0-9_]+)/\", line) or re.match(r\"^(J[0-9]+)-\", line)",
     "new": "    m = re.match(r\"^([A-Za-z0-9_]+)/\", line)"
+  },
+  {
+    "label": "confirm-only evidence narrows back to the confirm dir alone: a green journey's first-walk screenshots stop being evidence",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_flaked_only_red_keeps_green_journey_evidence bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "  EVID_MORE=\" The first walk's screenshots for journeys with no surviving failure ($GREEN) are also evidence: $GREEN_SHOTS (their names, notes and lint are in $SHOTS/walk.json).\"",
+    "new": "  EVID_MORE=\"\""
+  },
+  {
+    "label": "the green filter drops, so the flaked journey's first-walk screenshots ground a below-3 axis",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_flaked_journey_screen_does_not_ground bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "        if f.endswith(\".png\") and any(f.startswith(g + \"-\") for g in green):",
+    "new": "        if f.endswith(\".png\"):"
   }
 ]

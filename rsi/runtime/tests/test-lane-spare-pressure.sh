@@ -8,6 +8,9 @@
 # refused on every claim from 2026-11-18 22:00 on. The floor now refuses on warning-or-worse
 # VM pressure and on a real swap-free headroom minimum; used swap no longer decides.
 # The first worker keeps the ordinary host_pressure thresholds, and reworks still preempt.
+# `idle` is the fill's licence for a second worker, so it must answer the spare-lane floor the
+# same way `claim` does — including on a cold start, where it used to print two lanes on a
+# machine whose claim gate would immediately refuse the second one.
 #
 # Hermetic: stubbed sysctl/vm_stat on PATH, temp RSI_STATE, pinned thresholds; no network,
 # no repo writes. Prints "PASS <case>" per case and exits non-zero on the first failure.
@@ -63,6 +66,15 @@ claim_one() {
   shift 9
   out="$(run_lanes "$st" "$avail" "$lvl" "$used" "$free" claim "$lane" \
     --slug "$slug" --item "$item" --brief "$brief" --paths "$path" "$@" 2>&1)"; rc=$?
+}
+
+# idle_one <state> <avail> <level> <used> <free> [extra args...]
+# Keeps stdout in $out and stderr in $err, because the licence is what `idle` prints and the
+# reason is what it says on stderr; folding them together would let either half hide.
+idle_one() {
+  local st="$1" avail="$2" lvl="$3" used="$4" free="$5"; shift 5
+  out="$(run_lanes "$st" "$avail" "$lvl" "$used" "$free" idle "$@" 2>"$T/err")"; rc=$?
+  err="$(cat "$T/err")"
 }
 
 # --- spare_allowed_when_swap_warm_but_pressure_normal --------------------------------------
@@ -147,5 +159,48 @@ grep -q "vm_pressure=1" <<<"$out" || bad "status_reports_pressure_and_swap_free:
 grep -q "swap_free_mb=1390" <<<"$out" || bad "status_reports_pressure_and_swap_free: no swap_free_mb=1390: $out"
 grep -q "swap_used_mb=2706" <<<"$out" || bad "status_reports_pressure_and_swap_free: swap_used_mb field dropped: $out"
 ok status_reports_pressure_and_swap_free
+
+# --- idle_holds_second_lane_on_cold_start --------------------------------------------------
+# The 2026-11-20 20:32 fill: empty state, 4000 MB reclaimable (floor 5120), pressure normal,
+# 1390 MB free swap. `idle` used to print both lanes because no worker was active yet, and the
+# second claim then died with REFUSED: spare lane held. The licence must name one lane only.
+ST="$T/c9"; mkdir -p "$ST"
+idle_one "$ST" 4000 1 2706 1390
+[ "$rc" -eq 0 ] && [ "$out" = "1" ] \
+  || bad "idle_holds_second_lane_on_cold_start: expected stdout '1' and exit 0, got ($rc): stdout='$out' stderr='$err'"
+grep -q "spare lane held (avail mem" <<<"$err" \
+  || bad "idle_holds_second_lane_on_cold_start: stderr does not name the floor: $err"
+ok idle_holds_second_lane_on_cold_start
+
+# --- idle_offers_both_on_cold_start_with_headroom ------------------------------------------
+# The mirror: enough headroom on a cold start still licences both workers, so the fix cannot be
+# "never print two lanes".
+ST="$T/c10"; mkdir -p "$ST"
+idle_one "$ST" 5900 1 2706 1390
+[ "$rc" -eq 0 ] && [ "$out" = $'1\n2' ] \
+  || bad "idle_offers_both_on_cold_start_with_headroom: expected stdout '1\\n2' and exit 0, got ($rc): stdout='$out' stderr='$err'"
+ok idle_offers_both_on_cold_start_with_headroom
+
+# --- idle_ignore_pressure_offers_both_on_cold_start ----------------------------------------
+# --ignore-pressure is the rework dispatcher's bypass and must keep skipping the spare floor on
+# a cold start too.
+ST="$T/c11"; mkdir -p "$ST"
+idle_one "$ST" 4000 1 2706 1390 --ignore-pressure
+[ "$rc" -eq 0 ] && [ "$out" = $'1\n2' ] \
+  || bad "idle_ignore_pressure_offers_both_on_cold_start: expected stdout '1\\n2' and exit 0, got ($rc): stdout='$out' stderr='$err'"
+ok idle_ignore_pressure_offers_both_on_cold_start
+
+# --- idle_agrees_with_claim_on_cold_start --------------------------------------------------
+# One story across both commands: cold-start idle offers lane 1, the claim for lane 1 succeeds,
+# and the next idle refuses to licence lane 2 with the same floor reason `claim 2` would give.
+ST="$T/c12"; mkdir -p "$ST"
+idle_one "$ST" 4000 1 2706 1390
+[ "$rc" -eq 0 ] && [ "$out" = "1" ] || bad "idle_agrees_with_claim_on_cold_start: first idle did not offer lane 1 ($rc): stdout='$out' stderr='$err'"
+claim_one "$ST" 4000 1 2706 1390 1 alpha R-alpha rsi/runtime/a.py
+[ "$rc" -eq 0 ] && grep -q "CLAIMED lane 1" <<<"$out" || bad "idle_agrees_with_claim_on_cold_start: claim 1 failed ($rc): $out"
+idle_one "$ST" 4000 1 2706 1390
+[ "$rc" -eq 0 ] && [ -z "$out" ] || bad "idle_agrees_with_claim_on_cold_start: second idle still offered a lane ($rc): stdout='$out' stderr='$err'"
+grep -q "spare lane held (avail mem" <<<"$err" || bad "idle_agrees_with_claim_on_cold_start: second idle does not name the floor: $err"
+ok idle_agrees_with_claim_on_cold_start
 
 echo "test-lane-spare-pressure: ALL-PASS"
