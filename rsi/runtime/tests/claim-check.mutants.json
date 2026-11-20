@@ -1,0 +1,23 @@
+[
+  {
+    "label": "ignore the claim command's exit code",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "    if returncode != 0:",
+    "new": "    if False:  # mutant: ignore the exit code"
+  },
+  {
+    "label": "treat every PR as code-only",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "    if not prose:",
+    "new": "    if True:  # mutant: every PR is code-only"
+  },
+  {
+    "label": "make the Claim output block optional",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "    if output_at is None:\n        return fail(\n            \"the body has no 'Claim output:' line at column 0 after the claim check; \"\n            \"paste the command's real output there\"\n        )",
+    "new": "    if output_at is None:  # mutant: no output block is fine\n        print(\"CLAIM_OK: \" + command)\n        return 0"
+  }
+]

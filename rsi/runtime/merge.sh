@@ -145,6 +145,33 @@ pr_finished() { # <slug> <pr-number|""> <sha> <detail-file> -> 0 finished and ar
   KICK=1; SB_SUPPRESSED=1
   return 0
 }
+# The prose claim check (R-latency-fix, 2026-11-20): a PR that changes a prose-assertion path must
+# carry a command the gate can run and the output it claims; runtime/claim_check.py owns the rule.
+# It runs before the reviewer is launched, so a missing or false claim costs no model call. The
+# sendback is mechanical on purpose: it is a missing proof, not a quality finding, and the
+# scorecard counts quality sendbacks. A waiver is recorded as claim_check=waived in cycles.log so
+# the patrol can watch the rate instead of trusting it.
+claim_check_gate() { # <pr-number> <slug> <item> <worktree> <body-file> <changed-files-file> -> 0 pass/NA/waived, 1 sent back
+  local n="$1" slug="$2" item="$3" wt="$4" bodyf="$5" pathsf="$6" out rc det
+  out="$(python3 "$RSI_DIR/runtime/claim_check.py" "$wt" "$bodyf" "$pathsf" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    det="$STATE/merge/$slug.claim.txt"
+    printf '%s\n' "$out" > "$det"
+    # Provenance per write_sendback's contract: source=mech-claim, spec="-", cmd=the command the
+    # worker must run (so the rework lane can reproduce the check without opening this script).
+    sendback_mech "$slug" "$item" "claim check" "$det" "mech-claim" - \
+      "python3 rsi/runtime/claim_check.py <worktree> <body-file> <changed-files-file>"
+    say "#$n $slug: claim check failed — sent back before the reviewer"
+    return 1
+  fi
+  case "${out%%$'\n'*}" in
+    CLAIM_WAIVED:*)
+      echo "$(date '+%F %H:%M') #$n $slug claim_check=waived" >> "$STATE/merge/cycles.log"
+      say "#$n $slug: claim check waived ($(printf '%s\n' "$out" | head -1))" ;;
+    *) say "#$n $slug: claim check ok" ;;
+  esac
+  return 0
+}
 
 # ------------------------------------------------- generated files (pure functions of the tree)
 # A merge of origin/main can conflict in files nobody wrote by hand: the embedded console entry and
@@ -678,6 +705,20 @@ if [ "${1:-}" != "--one" ]; then
   # the same dispatch_rows() the loop calls — over gh `pr list` JSON on stdin, with the
   # needs-ceo/hold labels applied because a held PR is not a candidate. No gh, fetch or state write.
   if [ "${1:-}" = "--pr-select-check" ]; then dispatch_rows --candidate-labels; exit $?; fi
+  # Hermetic seam for rsi/runtime/tests/test-claim-check.sh: the prose claim check on a throwaway
+  # worktree and two files on disk, the same script the verifier runs. No state, lock, gh or model;
+  # the exit code is the check's own (0 pass/not-applicable/waived, 1 failed).
+  if [ "${1:-}" = "--claim-check" ]; then
+    [ $# -ge 4 ] || { echo "usage: merge.sh --claim-check <worktree> <body-file> <changed-files-file>" >&2; exit 2; }
+    python3 "$RSI_DIR/runtime/claim_check.py" "$2" "$3" "$4"; exit $?
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-claim-check.sh: the same claim_check_gate() the
+  # verifier calls, sendback included, against a temp control tree whose PR state stub says OPEN.
+  # No lock, fetch, gate, review or dispatch.
+  if [ "${1:-}" = "--claim-gate-check" ]; then
+    [ $# -ge 7 ] || { echo "usage: merge.sh --claim-gate-check <pr-number> <slug> <item> <worktree> <body-file> <changed-files-file>" >&2; exit 2; }
+    claim_check_gate "$2" "$3" "$4" "$5" "$6" "$7"; exit $?
+  fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the queue-time carry step 1 applies
   # after sync_main, with lists of paths on disk. No locks, fetch, gate, review, merge or dispatch.
   if [ "${1:-}" = "--queue-carry-check" ]; then
@@ -874,7 +915,7 @@ cleanup() { [ -n "$CHILD" ] && kill $CHILD 2>/dev/null; rm -rf "$L"
 trap cleanup EXIT
 [ -e "$STATE/PAUSE" ] && exit 0
 BR="rsi/$SLUG"; WT="$WT_ROOT/rsi-$SLUG"; PRURL="https://github.com/$GH_REPO/pull/$N"
-BODY="$($GH pr view "$N" --repo "$GH_REPO" --json body --jq .body 2>/dev/null)"
+BODY="$($GH pr view "$N" --repo "$GH_REPO" --json body --jq .body 2>/dev/null)"; BODY_RC=$?
 ITEM="$(item_id "$SLUG" "$BODY")"
 V="$STATE/merge/$SLUG.verified"; RV="$STATE/merge/$SLUG.reviewed"; PREV="$STATE/merge/$SLUG.review.txt"
 QW=""; if [ -s "$STATE/merge/$SLUG.queued_at" ]; then QW=" queue_wait=$(( (T0 - $(cat "$STATE/merge/$SLUG.queued_at")) / 60 ))m"; rm -f "$STATE/merge/$SLUG.queued_at"; fi
@@ -1139,6 +1180,23 @@ fi
 if [ $NEED_REV -eq 1 ] && [ "$ROLE" = reviewer-alt ] && python3 "$RSI_DIR/runtime/escalate.py" --no-strong-available >/dev/null 2>&1; then
   say "#$N $SLUG: holding review, no strong reviewer available (Hydrogen/sol limited) (no retry)"
   exit 0
+fi
+# The prose claim check, before the reviewer is paid for (R-latency-fix). CH was taken at step 1
+# from origin/main...HEAD, so it is the PR's own diff, and BODY is the live PR body the check
+# reads. A cached review (NEED_REV=0) skips this on purpose: a rework's re-review is not asked to
+# re-prove a sentence the gate already ran on this diff.
+if [ $NEED_REV -eq 1 ]; then
+  if [ "$BODY_RC" -eq 0 ]; then
+    CLAIM_BODY="$STATE/merge/$SLUG.body"; CLAIM_PATHS="$STATE/merge/$SLUG.changed"
+    printf '%s\n' "$BODY" > "$CLAIM_BODY"; printf '%s\n' "$CH" > "$CLAIM_PATHS"
+    claim_check_gate "$N" "$SLUG" "$ITEM" "$WT" "$CLAIM_BODY" "$CLAIM_PATHS"; CLAIM_RC=$?
+    rm -f "$CLAIM_BODY" "$CLAIM_PATHS"
+    [ $CLAIM_RC -ne 0 ] && exit 0
+  else
+    # An unreadable body is not evidence of a missing claim: a transient gh failure would
+    # otherwise bounce a prose PR mechanically. Fail open; the next cycle re-reads the body.
+    say "#$N $SLUG: claim check skipped (PR body unreadable); the next cycle re-reads it"
+  fi
 fi
 if [ $NEED_REV -eq 1 ]; then
   LASTREV="$(cut -d' ' -f3 "$RV" 2>/dev/null)"   # last reviewed SHA (any verdict)
