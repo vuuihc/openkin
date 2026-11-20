@@ -440,6 +440,34 @@ queue_carry_step() { # <wt> <old-head> <incoming> <new-sha> <pr-changed> <gate-f
   queue_carry "$1" "$2" "$4" "$3" "$5" "$6" "$7" "${8:-$(cut -d' ' -f3 "$6" 2>/dev/null | head -1)}"
 }
 
+# ------------------------------------------------------------------ re-verification accounting
+reverify_reason() { # <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason>
+  # Accounting only (retro 2026-11-20 §5.2): WHY a gate that already ran is paid for again. Writes
+  # nothing and is read by no gate decision, lock or verdict — the gate-start line in step 4
+  # appends its one word to state/merge/cycles.log, so a week of data says whether re-verification
+  # is bought by shared surfaces moving or by rework, instead of tightening the carry rules on
+  # intuition. <prior-reachable> is 1 only when the prior gate head is a proven ancestor of the
+  # current head. Prints exactly one word:
+  #   first-gate      no prior gate head: the denominator, not a re-verification
+  #   rework          the PR's own code changed, the branch was rewritten, or nothing else moved
+  #   shared-surface  main moved a surface every PR depends on, so every PR re-gates
+  #   main-moved      main moved a path this PR does not verify, yet the gate ran again
+  local prior_sha="$1" prior_key="$2" cur_key="$3" reachable="$4" incoming="$5" reason="$6"
+  if [ -z "$prior_sha" ]; then echo first-gate; return 0; fi
+  # An empty prior key is not evidence: a missing review cache must fall through, not claim rework.
+  if [ -n "$prior_key" ] && [ "$prior_key" != "$cur_key" ]; then echo rework; return 0; fi
+  if [ "$reachable" = 0 ]; then echo rework; return 0; fi
+  if [ -n "$incoming" ]; then
+    case "$reason" in
+      *"shared surface moved"*|*"the gate runs this script"*|*"the PR touches scripts/ or ui/"*)
+        echo shared-surface ;;
+      *) echo main-moved ;;
+    esac
+    return 0
+  fi
+  echo rework
+}
+
 # ------------------------------------------------------------------ CI-first hold
 CI_HOLD_MAX_SECS=2700   # 45 min: a hold may defer the step-1 sync at most this long
 ci_hold_window() { # <marker-file> -> 0 when a hold may continue (fresh marker, or one just written)
@@ -644,6 +672,15 @@ if [ "${1:-}" != "--one" ]; then
       echo "CARRY $QUEUE_CARRY_REASON"; exit 0
     fi
     echo "REGATE $QUEUE_CARRY_REASON"; exit 1
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the pure re-verification classifier the
+  # gate-start accounting line writes. No state, no lock, no gate, no dispatch — one word out.
+  if [ "${1:-}" = "--reverify-reason-check" ]; then
+    [ $# -ge 7 ] || {
+      echo "usage: merge.sh --reverify-reason-check <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason>" >&2
+      exit 2
+    }
+    reverify_reason "$2" "$3" "$4" "$5" "$6" "$7"; exit 0
   fi
   # Hermetic seam for rsi/runtime/tests/test-verifier-ci-hold.sh: run the same ci_first_decision()
   # step 1 calls, with the non-waiting CI read passed in. No lock, fetch, gate, review or dispatch.
@@ -950,6 +987,11 @@ OLDBASE="$($GIT -C "$WT" merge-base HEAD origin/main)"
 # PR's own three-dot diff, QUEUE_INCOMING is main's move since the pre-sync merge base.
 CH="$($GIT -C "$WT" -c core.fileMode=false diff --no-renames --raw origin/main...HEAD | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}')"
 QUEUE_INCOMING="$($GIT -C "$WT" diff --name-only "$OLDBASE" origin/main 2>/dev/null)"
+# The prior cycle's gate head and review key, captured before queue_carry_step rewrites or removes
+# them: the gate-start accounting line needs what the last cycle left behind to say why this head
+# has no PASS. Empty is normal (a first gate, or a review cache keyed to a different diff).
+PRIOR_GATE_SHA="$(cut -d' ' -f1 "$V" 2>/dev/null)"
+PRIOR_DIFF_KEY="$(cut -d' ' -f1 "$RV" 2>/dev/null)"
 ci_first_decision "$WT" "$BR" "$V" "$RV" "$(ci_probe_once)" "$STATE/merge/$SLUG.ci-hold" "$QUEUE_INCOMING" "$CH"
 CI_FIRST_RC=$?
 # The measurement line: the next retro compares skip vs sync per verifier start.
@@ -962,6 +1004,10 @@ else
 fi
 bash "$RSI_DIR/runtime/prep-worktree.sh" "$WT" 2>&1 | tail -2
 SHA="$($GIT -C "$WT" rev-parse HEAD)"
+# Was the prior gate head an ancestor of this head? 1 only when proven, so a rewritten branch or an
+# unknown/unreadable sha stays 0 and is never mistaken for a carry candidate.
+PRIOR_REACHABLE=0
+[ -n "$PRIOR_GATE_SHA" ] && $GIT -C "$WT" merge-base --is-ancestor "$PRIOR_GATE_SHA" "$SHA" 2>/dev/null && PRIOR_REACHABLE=1
 
 # 2. hold rules (MANDATE): never auto-merge these
 # A main move that is disjoint from the PR's own files and the shared surfaces does not invalidate
@@ -1096,6 +1142,11 @@ if [ $NEED_REV -eq 1 ]; then
 fi
 GATE_OK=1; GATE_NOTE=""; GATE_OUTSIDE=0
 if [ $NEED_GATE -eq 1 ]; then
+  # The retrospective's accounting line (2026-11-20 §5.2): record WHY this gate is paid for, before
+  # the lock, so a FAIL or a lock timeout still counts. Deliberately not folded into the verify=
+  # line at the bottom: that one is never written on a FAIL and would bias the data to cheap passes.
+  RR="$(reverify_reason "$PRIOR_GATE_SHA" "$PRIOR_DIFF_KEY" "$DH" "$PRIOR_REACHABLE" "$QUEUE_INCOMING" "${QUEUE_CARRY_REASON:-}")"
+  echo "$(date '+%F %H:%M') #$N $SLUG reverify_reason=$RR" >> "$STATE/merge/cycles.log"
   say "#$N $SLUG: gate on ${SHA:0:8} ($SIZE lines)"
   if mklock "$STATE/.gate.lock" 1800; then
     # Workers often build before their last edit: regenerate web/dist/index.html (the only tracked build output) so a stale bundle
