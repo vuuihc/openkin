@@ -189,7 +189,10 @@ export function SettingsLayout({
   const operations = activeTab === "operations";
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll">
+    <div
+      ref={scrollRef}
+      className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll phone-footer-clearance"
+    >
       <div
         className={classes(
           "mx-auto w-full px-4 py-6 sm:px-6 sm:py-8 md:py-7",
