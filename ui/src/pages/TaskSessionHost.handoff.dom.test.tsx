@@ -314,7 +314,9 @@ describe("the keep-alive host and a just-created conversation", () => {
 
     open("/tasks/task-gone");
 
-    expect(screen.getByRole("alert").textContent).toContain("Task not found");
+    // The alert renders the locale's `task.notFound`, not the daemon's 404 text
+    // (the injected "Task not found" above is deliberately the old wording).
+    expect(screen.getByRole("alert").textContent).toContain("Conversation not found");
     expect(screen.queryByTestId("mobile-header")).toBeNull();
   });
 });
