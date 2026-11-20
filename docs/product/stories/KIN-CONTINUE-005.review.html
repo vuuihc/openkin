@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<title>KIN-CONTINUE-005 · 手机底栏：玻璃与纯图标 · Figma 审阅</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1a1a1a;
+    --muted: #666a73;
+    --line: #dedee3;
+    --bg: #f1f1f4;
+    --page: #fbfbfd;
+    --card: #ffffff;
+    --accent: #1f6feb;
+    --accent-soft: #eef3ff;
+    --warn: #b42318;
+    --warn-soft: #fff1f0;
+    --ok: #137a3f;
+    --ok-soft: #eef8f1;
+    --gutter: clamp(16px, 5vw, 24px);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7;
+      --muted: #a1a1aa;
+      --line: #35353a;
+      --bg: #0b0b0d;
+      --page: #141416;
+      --card: #1d1d20;
+      --accent: #6ea8fe;
+      --accent-soft: #17243a;
+      --warn: #ff8a80;
+      --warn-soft: #2a1717;
+      --ok: #6dd58c;
+      --ok-soft: #13251b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  code { padding: 1px 5px; border-radius: 5px; background: var(--bg); font-size: .92em; overflow-wrap: anywhere; }
+  .page { max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom)); background: var(--page); }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 26px; line-height: 1.28; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 2px; font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill { display: inline-flex; align-items: center; height: 25px; padding: 0 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.draft { color: var(--muted); background: var(--bg); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 16px; }
+  .banner { margin-top: 12px; border-left: 4px solid var(--warn); background: var(--warn-soft); }
+  .banner p { margin: 0; font-size: 16px; }
+  .banner strong { color: var(--warn); }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 16px; }
+  .howto li { margin: 5px 0; }
+  .note { color: var(--muted); font-size: 14px; }
+  .howto .note { margin: 4px 0 0; }
+  .toc {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 8px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 8px var(--gutter);
+    overflow-x: auto;
+    background: var(--page);
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none; display: inline-flex; align-items: center;
+    min-height: 44px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink);
+    font-size: 13px; text-decoration: none; white-space: nowrap;
+  }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 0 0 6px; font-size: 17px; line-height: 1.4; }
+  h4 { margin: 16px 0 8px; font-size: 16px; line-height: 1.4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .bullets { font-size: 16px; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 16px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 13px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card h3 { font-size: 16px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 16px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  .delta { margin-top: 12px; }
+  .delta table { width: 100%; border-collapse: collapse; font-size: 16px; }
+  .delta th, .delta td { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .delta th { color: var(--muted); font-size: 13px; font-weight: 600; }
+  .delta td { overflow-wrap: anywhere; }
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a {
+    display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 12px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none;
+  }
+  .screen { margin: 16px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; scroll-margin-top: 72px; }
+  .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll {
+    overflow-x: auto; overflow-y: hidden;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: #fff;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-phone .frame-scroll { max-width: 390px; margin: 0 auto; }
+  .fig-phone img { width: 100%; }
+  .fig-wide img { width: 1100px; }
+  .frame figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li {
+    display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); font-size: 16px;
+  }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+  .state-list { display: grid; gap: 8px; margin-top: 10px; }
+  .state { padding: 11px 13px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 16px; }
+  .state b { display: block; margin-bottom: 2px; font-size: 16px; }
+  .state span { color: var(--muted); }
+  .decision { margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 14px; }
+  .decision h3 { font-size: 17px; }
+  .decision p { font-size: 16px; }
+  .decision .rec { margin: 6px 0; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 15px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+  .decision.open { border-left-color: var(--warn); background: var(--warn-soft); }
+  .decision.open .rec strong { color: var(--warn); }
+  .reply { margin-top: 10px; }
+  .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 14px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .sign { border-left: 4px solid var(--ok); }
+  .sign p { margin: 6px 0; }
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+  a:focus-visible, .screen-index a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+    .toc { border-radius: 0; }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 380px) {
+    .flow li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 约 5 分钟 · 3 个决定（全部已定）</div>
+    <h1>KIN-CONTINUE-005 · 手机底栏：玻璃与纯图标，四个区域共用<small>贴底悬浮玻璃 · 四个纯图标入口 · 可访问名不变</small></h1>
+    <p class="meta">draft · 面：手机 · 对照 <code>KIN-CONTINUE-005.md</code></p>
+    <p class="meta">2026-11-20 · 6 屏（5 张手机帧 + 1 张 Mac 不变帧）· 6 个状态</p>
+    <div class="tags">
+      <span class="pill warn">未批准</span>
+      <span class="pill plain">旅程 J1、J2</span>
+      <span class="pill plain">面：手机</span>
+      <span class="pill draft">draft</span>
+    </div>
+  </header>
+
+  <section class="card banner" aria-label="边界">
+    <p><strong>未批准，不替代 CONTINUE-002。</strong>这条故事把 <code>KIN-CONTINUE-002</code> 已签的「四个文字入口」改成「四个图标入口，可访问名不变」。签字交付时只迁移 002 底栏那一句，见下面「与 002 的差异与迁移」。合同仍是 draft，本页不让你选新问题——三条决定都已定；签字随第一条实现 PR（测试命名 <code>KIN-CONTINUE-005</code>）由 CEO 代签，你随时可以用一句话推翻任何一条。</p>
+  </section>
+
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>当我用手机在四个区域之间来回（接着问、看例行、管 agent、改设置），我想底部那条入口浮在内容上、像一层玻璃，四个入口只剩图标，以便一屏多留一点内容，同时仍一眼看出自己在哪、有几件事在等。</p>
+  </section>
+
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：这条为什么单独成一条，为什么属于「接着问」却由四个区域共用。</li>
+      <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
+      <li><strong>最后看决定</strong>：3 条都已定，不用回；页尾留了一行反悔模板，只在你不同意时用。</li>
+    </ol>
+    <p class="note">宽帧在卡片内左右滑动，页面本身不横滚。手机上正文不小于 16px。本页是纯文档：<code>ui/</code> 一个像素未动。</p>
+  </section>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#delta">与 002 的差异</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">它属于「接着问一段对话」这条意图的共享壳；只改手机底栏的材质与图标，不碰四个区域的内容、不碰 Mac。</p>
+    <div class="card mece">
+      <div class="mece-row">
+        <div class="name">接着问一段对话<div class="who">KIN-CONTINUE-001、002、003、004 · 本页补 005 的共享壳</div></div>
+        <span class="pill here">本条所在</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">新建一段对话<div class="who">KIN-START-001</div></div>
+        <span class="pill draft">不碰</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">看它改了什么<div class="who">KIN-RESULT-001 / 002 / 003</div></div>
+        <span class="pill draft">不碰</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">管理对话与项目<div class="who">KIN-MANAGE-001、KIN-PROJECT-001 / 002 / 003</div></div>
+        <span class="pill draft">列表内容与行操作归它</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">设置与环境<div class="who">KIN-SETTINGS-001 / 002、KIN-AGENTS-001</div></div>
+        <span class="pill draft">只借它的根当帧 02 的背景</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">离开时被叫回来<div class="who">KIN-NOTIFY-001</div></div>
+        <span class="pill draft">不碰</span>
+      </div>
+      <div class="mece-row here">
+        <div class="name"><strong>手机共享壳：底栏的材质与图标</strong><div class="who">KIN-CONTINUE-005 · 这条</div></div>
+        <span class="pill here">本页</span>
+      </div>
+    </div>
+    <ul class="bullets">
+      <li><strong>为什么单独一条：</strong>D6（<code>KIN-CONTINUE-004.review.html</code>，CEO 2026-11-20）已定：底栏由四个 root 共用，塞进列表故事会让一条故事跨两个意图，并悄悄改写一条已签故事的表面。它作为共享 shell 故事与本条背靠背交付。</li>
+      <li><strong>为什么属于「接着问」：</strong>四个入口的第一职责是让人从任何区域一步回到对话；材质与图标是这个意图的壳，不是任何一区的列表行为。四个区域只是共用这一层壳，内容仍归各自的故事。</li>
+      <li><strong>job map 覆盖：</strong>步骤 1（认出自己在哪）→ 帧 01、02；步骤 2（四个入口间切换）→ 帧 01、02 的选中态与六段流程；步骤 3（看清几件在等）→ 帧 02；步骤 4（图标仍读得清）→ 帧 01、05；步骤 5（内容不被压住）→ 帧 01 的最后一行与 12px 余量；步骤 6（键盘、zen、系统设置）→ 帧 03、04；步骤 7（计数归零、换主题、转屏）→ 帧 02 的归零说明与帧 05。七步都有帧或明确的流程交代。</li>
+      <li><strong>设备只是差异维度：</strong>底栏只属于手机壳；Mac 没有底栏，用左缘区域栏与 ⌘1–⌘4，帧 06 只作「不变」的证据。不按设备拆故事。</li>
+      <li><strong>不在这一条：</strong>原生 bar 与边缘折射（方案 C，另议，调研 §二）；Mac 左栏与区域栏（S1 已交付，<code>AreaNavigation.dom.test.tsx</code> 守住）；列表内容、头部搜索、新建、行操作（归 <code>KIN-CONTINUE-004</code> / <code>KIN-MANAGE-001</code>）；等待数的来源、接口、存储键（不改）。</li>
+      <li><strong>四条大小自检：</strong>6 屏（5 张手机帧 + 1 张 Mac 不变帧）；一次交付（一个实现 PR 装得下测试、复审与 390/1100 截图）；两端成立（手机改，Mac 由回归守住）；每条验收都能变成以 <code>KIN-CONTINUE-005</code> 命名的测试。</li>
+    </ul>
+  </section>
+
+  <section id="before-after">
+    <h2>现在 → 之后</h2>
+    <div class="two">
+      <div class="card now">
+        <h3>现在</h3>
+        <ul>
+          <li>实色条：<code>PhoneFooter.tsx:54</code> 是 <code>bg-kin-sidebar</code> + 顶部发丝线，内容不能从底下透出。</li>
+          <li>图标 + 常显文字：每项 <code>min-h-12</code>（<code>:82</code>），文字在 <code>:94</code> 常显。</li>
+          <li>等待数是「对话」链接内的标记（<code>:91</code> 的 <code>PendingBadge</code>），不独立成控件。</li>
+          <li><code>:75</code> 的 <code>aria-current="page"</code> 标出当前区域。</li>
+          <li>材质 token 已经在用：<code>.kin-glass</code>、<code>.kin-glass-float</code>，回退与安全区已存在。</li>
+        </ul>
+      </div>
+      <div class="card after">
+        <h3>之后（本条）</h3>
+        <ul>
+          <li>贴底悬浮玻璃：左右各 8px、安全区之上再留 8px、22px 圆角；复用 <code>.kin-glass</code> 的填充与 <code>blur(24px)</code>，加 <code>.kin-glass-float</code> 同款 1px 描边与内侧高光。</li>
+          <li>四个纯图标等宽，名字留在 <code>sr-only</code>（对话 / 例行任务 / Agent 运维 / 设置），触达仍 ≥48px。</li>
+          <li>当前区域是实底胶囊 + 着色图标，其余线性；<code>aria-current="page"</code> 不变。</li>
+          <li>等待数落在「对话」图标右上角，1–9、更多 9+、归零消失，不成为第二个控件。</li>
+          <li>深色 / 减弱透明 / 不支持 <code>backdrop-filter</code> 时表面约 0.94 近不透明 + 描边；zen 下仍整体隐藏。</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note"><strong>本 PR 只画这一页：console 一个像素都没变。</strong>底栏真正换材质与图标在签字后的实现 PR，测试文件以 <code>KIN-CONTINUE-005</code> 命名。</p>
+  </section>
+
+  <section id="delta">
+    <h2>与 KIN-CONTINUE-002 的差异与迁移</h2>
+    <p class="note">CONTINUE-002 已签，本条不重写它；交付时只同步底栏那一句。</p>
+    <div class="card delta">
+      <table>
+        <thead><tr><th>项</th><th>CONTINUE-002 今天写的</th><th>本条（005）</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>底栏本身</td>
+            <td>四个文字入口（图标 + 文字）；实色 <code>bg-kin-sidebar</code> + 顶部发丝线。</td>
+            <td>四个图标入口，可访问名不变、文字不再常显；贴底悬浮玻璃 + 模糊 + 描边；回退近不透明。</td>
+          </tr>
+          <tr>
+            <td>入口数量 / 顺序 / 路由 / 记忆</td>
+            <td>四个同级入口、左右滑动、各自返回位置。</td>
+            <td>不变，逐条沿用 002。</td>
+          </tr>
+          <tr>
+            <td>头部搜索</td>
+            <td>列表头整行搜索（002 签字时）。</td>
+            <td>已由 CONTINUE-004 改成放大镜；本条不碰。</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note"><strong>迁移只有一处：</strong>签字交付时把 002 步骤 1 与各面差异里的「四个文字入口」改成「四个图标入口，可访问名不变」，并加一行「材质见 <code>KIN-CONTINUE-005</code>」；不重写 002。<code>IA.md</code> 的 D8 已由 #468 同步为「四个同级图标入口（可访问名不变）」，本 PR 不再改。</p>
+    </div>
+  </section>
+
+  <section id="screens">
+    <h2>界面与用户流程</h2>
+    <p class="note">每一屏先看 Figma 帧，再读下面六段流程。帧是设计源；宽帧在卡片内左右滑动，点「打开原图」可以全尺寸看。</p>
+
+    <div class="screen-index" aria-label="界面索引">
+      <a href="#screen-1">01 · 手机 · 默认</a>
+      <a href="#screen-2">02 · 手机 · 当前区域 + 等待数</a>
+      <a href="#screen-3">03 · 手机 · 搜索展开 + 键盘</a>
+      <a href="#screen-4">04 · 手机 · zen</a>
+      <a href="#screen-5">05 · 手机 · 深色 + 回退</a>
+      <a href="#screen-6">06 · Mac · 不变</a>
+    </div>
+
+    <article class="screen" id="screen-1">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">01 · 手机 · 390×844</div>
+          <h3>默认：贴底悬浮玻璃 + 四个纯图标</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机默认态玻璃底栏的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-005.figma/frames/01-phone-footer-default.svg" alt="手机 390×844 的对话列表：底部是一条贴底悬浮的圆角玻璃条，四个等宽图标；第一个「对话」图标带实底胶囊与着色，其余是线性图标；列表最后一行完整露在玻璃上方；图注写明玻璃距安全区 8px、触达不小于 48px、可访问名不变。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTINUE-005.figma/frames/01-phone-footer-default.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>手机上冷启动、从通知或深链进入四个区域中的任意一个。</span></li>
+        <li><b>动作</b><span>不点任何东西，先扫一眼底部。</span></li>
+        <li><b>立刻看到</b><span>一条贴底悬浮的玻璃条（左右 8px、安全区之上 8px、22px 圆角），内容从下缘隐约透出；四个纯图标等宽；当前区域是实底胶囊 + 着色，其余是线性图标；「对话」右上角若有等待就显示数字。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>等待数还没读到时不出徽标，不闪 0、不放骨架；断线时底栏本身不变，顶部横幅负责说明；深色或减弱透明下表面变近不透明，布局与图标不变。</span></li>
+        <li><b>键盘与焦点</b><span>底栏不自动取焦；进入页面时焦点在内容；Tab 依次经过四个入口；焦点环在玻璃与回退表面上都可见（2px outline + offset）。</span></li>
+        <li><b>离开再回来</b><span>仍在同一区域；选中态从 URL 重建，不依赖一次过渡动画；内容滚到底时最后一行能完整滚到玻璃上方至少 12px。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-2">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">02 · 手机 · 390×844</div>
+          <h3>当前区域 + 等待数：设置被选中，「对话」上还有 3 件</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机当前区域与等待数的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-005.figma/frames/02-phone-footer-waiting.svg" alt="手机 390×844 的设置页：底栏第四个「设置」图标带实底胶囊与着色；第一个「对话」图标右上角有红色计数 3，未选中也可见；图注写明徽标不扩大点击区域、归零时不显示 0、读屏在入口名后播报「3 件在等」。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTINUE-005.figma/frames/02-phone-footer-waiting.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>至少 1 件待批准或待回答；当前人在「设置」。</span></li>
+        <li><b>动作</b><span>看一眼「对话」图标；要点进去时点整条链接。</span></li>
+        <li><b>立刻看到</b><span>「对话」图标右上角一个小计数（1–9，更多显示 9+），不遮挡图标主体；「设置」是实底胶囊 + 着色，其余线性；计数就地更新，不弹 toast。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>未读到时没有徽标；读失败保留上一次已知计数直到下次成功，不显示 0；断线时保留最后已知计数，不假装清零。</span></li>
+        <li><b>键盘与焦点</b><span>徽标不是独立控件，不进 Tab 序；读屏在入口名后播报「3 件在等」；归零时徽标消失，不抢焦点。</span></li>
+        <li><b>离开再回来</b><span>计数随 pending 数据刷新，切区域不重置；处理完最后一件事后归零，徽标消失、不留空圈，选中胶囊不变。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-3">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">03 · 手机 · 390×844</div>
+          <h3>搜索展开 + 键盘：底栏留在键盘后面</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机搜索展开与键盘的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-005.figma/frames/03-phone-footer-search-open.svg" alt="手机 390×844 的对话列表：顶部搜索字段里是「发布」，下面两行匹配结果；底部键盘弹起并盖住画面下缘，玻璃底栏没有出现在键盘上方；图注写明底栏不参与键盘布局、关键盘后原位回来、搜索词与展开态不变。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTINUE-005.figma/frames/03-phone-footer-search-open.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>对话列表，搜索展开并弹起键盘。</span></li>
+        <li><b>动作</b><span>输入「发布」看结果；然后关键盘。</span></li>
+        <li><b>立刻看到</b><span>搜索字段与结果贴着键盘上沿；底栏不被顶到键盘上方，留在键盘后面；键盘覆盖底部，底栏不参与键盘布局。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>键盘动画期间底栏不抖、不重排内容；没有匹配时说「没有匹配的对话」并给「清除搜索」；搜索是本机过滤，断线不影响。</span></li>
+        <li><b>键盘与焦点</b><span>展开后焦点在搜索框；Esc 收键盘后焦点回搜索框；键盘弹起时底栏不抢焦，四个入口仍在 Tab 序里。</span></li>
+        <li><b>离开再回来</b><span>关键盘后底栏原位回来，搜索词与展开态都不变；切到别的区域再回来，搜索词与展开态仍保留（CONTINUE-004 的行为）。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-4">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">04 · 手机 · 390×844</div>
+          <h3>zen：底栏整体隐藏，内容延伸到安全区</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机 zen 隐藏底栏的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-005.figma/frames/04-phone-footer-zen.svg" alt="手机 390×844 的一段对话 zen 阅读态：顶部是「← 对话」与「退出 zen」；底部没有底栏，内容延伸到安全区；一条虚线标出默认态底栏所在的一带，写明 zen 下不画、不占位，Tab 序也不含四个入口。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTINUE-005.figma/frames/04-phone-footer-zen.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>对话详情，进入 zen。</span></li>
+        <li><b>动作</b><span>阅读；要回到壳层时点「退出 zen」。</span></li>
+        <li><b>立刻看到</b><span>底栏整体隐藏（不是变透明），内容延伸到安全区，最后一行可直接读到手势区上沿；退出 zen 后底栏原位回来，区域、搜索与滚动都不变。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>zen 下断线横幅仍可见；不支持 blur 时走第 4 步同一回退（zen 下底栏本来就不画）；底栏隐藏不改变区域与记忆。</span></li>
+        <li><b>键盘与焦点</b><span>zen 的开关沿用现有入口，底栏不新增按钮；底栏隐藏时 Tab 序也不含四个入口；退出后焦点回到进入前的位置。</span></li>
+        <li><b>离开再回来</b><span>zen 状态按现有规则保留；底栏隐藏与恢复不改变区域、搜索与滚动位置。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-5">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">05 · 手机 · 390×844</div>
+          <h3>深色 + 减弱透明：近不透明回退，布局与图标不变</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机深色回退底栏的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-005.figma/frames/05-phone-footer-dark-fallback.svg" alt="手机 390×844 深色主题的对话列表：底栏是近不透明的深色圆角条（约 0.94）加 1px 描边、不模糊；四个图标与「对话」的选中胶囊与默认态一致；图注写明回退条件是减弱透明或不支持 backdrop-filter，图标对比不小于 3:1。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTINUE-005.figma/frames/05-phone-footer-dark-fallback.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>深色主题；系统开启减弱透明，或浏览器不支持 <code>backdrop-filter</code>。</span></li>
+        <li><b>动作</b><span>滚动页面，让深浅内容从底栏下穿过；再切回浅色或正常透明。</span></li>
+        <li><b>立刻看到</b><span>表面约 0.94 近不透明、不模糊、保留 1px 描边；布局、图标、选中态不变；图标对比仍 ≥3:1；正文始终在不透明表面上。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>系统设置在页面开着时就生效，不需要刷新；深色不新造颜色，沿用面板与文字 token；真机最老受支持 iPhone 上滚动时 blur 不拖帧；不给 <code>backdrop-filter</code> 做动画。</span></li>
+        <li><b>键盘与焦点</b><span>焦点环用现有 focus-ring token，在玻璃与近不透明回退上都可见；切主题不改变焦点位置。</span></li>
+        <li><b>离开再回来</b><span>材质不因页面切换重新淡入；主题切换不改变区域、搜索、滚动位置。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-6">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">06 · Mac · 1100×760</div>
+          <h3>Mac：没有底栏，本条不变</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 不变的 Figma 帧" tabindex="0" data-start="330">
+          <img src="KIN-CONTINUE-005.figma/frames/06-mac-unchanged.svg" alt="Mac 1100×760：左缘是 208px 区域栏（对话 ⌘1、项目 ⌘2、例行任务 ⌘3、设置 ⌘4），中间是对话列表，右侧是一段对话；没有底栏、没有玻璃条；红色虚线框写明「Mac 没有底栏，也不加玻璃条」，区域切换仍走左缘区域栏与 ⌘1–⌘4。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-CONTINUE-005.figma/frames/06-mac-unchanged.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>Mac 1100×760 打开 Kin，左缘是区域栏，中间是对话列表。</span></li>
+        <li><b>动作</b><span>照今天的方式用左缘区域栏或 ⌘1–⌘4 切换区域。</span></li>
+        <li><b>立刻看到</b><span>与今天完全一致：没有底栏，也没有玻璃条；左栏、区域栏、材质、图标都不变。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>沿用今天的行为，不在本条重测；回归测试守住 1100 宽不出现手机底栏。</span></li>
+        <li><b>键盘与焦点</b><span>⌘1–⌘4 与今天的焦点顺序不变；本条不新增快捷键，也不改 Tab 序。</span></li>
+        <li><b>离开再回来</b><span>区域记忆与滚动恢复沿用今天，由 <code>AreaNavigation.dom.test.tsx</code> 守住。</span></li>
+      </ol>
+    </article>
+  </section>
+
+  <section id="states">
+    <h2>状态</h2>
+    <p class="note">状态帧在 01–05；下面是文字检查表，交付时逐条对照。</p>
+    <div class="state-list">
+      <div class="state"><b>默认</b><span>悬浮玻璃 + 四个纯图标；当前区域实底胶囊 + 着色；内容从玻璃下缘透出，最后一行可滚到玻璃上方 12px。</span></div>
+      <div class="state"><b>当前区域 + 等待数</b><span>选中态不靠颜色单独表达；「对话」右上角 1–9、更多 9+，未选中也可见；徽标不是第二个控件，不进 Tab 序。</span></div>
+      <div class="state"><b>搜索展开 + 键盘</b><span>底栏留在键盘后面，不顶起、不参与键盘布局；关键盘后原位回来，搜索词与展开态不变。</span></div>
+      <div class="state"><b>zen</b><span>底栏整体隐藏、不占位，内容延伸到安全区；Tab 序不含四个入口；退出后区域、搜索、滚动都不变。</span></div>
+      <div class="state"><b>深色 + 回退</b><span>减弱透明或不支持 <code>backdrop-filter</code> 时约 0.94 近不透明 + 1px 描边；布局、图标、选中态不变，对比 ≥3:1。</span></div>
+      <div class="state"><b>断线</b><span>底栏本身不变，顶部 <code>role=status</code> 横幅说明；等待数保留最后已知值，不假装清零；选中态与区域记忆不变。</span></div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>要你拍板的</h2>
+    <p class="note">3 条都已拍板，写「已定」，不用回；只在你不同意时回一个编号。</p>
+
+    <div class="decision settled">
+      <h3>D1 底栏玻璃单独一条共享 shell 故事</h3>
+      <p class="rec"><strong>已定（CEO，2026-11-20，D6）：</strong>独立成条，与列表故事背靠背交付。底栏由四个 root 共用，塞进 CONTINUE-004 会让一条故事跨两个意图，并悄悄改写一条已签故事的表面。</p>
+      <p class="tradeoff"><strong>代价：</strong>手机底部在实现 PR 落地前保持实色与文字入口；CONTINUE-004 只保证列表底部留白与 safe-area 不被将来的玻璃改动作废。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>D2 四个入口改纯图标，可访问名不变</h3>
+      <p class="rec"><strong>已定（方向由 Ethan 2026-11-20 16:52 批准）：</strong>只画图标，名字留在 <code>sr-only</code>（对话 / 例行任务 / Agent 运维 / 设置）；读屏、Tab 与自动化选择器按名字仍能找到，触达仍 ≥48px。</p>
+      <p class="tradeoff"><strong>代价：</strong>名字不再常显，第一次使用要靠图标形状与选中态认路；换来一屏把底栏高度让给内容，且不新增第二种导航。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>D3 CSS 玻璃先行，不写原生 bar</h3>
+      <p class="rec"><strong>已定（Ethan 2026-11-20 16:52）：</strong>复用 <code>.kin-glass</code> / <code>.kin-glass-float</code> 做到静态观感接近；只有 390 对比不够时再议方案 C。</p>
+      <p class="tradeoff"><strong>代价：</strong>拿不到 iOS 26 原生的边缘折射；目标是并排看像，不是像素相等。回退必须近不透明，玻璃不能成为可读性的唯一来源。</p>
+    </div>
+  </section>
+
+  <section id="reply">
+    <h2>回复模板</h2>
+    <div class="card reply">
+      <p class="note">没有待决问题；同意就复制第一行，只有想推翻某条决定时才写第二行。</p>
+      <pre>同意 KIN-CONTINUE-005：D1–D3 都同意。
+推翻 D1：底栏并入 CONTINUE-004，不单独成条。（示例，只写不同意的编号）</pre>
+    </div>
+  </section>
+
+  <section id="sign">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p>签字随第一条实现 PR：那一版把 <code>KIN-CONTINUE-005.md</code> 从 <code>draft</code> 改成 <code>approved</code>（验收表里的测试以故事 id 命名），并由 CEO 在 <code>rsi/DECISIONS.md</code> 记一行代签。只有到那一步才动 <code>ui/</code>。</p>
+      <p>签字时同步迁移 <code>KIN-CONTINUE-002</code> 底栏那一句：「四个文字入口」→「四个图标入口，可访问名不变」，并加「材质见 <code>KIN-CONTINUE-005</code>」；不重写 002。</p>
+      <p class="note">合同仍是 draft：本页不替代 <code>KIN-CONTINUE-002</code>。Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-CONTINUE-005.figma/</code> 里的 SVG 帧和本页的流程。</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>设计源：<code>KIN-CONTINUE-005.figma/frames/</code>（5 张 390×844 手机帧 + 1 张 1100×760 Mac 帧，SVG）</p>
+    <p>审阅编排：<code>KIN-CONTINUE-005.review.html</code>（本页）</p>
+    <p>合同：<code>KIN-CONTINUE-005.md</code></p>
+    <p>Figma 审阅版 · figma-flow-v1</p>
+  </footer>
+
+</main>
+<script>
+  // 宽帧默认露出主区；仍可左右滑回侧栏。无脚本时从左侧开始，不影响阅读。
+  // 懒加载的帧在脚本执行时还没有宽度，所以加载完成后再定位一次。
+  for (const el of document.querySelectorAll('.frame-scroll[data-start]')) {
+    const start = Number(el.dataset.start) || 0;
+    const apply = () => { el.scrollLeft = start; };
+    apply();
+    const img = el.querySelector('img');
+    if (img && !img.complete) img.addEventListener('load', apply, { once: true });
+  }
+</script>
+</body>
+</html>
