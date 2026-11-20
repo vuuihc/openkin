@@ -9,6 +9,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1576,6 +1577,20 @@ const MessageRow = memo(function MessageRow({
   // A place only means something against a queue longer than one. `queuePlace`
   // is the page's numbering of the daemon's order; this row never derives it.
   const place = queued && queuePlace !== undefined && (queueLength ?? 0) > 1 ? queuePlace : null;
+  // Moving a message into the first or last place unmounts the arrow that was
+  // pressed: focus drops to <body> and a keyboard user loses the controls they
+  // were operating. The handler notes a press that came from the focused
+  // button, and the effect follows the move to the arrow that survives — a
+  // pointer that landed somewhere else keeps the focus the reader chose.
+  const moveFocusedRef = useRef(false);
+  const moveUpRef = useRef<HTMLButtonElement>(null);
+  const moveDownRef = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    if (!moveFocusedRef.current) return;
+    moveFocusedRef.current = false;
+    if (document.activeElement !== document.body && document.activeElement !== null) return;
+    (moveUpRef.current ?? moveDownRef.current)?.focus();
+  }, [place, queueLength]);
 
   if (isUser) {
     return (
@@ -1620,8 +1635,14 @@ const MessageRow = memo(function MessageRow({
                   <>
                     {place > 1 && (
                       <button
+                        ref={moveUpRef}
                         type="button"
-                        onClick={() => onMoveQueued(-1)}
+                        onClick={(event) => {
+                          if (document.activeElement === event.currentTarget) {
+                            moveFocusedRef.current = true;
+                          }
+                          onMoveQueued(-1);
+                        }}
                         title={tr("chat.moveQueuedUp")}
                         aria-label={moveUpName}
                         className="ml-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full text-kin-blue-ink/80 transition-colors hover:bg-kin-blue/15 hover:text-kin-blue-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring md:-my-1"
@@ -1640,8 +1661,14 @@ const MessageRow = memo(function MessageRow({
                     )}
                     {place < (queueLength ?? 0) && (
                       <button
+                        ref={moveDownRef}
                         type="button"
-                        onClick={() => onMoveQueued(1)}
+                        onClick={(event) => {
+                          if (document.activeElement === event.currentTarget) {
+                            moveFocusedRef.current = true;
+                          }
+                          onMoveQueued(1);
+                        }}
                         title={tr("chat.moveQueuedDown")}
                         aria-label={moveDownName}
                         className="flex h-5 w-5 flex-none items-center justify-center rounded-full text-kin-blue-ink/80 transition-colors hover:bg-kin-blue/15 hover:text-kin-blue-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring md:-my-1"

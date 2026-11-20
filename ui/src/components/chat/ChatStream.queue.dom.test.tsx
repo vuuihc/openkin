@@ -308,6 +308,106 @@ describe("ordering a queued message", () => {
   });
 });
 
+describe("keyboard focus while moving a queued message", () => {
+  const first = userEventFor(1, "first thought");
+  const second = userEventFor(2, "second thought");
+  const third = userEventFor(3, "third thought");
+  const threeQueued = new Set([1, 2, 3]);
+
+  function renderQueue(positions: Map<number, number>) {
+    return render(
+      <ChatStream
+        events={[first, second, third]}
+        hostSpeaker="kin"
+        queuedSeqs={threeQueued}
+        queuePositions={positions}
+        queueLength={3}
+        onUnqueue={vi.fn()}
+        onMoveQueued={vi.fn()}
+      />,
+    );
+  }
+
+  const upOf = (text: string) =>
+    screen.getByRole("button", { name: t("chat.moveQueuedUpNamed", { text }) });
+  const downOf = (text: string) =>
+    screen.getByRole("button", { name: t("chat.moveQueuedDownNamed", { text }) });
+
+  it("follows a move into first place to the down arrow that survives", () => {
+    const view = renderQueue(
+      new Map([
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]),
+    );
+    // Enter/Space on a focused button dispatches a click with the button still
+    // focused; moving into place 1 unmounts that up arrow.
+    const up = upOf("second thought");
+    up.focus();
+    fireEvent.click(up);
+
+    view.rerender(
+      <ChatStream
+        events={[first, second, third]}
+        hostSpeaker="kin"
+        queuedSeqs={threeQueued}
+        queuePositions={
+          new Map([
+            [1, 2],
+            [2, 1],
+            [3, 3],
+          ])
+        }
+        queueLength={3}
+        onUnqueue={vi.fn()}
+        onMoveQueued={vi.fn()}
+      />,
+    );
+
+    // The badge moved, the focused control did not disappear: focus lands on
+    // the arrow that is still there instead of falling to <body>.
+    expect(placeOf("second thought")).toBe("1");
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(downOf("second thought"));
+  });
+
+  it("follows a move into last place to the up arrow that survives", () => {
+    const view = renderQueue(
+      new Map([
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]),
+    );
+    const down = downOf("second thought");
+    down.focus();
+    fireEvent.click(down);
+
+    view.rerender(
+      <ChatStream
+        events={[first, second, third]}
+        hostSpeaker="kin"
+        queuedSeqs={threeQueued}
+        queuePositions={
+          new Map([
+            [1, 1],
+            [3, 2],
+            [2, 3],
+          ])
+        }
+        queueLength={3}
+        onUnqueue={vi.fn()}
+        onMoveQueued={vi.fn()}
+      />,
+    );
+
+    expect(placeOf("second thought")).toBe("3");
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(upOf("second thought"));
+  });
+});
+
 describe("editing a queued message", () => {
   const editButton = () =>
     screen.queryByRole("button", {

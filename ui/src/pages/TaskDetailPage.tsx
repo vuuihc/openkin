@@ -253,15 +253,28 @@ export default function TaskDetailPage({
    * describes an order the reader has already replaced.
    */
   const queueMoveRequestRef = useRef(0);
-  /** The permutation the newest in-flight move sent, so a double tap is one request. */
-  const pendingMoveRef = useRef<{ request: number; ids: number[] } | null>(null);
-  // Invalidate callbacks before another conversation renders, and on unmount.
+  /**
+   * The permutation the newest in-flight move sent, so a double tap is one
+   * request. `startedAt` bounds it the way an edit is: `apiFetch` has no
+   * timeout, and a request the network dropped must not suppress the queue
+   * poll or refuse the arrows for the life of the page.
+   */
+  const pendingMoveRef = useRef<{ request: number; ids: number[]; startedAt: number } | null>(
+    null,
+  );
+  /** A queue read the poll skipped while a move was in flight. */
+  const deferredQueueReadRef = useRef(false);
+  // Invalidate callbacks before another conversation renders, on unmount, and
+  // when the host hides this pane without changing its id (`active` false):
+  // changing a dep runs the cleanup, so an answer that lands after the reader
+  // left cannot paint or toast over whatever they are looking at now.
   useLayoutEffect(
     () => () => {
       queueMoveRequestRef.current += 1;
       pendingMoveRef.current = null;
+      deferredQueueReadRef.current = false;
     },
-    [id],
+    [active, id],
   );
   const [usageLoading, setUsageLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -587,21 +600,32 @@ export default function TaskDetailPage({
   // re-read it whenever events land, and keep a slow poll for the case where the
   // only thing that changed is that a waiting message got answered.
   useEffect(() => {
-    if (!id || !task) return;
-    let active = true;
+    if (!id || !task || !active) return;
+    let live = true;
     const load = () => {
       // A read during a pending write could return the order before that write.
-      if (pendingMoveRef.current) return;
+      // The skip is remembered, not just taken: a poll that would have re-read
+      // the queue has to run once the move settles, or the queue a terminal
+      // event just drained stays stale until the next interval. Past the edit
+      // deadline the request no longer owns the queue — a hung move must not
+      // suppress the poll for the life of the page.
+      const pending = pendingMoveRef.current;
+      if (pending && editStillRunning(pending.startedAt, Date.now())) {
+        deferredQueueReadRef.current = true;
+        return;
+      }
       const request = ++queueMoveRequestRef.current;
+      // A read is happening now; whatever an earlier poll deferred is covered.
+      deferredQueueReadRef.current = false;
       listQueuedPrompts(id)
         .then((prompts) => {
-          if (!active || request !== queueMoveRequestRef.current) return;
+          if (!live || request !== queueMoveRequestRef.current) return;
           const next = withoutWithdrawn(prompts, withdrawnRef.current);
           queuedPromptsRef.current = next;
           setQueuedPrompts(next);
         })
         .catch(() => {
-          if (!active || request !== queueMoveRequestRef.current) return;
+          if (!live || request !== queueMoveRequestRef.current) return;
           queuedPromptsRef.current = [];
           setQueuedPrompts([]);
         });
@@ -609,11 +633,11 @@ export default function TaskDetailPage({
     const timer = window.setTimeout(load, 250);
     const interval = isTerminal(task.status) ? undefined : window.setInterval(load, 3000);
     return () => {
-      active = false;
+      live = false;
       window.clearTimeout(timer);
       if (interval !== undefined) window.clearInterval(interval);
     };
-  }, [id, task?.id, task?.status, events.length, queueReload]);
+  }, [active, id, task?.id, task?.status, events.length, queueReload]);
 
   // Stable identity, so the stream only re-renders when the queue really changed.
   const queuedSeqs = useMemo(() => queuedMessageSeqs(queuedPrompts), [queuedPrompts]);
@@ -715,13 +739,29 @@ export default function TaskDetailPage({
       if (!order) return;
       // Two taps before the first answer describe one move, not two: sending
       // the same permutation twice would only make the second race the first.
+      // Past the edit deadline the request no longer speaks for the queue, so
+      // a tap is a new move again rather than a duplicate of a hung one.
       const pending = pendingMoveRef.current;
-      if (pending && sameOrder(pending.ids, order)) return;
+      if (
+        pending &&
+        editStillRunning(pending.startedAt, Date.now()) &&
+        sameOrder(pending.ids, order)
+      ) {
+        return;
+      }
 
       const request = ++queueMoveRequestRef.current;
-      pendingMoveRef.current = { request, ids: order };
+      pendingMoveRef.current = { request, ids: order, startedAt: Date.now() };
       const settle = () => {
-        if (pendingMoveRef.current?.request === request) pendingMoveRef.current = null;
+        if (pendingMoveRef.current?.request !== request) return;
+        pendingMoveRef.current = null;
+        // A poll skipped while this move was in flight asked for a read the
+        // answer alone cannot give: another device may have changed the queue
+        // meanwhile, and a failed move changes nothing at all. Run it now.
+        if (deferredQueueReadRef.current) {
+          deferredQueueReadRef.current = false;
+          setQueueReload((n) => n + 1);
+        }
       };
       reorderQueuedPrompts(id, order).then(
         (prompts) => {

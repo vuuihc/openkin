@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom";
 import { ApiError, type QueuedPrompt, type Task, type TaskEvent } from "../api/client";
 import { setLocale, t } from "../i18n";
+import { EDIT_IN_FLIGHT_MS } from "../lib/queuedPrompts";
 import { useAppStore } from "../store/appStore";
 import TaskDetailPage from "./TaskDetailPage";
 
@@ -164,6 +165,14 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function deferredRejection<T>() {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((_, r) => {
+    reject = r;
+  });
+  return { promise, reject };
+}
+
 class ResizeObserverStub {
   observe() {}
   unobserve() {}
@@ -231,6 +240,133 @@ describe("reordering the queue", () => {
     fireEvent.click(moveDown("second thought"));
     expect(api.reorderQueuedPrompts).toHaveBeenCalledTimes(1);
     await act(async () => move.resolve([one, three, two]));
+  });
+
+  it("a queue read skipped during a move runs again when the move settles", async () => {
+    const move = deferred<QueuedPrompt[]>();
+    api.reorderQueuedPrompts.mockReturnValue(move.promise);
+    await open();
+    const reads = api.listQueuedPrompts.mock.calls.length;
+    fireEvent.click(moveDown("second thought"));
+
+    // An event lands while the move is in flight. The poll must not read over
+    // the write, so it defers instead of dropping the read on the floor.
+    api.listQueuedPrompts.mockResolvedValue([three, two, one]);
+    act(() =>
+      store.setEvents([
+        messageEvent(1, "first thought"),
+        messageEvent(2, "second thought"),
+        messageEvent(3, "third thought"),
+        messageEvent(4, "fourth thought"),
+      ]),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    expect(api.listQueuedPrompts).toHaveBeenCalledTimes(reads);
+
+    // The answer arrives. The read the poll deferred has to follow it: the
+    // move's answer is not the queue another device may have changed, and a
+    // read skipped at a turn boundary would otherwise stay lost until the slow
+    // poll. The daemon's list here is an order the move never sent.
+    await act(async () => move.resolve([one, three, two]));
+    await waitFor(() => expect(placeOf("third thought")).toBe("1"), { timeout: 1500 });
+    expect(placeOf("first thought")).toBe("3");
+  });
+
+  it("a move that never answers stops owning the queue after its deadline", async () => {
+    const move = deferred<QueuedPrompt[]>();
+    api.reorderQueuedPrompts.mockReturnValue(move.promise);
+    await open();
+
+    const clock = vi.spyOn(Date, "now");
+    const startedAt = Date.now();
+    clock.mockReturnValue(startedAt);
+
+    fireEvent.click(moveDown("second thought"));
+    expect(api.reorderQueuedPrompts).toHaveBeenCalledTimes(1);
+    // Still inside the deadline: the same permutation is one request, not two.
+    fireEvent.click(moveDown("second thought"));
+    expect(api.reorderQueuedPrompts).toHaveBeenCalledTimes(1);
+
+    // The request hangs. `apiFetch` has no timeout, so past the edit deadline
+    // the poll reads again and the arrows accept a new move, instead of the
+    // page refusing both for the life of the conversation.
+    const reads = api.listQueuedPrompts.mock.calls.length;
+    clock.mockReturnValue(startedAt + EDIT_IN_FLIGHT_MS + 1);
+    act(() =>
+      store.setEvents([
+        messageEvent(1, "first thought"),
+        messageEvent(2, "second thought"),
+        messageEvent(3, "third thought"),
+        messageEvent(4, "fourth thought"),
+      ]),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    expect(api.listQueuedPrompts).toHaveBeenCalledTimes(reads + 1);
+
+    fireEvent.click(moveDown("second thought"));
+    expect(api.reorderQueuedPrompts).toHaveBeenCalledTimes(2);
+
+    await act(async () => move.resolve([one, three, two]));
+    clock.mockRestore();
+  });
+
+  it("a 409 that lands after the pane is hidden says nothing", async () => {
+    const move = deferredRejection<QueuedPrompt[]>();
+    api.reorderQueuedPrompts.mockReturnValue(move.promise);
+    const view = await open();
+    fireEvent.click(moveDown("second thought"));
+
+    // `TaskSessionHost` hides a pane without changing its id: the answer now
+    // belongs to a screen the reader has left, so it must not toast over the
+    // next conversation or the list.
+    view.rerender(
+      <MemoryRouter initialEntries={["/tasks/task-1"]}>
+        <TaskDetailPage taskId="task-1" fallbackTask={task} active={false} />
+      </MemoryRouter>,
+    );
+    await act(async () => move.reject(new ApiError(409, "queue changed")));
+
+    expect(useAppStore.getState().toasts).toHaveLength(0);
+    expect(placeOf("second thought")).toBe("2");
+
+    // Coming back re-reads the queue: the pane missed the poll while hidden,
+    // so showing it again must not resurrect the order from before the leave.
+    const reads = api.listQueuedPrompts.mock.calls.length;
+    view.rerender(
+      <MemoryRouter initialEntries={["/tasks/task-1"]}>
+        <TaskDetailPage taskId="task-1" fallbackTask={task} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(api.listQueuedPrompts).toHaveBeenCalledTimes(reads + 1));
+  });
+
+  it("a hidden pane stops reading the queue and reads again when shown", async () => {
+    const view = await open();
+    const reads = api.listQueuedPrompts.mock.calls.length;
+    view.rerender(
+      <MemoryRouter initialEntries={["/tasks/task-1"]}>
+        <TaskDetailPage taskId="task-1" fallbackTask={task} active={false} />
+      </MemoryRouter>,
+    );
+    // The pane is hidden, not closed: polling it would spend a request on a
+    // screen nobody is looking at.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    expect(api.listQueuedPrompts).toHaveBeenCalledTimes(reads);
+
+    // Showing it again reads before the next interval: the queue may have
+    // drained while the pane was hidden, and the badges must catch up now.
+    view.rerender(
+      <MemoryRouter initialEntries={["/tasks/task-1"]}>
+        <TaskDetailPage taskId="task-1" fallbackTask={task} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(api.listQueuedPrompts).toHaveBeenCalledTimes(reads + 1));
   });
 
   it("a move sends the full permutation and renders the daemon's answer", async () => {
