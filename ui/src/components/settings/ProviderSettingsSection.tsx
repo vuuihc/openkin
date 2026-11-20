@@ -8,6 +8,13 @@ import SearchSelect from "../ui/SearchSelect";
 import TextInput from "../ui/TextInput";
 import { SettingsTabPanel } from "./SettingsPrimitives";
 
+/**
+ * The page's one agent-catalog read, as the default-agent row renders it.
+ * `failed` may still carry the last good list (`agentList`), which stays
+ * visible and selectable; only an empty failed list closes the picker.
+ */
+export type AgentCatalogStatus = "loading" | "ready" | "failed";
+
 export function providerDisplayName(provider: ProviderEntry): string {
   return provider.name || provider.model || provider.id;
 }
@@ -36,6 +43,8 @@ export function ProviderSettingsSection({
   providerModels,
   agentDefault,
   agentList,
+  agentCatalogStatus = "ready",
+  onRetryAgentCatalog = () => {},
   settingsBusy,
   onAddProvider,
   onActivateProvider,
@@ -76,6 +85,9 @@ export function ProviderSettingsSection({
   providerModels: ModelSpec[];
   agentDefault: string;
   agentList: AgentInfo[];
+  /** Omitted means the catalog is ready (a standalone render of this section). */
+  agentCatalogStatus?: AgentCatalogStatus;
+  onRetryAgentCatalog?: () => void;
   settingsBusy: boolean;
   onAddProvider: () => void;
   onActivateProvider: (id: string) => void;
@@ -106,6 +118,37 @@ export function ProviderSettingsSection({
     next[index] = { ...next[index], ...update };
     onProviderModelsChange(next);
   };
+
+  // The stored default may be installed but not runnable right now. It is
+  // still the value this row holds, so it stays in the list — with its state —
+  // instead of falling off and leaving the trigger to print a bare id.
+  const runnable = runnableAgents(agentList);
+  const storedDefault = agentList.find((agent) => agent.id === agentDefault);
+  const agentChoices = sortAgentCatalog(
+    storedDefault && !runnable.includes(storedDefault) ? [...runnable, storedDefault] : runnable,
+  );
+  const agentOptions = [
+    { id: "", label: tr("settings.provider.autoOption") },
+    ...agentChoices.map((agent) => {
+      const state = agentCatalogState(agent);
+      const suffix = agent.default
+        ? tr("settings.provider.currentDefault").replace(/^\s*—\s*/, "")
+        : state === "generic"
+          ? tr("agentCatalog.generic")
+          : "";
+      const unavailable = agent.available ? "" : tr("settings.provider.unavailable");
+      return {
+        id: agent.id,
+        label: `${agent.name} (${agent.id})${suffix ? ` — ${suffix}` : ""}${unavailable}`,
+      };
+    }),
+  ];
+  const currentAgentLabel = agentOptions.find((option) => option.id === agentDefault)?.label;
+  const agentCatalogLoading = agentCatalogStatus === "loading";
+  const agentCatalogFailed = agentCatalogStatus === "failed";
+  // An empty failed read has nothing truthful to offer. A failed refresh that
+  // kept the last good list is still openable: that list did arrive.
+  const agentPickerDisabled = agentCatalogLoading || (agentCatalogFailed && agentList.length === 0);
 
   return (
     <SettingsTabPanel id="providers" active={active}>
@@ -445,25 +488,31 @@ export function ProviderSettingsSection({
             variant="field"
             label={tr("settings.provider.defaultAgent")}
             value={agentDefault}
-            options={[
-              { id: "", label: tr("settings.provider.autoOption") },
-              ...sortAgentCatalog(runnableAgents(agentList)).map((agent) => {
-                const state = agentCatalogState(agent);
-                let suffix = "";
-                if (agent.default) {
-                  suffix = tr("settings.provider.currentDefault").replace(/^\s*—\s*/, "");
-                } else if (state === "generic") {
-                  suffix = tr("agentCatalog.generic");
-                }
-                return {
-                  id: agent.id,
-                  label: `${agent.name} (${agent.id})${suffix ? ` — ${suffix}` : ""}`,
-                };
-              }),
-            ]}
+            // A known agent is named by its own option, never by the raw id:
+            // the closed trigger must use the same name the list does.
+            display={currentAgentLabel}
+            disabled={agentPickerDisabled}
+            options={agentOptions}
             onChange={onAgentDefaultChange}
             describedBy="default-agent-desc"
           />
+          {agentCatalogLoading ? (
+            <span aria-live="polite" className="block text-caption text-kin-muted">
+              {tr("settings.provider.agentListLoading")}
+            </span>
+          ) : null}
+          {agentCatalogFailed ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* The same live-region shape as the page's per-group errors: a
+                  new alert surface would grow the UI inventory. */}
+              <span aria-live="assertive" className="text-caption text-kin-red-ink">
+                {tr("settings.provider.agentListFailed")}
+              </span>
+              <Button variant="secondary" onClick={onRetryAgentCatalog} className="text-caption">
+                {tr("common.retry")}
+              </Button>
+            </div>
+          ) : null}
           <div id="default-agent-desc" className="space-y-1">
             <span className="block text-caption text-kin-muted">
               {tr("settings.provider.defaultAgentHint")}

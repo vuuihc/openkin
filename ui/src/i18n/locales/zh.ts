@@ -1166,6 +1166,8 @@ const zh = {
       autoOption: "自动（Provider 就绪时用 Kin，否则用第一个 CLI）",
       unavailable: " — 不可用",
       currentDefault: " — 当前默认",
+      agentListLoading: "正在读取本机的 agent…",
+      agentListFailed: "无法读取 agent 列表。",
       defaultAgentHint:
         "仅可选择本机已安装且可用的 agent。自动：Provider 就绪时用 Kin，否则用第一个可用 CLI。",
       defaultAgentEffect: "新建对话默认用它，除非你在输入框里另选。",

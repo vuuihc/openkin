@@ -1198,6 +1198,8 @@ const en: MessageTree = {
       autoOption: "Auto (Kin if provider ready, else first CLI)",
       unavailable: " — unavailable",
       currentDefault: " — current default",
+      agentListLoading: "Loading the agents on this machine…",
+      agentListFailed: "Couldn't read the agent list.",
       defaultAgentHint:
         "Only agents installed and ready on this machine can be selected. Auto picks Kin when the provider is ready, otherwise the first ready CLI.",
       defaultAgentEffect:
