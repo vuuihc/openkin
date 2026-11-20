@@ -87,10 +87,35 @@ sync_control_tree() {
   after="$($GIT -C "$RSI_CTRL" rev-parse HEAD 2>/dev/null)"
   [ "$before" = "$after" ] || echo "control tree synced to ${after:0:8} (tracked content already matched)" >&2
 }
+# fill_plan <debounced:0|1> [workers:0|1] — the ordered actions for one pulse, one line, nothing
+# else: no clock, no files, no state. The pulse makes the two decisions (may the director run?
+# may workers run?) and executes the list in order. R-rework-dispatch: the debounce suppresses
+# ONLY the expensive director run and its last_fill write. The model-free autofill that dispatches
+# a rejected PR's rework used to sit below the debounce's `exit`, so a sendback waited out the
+# eight minutes (rejection -> next verify p50 11 min, p90 31 min; 73% of open-to-merge).
+fill_plan() {
+  local debounced="${1:-0}" workers="${2:-1}" plan=""
+  [ "$workers" = 1 ] && plan="autofill-astryx autofill-rest"
+  [ "$debounced" = 1 ] || plan="${plan:+$plan }director"
+  [ -n "$plan" ] && printf '%s\n' "$plan"
+  return 0
+}
+
 # --sync-check: run only the control-tree sync and exit — no lock, no daemon, no launchd.
 # Exit 0 means the tree is at origin/main (or legitimately ahead with unpublished loop commits);
 # exit 1 means it is pinned behind it, with the reason already on stderr.
 case "${1:-}" in --sync-check) sync_control_tree || exit 1; exit 0;; esac
+# --fill-plan: print the ordering decision for a test without a clock, lock or model. The worker
+# gate is resolved here (the only state fill_plan needs) exactly as the pulse resolves it.
+case "${1:-}" in
+  --fill-plan)
+    case "${2:-}" in
+      0|1) [ $# -eq 2 ] || { echo "usage: run.sh --fill-plan <0|1>" >&2; exit 2; }
+           FILL_WORKERS=0; rsi_allow_workers && FILL_WORKERS=1
+           fill_plan "$2" "$FILL_WORKERS"; exit 0;;
+      *) echo "usage: run.sh --fill-plan <0|1>" >&2; exit 2;;
+    esac;;
+esac
 
 # merge_lane_line — one line of truth for the merge lane. The lane moved from one global
 # .merge.lock to one lock per PR: state/merge/<slug>.lock is a directory holding the verifier's
@@ -195,12 +220,21 @@ IDLE=""; LANES_TXT=""
 case "$MODE" in
   pulse)
     MAXSECS="$FILL_SECS"; PROMPT_FILE="$RSI_DIR/runtime/prompts/fill.md"
-    # debounce: lane-finish / merge triggers + the 20-min tick must not stack director runs
-    if [ $FORCE -eq 0 ] && [ -e "$STATE/last_fill" ] && [ $(( $(date +%s) - $(cat "$STATE/last_fill") )) -lt 480 ]; then echo "skip: fill ran <8 min ago"; exit 0; fi
-    if [ $DRY -eq 0 ] && rsi_allow_workers; then
-      bash "$RSI_DIR/runtime/lane.sh" autofill astryx   # Astryx sendbacks -> rework lanes first, no LLM
-      bash "$RSI_DIR/runtime/lane.sh" autofill rest     # non-Astryx reworks take remaining idle slots before exit
-    fi
+    # debounce: lane-finish / merge triggers + the 20-min tick must not stack director runs.
+    # It gates only the director (and its last_fill write), never the model-free autofill below:
+    # a rejected PR's rework must not wait out the eight minutes (R-rework-dispatch).
+    DEBOUNCED=0
+    if [ $FORCE -eq 0 ] && [ -e "$STATE/last_fill" ] && [ $(( $(date +%s) - $(cat "$STATE/last_fill") )) -lt 480 ]; then DEBOUNCED=1; fi
+    WORKERS=0; [ $DRY -eq 0 ] && rsi_allow_workers && WORKERS=1
+    DIRECTOR=0
+    for action in $(fill_plan "$DEBOUNCED" "$WORKERS"); do
+      case "$action" in
+        autofill-astryx) bash "$RSI_DIR/runtime/lane.sh" autofill astryx;;   # Astryx sendbacks -> rework lanes first, no LLM
+        autofill-rest) bash "$RSI_DIR/runtime/lane.sh" autofill rest;;       # non-Astryx reworks take remaining idle slots before exit
+        director) DIRECTOR=1;;
+      esac
+    done
+    if [ $DIRECTOR -eq 0 ]; then echo "skip: fill ran <8 min ago"; exit 0; fi
     if [ $DRY -eq 0 ] && rsi_open_pr_backpressure; then
       if rsi_allow_workers && [ -x "$RSI_DIR/runtime/nas/ingest-nas.sh" ]; then
         nohup /bin/bash "$RSI_DIR/runtime/nas/ingest-nas.sh" >> "$RUNS/launchd-nas.log" 2>&1 < /dev/null & disown 2>/dev/null || true
