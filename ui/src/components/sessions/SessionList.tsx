@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -30,6 +31,7 @@ import { settleArchiveBatch } from "../../lib/archiveBatch";
 import type { Machine } from "../../lib/devices";
 import { runGuardedNavigation } from "../../lib/leaveGuard";
 import { draftEntryState, listUrlFor, phonePush } from "../../lib/phoneNavigation";
+import { rememberDeviceNewReturn, takeDeviceNewReturn } from "../../lib/placeReturn";
 import {
   DRAFT_PATH,
   getDraftCwd,
@@ -187,6 +189,7 @@ export default function SessionList({
   const coarse = useCoarsePointer();
   const [params, setParams] = useSearchParams();
   const query = params.get("search") ?? "";
+  const searching = query.trim() !== "";
   const status = normalizeStatusFilter(params.get("status"));
   const scope = normalizeScopeFilter(params.get("scope"));
 
@@ -205,7 +208,7 @@ export default function SessionList({
   const taskList = useTaskList(sessionListParams(searchTerm, status));
   const pending = usePendingResources();
   const pendingByTask = useMemo(() => pendingCountsByTask(pending.data), [pending.data]);
-  const { machines, loading: machinesLoading } = useMachines();
+  const { machines, loading: machinesLoading, failed: machinesFailed } = useMachines();
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [olderTasks, setOlderTasks] = useState<Task[]>([]);
   const [olderArchivedTasks, setOlderArchivedTasks] = useState<Task[]>([]);
@@ -567,6 +570,26 @@ export default function SessionList({
       listed.filter((bucket) => bucket.key !== PINNED_BUCKET),
       machines,
       selfDeviceId,
+      {
+        // The phone reads its machine headings as "where I was last", so the
+        // most recently used one leads. The sidebar keeps its own order.
+        order: shell === "page" ? "activity" : "sidebar",
+        // An idle machine is a place to start work, so the plain phone list
+        // gives it a heading. A search or a status filter narrows what is
+        // listed, and "no chats" would then describe the filter, not the
+        // machine — those views stay with the machines that have matches.
+        includeEmptyDevices:
+          shell === "page" &&
+          !searching &&
+          !status &&
+          scope === "active" &&
+          // A failed read has no "empty": the page says it could not load the
+          // list, and a machine heading under that would claim the failure
+          // was an absence of chats.
+          taskList.loaded &&
+          !taskList.error &&
+          !(!status && sessionsFailed && listed.length === 0),
+      },
     ).map((group) => ({
       ...group,
       buckets: sortSessionBuckets(group.buckets, {
@@ -581,7 +604,21 @@ export default function SessionList({
       }),
     }));
     return { pinnedBucket: pinned, deviceGroups: groups };
-  }, [listed, machines, selfDeviceId, sortMode, pinnedProjects, prefsTick, scope]);
+  }, [
+    listed,
+    machines,
+    selfDeviceId,
+    sortMode,
+    pinnedProjects,
+    prefsTick,
+    scope,
+    shell,
+    searching,
+    status,
+    taskList.loaded,
+    taskList.error,
+    sessionsFailed,
+  ]);
   const foldSets = useMemo(() => {
     const collapsed = new Set<string>();
     const openImported = new Set<string>();
@@ -605,9 +642,19 @@ export default function SessionList({
     !archivedList.error &&
     lastLoadedArchivedTasks.current.length === 0;
   const loading = (!taskList.loaded && tasks.length === 0) || machinesLoading || archiveWaiting;
+  // Returning from the draft a machine's action opened: put focus back on that
+  // same action once the headings are on screen. A group the return cannot
+  // find (a filter arrived first) leaves focus alone rather than guessing.
+  useEffect(() => {
+    if (loading) return;
+    const target = takeDeviceNewReturn();
+    if (!target) return;
+    const buttons = listRef.current?.querySelectorAll<HTMLElement>("[data-device-new]") ?? [];
+    const button = Array.from(buttons).find((node) => node.dataset.deviceNew === target);
+    button?.focus();
+  }, [loading, deviceGroups]);
   const now = Date.now();
   const viewedIds = useMemo(() => new Set(getViewedSessionIds()), [viewTick]);
-  const searching = query.trim() !== "";
   // A reorder here would mean "reorder the current results", not the project:
   // the order is stored per bucket, so it is offered only where the bucket is
   // shown whole. The stored order still displays in the narrowed views.
@@ -1078,6 +1125,40 @@ export default function SessionList({
     });
   }
 
+  /**
+   * A chat aimed at one machine, chosen from that machine's heading.
+   *
+   * Both halves of the aim are written before the composer opens: the machine
+   * id and a directory that machine can accept. The most recent directory is
+   * the group's own history, so the action lands where the reader last worked
+   * there; a machine that has never run anything falls back to its first
+   * declared root, and only then to the empty path the composer already knows
+   * how to ask about.
+   */
+  function newSessionOnDevice(group: PhoneDeviceGroup) {
+    if (!group.online) return;
+    let recent: PhoneProjectBucket | null = null;
+    for (const bucket of group.buckets) {
+      if (!bucket.cwd) continue;
+      if (!recent || bucket.lastActivityAt > recent.lastActivityAt) recent = bucket;
+    }
+    const machine =
+      machines.find((candidate) => candidate.id === group.id) ??
+      (group.isSelf ? machines.find((candidate) => candidate.isSelf) : undefined);
+    const cwd = recent?.cwd || machine?.roots[0] || "";
+    runGuardedNavigation(() => {
+      // This machine is stored as no machine, the same spelling every other
+      // local entry point uses.
+      rememberDeviceNewReturn(group.id || "__self__");
+      setDraftMachine(group.isSelf ? "" : group.id.trim());
+      setDraftCwd(cwd);
+      const to = `${DRAFT_PATH}${listStateQuery(params, cwd ? { cwd } : {})}`;
+      phonePush(navigate, location, to, {
+        state: draftEntryState(listUrlFor(location.search)),
+      });
+    });
+  }
+
   /** ↑/↓ walk the rows from the search field; Enter opens because a row is a
    *  button. Escape empties the query and gives the field back to the shell. */
   function sessionRows(): HTMLElement[] {
@@ -1342,6 +1423,12 @@ export default function SessionList({
             label={group.isSelf ? tr("nav.thisMachine") : group.label}
             shell={shell}
             renderBucket={renderBucket}
+            // A machine list that failed cannot say which machines are online,
+            // so it does not offer to start work on one. The Mac sidebar never
+            // grows this action.
+            onNewChat={
+              shell === "page" && !machinesFailed ? () => newSessionOnDevice(group) : undefined
+            }
           />
         ))}
 
@@ -1528,14 +1615,19 @@ function DeviceSection({
   label,
   shell,
   renderBucket,
+  onNewChat,
 }: {
   group: PhoneDeviceGroup;
   label: string;
   shell: "sidebar" | "page";
   renderBucket: (bucket: PhoneProjectBucket, stateKey: string) => ReactNode;
+  /** The phone's per-machine entry point; absent on the Mac sidebar and while
+   *  the machine list cannot be trusted. */
+  onNewChat?: () => void;
 }) {
   const tr = useT();
   const sidebar = shell === "sidebar";
+  const offlineReasonId = useId();
   return (
     <section aria-label={label}>
       <div
@@ -1566,17 +1658,50 @@ function DeviceSection({
           </span>
         </h2>
         <span className="flex-none text-caption tabular-nums text-kin-muted">{group.count}</span>
+        {onNewChat ? (
+          // Secondary, never the screen's primary action: the filled button
+          // belongs to the composer, and the list's own entry point is the
+          // header's "New chat". `aria-disabled` keeps the reason reachable —
+          // a native disabled control cannot be focused or read.
+          <Button
+            variant="quiet"
+            data-device-new={group.id || "__self__"}
+            aria-label={tr("sessions.newChatOnDevice", { device: label })}
+            aria-disabled={group.online ? undefined : true}
+            aria-describedby={group.online ? undefined : offlineReasonId}
+            onClick={() => {
+              if (group.online) onNewChat();
+            }}
+            className={[
+              "-my-1 h-11 w-11 flex-none items-center justify-center rounded-full p-0 text-kin-muted!",
+              !group.online ? "cursor-not-allowed opacity-40 hover:bg-transparent!" : "",
+            ].join(" ")}
+          >
+            <IconPlus size={16} strokeWidth={2} />
+          </Button>
+        ) : null}
       </div>
-      {/* One indent step per level in the sidebar: machine at the rail's
-          gutter, its projects one step in, a project's rows one step in
-          again. `data-sidebar-indent` names the level so the hierarchy test
-          can read the step without measuring a layout jsdom does not have. */}
-      <div
-        data-sidebar-indent={sidebar ? "project" : undefined}
-        className={sidebar ? "pl-4" : undefined}
-      >
-        {group.buckets.map((bucket) => renderBucket(bucket, `${group.id}::${bucket.key}`))}
-      </div>
+      {onNewChat && !group.online ? (
+        <p id={offlineReasonId} className="px-4 pb-1 text-caption text-kin-muted">
+          {tr("sessions.deviceOfflineNewChat")}
+        </p>
+      ) : null}
+      {group.buckets.length === 0 ? (
+        // A machine with no conversations is still a place to start one; it
+        // gets its heading and the heading's action, not an invented project.
+        <p className="px-4 pb-1 text-body text-kin-muted">{tr("sessions.deviceEmpty")}</p>
+      ) : (
+        // One indent step per level in the sidebar: machine at the rail's
+        // gutter, its projects one step in, a project's rows one step in
+        // again. `data-sidebar-indent` names the level so the hierarchy test
+        // can read the step without measuring a layout jsdom does not have.
+        <div
+          data-sidebar-indent={sidebar ? "project" : undefined}
+          className={sidebar ? "pl-4" : undefined}
+        >
+          {group.buckets.map((bucket) => renderBucket(bucket, `${group.id}::${bucket.key}`))}
+        </div>
+      )}
     </section>
   );
 }

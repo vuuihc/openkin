@@ -3,6 +3,7 @@
   "viewports": ["phone"],
   "steps": [
     ["goto", "/sessions"],
+    ["click", "/Search chats|搜索对话/"],
     ["fill", "input[type=search]", "seed"],
     ["wait", "css=[data-session-row]:has-text(\"[seed] Morning planning\")"],
     ["scroll", "css=[data-phone-scroll]", "80"],
@@ -64,6 +65,7 @@
     ["url", "^/tasks/"],
     ["wait", "css=[role=region][tabindex='-1']:has-text('Fake reply from the journey fake agent.')"],
     ["goto", "/sessions"],
+    ["click", "/Search chats|搜索对话/"],
     ["fill", "input[type=search]", ""],
     ["click", "css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"],
     ["wait", "css=[data-session-row]:has-text(\"[seed] Morning planning\")"],
@@ -85,6 +87,7 @@
     ["rows", "css=[data-phone-scroll] section:has([data-session-row]:has-text(\"[seed] Morning planning\")):not(:has(section))", "[seed] Morning planning|[seed] Approve the migration"],
     ["shot", "order-after-drag"],
     ["goto", "/sessions"],
+    ["click", "/Search chats|搜索对话/"],
     ["fill", "input[type=search]", ""],
     ["click", "css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"],
     ["wait", "css=[data-session-row]:has-text(\"[seed] Morning planning\")"],

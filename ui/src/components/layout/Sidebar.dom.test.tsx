@@ -558,6 +558,28 @@ describe("the Mac sidebar list", () => {
       importButton.closest("[data-sidebar-footer]"),
     );
   });
+
+  it("adds no per-device new action in the Mac sidebar", () => {
+    // KIN-CONTINUE-004 gives each machine heading a new-chat action and orders
+    // machines by last activity on the phone. Neither belongs here: the column
+    // keeps its header's New chat, its always-visible search field, and its
+    // own order (this machine first) even when the remote machine was used
+    // more recently.
+    fixtures.tasks = [
+      { ...task("local-old", "/work/alpha"), created_at: 1 },
+      { ...task("remote-new", "/srv/beta", "nas-1"), created_at: 500 },
+    ];
+    render(sidebar());
+
+    expect(screen.queryByRole("button", { name: /New chat on/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Search chats" })).toBeNull();
+    expect(screen.getAllByRole("searchbox")).toHaveLength(1);
+    const headings = screen
+      .getAllByRole("heading", { level: 2, name: /This machine|Studio/ })
+      .map((node) => node.textContent);
+    expect(headings[0]).toContain("This machine");
+    expect(headings[1]).toContain("Studio");
+  });
 });
 
 /**

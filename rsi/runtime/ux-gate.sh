@@ -116,7 +116,7 @@ NSHOT="$(ls "$SHOTS"/*.png 2>/dev/null | wc -l | tr -d ' ')"
 # count false reds by source. A green run walks once and never creates $UXD/confirm. A confirm
 # that cannot run keeps the first-walk failures: fail closed, never turn a red into "unavailable".
 CONF_JSON="$UXD/confirm.json"; CONF_SUMMARY=""
-rm -f "$CONF_JSON" "$UXD/confirm.txt" "$UXD/confirm.summary" "$UXD/confirm.hard"   # this attempt's evidence only
+rm -f "$CONF_JSON" "$UXD/confirm.txt" "$UXD/confirm.summary" "$UXD/confirm.hard" "$UXD/green.txt"   # this attempt's evidence only
 # This run's own evidence only: a stale UNAVAILABLE or walk.json from an earlier attempt on the
 # same slug must not decide the confirmation.
 rm -rf "$UXD/confirm"
@@ -152,8 +152,8 @@ if [ -n "$HARD" ]; then
       # Written to a file rather than captured: macOS bash 3.2 lexes quotes inside a heredoc
       # nested in $( ), so a body comment with an apostrophe breaks the parse. A standalone
       # heredoc is literal and keeps the python readable.
-      python3 - "$HARD" "$CHARD" "$JOURNEYS" "$UXD/confirm.txt" "$CONF_JSON" "$UXD/confirm.summary" "$UXD/confirm.hard" <<'PY'
-import json, re, sys
+      python3 - "$HARD" "$CHARD" "$JOURNEYS" "$UXD/confirm.txt" "$CONF_JSON" "$UXD/confirm.summary" "$UXD/confirm.hard" "$SHOTS/walk.json" "$SHOTS" "$UXD/green.txt" <<'PY'
+import json, os, re, sys
 orig = [l for l in sys.argv[1].splitlines() if l]
 conf = [l for l in sys.argv[2].splitlines() if l]
 journeys = sys.argv[3]
@@ -177,6 +177,35 @@ if flaked:
 open(sys.argv[6], "w").write(summary + "\n")
 json.dump({"journeys": journeys, "reproduced": len(reproduced), "flaked": len(flaked)}, open(sys.argv[5], "w"))
 open(sys.argv[7], "w").write("\n".join(final) + ("\n" if final else ""))
+# R-ux-confirm-evidence: the confirm walk only re-walks the journeys its red named, so the
+# reviewer also needs the first walk's screens for the journeys that stayed green. Same journey()
+# regex as the decision above, so both agree on what "this journey was named" means. Written only
+# in the flaked-only state (reproduced=0 and flaked>0) — the state §1c marks CONFIRM_ONLY — so
+# every other run leaves the file empty and the prompt unchanged. Line 1: journey ids, line 2:
+# their first-walk pngs. No first-walk hardFail line is ever copied here: those are the flakes.
+greens = []
+if not reproduced and flaked:
+    named = set(journey(l) for l in flaked)
+    try:
+        first = json.load(open(sys.argv[8], errors="replace"))
+    except (OSError, ValueError):
+        first = {}
+    screens = first.get("screens") if isinstance(first, dict) else None
+    for screen in screens if isinstance(screens, list) else []:
+        j = screen.get("journey") if isinstance(screen, dict) else ""
+        if isinstance(j, str) and re.match(r"^J[0-9]+$", j) and j not in named and j not in greens:
+            greens.append(j)
+    pngs = []
+    try:
+        names = os.listdir(sys.argv[9])
+    except OSError:
+        names = []
+    for f in sorted(names):
+        if f.endswith(".png") and any(f.startswith(g + "-") for g in greens):
+            pngs.append(os.path.join(sys.argv[9], f))
+    open(sys.argv[10], "w").write(" ".join(greens) + "\n" + " ".join(pngs) + "\n")
+else:
+    open(sys.argv[10], "w").write("\n\n")
 PY
       PYRC=$?
       [ "$PYRC" -eq 0 ] || CRSN="confirm decision failed"
@@ -215,15 +244,33 @@ sys.exit(0 if d.get("reproduced") == 0 and int(d.get("flaked") or 0) > 0 else 1)
 PY
   then CONFIRM_ONLY=1; fi
 fi
-# A below-3 axis in the CONFIRM_ONLY state must be grounded in the confirm walk's own evidence:
-# a screenshot file that exists under $UXD/confirm, or a line from confirm/walk.json. The axis
-# word on the machine `UX_SCORES:` line never counts, same rule as ungrounded_axes. accepts_review
-# keeps ungrounded_axes: merge.sh reuses a cached review with the same CLI and semantics as before.
-ungrounded_axes_confirm() { # <review-file> <confirm-dir> -> comma list of below-3 axes with no confirm evidence
-  python3 - "$1" "$2" <<'PY'
+# 1d. The union evidence set (R-ux-confirm-evidence, 2026-11-20). #467: the first walk walked
+# J1/J11/J12 green, the confirm re-walk reproduced nothing, and the stricter rule below then
+# judged all five axes off the one journey whose screens the confirm walk re-took. In
+# CONFIRM_ONLY the evidence is the union, attributed per journey: the confirm screens for the
+# journeys it re-walked, and the first walk's screens for the journeys its red did not name
+# (green.txt, written by the confirm decision above with the same journey() regex). The flaked
+# journey's first-walk screens and every first-walk hard-fail line stay out.
+GREEN=""; GREEN_SHOTS=""; CONF_SHOTS=""
+if [ "$CONFIRM_ONLY" = 1 ]; then
+  CONF_SHOTS="$(ls "$UXD/confirm"/*.png 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+  if [ -s "$UXD/green.txt" ]; then
+    GREEN="$(sed -n 1p "$UXD/green.txt")"
+    GREEN_SHOTS="$(sed -n 2p "$UXD/green.txt")"
+  fi
+fi
+# A below-3 axis in the CONFIRM_ONLY state must be grounded in the evidence the reviewer was
+# handed: a screenshot file under $UXD/confirm, or a line from confirm/walk.json — and, for the
+# journeys the confirm walk did not re-walk, a first-walk screenshot or screen (§1d). Never a
+# first-walk hardFail line: in this state those are the flakes. The axis word on the machine
+# `UX_SCORES:` line never counts, same rule as ungrounded_axes. accepts_review keeps
+# ungrounded_axes: merge.sh reuses a cached review with the same CLI and semantics as before.
+ungrounded_axes_confirm() { # <review-file> <confirm-dir> [first-walk-dir] [green journeys]
+  python3 - "$1" "$2" "${3:-}" "${4:-}" <<'PY'
 import json, os, re, sys
 txt = open(sys.argv[1], errors="replace").read()
-cdir = sys.argv[2]
+cdir, fdir = sys.argv[2], sys.argv[3]
+green = set(sys.argv[4].split())
 axes = ["clarity", "density", "consistency", "feedback", "keyboard"]
 m = re.findall(r"UX_SCORES:\s*(.+)", txt)
 sc = {}
@@ -240,30 +287,48 @@ for root, _dirs, files in os.walk(cdir):
 # that quotes the same failure in plain text could never match it. The values a finding
 # can legitimately quote are the hard-failure lines, each screen's screenshot name and
 # notes, and its lint readings (as key=value, so a bare number cannot ground any line).
-try:
-    walk = json.load(open(os.path.join(cdir, "walk.json"), errors="replace"))
-except (OSError, ValueError):
-    walk = {}
+def _walk(path):
+    try:
+        d = json.load(open(path, errors="replace"))
+    except (OSError, ValueError):
+        return {}
+    return d if isinstance(d, dict) else {}
 def _strings(node):
     if isinstance(node, str):
         yield node
     elif isinstance(node, list):
         for v in node:
             yield from _strings(v)
-if isinstance(walk, dict):
-    for t in _strings(walk.get("hardFail")):
-        if t.strip():
-            tokens.append(t)
-    screens = walk.get("screens")
+def _screen_tokens(screens, keep=None):
+    out = []
     for screen in screens if isinstance(screens, list) else []:
         if not isinstance(screen, dict):
             continue
+        if keep is not None and screen.get("journey") not in keep:
+            continue
         for t in _strings([screen.get("name"), screen.get("notes")]):
             if t.strip():
-                tokens.append(t)
+                out.append(t)
         lint = screen.get("lint")
         if isinstance(lint, dict):
-            tokens.extend("%s=%s" % (k, json.dumps(v)) for k, v in lint.items())
+            out.extend("%s=%s" % (k, json.dumps(v)) for k, v in lint.items())
+    return out
+walk = _walk(os.path.join(cdir, "walk.json"))
+for t in _strings(walk.get("hardFail")):
+    if t.strip():
+        tokens.append(t)
+tokens.extend(_screen_tokens(walk.get("screens")))
+# §1d's union: the first walk's screenshots for the journeys the confirm walk did not re-walk
+# stay evidence. Hard-fail lines from that walk are deliberately absent — they are the flakes.
+if green and fdir:
+    try:
+        names = os.listdir(fdir)
+    except OSError:
+        names = []
+    for f in names:
+        if f.endswith(".png") and any(f.startswith(g + "-") for g in green):
+            tokens.append(f)
+    tokens.extend(_screen_tokens(_walk(os.path.join(fdir, "walk.json")).get("screens"), green))
 def grounded(line):
     return any(tok in line for tok in tokens)
 gaps = []
@@ -283,7 +348,7 @@ print(",".join(gaps))
 PY
 }
 ground_gaps() { # <review-file> -> below-3 axes not grounded in the evidence the reviewer was told to use
-  if [ "$CONFIRM_ONLY" = 1 ]; then ungrounded_axes_confirm "$1" "$UXD/confirm"; else ungrounded_axes "$1"; fi
+  if [ "$CONFIRM_ONLY" = 1 ]; then ungrounded_axes_confirm "$1" "$UXD/confirm" "$SHOTS" "$GREEN"; else ungrounded_axes "$1"; fi
 }
 # 2. vision review
 BASELINE="$STATE/shots/baseline"   # walk of the installed build before the programme (empty daemon); refresh with ux-walk.sh on current main
@@ -291,12 +356,17 @@ APPROVED_PROTO="$STATE/ux-proto/final"
 BODY="$($GH pr view "$N" --repo "$GH_REPO" --json body --jq .body 2>/dev/null | head -c 3000 | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null)"
 PR_SHOTS="$(ls "$STATE/shots/$SLUG"/*.png 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
 PF="$STATE/briefs/$SLUG-ux-review.md"; mkdir -p "$STATE/briefs"
-# A confirm-only run's evidence is the confirm walk; every other run keeps $SHOTS.
+# A confirm-only run's evidence is §1d's union; every other run keeps $SHOTS.
 EVID="$SHOTS"; [ "$CONFIRM_ONLY" = 1 ] && EVID="$UXD/confirm"
+EVID_MORE=""; GREEN_REASK=""
+if [ "$CONFIRM_ONLY" = 1 ] && [ -n "$GREEN" ]; then
+  EVID_MORE=" The first walk's screenshots for journeys with no surviving failure ($GREEN) are also evidence: $GREEN_SHOTS (their names, notes and lint are in $SHOTS/walk.json)."
+  GREEN_REASK=" and the first walk's screenshots for the journeys with no surviving failure ($GREEN): $GREEN_SHOTS"
+fi
 {
   echo "You are the UX REVIEWER (read-only) for PR #$N (item $ITEM, branch rsi/$SLUG, worktree $WT). The worker was a different model."
   echo "Follow $RSI_DIR/roles/ux-reviewer.md and the rubric in $RSI_DIR/UX-RUBRIC.md EXACTLY. Do not run builds or tests."
-  echo "Evidence you MUST open with the Read tool (images are viewable): the walk screenshots in $EVID (names are <journey>-<viewport>-<n>-<step>.png; the matching .aria.txt is the accessibility tree), and $EVID/walk.json (objective lint per screen: small tap targets, search boxes, overflow, console errors)."
+  echo "Evidence you MUST open with the Read tool (images are viewable): the walk screenshots in $EVID (names are <journey>-<viewport>-<n>-<step>.png; the matching .aria.txt is the accessibility tree), and $EVID/walk.json (objective lint per screen: small tap targets, search boxes, overflow, console errors).${EVID_MORE}"
   [ -n "$PR_SHOTS" ] && echo "PR feature screenshots captured at 390x844 and 1100x760 (MUST also open with the Read tool, especially when a sub-surface such as workspace diffs or filtered states is not seeded in the generic journey walk): $PR_SHOTS"
   echo "Compare against: the BEFORE screenshots in $BASELINE (same names where they exist; the installed build before this programme) and the target prototype in $APPROVED_PROTO (the clickable shell Ethan approved; the product should converge on it, not on the old UI)."
   echo "Look at the attached diff only to explain what you see (do not run git/shell; the diff is provided). What the PR claims: $BODY"
@@ -306,7 +376,11 @@ EVID="$SHOTS"; [ "$CONFIRM_ONLY" = 1 ] && EVID="$UXD/confirm"
     echo
     echo "A second walk on the same tree did not reproduce these first-walk failures, so they are not evidence about this PR — do not score or ground an axis on them:"
     tail -n +2 "$UXD/confirm.txt" 2>/dev/null
-    echo "The confirm walk's own screenshots and walk.json ($UXD/confirm) are the evidence this PR is reviewed on. A below-3 axis must cite a file under $EVID or a line from its walk.json; a finding grounded only in the flakes above is not a verdict."
+    echo "The confirm walk re-walked ${JOURNEYS:-the flaked journeys}; its screenshots are the evidence for those journeys: ${CONF_SHOTS:-none recorded} (names, notes and lint in $UXD/confirm/walk.json)."
+    if [ -n "$GREEN" ]; then
+      echo "The journeys with no surviving failure ($GREEN) were not re-walked; their first-walk screenshots named above remain evidence for them (names, notes and lint in $SHOTS/walk.json)."
+    fi
+    echo "A below-3 axis must cite one of those files or a line from one of those walk.json files; a finding grounded only in the flakes above is not a verdict."
   fi
   echo "Note: a throwaway daemon may be EMPTY (see $EVID/seed.log); then judge empty/loading states and structure, and say 'not verifiable: needs seed data' for what you cannot see. Never invent what the screen shows."
   echo
@@ -350,7 +424,7 @@ if [ -n "$GAPS" ]; then
   UXR2="$UXD/review.2.txt"; rm -f "$UXR2"
   { cat "$PF"; echo; echo "--- second pass ---"; \
     if [ "$CONFIRM_ONLY" = 1 ]; then
-      echo "Your previous answer scored $GAPS below 3, but it grounds that score only in failures the confirm walk could not reproduce. Those are not evidence about this PR. Re-answer this review from the confirm walk's own evidence ($EVID screenshots and walk.json)."
+      echo "Your previous answer scored $GAPS below 3, but it grounds that score only in failures the confirm walk could not reproduce. Those are not evidence about this PR. Re-answer this review from the evidence this PR is judged on: the confirm walk's screenshots ($UXD/confirm)${GREEN_REASK}."
       echo "These are the first-walk failures the second walk on the same tree did not reproduce:"; tail -n +2 "$UXD/confirm.txt" 2>/dev/null
     else
       echo "Your previous answer scored $GAPS below 3, but its findings never name that axis. Re-answer this review."

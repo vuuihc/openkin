@@ -467,6 +467,223 @@ queue_carry_step() { # <wt> <old-head> <incoming> <new-sha> <pr-changed> <gate-f
   queue_carry "$1" "$2" "$4" "$3" "$5" "$6" "$7" "${8:-$(cut -d' ' -f3 "$6" 2>/dev/null | head -1)}"
 }
 
+# ------------------------------------------------------------------ optimistic batch verification
+# RSI_BATCH_VERIFY=1 (default 0) lets the dispatcher pay ONE gate for a set of ready PRs: each
+# member's review and CI already passed per PR exactly as today, only the local gate is deferred
+# to a union tree. The members then land one by one; after each squash the landed main tree is
+# compared with the union's recorded prefix tree. Off = today's path byte for byte.
+BATCH_SIZE="${RSI_BATCH_SIZE:-2}"; case "$BATCH_SIZE" in ''|*[!0-9]*|0) BATCH_SIZE=2 ;; esac
+[ "$BATCH_SIZE" -gt 3 ] && BATCH_SIZE=3
+BATCH_AGE_MAX="${RSI_BATCH_AGE_MAX:-5400}"   # 90 minutes; a marker older than this is never reused
+batch_enabled() { [ "${RSI_BATCH_VERIFY:-0}" = 1 ]; }
+
+# Phase 1 never batches a PR that pays the UX walk (the walk's evidence is per PR and phase 2 owns it).
+batch_walk_trigger() { # <changed-paths-file> — 0 when this PR triggers the UX walk
+  grep -E '^ui/src/.*\.(tsx|css)$' "$1" 2>/dev/null | grep -vqE '\.(test|spec)\.' && return 0
+  grep -qE '^(ui/package(-lock)?\.json|ui/tailwind|ui/postcss)' "$1" 2>/dev/null
+}
+# Shared/high-risk surfaces never join a batch: a change there moves what every member's
+# verification means, so the member falls back to single verification.
+batch_shared_risk() { # <changed-paths-file>
+  grep -qE '^(go\.mod|go\.sum|ui/package(-lock)?\.json|\.github/|scripts/check\.sh|.*migrations?/|internal/auth(/|$)|rsi/runtime/(merge|gate|common)\.sh$)' "$1" 2>/dev/null
+}
+batch_disjoint() { # <paths-a> <paths-b> — 0 when the only shared path (if any) is web/dist/index.html
+  local a b
+  a="$(mktemp "${TMPDIR:-/tmp}/rsi-bd-a.XXXXXX")" || return 1
+  b="$(mktemp "${TMPDIR:-/tmp}/rsi-bd-b.XXXXXX")" || { rm -f "$a"; return 1; }
+  sort -u "$1" > "$a"; sort -u "$2" > "$b"
+  # -q on the middle grep would close the pipe and make the final grep read nothing, so the
+  # filter would report every pair disjoint; only the last stage is quiet.
+  if comm -12 "$a" "$b" | grep -vx 'web/dist/index.html' | grep -q .; then rm -f "$a" "$b"; return 1; fi
+  rm -f "$a" "$b"; return 0
+}
+# A ready snapshot: review PASS for this PR's own diff (a disjoint main move keeps the key), CI
+# green on the live head, no hold/draft/blocked/sendback, and no gate PASS already on disk (that
+# PR can land on its own and needs no batch). Manifest row fields are tab-separated:
+#   number slug head diffkey tier ci flags changed-paths-file
+batch_ready() { # <row> <state> — prints an empty string when ready, else the one-word reason
+  local row="$1" state="$2" n slug head dh tier ci flags paths
+  IFS=$'\t' read -r n slug head dh tier ci flags paths <<< "$row"
+  [ -n "$n" ] && [ -n "$slug" ] && [ -n "$head" ] && [ -n "$paths" ] || { echo malformed; return; }
+  case ",$flags," in *,draft,*|*,hold,*|*,needs-ceo,*|*,blocked,*|*,sendback,*) echo flagged; return ;; esac
+  [ "$ci" = green ] || { echo "ci-$ci"; return; }
+  [ -s "$paths" ] || { echo no-paths; return; }
+  batch_walk_trigger "$paths" && { echo ux-walk; return; }
+  batch_shared_risk "$paths" && { echo shared-risk; return; }
+  local gsha gpass grole rdh rver rsha
+  [ -s "$state/merge/$slug.verified" ] && { read -r gsha gpass grole _ < "$state/merge/$slug.verified" 2>/dev/null || true; }
+  [ "$gpass" = PASS ] && [ "$gsha" = "$head" ] && { echo already-gated; return; }
+  [ -s "$state/merge/$slug.reviewed" ] && { read -r rdh rver rsha _ < "$state/merge/$slug.reviewed" 2>/dev/null || true; }
+  [ "$rver" = PASS ] && [ "$rdh" = "$dh" ] || { echo review-not-pass; return; }
+  echo ""
+}
+# batch_plan <manifest> <state> <base> — print the batch in PR-number order, or SINGLE <reason>.
+# Every pair must pass main_move_verdict with CARRY in both directions and have disjoint changed
+# paths; at least one member is non-small. No writes.
+batch_plan() {
+  local manifest="$1" state="$2" base="$3"
+  local rows=() row slug head dh tier flags paths reason order=()
+  batch_enabled || { echo "SINGLE batch-disabled"; return 1; }
+  while IFS= read -r row; do
+    [ -z "$row" ] && continue
+    reason="$(batch_ready "$row" "$state")"
+    [ -z "$reason" ] || { say "batch: skip $(printf '%s' "$row" | cut -f2): $reason" >&2; continue; }
+    rows+=("$row")
+  done < "$manifest"
+  [ ${#rows[@]} -ge 2 ] || { echo "SINGLE fewer-than-two-ready"; return 1; }
+  # PR number order is the landing order (stable, and the prefix trees are recorded in it).
+  local sorted
+  sorted="$(printf '%s\n' "${rows[@]}" | sort -t$'\t' -k1,1n)"
+  rows=(); while IFS= read -r row; do [ -n "$row" ] && rows+=("$row"); done <<< "$sorted"
+  local chosen=()
+  for row in "${rows[@]}"; do
+    [ ${#chosen[@]} -ge "$BATCH_SIZE" ] && break
+    local ok=1 other opaths
+    IFS=$'\t' read -r _ _ _ _ _ _ _ paths <<< "$row"
+    # bash 3.2 (the macOS /bin/bash this script runs on) treats "${arr[@]}" on an empty array
+    # as an unbound variable under `set -u`; the guarded form is the portable spelling.
+    for other in ${chosen[@]+"${chosen[@]}"}; do
+      IFS=$'\t' read -r _ _ _ _ _ _ _ opaths <<< "$other"
+      batch_disjoint "$paths" "$opaths" || { ok=0; break; }
+      main_move_verdict "$(cat "$opaths")" "$(cat "$paths")" || true
+      [ "$MOVE_TAG" = CARRY ] || { ok=0; break; }
+      main_move_verdict "$(cat "$paths")" "$(cat "$opaths")" || true
+      [ "$MOVE_TAG" = CARRY ] || { ok=0; break; }
+    done
+    [ $ok -eq 1 ] && chosen+=("$row")
+  done
+  [ ${#chosen[@]} -ge 2 ] || { echo "SINGLE not-compatible"; return 1; }
+  local have_big=0 c tier2
+  for c in "${chosen[@]}"; do
+    IFS=$'\t' read -r _ _ _ _ tier2 _ _ _ <<< "$c"
+    [ "$tier2" = small ] || have_big=1
+  done
+  if [ $have_big -eq 0 ]; then
+    # Do not pay union overhead for two one-line docs PRs: try to pull in the first compatible
+    # non-small candidate without dropping anyone.
+    local added=""
+    for row in "${rows[@]}"; do
+      IFS=$'\t' read -r _ _ _ _ tier2 _ _ paths <<< "$row"
+      [ "$tier2" = small ] && continue
+      printf '%s\n' "${chosen[@]}" | cut -f2 | grep -qx "$(printf '%s' "$row" | cut -f2)" && continue
+      local ok=1 opaths
+      for other in "${chosen[@]}"; do
+        IFS=$'\t' read -r _ _ _ _ _ _ _ opaths <<< "$other"
+        batch_disjoint "$paths" "$opaths" || { ok=0; break; }
+        main_move_verdict "$(cat "$opaths")" "$(cat "$paths")"; [ "$MOVE_TAG" = CARRY ] || { ok=0; break; }
+        main_move_verdict "$(cat "$paths")" "$(cat "$opaths")"; [ "$MOVE_TAG" = CARRY ] || { ok=0; break; }
+      done
+      [ $ok -eq 1 ] && { chosen+=("$row"); added=1; break; }
+    done
+    [ -n "$added" ] || { echo "SINGLE all-small"; return 1; }
+  fi
+  local id="batch-$(date +%s)-$$" i=0
+  echo "BATCH $id $base"
+  for row in "${chosen[@]}"; do
+    i=$((i+1))
+    IFS=$'\t' read -r _ slug head dh tier2 _ _ _ <<< "$row"
+    printf 'MEMBER %s\t%s\t%s\t%s\t%s\n' "$i" "$slug" "$head" "$dh" "$tier2"
+  done
+  return 0
+}
+# batch_union <repo> <base> <record> <head>... — merge the frozen heads in order into a throwaway
+# branch. Records base, each head and prefix tree, and the union tree. Never pushes. Returns 3 on
+# a conflict outside web/dist/index.html (phase 1 never resolves source conflicts).
+batch_union() {
+  local repo="$1" base="$2" rec="$3"; shift 3
+  local br="batch/union-$$" i=0 head conflicts
+  $GIT -C "$repo" checkout -q -B "$br" "$base" || return 2
+  : > "$rec"
+  printf 'base %s\n' "$base" >> "$rec"
+  for head in "$@"; do
+    i=$((i+1))
+    if ! $GIT -C "$repo" merge -q --no-edit "$head" >/dev/null 2>&1; then
+      conflicts="$($GIT -C "$repo" diff --name-only --diff-filter=U)"
+      if [ -n "$conflicts" ] && ! printf '%s\n' "$conflicts" | grep -vqx 'web/dist/index.html'; then
+        $GIT -C "$repo" checkout -q --theirs -- web/dist/index.html 2>/dev/null || true
+        $GIT -C "$repo" add -- web/dist/index.html
+        $GIT -C "$repo" commit -q --no-edit || { $GIT -C "$repo" merge --abort >/dev/null 2>&1; return 3; }
+      else
+        $GIT -C "$repo" merge --abort >/dev/null 2>&1
+        return 3
+      fi
+    fi
+    printf 'head %s %s\n' "$i" "$head" >> "$rec"
+    printf 'tree %s %s\n' "$i" "$($GIT -C "$repo" rev-parse HEAD^{tree})" >> "$rec"
+  done
+  printf 'union %s\n' "$($GIT -C "$repo" rev-parse HEAD^{tree})" >> "$rec"
+  return 0
+}
+batch_marker_write() { # <marker-file> <batch-id> <index> <base> <head> <diffkey> <union-tree>
+  local m="$1"
+  {
+    echo "batch $2"; echo "index $3"; echo "base $4"; echo "head $5"
+    echo "diffkey $6"; echo "tree $7"; echo "written $(date +%s)"
+  } > "$m"
+}
+# A marker is reusable only for the same batch, index, head and diff key, inside the age bound.
+# A base move is not checked here: the ordinary queue-time carry re-runs main_move_verdict and
+# drops the gate on REGATE, and the land-time prefix-tree compare proves the landed tree.
+batch_marker_valid() { # <marker> <batch-id> <index> <head> <diffkey> <now> [max-age] [member-state]
+  local m="$1" want_id="$2" want_ix="$3" head="$4" dh="$5" now="$6" max="${7:-$BATCH_AGE_MAX}"
+  local member="${8:-}"
+  local bid ix base mhead mdh tree written
+  batch_enabled || { echo "INVALID batch-disabled"; return 1; }
+  [ "$member" = closed ] && { echo "INVALID member-closed"; return 1; }
+  [ -s "$m" ] || { echo "INVALID no-marker"; return 1; }
+  bid="$(awk '$1=="batch"{print $2}' "$m")"; ix="$(awk '$1=="index"{print $2}' "$m")"
+  base="$(awk '$1=="base"{print $2}' "$m")"; mhead="$(awk '$1=="head"{print $2}' "$m")"
+  mdh="$(awk '$1=="diffkey"{print $2}' "$m")"; written="$(awk '$1=="written"{print $2}' "$m")"
+  [ "$bid" = "$want_id" ] || { echo "INVALID other-batch"; return 1; }
+  [ "$ix" = "$want_ix" ] || { echo "INVALID order"; return 1; }
+  [ "$mhead" = "$head" ] || { echo "INVALID head-moved"; return 1; }
+  [ "$mdh" = "$dh" ] || { echo "INVALID diffkey"; return 1; }
+  case "$written" in ''|*[!0-9]*) echo "INVALID malformed"; return 1 ;; esac
+  [ $(( now - written )) -le "$max" ] || { echo "INVALID expired"; return 1; }
+  echo VALID; return 0
+}
+# Landing proof: the landed main tree equals the union's prefix tree for this member, ignoring
+# web/dist/index.html (the UI build may legitimately rebuild it between members).
+batch_prefix_check() { # <repo> <record> <index> <main-tree>
+  local want
+  want="$(awk -v i="$3" '$1=="tree" && $2==i {print $3}' "$2")"
+  [ -n "$want" ] || return 1
+  [ "$want" = "$4" ] && return 0
+  $GIT -C "$1" diff --quiet "$want" "$4" -- . ':!web/dist/index.html'
+}
+batch_invalidate() { # <state> <slug>... — drop batch markers and batch-written gate files only
+  local state="$1" slug f role; shift
+  for slug in "$@"; do
+    rm -f "$state/merge/$slug.batch"
+    f="$state/merge/$slug.verified"
+    [ -s "$f" ] && { role="$(cut -d' ' -f3 "$f")"; [ "$role" = batch ] && rm -f "$f"; }
+  done
+}
+# Bisect (diagnosis only): the union of <heads...> already failed <step>. Split the list, build
+# each half's tree and run only that step; recurse to singletons. Prints CULPRIT <head> per
+# attributor, or NONATTRIBUTABLE when every singleton passes. Nothing here sends back or lands.
+batch_bisect() { # <repo> <base> <step> <head>...
+  local repo="$1" base="$2" step="$3"; shift 3
+  local out
+  out="$(batch_bisect_list "$repo" "$base" "$step" "$@")"
+  if [ -z "$out" ]; then echo NONATTRIBUTABLE; else printf '%s\n' "$out"; fi
+}
+batch_bisect_list() {
+  local repo="$1" base="$2" step="$3"; shift 3
+  local heads=("$@") n=${#heads[@]} rec rc half left right
+  [ $n -eq 0 ] && return 0
+  rec="$(mktemp "${TMPDIR:-/tmp}/rsi-batch-rec.XXXXXX")" || return 1
+  if batch_union "$repo" "$base" "$rec" "${heads[@]}"; then
+    ( cd "$repo" && bash "$RSI_DIR/runtime/gate.sh" --only "$step" "$repo" ) > "$rec.log" 2>&1; rc=$?
+    if [ $rc -eq 0 ] && grep -q '^GATE_RESULT=PARTIAL$' "$rec.log"; then rm -f "$rec" "$rec.log"; return 0; fi
+  fi
+  rm -f "$rec" "$rec.log"
+  if [ $n -eq 1 ]; then echo "CULPRIT ${heads[0]}"; return 0; fi
+  half=$(( n / 2 ))
+  batch_bisect_list "$repo" "$base" "$step" "${heads[@]:0:$half}"
+  batch_bisect_list "$repo" "$base" "$step" "${heads[@]:$half}"
+}
+
 # ------------------------------------------------------------------ re-verification accounting
 reverify_reason() { # <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason>
   # Accounting only (retro 2026-11-20 §5.2): WHY a gate that already ran is paid for again. Writes
@@ -855,6 +1072,37 @@ if [ "${1:-}" != "--one" ]; then
   if [ "${1:-}" = "--archive-check" ]; then
     archive_sendback "${2:?slug required}" merged "${3:?sha8 required}"
     exit 0
+  fi
+  # Hermetic seams for rsi/runtime/tests/test-merge-batch.sh: the batch planner, union builder,
+  # marker validity, prefix-tree proof and bisect, each callable alone. No gh, lock or dispatch.
+  if [ "${1:-}" = "--batch-plan-check" ]; then
+    [ $# -ge 4 ] || { echo "usage: merge.sh --batch-plan-check <manifest> <state> <base>" >&2; exit 2; }
+    batch_plan "$2" "$3" "$4"; exit $?
+  fi
+  if [ "${1:-}" = "--batch-union-check" ]; then
+    [ $# -ge 5 ] || { echo "usage: merge.sh --batch-union-check <repo> <base> <record> <head>..." >&2; exit 2; }
+    BR="$2" BBASE="$3" BREC="$4"; shift 4
+    batch_union "$BR" "$BBASE" "$BREC" "$@"; rc=$?
+    [ $rc -eq 0 ] && echo "UNION $(awk '$1=="union"{print $2}' "$BREC")"
+    exit $rc
+  fi
+  if [ "${1:-}" = "--batch-marker-check" ]; then
+    [ $# -ge 7 ] || { echo "usage: merge.sh --batch-marker-check <marker> <batch> <index> <head> <diffkey> <now> [max-age] [member-state]" >&2; exit 2; }
+    batch_marker_valid "$2" "$3" "$4" "$5" "$6" "$7" "${8:-}" "${9:-}"; exit $?
+  fi
+  if [ "${1:-}" = "--batch-prefix-check" ]; then
+    [ $# -ge 5 ] || { echo "usage: merge.sh --batch-prefix-check <repo> <record> <index> <main-tree>" >&2; exit 2; }
+    if batch_prefix_check "$2" "$3" "$4" "$5"; then echo PREFIX-OK; exit 0; else echo PREFIX-MISMATCH; exit 1; fi
+  fi
+  if [ "${1:-}" = "--batch-bisect-check" ]; then
+    [ $# -ge 5 ] || { echo "usage: merge.sh --batch-bisect-check <repo> <base> <step> <head>..." >&2; exit 2; }
+    BR="$2" BBASE="$3" BSTEP="$4"; shift 4
+    batch_bisect "$BR" "$BBASE" "$BSTEP" "$@"; exit 0
+  fi
+  if [ "${1:-}" = "--batch-invalidate-check" ]; then
+    [ $# -ge 3 ] || { echo "usage: merge.sh --batch-invalidate-check <state> <slug>..." >&2; exit 2; }
+    BSTATE="$2"; shift 2
+    batch_invalidate "$BSTATE" "$@"; exit 0
   fi
   DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
   [ -e "$STATE/PAUSE" ] && { echo "paused"; exit 0; }
