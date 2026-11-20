@@ -1828,6 +1828,8 @@ const en: MessageTree = {
     emptyList: "No routines configured. Open a project and add one.",
     showSilent: "Show {count} quiet runs",
     hideSilent: "Hide quiet runs ({count})",
+    hideEnded: "Hide these quiet runs from this device",
+    hiddenEnded: "{count} quiet runs hidden from this device · Restore",
     noteworthy: "Noteworthy",
     statusQueued: "Queued",
     statusRunning: "Running",
