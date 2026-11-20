@@ -28,11 +28,12 @@
 # Hermetic: temp RSI_CTRL (common.sh derives STATE from it), stubbed lanes.py/volc-budget.py and
 # PR state, no network, no model calls, no real gh. npm/go/node/curl are booby traps: autofill must
 # not need them. The claim cases use a local bare origin so the real fetch/diff finds a diff.
-# Prints "ok: <case>" per case and exits non-zero on the first failure.
+# Prints "PASS <case>" per case and exits non-zero on the first failure.
 # Set RSI_TEST_ONLY=<case> to run one case (used to show the red run).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LANE="$(cd "$HERE/.." && pwd)/lane.sh"
+RUN="$(cd "$HERE/.." && pwd)/run.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 SLUG="waiver-guard"
 # Written after waiver-guard, so it is the newer sendback when both exist (autofill walks the
@@ -42,7 +43,7 @@ SLUG2="waiver-two"
 CASE=""; RC=0
 ONLY="${RSI_TEST_ONLY:-}"
 
-ok() { echo "ok: $1"; }
+ok() { echo "PASS $1"; }
 fail() { echo "FAIL $*" >&2; exit 1; }
 st() { echo "$RSI_CTRL/rsi/state"; }
 claim_log() { echo "$T/claim-$CASE.log"; }
@@ -356,6 +357,110 @@ test_missing_sendback_does_not_hide_the_queue() {
     || fail "missing_sendback: expected only older.md, got: $(out)"
 }
 
+# --- fill_plan: the debounce must not hold back the model-free rework dispatch ------------------
+#
+# R-rework-dispatch (2026-11-20): a rejected PR starts a rework through `lane.sh autofill`, which
+# makes no model call, but the pulse exited on the 8-minute `last_fill` debounce *before* reaching
+# it. A rejection then waited for the debounce to lapse: p50 11 min, p90 31 min, 73% of every
+# open-to-merge minute. run.sh now asks the pure `fill_plan <debounced> <workers>` for the ordered
+# action list and executes it, so the debounce suppresses only the expensive director run and its
+# `last_fill` write. The seam `run.sh --fill-plan <0|1>` calls exactly that function; the worker
+# gate is resolved from the stubbed volc-budget.py, as in the pulse.
+
+plan() { RSI_CTRL="$RSI_CTRL" bash "$RUN" --fill-plan "$1" 2> "$T/$CASE.err"; }
+
+test_rework_dispatch_survives_the_fill_debounce() {
+  new_case plan_debounced
+  local o rc
+  o="$(plan 1)"; rc=$?
+  [ "$rc" -eq 0 ] || fail "plan_debounced: --fill-plan 1 exited $rc ($(cat "$T/$CASE.err"))"
+  case "$o" in *autofill-astryx*) ;; *) fail "plan_debounced: no Astryx autofill action: '$o'";; esac
+  case "$o" in *autofill-rest*) ;; *) fail "plan_debounced: no rest autofill action: '$o'";; esac
+  case "$o" in *director*) fail "plan_debounced: a debounced pulse still plans the director: '$o'";; esac
+}
+
+test_director_still_debounced_within_eight_minutes() {
+  new_case plan_director_allowed
+  local o rc
+  o="$(plan 0)"; rc=$?
+  [ "$rc" -eq 0 ] || fail "plan_director_allowed: --fill-plan 0 exited $rc ($(cat "$T/$CASE.err"))"
+  case "$o" in *director*) ;; *) fail "plan_director_allowed: no director outside the debounce: '$o'";; esac
+}
+
+test_autofill_runs_before_the_director() {
+  new_case plan_order
+  local o
+  o="$(plan 0)"
+  case "$o" in
+    *autofill-astryx*autofill-rest*director*) ;;
+    *) fail "plan_order: autofill must precede the director: '$o'";;
+  esac
+}
+
+test_autofill_still_requires_worker_headroom() {
+  new_case plan_no_headroom
+  # --allow-workers denied; --export (read at common.sh load) still succeeds quietly.
+  cat > "$RSI_CTRL/rsi/runtime/volc-budget.py" <<'PY'
+import sys
+sys.exit(1 if "--allow-workers" in sys.argv[1:] else 0)
+PY
+  local o
+  o="$(plan 0)"
+  case "$o" in
+    *autofill*) fail "plan_no_headroom: autofill planned with the worker gate off: '$o'";;
+    *director*) ;;
+    *) fail "plan_no_headroom: director lost with the worker gate off: '$o'";;
+  esac
+  [ -z "$(plan 1)" ] \
+    || fail "plan_no_headroom: a debounced, gate-off pulse planned work: '$(plan 1)'"
+}
+
+# The write itself: a debounced pulse (autofill only) and a backpressured pulse (autofill, then the
+# open-PR exit) both run hermetically — lane.sh is a stub that records its argv, no model, no gh —
+# and neither may touch last_fill. The positive half (director ran -> last_fill written) is the same
+# unchanged `date +%s > last_fill` line, reachable only after the director branch; it is not driven
+# end-to-end here because that branch launches the model run.
+test_last_fill_is_written_only_when_the_director_runs() {
+  new_case last_fill_debounced
+  printf '## Queue\n' > "$RSI_CTRL/rsi/STATUS.md"
+  : > "$RSI_CTRL/rsi/scorecard.md"
+  cat > "$RSI_CTRL/rsi/runtime/lane.sh" <<SH
+#!/bin/bash
+printf '%s\n' "\$*" >> "$T/$CASE.autofill"
+SH
+  date +%s > "$(st)/last_fill"
+  local before
+  before="$(cat "$(st)/last_fill")"
+  RSI_CTRL="$RSI_CTRL" RSI_SYNCED=1 bash "$RUN" pulse > "$T/$CASE.out" 2>&1
+  local rc=$?
+  [ "$rc" -eq 0 ] || fail "last_fill_debounced: pulse exited $rc ($(out))"
+  grep -q "skip: fill ran <8 min ago" "$T/$CASE.out" \
+    || fail "last_fill_debounced: no debounce line ($(out))"
+  [ "$(cat "$T/$CASE.autofill" 2>/dev/null | paste -sd'|' -)" = "autofill astryx|autofill rest" ] \
+    || fail "last_fill_debounced: autofill did not run under the debounce: '$(cat "$T/$CASE.autofill" 2>/dev/null | paste -sd'|' -)'"
+  [ "$(cat "$(st)/last_fill")" = "$before" ] \
+    || fail "last_fill_debounced: a debounced pulse rewrote last_fill"
+
+  # Not debounced, no worker gate problem, but the PR queue is full: autofill runs, the backpressure
+  # branch exits before any director, so last_fill must still be absent.
+  new_case last_fill_backpressure
+  printf '## Queue\n' > "$RSI_CTRL/rsi/STATUS.md"
+  : > "$RSI_CTRL/rsi/scorecard.md"
+  cat > "$RSI_CTRL/rsi/runtime/lane.sh" <<SH
+#!/bin/bash
+printf '%s\n' "\$*" >> "$T/$CASE.autofill"
+SH
+  RSI_CTRL="$RSI_CTRL" RSI_SYNCED=1 RSI_MAX_OPEN_PRS=1 RSI_OPEN_PR_COUNT=1 \
+    bash "$RUN" pulse > "$T/$CASE.out" 2>&1
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "last_fill_backpressure: pulse exited $rc ($(out))"
+  grep -q "open PR backpressure" "$T/$CASE.out" \
+    || fail "last_fill_backpressure: no backpressure line ($(out))"
+  [ -s "$T/$CASE.autofill" ] || fail "last_fill_backpressure: autofill did not run before the exit"
+  [ ! -e "$(st)/last_fill" ] \
+    || fail "last_fill_backpressure: last_fill written without a director run"
+}
+
 run() {
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   RAN=$((RAN+1))
@@ -376,5 +481,10 @@ run test_open_pr_sendback_still_claims
 run test_unknown_pr_state_fails_open
 run test_oldest_sendback_is_claimed_first
 run test_missing_sendback_does_not_hide_the_queue
+run test_rework_dispatch_survives_the_fill_debounce
+run test_director_still_debounced_within_eight_minutes
+run test_autofill_runs_before_the_director
+run test_autofill_still_requires_worker_headroom
+run test_last_fill_is_written_only_when_the_director_runs
 [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS
