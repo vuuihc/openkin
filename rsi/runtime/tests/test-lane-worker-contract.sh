@@ -20,7 +20,9 @@
 # Set RSI_TEST_ONLY=<case> to run one case (used to show the red run per case).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/../../.." && pwd)"
 LANE="$(cd "$HERE/.." && pwd)/lane.sh"
+CLOUD_TEMPLATE="$ROOT/rsi/runtime/prompts/cloud-brief-template.md"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 ONLY="${RSI_TEST_ONLY:-}"
 ok() { echo "PASS $*"; }; bad() { echo "FAIL $*" >&2; exit 1; }
@@ -125,6 +127,42 @@ test_prose_claim_check_rule() {
     || bad "prose-claim-check-rule: the contract does not say a missing claim is not delivery"
 }
 
+# The worker's copy of the full suite competes with the merge gate for the same machine: on
+# 2026-11-19 a worker's `check.sh` ran beside three queued gates (load 9–10.6 on 8 cores,
+# swap free 1.3 GB) and two concurrent UI builds sat behind that day's false reds. The merge
+# gate already runs the full suite on the same tree, so the contract keeps the worker on
+# focused checks and names the gate as the owner of the full run.
+test_no_full_gate_instruction() {
+  lane_record new
+  local text
+  text="$(contract_text new)" || bad "no-full-gate-instruction: --worker-contract-check exited $?"
+  grep -Fq "FOCUSED checks only" <<<"$text" \
+    || bad "no-full-gate-instruction: the contract lost the focused-checks rule (${text:0:400})"
+  grep -Fq "The merge lane runs the full gate" <<<"$text" \
+    || bad "no-full-gate-instruction: the contract no longer names the merge lane as the full-gate owner (${text:0:400})"
+  if grep -Fq -- "./scripts/check.sh" <<<"$text"; then
+    bad "no-full-gate-instruction: the contract still orders the full suite the merge lane already runs"
+  fi
+}
+
+# The cloud/NAS brief is read by agents on a container with no Go toolchain (python3, bash, git,
+# node only), so ordering `./scripts/check.sh` there is a command that cannot pass on their
+# machine. The template must send them to the focused suites that exist locally and leave the
+# full suite to the Mac merge gate. File-level on purpose: the test reads the file the cloud
+# agent reads, not a copy.
+test_cloud_brief_has_no_full_gate() {
+  [ -f "$CLOUD_TEMPLATE" ] || bad "cloud-brief-has-no-full-gate: no such file: $CLOUD_TEMPLATE"
+  if grep -Fq -- "./scripts/check.sh" "$CLOUD_TEMPLATE"; then
+    bad "cloud-brief-has-no-full-gate: the template still orders ./scripts/check.sh, which cannot pass on the NAS container"
+  fi
+  grep -Fq "merge gate" "$CLOUD_TEMPLATE" \
+    || bad "cloud-brief-has-no-full-gate: the template never names the merge gate as the full-suite owner"
+  grep -Fq 'full `check.sh`' "$CLOUD_TEMPLATE" \
+    || bad "cloud-brief-has-no-full-gate: the template never says the merge gate runs the full check.sh"
+  grep -Fq "no Go" "$CLOUD_TEMPLATE" \
+    || bad "cloud-brief-has-no-full-gate: the template never says the container has no Go toolchain"
+}
+
 test_rework_keeps_rules() {
   lane_record rework
   seam _worker-brief 1 || bad "rework-keeps-rules: _worker-brief exited $?"
@@ -175,6 +213,8 @@ RAN=0
 run race-ordering-rule test_race_ordering_rule
 run race-flag-self-check test_race_flag_self_check
 run prose-claim-check-rule test_prose_claim_check_rule
+run no-full-gate-instruction test_no_full_gate_instruction
+run cloud-brief-has-no-full-gate test_cloud_brief_has_no_full_gate
 run rework-keeps-rules test_rework_keeps_rules
 run one-source test_one_source
 [ "$RAN" -gt 0 ] || bad "RSI_TEST_ONLY='$ONLY' matched no case"
