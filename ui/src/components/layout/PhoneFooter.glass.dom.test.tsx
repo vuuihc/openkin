@@ -76,9 +76,7 @@ describe("KIN-CONTINUE-005 phone footer", () => {
       expect.stringContaining("sr-only"),
     ]);
 
-    expect(document.querySelectorAll("[data-phone-footer] a[aria-current='page']")).toHaveLength(
-      1,
-    );
+    expect(document.querySelectorAll("[data-phone-footer] a[aria-current='page']")).toHaveLength(1);
   });
 
   it("KIN-CONTINUE-005 draws the bar as one floating glass surface over the content", () => {
@@ -152,8 +150,6 @@ describe("KIN-CONTINUE-005 phone footer", () => {
       const marker = link.querySelector("[data-phone-tab-icon]") as HTMLElement;
       expect(marker.className).not.toContain("bg-kin-blue");
     }
-    expect(document.querySelectorAll("[data-phone-footer] a[aria-current='page']")).toHaveLength(
-      1,
-    );
+    expect(document.querySelectorAll("[data-phone-footer] a[aria-current='page']")).toHaveLength(1);
   });
 });
