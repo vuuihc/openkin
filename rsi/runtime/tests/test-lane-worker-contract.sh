@@ -69,12 +69,30 @@ contract_text() { seam --worker-contract-check "$ITEM" "$1" "$WT" "rsi/$SLUG"; }
 
 test_race_ordering_rule() {
   lane_record new
+  # Pin the record lookup itself: 1.json is an older record for this lane (stale paths),
+  # 2.json is the newest record for this lane (the real paths), and 3.json belongs to another
+  # lane and is newest of all. Printing "-", skipping the slug filter, or keeping the first
+  # record seen each fails the declared-paths assertion below; only newest-for-this-slug passes.
+  python3 - "$ST" "$ITEM" "$SLUG" "$BRIEF" <<'PY'
+import json, sys, time
+st, item, slug, brief = sys.argv[1:5]
+now = time.time()
+base = {"lane": 1, "item": item, "brief": brief, "mode": "new", "status": "claimed"}
+def write(n, **over):
+    json.dump(dict(base, **over), open(f"{st}/lanes/{n}.json", "w"))
+write(1, slug=slug, paths=["stale/path.sh"], claimed_at=now - 60)
+write(2, slug=slug, paths=["rsi/runtime/lane.sh", "scripts/check.sh"], claimed_at=now)
+write(3, slug="other-lane", paths=["other/lane.sh"], claimed_at=now + 60)
+PY
   local text
   text="$(contract_text new)" || bad "race-ordering-rule: --worker-contract-check exited $?"
+  grep -Fq "Declared paths: rsi/runtime/lane.sh, scripts/check.sh" <<<"$text" \
+    || bad "declared-paths: contract does not carry the lane record's paths"
   grep -q "before you start the goroutine" <<<"$text" \
     || bad "race-ordering-rule: no state-before-goroutine rule (${text:0:400})"
   grep -q "Never start the goroutine and then write the flag it reads" <<<"$text" \
     || bad "race-ordering-rule: the rule does not name the forbidden order (${text:0:400})"
+  rm -f "$ST"/lanes/2.json "$ST"/lanes/3.json
 }
 
 test_race_flag_self_check() {
