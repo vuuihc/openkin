@@ -122,7 +122,8 @@ control_tree_line() {
   head="$($GIT -C "$RSI_CTRL" rev-parse --short HEAD 2>/dev/null)"
   behind="$($GIT -C "$RSI_CTRL" rev-list --count HEAD..origin/main 2>/dev/null)"
   ahead="$($GIT -C "$RSI_CTRL" rev-list --count origin/main..HEAD 2>/dev/null)"
-  case "$head$behind$ahead" in ''|*[!0-9a-f]*) echo "control tree: unreadable at ${head:-?} (no origin/main ref?)"; return 0;; esac
+  case "$head" in ''|*[!0-9a-f]*) echo "control tree: unreadable at ${head:-?} (no origin/main ref?)"; return 0;; esac
+  case "$behind$ahead" in ''|*[!0-9]*) echo "control tree: unreadable at $head (no origin/main ref?)"; return 0;; esac
   dirty="$($GIT -C "$RSI_CTRL" status --porcelain --untracked-files=no 2>/dev/null | cut -c4- | paste -sd' ' -)"
   if [ "$behind" -gt 0 ]; then
     echo "control tree: PINNED $behind behind origin/main at $head$([ "$ahead" -gt 0 ] && echo ", $ahead unpublished commit(s)")${dirty:+ — uncommitted tracked changes: $dirty}"

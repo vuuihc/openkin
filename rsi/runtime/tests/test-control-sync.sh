@@ -328,4 +328,19 @@ status
   || fail "ctrl-ahead: expected an unpublished-commit line, got: $(ctrl_line)"
 pass "status-reads-an-unpublished-commit"
 
+# 13e. No origin/main ref at all: `behind`/`ahead` are empty, and that must not read as a synced
+#      tree. (The combined `$head$behind$ahead` hex guard only checked the concatenation, so an
+#      unreadable pair with a valid head slipped through and printed "at origin/main".)
+NOr="$T/status-no-origin"; mkdir -p "$NOr"
+git init -q -b main "$NOr"
+( cd "$NOr" && echo base > tracked.txt && git add tracked.txt && git commit -q -m "chore: base" )
+WORK="$NOr"; STATE="$WORK/rsi/state"; mkdir -p "$STATE" "$WORK/rsi/runtime"
+printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$WORK/rsi/runtime/lanes.py"
+status
+short="$(git -C "$WORK" rev-parse --short HEAD)"
+[ "$RC" = 0 ] || { printf '%s\n' "$SERR" >&2; fail "ctrl-no-origin: expected exit 0, got $RC"; }
+[ "$(ctrl_line)" = "control tree: unreadable at $short (no origin/main ref?)" ] \
+  || fail "ctrl-no-origin: expected an unreadable line, got: $(ctrl_line)"
+pass "status-no-origin-is-unreadable"
+
 echo "all cases passed"
