@@ -1,6 +1,9 @@
 #!/bin/bash
 # merge.sh [--dry-run]            dispatcher: starts up to RSI_MERGE_WORKERS (2) per-PR verifiers; returns quickly.
 # merge.sh --one <N> <slug> <title>   verifier for one open rsi/* PR (also PRs opened by cloud agents).
+# merge.sh --batch <id> <members-file>  the live batch half (RSI_BATCH_VERIFY=1): ONE union gate for the
+#                                 formed members, batch markers, then the ordinary --one per member in
+#                                 PR-number order with a prefix-tree proof after each landing.
 # Per PR: sync main into the branch (merge commit, never force-push) → hold rules → independent review (background, no heavy
 # lock) IN PARALLEL with gate.sh (serialised machine-wide via the gate lock + heavy.sh) → CI → land under a land lock.
 # Rework → delta-only re-review (diff since the last reviewed SHA + prior notes). Failures of gate and review are combined into
@@ -191,6 +194,13 @@ PR_HEAD_CMD="${RSI_PR_HEAD_CMD:-}"   # test seam; empty = the real gh call
 pr_head() { # <pr-number> -> prints the live head oid, non-zero on failure (an override reads it as $1)
   if [ -n "$PR_HEAD_CMD" ]; then bash -c "$PR_HEAD_CMD" pr-head "$1"
   else "$GH" pr view "$1" --repo "$GH_REPO" --json headRefOid --jq .headRefOid; fi
+}
+# The PR body for item_id() on the batch path (a bisected sendback has no body in hand). Same seam
+# shape as pr_state/pr_head; an unreadable body falls through to item_id's R-<slug> fallback.
+PR_BODY_CMD="${RSI_PR_BODY_CMD:-}"   # test seam; empty = the real gh call
+pr_body() { # <slug> -> the PR body on stdout (empty when unreadable)
+  if [ -n "$PR_BODY_CMD" ]; then bash -c "$PR_BODY_CMD" pr-body "$1" 2>/dev/null
+  else "$GH" pr view "rsi/$1" --repo "$GH_REPO" --json body --jq .body 2>/dev/null; fi
 }
 # A head is an oid and nothing else: a gh warning or a blank line on stdout must read as unreadable.
 oid() { case "${1:-}" in ""|*[!0-9a-fA-F]*) return 1 ;; esac; }
@@ -522,7 +532,7 @@ batch_ready() { # <row> <state> — prints an empty string when ready, else the 
 # paths; at least one member is non-small. No writes.
 batch_plan() {
   local manifest="$1" state="$2" base="$3"
-  local rows=() row slug head dh tier flags paths reason order=()
+  local rows=() row slug head dh tier flags paths reason order=() n
   batch_enabled || { echo "SINGLE batch-disabled"; return 1; }
   while IFS= read -r row; do
     [ -z "$row" ] && continue
@@ -581,8 +591,10 @@ batch_plan() {
   echo "BATCH $id $base"
   for row in "${chosen[@]}"; do
     i=$((i+1))
-    IFS=$'\t' read -r _ slug head dh tier2 _ _ _ <<< "$row"
-    printf 'MEMBER %s\t%s\t%s\t%s\t%s\n' "$i" "$slug" "$head" "$dh" "$tier2"
+    IFS=$'\t' read -r n slug head dh tier2 _ _ _ <<< "$row"
+    # The PR number travels with the member row: the runner re-enters --one (which needs it) and
+    # the landing order is the number order.
+    printf 'MEMBER %s\t%s\t%s\t%s\t%s\t%s\n' "$i" "$slug" "$head" "$dh" "$tier2" "$n"
   done
   return 0
 }
@@ -682,6 +694,299 @@ batch_bisect_list() {
   half=$(( n / 2 ))
   batch_bisect_list "$repo" "$base" "$step" "${heads[@]:0:$half}"
   batch_bisect_list "$repo" "$base" "$step" "${heads[@]:$half}"
+}
+
+# ------------------------------------------------------------------ live batch runner
+# `merge.sh --batch <id> <members-file>` is the half the dispatcher starts instead of one --one
+# verifier per member: it pays ONE full gate on the union of the frozen heads, writes each
+# member's marker (role batch), then re-enters the ordinary --one verifier per member in
+# PR-number order so squash/prefix/sendback stay where they already live. After each landing the
+# landed main tree must equal the union's recorded prefix tree; every path that cannot prove a
+# landing invalidates the rest instead of landing them. Members file = batch_plan's output:
+#   BATCH <id> <base>
+#   MEMBER <index>\t<slug>\t<head>\t<diffkey>\t<tier>\t<pr-number>
+BATCH_REPO="${RSI_BATCH_REPO:-$RSI_CTRL}"     # seam: tests build the union in a temp clone
+BATCH_ONE_CMD="${RSI_BATCH_ONE_CMD:-}"        # seam: records the re-entry instead of verifying
+BATCH_WT=""; BATCH_BR=""
+batch_cleanup() {
+  local repo="${BATCH_REPO:-$RSI_CTRL}" s k
+  [ -n "$BATCH_WT" ] && [ -d "$BATCH_WT" ] && $GIT -C "$repo" worktree remove --force "$BATCH_WT" >/dev/null 2>&1
+  [ -n "$BATCH_BR" ] && $GIT -C "$repo" branch -D "$BATCH_BR" >/dev/null 2>&1
+  # Release only claims this process still owns; an --one child removes its own on exit.
+  k=0
+  while [ $k -lt "${BM_COUNT:-0}" ]; do
+    s="$STATE/merge/${BM_SLUG[$k]}.lock"
+    [ "$(cat "$s/pid" 2>/dev/null)" = "$$" ] && rm -rf "$s"
+    k=$((k+1))
+  done
+  BATCH_WT=""; BATCH_BR=""
+}
+batch_members_read() { # <members-file> -> fills BM_*; non-zero when malformed
+  BM_BASE=""; BM_COUNT=0
+  BM_IX=(); BM_SLUG=(); BM_HEAD=(); BM_DH=(); BM_TIER=(); BM_NUM=()
+  local line rest ix slug head dh tier num
+  [ -r "$1" ] || return 1
+  while IFS= read -r line; do
+    case "$line" in
+      "BATCH "*) rest="${line#BATCH }"; BM_BASE="${rest#* }" ;;
+      "MEMBER "*)
+        rest="${line#MEMBER }"
+        IFS=$'\t' read -r ix slug head dh tier num <<< "$rest"
+        [ -n "$ix" ] && [ -n "$slug" ] && [ -n "$head" ] || return 1
+        BM_IX[BM_COUNT]="$ix"; BM_SLUG[BM_COUNT]="$slug"; BM_HEAD[BM_COUNT]="$head"
+        BM_DH[BM_COUNT]="$dh"; BM_TIER[BM_COUNT]="$tier"; BM_NUM[BM_COUNT]="${num:-0}"
+        BM_COUNT=$((BM_COUNT+1)) ;;
+    esac
+  done < "$1"
+  [ "$BM_COUNT" -ge 1 ] || return 1
+  [ -n "$BM_BASE" ] || BM_BASE="$($GIT -C "$BATCH_REPO" rev-parse origin/main 2>/dev/null)"
+  [ -n "$BM_BASE" ]
+}
+batch_gate_verdict() { # <log> <rc> -> PASS | FAIL:<steps> | PARTIAL | OTHER
+  if [ "$2" -eq 0 ] && grep -qx 'GATE_RESULT=PASS' "$1" 2>/dev/null; then echo PASS; return 0; fi
+  if grep -q '^GATE_RESULT=FAIL:' "$1" 2>/dev/null; then
+    echo "FAIL:$(grep '^GATE_RESULT=FAIL:' "$1" | head -1 | sed 's/^GATE_RESULT=FAIL:[[:space:]]*//')"
+    return 0
+  fi
+  grep -q '^GATE_RESULT=PARTIAL' "$1" 2>/dev/null && { echo PARTIAL; return 0; }
+  echo OTHER
+}
+batch_tree_equal() { # <repo> <tree-a> <tree-b> — the prefix proof's equality (dist is regenerated)
+  [ "$2" = "$3" ] && return 0
+  [ -n "$2" ] && [ -n "$3" ] || return 1
+  $GIT -C "$1" diff --quiet "$2" "$3" -- . ':!web/dist/index.html' 2>/dev/null
+}
+batch_marker_put() { # <id> <record> <index> <slug> <head> <diffkey>
+  local tree
+  tree="$(awk -v i="$3" '$1=="tree" && $2==i {print $3}' "$2" 2>/dev/null)"
+  [ -n "$tree" ] || return 1
+  batch_marker_write "$STATE/merge/$4.batch" "$1" "$3" "$BM_BASE" "$5" "$6" "$tree"
+  printf '%s PASS batch\n' "$5" > "$STATE/merge/$4.verified"
+}
+batch_needs_ceo() { # <id> <reason>
+  printf -- '- %s batch %s: %s\n' "$(date '+%F %H:%M')" "$1" "$2" >> "$STATE/needs-ceo.md"
+}
+batch_one_enter() { # <pr-number> <slug> <head> — the ordinary verifier, or the recording seam
+  local n="$1" slug="$2" head="$3" L rc=0
+  if [ -n "$BATCH_ONE_CMD" ]; then
+    bash -c "$BATCH_ONE_CMD" batch-one "$n" "$slug" "$head"
+    return $?
+  fi
+  # This runner claimed every member's lock before its first gate; a later pass re-claims the
+  # one --one released on exit, so a second pass lands a member whose sync deferred the landing.
+  L="$STATE/merge/$slug.lock"
+  mkdir -p "$L" 2>/dev/null || true
+  echo $$ > "$L/pid" 2>/dev/null || true
+  /bin/bash "$SELF" --one "$n" "$slug" "" >> "$RUNS/merge-worker-$slug.log" 2>&1 || rc=$?
+  return $rc
+}
+batch_run_gate() { # <id> <worktree> <log> -> prints the verdict; one flake re-run, existing rule
+  local id="$1" wt="$2" gl="$3" rc v
+  if ! mklock "$STATE/.gate.lock" 1800; then echo LOCK; return 0; fi
+  ( cd "$wt" && bash "$RSI_DIR/runtime/gate.sh" "$wt" ) > "$gl" 2>&1; rc=$?
+  $GIT -C "$wt" checkout -q -- . 2>/dev/null
+  rm -rf "$STATE/.gate.lock"
+  v="$(batch_gate_verdict "$gl" "$rc")"
+  [ "$v" = PASS ] && { echo PASS; return 0; }
+  # The verifier's existing flake rule, once per batch: only failing tests outside the union's own
+  # footprint (or known-flaky). A second failure is a real failure.
+  if [ ! -e "$STATE/merge/$id.outside-retry" ] && outside_tests_only "$wt" "$gl" "" "$STATE/merge/$id.outside-reason.txt"; then
+    touch "$STATE/merge/$id.outside-retry"
+    say "batch $id: gate failed only on tests outside the union footprint (or known-flaky); rerunning once" >&2
+    if mklock "$STATE/.gate.lock" 1800; then
+      ( cd "$wt" && bash "$RSI_DIR/runtime/gate.sh" "$wt" ) > "$gl" 2>&1; rc=$?
+      $GIT -C "$wt" checkout -q -- . 2>/dev/null
+      rm -rf "$STATE/.gate.lock"
+      v="$(batch_gate_verdict "$gl" "$rc")"
+    fi
+  fi
+  echo "$v"
+}
+batch_land_members() { # <id> <record> — K_* arrays; re-enter --one and prove each landing
+  local id="$1" rec="$2" k pass last cur landed_any kk
+  last="$($GIT -C "$BATCH_REPO" rev-parse "$BM_BASE^{tree}" 2>/dev/null)"
+  pass=1
+  # A member whose main sync is carried defers its landing one cycle (the verifier's own rule);
+  # a later pass in this runner lands it, so the prefix proof still covers every member that lands.
+  while [ $pass -le 3 ]; do
+    landed_any=0; k=0
+    while [ $k -lt "$K_COUNT" ]; do
+      if [ "${K_DONE[$k]:-0}" = 1 ]; then k=$((k+1)); continue; fi
+      batch_one_enter "${K_NUM[$k]}" "${K_SLUG[$k]}" "${K_HEAD[$k]}"
+      $GIT -C "$BATCH_REPO" fetch -q origin main 2>/dev/null
+      cur="$($GIT -C "$BATCH_REPO" rev-parse origin/main^{tree} 2>/dev/null)"
+      if [ -z "$cur" ] || batch_tree_equal "$BATCH_REPO" "$last" "$cur"; then
+        [ -n "$cur" ] && last="$cur"     # nothing landed (CI pending, hold): the marker stays valid
+        k=$((k+1)); continue
+      fi
+      if batch_prefix_check "$BATCH_REPO" "$rec" "${K_MIX[$k]}" "$cur"; then
+        K_DONE[$k]=1; landed_any=1; last="$cur"
+        say "batch $id: ${K_SLUG[$k]} landed; main matches union prefix ${K_MIX[$k]}"
+      else
+        say "batch $id: ${K_SLUG[$k]} landed but main does not match union prefix ${K_MIX[$k]}; stopping"
+        batch_needs_ceo "$id" "landed tree for ${K_SLUG[$k]} does not match the gated union prefix ${K_MIX[$k]}; remaining members invalidated and not landed"
+        kk=$((k+1))
+        while [ $kk -lt "$K_COUNT" ]; do batch_invalidate "$STATE" "${K_SLUG[$kk]}"; kk=$((kk+1)); done
+        return 1
+      fi
+      k=$((k+1))
+    done
+    [ $landed_any -eq 0 ] && break
+    pass=$((pass+1))
+  done
+  return 0
+}
+batch_fall_back() { # <id> <reason> [skip-slug] — start today's single verifier for every member but skip-slug
+  local id="$1" reason="$2" skip_slug="${3:-}" k=0
+  say "batch $id: $reason — falling back to single verification"
+  batch_invalidate "$STATE" ${BM_SLUG[@]+"${BM_SLUG[@]}"}
+  while [ $k -lt "$BM_COUNT" ]; do
+    # A member already sent back for rework is not re-entered: --one does not read the sendback
+    # file, so entering it again would spend another gate on the head just rejected.
+    [ "${BM_SLUG[$k]}" = "$skip_slug" ] || batch_one_enter "${BM_NUM[$k]}" "${BM_SLUG[$k]}" "${BM_HEAD[$k]}"
+    k=$((k+1))
+  done
+}
+batch_run() { # <id> <members-file>
+  local id="$1" mf="$2" rec gl v step bout ncul chead cslug item det k ok rec2 gl2 v2
+  batch_enabled || { say "batch $1: RSI_BATCH_VERIFY is off"; return 0; }
+  batch_members_read "$mf" || { say "batch $1: malformed members file $mf"; return 1; }
+  [ "$BM_COUNT" -ge 2 ] || { say "batch $1: fewer than two members"; return 1; }
+  mkdir -p "$STATE/merge" "$RUNS" "$STATE/sendback" 2>/dev/null || true
+  BATCH_WT="$STATE/merge/$id.work"; BATCH_BR="batch/union-$$"
+  trap 'batch_cleanup' EXIT
+  # Claim every member before the first gate: the dispatcher's loop skips these slugs, and the
+  # claim is what stops a later dispatch cycle from paying a second gate for one of them. A live
+  # lock on a member means a single verifier already owns it: abandon the batch rather than race.
+  k=0
+  while [ $k -lt "$BM_COUNT" ]; do
+    L="$STATE/merge/${BM_SLUG[$k]}.lock"
+    if [ -d "$L" ] && kill -0 "$(cat "$L/pid" 2>/dev/null || echo 0)" 2>/dev/null; then
+      say "batch $id: ${BM_SLUG[$k]} is already being verified; abandoning the batch"
+      return 1
+    fi
+    rm -rf "$L" 2>/dev/null
+    mkdir -p "$L" 2>/dev/null && echo $$ > "$L/pid"
+    k=$((k+1))
+  done
+  # The union needs every frozen head locally; fetch only the branch that is missing. A head that
+  # is still missing is not ours to verify, and no member lands on a gate that never covered it.
+  k=0
+  while [ $k -lt "$BM_COUNT" ]; do
+    if ! $GIT -C "$BATCH_REPO" cat-file -e "${BM_HEAD[$k]}^{commit}" 2>/dev/null; then
+      $GIT -C "$BATCH_REPO" fetch -q origin "+refs/heads/rsi/${BM_SLUG[$k]}:refs/remotes/origin/rsi/${BM_SLUG[$k]}" 2>/dev/null
+    fi
+    if ! $GIT -C "$BATCH_REPO" cat-file -e "${BM_HEAD[$k]}^{commit}" 2>/dev/null; then
+      say "batch $id: head ${BM_HEAD[$k]:0:8} (${BM_SLUG[$k]}) is not available"
+      batch_fall_back "$id" "a member head is not available"
+      return 1
+    fi
+    k=$((k+1))
+  done
+  rec="$STATE/merge/$id.record"
+  if ! $GIT -C "$BATCH_REPO" worktree add -q --detach "$BATCH_WT" "$BM_BASE" 2>/dev/null; then
+    say "batch $id: cannot create the union worktree"
+    batch_fall_back "$id" "union worktree failed"
+    return 1
+  fi
+  if ! batch_union "$BATCH_WT" "$BM_BASE" "$rec" ${BM_HEAD[@]+"${BM_HEAD[@]}"}; then
+    say "batch $id: union conflict outside web/dist/index.html (never resolved here)"
+    batch_fall_back "$id" "union conflict"
+    return 1
+  fi
+  gl="$RUNS/batch-$id-gate.log"
+  say "batch $id: one full gate on the union of $BM_COUNT members"
+  v="$(batch_run_gate "$id" "$BATCH_WT" "$gl")"
+  case "$v" in
+    PASS)
+      ok=1; k=0
+      while [ $k -lt "$BM_COUNT" ]; do
+        batch_marker_put "$id" "$rec" "${BM_IX[$k]}" "${BM_SLUG[$k]}" "${BM_HEAD[$k]}" "${BM_DH[$k]}" || ok=0
+        K_SLUG[$k]="${BM_SLUG[$k]}"; K_HEAD[$k]="${BM_HEAD[$k]}"; K_NUM[$k]="${BM_NUM[$k]}"
+        K_MIX[$k]="${BM_IX[$k]}"; K_DONE[$k]=0
+        k=$((k+1))
+      done
+      K_COUNT="$BM_COUNT"
+      if [ $ok -ne 1 ]; then batch_fall_back "$id" "a marker could not be written"; return 1; fi
+      say "batch $id: union PASS; markers written, landing members in PR-number order"
+      batch_land_members "$id" "$rec"
+      return $?
+      ;;
+    FAIL:*)
+      step="$(printf '%s' "${v#FAIL:}" | awk '{print $1}')"
+      [ -n "$step" ] || step=check
+      say "batch $id: union gate failed at step '$step'; bisecting"
+      bout="$(batch_bisect "$BATCH_WT" "$BM_BASE" "$step" ${BM_HEAD[@]+"${BM_HEAD[@]}"})"
+      ncul="$(printf '%s\n' "$bout" | grep -c '^CULPRIT' || true)"
+      if [ "${ncul:-0}" -ne 1 ]; then
+        batch_needs_ceo "$id" "union gate failed at '$step' but no single member is attributable; all members fall back to single verification"
+        batch_fall_back "$id" "non-attributable union failure"
+        return 1
+      fi
+      chead="$(printf '%s\n' "$bout" | awk '/^CULPRIT/{print $2; exit}')"
+      cslug=""
+      k=0
+      while [ $k -lt "$BM_COUNT" ]; do
+        [ "${BM_HEAD[$k]}" = "$chead" ] && { cslug="${BM_SLUG[$k]}"; break; }
+        k=$((k+1))
+      done
+      [ -n "$cslug" ] || { batch_fall_back "$id" "bisect named an unknown head"; return 1; }
+      det="$STATE/merge/$id.culprit.txt"
+      {
+        echo "Batch union gate failed: $v"
+        echo "Bisect of step '$step' attributes the failure to rsi/$cslug ($chead)."
+        echo; echo "## $step log (union gate)"
+        echo '```'
+        awk -v s="--- $step" '$0==s{f=1} f' "$gl" 2>/dev/null | tail -c 4000
+        echo '```'
+      } > "$det"
+      [ -s "$det" ] || tail -c 4000 "$gl" > "$det"
+      batch_invalidate "$STATE" "$cslug"
+      item="$(item_id "$cslug" "$(pr_body "$cslug")")"
+      sendback "$cslug" "$item" "batch union gate failed: $step" "$det" "batch-gate" - \
+        "bash rsi/runtime/gate.sh <union-worktree>"
+      # Survivors: rebuild the union without the culprit and pay one more gate. Only a PASS there
+      # writes their markers; anything else falls back so no survivor lands on the failed union.
+      K_COUNT=0; k=0
+      while [ $k -lt "$BM_COUNT" ]; do
+        if [ "${BM_SLUG[$k]}" != "$cslug" ]; then
+          K_SLUG[K_COUNT]="${BM_SLUG[$k]}"; K_HEAD[K_COUNT]="${BM_HEAD[$k]}"
+          K_DH[K_COUNT]="${BM_DH[$k]}"; K_NUM[K_COUNT]="${BM_NUM[$k]}"; K_DONE[K_COUNT]=0
+          K_COUNT=$((K_COUNT+1))
+        fi
+        k=$((k+1))
+      done
+      [ "$K_COUNT" -ge 1 ] || return 1
+      rec2="$STATE/merge/$id.survivors.record"
+      if ! batch_union "$BATCH_WT" "$BM_BASE" "$rec2" ${K_HEAD[@]+"${K_HEAD[@]}"}; then
+        batch_needs_ceo "$id" "the surviving union conflicts outside web/dist/index.html after $cslug was sent back; survivors fall back to single verification"
+        batch_fall_back "$id" "survivor union conflict" "$cslug"
+        return 1
+      fi
+      gl2="$RUNS/batch-$id-gate-survivors.log"
+      say "batch $id: one gate on the survivors' union (${K_COUNT} members)"
+      v2="$(batch_run_gate "$id" "$BATCH_WT" "$gl2")"
+      if [ "$v2" != PASS ]; then
+        batch_needs_ceo "$id" "survivors still failed the union gate after $cslug was sent back ($v2); survivors fall back to single verification"
+        batch_fall_back "$id" "survivor gate failed" "$cslug"
+        return 1
+      fi
+      ok=1; k=0
+      while [ $k -lt "$K_COUNT" ]; do
+        batch_marker_put "$id" "$rec2" $((k+1)) "${K_SLUG[$k]}" "${K_HEAD[$k]}" "${K_DH[$k]:-}" || ok=0
+        K_MIX[$k]=$((k+1))
+        k=$((k+1))
+      done
+      if [ $ok -ne 1 ]; then batch_fall_back "$id" "a survivor marker could not be written" "$cslug"; return 1; fi
+      say "batch $id: survivors' union PASS; markers written"
+      batch_land_members "$id" "$rec2"
+      return $?
+      ;;
+    *)
+      batch_fall_back "$id" "the union gate produced no verdict ($v)"
+      return 1
+      ;;
+  esac
 }
 
 # ------------------------------------------------------------------ re-verification accounting
@@ -912,6 +1217,87 @@ for _,n,slug,title,tier,labs in sorted(rows):   # small-safe first, then PR numb
     print("%d\t%s\t%s\t%s\t%s" % (n,slug,title,tier,labs))'
 }
 
+# ------------------------------------------------------------------ dispatcher: form one batch
+# Called once before the per-PR start loop when RSI_BATCH_VERIFY=1. Every skip below is the loop's
+# own rule (active lane, pending sendback, CEO hold, live lock); batch_plan then applies the
+# formation rules (review PASS for its own diff, green CI, disjoint paths, no UX walk/shared risk,
+# one non-small member). On success the members' locks are claimed here and BATCH_SLUGS names them,
+# so the loop starts one `--batch` runner instead of one verifier per member. Off = never called.
+BATCH_SLUGS=""; BATCH_ID=""
+dispatch_try_batch() { # <pr-json> -> 0 and BATCH_SLUGS/BATCH_ID when a batch was started
+  local prjson="$1" base mf pathsdir rows plan id members slugs s labels tier dh n slug head ci pf
+  local t
+  BATCH_SLUGS=""; BATCH_ID=""
+  base="$($GIT -C "$RSI_CTRL" rev-parse origin/main 2>/dev/null || echo unknown)"
+  mf="$STATE/merge/batch-manifest.$$"; pathsdir="$STATE/merge/batch-paths.$$"
+  rows="$STATE/merge/batch-rows.$$"
+  mkdir -p "$pathsdir" 2>/dev/null || return 1
+  : > "$mf"
+  python3 - "$prjson" "$pathsdir" <<'PY' > "$rows" 2>/dev/null || { rm -rf "$pathsdir" "$mf" "$rows"; return 1; }
+import json, os, sys
+prs = json.loads(sys.argv[1] or "[]")
+outdir = sys.argv[2]
+def ci(roll):
+    state = "green"
+    for c in roll or []:
+        if "conclusion" in c or c.get("__typename") == "CheckRun":
+            st = (c.get("status") or "").upper(); con = (c.get("conclusion") or "").upper()
+            if st and st != "COMPLETED": state = "fail" if state == "fail" else "pending"
+            elif con in ("FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"): state = "fail"
+            elif con in ("CANCELLED",): state = "fail" if state == "fail" else "pending"
+            elif con not in ("SUCCESS", "NEUTRAL", "SKIPPED", "STALE"): state = "fail" if state == "fail" else "pending"
+        else:
+            st = (c.get("state") or "").upper()
+            if st in ("FAILURE", "ERROR"): state = "fail"
+            elif st not in ("SUCCESS", "NEUTRAL"): state = "fail" if state == "fail" else "pending"
+    return state
+for p in prs:
+    h = p.get("headRefName") or ""
+    if not h.startswith("rsi/") or p.get("isDraft"): continue
+    head = p.get("headRefOid") or ""
+    if not head: continue
+    pf = os.path.join(outdir, str(p["number"]) + ".paths")
+    with open(pf, "w") as f:
+        for x in p.get("files") or []:
+            path = x.get("path") if isinstance(x, dict) else x
+            if path: f.write(path + "\n")
+    print("%s\t%s\t%s\t%s\t%s" % (p["number"], h[4:], head, ci(p.get("statusCheckRollup")), pf))
+PY
+  while IFS=$'\t' read -r n slug head ci pf; do
+    [ -n "$n" ] || continue
+    echo "$ACTIVE" | grep -qx "$slug" && continue
+    [ -e "$STATE/sendback/$slug.md" ] && continue
+    labels="$(printf '%s\n' "$PRS" | awk -F'\t' -v n="$n" '$1==n{print $5; exit}')"
+    ceo_hold_skip "$slug" "$labels" "$n" >/dev/null && continue
+    L="$STATE/merge/$slug.lock"
+    if [ -d "$L" ] && kill -0 "$(cat "$L/pid" 2>/dev/null || echo 0)" 2>/dev/null; then continue; fi
+    tier="$(printf '%s\n' "$PRS" | awk -F'\t' -v n="$n" '$1==n{print $4; exit}')"
+    dh="$(cut -d' ' -f1 "$STATE/merge/$slug.reviewed" 2>/dev/null)"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t-\t%s\n' "$n" "$slug" "$head" "$dh" "$tier" "$ci" "$pf" >> "$mf"
+  done < "$rows"
+  plan="$(batch_plan "$mf" "$STATE" "$base")" || { rm -rf "$pathsdir" "$mf" "$rows"; return 1; }
+  id="$(printf '%s\n' "$plan" | awk '$1=="BATCH"{print $2; exit}')"
+  slugs="$(printf '%s\n' "$plan" | awk '$1=="MEMBER"{print $3}' | paste -sd' ' -)"
+  [ -n "$id" ] && [ -n "$slugs" ] || { rm -rf "$pathsdir" "$mf" "$rows"; return 1; }
+  # BATCH_SLUGS makes the loop skip these PRs; the runner claims their locks before its first
+  # gate, so a later dispatch cycle cannot pay a second gate for a member either.
+  for s in $slugs; do
+    t="$(printf '%s\n' "$plan" | awk -v s="$s" '$1=="MEMBER" && $3==s {print $6; exit}')"
+    echo "${t:-medium}" > "$STATE/merge/$s.tier"
+  done
+  members="$STATE/merge/$id.members"
+  printf '%s\n' "$plan" > "$members"
+  if [ -n "${RSI_START_LOG:-}" ]; then
+    echo "batch $id $slugs" >> "$RSI_START_LOG"
+  else
+    nohup /bin/bash "$SELF" --batch "$id" "$members" >> "$RUNS/merge-batch-$id.log" 2>&1 < /dev/null & disown 2>/dev/null || true
+  fi
+  say "batch $id: verifier started for $slugs"
+  BATCH_SLUGS="$slugs"; BATCH_ID="$id"
+  rm -rf "$pathsdir" "$mf" "$rows"
+  return 0
+}
+
 # ------------------------------------------------------------------ dispatcher
 if [ "${1:-}" != "--one" ]; then
   [ "${1:-}" = "--resolve-generated" ] && { gen_resolve "${2:?worktree required}"; exit $?; }
@@ -1104,6 +1490,12 @@ if [ "${1:-}" != "--one" ]; then
     BSTATE="$2"; shift 2
     batch_invalidate "$BSTATE" "$@"; exit 0
   fi
+  # The live half: one full gate on the union of the members file, then ordered re-entry into
+  # --one with a prefix-tree proof per landing. No dispatch lock; the gate lock is taken inside.
+  if [ "${1:-}" = "--batch" ]; then
+    [ $# -ge 3 ] || { echo "usage: merge.sh --batch <id> <members-file>" >&2; exit 2; }
+    batch_run "$2" "$3"; exit $?
+  fi
   DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
   [ -e "$STATE/PAUSE" ] && { echo "paused"; exit 0; }
   # legacy single-instance lock (pre-pipeline merge.sh still running): do not double-process
@@ -1113,12 +1505,24 @@ if [ "${1:-}" != "--one" ]; then
   echo $$ > "$DL/pid"; trap 'rm -rf "$DL"' EXIT
   $GIT -C "$RSI_CTRL" fetch -q origin main 2>/dev/null
   # `files` makes the GraphQL query heavy and it occasionally fails/times out: retry once, then fall back to a light query (tier unknown = large).
-  PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,files,body 2>/dev/null)"
-  echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || { sleep 3; PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,files,body 2>/dev/null)"; }
-  echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,body 2>/dev/null)"
+  # With the batch switch on, the same call also carries the head and CI rollup the formation reads.
+  PRFIELDS="number,headRefName,isDraft,labels,title,files,body"
+  batch_enabled && PRFIELDS="$PRFIELDS,headRefOid,statusCheckRollup"
+  # Test seam (rsi/runtime/tests/test-merge-batch.sh): the dispatcher's own loop, driven by fixture
+  # JSON, with the start below recorded instead of launched. Unset = the real gh call.
+  if [ -n "${RSI_PR_LIST_CMD:-}" ]; then
+    PRJ="$(bash -c "$RSI_PR_LIST_CMD" pr-list 2>/dev/null)"
+  else
+    PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json "$PRFIELDS" 2>/dev/null)"
+    echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || { sleep 3; PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json "$PRFIELDS" 2>/dev/null)"; }
+    echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,body 2>/dev/null)"
+  fi
   PRS="$(printf '%s' "$PRJ" | dispatch_rows)"
   [ -z "$PRS" ] && { say "no open rsi PRs"; exit 0; }
   ACTIVE="$(python3 "$LANES_PY" slugs)"
+  # One gate for ready disjoint PRs (RSI_BATCH_VERIFY=1): form and start the batch runner before
+  # the loop claims slots, so the batched slugs are started once, by the runner, not as singles.
+  { batch_enabled && [ $DRY -eq 0 ]; } && dispatch_try_batch "$PRJ"
   running=0; running_big=0
   for l in "$STATE"/merge/*.lock; do
     [ -d "$l" ] && kill -0 "$(cat "$l/pid" 2>/dev/null || echo 0)" 2>/dev/null || continue
@@ -1126,6 +1530,7 @@ if [ "${1:-}" != "--one" ]; then
   done
   while IFS=$'\t' read -r -u 3 N SLUG TITLE TIER LABELS; do
     [ -z "$N" ] && continue
+    if [ -n "$BATCH_SLUGS" ] && printf ' %s ' "$BATCH_SLUGS" | grep -q " $SLUG "; then say "#$N $SLUG: in batch $BATCH_ID, skip"; continue; fi
     echo "$ACTIVE" | grep -qx "$SLUG" && { say "#$N $SLUG: lane active, skip"; continue; }
     [ -e "$STATE/sendback/$SLUG.md" ] && { say "#$N $SLUG: waiting for rework"; continue; }
     if r="$(ceo_hold_skip "$SLUG" "$LABELS" "$N")"; then say "#$N $SLUG: $r"; continue; fi
@@ -1144,8 +1549,13 @@ if [ "${1:-}" != "--one" ]; then
     [ $DRY -eq 1 ] && { say "#$N $SLUG: would verify (dry-run)"; running=$((running+1)); continue; }
     mkdir "$L" 2>/dev/null || continue; echo $$ > "$L/pid"   # claimed; the worker rewrites its own pid
     echo "$TIER" > "$STATE/merge/$SLUG.tier"; [ "$TIER" = small ] || running_big=$((running_big+1))
-    nohup /bin/bash "$SELF" --one "$N" "$SLUG" "$TITLE" >> "$RUNS/merge-worker-$SLUG.log" 2>&1 < /dev/null & echo $! > "$L/pid"; disown 2>/dev/null || true
-    say "#$N $SLUG: verifier started (pid $!)"; running=$((running+1)); sleep 1
+    if [ -n "${RSI_START_LOG:-}" ]; then
+      echo "one $N $SLUG" >> "$RSI_START_LOG"; SPID=$$
+    else
+      nohup /bin/bash "$SELF" --one "$N" "$SLUG" "$TITLE" >> "$RUNS/merge-worker-$SLUG.log" 2>&1 < /dev/null & SPID=$!; disown 2>/dev/null || true
+    fi
+    echo "$SPID" > "$L/pid"
+    say "#$N $SLUG: verifier started (pid $SPID)"; running=$((running+1)); sleep 1
   done 3<<< "$PRS"
   exit 0
 fi
@@ -1249,8 +1659,8 @@ ci_state() { # prints green|pending|fail ; waits (bounded) while pending
 # touched packages, or is a known-flaky name (runtime/flaky-tests.txt): rerun
 # once and do not count it as a quality sendback. Rework lanes cannot fix tests
 # they were not allowed to touch, so we also do not kick a worker.
-outside_tests_only() { # worktree log [summary] — writes $STATE/merge/$SLUG.outside-reason.txt
-  local wt="$1" log="$2" sum="${3:-}" reason="$STATE/merge/$SLUG.outside-reason.txt"
+outside_tests_only() { # worktree log [summary] [reason-file] — writes the reason file
+  local wt="$1" log="$2" sum="${3:-}" reason="${4:-$STATE/merge/$SLUG.outside-reason.txt}"
   if python3 "$RSI_DIR/runtime/outside-tests.py" --worktree "$wt" --log "$log" ${sum:+--summary "$sum"} > "$reason" 2>&1; then
     return 0
   fi

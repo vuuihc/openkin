@@ -33,5 +33,61 @@
     "test": "RSI_TEST_ONLY=kill-switch bash rsi/runtime/tests/test-merge-batch.sh",
     "old": "  batch_enabled || { echo \"SINGLE batch-disabled\"; return 1; }",
     "new": "  : # kill switch ignored"
+  },
+  {
+    "label": "markers are written without the union gate passing, so members land on a gate nobody ran",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=live-runner-partial-is-not-a-verdict bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "  v=\"$(batch_run_gate \"$id\" \"$BATCH_WT\" \"$gl\")\"",
+    "new": "  v=PASS"
+  },
+  {
+    "label": "PARTIAL is read as a verdict, so a filtered gate's diagnosis becomes a batch PASS",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=live-runner-partial-is-not-a-verdict bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "  grep -q '^GATE_RESULT=PARTIAL' \"$1\" 2>/dev/null && { echo PARTIAL; return 0; }",
+    "new": "  grep -q '^GATE_RESULT=PARTIAL' \"$1\" 2>/dev/null && { echo PASS; return 0; }"
+  },
+  {
+    "label": "the dispatcher starts singles for slugs a batch already owns, so the members pay two paths at once",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=dispatcher-forms-batch-and-skips-singles bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "    if [ -n \"$BATCH_SLUGS\" ] && printf ' %s ' \"$BATCH_SLUGS\" | grep -q \" $SLUG \"; then say \"#$N $SLUG: in batch $BATCH_ID, skip\"; continue; fi",
+    "new": "    : # batch members also started as singles"
+  },
+  {
+    "label": "a landed tree that is not the gated prefix is accepted, so the rest lands on a broken chain",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=live-runner-prefix-mismatch-stops-the-batch bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "      if batch_prefix_check \"$BATCH_REPO\" \"$rec\" \"${K_MIX[$k]}\" \"$cur\"; then",
+    "new": "      if true; then"
+  },
+  {
+    "label": "every member is sent back instead of only the bisected culprit",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=live-runner-fail-bisects-and-sends-back-culprit bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "      chead=\"$(printf '%s\\n' \"$bout\" | awk '/^CULPRIT/{print $2; exit}')\"",
+    "new": "      chead=\"${BM_HEAD[0]}\""
+  },
+  {
+    "label": "the outside-footprint retry's log line lands in the captured verdict, so a passing rerun reads as no verdict",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=live-runner-outside-retry-keeps-the-verdict bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "    say \"batch $id: gate failed only on tests outside the union footprint (or known-flaky); rerunning once\" >&2",
+    "new": "    say \"batch $id: gate failed only on tests outside the union footprint (or known-flaky); rerunning once\""
+  },
+  {
+    "label": "the survivor fallback re-enters --one for the culprit already sent back, spending a gate on the rejected head",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=live-runner-survivor-fallback-skips-the-culprit bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "    [ \"${BM_SLUG[$k]}\" = \"$skip_slug\" ] || batch_one_enter \"${BM_NUM[$k]}\" \"${BM_SLUG[$k]}\" \"${BM_HEAD[$k]}\"",
+    "new": "    batch_one_enter \"${BM_NUM[$k]}\" \"${BM_SLUG[$k]}\" \"${BM_HEAD[$k]}\""
+  },
+  {
+    "label": "the survivor fallback is not told which member was sent back, so it re-enters the culprit",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=live-runner-survivor-fallback-skips-the-culprit bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "        batch_fall_back \"$id\" \"survivor gate failed\" \"$cslug\"",
+    "new": "        batch_fall_back \"$id\" \"survivor gate failed\""
   }
 ]
