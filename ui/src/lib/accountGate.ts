@@ -9,7 +9,8 @@ import type { AccountMode, AccountState } from "../store/appStore";
  */
 
 /**
- * The stable codes the Hub can answer an auth request with.
+ * The stable codes an auth failure can carry: the Hub's answers, plus the
+ * console's own `login_link_timeout` when the exchange outlives its deadline.
  *
  * The list is the type. Declaring them separately would let a code exist in one
  * and not the other, and the failure is quiet: `authErrorText` falls back to the
@@ -22,6 +23,7 @@ export const AUTH_ERROR_CODES = [
   "claim_code_invalid",
   "invite_invalid",
   "login_link_invalid",
+  "login_link_timeout",
   "login_code_invalid",
   "browser_unavailable",
   "registration_closed",
@@ -205,7 +207,6 @@ export function claimFromHash(hash: string): string {
   const bare = hash.startsWith("#") ? hash.slice(1) : hash;
   return formatClaimCode(new URLSearchParams(bare).get("claim") ?? "");
 }
-
 
 /**
  * The code to open `mode`'s screen with, or "" when the URL's code is not that

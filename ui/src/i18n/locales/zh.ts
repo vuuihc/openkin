@@ -1662,6 +1662,7 @@ const zh = {
       claim_code_invalid: "认领码无效或已过期。",
       invite_invalid: "邀请码无效或已过期。",
       login_link_invalid: "这条登录链接无效或已过期。让 agent 重新生成一条。",
+      login_link_timeout: "这条登录链接没有完成登录。请重新打开，或让 agent 重新生成一条。",
       login_code_invalid: "这次登录已失效，请回到应用重新开始。",
       browser_unavailable: "无法打开系统浏览器。第三方登录需要 https:// 的 Hub 地址。",
       registration_closed: "这台 Hub 已有所有者，请直接登录。",
