@@ -1,6 +1,7 @@
 # KIN-CONTINUE-005 · 手机底栏：玻璃与纯图标，四个区域共用
 
-状态：draft
+状态：approved
+签字：2026-11-20 CEO 代签（D1–D3 已定，审阅页已读）
 优先级：P0
 旅程：J1、J2
 归属面：`IA.md`「手机底部导航」
@@ -169,3 +170,4 @@
 
 - 2026-11-20 创建（draft）。D6（`KIN-CONTINUE-004.review.html:538`）定为独立共享 shell 故事，与本条背靠背交付；方向由 Ethan 2026-11-20 16:52 批准（CSS 玻璃先行、不写原生 bar）。
 - 2026-11-20 审阅页交付（`R-phone-shell-review`）：`KIN-CONTINUE-005.review.html`，6 帧 + 每屏六段用户流程，含 MECE 与 002 迁移一节；状态仍为 `draft`。
+- 2026-11-20 实现交付（`R-phone-shell-glass`）：状态 `draft → approved`，CEO 代签；底栏改为贴底悬浮玻璃 + 四个纯图标入口，可访问名不变；`phone-footer-clearance` 为列表 / 例行任务 / 设置留出清位。

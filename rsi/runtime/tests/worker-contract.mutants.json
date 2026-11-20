@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the worker contract again orders the full check.sh the merge gate already runs",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=no-full-gate-instruction bash rsi/runtime/tests/test-lane-worker-contract.sh",
+    "old": "(e.g. focus ring must use \\`outline-kin-focus-ring\\`). The merge gate owns the full suite; a worker does not run it.",
+    "new": "(e.g. focus ring must use \\`outline-kin-focus-ring\\`) and \\`./scripts/check.sh\\` before you finish."
+  },
+  {
+    "label": "the cloud brief again orders check.sh on a container that has no Go toolchain",
+    "file": "rsi/runtime/prompts/cloud-brief-template.md",
+    "test": "RSI_TEST_ONLY=cloud-brief-has-no-full-gate bash rsi/runtime/tests/test-lane-worker-contract.sh",
+    "old": "The Mac merge gate runs the full `check.sh` and an independent review after you push",
+    "new": "Run `./scripts/check.sh` before you push"
+  },
+  {
+    "label": "the contract keeps neither the focused-checks rule nor the merge-gate owner",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=no-full-gate-instruction bash rsi/runtime/tests/test-lane-worker-contract.sh",
+    "old": "Test first. Run FOCUSED checks only (typecheck, lint on changed files, the tests you wrote/touched, \\`go test\\` for touched packages). The merge lane runs the full gate (\\`gate.sh\\`) and an independent review afterwards. ",
+    "new": ""
+  }
+]

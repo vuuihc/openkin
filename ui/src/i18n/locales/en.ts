@@ -412,6 +412,12 @@ const en: MessageTree = {
       "The message was withdrawn, but the composer has a draft now — it was left in the transcript",
     editAlreadyGone:
       "That message is no longer queued — it may already be running, so it was left in the transcript",
+    moveQueuedUp: "Move up",
+    moveQueuedUpNamed: "Move “{text}” up",
+    moveQueuedDown: "Move down",
+    moveQueuedDownNamed: "Move “{text}” down",
+    queueOrderChanged: "The queue changed — showing the latest order",
+    queueMoveFailed: "Could not reorder the queue",
     canceled: "Canceled",
     timedOut: "Timed out",
     task: "task",

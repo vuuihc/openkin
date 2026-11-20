@@ -4,13 +4,17 @@
 # When two or more PRs are independently ready (review PASS on their own diff, CI green, no hold),
 # the loop may pay ONE gate on a union tree instead of one gate per PR, record per-slug markers,
 # land the members in PR-number order, and prove each landing against the union's prefix tree.
-# This suite pins the engine while `RSI_BATCH_VERIFY` is still 0: formation, union order, marker
-# validity, carry-to-land, bisect attribution, and the kill switch. All hermetic: mktemp repos, a
-# scratch bare remote, stubbed gate scripts, no network, no gh, no model.
+# This suite pins the engine (formation, union order, marker validity, carry-to-land, bisect,
+# kill switch) AND the live half: merge.sh --batch (union gate once, PARTIAL is not a verdict,
+# culprit-only sendback, non-attributable fallback, prefix-mismatch stop) and the dispatcher
+# choice (batch on skips the singles; batch off starts exactly today's singles). All hermetic:
+# mktemp repos, a scratch bare remote, stubbed gate scripts and a recorded --one, no network,
+# no gh, no model.
 #
 # Exercises merge.sh --batch-plan-check / --batch-union-check / --batch-marker-check /
-# --batch-prefix-check / --batch-bisect-check / --batch-invalidate-check, the existing
-# --queue-carry-check (a batch marker must carry exactly like a gate), and gate.sh --only.
+# --batch-prefix-check / --batch-bisect-check / --batch-invalidate-check / --batch, the
+# dispatcher run itself (RSI_PR_LIST_CMD / RSI_START_LOG seams), the existing --queue-carry-check
+# (a batch marker must carry exactly like a gate), and gate.sh --only.
 # Prints "PASS <case>" per case and exits non-zero on the first failure.
 # Set RSI_TEST_ONLY=<case name> to run one case.
 set -u
@@ -115,6 +119,9 @@ case_batch_formation_disjoint() {
   printf '%s\n' "$out" | head -1 | grep -q '^BATCH batch-' || fail "formation: no batch header ($out)"
   [ "$(printf '%s\n' "$out" | awk '$1=="MEMBER"{print $3}' | paste -sd, -)" = "p1,p2" ] \
     || fail "formation: members not in PR order ($out)"
+  # the runner re-enters --one, so each member row carries its PR number
+  [ "$(printf '%s\n' "$out" | awk '$1=="MEMBER"{print $7}' | paste -sd, -)" = "101,102" ] \
+    || fail "formation: member rows lost their PR numbers ($out)"
   # overlapping path -> excluded, so one member is left -> no batch. The overlap is a docs file:
   # the main-move classifier drops docs paths, so only the path-level disjointness filter can
   # catch two members editing the same file (internal/foo/a.go would already be REGATE by package).
@@ -328,8 +335,266 @@ case_kill_switch() {
   pass kill-switch
 }
 
+# --- live-runner helpers ------------------------------------------------------------------------
+# The live half is driven through merge.sh --batch with three test seams (RSI_BATCH_REPO,
+# RSI_BATCH_ONE_CMD, RSI_PR_*_CMD) and a stub gate.sh/mutants.py-free fixture, so no gh, no model,
+# no network. STATE is the copied control tree's state ($T/ctrl/rsi/state) because merge.sh derives
+# it from RSI_CTRL (exported above).
+LSTATE="$T/ctrl/rsi/state"
+reset_ctrl() { # fresh runtime copy + empty state (a case that stubs gate.sh/outside-tests.py)
+  rm -rf "$T/ctrl"; mkdir -p "$T/ctrl/rsi"
+  cp -R "$RSI/runtime" "$T/ctrl/rsi/runtime"
+  mkdir -p "$LSTATE/merge" "$LSTATE/sendback"
+  rm -f "$T/gate.mode" "$T/gate.count" "$T/one.log"
+}
+stub_gate() { # <mode> — full runs count in $T/gate.count; --only is the bisect probe
+  printf '%s\n' "$1" > "$T/gate.mode"
+  cat > "$T/ctrl/rsi/runtime/gate.sh" <<'SH'
+#!/bin/bash
+ONLY=0
+if [ "${1:-}" = "--only" ]; then ONLY=1; shift 2; fi
+wt="$1"
+mode="$(cat "$RSI_TEST_GATE_MODE" 2>/dev/null || echo pass)"
+[ "$ONLY" -eq 0 ] && [ -n "${RSI_TEST_GATE_COUNT:-}" ] && echo x >> "$RSI_TEST_GATE_COUNT"
+bad=0; grep -Rqs bad --include='*.go' "$wt/internal" 2>/dev/null && bad=1
+both=0; [ -f "$wt/internal/one/a.go" ] && [ -f "$wt/internal/two/b.go" ] && both=1
+case "$mode" in
+  pass)    if [ "$ONLY" -eq 1 ]; then echo GATE_RESULT=PARTIAL; else echo GATE_RESULT=PASS; fi; exit 0 ;;
+  partial) echo GATE_RESULT=PARTIAL; exit 0 ;;
+  bad)     if [ "$bad" -eq 1 ]; then
+             if [ "$ONLY" -eq 1 ]; then echo "GATE_RESULT=PARTIAL:check"; else echo "GATE_RESULT=FAIL: check"; fi; exit 1
+           fi
+           if [ "$ONLY" -eq 1 ]; then echo GATE_RESULT=PARTIAL; else echo GATE_RESULT=PASS; fi; exit 0 ;;
+  nonattr) if [ "$both" -eq 1 ]; then
+             if [ "$ONLY" -eq 1 ]; then echo "GATE_RESULT=PARTIAL:check"; else echo "GATE_RESULT=FAIL: check"; fi; exit 1
+           fi
+           if [ "$ONLY" -eq 1 ]; then echo GATE_RESULT=PARTIAL; else echo GATE_RESULT=PASS; fi; exit 0 ;;
+  outside) if [ "$ONLY" -eq 1 ]; then echo GATE_RESULT=PARTIAL; exit 0; fi
+           if [ "$(wc -l < "$RSI_TEST_GATE_COUNT")" -le 1 ]; then echo "GATE_RESULT=FAIL: check"; exit 1; fi
+           echo GATE_RESULT=PASS; exit 0 ;;
+  survivorfail)
+           if [ "$ONLY" -eq 0 ]; then echo "GATE_RESULT=FAIL: check"; exit 1; fi
+           if [ "$bad" -eq 1 ]; then echo "GATE_RESULT=PARTIAL:check"; exit 1; fi
+           echo GATE_RESULT=PARTIAL; exit 0 ;;
+esac
+exit 1
+SH
+  chmod +x "$T/ctrl/rsi/runtime/gate.sh"
+  printf 'import sys\nsys.exit(1)\n' > "$T/ctrl/rsi/runtime/outside-tests.py"
+}
+mk_runner_fixture() { # <name> — RF_REPO/RF_CLONE/RF_LAND/RF_BASE/RF_H1/RF_H2
+  local n="$1"
+  mk_fixture "$n"
+  RF_REPO="$T/$n"
+  RF_H1="$(branch_with "$RF_REPO" rsi/p1 internal/one/a.go 'package one')"
+  RF_H2="$(branch_with "$RF_REPO" rsi/p2 internal/two/b.go 'package two // bad')"
+  $GIT -C "$RF_REPO" checkout -q main
+  RF_CLONE="$T/$n-runner"; $GIT clone -q "$T/$n.git" "$RF_CLONE"
+  RF_LAND="$T/$n-land"; $GIT clone -q "$T/$n.git" "$RF_LAND"
+  RF_BASE="$($GIT -C "$RF_CLONE" rev-parse origin/main)"
+}
+mk_one_stub() { # <land 0|1> <stray 0|1> — records "<n> <slug>", optionally lands it into origin/main
+  local land="$1" stray="$2"
+  cat > "$T/one-stub.sh" <<SH
+#!/bin/bash
+n="\$1"; slug="\$2"; head="\$3"
+printf '%s %s\n' "\$n" "\$slug" >> "$T/one.log"
+[ "$land" = 1 ] || exit 0
+$GIT -C "$RF_LAND" checkout -q main || exit 1
+$GIT -C "$RF_LAND" pull -q origin main || exit 1
+$GIT -C "$RF_LAND" merge -q --no-edit "\$head" || exit 1
+if [ "$stray" = 1 ] && [ "\$slug" = p1 ]; then
+  echo stray > "$RF_LAND/stray.txt"; $GIT -C "$RF_LAND" add -A; $GIT -C "$RF_LAND" commit -qm stray || exit 1
+fi
+$GIT -C "$RF_LAND" push -q origin main
+SH
+  chmod +x "$T/one-stub.sh"
+  export RSI_BATCH_ONE_CMD="bash $T/one-stub.sh \"\$1\" \"\$2\" \"\$3\""
+}
+run_batch() { # <id> <members-file>
+  RSI_BATCH_VERIFY="${RSI_BATCH_VERIFY:-1}" RSI_BATCH_REPO="$RF_CLONE" \
+    RSI_PR_STATE_CMD='echo OPEN' RSI_PR_BODY_CMD='printf "RSI item: R-%s\n" "$2"' \
+    bash "$MERGE" --batch "$1" "$2"
+}
+write_members() { # <file> <id> <base> <h1> <h2>
+  printf 'BATCH %s %s\nMEMBER 1\tp1\t%s\td1\tmedium\t101\nMEMBER 2\tp2\t%s\td2\tsmall\t102\n' \
+    "$2" "$3" "$4" "$5" > "$1"
+}
+
+# --- 8. live-runner-gates-union-once ------------------------------------------------------------
+case_live_runner_gates_union_once() {
+  reset_ctrl; stub_gate pass; mk_runner_fixture once; mk_one_stub 1 0
+  local mf="$T/once.members" out rc
+  write_members "$mf" b-once "$RF_BASE" "$RF_H1" "$RF_H2"
+  export RSI_TEST_GATE_MODE="$T/gate.mode" RSI_TEST_GATE_COUNT="$T/gate.count"
+  out="$(run_batch b-once "$mf" 2>&1)"; rc=$?
+  [ $rc -eq 0 ] || fail "live-once: rc=$rc ($out)"
+  [ "$(wc -l < "$T/gate.count" | tr -d ' ')" = 1 ] || fail "live-once: expected 1 full gate, got $(wc -l < "$T/gate.count") ($out)"
+  grep -qx "head $RF_H1" "$LSTATE/merge/p1.batch" || fail "live-once: p1 marker missing or wrong head ($out)"
+  grep -qx "head $RF_H2" "$LSTATE/merge/p2.batch" || fail "live-once: p2 marker missing or wrong head ($out)"
+  [ "$(cut -d' ' -f1,2,3 "$LSTATE/merge/p1.verified")" = "$RF_H1 PASS batch" ] || fail "live-once: p1 gate file is not a batch PASS"
+  [ "$(cut -d' ' -f1,2,3 "$LSTATE/merge/p2.verified")" = "$RF_H2 PASS batch" ] || fail "live-once: p2 gate file is not a batch PASS"
+  [ "$(tr '\n' ',' < "$T/one.log")" = "101 p1,102 p2," ] || fail "live-once: members did not land in PR-number order ($(cat "$T/one.log"))"
+  pass live-runner-gates-union-once
+}
+
+# --- 9. live-runner-partial-is-not-a-verdict -----------------------------------------------------
+case_live_runner_partial_is_not_a_verdict() {
+  reset_ctrl; stub_gate partial; mk_runner_fixture partial; mk_one_stub 0 0
+  local mf="$T/partial.members" out rc
+  write_members "$mf" b-partial "$RF_BASE" "$RF_H1" "$RF_H2"
+  export RSI_TEST_GATE_MODE="$T/gate.mode" RSI_TEST_GATE_COUNT="$T/gate.count"
+  out="$(run_batch b-partial "$mf" 2>&1)"; rc=$?
+  [ $rc -ne 0 ] || fail "partial: PARTIAL was accepted as a verdict ($out)"
+  [ ! -e "$LSTATE/merge/p1.batch" ] && [ ! -e "$LSTATE/merge/p2.batch" ] || fail "partial: a marker was written"
+  [ ! -e "$LSTATE/merge/p1.verified" ] && [ ! -e "$LSTATE/merge/p2.verified" ] || fail "partial: a gate file was written"
+  [ "$(tr '\n' ',' < "$T/one.log")" = "101 p1,102 p2," ] || fail "partial: members did not fall back to single verification ($(cat "$T/one.log"))"
+  [ "$($GIT -C "$RF_LAND" rev-parse origin/main)" = "$RF_BASE" ] || fail "partial: main moved"
+  pass live-runner-partial-is-not-a-verdict
+}
+
+# --- 10. live-runner-fail-bisects-and-sends-back-culprit -----------------------------------------
+case_live_runner_fail_bisects_and_sends_back_culprit() {
+  reset_ctrl; stub_gate bad; mk_runner_fixture bad; mk_one_stub 1 0
+  local mf="$T/bad.members" out rc
+  write_members "$mf" b-bad "$RF_BASE" "$RF_H1" "$RF_H2"
+  export RSI_TEST_GATE_MODE="$T/gate.mode" RSI_TEST_GATE_COUNT="$T/gate.count"
+  out="$(run_batch b-bad "$mf" 2>&1)"; rc=$?
+  [ -e "$LSTATE/sendback/p2.md" ] || fail "bisect: the culprit got no sendback ($out)"
+  grep -q "batch union gate failed: check" "$LSTATE/sendback/p2.md" || fail "bisect: sendback does not name the failed step"
+  [ ! -e "$LSTATE/sendback/p1.md" ] || fail "bisect: an innocent member was sent back"
+  [ ! -e "$LSTATE/merge/p2.batch" ] || fail "bisect: the culprit got a marker"
+  grep -qx "head $RF_H1" "$LSTATE/merge/p1.batch" || fail "bisect: survivor marker missing ($out)"
+  [ "$(wc -l < "$T/gate.count" | tr -d ' ')" = 2 ] || fail "bisect: survivors were not re-gated exactly once (full runs: $(wc -l < "$T/gate.count"))"
+  [ "$(tr '\n' ',' < "$T/one.log")" = "101 p1," ] || fail "bisect: only the survivor should land ($(cat "$T/one.log"))"
+  pass live-runner-fail-bisects-and-sends-back-culprit
+}
+
+# --- 11. live-runner-nonattributable-falls-back-and-records --------------------------------------
+case_live_runner_nonattributable_falls_back_and_records() {
+  reset_ctrl; stub_gate nonattr; mk_runner_fixture nonattr; mk_one_stub 0 0
+  local mf="$T/nonattr.members" out rc lines
+  write_members "$mf" b-nonattr "$RF_BASE" "$RF_H1" "$RF_H2"
+  export RSI_TEST_GATE_MODE="$T/gate.mode" RSI_TEST_GATE_COUNT="$T/gate.count"
+  out="$(run_batch b-nonattr "$mf" 2>&1)"; rc=$?
+  [ $rc -ne 0 ] || fail "nonattr: rc=0"
+  [ ! -e "$LSTATE/merge/p1.batch" ] && [ ! -e "$LSTATE/merge/p2.batch" ] || fail "nonattr: a marker survived"
+  lines="$(grep -c 'batch b-nonattr:' "$LSTATE/needs-ceo.md" 2>/dev/null || true)"
+  [ "${lines:-0}" = 1 ] || fail "nonattr: expected one needs-ceo line, got ${lines:-0} ($(cat "$LSTATE/needs-ceo.md" 2>/dev/null))"
+  [ "$(tr '\n' ',' < "$T/one.log")" = "101 p1,102 p2," ] || fail "nonattr: members did not fall back to single verification ($(cat "$T/one.log"))"
+  pass live-runner-nonattributable-falls-back-and-records
+}
+
+# --- 12. live-runner-prefix-mismatch-stops-the-batch ---------------------------------------------
+case_live_runner_prefix_mismatch_stops_the_batch() {
+  reset_ctrl; stub_gate pass; mk_runner_fixture mismatch; mk_one_stub 1 1
+  local mf="$T/mismatch.members" out rc
+  write_members "$mf" b-mismatch "$RF_BASE" "$RF_H1" "$RF_H2"
+  export RSI_TEST_GATE_MODE="$T/gate.mode" RSI_TEST_GATE_COUNT="$T/gate.count"
+  out="$(run_batch b-mismatch "$mf" 2>&1)"; rc=$?
+  [ $rc -ne 0 ] || fail "mismatch: the batch continued past a landed tree that is not the gated prefix ($out)"
+  [ ! -e "$LSTATE/merge/p2.batch" ] && [ ! -e "$LSTATE/merge/p2.verified" ] || fail "mismatch: the remaining member kept its marker"
+  [ "$(tr '\n' ',' < "$T/one.log")" = "101 p1," ] || fail "mismatch: a further --one started after the mismatch ($(cat "$T/one.log"))"
+  grep -q 'batch b-mismatch:' "$LSTATE/needs-ceo.md" 2>/dev/null || fail "mismatch: no needs-ceo line"
+  pass live-runner-prefix-mismatch-stops-the-batch
+}
+
+# --- 12b. live-runner-outside-retry-keeps-the-verdict -------------------------------------------
+case_live_runner_outside_retry_keeps_the_verdict() {
+  reset_ctrl; stub_gate outside
+  # Outside-the-footprint failure only: the verifier's one flake rerun is allowed, and the second
+  # run passes. Its log line must not ride in the captured verdict ($v) as a prefix to PASS.
+  # outside_tests_only is defined below merge.sh's early --batch dispatch, so the child shell gets
+  # the predicate from BASH_ENV rather than from the file's own later definition.
+  printf 'outside_tests_only() { return 0; }\n' > "$T/outside-env.sh"
+  mk_runner_fixture outside; mk_one_stub 1 0
+  local mf="$T/outside.members" out rc
+  write_members "$mf" b-outside "$RF_BASE" "$RF_H1" "$RF_H2"
+  export RSI_TEST_GATE_MODE="$T/gate.mode" RSI_TEST_GATE_COUNT="$T/gate.count"
+  out="$(BASH_ENV="$T/outside-env.sh" run_batch b-outside "$mf" 2>&1)"; rc=$?
+  [ $rc -eq 0 ] || fail "outside-retry: a passing rerun was read as no verdict ($out)"
+  [ "$(wc -l < "$T/gate.count" | tr -d ' ')" = 2 ] || fail "outside-retry: expected the one flake rerun, full runs: $(wc -l < "$T/gate.count") ($out)"
+  grep -qx "head $RF_H1" "$LSTATE/merge/p1.batch" || fail "outside-retry: p1 marker missing ($out)"
+  grep -qx "head $RF_H2" "$LSTATE/merge/p2.batch" || fail "outside-retry: p2 marker missing ($out)"
+  [ "$(tr '\n' ',' < "$T/one.log")" = "101 p1,102 p2," ] || fail "outside-retry: members did not land ($(cat "$T/one.log"); $out)"
+  pass live-runner-outside-retry-keeps-the-verdict
+}
+
+# --- 12c. live-runner-survivor-fallback-skips-the-culprit ----------------------------------------
+case_live_runner_survivor_fallback_skips_the_culprit() {
+  reset_ctrl; stub_gate survivorfail; mk_runner_fixture surv; mk_one_stub 0 0
+  local mf="$T/surv.members" out rc
+  write_members "$mf" b-surv "$RF_BASE" "$RF_H1" "$RF_H2"
+  export RSI_TEST_GATE_MODE="$T/gate.mode" RSI_TEST_GATE_COUNT="$T/gate.count"
+  out="$(run_batch b-surv "$mf" 2>&1)"; rc=$?
+  [ $rc -ne 0 ] || fail "survivor-fallback: the batch claimed success ($out)"
+  [ -e "$LSTATE/sendback/p2.md" ] || fail "survivor-fallback: the culprit got no sendback ($out)"
+  # p2 was sent back on the union gate; the survivor fallback must not spend another --one on it.
+  [ "$(tr '\n' ',' < "$T/one.log")" = "101 p1," ] || fail "survivor-fallback: the sent-back culprit was re-entered ($(cat "$T/one.log"); $out)"
+  [ "$(wc -l < "$T/gate.count" | tr -d ' ')" = 2 ] || fail "survivor-fallback: expected union + survivors gates, got $(wc -l < "$T/gate.count") ($out)"
+  pass live-runner-survivor-fallback-skips-the-culprit
+}
+
+# --- 13. dispatcher-forms-batch-and-skips-singles ------------------------------------------------
+mk_dispatcher_fixture() { # reviewed PASS for p1/p2 + the PR list JSON the seam serves
+  reset_ctrl
+  printf 'd1 PASS h1 reviewer\n' > "$LSTATE/merge/p1.reviewed"
+  printf 'd2 PASS h2 reviewer\n' > "$LSTATE/merge/p2.reviewed"
+  cat > "$T/pr.json" <<'JSON'
+[
+ {"number":101,"headRefName":"rsi/p1","isDraft":false,"labels":[],"title":"feat: one","body":"RSI item: R-p1",
+  "headRefOid":"aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111",
+  "statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}],
+  "files":[{"path":"internal/one/a.go","additions":450,"deletions":0}]},
+ {"number":102,"headRefName":"rsi/p2","isDraft":false,"labels":[],"title":"feat: two","body":"RSI item: R-p2",
+  "headRefOid":"bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222",
+  "statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}],
+  "files":[{"path":"internal/two/b.go","additions":10,"deletions":0}]}
+]
+JSON
+}
+run_dispatch() { # <start-log> <batch 0|1>
+  RSI_PR_LIST_CMD="cat $T/pr.json" RSI_START_LOG="$1" RSI_BATCH_VERIFY="$2" \
+    RSI_PR_STATE_CMD='echo OPEN' bash "$MERGE" > "$T/dispatch.out" 2>&1
+}
+case_dispatcher_forms_batch_and_skips_singles() {
+  mk_dispatcher_fixture
+  local log="$T/start-batch.log"
+  : > "$log"
+  run_dispatch "$log" 1
+  [ "$(grep -c '^batch ' "$log")" = 1 ] || fail "dispatch: no batch runner started ($(cat "$log"); $(tail -20 "$T/dispatch.out"))"
+  [ "$(grep -c '^one ' "$log")" = 0 ] || fail "dispatch: singles started for batched slugs ($(cat "$log"))"
+  grep -q '^batch batch-[0-9]*-[0-9]* p1 p2$' "$log" || fail "dispatch: unexpected batch start line ($(cat "$log"))"
+  local members; members="$(ls "$LSTATE/merge"/batch-*.members 2>/dev/null | head -1)"
+  [ -n "$members" ] || fail "dispatch: no members file"
+  [ "$(grep -c '^MEMBER ' "$members")" = 2 ] || fail "dispatch: members file is not a 2-member plan ($(cat "$members"))"
+  pass dispatcher-forms-batch-and-skips-singles
+}
+
+# --- 14. batch-off-is-today ----------------------------------------------------------------------
+case_batch_off_is_today() {
+  mk_dispatcher_fixture
+  local log="$T/start-off.log"
+  : > "$log"
+  run_dispatch "$log" 0
+  # Today's path, unchanged: dispatch_rows orders small-safe first, then by PR number, and the
+  # loop starts one --one verifier per eligible PR. No batch is formed and none is recorded.
+  [ "$(cat "$log")" = "one 102 p2
+one 101 p1" ] || fail "off: start lines differ from today's singles ($(cat "$log"))"
+  if ls "$LSTATE/merge"/batch-*.members >/dev/null 2>&1; then fail "off: a members file was written"; fi
+  ! grep -q 'batch' "$T/dispatch.out" || fail "off: the batch path ran with the switch off"
+  pass batch-off-is-today
+}
+
 for c in only-partial-is-not-a-verdict batch-formation-disjoint union-tree-order marker-validity \
-         carry-to-land bisect-attributes kill-switch; do
+         carry-to-land bisect-attributes kill-switch \
+         live-runner-gates-union-once live-runner-partial-is-not-a-verdict \
+         live-runner-fail-bisects-and-sends-back-culprit \
+         live-runner-nonattributable-falls-back-and-records \
+         live-runner-prefix-mismatch-stops-the-batch \
+         live-runner-outside-retry-keeps-the-verdict \
+         live-runner-survivor-fallback-skips-the-culprit \
+         dispatcher-forms-batch-and-skips-singles batch-off-is-today; do
   want "$c" || continue
   "case_${c//-/_}"
 done
