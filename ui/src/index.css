@@ -635,9 +635,7 @@
    list-row entry opens the transcript slot. It is deliberately not a loop: a
    wait is not progress, and a pulse under the wheel reads as "still working"
    even when the app is only waiting on one answer.
-   `prefers-reduced-motion` drops the fade below with the other entrances.
-   `kin-brand-enter` is the pre-rename name the held `TaskDetailPage.tsx`
-   still emits; it goes away with the `BrandMark` → `IosSpinner` rename. */
+   `prefers-reduced-motion` drops the fade below with the other entrances. */
 @keyframes kin-wait-in {
   from {
     opacity: 0;
@@ -646,8 +644,7 @@
     opacity: 1;
   }
 }
-.kin-wait-enter,
-.kin-brand-enter {
+.kin-wait-enter {
   animation: kin-wait-in 180ms ease-out;
 }
 /*
@@ -682,7 +679,6 @@
     animation: none;
   }
   .kin-wait-enter,
-  .kin-brand-enter,
   .kin-sheet-enter,
   .kin-scrim-enter {
     animation: none;
