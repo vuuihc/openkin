@@ -92,7 +92,11 @@ export function queueOrderAfterMove(
   id: number,
   delta: -1 | 1,
 ): number[] | null {
-  return moveQueuedId(prompts.map((prompt) => prompt.id), id, delta);
+  return moveQueuedId(
+    prompts.map((prompt) => prompt.id),
+    id,
+    delta,
+  );
 }
 
 /**

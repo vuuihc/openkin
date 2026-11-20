@@ -20,7 +20,13 @@ function prompt(userSeq: number, text = "waiting"): QueuedPrompt {
 
 /** A queue row with an explicit id, so order and identity can disagree. */
 function entry(id: number, position?: number): QueuedPrompt {
-  return { id, prompt: `#${id}`, user_seq: id, queued_at: 1, ...(position === undefined ? {} : { position }) };
+  return {
+    id,
+    prompt: `#${id}`,
+    user_seq: id,
+    queued_at: 1,
+    ...(position === undefined ? {} : { position }),
+  };
 }
 
 describe("queuedMessageSeqs", () => {
