@@ -468,6 +468,22 @@ reverify_reason() { # <prior-gate-sha> <prior-diff-key> <current-diff-key> <prio
   echo rework
 }
 
+prior_gate_capture() { # <pr> <verified-file> <reviewed-file> <gate-head-file>
+  # What the last cycle left behind, for the gate-start accounting line. The verified/reviewed PASS
+  # lines are written only on a combined gate+review PASS, so a gate that FAILED (or passed while
+  # the review failed) leaves none: fall back to the gate-head marker the gate-start block writes.
+  # The marker is keyed by PR number so a reused slug cannot inherit a dead PR's head. Prints
+  # "<prior-gate-sha> <prior-diff-key>"; either field may be empty (a true first gate).
+  local n="$1" sha key
+  sha="$(cut -d' ' -f1 "$2" 2>/dev/null)"
+  key="$(cut -d' ' -f1 "$3" 2>/dev/null)"
+  if [ "$(cut -d' ' -f1 "$4" 2>/dev/null)" = "$n" ]; then
+    [ -n "$sha" ] || sha="$(cut -d' ' -f2 "$4" 2>/dev/null)"
+    [ -n "$key" ] || key="$(cut -d' ' -f3 "$4" 2>/dev/null)"
+  fi
+  printf '%s %s\n' "$sha" "$key"
+}
+
 # ------------------------------------------------------------------ CI-first hold
 CI_HOLD_MAX_SECS=2700   # 45 min: a hold may defer the step-1 sync at most this long
 ci_hold_window() { # <marker-file> -> 0 when a hold may continue (fresh marker, or one just written)
@@ -681,6 +697,15 @@ if [ "${1:-}" != "--one" ]; then
       exit 2
     }
     reverify_reason "$2" "$3" "$4" "$5" "$6" "$7"; exit 0
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the same prior_gate_capture() step 1
+  # reads the accounting inputs with, over files on disk. No state, lock, gate, review or dispatch.
+  if [ "${1:-}" = "--prior-gate-check" ]; then
+    [ $# -ge 5 ] || {
+      echo "usage: merge.sh --prior-gate-check <pr> <verified-file> <reviewed-file> <gate-head-file>" >&2
+      exit 2
+    }
+    prior_gate_capture "$2" "$3" "$4" "$5"; exit 0
   fi
   # Hermetic seam for rsi/runtime/tests/test-verifier-ci-hold.sh: run the same ci_first_decision()
   # step 1 calls, with the non-waiting CI read passed in. No lock, fetch, gate, review or dispatch.
@@ -989,9 +1014,11 @@ CH="$($GIT -C "$WT" -c core.fileMode=false diff --no-renames --raw origin/main..
 QUEUE_INCOMING="$($GIT -C "$WT" diff --name-only "$OLDBASE" origin/main 2>/dev/null)"
 # The prior cycle's gate head and review key, captured before queue_carry_step rewrites or removes
 # them: the gate-start accounting line needs what the last cycle left behind to say why this head
-# has no PASS. Empty is normal (a first gate, or a review cache keyed to a different diff).
-PRIOR_GATE_SHA="$(cut -d' ' -f1 "$V" 2>/dev/null)"
-PRIOR_DIFF_KEY="$(cut -d' ' -f1 "$RV" 2>/dev/null)"
+# has no PASS. The PASS lines exist only after a combined gate+review PASS, so a gate that FAILED
+# (or passed while the review failed) leaves none: prior_gate_capture falls back to the gate-head
+# marker the gate-start block writes. Empty is normal (a true first gate).
+PRIOR_CAPTURE="$(prior_gate_capture "$N" "$V" "$RV" "$STATE/merge/$SLUG.gate-head")"
+PRIOR_GATE_SHA="${PRIOR_CAPTURE%% *}"; PRIOR_DIFF_KEY="${PRIOR_CAPTURE#* }"
 ci_first_decision "$WT" "$BR" "$V" "$RV" "$(ci_probe_once)" "$STATE/merge/$SLUG.ci-hold" "$QUEUE_INCOMING" "$CH"
 CI_FIRST_RC=$?
 # The measurement line: the next retro compares skip vs sync per verifier start.
@@ -1147,6 +1174,9 @@ if [ $NEED_GATE -eq 1 ]; then
   # line at the bottom: that one is never written on a FAIL and would bias the data to cheap passes.
   RR="$(reverify_reason "$PRIOR_GATE_SHA" "$PRIOR_DIFF_KEY" "$DH" "$PRIOR_REACHABLE" "$QUEUE_INCOMING" "${QUEUE_CARRY_REASON:-}")"
   echo "$(date '+%F %H:%M') #$N $SLUG reverify_reason=$RR" >> "$STATE/merge/cycles.log"
+  # The head and diff key this gate is about to run on: a FAIL writes no verified/reviewed PASS line,
+  # so the next cycle's accounting reads them from here (prior_gate_capture).
+  printf '%s %s %s\n' "$N" "$SHA" "$DH" > "$STATE/merge/$SLUG.gate-head"
   say "#$N $SLUG: gate on ${SHA:0:8} ($SIZE lines)"
   if mklock "$STATE/.gate.lock" 1800; then
     # Workers often build before their last edit: regenerate web/dist/index.html (the only tracked build output) so a stale bundle

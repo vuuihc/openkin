@@ -525,7 +525,11 @@ test_queue_ui_leaf_safety_failure_regates() {
 # rr <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason>
 # — the pure classifier the gate-start accounting line writes into state/merge/cycles.log. It labels
 # the re-verification only; no gate, lock or verdict reads it back.
-rr() { bash "$MERGE" --reverify-reason-check "$@"; }
+rr() { RSI_CTRL="$T/ctrl" bash "$MERGE" --reverify-reason-check "$@"; }
+
+# pc <pr> <verified-file> <reviewed-file> <gate-head-file> — the capture step 1 feeds the accounting
+# line with, over files on disk.
+pc() { RSI_CTRL="$T/ctrl" bash "$MERGE" --prior-gate-check "$@"; }
 
 want_rr() { # <want> <args...>
   local want="$1" got; shift
@@ -558,9 +562,11 @@ test_reverify_reason_shared_surface_when_the_pr_touches_ui() {
   want_rr shared-surface aaaa1111 cccc3333 cccc3333 1 "scripts/desktop-startup.sh" "the PR touches scripts/ or ui/: ui/src/pages/X.tsx"
 }
 
-# main moved a path this PR does not verify, yet the gate ran again: the carry was too narrow.
-test_reverify_reason_main_moved_for_the_prs_own_file() {
-  want_rr main-moved aaaa1111 cccc3333 cccc3333 1 "ui/src/pages/X.tsx" "the PR's own file moved: ui/src/pages/X.tsx"
+# main moved a path the PR does not verify, yet the carry refused, so the gate ran again: main-moved.
+# (A move onto the PR's own file changes the three-dot diff key in production, so that records rework;
+# this fixture is the pure-branch case.)
+test_reverify_reason_main_moved_when_the_carry_refused() {
+  want_rr main-moved aaaa1111 cccc3333 cccc3333 1 "ui/src/pages/X.tsx" "the gate names aaaa1111 (PASS), not the pre-sync head bbbb2222; not a carry candidate"
 }
 
 # Same head, same diff, no incoming paths: the earlier gate/verifier did not finish or did not pass.
@@ -571,6 +577,47 @@ test_reverify_reason_rework_when_nothing_else_moved() {
 # An empty prior review key is not evidence of a rework: it must not outrank the main-move rules.
 test_reverify_reason_ignores_an_empty_prior_diff_key() {
   want_rr main-moved aaaa1111 "" cccc3333 1 "ui/src/pages/X.tsx" "the PR's own file moved: ui/src/pages/X.tsx"
+}
+
+# A gate that FAILED writes no verified/reviewed PASS line. The next cycle must still see the head
+# that gate ran on and label the re-run rework, not first-gate (which would bias the retro's
+# denominator and undercount rework).
+test_reverify_reason_after_a_gate_fail_is_rework() {
+  local v="$T/fa.verified" rv="$T/fa.reviewed" gh="$T/fa.gate-head" out
+  rm -f "$v" "$rv"
+  printf '4242 aaaa1111 dddd4444\n' > "$gh"
+  out="$(pc 4242 "$v" "$rv" "$gh")" || fail "prior-gate capture exited non-zero"
+  [ "$out" = "aaaa1111 dddd4444" ] || fail "gate-fail capture -> '$out', want 'aaaa1111 dddd4444'"
+  want_rr rework "${out%% *}" "${out#* }" eeee5555 1 "" "origin/main did not move under the PR"
+}
+
+# A reused slug must not inherit a dead PR's gate head.
+test_prior_gate_capture_ignores_another_prs_marker() {
+  local v="$T/fa2.verified" rv="$T/fa2.reviewed" gh="$T/fa2.gate-head" out
+  rm -f "$v" "$rv"
+  printf '1111 aaaa1111 dddd4444\n' > "$gh"
+  out="$(pc 4242 "$v" "$rv" "$gh")" || fail "prior-gate capture exited non-zero"
+  [ "$out" = " " ] || fail "capture from PR #1111's marker -> '$out', want empty"
+}
+
+# The producer (queue carry) and the classifier (reverify_reason) must agree on the reason strings:
+# a renamed 'shared surface moved' would silently degrade every such move to main-moved.
+test_queue_regate_reason_classifies_as_shared_surface() {
+  reset_stubs; new_repo q7
+  set_line "$R/ui/src/pages/SettingsPage.tsx" 1 pr
+  commit_pr q7
+  OLD="$(g rev-parse HEAD)"; write_gate q7 "$OLD"
+  g checkout -q main
+  set_line "$R/ui/src/lib/useMachines.ts" 1 main
+  move_main q7
+  queue_check q7 "$OLD" ui/src/lib/useMachines.ts
+  [ "$RC" -ne 0 ] || fail "q7: carried, expected a re-gate ($(tr '\n' ' ' < "$T/q7.qout"))"
+  local reason; reason="$(sed -e 's/^REGATE[[:space:]]*//' "$T/q7.qout")"
+  case "$reason" in
+    *"shared surface moved"*) ;;
+    *) fail "q7: REGATE reason '$reason' is not a shared-surface move" ;;
+  esac
+  want_rr shared-surface "$OLD" "$QUEUE_DH" "$QUEUE_DH" 1 "ui/src/lib/useMachines.ts" "$reason"
 }
 
 # Wiring pin, not the rule: the pure cases above prove the rule; this only proves the gate-start
@@ -587,6 +634,8 @@ test_reverify_reason_is_written_at_gate_start() {
     || fail "the NEED_GATE block does not append reverify_reason= to cycles.log"
   sed -n "${gate},${lock}p" "$MERGE" | grep -qF 'reverify_reason "$PRIOR_GATE_SHA"' \
     || fail "the NEED_GATE block does not call reverify_reason with the captured prior gate"
+  sed -n "${gate},${lock}p" "$MERGE" | grep -qF -- '$SLUG.gate-head' \
+    || fail "the NEED_GATE block does not write the gate-head marker before mklock"
 }
 
 run() {
@@ -623,8 +672,11 @@ run test_reverify_reason_rework_when_the_pr_diff_changed
 run test_reverify_reason_rework_when_the_branch_was_rewritten
 run test_reverify_reason_shared_surface_when_a_script_the_gate_runs_moved
 run test_reverify_reason_shared_surface_when_the_pr_touches_ui
-run test_reverify_reason_main_moved_for_the_prs_own_file
+run test_reverify_reason_main_moved_when_the_carry_refused
 run test_reverify_reason_rework_when_nothing_else_moved
 run test_reverify_reason_ignores_an_empty_prior_diff_key
+run test_reverify_reason_after_a_gate_fail_is_rework
+run test_prior_gate_capture_ignores_another_prs_marker
+run test_queue_regate_reason_classifies_as_shared_surface
 run test_reverify_reason_is_written_at_gate_start
 echo ALL-PASS
