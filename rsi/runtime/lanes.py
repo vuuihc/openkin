@@ -9,7 +9,7 @@ that overlaps another active lane's paths is refused (exit 3).  Mutations hold a
   lanes.py status                      table of lanes (+ last result of idle ones)
   lanes.py facts [--now EPOCH]         mutable facts (sendback queue, active lanes, cloud claims,
                                        merged tail) as one paste-able key=value block
-  lanes.py idle                        idle lane numbers, one per line (honours load guard)
+  lanes.py idle                        idle lane numbers, one per line (honours load guard and the spare-lane floor)
   lanes.py claim N --slug S --item ID --brief FILE [--mode new|rework] --paths P [P ...]
   lanes.py get N                       shell-quotable key=value lines
   lanes.py cloud-claim --slug S --item ID --brief FILE --paths P [P ...]   hand a slice to an external agent (expires after 3h unlaunched)
@@ -291,11 +291,18 @@ def cmd_idle(a):
             print(f"host pressure ({press}); not filling local workers", file=sys.stderr); return
         cap = MAX_LANES
         free = [n for n in range(1, cap + 1) if not is_active(load(n))]
-        if free and len(free) < cap and not ignore:
+        # A spare lane is a measurement, not a slot: whatever `idle` licences, `cmd_claim` will
+        # re-check, so both must ask the spare floor the same question. That is "a worker is
+        # already active" (today's path) and also a cold start where idle would print TWO lanes
+        # (2026-11-20 20:32: idle said 1,2 at 4386 MB and the second claim died with REFUSED).
+        # Lane 1 stays governed by host_pressure above; --ignore-pressure skips both floors.
+        if free and not ignore and (len(free) > 1 or len(free) < cap):
             spare = spare_lane_pressure()
             if spare:
                 print(f"spare lane held ({spare}); one local worker at a time", file=sys.stderr)
-                return
+                if len(free) < cap:
+                    return
+                free = free[:1]
         for n in free: print(n)
 
 def delivered_item(item):
