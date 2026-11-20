@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { listProjects, type Project } from "../api/client";
+import { listProjects } from "../api/client";
 import { MobileChevron } from "../components/mobile/MobileHeader";
 import { PageListSkeleton } from "../components/Skeleton";
 import { useT } from "../i18n/react";
+import { setCachedProjects, useCachedProjects } from "../lib/projectsCache";
 
 /** The API's four modes, labelled the way the cover labels them. */
 const MODE_LABEL_KEY: Record<string, string> = {
@@ -56,17 +57,28 @@ export function middleTruncatePath(path: string, budget = PATH_BUDGET): string {
  *
  * Empty, loading and failed are three different answers and are drawn as such.
  * "No projects yet" over a failed read would be a lie about the reader's data.
+ *
+ * The block itself stays loaded across a switch (TASTE 15): `projectsCache`
+ * keeps the last successful read, so a revisit paints the rows the reader just
+ * saw and this mount only revalidates them. The skeleton is painted when there
+ * is nothing kept yet — never over rows that already exist. A failed
+ * revalidation keeps those rows and adds the failure line instead of blanking
+ * them; only the first load with no kept answer is failure-only.
  */
 export default function ProjectsCollectionPage() {
   const tr = useT();
-  const [projects, setProjects] = useState<Project[] | null>(null);
+  const projects = useCachedProjects();
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let live = true;
     listProjects("active")
       .then((list) => {
-        if (live) setProjects(Array.isArray(list) ? list : []);
+        if (!live) return;
+        // A successful answer — including an empty one — replaces the block;
+        // a deleted project must disappear from the kept rows.
+        setFailed(false);
+        setCachedProjects(Array.isArray(list) ? list : []);
       })
       .catch(() => {
         if (live) setFailed(true);
@@ -84,12 +96,22 @@ export default function ProjectsCollectionPage() {
         <h1 className="text-hero font-bold tracking-tight text-kin-text">{tr("nav.projects")}</h1>
         {failed ? (
           // Visible text without a new live region: the inventory ratchet is flat
-          // for this slice. The failure is still distinct from the empty state.
+          // for this slice. The failure is still distinct from the empty state;
+          // with rows kept from an earlier read it is an addition, not a
+          // replacement, so the reader keeps the list and learns the refresh
+          // failed.
           <p className="text-body leading-5 text-kin-red-ink">{tr("projects.loadFailed")}</p>
-        ) : projects === null ? (
-          <PageListSkeleton variant="rows" rows={4} label={tr("common.loading")} />
+        ) : null}
+        {projects === null ? (
+          // First load only: no kept block, so the skeleton is the honest
+          // answer. Once a read has succeeded this branch cannot paint again.
+          failed ? null : (
+            <PageListSkeleton variant="rows" rows={4} label={tr("common.loading")} />
+          )
         ) : projects.length === 0 ? (
-          <p className="text-body leading-5 text-kin-muted">{tr("projects.empty")}</p>
+          // Empty is an answer from a successful read; a failed refresh over a
+          // kept empty block already said so above and must not claim both.
+          failed ? null : <p className="text-body leading-5 text-kin-muted">{tr("projects.empty")}</p>
         ) : (
           // Rows are direct children of the list, on the page surface: the row
           // shape Chats and Routines use, not a card inside the page. The
