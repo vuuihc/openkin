@@ -130,9 +130,13 @@ func TestNodeChannelRecordsDeviceAndAgents(t *testing.T) {
 
 	// The Hub can now reach this machine, which is the whole point of the
 	// channel: presence is not just a row in a table.
-	if !conns.Connected(deviceID) {
-		t.Fatal("the Hub has no live connection for a device that just said hello")
-	}
+	//
+	// awaitConnected, not a bare Connected: the registry row awaitDevice saw is
+	// written when the hello is recorded, and the socket is attached a few
+	// statements later (internal/api/node.go: recordNodeHello, then Attach). The
+	// row existing does not yet mean the channel does, and reading it as if it
+	// did failed CI twice (2026-11-20T13:27:22Z and 2026-11-20T16:15:11Z).
+	awaitConnected(t, conns, deviceID)
 }
 
 func TestNodeChannelMarksDeviceOfflineOnDisconnect(t *testing.T) {
