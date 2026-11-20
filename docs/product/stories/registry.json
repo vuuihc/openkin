@@ -638,6 +638,24 @@
       "ownerPaths": [],
       "tests": [],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-CONTINUE-005",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J1",
+        "J2"
+      ],
+      "surfaces": [
+        "phone"
+      ],
+      "title": "手机底栏：玻璃与纯图标，四个区域共用",
+      "file": "docs/product/stories/KIN-CONTINUE-005.md",
+      "surface": "",
+      "ownerPaths": [],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }

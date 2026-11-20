@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff" rx="24"/>
+<rect width="390" height="24" fill="#f6f6f8" rx="24"/>
+<rect y="14" width="390" height="10" fill="#f6f6f8"/>
+<text x="16" y="17" font-size="11" fill="#555">9:41</text>
+<text x="374" y="17" font-size="11" fill="#555" text-anchor="end">手机 390×844 · 默认：玻璃底栏 + 纯图标</text>
+
+<text x="16" y="60" font-size="19" font-weight="600" fill="#1a1a1a">对话</text>
+<circle cx="350" cy="58" r="18" fill="#f6f6f8"/>
+<circle cx="347" cy="55" r="5.5" fill="none" stroke="#555" stroke-width="1.5"/>
+<line x1="351" y1="59" x2="355" y2="63" stroke="#555" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="16" y1="88" x2="374" y2="88" stroke="#eeeeee"/>
+
+<circle cx="18" cy="110" r="4" fill="#137a3f"/>
+<text x="28" y="114" font-size="12" font-weight="600" fill="#1a1a1a">机器 A · 在线</text>
+<text x="16" y="146" font-size="12" font-weight="600" fill="#1a1a1a">▾ 项目 alpha</text>
+<rect x="16" y="158" width="358" height="48" rx="12" fill="#f6f6f8"/>
+<text x="30" y="180" font-size="12.5" font-weight="600" fill="#1a1a1a">整理发布说明</text>
+<text x="30" y="196" font-size="10.5" fill="#6b6b6b">刚刚 · 正在运行</text>
+<rect x="16" y="214" width="358" height="48" rx="12" fill="#ffffff"/>
+<text x="30" y="236" font-size="12.5" font-weight="600" fill="#1a1a1a">把截图归档</text>
+<text x="30" y="252" font-size="10.5" fill="#6b6b6b">昨天 · 等你批准</text>
+
+<circle cx="18" cy="292" r="4" fill="#137a3f"/>
+<text x="28" y="296" font-size="12" font-weight="600" fill="#1a1a1a">本机 · 在线</text>
+<text x="16" y="328" font-size="12" font-weight="600" fill="#1a1a1a">▾ 项目 beta</text>
+<rect x="16" y="340" width="358" height="48" rx="12" fill="#ffffff"/>
+<text x="30" y="362" font-size="12.5" font-weight="600" fill="#1a1a1a">核对构建日志</text>
+<text x="30" y="378" font-size="10.5" fill="#6b6b6b">3 天前 · 已完成</text>
+
+<rect x="16" y="410" width="358" height="88" rx="12" fill="#eef3ff" stroke="#1f6feb" stroke-dasharray="4 3"/>
+<text x="30" y="434" font-size="12" font-weight="600" fill="#1f6feb">现在 → 之后：只换材质与图标</text>
+<text x="30" y="454" font-size="11" fill="#3a3f47">底栏：实色横条 → 贴底悬浮玻璃（panel 0.74 + blur 24 +</text>
+<text x="30" y="472" font-size="11" fill="#3a3f47">1px 描边）；入口：图标 + 文字 → 纯图标，可访问名不变。</text>
+<text x="30" y="490" font-size="11" fill="#3a3f47">四个入口、顺序、路由、返回记忆都不变。</text>
+
+<rect x="16" y="526" width="358" height="48" rx="12" fill="#ffffff"/>
+<text x="30" y="548" font-size="12.5" font-weight="600" fill="#1a1a1a">给发布说明配图</text>
+<text x="30" y="564" font-size="10.5" fill="#6b6b6b">上周 · 已完成</text>
+<rect x="16" y="582" width="358" height="48" rx="12" fill="#ffffff"/>
+<text x="30" y="604" font-size="12.5" font-weight="600" fill="#1a1a1a">检查昨天的构建</text>
+<text x="30" y="620" font-size="10.5" fill="#6b6b6b">周一 · 已完成</text>
+<rect x="16" y="638" width="358" height="48" rx="12" fill="#ffffff"/>
+<text x="30" y="660" font-size="12.5" font-weight="600" fill="#1a1a1a">归档旧截图</text>
+<text x="30" y="676" font-size="10.5" fill="#6b6b6b">上周 · 已完成</text>
+<rect x="16" y="694" width="358" height="48" rx="12" fill="#ffffff"/>
+<text x="30" y="716" font-size="12.5" font-weight="600" fill="#1a1a1a">内容从玻璃下缘透出</text>
+<text x="30" y="732" font-size="10.5" fill="#6b6b6b">最后一行可完整滚到玻璃上方 12px</text>
+
+<rect x="8" y="746" width="374" height="56" rx="22" fill="#f1f1f5" fill-opacity="0.78" stroke="#d5d5dd"/>
+<rect x="9" y="747" width="372" height="54" rx="21" fill="none" stroke="#ffffff" stroke-opacity="0.8"/>
+<rect x="23" y="754" width="64" height="40" rx="20" fill="#1f6feb" fill-opacity="0.12"/>
+<g stroke-width="1.6" fill="none" stroke-linecap="round">
+  <g stroke="#1f6feb"><rect x="46" y="766" width="18" height="14" rx="3"/><line x1="46" y1="771" x2="64" y2="771"/></g>
+  <g stroke="#555"><circle cx="148" cy="773" r="8"/><path d="M148 768 v5 l3 2"/></g>
+  <g stroke="#555"><rect x="234" y="765" width="6" height="6" rx="1"/><rect x="243" y="765" width="6" height="6" rx="1"/><rect x="234" y="774" width="6" height="6" rx="1"/><rect x="243" y="774" width="6" height="6" rx="1"/></g>
+  <g stroke="#555"><circle cx="335" cy="773" r="7"/><path d="M335 762 v4 M335 780 v4 M324 773 h4 M342 773 h4"/></g>
+</g>
+<text x="8" y="822" font-size="10" fill="#6b6b6b">玻璃距安全区再留 8px；四个入口等宽，触达 ≥48px</text>
+<text x="374" y="822" font-size="10" fill="#6b6b6b" text-anchor="end">可访问名不变</text>
+<rect x="136" y="830" width="118" height="5" rx="2.5" fill="#1a1a1a"/>
+<rect x="0.5" y="0.5" width="389" height="843" fill="none" rx="24" stroke="#bbbbbb"/>
+</g>
+</svg>
