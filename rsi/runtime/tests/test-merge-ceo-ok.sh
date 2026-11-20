@@ -13,9 +13,11 @@
 # Hermetic: mktemp -d only. No git repo, no network, no state dirs, no gh. RSI_CTRL points at a
 # temp tree holding PAUSE, so even an unwired seam falls through the dispatcher without side effects.
 #
-# Exercises merge.sh --ceo-ok-check, which runs the same ceo_ok_verdict() the hold block calls, and
-# --ceo-hold-check / --dispatch-rows-check, which run the same ceo_hold_skip() and row filter the
-# dispatcher uses: a marker naming this PR must release an older .blocked skip and the
+# Exercises merge.sh --ceo-ok-check, which runs ceo_ok_verdict(), and --redline-hold-check, which
+# runs the same redline_hold_decision() the step-2 hold block calls: the CORS/secure permission
+# boundary, the Astryx package.json exemption, and the fail-closed guard for an unreadable
+# changed-path list. --ceo-hold-check / --dispatch-rows-check run the same ceo_hold_skip() and row
+# filter the dispatcher uses: a marker naming this PR must release an older .blocked skip and the
 # needs-ceo/hold labels, while a marker for another PR or a re-block written after the marker must
 # not, otherwise the promise (the next verifier cycle merges, no manual hold edit) is never kept.
 # Prints "PASS <case>" per case and exits non-zero on the first failure.
@@ -145,6 +147,17 @@ hold_cors_stale_marker_keeps() {
 no_hold_api_router() { check_redline R-x 'internal/api/api.go'; expect_clear no-hold-api-router; }
 no_hold_cors_test_only() { check_redline R-x 'internal/api/cors_test.go'; expect_clear no-hold-cors-test-only; }
 
+# A changed-path list that cannot be read (failed state-dir write, concurrent cleanup) proves
+# nothing about the PR: hold, as the pre-change ceo_ok_verdict() path did. Failing open here would
+# clear a deps/migrations/auth/permission-boundary PR on an unreadable file.
+hold_unreadable_list() {
+  local slug=redline
+  rm -f "$SM/$slug.ceo-ok" "$T/redline-missing"
+  RSI_CTRL="$T/ctrl" bash "$MERGE" --redline-hold-check "$T/redline-missing" "$slug" R-x 352 > "$T/out" 2>&1
+  RC=$?; OUT="$(cat "$T/out")"
+  expect_hold hold-unreadable-list
+}
+
 # Existing classes still hold; unrelated paths still do not.
 hold_go_mod_still() { check_redline R-x 'go.mod'; expect_hold hold-go-mod-still; }
 no_hold_docs() { check_redline R-x 'docs/product/IA.md'; expect_clear no-hold-docs; }
@@ -265,6 +278,7 @@ run hold-cors-marker-clears hold_cors_marker_clears
 run hold-cors-stale-marker-keeps hold_cors_stale_marker_keeps
 run no-hold-api-router no_hold_api_router
 run no-hold-cors-test-only no_hold_cors_test_only
+run hold-unreadable-list hold_unreadable_list
 run hold-go-mod-still hold_go_mod_still
 run no-hold-docs no_hold_docs
 run f2-package-only-exempt f2_package_only_exempt

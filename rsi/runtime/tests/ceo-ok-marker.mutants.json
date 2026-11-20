@@ -63,6 +63,13 @@
     "new": "|internal/api/)"
   },
   {
+    "label": "fail open on an unreadable changed-path list: a held deps/migrations/auth/permission PR is cleared when the list cannot be read",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",
+    "old": "  [ -r \"$chf\" ] || { REDLINE_REASON=\"changed-path list unreadable: holding (fail closed)\"; return 0; }\n",
+    "new": ""
+  },
+  {
     "label": "exempt package.json PRs even when a red-line path changed: an F2 slice swallows the CORS middleware",
     "file": "rsi/runtime/merge.sh",
     "test": "bash rsi/runtime/tests/test-merge-ceo-ok.sh",

@@ -1239,6 +1239,8 @@ ceo_ok_verdict() { # <marker-file> <changed-paths-file> <pr> -> 0 clear, 1 hold,
 redline_hold_decision() { # <changed-paths-file> <slug> <item> <pr> -> 0 hold, 1 clear, 2 package-exemption
   local chf="$1" slug="$2" item="$3" pr="$4"
   REDLINE_REASON=""
+  # A list that cannot be read (failed state write, concurrent cleanup) proves nothing: hold.
+  [ -r "$chf" ] || { REDLINE_REASON="changed-path list unreadable: holding (fail closed)"; return 0; }
   redline_paths "$chf" || { REDLINE_REASON="no dependency, migration, auth or permission-boundary path changed"; return 1; }
   # Only the CEO writes state/merge/<slug>.ceo-ok (same ownership rule as *.size-ok): the owner's
   # approval of this exact PR, quoted. A valid marker clears this one hold; the gate and the
@@ -1252,7 +1254,7 @@ redline_hold_decision() { # <changed-paths-file> <slug> <item> <pr> -> 0 hold, 1
     REDLINE_REASON="ui/package.json only: Astryx programme slice $item"
     return 2
   fi
-  REDLINE_REASON="touches deps/migrations/auth (MANDATE: needs CEO + ADR)"
+  REDLINE_REASON="touches deps/migrations/auth or permission-boundary middleware (MANDATE: needs CEO + ADR)"
   return 0
 }
 
@@ -1482,7 +1484,7 @@ if [ "${1:-}" != "--one" ]; then
     case $rc in
       0) echo "CLEAR $CEO_OK_REASON"; exit 0 ;;
       1) echo "HOLD $CEO_OK_REASON"; exit 1 ;;
-      *) echo "NOHOLD no deps/migrations/auth path changed"; exit 0 ;;
+      *) echo "NOHOLD no deps/migrations/auth or permission-boundary path changed"; exit 0 ;;
     esac
   fi
   # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: run the same redline_hold_decision()
