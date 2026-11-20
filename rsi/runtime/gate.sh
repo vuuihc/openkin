@@ -1,9 +1,24 @@
 #!/bin/bash
 # gate.sh <worktree>  — the merge gate. Prints GATE_RESULT=PASS|FAIL with the reasons.
+# gate.sh --only <step[,step]> <worktree> — bisect helper: run only the named step()s (plus
+# their prerequisites) and print GATE_RESULT=PARTIAL[<why>]. A filtered run is a diagnostic:
+# it is never PASS or FAIL with a full-gate meaning, and the verifier must not accept it.
 set -u
+ONLY=""
+if [ "${1:-}" = "--only" ]; then ONLY="${2:?--only needs step[,step]}"; shift 2; fi
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
-WT="$1"; cd "$WT" || { echo "GATE_RESULT=FAIL no worktree"; exit 1; }
+WT="${1:?worktree required}"; cd "$WT" || { echo "GATE_RESULT=FAIL no worktree"; exit 1; }
+ONLY_MODE=0; [ -n "$ONLY" ] && ONLY_MODE=1
+selected() { # <step-name> — 0 when this run should execute that step
+  [ "$ONLY_MODE" -eq 0 ] && return 0
+  case ",$ONLY," in *",$1,"*) return 0 ;; esac
+  return 1
+}
+# test/build/lint compile the console, so they need the install the node-stamp step repairs.
+needs_node_stamp() {
+  selected test || selected build || selected lint
+}
 fail=0; why=""
 step() { # name cmd...
   local n="$1"; shift
@@ -100,20 +115,31 @@ lines="$($GIT diff --shortstat origin/main...HEAD -- . ':!web/dist/index.html' '
 echo "diff size: $lines"
 echo "$changed" | grep -qE '^(web/dist/assets/|\.env|.*secret)' && { echo "FAIL: forbidden path in diff"; fail=1; why="$why forbidden-path"; }
 [ -n "$($GIT status --porcelain)" ] && { echo "FAIL: working tree not clean (commit or discard)"; $GIT status --short | head; fail=1; why="$why dirty-tree"; }
-echo "$changed" | grep -q '^ui/' && step node-stamp ui_node_stamp
-[ -x scripts/check.sh ] && step check ./scripts/check.sh
+echo "$changed" | grep -q '^ui/' && needs_node_stamp && step node-stamp ui_node_stamp
+[ -x scripts/check.sh ] && selected check && step check ./scripts/check.sh
 if echo "$changed" | grep -q '^ui/'; then
-  step lint bash -c 'cd ui && npm run lint'
-  step test ui_vitest_gate
-  if [ "${RSI_DIST_BUILT_SHA:-}" = "$($GIT rev-parse HEAD 2>/dev/null)" ] && [ -d web/dist/assets ]; then
-    echo "--- build"
-    echo "ok: build (verified at HEAD by merge lane; tsc --noEmit + vite build)"
-  else
-    step build bash -c 'cd ui && npm run build'
+  selected lint && step lint bash -c 'cd ui && npm run lint'
+  selected test && step test ui_vitest_gate
+  if selected build; then
+    if [ "${RSI_DIST_BUILT_SHA:-}" = "$($GIT rev-parse HEAD 2>/dev/null)" ] && [ -d web/dist/assets ]; then
+      echo "--- build"
+      echo "ok: build (verified at HEAD by merge lane; tsc --noEmit + vite build)"
+    else
+      step build bash -c 'cd ui && npm run build'
+    fi
   fi
-  [ -n "$($GIT status --porcelain -- . ':!web/dist/index.html')" ] && { echo "FAIL: build left uncommitted changes"; fail=1; why="$why dirty-after-build"; }
-  $GIT diff --quiet -- web/dist/index.html || { echo "FAIL: web/dist/index.html stale — commit the rebuilt file"; fail=1; why="$why stale-dist"; }
+  if selected build; then
+    [ -n "$($GIT status --porcelain -- . ':!web/dist/index.html')" ] && { echo "FAIL: build left uncommitted changes"; fail=1; why="$why dirty-after-build"; }
+    $GIT diff --quiet -- web/dist/index.html || { echo "FAIL: web/dist/index.html stale — commit the rebuilt file"; fail=1; why="$why stale-dist"; }
+  fi
 fi
-step prettier prettier_ui_changed
-echo "--- ratchet"; python3 "$RSI_DIR/runtime/ratchet.py" check "$WT" || { fail=1; why="$why ratchet"; }
+selected prettier && step prettier prettier_ui_changed
+if selected ratchet; then
+  echo "--- ratchet"; python3 "$RSI_DIR/runtime/ratchet.py" check "$WT" || { fail=1; why="$why ratchet"; }
+fi
+if [ "$ONLY_MODE" -eq 1 ]; then
+  # A filtered run is bisect diagnosis only. PARTIAL can never be read as a full verdict;
+  # the verifier's grep is for `^GATE_RESULT=PASS`, so this line is never carried.
+  if [ $fail -eq 0 ]; then echo "GATE_RESULT=PARTIAL"; exit 0; else echo "GATE_RESULT=PARTIAL:$why"; exit 1; fi
+fi
 if [ $fail -eq 0 ]; then echo "GATE_RESULT=PASS"; exit 0; else echo "GATE_RESULT=FAIL:$why"; exit 1; fi
