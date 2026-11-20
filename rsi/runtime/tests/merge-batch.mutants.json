@@ -1,0 +1,37 @@
+[
+  {
+    "label": "overlapping changed paths are batched, so two members that touch the same file share one gate",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=batch-formation-disjoint bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "\n      batch_disjoint \"$paths\" \"$opaths\" || { ok=0; break; }",
+    "new": "\n      true"
+  },
+  {
+    "label": "the prefix-tree proof is skipped, so a landing that differs from the gated union still continues",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=carry-to-land bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "  $GIT -C \"$1\" diff --quiet \"$want\" \"$4\" -- . ':!web/dist/index.html'",
+    "new": "  return 0"
+  },
+  {
+    "label": "a filtered gate reports PASS, so the bisect's PARTIAL is carried as a full-gate verdict",
+    "file": "rsi/runtime/gate.sh",
+    "test": "RSI_TEST_ONLY=only-partial-is-not-a-verdict bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "  if [ $fail -eq 0 ]; then echo \"GATE_RESULT=PARTIAL\"; exit 0; else echo \"GATE_RESULT=PARTIAL:$why\"; exit 1; fi",
+    "new": "  if [ $fail -eq 0 ]; then echo \"GATE_RESULT=PASS\"; exit 0; else echo \"GATE_RESULT=FAIL:$why\"; exit 1; fi"
+  },
+  {
+    "label": "a marker is reused after its member's head moved, so a newer push lands on an old gate",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=marker-validity bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "  [ \"$mhead\" = \"$head\" ] || { echo \"INVALID head-moved\"; return 1; }",
+    "new": "  : # stale head accepted"
+  },
+  {
+    "label": "the kill switch is ignored, so RSI_BATCH_VERIFY=0 still forms and reads batches",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=kill-switch bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "  batch_enabled || { echo \"SINGLE batch-disabled\"; return 1; }",
+    "new": "  : # kill switch ignored"
+  }
+]

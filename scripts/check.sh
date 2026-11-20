@@ -217,6 +217,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-verifier-ci-hold.sh || return 1
   bash rsi/runtime/tests/test-merge-sync-skip.sh || return 1
   bash rsi/runtime/tests/test-merge-pr-select.sh || return 1
+  bash rsi/runtime/tests/test-merge-batch.sh || return 1
   bash rsi/runtime/tests/test-merge-ceo-ok.sh || return 1
   bash rsi/runtime/tests/test-gate-lock-timeout.sh || return 1
   # The walk mutant's red proof builds the UI twice, so the gate runs only the
