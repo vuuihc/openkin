@@ -1,8 +1,11 @@
 # Switch latency — the first measured cost of an F4 switch
 
-**Status: measured.** Three switch legs were timed on a throwaway daemon at
-`71f1d77b`, 10 runs each after one discarded warm-up. No product change was
-made: this document is the baseline the next switch phase opens from.
+**Status: measured and attributed.** Three switch legs were timed on a
+throwaway daemon at `71f1d77b`, 10 runs each after one discarded warm-up. No
+product change was made: this document is the baseline the next switch phase
+opens from. At `e2c96089` the same script also splits the area leg on the page
+clock: 10/10 runs attributed, and the render after the answer owns nearly all
+of the time (table 2).
 
 ## Current position (现在的位置)
 
@@ -10,11 +13,13 @@ made: this document is the baseline the next switch phase opens from.
 |---|---|
 | `rsi/runtime/ux/switch-latency.mjs` | green — boots, seeds, times three legs; `node --check` passes |
 | Real end-to-end run (10 runs/leg) | green — table 1 below; JSON at `rsi/state/switch-latency/switch-latency.json` |
+| Attribution split (`mac-area-to-area`) | green — 10/10 runs attributed at `e2c96089`; table 2 below |
+| Hermetic attribution test | green — `rsi/runtime/tests/test-switch-attribution.sh`, 5 cases, wired into `check.sh` |
 | Guard (a) `--break-target` | green — exit 2, `GUARD (a) destination-never-appeared` |
 | Guard (b) `--break-shell` | green — exit 2, `GUARD (b) shell-rebuilt` |
 | Guard (c) splash/blank/error | green — `--break-splash`, `--break-alert`, `--break-blank` each exit 2 with `GUARD (c) splash-blank-or-error` and their own detail |
-| `--print <json>` claim check | green — prints the same p50/p90 as the run |
-| Product code changed | none — script and this document only |
+| `--print <json>` claim check | green — prints the same p50/p90 as the run, plus the attribution lines |
+| Product code changed | none — script, its hermetic test, and this document only |
 
 ## What was measured
 
@@ -116,6 +121,67 @@ p50/p90 are reported as measured over the whole sample.
 The worktree's `web/dist/index.html` was unchanged by the build (same hashed
 entry chunk), so nothing under `web/dist/` is part of this change.
 
+## Table 2 — attribution, 2026-11-20
+
+`switch-latency.mjs` now splits a measured press on the page's clock. The
+page's resource timeline is cleared before the press; after `t1` the first
+resource entry whose path starts with the leg's `dataPath` and whose
+`startTime` is at or after `t0` yields
+
+- `dispatch = entry.startTime − t0` — press → the read starts (the route
+  change and the skeleton mount are inside this),
+- `read = entry.responseEnd − entry.startTime` — the fetch itself,
+- `render = t1 − entry.responseEnd` — answer → the list on screen (this phase
+  carries the same detection-lag/one-frame upper bound as the total).
+
+A run with no matching entry, a negative phase, or phases that miss the total
+by more than 2 ms is recorded as unattributed with its reason and excluded
+from the split. `--print` then says `attributed n/N (k unmeasured)` and prints
+no phase numbers over runs it did not measure.
+
+| Fact | Value |
+|---|---|
+| Commit | `e2c96089865ea313d873c6bc25d79a5229cbf685` |
+| OS | macOS (Darwin) 27.2.0 arm64 · 8 CPUs · node v22.23.4 |
+| Load average (1m 5m 15m), before → after | `9.5 9.3 9.6` → `9.5 9.3 9.6` |
+| Console | production Vite bundle; entry `/assets/index-ysi98Ugl.js` |
+| Daemon | `./kin` built from this commit, in a `mktemp` state dir on a free port |
+| Attributed runs | **10 / 10** — no run excluded |
+| `mac-area-to-area` total this run (p50 / p90 / min / max) | 81.6 / 135.9 / 49.4 / 164.7 ms |
+
+| Phase of `mac-area-to-area` | p50 | p90 | min | max |
+|---|---:|---:|---:|---:|
+| `dispatch` — press → `/api/projects` starts | 1.8 | 1.9 | 1.6 | 2.5 |
+| `read` — `/api/projects?status=active` | 1.3 | 1.5 | 1.1 | 1.7 |
+| `render` — answer → `[data-projects-list]` on screen | 78.6 | 133.1 | 46.2 | 160.9 |
+
+Per run, in order (ms, dispatch / read / render):
+
+| Run | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `dispatch` | 1.9 | 1.9 | 1.9 | 1.8 | 1.6 | 1.7 | 1.8 | 2.5 | 1.7 | 1.6 |
+| `read` | 1.3 | 1.1 | 1.1 | 1.4 | 1.2 | 1.5 | 1.3 | 1.3 | 1.3 | 1.7 |
+| `render` | 48.5 | 78.6 | 47.6 | 46.2 | 133.1 | 96.3 | 86.8 | 160.9 | 54 | 118.4 |
+
+The other two legs name no data path, so they record
+`attributed 0/10 (no data read named for this leg)` and print no phase
+numbers; this change attributes the area leg, the one whose destination owns a
+collection read.
+
+**What the split says.** At this commit the read is not the cost. Press → fetch
+starts is under 3 ms and the fetch itself is ~1.3 ms on loopback against the
+three-project seed. The render after the answer owns 78.6 of the 81.6 ms p50
+and the whole tail: its p90 is 133.1 ms and its max 160.9 ms, against a read
+that never passes 1.7 ms. The spread table 1 could not attribute is in
+`render`, not in the read. This does not say *why* the render takes that long —
+React work, layout, the frame boundary and the visibility poll all sit inside
+`render` — only where the time sits. Each phase's percentile is nearest-rank
+over that phase's own runs, so the phase p50s need not add to the total's
+(here 81.7 vs 81.6 ms). This run's total p50 is lower than table 1's 99.2 ms
+at `71f1d77b`, but the host was at load average 9.5 with other RSI lanes
+running and the two runs are different commits; the within-run split, not the
+cross-run delta, is what table 2 supports.
+
 ## What these numbers do not prove
 
 - **Cold start.** Every run starts from a console that is already loaded; this
@@ -142,6 +208,18 @@ entry chunk), so nothing under `web/dist/` is part of this change.
   blank `<main>` or an alert during a switch, and they record no number.
 - **Paint.** `t1` is the first animation frame after the visibility poll, so the
   duration is an upper bound that includes the poll lag and up to one frame.
+- **A cache hit is not a fetch.** Resource timing measures the fetch the page
+  issued: a read served from the app's own cache (no fetch) is `unattributed`,
+  not a zero-length `read`. The loopback daemon answers the three-project seed
+  quickly; a cold connection, a slower provider or a larger collection would
+  move `read` without changing the method.
+- **Why a phase took that long.** Attribution names the phase that owns the
+  time, not the mechanism inside it. `render` contains React work, layout, the
+  next frame and the visibility poll's detection lag; `read` contains
+  connection, queueing and the daemon's handler.
+- **Additivity.** Each phase's p50/p90 is nearest-rank over that phase's own
+  attributed runs, so phase percentiles need not add to the total's percentile
+  and must not be summed as if they did.
 
 ## Reproduce
 
@@ -150,11 +228,15 @@ entry chunk), so nothing under `web/dist/` is part of this change.
 (cd ui && npm run build)
 go build -o ./kin ./cmd/kin
 
-# The baseline (10 measured runs + 1 warm-up per leg).
+# The baseline (10 measured runs + 1 warm-up per leg), now with attribution.
 node rsi/runtime/ux/switch-latency.mjs --kin ./kin --runs 10
 
-# Claim check: the JSON's numbers, no daemon needed.
+# Claim check: the JSON's numbers and attribution lines, no daemon needed.
 node rsi/runtime/ux/switch-latency.mjs --print rsi/state/switch-latency/switch-latency.json
+# -> attr mac-area-to-area attributed 10/10 dispatch p50 1.8 p90 1.9 · read p50 1.3 p90 1.5 · render p50 78.6 p90 133.1
+
+# Hermetic: the printer's attribution contract (5 cases, no daemon, no browser).
+bash rsi/runtime/tests/test-switch-attribution.sh
 
 # Guard (a): a destination that never appears.
 node rsi/runtime/ux/switch-latency.mjs --kin ./kin --runs 1 --legs mac-chat-to-chat --break-target --out "$(mktemp -d)"
