@@ -12,5 +12,12 @@
     "test": "bash rsi/runtime/tests/test-lane-worker-contract.sh",
     "old": "\\`Claim output:\\`",
     "new": "\\`Claim output\\`"
+  },
+  {
+    "label": "remove the Claim check: none: waiver sentence",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-lane-worker-contract.sh",
+    "old": " or waives it with \\`Claim check: none: <reason of at least 20 characters>\\`.",
+    "new": "."
   }
 ]

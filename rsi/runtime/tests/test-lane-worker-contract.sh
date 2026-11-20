@@ -117,8 +117,10 @@ test_prose_claim_check_rule() {
     || bad "prose-claim-check-rule: the trigger paths omit the docs/product/ prefix"
   grep -Fq "rsi/GOAL.md" <<<"$text" \
     || bad "prose-claim-check-rule: the trigger paths omit rsi/GOAL.md"
-  grep -Fq "none:" <<<"$text" \
+  grep -Fq "Claim check: none:" <<<"$text" \
     || bad "prose-claim-check-rule: the contract never names the 'Claim check: none:' waiver"
+  grep -Fq "at least 20 characters" <<<"$text" \
+    || bad "prose-claim-check-rule: the waiver does not state the 20-character reason minimum"
   grep -Fq "not delivery" <<<"$text" \
     || bad "prose-claim-check-rule: the contract does not say a missing claim is not delivery"
 }
