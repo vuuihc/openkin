@@ -15,7 +15,8 @@ that overlaps another active lane's paths is refused (exit 3).  Mutations hold a
   lanes.py start N PID | finish N --status S [--pr N] [--note T] | claimed
 
 Exit codes: 3 overlap/busy, 4 no such lane or lane busy, 5 bad paths, 6 missing brief,
-7 UX gate, 8 host pressure, 9 item already merged (pass --redeliver or use a new id).
+7 UX gate, 8 host pressure, 9 item already merged (pass --redeliver or use a new id),
+10 the last usable lane is reserved for an unclaimed rework.
 """
 import subprocess, argparse, fcntl, fnmatch, json, os, sys, time, glob, shlex
 
@@ -347,6 +348,41 @@ def is_valid_path(p):
         return True
     return os.path.isfile(os.path.join(HERE, "..", "..", p))
 
+def unclaimed_sendbacks():
+    """Sendbacks no lane has taken yet, oldest first (by mtime).
+
+    A file alone is not "waiting". `lane.sh` archives a sendback only at the end of its
+    rework run (lane.sh:273), so for the whole run the file still sits in the queue; the
+    slug an active lane already runs is filtered out, mirroring the skip at lane.sh:93.
+    A size-only sendback whose cap the CEO waived (`source: hold-size` plus
+    `merge/<slug>.size-ok`) is filtered too, because autofill never picks it up and the
+    reservation would persist with no rework coming. A sendback whose PR is already
+    terminal is not filtered here; autofill archives it on its next pass (lane.sh:101-104),
+    which is what clears it. A sendback autofill skips without archiving (no diff vs main,
+    lane.sh:112; no paths, lane.sh:117) still counts: only an archive or a claim clears a
+    queue entry.
+    """
+    active = set()
+    for n in range(1, ALL_LANES + 1):
+        d = load(n)
+        if is_active(d): active.add(d.get("slug"))
+    out = []
+    for f in glob.glob(os.path.join(STATE, "sendback", "*.md")):
+        slug = os.path.basename(f)[:-3]
+        if slug in active: continue
+        try:
+            src = ""
+            with open(f, errors="replace") as fh:
+                for line in fh:
+                    if line.startswith("source:"):
+                        src = line.split(":", 1)[1].strip(); break
+            if src == "hold-size" and os.path.isfile(os.path.join(STATE, "merge", slug + ".size-ok")):
+                continue
+            out.append((os.path.getmtime(f), f))
+        except OSError: continue
+    return [f for _, f in sorted(out)]
+
+
 def cmd_claim(a):
     paths = [norm(p) for p in a.paths if norm(p) not in IGNORED]
     bad = [p for p in paths if not is_valid_path(p)]
@@ -376,6 +412,18 @@ def cmd_claim(a):
                 spare = spare_lane_pressure()
                 if spare:
                     print(f"REFUSED: spare lane held ({spare}); one local worker at a time"); sys.exit(8)
+        # An open PR outranks a fresh slice: a sendback that appears while the director is still
+        # running (a merge cycle wrote it 4-10 min into the fill) used to find every usable lane
+        # taken, so the rework waited for the next merge kick (2026-11-20 09:06: #435 and #436 sat
+        # 40 min while two NEW slices ran; the 2026-11-18 lesson was the same shape). Refuse only
+        # the claim that would leave no lane at all, so the post-dispatch `autofill rest` gets one.
+        if a.mode != "rework":
+            held = unclaimed_sendbacks()
+            if held:
+                free_after = [n for n in range(1, MAX_LANES + 1) if n != a.lane and not is_active(load(n))]
+                if not free_after:
+                    print(f"REFUSED: unclaimed rework {os.path.basename(held[0])[:-3]} gets the last free lane; run `lane.sh autofill`")
+                    sys.exit(10)
         for c in cloud_claims():
             if c.get("item") == a.item: print(f"REFUSED: {a.item} is handed to a cloud agent ({c.get('slug')})"); sys.exit(3)
             for p in paths:
