@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Approval } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { usePanelColumnOpen, usePanelOpen } from "../../lib/panelPresence";
@@ -7,6 +7,22 @@ import Button from "../ui/Button";
 import ApprovalCard from "./ApprovalCard";
 
 type Decision = "approved" | "denied";
+
+/** The part of a `DOMRect` the overlap test needs. */
+type Rect = Pick<DOMRect, "top" | "right" | "bottom" | "left" | "width" | "height">;
+
+/**
+ * Whether two laid-out boxes share any area.
+ *
+ * Touching edges are not an overlap: a row that ends exactly where the card
+ * begins is fully clickable. A box with no area is not on screen at all — a
+ * conversation kept mounted behind `display:none` reports 0×0 — and must not
+ * count as covered.
+ */
+export function rectsOverlap(a: Rect, b: Rect): boolean {
+  if (a.width <= 0 || a.height <= 0 || b.width <= 0 || b.height <= 0) return false;
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
 
 type Props = {
   /** Waiting approvals, in the order the shared resource publishes them. */
@@ -76,6 +92,31 @@ export default function FloatingApproval({
   // offset either covers the input or floats absurdly high above it. Measured
   // instead, from an element the page marks — see `data-kin-bottom-chrome`.
   const [bottom, setBottom] = useState<number | null>(null);
+  // Whether the decision card would cover a changed-file row the reader can
+  // click. The card floats in the same right-hand column a transcript draws
+  // its round evidence rows in, and the evidence card is open by default: on
+  // an ordinary conversation the `notes.md` row sat under the card, so the tap
+  // meant for "open the diff" landed on the approval instead. When the card
+  // would cover a row it is not mounted at all and the strip above is the
+  // whole surface — the same rule a phone tab root and an open panel already
+  // follow. The evidence card collapsing, its rows scrolling out of the card's
+  // box, or the conversation being hidden brings the card back.
+  const [covered, setCovered] = useState(false);
+  // The whole floating surface's box — the strip *and* the card — remembered
+  // across the strip-only render it causes: the card itself is gone while the
+  // strip shows, and measuring the strip alone would find nothing under it,
+  // mount the card again, and cover the row — a visible flicker on every
+  // measurement. The strip is part of the box because the card pushes it up:
+  // even when the card's own bottom edge clears a row, the pill above it can
+  // sit on the row's centre and take the tap. The height is the part the strip
+  // render loses; the right-hand gap comes from the container's CSS and stays
+  // valid across a resize.
+  const expandedBox = useRef<{
+    id: string;
+    height: number;
+    rightGap: number;
+    width: number;
+  } | null>(null);
 
   // The oldest by its own timestamp rather than by position: the resource
   // happens to publish newest-first, and a card whose queue order depends on
@@ -88,6 +129,134 @@ export default function FloatingApproval({
   const currentId = current?.id ?? "";
   const hasAny = current !== null;
 
+  /**
+   * Decides whether the floating surface — the strip plus the decision card —
+   * would cover a changed-file row. Runs after every commit (the card's height
+   * changes with the approval it shows) and on scroll, resize and evidence
+   * mutations.
+   */
+  const measureOverlap = useCallback(() => {
+    // Another reason already keeps the strip: a phone tab root or a visible
+    // panel. There is nothing for the card to cover, and the question is asked
+    // again when that reason goes away.
+    if (!currentId || raised || panelOpen) return;
+    const viewportWidth = window.innerWidth;
+    const cached = expandedBox.current;
+    let box: Rect | null = null;
+
+    // Layout, not render: the aside's box is what the reader sees, and it
+    // includes the strip the card pushes up.
+    const card = surfaceRef.current?.querySelector<HTMLElement>("[data-kin-approval-card]");
+    if (card && surfaceRef.current) {
+      const rect = surfaceRef.current.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        box = rect;
+        expandedBox.current = {
+          id: currentId,
+          height: rect.height,
+          rightGap: Math.max(0, viewportWidth - rect.right),
+          width: rect.width,
+        };
+      }
+    } else if (cached && cached.id === currentId) {
+      // Strip only, because of this very measurement: rebuild the expanded box
+      // from the remembered height so the card does not come back just because
+      // the strip is smaller. The width follows the container: 24rem beside the
+      // dock from `md` up, the full inset width on a phone.
+      const width = viewportWidth >= 768 ? cached.width : Math.max(0, viewportWidth - 24);
+      const right = viewportWidth - cached.rightGap;
+      // The same fixed offsets the class list falls back to: desktop clears
+      // the dock with `md:bottom-6`, a phone clears its composer strip.
+      const bottomOffset = bottom ?? (viewportWidth >= 768 ? 24 : raised ? 148 : 88);
+      const bottomEdge = window.innerHeight - bottomOffset;
+      box = {
+        top: bottomEdge - cached.height,
+        bottom: bottomEdge,
+        left: right - width,
+        right,
+        width,
+        height: cached.height,
+      };
+    }
+    if (!box) return;
+
+    let hit = false;
+    for (const row of document.querySelectorAll<HTMLElement>("[data-kin-hit-row]")) {
+      const rect = row.getBoundingClientRect();
+      // A row in a hidden pane (`display:none`) has no box; nothing can be
+      // covered there, and counting it would keep the strip forever once a
+      // second conversation had been opened.
+      if (rect.width === 0 && rect.height === 0) continue;
+      if (rectsOverlap(box, rect)) {
+        hit = true;
+        break;
+      }
+    }
+    if (hit !== covered) setCovered(hit);
+  }, [currentId, raised, panelOpen, bottom, covered]);
+
+  // A different approval is a different card, with its own height and its own
+  // box: the one remembered for the approval before it says nothing about this
+  // one. Left in place, the stale id made the strip-only branch below find
+  // nothing to rebuild, `covered` stayed true, and answering the oldest of a
+  // queue from the task page or the tray kept the next approval's card
+  // unmounted until a reload. Cleared before the measuring effect runs, so the
+  // new card mounts and is measured afresh.
+  useLayoutEffect(() => {
+    expandedBox.current = null;
+    setCovered(false);
+  }, [currentId]);
+
+  // Layout, not passive: the card would otherwise paint one frame over the
+  // row before the strip replaces it.
+  useLayoutEffect(() => {
+    measureOverlap();
+  }, [measureOverlap]);
+
+  // Rows move without a React render: the transcript scrolls, the window is
+  // resized, and the evidence card folds, unfolds or grows a diff preview.
+  // Scroll covers the first, resize the second, and a document observer
+  // filtered to evidence subtrees the third — an unfiltered body observer
+  // would wake on every transcript token for no reason.
+  useEffect(() => {
+    if (!hasAny) return;
+    let timer = 0;
+    const schedule = () => {
+      if (timer) return;
+      timer = window.setTimeout(() => {
+        timer = 0;
+        measureOverlap();
+      }, 0);
+    };
+    const touchesEvidence = (record: MutationRecord): boolean => {
+      const target = record.target;
+      if (target instanceof Element && target.closest("[data-kin-evidence]")) return true;
+      for (const node of [...record.addedNodes, ...record.removedNodes]) {
+        if (!(node instanceof Element)) continue;
+        if (node.matches("[data-kin-evidence], [data-kin-hit-row]")) return true;
+        if (node.querySelector("[data-kin-evidence], [data-kin-hit-row]")) return true;
+      }
+      return false;
+    };
+    const mutations =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver((records) => {
+            if (records.some(touchesEvidence)) schedule();
+          });
+
+    document.addEventListener("scroll", schedule, true);
+    window.addEventListener("resize", schedule);
+    mutations?.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      document.removeEventListener("scroll", schedule, true);
+      window.removeEventListener("resize", schedule);
+      mutations?.disconnect();
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [hasAny, measureOverlap]);
+
   useEffect(() => {
     const decision = keepFocus.current;
     if (!decision) return;
@@ -98,7 +267,12 @@ export default function FloatingApproval({
       // eslint-disable-next-line kin/no-legacy-class -- a DOM selector for the button already on the card, not a class assignment
       decision === "approved" ? ".kin-btn-approve" : ".kin-btn-deny",
     );
-    next?.focus({ preventScroll: true });
+    // The card may be a strip: the next approval can arrive while a
+    // changed-file row keeps the decision surface unmounted. The strip's one
+    // button is then the surface, and it is where the key belongs.
+    (next ?? surfaceRef.current?.querySelector<HTMLElement>("button"))?.focus({
+      preventScroll: true,
+    });
   }, [currentId]);
 
   // A decision that failed leaves the same card up and the intent to move
@@ -241,11 +415,12 @@ export default function FloatingApproval({
   if (!current) return null;
 
   const waiting = approvals.length - 1;
-  // The strip is the whole surface in two places: a phone tab root (the card
-  // covered the conversation list), and any screen a visible panel owns. The
+  // The strip is the whole surface in three places: a phone tab root (the card
+  // covered the conversation list), any screen a visible panel owns, and a
+  // conversation where the decision card would cover a changed-file row. The
   // bottom offset above stays keyed on `raised` alone — it is about the page's
   // own furniture, not about what is painted over it.
-  const stripOnly = raised || panelOpen;
+  const stripOnly = raised || panelOpen || covered;
   // The shell's task list first: it is the live row and follows a rename. The
   // title the API joined onto the approval when the list was read is the
   // fallback for a task outside that page — and approvals that arrive while
@@ -387,7 +562,10 @@ export default function FloatingApproval({
           pane behind it) and unreadable here, floating over list rows whose
           text showed through. Same radius so the base never peeks out. */}
       {!stripOnly && (
-        <div className="pointer-events-auto max-h-[50dvh] overflow-y-auto kin-scroll rounded-xl bg-kin-panel md:max-h-[60dvh]">
+        <div
+          data-kin-approval-card=""
+          className="pointer-events-auto max-h-[50dvh] overflow-y-auto kin-scroll rounded-xl bg-kin-panel md:max-h-[60dvh]"
+        >
           {/* Keyed by the approval: a payload that cannot render costs this one
               card, and the boundary's "caught" state is thrown away when the
               queue moves on — a permanently wedged boundary would hide every

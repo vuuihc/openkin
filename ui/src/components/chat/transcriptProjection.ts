@@ -378,6 +378,10 @@ export function buildChatItems(
   // text, which no longer names them, so they travel beside it until flush.
   let streamImages: UserImage[] | undefined;
   let canceledRound = false;
+  // A turn the executor has started in the loaded window. Its events may not
+  // have produced a visible item yet — an interrupt can land before the first
+  // token — but the round exists, and an interrupt that cuts it should say so.
+  let roundStarted = false;
   const modelsBySpeaker = new Map<string, string>();
   if (streamModel) modelsBySpeaker.set(hostSpeaker, streamModel);
 
@@ -397,6 +401,24 @@ export function buildChatItems(
   let currentSeq = 0;
   // Streaming note step key inside the progress box.
   let streamNoteKey: string | null = null;
+
+  /**
+   * Whether the projection has an agent item above the event being folded in —
+   * a round for an interrupt to have cut. A transcript window can start
+   * mid-round, so "no user bubble above" is not the same as "no round": the
+   * prompt may simply be older than the window, and the cut answer is still
+   * there to close. A user bubble first means nothing was answered yet.
+   */
+  const hasRoundAbove = () => {
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index];
+      if (item.kind === "message" && item.speaker === "user") return false;
+      if (item.kind === "message" || item.kind === "progress" || item.kind === "compaction") {
+        return true;
+      }
+    }
+    return false;
+  };
 
   const flushStream = (final = false, progressStatus: NoteStep["status"] = "done") => {
     if (!streamBuf) return;
@@ -792,8 +814,16 @@ export function buildChatItems(
         // speaker + task-only visibility — those must not be forced into the
         // main "user" column.
         const sp = speaker;
+        // Read before this prompt resets the round: an interrupt ends the round
+        // that was running when it arrived, and its line goes above this message.
+        const interruptsRound =
+          sp === "user" && (p.interrupted === true || p.source === "interrupt");
+        const roundWasStarted = roundStarted;
         if (sp === "user") {
-          canceledRound = p.interrupted === true || p.source === "interrupt";
+          canceledRound = interruptsRound;
+          // A prompt opens the next round; anything started before it belongs to
+          // the message above and must not be claimed by a later interrupt.
+          roundStarted = false;
         }
         let text = extractText(p.content) || (typeof p.text === "string" ? p.text : "");
         // Never show local upload paths in the chat timeline. The same parse
@@ -961,6 +991,20 @@ export function buildChatItems(
             flushStream();
           }
           streamNoteKey = null;
+          // A round cut short by an interrupt leaves no reply and no trace of
+          // its own: the answer just stops. The toast that said so is gone on
+          // reload, so the transcript says it too — one line closing the round
+          // that was cut, above the message that cut it. Placed after the stream
+          // flush so the cut half of the answer stays above the line, and keyed
+          // so a repeated copy of the same message does not add a second.
+          if (interruptsRound) {
+            if (roundWasStarted || hasRoundAbove()) {
+              const markKey = `interrupt-${messageKey || ev.seq}`;
+              if (!items.some((item) => item.kind === "meta" && item.key === markKey)) {
+                items.push({ kind: "meta", key: markKey, label: t("chat.interruptedNote") });
+              }
+            }
+          }
           if (!text.trim()) break;
           if (asProgress) {
             if (!messageKey || !replaceProgressNote(messageKey, sp, model, text)) {
@@ -1216,6 +1260,7 @@ export function buildChatItems(
         break;
       }
       case "task_started":
+        roundStarted = true;
         break;
       case "result": {
         // Orchestrator / adapter result closes the turn: finalize any trailing
@@ -1229,6 +1274,7 @@ export function buildChatItems(
         settleRunningSteps(terminalStatus);
         progressRef.current = null;
         canceledRound = false;
+        roundStarted = false;
         break;
       }
       case "approval_requested":

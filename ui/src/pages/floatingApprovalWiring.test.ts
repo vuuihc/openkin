@@ -68,8 +68,14 @@ describe("the floating approval's wiring", () => {
     const floating = source("src/components/cards/FloatingApproval.tsx");
     // The strip is also the whole surface while a visible panel owns the
     // screen (the card covered the file body and the panel's own approval
-    // area), so both terms are pinned, not only the phone one.
-    expect(floating).toMatch(/const stripOnly = raised \|\| panelOpen;/);
+    // area) and while the card would cover a changed-file row, so every term
+    // is pinned, not only the phone one.
+    expect(floating).toMatch(/const stripOnly = raised \|\| panelOpen \|\| covered;/);
+    // The third term is measured, not declared: `covered` comes from the
+    // overlap loop over the rows the transcript marks, so the card gives way
+    // only while a row is actually under it.
+    expect(floating).toMatch(/if \(hit !== covered\) setCovered\(hit\);/);
+    expect(floating).toContain('"[data-kin-hit-row]"');
     // The card body is guarded by `!stripOnly`, and the strip is the branch
     // that renders instead.
     const cardGuard = floating.indexOf("{!stripOnly && (");
