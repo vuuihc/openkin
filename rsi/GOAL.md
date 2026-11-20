@@ -403,8 +403,16 @@ Ethan has not approved item 1 by then, record the block in that item's own line 
 console affordance over a route that does not exist would be a lie; do not merge the migration without his
 approval to hit the date.
 
-## Current phase (P14) — 开屏必须有界，并能自愈
-<!-- phase: P14-boot-guard target=2026-11-22T20:00 -->
+## Closed phase (P14) — 开屏必须有界，并能自愈
+<!-- closed-phase: P14-boot-guard target=2026-11-22T20:00 -->
+
+Closed 2026-11-21, `57abd128` (#482) merged 01:04. The splash is bounded: 12 s without a React mount reloads
+once automatically, and the second deadline stops retrying and shows a visible, focused 「重新加载」 button —
+the bound the 1.9 MB entry chunk and the 2026-11-20 tunnel stall (74 KB in 20 s, then nothing) needed.
+`ui/src/bootGuard.dom.test.ts` names all 8 tests for the defect, and `ui/src/bootGuard.mutants.json`'s 3 mutants
+(the mounted handover, the deadline, the second-state degradation) each turn the suite red. P14 does not prove a
+first launch that waits on a slow but eventually complete download; the cold download is still in the start path,
+and moving it out is P15's job.
 
 **Why this and not features.** On 2026-11-20 10:21 EST the owner's phone panel sat on the splash wheel and had
 to be force-quit twice. The measurement put the cause in two places: the first launch after a release downloads
@@ -430,8 +438,8 @@ the desktop boot surface (settled in P10/P11).
 the tunnel-stall replay cannot be reproduced on the field, record what the unit test and mutant prove and park
 the field proof as a followup — never report an unreplayed stall as verified.
 
-## Next phase (P15) — 手机先开包里的控制台，新版本后台整套换
-<!-- next-phase: P15-bundled-console target=2026-11-30T20:00 -->
+## Current phase (P15) — 手机先开包里的控制台，新版本后台整套换
+<!-- phase: P15-bundled-console target=2026-11-30T20:00 -->
 
 **Why this and not features.** P14 bounds the wheel but leaves the cold download in the start path. The phone
 app already ships a console (`mobile/capacitor.config.ts:50` `webDir: "../web/dist"`), yet uses it only as a
