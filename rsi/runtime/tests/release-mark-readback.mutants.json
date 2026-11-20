@@ -1,0 +1,23 @@
+[
+  {
+    "label": "no read-back of the marker write",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "  got=\"$(cat \"$MARKER\" 2>/dev/null)\"\n  [ \"$got\" = \"$want\" ] \\\n    || die \"$t: marker write did not land in $MARKER (expected $t=$SHA; file says: $(printf '%s' \"$got\" | tr '\\n' ';'))\"\n",
+    "new": "  # mutant: no read-back\n"
+  },
+  {
+    "label": "no cross-phase SHA check",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "  if [ \"$NODE\" = 1 ] && [ \"$HUB\" = 1 ] && [ \"$t\" = hub ] && [ \"$other\" != \"$SHA\" ]; then\n    die \"$t: $MARKER says $peer=${other:-<missing>}, not $SHA that this run shipped; refusing to carry a stale value (file: $(tr '\\n' ';' <\"$MARKER\" 2>/dev/null))\"\n  fi\n",
+    "new": "  # mutant: no cross-phase check\n"
+  },
+  {
+    "label": "read-back failure without the target, SHA or contents",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "    || die \"$t: marker write did not land in $MARKER (expected $t=$SHA; file says: $(printf '%s' \"$got\" | tr '\\n' ';'))\"\n",
+    "new": "    || die \"marker write did not land\"\n"
+  }
+]
