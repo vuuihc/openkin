@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { Task } from "../api/client";
-import { setLocale } from "../i18n";
+import { setLocale, t } from "../i18n";
 import TaskDetailPage from "./TaskDetailPage";
 
 /**
@@ -171,6 +171,29 @@ describe("entering a conversation from its list row", () => {
     // Nothing pretends the conversation is loaded: no scroller, no
     // `chat.thinking` row on a conversation that may already be finished.
     expect(screen.queryByTestId("chat-stream")).toBeNull();
+  });
+
+  it("draws the iOS spinner on the cold-entry wait surface", () => {
+    // No list row: the status element itself is the wait surface, and the
+    // one-off arrival fade is named for the wait (`kin-wait-enter`), not for
+    // the removed brand mark.
+    const cold = render(
+      <MemoryRouter initialEntries={["/tasks/task-1"]}>
+        <TaskDetailPage taskId="task-1" />
+      </MemoryRouter>,
+    );
+    const coldStatus = screen.getByRole("status", { name: t("common.loading") });
+    expect(coldStatus.className).toContain("kin-wait-enter");
+    expect(coldStatus.querySelectorAll(".kin-ios-spinner span")).toHaveLength(12);
+    cold.unmount();
+
+    // With a cached row, the transcript region is the surface and the status
+    // nests inside it; both the fade's name and the wheel are pinned here.
+    open();
+    const region = screen.getByRole("region", { name: "Conversation" });
+    expect(region.className).toContain("kin-wait-enter");
+    const status = within(region).getByRole("status", { name: t("common.loading") });
+    expect(status.querySelector(".kin-ios-spinner")).toBeTruthy();
   });
 
   it("the wait surface is the iOS wheel, not the brand tile", () => {

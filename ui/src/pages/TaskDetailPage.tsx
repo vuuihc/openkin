@@ -73,7 +73,7 @@ import {
   type PendingSend,
 } from "../lib/pendingSend";
 import { IconChevronDown } from "../components/icons";
-import BrandMark from "../components/BrandMark";
+import IosSpinner from "../components/IosSpinner";
 import { SlowConnectHint } from "../components/Skeleton";
 import ActionSheet, { type ActionSheetRow } from "../components/ui/ActionSheet";
 import Button from "../components/ui/Button";
@@ -1918,8 +1918,8 @@ export default function TaskDetailPage({
           wsStatus === "disconnected" ? "" : "max-md:pt-safe",
         ].join(" ")}
       >
-        <div role="status" aria-label={tr("common.loading")} className="kin-brand-enter">
-          <BrandMark />
+        <div role="status" aria-label={tr("common.loading")} className="kin-wait-enter">
+          <IosSpinner />
         </div>
         <SlowConnectHint show={slow} />
       </div>
@@ -2326,10 +2326,10 @@ export default function TaskDetailPage({
             <div
               role="region"
               aria-label={tr("task.transcript")}
-              className="kin-brand-enter flex flex-1 min-h-0 flex-col items-center justify-center gap-4 px-6"
+              className="kin-wait-enter flex flex-1 min-h-0 flex-col items-center justify-center gap-4 px-6"
             >
               <div role="status" aria-label={tr("common.loading")}>
-                <BrandMark />
+                <IosSpinner />
               </div>
             </div>
           ) : (
