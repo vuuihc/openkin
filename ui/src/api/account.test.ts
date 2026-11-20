@@ -41,8 +41,10 @@ vi.mock("./client", async (importOriginal) => {
 
 const {
   applyVisitGate,
+  beginUnansweredAccountProbe,
   clearAuthErrorFromURL,
   cleanVisitCredentials,
+  endUnansweredAccountProbe,
   signInWithLink,
   signOut,
   unlinkIdentity,
@@ -85,6 +87,7 @@ describe("applyVisitGate", () => {
   beforeEach(() => {
     // Each case starts from a visitor who has been let through, so a case that
     // changes nothing is distinguishable from one that was already there.
+    endUnansweredAccountProbe();
     useAppStore.getState().setAuthOk();
     useAppStore.getState().setAccount(NO_ACCOUNT);
     visit("");
@@ -236,6 +239,39 @@ describe("applyVisitGate", () => {
 
     expect(win.history.replaceState).not.toHaveBeenCalled();
   });
+
+  it("keeps the gate open while the account probe has no answer", () => {
+    // At the pre-render deadline the console opens before /api/auth/status
+    // answers. The store then holds a placeholder, not a verdict: deciding
+    // from it would close the gate on a screen the deadline did not ask for.
+    beginUnansweredAccountProbe();
+    useAppStore.getState().setAuthOk();
+    visit(INVITE);
+
+    applyVisitGate();
+
+    expect(gate()).toBe("ok");
+    // The placeholder is retired at that first decision, so a later API 401
+    // reads "no accounts" (the token screen) instead of inventing a join
+    // screen for a daemon that may not have one.
+    expect(useAppStore.getState().account.enabled).toBe(false);
+
+    // StrictMode mounts effects twice in development; the second answer must
+    // not act on the retired placeholder either.
+    applyVisitGate();
+    expect(gate()).toBe("ok");
+    endUnansweredAccountProbe();
+  });
+
+  it("applies the visit gate once the probe's answer is in", () => {
+    beginUnansweredAccountProbe();
+    hub({ needsBootstrap: false });
+    endUnansweredAccountProbe();
+
+    applyVisitGate();
+
+    expect(gate()).toBe("login");
+  });
 });
 
 describe("signOut", () => {
@@ -288,16 +324,13 @@ describe("signOut", () => {
       await api.deletePushDevice("row-1");
     });
     const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        new Response(null, { status: 204 }),
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     await signOut();
 
-    const call = fetchMock.mock.calls.find((c) =>
-      String(c[0]).includes("/api/push/devices/row-1"),
-    );
+    const call = fetchMock.mock.calls.find((c) => String(c[0]).includes("/api/push/devices/row-1"));
     expect(call).toBeTruthy();
     const init = call?.[1] as RequestInit | undefined;
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer t-1");
@@ -459,9 +492,7 @@ describe("unlinkIdentity", () => {
       "/api/auth/identities/id-linked",
       expect.objectContaining({ method: "DELETE" }),
     );
-    expect(useAppStore.getState().account.linked).toEqual([
-      { id: "id-pw", provider: "password" },
-    ]);
+    expect(useAppStore.getState().account.linked).toEqual([{ id: "id-pw", provider: "password" }]);
   });
 
   it("maps the Hub's 409 to the last_credential code", async () => {
