@@ -85,6 +85,12 @@ func originOf(r *http.Request) string {
 // csrfGuard refuses state-changing requests whose Origin names another site.
 // GET/HEAD/OPTIONS are exempt everywhere; WebSocket upgrades are checked by
 // their own path (see terminalOriginAllowed) because their handshake is a GET.
+//
+// The bundled console's app origins are another site to this guard, and that
+// is deliberate: cors.go lets capacitor://localhost and http://localhost read
+// the console set and /api/version, but a POST from either is still refused
+// here. Do not add them to sameSiteRequest to "finish" the CORS grant -- the
+// app origin has no Hub session and must not be able to send.
 func csrfGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

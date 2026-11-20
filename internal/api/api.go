@@ -300,6 +300,10 @@ func (s *Server) Handler() http.Handler {
 	// Both sit ahead of auth: a probe should read the policy even when it
 	// holds no credential (T12).
 	r.Use(securityHeaders)
+	// The bundled console's two app origins may read. It sits here so every
+	// route carries the grant and a preflight is answered before auth; it
+	// grants reads only, and csrfGuard below still refuses its state changes.
+	r.Use(corsForBundledConsole)
 	r.Use(csrfGuard)
 	// Capture the connection's own address before anything reads a header.
 	// See remote.WithPeerAddr.
