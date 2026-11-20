@@ -1199,19 +1199,74 @@ func codexInternalContentKind(kind string) bool {
 		strings.HasPrefix(kind, "additional_content.")
 }
 
-func isInternalClaudeRecord(record map[string]any) bool {
-	for _, key := range []string{
-		"isMeta",
-		"isSidechain",
-		"isCompactSummary",
-		"isSummary",
-		"isSynthetic",
-	} {
-		if value, ok := record[key].(bool); ok && value {
-			return true
+// ClaudeRecordField reads one top-level field of a Claude Code transcript
+// record. The file catalog holds decoded maps and the live adapter holds raw
+// JSON, so classification goes through this seam instead of a flag list per
+// decoder.
+type ClaudeRecordField func(name string) (value any, ok bool)
+
+// ClaudeRecordClass says what a Claude Code record is to the timeline.
+type ClaudeRecordClass int
+
+const (
+	// ClaudeRecordVisible is a record a person or the agent said.
+	ClaudeRecordVisible ClaudeRecordClass = iota
+	// ClaudeRecordCompactSummary is the handoff paragraph written after a
+	// compaction. It never becomes a message; the console folds it into the
+	// one compaction row the reader can open.
+	ClaudeRecordCompactSummary
+	// ClaudeRecordInternal is provider scaffolding: meta prompts, sidechains,
+	// synthetic turns, internal users. It never reaches the timeline.
+	ClaudeRecordInternal
+)
+
+// claudeRecordFlags is the single list of Claude Code's known internal record
+// flags and what each one means. Only a flag that is present and true counts;
+// with none of them set the record stays visible. Adding a flag means adding
+// it here, not in a decoder branch.
+var claudeRecordFlags = []struct {
+	name  string
+	class ClaudeRecordClass
+}{
+	{"isCompactSummary", ClaudeRecordCompactSummary},
+	{"isMeta", ClaudeRecordInternal},
+	{"isSidechain", ClaudeRecordInternal},
+	{"isSummary", ClaudeRecordInternal},
+	{"isSynthetic", ClaudeRecordInternal},
+}
+
+// ClassifyClaudeRecord reports what the record is for the timeline. It never
+// hides a record on a guess: unknown fields and malformed values leave it
+// visible.
+func ClassifyClaudeRecord(field ClaudeRecordField) ClaudeRecordClass {
+	for _, flag := range claudeRecordFlags {
+		if value, ok := field(flag.name); ok {
+			if set, ok := value.(bool); ok && set {
+				return flag.class
+			}
 		}
 	}
-	return strings.EqualFold(strings.TrimSpace(stringValue(record["userType"])), "internal")
+	if value, ok := field("userType"); ok {
+		if userType, ok := value.(string); ok &&
+			strings.EqualFold(strings.TrimSpace(userType), "internal") {
+			return ClaudeRecordInternal
+		}
+	}
+	return ClaudeRecordVisible
+}
+
+func mapClaudeRecordField(record map[string]any) ClaudeRecordField {
+	return func(name string) (any, bool) {
+		value, ok := record[name]
+		return value, ok
+	}
+}
+
+// isInternalClaudeRecord reports whether the disk import must leave the record
+// out of history. The import has no compaction row, so the summary is left out
+// here too; the live path maps it onto the console's notice instead.
+func isInternalClaudeRecord(record map[string]any) bool {
+	return ClassifyClaudeRecord(mapClaudeRecordField(record)) != ClaudeRecordVisible
 }
 
 var internalPromptBlockTags = []string{

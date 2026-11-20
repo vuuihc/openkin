@@ -7,12 +7,17 @@ import (
 	"unicode/utf8"
 
 	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/sessioncatalog"
 )
 
 // maxToolOutputBytes bounds the text a tool result carries into the console.
 // The transcript keeps the raw stream; the card only needs the head of a long
 // output, and an unbounded line would be stored and shipped on every read.
 const maxToolOutputBytes = 64 * 1024
+
+// compactionCode is the stable name the console settles a compaction by. It is
+// the same contract the ACP adapter emits; the console owns the wording.
+const compactionCode = "context_compacted"
 
 // ParseLine converts one stdout line of Claude Code stream-json into zero or
 // more adapter events. Unparseable lines become raw_output; unknown JSON is
@@ -53,22 +58,65 @@ func ParseLine(line string) []adapter.Event {
 func parseSystem(raw map[string]json.RawMessage, line string) []adapter.Event {
 	var subtype string
 	_ = json.Unmarshal(raw["subtype"], &subtype)
-	if subtype != "init" {
+	switch subtype {
+	case "init":
+		var sessionID string
+		_ = json.Unmarshal(raw["session_id"], &sessionID)
+		var model string
+		_ = json.Unmarshal(raw["model"], &model)
+		payload, _ := json.Marshal(map[string]any{
+			"session_id": sessionID,
+			"subtype":    "init",
+			"model":      model,
+		})
+		return []adapter.Event{{Type: "task_started", Payload: payload}}
+	case "compact_boundary":
+		// The boundary opens the compaction line; the summary record that
+		// follows settles it. It carries no compaction id because its uuid is
+		// not the summary's, and an id here would open a second row.
+		return []adapter.Event{{Type: "notice", Payload: mustMarshal(map[string]any{
+			"severity": "info",
+			"title":    "context compacted",
+			"message":  "",
+			"code":     compactionCode,
+			"status":   "in_progress",
+		})}}
+	default:
 		return nil
 	}
-	var sessionID string
-	_ = json.Unmarshal(raw["session_id"], &sessionID)
-	var model string
-	_ = json.Unmarshal(raw["model"], &model)
-	payload, _ := json.Marshal(map[string]any{
-		"session_id": sessionID,
-		"subtype":    "init",
-		"model":      model,
-	})
-	return []adapter.Event{{Type: "task_started", Payload: payload}}
+}
+
+// claudeRecordField adapts one decoded stream-json line to the field view the
+// shared classifier reads. Only the scalar shapes its flags and userType use
+// are decoded; anything else is present but not a value it recognizes.
+func claudeRecordField(raw map[string]json.RawMessage) sessioncatalog.ClaudeRecordField {
+	return func(name string) (any, bool) {
+		encoded, ok := raw[name]
+		if !ok || len(encoded) == 0 {
+			return nil, false
+		}
+		var flag bool
+		if json.Unmarshal(encoded, &flag) == nil {
+			return flag, true
+		}
+		var text string
+		if json.Unmarshal(encoded, &text) == nil {
+			return text, true
+		}
+		return nil, true
+	}
 }
 
 func parseMessage(role string, raw map[string]json.RawMessage, line string) []adapter.Event {
+	switch sessioncatalog.ClassifyClaudeRecord(claudeRecordField(raw)) {
+	case sessioncatalog.ClaudeRecordInternal:
+		// Provider scaffolding is not something either side said. It stays out
+		// of the timeline entirely.
+		return nil
+	case sessioncatalog.ClaudeRecordCompactSummary:
+		return compactSummaryNotice(raw)
+	}
+
 	// Prefer the nested message object when present.
 	msgRaw := raw["message"]
 	if len(msgRaw) == 0 {
@@ -163,6 +211,60 @@ func parseMessage(role string, raw map[string]json.RawMessage, line string) []ad
 			"partial": false,
 		}),
 	}}
+}
+
+// compactSummaryNotice maps the handoff record Claude Code writes after a
+// compaction onto the one notice the console folds. The record is scaffolding
+// — the paragraph is Claude Code talking to itself — but its body is the
+// summary the reader may open, so it travels whole. Unlike a tool output,
+// which is a bounded preview, this is the entire disclosure, so it is not
+// truncated.
+func compactSummaryNotice(raw map[string]json.RawMessage) []adapter.Event {
+	var msg struct {
+		Content json.RawMessage `json:"content"`
+	}
+	_ = json.Unmarshal(raw["message"], &msg)
+	payload := map[string]any{
+		"severity": "info",
+		"title":    "context compacted",
+		"message":  plainContentText(msg.Content),
+		"code":     compactionCode,
+		"status":   "completed",
+	}
+	id := jsonString(raw["uuid"])
+	if id == "" {
+		id = jsonString(raw["sessionId"])
+	}
+	if id != "" {
+		payload["compaction_id"] = id
+	}
+	return []adapter.Event{{Type: "notice", Payload: mustMarshal(payload)}}
+}
+
+// plainContentText renders a message body as text: a string as written, a
+// block array by joining its text blocks. It never truncates.
+func plainContentText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return ""
+	}
+	var joined strings.Builder
+	for _, block := range blocks {
+		if block.Type == "text" {
+			joined.WriteString(block.Text)
+		}
+	}
+	return joined.String()
 }
 
 // toolResultEvent maps a tool_result block to the event that closes its step.
