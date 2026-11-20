@@ -52,6 +52,14 @@ sync() {
 
 head_now() { git -C "$WORK" rev-parse HEAD; }
 
+# status [env assignments...] — run only `--status` against $WORK; RSI_MAX_OPEN_PRS=0 keeps it off `gh`.
+# Sets RC, SOUT and SERR. Defined once so every case reads the same output shape.
+status() {
+  env RSI_CTRL="$WORK" RSI_MAX_OPEN_PRS=0 "$@" bash "$RUN" --status >"$T/sout" 2>"$T/serr"; RC=$?
+  SOUT="$(cat "$T/sout")"; SERR="$(cat "$T/serr")"
+}
+ctrl_line() { grep '^control tree: ' "$T/sout"; }
+
 # 1. A clean tree behind origin/main is fast-forwarded, silently.
 pair clean
 sync
@@ -237,12 +245,6 @@ pair status
 STATE="$WORK/rsi/state"
 mkdir -p "$STATE" "$WORK/rsi/runtime"
 printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$WORK/rsi/runtime/lanes.py"
-# status [env...] — run only `--status` against $WORK; RSI_MAX_OPEN_PRS=0 keeps it off `gh`.
-# Sets RC, SOUT and SERR.
-status() {
-  env RSI_CTRL="$WORK" RSI_MAX_OPEN_PRS=0 "$@" bash "$RUN" --status >"$T/sout" 2>"$T/serr"; RC=$?
-  SOUT="$(cat "$T/sout")"; SERR="$(cat "$T/serr")"
-}
 merge_line() { grep '^merge lane: ' "$T/sout"; }
 
 # 12a. No locks at all: exactly `merge lane: idle`.
@@ -283,5 +285,62 @@ status
   || fail "status-legacy: expected 1 running (legacy), got: $(merge_line)"
 rm -rf "$STATE/.merge.lock"
 pass "status-counts-the-legacy-lock"
+
+# 13. `--status` must name how far the control tree is from origin/main. The pulse only pins a tree it
+#     cannot move on stderr, so a patrol reading `--status` saw a healthy loop while it ran stale
+#     runtime scripts: 2026-11-20 one uncommitted `rsi/DECISIONS.md` line held the live tree 17 commits
+#     behind main for six hours (five `rsi/` commits missed, including the rework-lane guard and the J6
+#     walker wait). The line is read-only: no fetch, no fast-forward, HEAD never moves.
+pair status-ctrl
+STATE="$WORK/rsi/state"; mkdir -p "$STATE" "$WORK/rsi/runtime"
+printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$WORK/rsi/runtime/lanes.py"
+git -C "$WORK" fetch -q origin main
+short="$(git -C "$WORK" rev-parse --short HEAD)"
+before="$(head_now)"
+status
+[ "$RC" = 0 ] || { printf '%s\n' "$SERR" >&2; fail "ctrl-behind: expected exit 0, got $RC"; }
+[ "$(head_now)" = "$before" ] || fail "ctrl-behind: --status moved HEAD"
+[ "$(ctrl_line)" = "control tree: PINNED 1 behind origin/main at $short" ] \
+  || fail "ctrl-behind: expected a PINNED line naming the lag, got: $(ctrl_line)"
+pass "status-names-a-pinned-tree"
+
+# 13b. The pin names the tracked paths in the way: that is what a patrol has to act on.
+echo "local edit" >> "$WORK/tracked.txt"
+status
+[ "$(ctrl_line)" = "control tree: PINNED 1 behind origin/main at $short — uncommitted tracked changes: tracked.txt" ] \
+  || fail "ctrl-behind-dirty: expected the path in the pin, got: $(ctrl_line)"
+git -C "$WORK" checkout -q -- tracked.txt
+pass "status-names-the-path-in-the-way"
+
+# 13c. Synced: one short line, no lag claim.
+git -C "$WORK" merge -q --ff-only origin/main
+short="$(git -C "$WORK" rev-parse --short HEAD)"
+status
+[ "$(ctrl_line)" = "control tree: at origin/main ($short)" ] \
+  || fail "ctrl-synced: expected an at-origin/main line, got: $(ctrl_line)"
+pass "status-reads-at-origin-main"
+
+# 13d. An unpublished local loop commit is ahead, not behind: the line must say so instead of
+#      claiming the tree is at origin/main.
+( cd "$WORK" && echo mine > mine.txt && git add mine.txt && git commit -q -m "fix: local loop commit" )
+status
+[ "$(ctrl_line)" = "control tree: 1 unpublished commit(s) on top of origin/main ($(git -C "$WORK" rev-parse --short HEAD))" ] \
+  || fail "ctrl-ahead: expected an unpublished-commit line, got: $(ctrl_line)"
+pass "status-reads-an-unpublished-commit"
+
+# 13e. No origin/main ref at all: `behind`/`ahead` are empty, and that must not read as a synced
+#      tree. (The combined `$head$behind$ahead` hex guard only checked the concatenation, so an
+#      unreadable pair with a valid head slipped through and printed "at origin/main".)
+NOr="$T/status-no-origin"; mkdir -p "$NOr"
+git init -q -b main "$NOr"
+( cd "$NOr" && echo base > tracked.txt && git add tracked.txt && git commit -q -m "chore: base" )
+WORK="$NOr"; STATE="$WORK/rsi/state"; mkdir -p "$STATE" "$WORK/rsi/runtime"
+printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$WORK/rsi/runtime/lanes.py"
+status
+short="$(git -C "$WORK" rev-parse --short HEAD)"
+[ "$RC" = 0 ] || { printf '%s\n' "$SERR" >&2; fail "ctrl-no-origin: expected exit 0, got $RC"; }
+[ "$(ctrl_line)" = "control tree: unreadable at $short (no origin/main ref?)" ] \
+  || fail "ctrl-no-origin: expected an unreadable line, got: $(ctrl_line)"
+pass "status-no-origin-is-unreadable"
 
 echo "all cases passed"
