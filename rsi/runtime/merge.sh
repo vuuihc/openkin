@@ -50,6 +50,11 @@ item_id() { # slug body -> the marker's id, else R-<slug>: the one reader and th
 }
 sendback() { # slug item title detail-file [source] [spec] [cmd]
   local slug="$1" item="$2" title="$3" det="$4" a live src="${5:-unknown}" spec="${6:--}" cmd="${7:--}"
+  # A sendback must not outlive its PR: never queue a rework round for a PR that is already
+  # MERGED or CLOSED. The write site inside the cycle is the only place the state was not read;
+  # lane.sh autofill already archives on sight, but only after the merge lane spent the round.
+  # An unreadable state keeps today's behaviour (a rare phantom costs less than a stalled rework).
+  pr_finished "$slug" "${N:-}" "${SHA:-}" "$det" && return
   # A rework lane can push the fix WHILE this lane is still reviewing. Bouncing the PR on the SHA
   # that failed would then hand back a head that already contains the fix, burning one of three
   # attempts and 10-20 min of lane time. If the live head moved past the reviewed SHA, suppress the
@@ -94,7 +99,11 @@ write_sendback() { # slug item title detail-file attempt-label kind(targeted|mec
   } > "$STATE/sendback/$slug.md"
 }
 sendback_mech() { # slug item title detail-file [source] [spec] [cmd] : mechanical failure (merge conflict, format, infra). Does NOT count as a sendback; capped at 5 then counts.
-  local slug="$1" item="$2" title="$3" det="$4" src="${5:-mech}" spec="${6:--}" cmd="${7:--}" m; m=$(( $(cat "$STATE/merge/$slug.mech" 2>/dev/null || echo 0) + 1 )); echo $m > "$STATE/merge/$slug.mech"
+  local slug="$1" item="$2" title="$3" det="$4" src="${5:-mech}" spec="${6:--}" cmd="${7:--}" m
+  # Same guard as sendback(): the mechanical path forwards into a real sendback later, and a
+  # closed PR must not even get a mechanical round.
+  pr_finished "$slug" "${N:-}" "${SHA:-}" "$det" && return
+  m=$(( $(cat "$STATE/merge/$slug.mech" 2>/dev/null || echo 0) + 1 )); echo $m > "$STATE/merge/$slug.mech"
   if [ $m -gt 5 ]; then sendback "$slug" "$item" "$title (mechanical x$m)" "$det" "$src" "$spec" "$cmd"; return; fi
   SB_FIXLIST="" SB_GATEFAILS="" write_sendback "$slug" "$item" "$title" "$det" "mech-$m" mechanical "$src" "$spec" "$cmd"
   say "mechanical rework $slug (#$m, not counted as a sendback): $title"; KICK=1
@@ -108,6 +117,33 @@ archive_sendback() { # slug reason sha8 — move state/sendback/<slug>.md under 
   [ -e "$STATE/sendback/$slug.md" ] || return 0
   mkdir -p "$STATE/sendback/done"
   mv "$STATE/sendback/$slug.md" "$STATE/sendback/done/$slug-$reason-$sha8.md"
+}
+# The live PR state, keyed by slug: sendback_mech() has no PR number. Empty or unrecognised output
+# is unreadable and callers fail open. The override is a test seam, the same shape as lane.sh's.
+PR_STATE_CMD="${RSI_PR_STATE_CMD:-}"   # test seam; empty = the real gh call
+pr_state() { # <slug> -> prints OPEN|MERGED|CLOSED; non-zero when the state cannot be read
+  if [ -n "$PR_STATE_CMD" ]; then bash -c "$PR_STATE_CMD" pr-state "$1"
+  else "$GH" pr view "rsi/$1" --repo "$GH_REPO" --json state --jq .state; fi
+}
+# A sendback must not outlive its PR. A verification can finish minutes after the PR was closed:
+# #451 was closed at 06:28Z and a sync rework at 06:29:30Z still produced #453, a third copy of
+# the same one-line doc change, taking a gate slot and a lane round. At the write site, MERGED or
+# CLOSED archives the failure report and leaves one CEO line instead; no attempt/mech counter is
+# bumped and the head-moved suppression does not run. Anything else (including an unreadable
+# state) returns 1 and the caller continues exactly as today.
+pr_finished() { # <slug> <pr-number|""> <sha> <detail-file> -> 0 finished and archived, 1 continue
+  local slug="$1" n="$2" sha="${3:-}" det="$4" pstate sha8=unknown
+  pstate="$(pr_state "$slug" 2>/dev/null || true)"
+  case "$pstate" in MERGED|CLOSED) ;; *) return 1 ;; esac
+  oid "$sha" && sha8="${sha:0:8}"
+  archive_sendback "$slug" closed "$sha8"
+  mkdir -p "$STATE/sendback/done"
+  cp "$det" "$STATE/sendback/done/$slug-closed-$sha8.md" 2>/dev/null || true
+  printf -- '- %s %srsi/%s: PR is %s; sendback suppressed (archived sendback/done/%s-closed-%s.md)\n' \
+    "$(date '+%F %H:%M')" "${n:+PR #$n }" "$slug" "$pstate" "$slug" "$sha8" >> "$STATE/needs-ceo.md"
+  say "$slug: PR $pstate; sendback suppressed (archived sendback/done/$slug-closed-$sha8.md)"
+  KICK=1; SB_SUPPRESSED=1
+  return 0
 }
 
 # ------------------------------------------------- generated files (pure functions of the tree)
@@ -674,6 +710,14 @@ if [ "${1:-}" != "--one" ]; then
     SLUG="${2:?slug required}"; ITEM="${3:?item required}"; N="${4:?pr required}"
     SHA="${5-}"; DET="${6:?detail file required}"
     sendback "$SLUG" "$ITEM" "stale-check" "$DET" "test" - "bash rsi/runtime/tests/test-loop-sendback-stale.sh"
+    exit 0
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-loop-sendback-stale.sh: the same sendback() the land
+  # loop calls, with the PR state stubbed. Sits before the PAUSE check like --stale-check.
+  if [ "${1:-}" = "--closed-check" ]; then
+    SLUG="${2:?slug required}"; ITEM="${3:?item required}"; N="${4-}"
+    SHA="${5-}"; DET="${6:?detail file required}"
+    sendback "$SLUG" "$ITEM" "closed-check" "$DET" "test" - "bash rsi/runtime/tests/test-loop-sendback-stale.sh"
     exit 0
   fi
   # Hermetic seam for rsi/runtime/tests/test-sendback-provenance.sh: run the same sendback_mech()
