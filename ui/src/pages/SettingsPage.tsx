@@ -31,7 +31,10 @@ import { importToast } from "../lib/agentSessionImport";
 import { useAgentSessionImport } from "../hooks/useAgentSessionImport";
 import { refreshMachines } from "../hooks/useMachines";
 import { LocalAgentSettingsSection } from "../components/settings/LocalAgentSettingsSection";
-import { ProviderSettingsSection } from "../components/settings/ProviderSettingsSection";
+import {
+  ProviderSettingsSection,
+  type AgentCatalogStatus,
+} from "../components/settings/ProviderSettingsSection";
 import { AccountSection } from "../components/settings/AccountSection";
 import { PushPermissionRow } from "../components/settings/PushPermissionRow";
 import {
@@ -173,7 +176,14 @@ export default function SettingsPage() {
   const [provModels, setProvModels] = useState<ModelSpec[]>([]);
   const [showRouting, setShowRouting] = useState(false);
   const [agentDefault, setAgentDefault] = useState("");
-  const [agentList, setAgentList] = useState<AgentInfo[]>([]);
+  // One state machine for the agent catalog. Six call sites used to repeat
+  // `listAgents().then(setAgentList).catch(() => undefined)`, which had no
+  // loading and no failure state: the default-agent row offered a one-option
+  // list until the read landed, and stayed that way forever when it failed.
+  const [agentCatalog, setAgentCatalog] = useState<{
+    status: AgentCatalogStatus;
+    agents: AgentInfo[];
+  }>({ status: "loading", agents: [] });
   const [agentProviders, setAgentProviders] = useState<AgentProvider[]>([]);
   const [error, setError] = useState<string | null>(null);
   // The read's own failure. `error` keeps its meaning (a page-level action
@@ -332,6 +342,31 @@ export default function SettingsPage() {
     setSettingsBaseline(settingsDraftKey(next));
   }, []);
 
+  /**
+   * Read the agent catalog, once, for every path that can change it.
+   *
+   * The default-agent row renders from this state, so a slow read must be
+   * visibly loading and a failed one must say so and offer a retry — an
+   * enabled picker holding only Auto was indistinguishable from "this machine
+   * has no agents". Only the newest read may write, and a failure keeps the
+   * list already on screen instead of blanking it.
+   */
+  const agentCatalogSeq = useRef(0);
+  const loadAgentCatalog = useCallback(async () => {
+    const seq = ++agentCatalogSeq.current;
+    setAgentCatalog((previous) =>
+      previous.status === "loading" ? previous : { ...previous, status: "loading" },
+    );
+    try {
+      const agents = await listAgents();
+      if (seq !== agentCatalogSeq.current) return;
+      setAgentCatalog({ status: "ready", agents });
+    } catch {
+      if (seq !== agentCatalogSeq.current) return;
+      setAgentCatalog((previous) => ({ status: "failed", agents: previous.agents }));
+    }
+  }, []);
+
   const loadSeq = useRef(0);
   const load = useCallback(
     async (preserveDirty = false) => {
@@ -349,6 +384,10 @@ export default function SettingsPage() {
         setSettings(s);
         applyServerSettings(s, preserveDirty);
         setActiveProviderId(s["provider.active_id"] ?? "");
+        // The default-agent row depends on settings, not on the provider
+        // registry below: a slow or half-open providers read must not leave
+        // the row saying "loading" with no way forward.
+        void loadAgentCatalog();
         try {
           const reg = await listProviders();
           if (seq !== loadSeq.current) return;
@@ -357,9 +396,6 @@ export default function SettingsPage() {
         } catch {
           if (seq === loadSeq.current) setProviders([]);
         }
-        listAgents()
-          .then(setAgentList)
-          .catch(() => undefined);
         listAgentProviders()
           .then(setAgentProviders)
           .catch(() => undefined);
@@ -371,7 +407,7 @@ export default function SettingsPage() {
         setLoadError(e instanceof ApiError ? e.message : String(e));
       }
     },
-    [applyServerSettings],
+    [applyServerSettings, loadAgentCatalog],
   );
 
   const retryLoad = () => {
@@ -449,9 +485,7 @@ export default function SettingsPage() {
       // snapshot's freshness window runs out. Fire and forget: the Save
       // button must not wait on an inventory read to finish.
       void refreshMachines();
-      listAgents()
-        .then(setAgentList)
-        .catch(() => undefined);
+      void loadAgentCatalog();
       listAgentProviders()
         .then(setAgentProviders)
         .catch(() => undefined);
@@ -511,11 +545,11 @@ export default function SettingsPage() {
   const refreshAgentCatalog = async () => {
     setRefreshingAgentCatalog(true);
     try {
-      const [agents, providers] = await Promise.all([listAgents(), listAgentProviders()]);
-      setAgentList(agents);
+      const [, providers] = await Promise.all([loadAgentCatalog(), listAgentProviders()]);
       setAgentProviders(providers);
     } catch {
-      // Keep the last-known-good snapshot visible when the daemon is reconnecting.
+      // Keep the last-known-good provider snapshot visible when the daemon is
+      // reconnecting; the agent read reports its own failure in its row.
     } finally {
       setRefreshingAgentCatalog(false);
     }
@@ -670,9 +704,7 @@ export default function SettingsPage() {
       const s = await getSettings();
       setSettings(s);
       pushToast(tr("settings.provider.savedEntry"), "info");
-      listAgents()
-        .then(setAgentList)
-        .catch(() => undefined);
+      void loadAgentCatalog();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -689,9 +721,7 @@ export default function SettingsPage() {
       const s = await getSettings();
       setSettings(s);
       pushToast(tr("settings.provider.switched"), "info");
-      listAgents()
-        .then(setAgentList)
-        .catch(() => undefined);
+      void loadAgentCatalog();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -710,9 +740,7 @@ export default function SettingsPage() {
       const s = await getSettings();
       setSettings(s);
       pushToast(tr("settings.provider.deleted"), "info");
-      listAgents()
-        .then(setAgentList)
-        .catch(() => undefined);
+      void loadAgentCatalog();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -861,7 +889,9 @@ export default function SettingsPage() {
         providerSupportsAgents={provSupportsAgents}
         providerModels={provModels}
         agentDefault={agentDefault}
-        agentList={agentList}
+        agentList={agentCatalog.agents}
+        agentCatalogStatus={agentCatalog.status}
+        onRetryAgentCatalog={() => void loadAgentCatalog()}
         settingsBusy={busy}
         onAddProvider={openNewProvider}
         onActivateProvider={(id) => void onActivateProvider(id)}

@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { listProjects, type Project } from "../api/client";
 import { setLocale, t } from "../i18n";
+import { resetProjectsCache } from "../lib/projectsCache";
 import ProjectsCollectionPage, { middleTruncatePath } from "./ProjectsCollectionPage";
 
 /**
@@ -77,7 +78,17 @@ function renderPage() {
 beforeEach(() => {
   setLocale("en");
   fixtures.projects = [];
+  // The block is kept in a module store, so a mount in one test would answer
+  // the next test's first paint. Each test starts with nothing kept.
+  resetProjectsCache();
 });
+
+/** Read once, then drop the page while keeping what the read returned. */
+async function readThenUnmount() {
+  const first = renderPage();
+  await screen.findByRole("link", { name: /alpha/ });
+  first.unmount();
+}
 
 describe("the projects collection", () => {
   it("names the area once at every width", async () => {
@@ -210,5 +221,87 @@ describe("the projects collection", () => {
     const link = await screen.findByRole("link", { name: /alpha/ });
     expect(link.textContent).toContain("交付");
     expect(link.textContent).not.toContain("ship");
+  });
+});
+
+/**
+ * TASTE 15: the skeleton belongs to a block's first load. Leaving `/projects`
+ * for a conversation and coming back must not throw the rows away — the switch
+ * used to paint four skeleton rows and then swap in the list it had a second
+ * ago. Only a successful read replaces the kept block, and a failure is added
+ * beside it rather than over it.
+ */
+describe("the projects block is kept across a switch", () => {
+  it("revisiting the block paints the cached list without a skeleton", async () => {
+    fixtures.projects = [PROJECT];
+    await readThenUnmount();
+
+    // The revisit's read never answers: only the kept block can paint alpha.
+    vi.mocked(listProjects).mockImplementationOnce(() => new Promise<Project[]>(() => {}));
+    renderPage();
+
+    expect(screen.getByRole("link", { name: /alpha/ })).toBeTruthy();
+    expect(screen.queryByRole("status", { name: t("common.loading") })).toBeNull();
+  });
+
+  it("a revalidation replaces the cached rows", async () => {
+    fixtures.projects = [PROJECT];
+    await readThenUnmount();
+
+    // Hold the answer so "before it lands" is a fact, not a microtask race.
+    let answer!: (list: Project[]) => void;
+    vi.mocked(listProjects).mockImplementationOnce(
+      () =>
+        new Promise<Project[]>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    renderPage();
+
+    // The kept row is on screen before the read answers, and the skeleton is
+    // never painted in between.
+    expect(screen.getByRole("link", { name: /alpha/ })).toBeTruthy();
+    expect(screen.queryByRole("status", { name: t("common.loading") })).toBeNull();
+
+    answer([SECOND]);
+    expect(await screen.findByRole("link", { name: /beta/ })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /alpha/ })).toBeNull();
+    expect(screen.queryByRole("status", { name: t("common.loading") })).toBeNull();
+  });
+
+  it("a failed revalidation keeps the cached rows and says so", async () => {
+    fixtures.projects = [PROJECT];
+    await readThenUnmount();
+
+    vi.mocked(listProjects).mockRejectedValueOnce(new Error("offline"));
+    renderPage();
+
+    expect(await screen.findByText(t("projects.loadFailed"))).toBeTruthy();
+    // The failure is news about the refresh, not a reason to take the rows.
+    expect(screen.getByRole("link", { name: /alpha/ })).toBeTruthy();
+    expect(screen.queryByText(t("projects.empty"))).toBeNull();
+    expect(screen.queryByRole("status", { name: t("common.loading") })).toBeNull();
+  });
+
+  it("an empty revalidation clears the cached rows", async () => {
+    fixtures.projects = [PROJECT];
+    await readThenUnmount();
+
+    let answer!: (list: Project[]) => void;
+    vi.mocked(listProjects).mockImplementationOnce(
+      () =>
+        new Promise<Project[]>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    renderPage();
+
+    // Kept until the answer, then the empty state replaces it: a deleted
+    // project must disappear.
+    expect(screen.getByRole("link", { name: /alpha/ })).toBeTruthy();
+    answer([]);
+    expect(await screen.findByText(t("projects.empty"))).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /alpha/ })).toBeNull();
+    expect(screen.queryByText(t("projects.loadFailed"))).toBeNull();
   });
 });
