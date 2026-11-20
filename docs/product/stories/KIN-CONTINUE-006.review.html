@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<title>KIN-CONTINUE-006 · 手机开屏：先用自己的控制台打开 · Figma 审阅</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1a1a1a;
+    --muted: #666a73;
+    --line: #dedee3;
+    --bg: #f1f1f4;
+    --page: #fbfbfd;
+    --card: #ffffff;
+    --accent: #1f6feb;
+    --accent-soft: #eef3ff;
+    --warn: #b42318;
+    --warn-soft: #fff1f0;
+    --ok: #137a3f;
+    --ok-soft: #eef8f1;
+    --gutter: clamp(16px, 5vw, 24px);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7;
+      --muted: #a1a1aa;
+      --line: #35353a;
+      --bg: #0b0b0d;
+      --page: #141416;
+      --card: #1d1d20;
+      --accent: #6ea8fe;
+      --accent-soft: #17243a;
+      --warn: #ff8a80;
+      --warn-soft: #2a1717;
+      --ok: #6dd58c;
+      --ok-soft: #13251b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  code { padding: 1px 5px; border-radius: 5px; background: var(--bg); font-size: .92em; overflow-wrap: anywhere; }
+  .page { max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom)); background: var(--page); }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 26px; line-height: 1.28; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 2px; font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill { display: inline-flex; align-items: center; height: 25px; padding: 0 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.draft { color: var(--muted); background: var(--bg); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 16px; }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 16px; }
+  .howto li { margin: 5px 0; }
+  .note { color: var(--muted); font-size: 14px; }
+  .howto .note { margin: 4px 0 0; }
+  .toc {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 8px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 8px var(--gutter);
+    overflow-x: auto;
+    background: var(--page);
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none; display: inline-flex; align-items: center;
+    min-height: 44px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink);
+    font-size: 13px; text-decoration: none; white-space: nowrap;
+  }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 0 0 6px; font-size: 17px; line-height: 1.4; }
+  h4 { margin: 16px 0 8px; font-size: 16px; line-height: 1.4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .bullets { font-size: 16px; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 16px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 13px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card h3 { font-size: 16px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 16px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a {
+    display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 12px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none;
+  }
+  .screen { margin: 16px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; scroll-margin-top: 72px; }
+  .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll {
+    overflow-x: auto; overflow-y: hidden;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: #fff;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-phone .frame-scroll { max-width: 390px; margin: 0 auto; }
+  .fig-phone img { width: 100%; }
+  .fig-wide img { width: 1100px; }
+  .frame figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li {
+    display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); font-size: 16px;
+  }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+  .state-list { display: grid; gap: 8px; margin-top: 10px; }
+  .state { padding: 11px 13px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 16px; }
+  .state b { display: block; margin-bottom: 2px; font-size: 16px; }
+  .state span { color: var(--muted); }
+  .decision { margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 14px; }
+  .decision h3 { font-size: 17px; }
+  .decision p { font-size: 16px; }
+  .decision .rec { margin: 6px 0; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 16px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+  .decision.open { border-left-color: var(--warn); background: var(--warn-soft); }
+  .decision.open .rec strong { color: var(--warn); }
+  .reply { margin-top: 10px; }
+  .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 14px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .sign { border-left: 4px solid var(--ok); }
+  .sign p { margin: 6px 0; }
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+  a:focus-visible, .screen-index a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+    .toc { border-radius: 0; }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 380px) {
+    .flow li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 约 6 分钟 · 4 个决定（2 已定 · 2 待拍板）</div>
+    <h1>KIN-CONTINUE-006 · 手机开屏：先用自己的控制台打开，新版本在后台整套换<small>首帧不等网络 · 后台取回与三项校验 · 原子换入 · 失败只说一句</small></h1>
+    <p class="meta">draft · 面：手机（Mac 不变）· 对照 <code>KIN-CONTINUE-006.md</code></p>
+    <p class="meta">2026-11-21 · 6 屏（5 张手机帧 + 1 张 Mac 不变帧）· 8 个状态</p>
+    <div class="tags">
+      <span class="pill warn">待签字</span>
+      <span class="pill plain">旅程 J1</span>
+      <span class="pill plain">面：手机</span>
+      <span class="pill draft">draft</span>
+    </div>
+  </header>
+
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>当我在地铁里掏出手机、网络刚抖过一下，想接着问昨天那段对话，我想 App 用自己带着的那份控制台立刻打开——列表、底栏、上次的位置都在——以便不用盯着转圈，也不用杀掉重开；Hub 的新版本在后台整套换好，换不动就继续用旧的，并告诉我一句。</p>
+  </section>
+
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：这条为什么单独成一条，开屏与换版为什么属于「接着问」，相邻的格归谁。</li>
+      <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
+      <li><strong>最后看决定</strong>：D1、D2 已定；D3、D4 各有一个推荐和代价，页尾有回复模板，只回不同意的编号。</li>
+    </ol>
+    <p class="note">宽帧在卡片内左右滑动，页面本身不横滚。手机上正文不小于 16px。本页是纯文档：<code>ui/</code> 一个像素未动，实现发生在签字之后的实现 PR。</p>
+  </section>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">它属于「接着问一段对话」这条意图的手机开屏：只决定「打开时先看到什么、新版本怎么换」，不碰任何一屏的内容。</p>
+    <div class="card mece">
+      <div class="mece-row">
+        <div class="name">接着问一段对话<div class="who">KIN-CONTINUE-001、002、003、004、005 · 本页补手机开屏</div></div>
+        <span class="pill here">本条所在</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">新建一段对话<div class="who">KIN-START-001</div></div>
+        <span class="pill draft">不碰</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">看它改了什么<div class="who">KIN-RESULT-001 / 002 / 003</div></div>
+        <span class="pill draft">不碰</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">管理对话与项目<div class="who">KIN-MANAGE-001、KIN-PROJECT-001 / 002 / 003</div></div>
+        <span class="pill draft">列表内容与行操作归它</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">设置与环境<div class="who">KIN-SETTINGS-001 / 002、KIN-AGENTS-001</div></div>
+        <span class="pill draft">桌面壳升级归 002</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">离开时被叫回来<div class="who">KIN-NOTIFY-001</div></div>
+        <span class="pill draft">不碰</span>
+      </div>
+      <div class="mece-row here">
+        <div class="name"><strong>手机开屏：包内控制台先开、Hub 的新版本后台整套换</strong><div class="who">KIN-CONTINUE-006 · 这条</div></div>
+        <span class="pill here">本页</span>
+      </div>
+    </div>
+    <ul class="bullets">
+      <li><strong>为什么单独一条：</strong>开屏路径与更新语义横跨整个壳，不属于任何一屏的内容。2026-11-20 的开屏卡死有结构上的半边就在这里：首帧等在账户探测的回调里。另半边是有界重试（A），归 <code>R-boot-guard</code>，本条只要求失败后仍可用且说一句。</li>
+      <li><strong>为什么属于「接着问」：</strong>掏出手机的目的就是接着问；开屏是这段意图的入口，列表、底栏、位置都是 CONTINUE-001～005 已有的壳。本条只决定它们多快出现、新版本怎么换，不新增第二个控制台或第二套状态。</li>
+      <li><strong>job map 覆盖：</strong>步骤 1（打开 App，先有自己的控制台）→ 帧 01；步骤 2（定位：这一版从哪来）+ 步骤 3（准备：后台整套取回）→ 帧 02；步骤 4（确认：版本 / 兼容 / 字节）+ 步骤 5（执行：整套换入、原处继续）→ 帧 03；步骤 6（监控：慢、断线、500、半套都不挡前台）→ 帧 04；步骤 7（修改与收尾：不兼容时一个下一步）→ 帧 05；Mac 的差异 → 帧 06。七步都有帧或明确的流程交代。</li>
+      <li><strong>设备只是差异维度：</strong>Mac 不变——桌面壳的控制台随壳一起安装、一起升级（<code>KIN-SETTINGS-002</code>），开屏交接已由 <code>desktop/boot.html</code> 与 <code>window-ready-to-show</code> 在 P10/P11 定下，没有「先用自己的、后台换 Hub 的」这件事。帧 06 只作「不变」的证据，不按设备拆故事。</li>
+      <li><strong>不在这一条：</strong>有界重试的超时与退避 → <code>R-boot-guard</code>；队列 UI / 待处理面 → P13；桌面壳的升级与开屏 → <code>KIN-SETTINGS-002</code>；PWA 的更新语义不变（仍由 Hub 重新部署自然更新）；原生重写不做（DECISIONS 2026-11-20 23:47）；新接口、数据库 / 迁移、依赖、<code>ui/package.json</code> 改动都不做。</li>
+      <li><strong>四条大小自检：</strong>6 屏（5 张手机帧 + 1 张 Mac 不变帧）；一次交付（一个实现 PR 装得下测试、复审与 390/1100 截图）；两端成立（手机改，Mac 由回归守住）；每条验收都能变成以 <code>KIN-CONTINUE-006</code> 命名的测试。</li>
+    </ul>
+  </section>
+
+  <section id="before-after">
+    <h2>现在 → 之后</h2>
+    <div class="two">
+      <div class="card now">
+        <h3>现在</h3>
+        <ul>
+          <li>开屏是 <code>ui/index.html:82</code> 的 <code>.kin-boot</code> 转轮，只有 React 第一次渲染才把它替换掉；那次渲染在 <code>ui/src/main.tsx:179</code>，而它在有界账户探测（<code>:166</code>）的回调里。探测没回来之前，屏幕上只有转轮；网络抖一下就是那天的样子。</li>
+          <li>手机常态加载的是 Hub 的 URL（<code>mobile/capacitor.config.ts:3-12</code> 的第一方 cookie 理由）；随包的 <code>webDir: "../web/dist"</code>（<code>:50</code>）只在没连过 Hub 或 Hub 连不上时兜底（<code>:22-23</code>）。所以「用自己的控制台打开」今天不是常态。</li>
+          <li>已经有一个换版路径：<code>ui/src/main.tsx:104</code> 的 <code>watchConsoleVersion()</code> 在 <code>visibilitychange</code> / <code>pageshow</code> 时读入口 chunk，不同就整页 reload（<code>ui/src/lib/consoleVersion.ts:114</code>），每个文档最多一次，首帧之后才挂上（<code>:194</code>）。它只比入口名，不看整套、不看兼容、不保留旧版；本条必须与它收敛成一个判断，不能并存两个更新器。</li>
+          <li><code>/assets/*</code> 发 <code>public, max-age=31536000, immutable</code>（<code>internal/server/server.go:1603</code>），<code>index.html</code> 与 manifest 是 <code>no-cache</code>（<code>:1604-1605</code>）；<code>/api/version</code> 未鉴权，返回 Hub 版本（<code>internal/api/api.go:332</code>、<code>:908</code>）。</li>
+          <li>2026-11-20 23:42 实测：1.9 MB 入口 chunk 走 LAN 49 ms 完整返回；第一次隧道尝试 20 秒只收到 74 KB 就停住；随后三次 2.9–5.3 秒。图标、manifest 这类小文件每次都正常。</li>
+          <li><code>docs/product/IA.md</code> 的手机行已由 #483 登记为本条的面（开屏、后台校验、原子换入）；本页不再改它。</li>
+        </ul>
+      </div>
+      <div class="card after">
+        <h3>之后（本条）</h3>
+        <ul>
+          <li><strong>开屏基线：</strong>冷启动先渲染随包的那份完整控制台——列表壳、页头、底栏、上次的范围与位置——首帧不等账户探测、不等 Hub。它就是控制台本身，不是第二个界面或第二张启动页。</li>
+          <li><strong>后台整套取回：</strong>首帧之后向已保存的 Hub 取回当前控制台整套（入口、按需分块、样式、图标、manifest）及其声明的版本与最低 Hub API；只用静态文件与现有 <code>/api/version</code>。</li>
+          <li><strong>整套校验：</strong>版本（只有更新才换）、兼容（控制台要求的最低 Hub API ≤ Hub 实际）、字节完整（清单里每个文件都在、长度与摘要对上）。三项都过才算一套。</li>
+          <li><strong>原子换入：</strong>整套通过才一次换入，发生在下一次开屏或一次受控重新加载；不出现半张新界面、空白帧或第二张启动页；换入后回到同一段对话与同一位置。</li>
+          <li><strong>保留上一份完整版本：</strong>只留一份，作为切换中断或下次换不动时的回退；不无限增长。</li>
+          <li><strong>失败与不兼容都说一句可行动的话：</strong>取不回、超时、500、半套、断线 → 继续用当前版本；两侧不兼容 → 保持当前控制台打开，给一个主行动（更新 App 或更新 Hub），不转圈。</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note"><strong>本 PR 只加这一页，<code>ui/</code> 一个像素未动。</strong>实现发生在签字之后的实现 PR，测试文件以 <code>KIN-CONTINUE-006</code> 命名。</p>
+  </section>
+
+  <section id="screens">
+    <h2>界面与用户流程</h2>
+    <p class="note">每一屏先看 Figma 帧，再读下面六段流程。帧是设计源；宽帧在卡片内左右滑动，点「打开原图」可以全尺寸看。</p>
+
+    <div class="screen-index" aria-label="界面索引">
+      <a href="#screen-1">01 · 手机 · 冷启动基线</a>
+      <a href="#screen-2">02 · 手机 · 后台核对与取回</a>
+      <a href="#screen-3">03 · 手机 · 换入完成</a>
+      <a href="#screen-4">04 · 手机 · 取不回</a>
+      <a href="#screen-5">05 · 手机 · 两侧不兼容</a>
+      <a href="#screen-6">06 · Mac · 不变</a>
+    </div>
+
+    <article class="screen" id="screen-1">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">01 · 手机 · 390×844</div>
+          <h3>冷启动基线：包内控制台先出，不等网络</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机冷启动基线的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-006.figma/frames/01-phone-cold-start.svg" alt="手机 390×844 冷启动：第一帧就是完整的对话列表，按机器与项目分组，底部四个入口都在；顶部一行灰字「离线 · 本地版本 1.9.0 · 更新未核对」；画面没有转轮挡着，图注写明列表、底栏和位置来自上次，更新只在后台核对。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTINUE-006.figma/frames/01-phone-cold-start.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>手机上冷启动 App（上一次已连过 Hub），或系统回收后从后台回来；网络刚抖过。</span></li>
+        <li><b>动作</b><span>点开 App，不点别处。</span></li>
+        <li><b>立刻看到</b><span>随包控制台的列表壳立刻出现（设备 / 项目 / 行按上次的范围），底部四个入口在；顶部一行灰字「离线 · 本地版本 1.9.0 · 更新未核对」，没有转轮挡住内容。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>账户还没答、Hub 慢、完全没网时：有缓存就显示上次的列表与位置，没有就显示空态 +「离线 · 正在用本地版本」；不白屏、不无限转轮；首次安装且没连过 Hub 时仍落在连接页（基线是控制台，不是已登录会话）。</span></li>
+        <li><b>键盘与焦点</b><span>首帧焦点在主区标题，不自动弹键盘、不自动聚焦底栏；外接键盘 Tab 从内容开始。</span></li>
+        <li><b>离开再回来</b><span>列表范围（搜索 / 状态 / 归档）、滚动位置、选中的设备按现有记忆恢复；切后台再回来不重新走开屏。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-2">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">02 · 手机 · 390×844</div>
+          <h3>后台核对与取回：状态只占一行</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机后台核对与取回的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-006.figma/frames/02-phone-verifying.svg" alt="手机 390×844 的对话列表，顶部一行状态「本地版本 1.9.0 · 正在后台核对 2.0.0」；下方标注版本（有更新，继续）、兼容（最低 API 12 ≤ Hub API 12，通过）、字节（已取 26 / 42 个文件，摘要逐个对）；写明前台照常使用、换入发生在下一次打开、停住 20 秒就放弃、进度不是控件。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTINUE-006.figma/frames/02-phone-verifying.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>基线已渲染，顶部那行状态在；已保存 Hub 地址。</span></li>
+        <li><b>动作</b><span>不点任何东西（App 在首帧之后自己开始）；想细看就点开状态行，这是可选的，不是必须。</span></li>
+        <li><b>立刻看到</b><span>状态行写「本地版本 1.9.0 · 正在后台核对 2.0.0」，取回时变成「正在取回 2.0.0（x%）」；点开是一个只读小面板：当前版本、来源（本地 / Hub）、上次核对时间、Hub 版本与兼容结果。进度只在那一行，不遮挡内容、不占布局、不弹窗。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>停住（观测到的那次是 20 秒没有新字节；有界阈值归 <code>R-boot-guard</code>）就放弃这次，状态行回「仍用本地版本 · 稍后再试」；Hub 500 同一句；完全没网就不发请求，写「离线 · 本地版本」；只取到一半时已取的文件不参与换入。核对没回来时面板写「还在核对」；读不到 Hub 版本时写「连不上 Hub，继续用本地版本」，不猜版本号、不显示 0。</span></li>
+        <li><b>键盘与焦点</b><span>进度不是控件，不进 Tab 序、不抢焦点；状态行是按钮，Enter / Space 打开面板；Esc 关闭后焦点回状态行；读屏只在状态行变化时礼貌播报一次。</span></li>
+        <li><b>离开再回来</b><span>切后台暂停、回来继续或重来；不因为切后台就换入半套。关闭面板不改变任何状态；核对完成后状态行就地更新，不弹 toast。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-3">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">03 · 手机 · 390×844</div>
+          <h3>校验通过、整套换入，原处继续</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机换入完成的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-006.figma/frames/03-phone-switched.svg" alt="手机 390×844 的对话列表，顶部状态行「已用 2.0.0 · 刚换入，位置没变」；列表、底栏和打开的行与换入前同一屏；图注写明没有空白帧、没有第二张启动页，输入框草稿、搜索词与打开的连接都还在，上一份完整版本留在本地。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTINUE-006.figma/frames/03-phone-switched.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>整套文件已取回，尚未换入；App 正在做版本、兼容、字节三项校验。</span></li>
+        <li><b>动作</b><span>下一次开屏；状态行里的「现在换」是可选操作，不是必须。</span></li>
+        <li><b>立刻看到</b><span>状态行短暂显示「校验 2.0.0」，通过后写「新版本已就绪，下次打开生效」；换入后仍在同一段对话、同一滚动位置，输入框草稿还在；状态行变成「已用 2.0.0」，当前屏不闪白、不出现第二张启动页。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>版本相同或更旧不换；控制台要求的最低 Hub API 高于 Hub 实际 → 判不兼容，永不换；文件缺失、长度或摘要不符、index 与入口对不上 → 判半套，永不换；任一项没有结论都按「不换」处理。切换中进程被杀 → 下次开屏仍打开上一份完整版本，不落在半套上。</span></li>
+        <li><b>键盘与焦点</b><span>校验不新增焦点目标，状态行文字变化不移动焦点；若换入触发一次重新加载，焦点回到同一控件、同一滚动位置，不丢到页首；返回路径不因换版改变。</span></li>
+        <li><b>离开再回来</b><span>回到原来那段对话；上一份完整版本保留，作为下一次失败的回退。校验结果只对这次取回的整套有效；下次开屏重新比版本与兼容（不重下字节），Hub 已回滚就继续用当前版本。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-4">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">04 · 手机 · 390×844</div>
+          <h3>取不回：停住 / 500 / 断线，仍用本地版本</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机取不回更新时的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-006.figma/frames/04-phone-verify-failed.svg" alt="手机 390×844 的对话列表，顶部一行「连不上 Hub · 仍用本地版本 1.9.0」加一个「重试」；列表与底栏照常可用，没有转轮；图注写明停住、500、完全没网都走这里，半套或摘要不符不会被换入，失败只是一行状态。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTINUE-006.figma/frames/04-phone-verify-failed.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>后台正在取回 / 校验，或刚刚失败（停住、500、断线、只取到一半）。</span></li>
+        <li><b>动作</b><span>继续用控制台：翻列表、开对话、发消息；要重试时按状态行。</span></li>
+        <li><b>立刻看到</b><span>所有前台操作不受影响；发消息不排在整套下载后面，后台不抢前台请求。状态行是一句「连不上 Hub · 仍用本地版本 1.9.0」+「重试」，列表一直可用，不转圈、不弹模态；半套或摘要不符不会被换入，也不会被当成「更新完成」。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>停住 → 「更新没取完，仍用本地版本」+ 可重试；Hub 500 → 同一句；没网 → 「离线 · 本地版本」，网络回来可再试；半套 → 永不换入；每种只说一次，不重复弹。</span></li>
+        <li><b>键盘与焦点</b><span>失败提示不是模态、不抢焦点；要重试时状态行是按钮，Enter 触发；焦点不因失败文字变化而移动。</span></li>
+        <li><b>离开再回来</b><span>失败结论保留到下次核对；重试不改变当前控制台与位置。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-5">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">05 · 手机 · 390×844</div>
+          <h3>两侧不兼容：一个主行动，不转圈</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机与 Hub 不兼容时的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-006.figma/frames/05-phone-incompatible.svg" alt="手机 390×844 的对话列表，顶部状态行「本地版本 1.9.0 · 与这台 Hub 不能一起工作」；下方一张卡片「这台 Hub 需要更新的 App · App 1.9.0 · Hub 2.0.0」，只有一个主行动「更新 App」，「稍后」不是同等按钮；图注写明读不到 Hub 版本时写「无法确认」，不判不兼容、不锁死。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTINUE-006.figma/frames/05-phone-incompatible.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>App 与 Hub 的版本无法一起工作（App 太旧或 Hub 太旧）。</span></li>
+        <li><b>动作</b><span>看状态行，或打开面板。</span></li>
+        <li><b>立刻看到</b><span>当前控制台仍然打开并且能用；面板里只有一个主行动：App 太旧 →「这台 Hub 需要更新的 App」（App 1.9.0 · Hub 2.0.0）+ 更新 App；Hub 太旧 →「这台 Hub 需要更新」+ 去设置 / 复制地址；不同时给两个同等显眼的按钮，「稍后」不是同等按钮。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>判断不了兼容性（Hub 不答、版本读不到）不算不兼容：继续用当前版本并写「无法确认」，不锁死，也不假装有结论。</span></li>
+        <li><b>键盘与焦点</b><span>主行动可获得焦点；Esc 关闭面板回状态行；不自动跳设置。</span></li>
+        <li><b>离开再回来</b><span>结论保留到下次核对；更新 App / Hub 后下一次开屏自动恢复；上一份完整版本仍在，可回退。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-6">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">06 · Mac · 1100×760</div>
+          <h3>Mac：不变</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 不变的 Figma 帧" tabindex="0" data-start="330">
+          <img src="KIN-CONTINUE-006.figma/frames/06-mac-unchanged.svg" alt="Mac 1100×760：左缘是 208px 区域栏（对话 ⌘1、项目 ⌘2、例行任务 ⌘3、设置 ⌘4），中间是对话列表，右侧是一段正在运行的对话；没有开屏状态行，也没有后台下载；图注写明控制台随桌面壳安装、随壳升级（KIN-SETTINGS-002），开屏交接由 desktop/boot.html 与 window-ready-to-show 在 P10/P11 定下。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-CONTINUE-006.figma/frames/06-mac-unchanged.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>Mac 1100×760 打开 Kin，左缘是区域栏，中间是对话列表，右侧是一段对话。</span></li>
+        <li><b>动作</b><span>照今天的方式用左缘区域栏或 ⌘1–⌘4 切换区域。</span></li>
+        <li><b>立刻看到</b><span>与今天完全一致：没有开屏状态行，也没有基线、整套校验与后台换入；控制台随桌面壳安装与升级。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>沿用今天的行为，不在本条重测；回归测试守住 1100 宽不出现开屏状态行与后台下载。</span></li>
+        <li><b>键盘与焦点</b><span>⌘1–⌘4 与今天的焦点顺序不变；本条不新增快捷键，也不改 Tab 序。</span></li>
+        <li><b>离开再回来</b><span>开屏交接仍由 <code>desktop/boot.html</code> 与 <code>window-ready-to-show</code>（P10/P11）决定，本条不碰。</span></li>
+      </ol>
+    </article>
+  </section>
+
+  <section id="states">
+    <h2>状态</h2>
+    <p class="note">状态帧分布在 01–05；下面是文字检查表，交付时逐条对照。</p>
+    <div class="state-list">
+      <div class="state"><b>默认 / 基线</b><span>冷启动第一帧就是随包控制台：列表壳、页头、底栏、上次的范围与位置；顶多一行灰字状态，没有转轮挡内容。</span></div>
+      <div class="state"><b>核对中</b><span>状态行「本地版本 1.9.0 · 正在后台核对 2.0.0」；点开是只读面板；核对没回来写「还在核对」，读不到 Hub 版本写「连不上 Hub，继续用本地版本」，不猜版本号。</span></div>
+      <div class="state"><b>取回中</b><span>状态行「正在取回 2.0.0（x%）」，进度只占那一行，不遮挡、不占布局；不是控件，不进 Tab 序；切后台暂停、回来继续或重来。</span></div>
+      <div class="state"><b>就绪待换</b><span>三项校验都过 → 「新版本已就绪，下次打开生效」；只有整套就位才标记可换；下次开屏重新比版本与兼容，不重下字节。</span></div>
+      <div class="state"><b>已换入</b><span>同一屏、同一段对话、同一滚动位置，草稿与搜索词还在；状态行「已用 2.0.0」；上一份完整版本留作回退。</span></div>
+      <div class="state"><b>取不回（停住 / 500 / 断线）</b><span>一行「连不上 Hub / 更新没取完 · 仍用本地版本 1.9.0」+「重试」；前台照常可用；每种只说一次，不弹模态。</span></div>
+      <div class="state"><b>不兼容</b><span>当前控制台仍打开；面板只有一个主行动（更新 App 或更新 Hub），不同时给两个同等按钮；读不到版本写「无法确认」，不锁死。</span></div>
+      <div class="state"><b>首次安装未连 Hub</b><span>没有基线可展示时仍落在连接页；基线是控制台，不是已登录会话；不因为开屏改动而假装已连接。</span></div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>要你拍板的</h2>
+    <p class="note">D1、D2 已拍板，写「已定」，不用回；D3、D4 各有一个推荐和代价，只回不同意的编号。</p>
+
+    <div class="decision settled">
+      <h3>D1 开屏基线：先跑随包控制台，首帧不等网络</h3>
+      <p class="rec"><strong>已定（CEO，2026-11-20 23:47）：</strong>开屏先渲染随包的那份完整控制台，首帧不等账户探测、不等 Hub；它就是控制台本身，不是第二张启动页。</p>
+      <p class="tradeoff"><strong>代价：</strong>App 要保证随包那一份始终能单独启动，而且它只能有一个身份，不能长出第二套状态。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>D2 原子换入，并保留上一份完整版本</h3>
+      <p class="rec"><strong>已定（同上）：</strong>整套校验通过才一次换入，保留一份完整旧版作为回退；不出现半张新界面、空白帧或第二张启动页。</p>
+      <p class="tradeoff"><strong>代价：</strong>换入只发生在开屏 / 受控重载，不是无感热替换；每次换版都要一份清单与摘要。</p>
+    </div>
+
+    <div class="decision open">
+      <h3>D3 整套的存放与校验（待拍板）</h3>
+      <p class="rec"><strong>推荐：</strong>App 私有目录按版本存放已验证的整套，清单与摘要随构建产物走；下次开屏从本地加载，只重新比版本与兼容。这样「上一份完整版本还在」由 App 自己保证，不依赖系统缓存的心情。</p>
+      <p class="tradeoff"><strong>代价：</strong>本地多占一份控制台；清单格式变更要兼容旧包（旧包读不懂新清单时按「不换」处理）。另一条路是拿系统 WebView 缓存当存储——实现少，但系统会淘汰，无法保证「上一份完整版本还在」，不推荐。</p>
+    </div>
+
+    <div class="decision open">
+      <h3>D4 基线控制台的登录（待拍板）</h3>
+      <p class="rec"><strong>推荐：</strong>沿用现有设备令牌（<code>ui/src/api/client.ts:287</code> 的 Bearer），让随包控制台在 App 自己的 origin 上也能调 Hub；cookie 仍只用于 Hub origin。</p>
+      <p class="tradeoff"><strong>代价：</strong>令牌要可撤销、不能变成第二个密码；首次安装没连过 Hub 时仍落在连接页。另一条路是原生层代理所有 API / SSE——登录最自然，但流式通道与新请求路径都要维护，第一版不推荐。</p>
+    </div>
+  </section>
+
+  <section id="reply">
+    <h2>回复模板</h2>
+    <div class="card reply">
+      <p class="note">长按下面这段复制，改掉不同意的；D1、D2 已定，不用回。都同意就复制第一行。</p>
+      <pre>同意 KIN-CONTINUE-006：D3、D4 按推荐。
+推翻 D3：……（只写不同意的编号）</pre>
+    </div>
+  </section>
+
+  <section id="sign">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p>本页不改任何状态：<code>KIN-CONTINUE-006.md</code> 保持 <code>draft</code>，<code>registry.json</code>、<code>COVERAGE.md</code>、<code>PLAN.md</code>、<code>IA.md</code> 都不动。</p>
+      <p>签字发生在实现 PR：那一版把 <code>KIN-CONTINUE-006.md</code> 从 <code>draft</code> 改成 <code>approved</code>（验收表里的测试以故事 id 命名），并由 CEO 在 <code>rsi/DECISIONS.md</code> 记一行。</p>
+      <p>只有到那一步才动 <code>ui/</code>。Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-CONTINUE-006.figma/</code> 里的 SVG 帧和本页的流程。</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>设计源：<code>KIN-CONTINUE-006.figma/frames/</code>（5 张 390×844 手机帧 + 1 张 1100×760 Mac 帧，SVG）</p>
+    <p>审阅编排：<code>KIN-CONTINUE-006.review.html</code>（本页）</p>
+    <p>合同：<code>KIN-CONTINUE-006.md</code></p>
+    <p>Figma 审阅版 · figma-flow-v1</p>
+  </footer>
+
+</main>
+<script>
+  // 宽帧默认露出主区；仍可左右滑回侧栏。无脚本时从左侧开始，不影响阅读。
+  // 懒加载的帧在脚本执行时还没有宽度，所以加载完成后再定位一次。
+  for (const el of document.querySelectorAll('.frame-scroll[data-start]')) {
+    const start = Number(el.dataset.start) || 0;
+    const apply = () => { el.scrollLeft = start; };
+    apply();
+    const img = el.querySelector('img');
+    if (img && !img.complete) img.addEventListener('load', apply, { once: true });
+  }
+</script>
+</body>
+</html>
