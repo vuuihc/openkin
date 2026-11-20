@@ -159,6 +159,10 @@ describe("the /sessions route", () => {
   });
 });
 
+// KIN-CONTINUE-004: the page-level half of the phone list's acceptance table —
+// an empty list still points at New chat, and a failed read keeps the shell and
+// offers Retry. The device headings themselves are in
+// SessionList.phoneDevices.dom.test.tsx.
 describe("the phone page's states", () => {
   it("keeps its vertical scroll body from owning a horizontal tab gesture", () => {
     render(phonePage());
