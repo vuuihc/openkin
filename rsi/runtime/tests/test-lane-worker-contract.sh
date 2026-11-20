@@ -105,6 +105,24 @@ test_race_flag_self_check() {
     || bad "race-flag-self-check: the self-check does not name the touched package (${text:0:400})"
 }
 
+test_prose_claim_check_rule() {
+  lane_record new
+  local text
+  text="$(contract_text new)" || bad "prose-claim-check-rule: --worker-contract-check exited $?"
+  grep -Fq "Claim check:" <<<"$text" \
+    || bad "prose-claim-check-rule: the contract never names the 'Claim check:' marker"
+  grep -Fq "Claim output:" <<<"$text" \
+    || bad "prose-claim-check-rule: the contract never names the 'Claim output:' marker"
+  grep -Fq "docs/product/" <<<"$text" \
+    || bad "prose-claim-check-rule: the trigger paths omit the docs/product/ prefix"
+  grep -Fq "rsi/GOAL.md" <<<"$text" \
+    || bad "prose-claim-check-rule: the trigger paths omit rsi/GOAL.md"
+  grep -Fq "none:" <<<"$text" \
+    || bad "prose-claim-check-rule: the contract never names the 'Claim check: none:' waiver"
+  grep -Fq "not delivery" <<<"$text" \
+    || bad "prose-claim-check-rule: the contract does not say a missing claim is not delivery"
+}
+
 test_rework_keeps_rules() {
   lane_record rework
   seam _worker-brief 1 || bad "rework-keeps-rules: _worker-brief exited $?"
@@ -117,6 +135,8 @@ test_rework_keeps_rules() {
     || bad "rework-keeps-rules: the rework brief lost the ordering rule"
   grep -q -- "-count=5 -race" "$brief" \
     || bad "rework-keeps-rules: the rework brief lost the self-check rule"
+  grep -Fq "Claim output:" "$brief" \
+    || bad "rework-keeps-rules: the rework brief lost the prose claim-check rule"
 }
 
 test_one_source() {
@@ -152,6 +172,7 @@ run() { # <case> <fn>
 RAN=0
 run race-ordering-rule test_race_ordering_rule
 run race-flag-self-check test_race_flag_self_check
+run prose-claim-check-rule test_prose_claim_check_rule
 run rework-keeps-rules test_rework_keeps_rules
 run one-source test_one_source
 [ "$RAN" -gt 0 ] || bad "RSI_TEST_ONLY='$ONLY' matched no case"
