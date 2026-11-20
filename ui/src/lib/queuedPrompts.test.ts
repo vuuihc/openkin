@@ -5,6 +5,9 @@ import {
   EDIT_IN_FLIGHT_MS,
   editStillRunning,
   isMessageQueued,
+  moveQueuedId,
+  queueOrderAfterMove,
+  queuePositions,
   queuedMessageSeqs,
   startEdit,
   startWithdrawal,
@@ -13,6 +16,11 @@ import {
 
 function prompt(userSeq: number, text = "waiting"): QueuedPrompt {
   return { id: userSeq, prompt: text, user_seq: userSeq, queued_at: 1 };
+}
+
+/** A queue row with an explicit id, so order and identity can disagree. */
+function entry(id: number, position?: number): QueuedPrompt {
+  return { id, prompt: `#${id}`, user_seq: id, queued_at: 1, ...(position === undefined ? {} : { position }) };
 }
 
 describe("queuedMessageSeqs", () => {
@@ -269,5 +277,72 @@ describe("startEdit", () => {
 
     expect(onSettled).toHaveBeenCalledTimes(1);
     expect(onSettled).toHaveBeenCalledWith({ kind: "unknown" });
+  });
+});
+
+describe("queuePositions", () => {
+  it("numbers the daemon's order from one", () => {
+    // The array arrives in the daemon's order (`position ASC, id ASC`). Here B
+    // was queued first even though its id is larger, so sorting by id would
+    // number the queue backwards.
+    const received = [entry(9, 1), entry(4, 2)];
+
+    const positions = queuePositions(received);
+
+    expect(positions.get(9)).toBe(1);
+    expect(positions.get(4)).toBe(2);
+    expect(positions.size).toBe(2);
+  });
+
+  it("is empty for an empty queue", () => {
+    expect(queuePositions([]).size).toBe(0);
+  });
+});
+
+describe("moveQueuedId", () => {
+  it("moves one id and returns every id exactly once", () => {
+    const up = moveQueuedId([1, 2, 3], 3, -1);
+    const down = moveQueuedId([1, 2, 3], 1, 1);
+
+    expect(up).toEqual([1, 3, 2]);
+    expect(down).toEqual([2, 1, 3]);
+    // The endpoint wants the whole list, not a subset: a move that dropped an
+    // id would answer 409.
+    expect(up).toHaveLength(3);
+    expect([...(up ?? [])].sort((a, b) => a - b)).toEqual([1, 2, 3]);
+  });
+
+  it("refuses to move past either end", () => {
+    // Null, not an unchanged list: there is nothing to send, and the caller
+    // draws the arrow disabled rather than firing a no-op request.
+    expect(moveQueuedId([1, 2, 3], 1, -1)).toBeNull();
+    expect(moveQueuedId([1, 2, 3], 3, 1)).toBeNull();
+    expect(moveQueuedId([1, 2, 3], 99, -1)).toBeNull();
+    expect(moveQueuedId([], 1, 1)).toBeNull();
+  });
+
+  it("leaves the array it was given alone", () => {
+    const ids = [1, 2, 3];
+
+    moveQueuedId(ids, 3, -1);
+
+    expect(ids).toEqual([1, 2, 3]);
+  });
+});
+
+describe("queueOrderAfterMove", () => {
+  it("builds the order from the prompts as received", () => {
+    // `position` is an ordering key, not an index, and the array is already in
+    // the daemon's order. Sorting by `position` here would be a second opinion
+    // about delivery order — the lie ADR 0033 forbids.
+    const received = [entry(12, 5), entry(7, 2)];
+
+    // 12 is first in the received array, so it can go down but not up.
+    expect(queueOrderAfterMove(received, 12, 1)).toEqual([7, 12]);
+    expect(queueOrderAfterMove(received, 12, -1)).toBeNull();
+  });
+
+  it("returns null for an id that is not queued", () => {
+    expect(queueOrderAfterMove([entry(12)], 7, -1)).toBeNull();
   });
 });

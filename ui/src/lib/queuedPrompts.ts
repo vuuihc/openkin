@@ -44,6 +44,58 @@ export function withoutWithdrawn(
 }
 
 /**
+ * The queue's delivery order, as the place in line for each prompt id — one for
+ * the first.
+ *
+ * The array as received is the daemon's order (`ORDER BY position ASC, id ASC`),
+ * and this only numbers it. It does not re-sort: `position` is an ordering key,
+ * not an index, and a console that re-derived the order locally would show an
+ * arrangement the agent will not follow. Delivery reads the same key (ADR 0033),
+ * so what the badge numbers is what the pop does.
+ */
+export function queuePositions(prompts: QueuedPrompt[]): Map<number, number> {
+  const positions = new Map<number, number>();
+  prompts.forEach((prompt, index) => positions.set(prompt.id, index + 1));
+  return positions;
+}
+
+/**
+ * The whole queue's ids with `id` moved one slot, or null when there is nowhere
+ * to move it.
+ *
+ * The reorder endpoint wants every currently queued id, once, in the wanted
+ * order — so this never returns a subset, and the length is always the input's.
+ * Null means "nothing to send": the id is not queued (a poll has not caught up,
+ * or the turn boundary already delivered it) or it is already at the end it is
+ * being moved toward. The caller draws the arrow disabled rather than firing a
+ * request the daemon would answer 409.
+ */
+export function moveQueuedId(ids: number[], id: number, delta: -1 | 1): number[] | null {
+  const from = ids.indexOf(id);
+  if (from === -1) return null;
+  const to = from + delta;
+  if (to < 0 || to >= ids.length) return null;
+  const moved = ids.slice();
+  [moved[from], moved[to]] = [moved[to], moved[from]];
+  return moved;
+}
+
+/**
+ * The order to send after moving `id` one slot in the queue as received.
+ *
+ * A convenience over {@link moveQueuedId} for the control that draws one row's
+ * arrows, so the component holds no ordering logic: the array order is the
+ * daemon's, never re-sorted by `position`.
+ */
+export function queueOrderAfterMove(
+  prompts: QueuedPrompt[],
+  id: number,
+  delta: -1 | 1,
+): number[] | null {
+  return moveQueuedId(prompts.map((prompt) => prompt.id), id, delta);
+}
+
+/**
  * Start withdrawing the queued message with this seq and return the row that is
  * being taken back, or null when nothing in the queue matches.
  *
