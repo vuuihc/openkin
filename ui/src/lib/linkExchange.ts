@@ -45,9 +45,7 @@ export type LinkExchangeDeps = {
 
 /** What the entry point should do with the sign-in link this visit carries. */
 export type LinkVisitPlan =
-  | { kind: "none" }
-  | { kind: "malformed" }
-  | { kind: "exchange"; token: string };
+  { kind: "none" } | { kind: "malformed" } | { kind: "exchange"; token: string };
 
 /**
  * Decide the visit's link branch before anything is posted.
@@ -66,9 +64,7 @@ export function linkVisitPlan(visit: LoginVisit | null): LinkVisitPlan {
   return { kind: "exchange", token: visit.token };
 }
 
-type ExchangeOutcome =
-  | { ok: true }
-  | { ok: false; code: AuthErrorCode; message: string };
+type ExchangeOutcome = { ok: true } | { ok: false; code: AuthErrorCode; message: string };
 
 /**
  * Both answers of the POST, as values.

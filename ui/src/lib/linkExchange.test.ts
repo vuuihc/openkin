@@ -137,12 +137,7 @@ describe("linkExchange", () => {
     expect(h.onFailed).toHaveBeenCalledTimes(1);
     expect(h.onFailed).toHaveBeenCalledWith("login_link_timeout");
     expect(h.render).toHaveBeenCalledTimes(1);
-    expect(h.order).toEqual([
-      "exchange",
-      "failed:login_link_timeout",
-      "boot:signed-out",
-      "render",
-    ]);
+    expect(h.order).toEqual(["exchange", "failed:login_link_timeout", "boot:signed-out", "render"]);
   });
 
   it("waits for an exchange that answers in time", async () => {
@@ -250,12 +245,7 @@ describe("linkExchange", () => {
     expect(h.cleanVisitCredentials).not.toHaveBeenCalled();
     expect(h.clearAuthErrorFromURL).not.toHaveBeenCalled();
     expect(h.render).toHaveBeenCalledTimes(1);
-    expect(h.order).toEqual([
-      "exchange",
-      "failed:login_link_timeout",
-      "boot:signed-out",
-      "render",
-    ]);
+    expect(h.order).toEqual(["exchange", "failed:login_link_timeout", "boot:signed-out", "render"]);
   });
 
   it("a malformed link never starts an exchange", () => {
