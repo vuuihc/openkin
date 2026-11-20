@@ -7,15 +7,18 @@ Local only (no network, no daemon): reads the loop's own ledgers and answers
   python3 rsi/runtime/pace.py [--min-per-day N] [--json] [--latency] [--repo DIR] [--state DIR]
 
 `--latency` adds a per-stage split of the same open->merge wait, for the 24h and
-7d windows: pre_verify (open to the last verifier's start: dispatch, slot queue,
-CI hold — nobody has looked at the branch yet), verify (the verifier's own run:
-gate-lock wait + gate + review, never just the gate), and verify_to_merge (last
-verify line's minute to MERGED: land lock, sync, merge command). It also reports
-recorded queue_wait separately and verify split by gate=ran / gate=cached. The
-log is minute-stamped, so every stage here is minute resolution; a PR whose
-verify + verify_to_merge exceed open_to_merge is counted as n_negative and kept
-out of pre_verify rather than printing a negative stage. Without the flag the
-output is byte-identical to before.
+7d windows: verify is every verifier run at or before MERGED summed (a reworked
+PR is verified more than once; each run includes gate-lock wait + gate + review,
+never just the gate), verify_to_merge is the last verify line's minute to MERGED
+(land lock, sync, merge command, plus any UX-gate/CI wait inside the landing
+process), and pre_verify is what is left: open to the first verifier start and
+any gap between runs (dispatch, slot queue, CI hold, rework wait). It also
+reports the last recorded queue_wait per PR separately and verify split by
+gate=ran / gate=cached, one entry per run. The log is minute-stamped, so every
+stage here is minute resolution; a PR whose summed verify + verify_to_merge
+exceeds open_to_merge is counted as n_negative and kept out of pre_verify rather
+than printing a negative stage. Without the flag the output is byte-identical
+to before.
 
 Unshipped follows the release gate (release-check.sh), not the clock: the older of
 the node=/hub= commits in state/last_release is the baseline, and every subject
@@ -109,13 +112,18 @@ def stage_stats(vals):
 def latency_split(state, since):
     """Split open->merge for merged PRs in the window; minute resolution.
 
-    The log stamps minutes, so verify=NNm ends at its line's minute and started
-    NN minutes earlier; pre_verify = open_to_merge - verify - (merge minute -
-    verify minute). verify is the verifier's whole run (gate-lock wait + gate +
-    review), not just the gate. A missing queue_wait= means none was recorded,
-    not zero. Only the last verify= line at or before MERGED is joined, because
-    a re-verified head has earlier, larger lines. A non-positive residual is
-    counted in n_negative and left out of pre_verify instead of skewing it.
+    The log stamps minutes, so a verify=NNm line ends at its line's minute and
+    started NN minutes earlier. Every verify= line at or before MERGED is one
+    verifier run on the way to that merge, so verify is their sum: a reworked PR
+    is verified more than once and joining only the last line hid the earlier
+    gate=ran runs. The last line alone anchors verify_to_merge = MERGED minute -
+    that line's minute, and pre_verify = open_to_merge - verify -
+    verify_to_merge holds dispatch, slot queue, CI hold and any wait between
+    runs. Each run is bucketed by its own gate=ran / gate=cached (n counts runs
+    there, while verify.n counts merged PRs). queue_wait reports the last
+    recorded wait per PR; a missing queue_wait= means none was recorded, not
+    zero. A non-positive residual is counted in n_negative and left out of
+    pre_verify instead of skewing it.
     """
     merged, verifies, queues = {}, {}, {}
     for ln in lines(state / "merge" / "cycles.log"):
@@ -141,31 +149,36 @@ def latency_split(state, since):
 
     pre, ver, vtm, qw, ran, cached = [], [], [], [], [], []
     negative = 0
+    runs = 0
     in_window = {pr: ev for pr, ev in merged.items() if ev[0] >= since}
     for pr, (merged_at, open_min) in in_window.items():
         q = [x for x in queues.get(pr, []) if x[0] <= merged_at]
         if q:
             qw.append(max(q, key=lambda x: x[0])[1])
-        seen = [v for v in verifies.get(pr, []) if v[0] <= merged_at]
+        seen = sorted((v for v in verifies.get(pr, []) if v[0] <= merged_at),
+                      key=lambda v: v[0])
         if not seen:
             continue
-        verified_at, v_min, gate = max(seen, key=lambda v: v[0])
-        land = int((merged_at - verified_at).total_seconds() // 60)
-        residual = open_min - v_min - land
+        total_verify = sum(v for _, v, _ in seen)
+        land = int((merged_at - seen[-1][0]).total_seconds() // 60)
+        residual = open_min - total_verify - land
         if residual < 0:
             negative += 1
         else:
             pre.append(residual)
-        ver.append(v_min)
+        ver.append(total_verify)
         vtm.append(land)
-        if gate == "ran":
-            ran.append(v_min)
-        elif gate == "cached":
-            cached.append(v_min)
+        runs += len(seen)
+        for _, v_min, gate in seen:
+            if gate == "ran":
+                ran.append(v_min)
+            elif gate == "cached":
+                cached.append(v_min)
 
     wait = stage_stats(qw)
     wait["with_queue_wait"] = len(qw)
     return {"merged_n": len(in_window), "n_negative": negative,
+            "verify_runs": runs,
             "pre_verify": stage_stats(pre), "verify": stage_stats(ver),
             "verify_to_merge": stage_stats(vtm), "queue_wait": wait,
             "verify_gate_ran": stage_stats(ran),
@@ -183,10 +196,11 @@ def print_latency(lat):
     for window in ("24h", "7d"):
         d = lat[window]
         print(f"latency by stage, {window} (n={d['merged_n']} merged; "
-              f"minute resolution; verify = gate-lock wait + gate + review):")
+              f"minute resolution; verify = every verifier run before merge summed):")
         print(stage_line("pre_verify", d["pre_verify"],
                          f" skipped_negative={d['n_negative']}"))
-        print(stage_line("verify", d["verify"]))
+        print(stage_line("verify", d["verify"],
+                         f" runs={d['verify_runs']} summed over n merged PRs"))
         print(stage_line("verify_to_merge", d["verify_to_merge"]))
         print(stage_line("queue_wait", d["queue_wait"],
                          f" recorded={d['queue_wait']['with_queue_wait']}"
