@@ -249,6 +249,7 @@ job_shell_test() {
   bash rsi/runtime/ux/retry-test.sh || return 1
   bash rsi/runtime/tests/test-ux-gate-confirm-red.sh || return 1
   bash rsi/runtime/tests/test-ux-gate-grounded-red.sh || return 1
+  bash rsi/runtime/tests/test-switch-attribution.sh || return 1
   bash rsi/runtime/tests/test-wiring.sh
 }
 

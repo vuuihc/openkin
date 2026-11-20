@@ -22,6 +22,22 @@
 // the same clock. Duration = t1 − t0. One discarded warm-up per leg, then
 // `--runs` measured runs (default 10). p50/p90 are nearest-rank.
 //
+// Attribution (the split inside a measured press): the page's resource timeline
+// is cleared before each press, and after t1 the first entry whose path starts
+// with the leg's `dataPath` and whose startTime is at or after t0 splits the
+// total on the same page clock:
+//   dispatch = entry.startTime - t0            press → the read starts
+//   read     = entry.responseEnd - startTime   the fetch
+//   render   = t1 - entry.responseEnd          answer → the list on screen
+// `render` carries the same detection-lag/one-frame upper bound as the total.
+// A leg with no data read named (the chat and phone legs) records attributed 0
+// with that reason. A run is excluded, never guessed at, when no matching entry
+// exists, a phase is negative, or the phases do not add up to the total; its
+// reason is kept and `--print` prints `attributed n/N (k unmeasured)` with no
+// split over runs it did not measure. Resource timing records the fetch the
+// page issued, so an answer served from the app's own cache is unattributed,
+// not a zero-length read.
+//
 // Guards fail loudly (exit 2, no number recorded, the guard is printed):
 //   (a) destination-never-appeared — the destination's own text never showed,
 //       or it was already on screen before the click (switching proved nothing).
@@ -62,6 +78,30 @@ function stats(runs) {
   const s = [...runs].sort((a, b) => a - b);
   return { p50: r1(pct(s, 50)), p90: r1(pct(s, 90)), min: r1(s[0]), max: r1(s[s.length - 1]) };
 }
+// A leg's split is printed only over the runs that measured it. Each run is
+// either attributed (all three phases on the page clock) or carries the reason
+// it was excluded; the excluded runs are never folded into the phase stats.
+function attributeRuns(perRun) {
+  const attributed = perRun.filter((r) => r.attributed);
+  const unattributed = [];
+  perRun.forEach((r, i) => { if (!r.attributed) unattributed.push({ run: i + 1, reason: r.reason }); });
+  if (!attributed.length) {
+    const reasons = [...new Set(unattributed.map((u) => u.reason))];
+    return { total: perRun.length, attributed: 0, reason: reasons.join('; ') };
+  }
+  const phase = (key) => {
+    const values = attributed.map((r) => r[key]);
+    return { runs: values.map(r1), ...stats(values) };
+  };
+  return {
+    total: perRun.length,
+    attributed: attributed.length,
+    dispatch: phase('dispatch'),
+    read: phase('read'),
+    render: phase('render'),
+    unattributed,
+  };
+}
 function formatTable(doc) {
   const out = [];
   out.push(`switch latency — ${doc.sha} · ${doc.runs} measured runs + 1 warm-up per leg · nearest-rank p50/p90 · ms`);
@@ -73,6 +113,17 @@ function formatTable(doc) {
   }
   for (const [name, leg] of Object.entries(doc.legs)) {
     out.push(`runs ${name}: ${leg.runs.join(', ')}`);
+  }
+  for (const [name, leg] of Object.entries(doc.legs)) {
+    const a = leg.attribution;
+    if (!a) continue; // a JSON from before attribution: table 1 unchanged
+    const unmeasured = a.total - a.attributed;
+    const head = a.attributed
+      ? `attr ${name} attributed ${a.attributed}/${a.total}${unmeasured ? ` (${unmeasured} unmeasured)` : ''}`
+      : `attr ${name} attributed 0/${a.total} (${a.reason})`;
+    if (!a.attributed) { out.push(head); continue; }
+    const phase = (label) => `${label} p50 ${a[label].p50} p90 ${a[label].p90}`;
+    out.push(`${head} ${phase('dispatch')} · ${phase('read')} · ${phase('render')}`);
   }
   out.push(`loadavg before ${doc.loadavgBefore.join(' ')} · after ${doc.loadavgAfter.join(' ')} (1m 5m 15m)`);
   out.push(`entry ${doc.entry} · ${doc.machine.platform} ${doc.machine.release} ${doc.machine.arch} · ${doc.machine.cpus} CPUs · node ${doc.node}`);
@@ -255,6 +306,9 @@ const LEGS = [
     width: 1100, height: 760, phone: false,
     click: '[data-area="projects"]',
     destination: ['[data-projects-list]', '[data-area="projects"][aria-current="page"]'],
+    // The collection page reads listProjects("active") on every mount, and the
+    // row list cannot appear before that answer, so this leg owns one read.
+    dataPath: '/api/projects',
     async prepare(page, base) {
       await page.goto(base + '/sessions');
       await waitVisible(page, '[data-session-row]');
@@ -315,6 +369,20 @@ async function backToList(page) {
   await waitVisible(page, 'input[type=search]');
 }
 
+// The destination's data read, from the page's own resource timing. Entries
+// were cleared just before the press, so the first matching entry that started
+// at or after t0 is this run's read. Null when the page issued no such fetch:
+// a cached answer is unattributed, never a zero-length read.
+async function readResource(page, t0, dataPath) {
+  return page.evaluate(({ t0, dataPath }) => {
+    const pathOf = (name) => { try { return new URL(name, location.href).pathname; } catch (_) { return name; } };
+    const entry = performance.getEntriesByType('resource')
+      .filter((e) => e.startTime >= t0 && pathOf(e.name).startsWith(dataPath))
+      .sort((a, b) => a.startTime - b.startTime)[0];
+    return entry ? { startTime: entry.startTime, responseEnd: entry.responseEnd } : null;
+  }, { t0, dataPath }).catch(() => null);
+}
+
 // ---------------------------------------------------------------- one attempt
 // The measured press. Throws Guard; never returns a number a guard should have
 // stopped. Evaluated in this order because a rebuilt shell explains a missing
@@ -326,6 +394,9 @@ async function measureOnce(page, leg, destination) {
   const marked = await page.evaluate(() => {
     const shell = document.querySelector('#root .touch-lg');
     if (!shell) return false;
+    // A resource entry from an earlier run must not be read as this run's
+    // read: the buffer is emptied before every press.
+    performance.clearResourceTimings();
     window.__switchShell = shell;
     window.__switch = { t0: null, clicks: 0 };
     document.addEventListener('click', function once() {
@@ -402,7 +473,27 @@ async function measureOnce(page, leg, destination) {
   if (surface.mainBlank) guard('c', 'splash-blank-or-error', 'the main surface is blank');
   if (surface.alert) guard('c', 'splash-blank-or-error', `an error surface is on screen: ${surface.alert}`);
 
-  return { ms: t1 - state.t0, t0: state.t0, t1 };
+  const total = t1 - state.t0;
+  let attribution = { attributed: false, reason: 'no data read named for this leg' };
+  if (leg.dataPath) {
+    const entry = await readResource(page, state.t0, leg.dataPath);
+    if (!entry) {
+      attribution = { attributed: false, reason: `no ${leg.dataPath} resource entry after the press` };
+    } else {
+      const dispatch = entry.startTime - state.t0;
+      const read = entry.responseEnd - entry.startTime;
+      const render = t1 - entry.responseEnd;
+      const sum = dispatch + read + render;
+      if (dispatch < 0 || read < 0 || render < 0) {
+        attribution = { attributed: false, reason: `a phase came out negative (dispatch ${r1(dispatch)}, read ${r1(read)}, render ${r1(render)})` };
+      } else if (Math.abs(sum - total) > 2) {
+        attribution = { attributed: false, reason: `phases add up to ${r1(sum)}ms, the measured total is ${r1(total)}ms` };
+      } else {
+        attribution = { attributed: true, dispatch, read, render };
+      }
+    }
+  }
+  return { ms: total, t0: state.t0, t1, attribution };
 }
 
 // ---------------------------------------------------------------- main
@@ -458,12 +549,22 @@ async function main() {
         const warm = await measureOnce(page, leg, destination);
         console.error(`switch-latency: ${leg.name} warm-up ${r1(warm.ms)}ms (discarded)`);
         const times = [];
+        const attributions = [];
         for (let i = 0; i < runs; i++) {
           await leg.reset(page);
           const got = await measureOnce(page, leg, destination);
           times.push(r1(got.ms));
+          attributions.push(got.attribution);
         }
-        doc.legs[leg.name] = { viewport: leg.viewport, click: leg.click, destination: leg.destination.join(' + '), warmup: r1(warm.ms), runs: times, ...stats(times) };
+        doc.legs[leg.name] = {
+          viewport: leg.viewport,
+          click: leg.click,
+          destination: leg.destination.join(' + '),
+          warmup: r1(warm.ms),
+          runs: times,
+          ...stats(times),
+          attribution: attributeRuns(attributions),
+        };
       } finally { await ctx.close(); }
     }
     doc.loadavgAfter = os.loadavg().map(r1);
