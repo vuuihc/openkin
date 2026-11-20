@@ -2,7 +2,7 @@
 
 **Status:** Accepted as design (CEO, 2026-11-20). The migration + endpoint PR stays open with needs-ceo for Ethan.
 **Date:** 2026-11-20
-**Related:** `rsi/GOAL.md` P13 (F2 queue feel) · RSI queue row `R-queue-order-adr` · `internal/store/pending_prompts.go:139-146` (`pendingPromptsWatermarkTx`) · `internal/store/pending_prompts.go:150-170` (`ListPendingPrompts`) · `internal/store/pending_prompts.go:171-200` (`PopPendingPrompt`) · `internal/api/task_queue.go:20-28` (`queuedPromptEntry`) · `internal/api/task_queue.go:74-94` (`handleDeleteQueuedPrompt`) · `internal/api/api.go:464-465` (the two prompt routes) · `internal/store/migrate.go:881-894` (`migrationPendingPrompts`) · `internal/store/migrate.go:2320-2336` (migration 039) · `internal/store/migrate.go:3284-3307` (`ensurePendingPromptSchema`) · `internal/task/approvals.go:503-521` (`queuedFollowUp`) · `internal/task/approvals.go:647-648` (`deliverQueued`) · `internal/task/engine.go:3341-3352` (`settlePromptsQueuedDuringFinalization`) · `ui/src/lib/queuedPrompts.ts:33-44` (row ids are never reused) · `ui/src/lib/queuedPrompts.ts:123-138` (`startEdit`, the pencil) · `ui/src/lib/taskOrder.ts:2-12` (manual order overrides the clock) · `ui/src/api/client.ts:1176-1178` (`listQueuedPrompts`) · `ui/src/api/client.ts:1189` (`withdrawQueuedPrompt`) · `ui/src/pages/TaskDetailPage.tsx:562-589` (the queue poll)
+**Related:** `rsi/GOAL.md:12` (F2 mid-run control) · P13 (the CEO's phase call of 2026-11-20, queue feel) · RSI queue row `R-queue-order-adr` · `internal/store/pending_prompts.go:139-146` (`pendingPromptsWatermarkTx`) · `internal/store/pending_prompts.go:150-170` (`ListPendingPrompts`) · `internal/store/pending_prompts.go:171-200` (`PopPendingPrompt`) · `internal/api/task_queue.go:20-28` (`queuedPromptEntry`) · `internal/api/task_queue.go:74-94` (`handleDeleteQueuedPrompt`) · `internal/api/api.go:464-465` (the two prompt routes) · `internal/store/migrate.go:881-894` (`migrationPendingPrompts`) · `internal/store/migrate.go:2320-2336` (migration 039) · `internal/store/migrate.go:3284-3307` (`ensurePendingPromptSchema`) · `internal/task/approvals.go:503-521` (`queuedFollowUp`) · `internal/task/approvals.go:647-648` (`deliverQueued`) · `internal/task/engine.go:3341-3352` (`settlePromptsQueuedDuringFinalization`) · `ui/src/lib/queuedPrompts.ts:33-44` (row ids are never reused) · `ui/src/lib/queuedPrompts.ts:123-138` (`startEdit`, the pencil) · `ui/src/lib/taskOrder.ts:2-12` (manual order overrides the clock) · `ui/src/api/client.ts:1176-1178` (`listQueuedPrompts`) · `ui/src/api/client.ts:1189` (`withdrawQueuedPrompt`) · `ui/src/pages/TaskDetailPage.tsx:562-589` (the queue poll)
 
 ## Context
 
@@ -94,7 +94,7 @@ identity or meaning.
 **What would reverse this.** If a delivery path ever bypasses `PopPendingPrompt` (an
 agent-side reservation, a second drain), the column would order the display and not the
 delivery — the exact lie this ADR refuses — and this decision should be withdrawn until
-that path is brought back through the queue. A second writer of `task_pending_prompts`
+that path is brought back through the queue. A second insert writer of `task_pending_prompts`
 would reverse it for the same reason: `MAX(position) + 1` is only safe while
 `AppendPendingPrompt` is the only insert.
 
@@ -104,13 +104,16 @@ would reverse it for the same reason: `MAX(position) + 1` is only safe while
 
 Body: `{"ids":[3,1,2]}` — every currently queued id, once, in the wanted delivery order.
 
-- **200** returns the whole reordered queue in the GET shape plus `position`, not a delta.
+- **200** returns the whole reordered queue in the GET shape (which now includes
+  `position`), not a delta.
 - **400** for a malformed body or a duplicate/non-positive id — the list cannot be an order
   if an id appears twice.
-- **404** for an unknown task, or for an id that is no longer queued because a turn
-  boundary took it (the same "not queued" answer DELETE gives).
-- **409** when the ids are not a permutation of the current queue: an id is missing, or one
-  was never queued. The client refetches; the daemon's queue is the truth.
+- **404** only for an unknown task.
+- **409** when the submitted ids are not exactly the current queue: an id is omitted, or an
+  id is absent — never queued, or no longer queued because a turn boundary took it. One
+  answer covers every stale-list case, because a delivered id and a never-queued id are the
+  same observable state once the row is gone. The client refetches; the daemon's queue is
+  the truth.
 - **Idempotent:** sending the current order is a no-op 200 and returns the same queue.
 
 Auth is the same as the existing prompt routes; no new scope.
@@ -148,15 +151,18 @@ route, and neither is taken on a model's judgement alone.
    reaches thousands, one `CASE` update replaces the loop. Change `AppendPendingPrompt`
    (`internal/store/pending_prompts.go:91`) to insert `COALESCE(MAX(position), 0) + 1` in the same
    statement. Change both reads (`internal/store/pending_prompts.go:152`, `internal/store/pending_prompts.go:185`) to
-   `ORDER BY position ASC, id ASC`.
+   `ORDER BY position ASC, id ASC`. Add `position` to the `PendingPrompt` struct
+   (`internal/store/pending_prompts.go:27-42`), `pendingPromptColumns` (`:44-45`) and
+   `scanPendingPrompt` (`:47-60`), or step 3's GET cannot fill it in.
 3. **API** — add ``Position int64 `json:"position"` `` to `queuedPromptEntry`
    (`internal/api/task_queue.go:20-28`), fill it in the GET, and add `handleUpdateQueuedPromptOrder`
-   plus `r.Put("/prompts/order", ...)` beside the two routes at `internal/api/api.go:464-465`. 404/409
-   come from typed store errors, not from a second read in the handler (a turn boundary
-   can pop between the two). Idempotence falls out of writing the same positions again.
+   plus `r.Put("/prompts/order", ...)` beside the two routes at `internal/api/api.go:464-465`.
+   404 (unknown task) and 409 (ids not exactly the queue) come from typed store errors, not
+   from a second read in the handler (a turn boundary can pop between the two). Idempotence
+   falls out of writing the same positions again.
 4. **UI** — drag with a pointer, and Alt+↑/↓ for keyboard, matching the convention
    `taskOrder.ts` already uses for the conversation list. Move the row optimistically, send
-   the whole id list, and replace the local queue with the response; on 404/409 refetch and
+   the whole id list, and replace the local queue with the response; on 409 refetch and
    render the daemon's order rather than keeping the optimistic one. Rows stay keyed on
    `id`; focus follows the moved row and the move is announced.
 
@@ -171,8 +177,8 @@ route, and neither is taken on a model's judgement alone.
   the queue is unchanged.
 - `TaskDetailPage.queueOrder.dom.test.tsx` (UI): a keyboard move sends one PUT and renders
   the response; a 409 refetches instead of keeping the optimistic order.
-- Plus the contract's other two codes: 400 for a duplicate id, 404 for an id a turn
-  boundary took between the caller's read and the write.
+- Plus the contract's other codes: 400 for a duplicate id, 404 for an unknown task, and 409
+  for an id a turn boundary took between the caller's read and the write.
 
 ## Consequences
 
@@ -197,6 +203,7 @@ route, and neither is taken on a model's judgement alone.
 - Editing a delivered message; the transcript is immutable, and withdraw + resend remains
   the only edit.
 - Changing the transcript on reorder; no event, no note (unlike withdrawal).
-- P13's steer half; it needs an agent capability, and it stays parked.
+- The steer half of F2's mid-run control (`rsi/GOAL.md:12`); it needs an agent capability,
+  and it stays parked.
 - Fractional ranks or an offline merge protocol. (a) is a single integer on purpose; revisit
   if concurrent reorders from two devices become real.
