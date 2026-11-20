@@ -396,6 +396,66 @@ Ethan has not approved item 1 by then, record the block in that item's own line 
 console affordance over a route that does not exist would be a lie; do not merge the migration without his
 approval to hit the date.
 
+## Next phase (P14) — 开屏必须有界，并能自愈
+<!-- next-phase: P14-boot-guard target=2026-11-22T20:00 -->
+
+**Why this and not features.** On 2026-11-20 10:21 EST the owner's phone panel sat on the splash wheel and had
+to be force-quit twice. The measurement put the cause in two places: the first launch after a release downloads
+the 1.9 MB entry chunk (the same file returned complete in 49 ms over the LAN, but the first tunnel attempt
+received 74 KB in 20 s and stalled; the next three took 2.9–5.3 s), and `ui/index.html:82`'s splash is replaced
+only by React's first render (`ui/src/main.tsx:179`), so a chunk that never executes leaves a wheel with no
+timeout, no retry and no error surface. Bounding it is cheap and does not depend on the structural change.
+
+**Done means**
+1. A boot surface can never become a permanent wheel: 12 s without a React mount reloads once, a second failure
+   shows a visible 「重新加载」 control that works after the network returns, and the first paint has no
+   skeleton or blank frame (Watch 67).
+2. Evidence: a test named for the defect plus a mutant that removes the retry or the visible control turns red;
+   the 390 shell shows the control; the tunnel number above is quoted in the PR body as what the bound is for.
+3. One "what the user sees now" sentence, and the phase names what it does not prove: a first launch that
+   waits on a slow but eventually complete download.
+
+**Out of scope** — moving the cold download out of the start path (that is P15); the native/RN rewrite
+(DECISIONS 2026-11-20 23:47); route-level lazy splitting of `App.tsx` (collides with F1/F4's no-skeleton rule);
+the desktop boot surface (settled in P10/P11).
+
+**Cut rule.** At 11-22 20:00 land what is green and record the rest with its measure; do not extend the date. If
+the tunnel-stall replay cannot be reproduced on the field, record what the unit test and mutant prove and park
+the field proof as a followup — never report an unreplayed stall as verified.
+
+## Queued phase (P15) — 手机先开包里的控制台，新版本后台整套换
+<!-- queued-phase: P15-bundled-console target=2026-11-30T20:00 -->
+
+**Why this and not features.** P14 bounds the wheel but leaves the cold download in the start path. The phone
+app already ships a console (`mobile/capacitor.config.ts:50` `webDir: "../web/dist"`), yet uses it only as a
+fallback after a stored Hub fails (`:22-23`). One constraint must be settled first: `mobile/capacitor.config.ts:8-12`
+records that the console signs in with a cookie and that the cookie and the relative `/api` calls are first-party
+only when the page is loaded from the Hub origin, so a bundled copy served from the app's own origin has no Hub
+session yet — the story has to settle how the bundled baseline reaches the Hub session/API, with an ADR if that
+changes the auth semantics. The structural fix is to make that bundled copy the baseline and
+treat the Hub's console as an update: verify a complete new set in the background, swap it in atomically, and
+keep the previous complete version. This is the B half of the owner's 2026-11-20 defect; it needs a signed
+story before any `ui/`/`mobile/` code.
+
+**Done means**
+1. `KIN-CONTINUE-006` exists with its contract, 6 frames, registry row and the one `IA.md` line, and is signed
+   only after its review page (`R-continue-006-review`) exists and has been read.
+2. The phone opens on the bundled console and is usable before any Hub download; the Hub's newer console is
+   verified as a whole set (version, minimum Hub API compatibility, byte integrity) and swapped in atomically;
+   the previous complete version still opens; a partial or mixed set is never switched in.
+3. A stalled download, a partial set, a Hub answering 500, no network at all, and a Hub older than the app each
+   show one honest sentence and a next action — never a wheel.
+4. Evidence: tests named `KIN-CONTINUE-006`, a mutant that switches before the whole set verifies turns red,
+   390 shots, and the story resolves the collision with the existing updater (`ui/src/main.tsx:104`
+   `watchConsoleVersion`) instead of leaving two competing switchers.
+
+**Out of scope** — the native/RN rewrite (DECISIONS 2026-11-20 23:47); the desktop shell upgrade (P10/P11;
+`KIN-SETTINGS-002`); the queue order UI (P13); PWA re-deploy semantics; route-level lazy splitting.
+
+**Cut rule.** At 11-30 20:00 land what is green and queue the rest with its reason; do not extend the date. If
+the story is not signed by 11-24, record the block and do not start `ui/`/`mobile/` code — the contract itself
+is the deliverable, and a console swap without a signed contract is a second updater nobody decided on.
+
 ## Closed phase (P9) — 把评审读进来，不用回 GitHub
 <!-- closed-phase: P9-review-in-place target=2026-11-25T20:00 -->
 
