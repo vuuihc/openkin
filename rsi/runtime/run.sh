@@ -113,6 +113,28 @@ merge_lane_line() {
   if [ "$n" -eq 0 ]; then echo "merge lane: idle"; else echo "merge lane: $n running ($names)"; fi
 }
 
+# control_tree_line — one line of truth for how far the control tree is from origin/main. The pulse
+# pins a tree it cannot move on stderr only, so `--status` looked healthy while the loop ran stale
+# runtime scripts, a stale walker and a stale GOAL.md (2026-11-20: one uncommitted DECISIONS line held
+# the live tree 17 commits behind main for six hours). Read-only: no fetch, no fast-forward.
+control_tree_line() {
+  local head behind ahead dirty
+  head="$($GIT -C "$RSI_CTRL" rev-parse --short HEAD 2>/dev/null)"
+  behind="$($GIT -C "$RSI_CTRL" rev-list --count HEAD..origin/main 2>/dev/null)"
+  ahead="$($GIT -C "$RSI_CTRL" rev-list --count origin/main..HEAD 2>/dev/null)"
+  case "$head$behind$ahead" in ''|*[!0-9a-f]*) echo "control tree: unreadable at ${head:-?} (no origin/main ref?)"; return 0;; esac
+  dirty="$($GIT -C "$RSI_CTRL" status --porcelain --untracked-files=no 2>/dev/null | cut -c4- | paste -sd' ' -)"
+  if [ "$behind" -gt 0 ]; then
+    echo "control tree: PINNED $behind behind origin/main at $head$([ "$ahead" -gt 0 ] && echo ", $ahead unpublished commit(s)")${dirty:+ — uncommitted tracked changes: $dirty}"
+  elif [ "$ahead" -gt 0 ]; then
+    echo "control tree: $ahead unpublished commit(s) on top of origin/main ($head)${dirty:+ — uncommitted tracked changes: $dirty}"
+  elif [ -n "$dirty" ]; then
+    echo "control tree: at origin/main ($head) with uncommitted tracked changes: $dirty"
+  else
+    echo "control tree: at origin/main ($head)"
+  fi
+}
+
 MODE=""; FORCE=0; DRY=0; CHECK=0; STAT=0
 for a in "$@"; do case "$a" in pulse|daily|dream) MODE="$a";; --force) FORCE=1;; --dry-run) DRY=1;; --check) CHECK=1;; --status) STAT=1;; *) echo "unknown arg $a"; exit 2;; esac; done
 
@@ -128,6 +150,7 @@ if [ $CHECK -eq 1 ] || [ $STAT -eq 1 ]; then
   python3 "$RSI_DIR/runtime/volc-budget.py" --apply >/dev/null 2>&1 || true
   [ -s "$STATE/volc-budget.json" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print('volc list CNY today: ¥%.2f (%s); Kimi ¥%.2f / ¥%.0f'%(d['cny'],d['level'],d.get('kimi_cny') or 0,d.get('kimi_day_max') or 150))" "$STATE/volc-budget.json" 2>/dev/null
   echo "consec_fail=$(cat "$STATE/consec_fail" 2>/dev/null || echo 0) consec_timeout=$(cat "$STATE/consec_timeout" 2>/dev/null || echo 0)"
+  control_tree_line
   merge_lane_line
   BP_NOTE=""
   if rsi_open_pr_backpressure; then BP_NOTE=" (BACKPRESSURE: pausing new slices; rework+merge only)"; fi
