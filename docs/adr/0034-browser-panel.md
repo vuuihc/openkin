@@ -46,10 +46,14 @@ not move. The phone keeps the system browser. The Hub never proxies a node-local
 ### 1. Surface: a fifth panel, desktop-gated
 
 `PANEL_IDS` (`ui/src/lib/panels.ts:28`) gains `browser` as a fifth id, with a descriptor
-whose `available` is `(ctx) => ctx.desktop` — the same gate `terminal` uses
-(`ui/src/lib/panels.ts:101-104`) and the same reason: the panel is a view of the machine
-running the console. On the phone the id is not offered at all. A disabled panel that
-could never load is worse than no panel; the phone gets a sentence and the system browser.
+whose `available` is `(ctx) => ctx.desktop && ctx.browserBridge`. `ctx.desktop` is the same
+gate `terminal` uses (`ui/src/lib/panels.ts:101-104`) and the same reason: the panel is a
+view of the machine running the console. The second half is a new `PanelContext` field set
+only when `window.kinDesktop` carries the §4 load member, because a new console can run in
+an older shell that has no bridge to load with (see the Consequences rule below) and the
+panel must not be offered there. On the phone the id is not offered at all. A disabled
+panel that could never load is worse than no panel; the phone gets a sentence and the
+system browser.
 
 ### 2. Rendering: a `WebContentsView` the shell owns
 
@@ -148,7 +152,9 @@ the phone can reach the same address.
 ## Consequences
 
 - The console's security posture does not move: no CSP change, no `webPreferences` change on
-  the console window, no new preload surface, no new dependency. The phone is unchanged.
+  the console window, no new preload surface in the browser view, no new dependency. The
+  console gains the one optional bridge member in §4 — exposed through the existing
+  `desktop/src/preload.ts:49` — and nothing else. The phone is unchanged.
 - While the panel is open there is one more renderer process with network access. It has no
   node integration, no preload and no console session; it is a separate cookie jar
   (`persist:kin-browser`) with all the honesty and all the limits stated in §3.
@@ -157,7 +163,8 @@ the phone can reach the same address.
   widening the CSP, and it is accepted.
 - The bridge member is optional, the same pattern as `markConsoleInteractive`. A new console
   in an older shell must hide the panel when the method is absent rather than draw a
-  rectangle that cannot load.
+  rectangle that cannot load — which is the `ctx.browserBridge` half of the §1 gate, not a
+  check deferred to the panel body.
 - The panel asks for one URL and shows one page. That is the whole v1 contract; anything
   that suggests tabs, history or downloads is a later ADR.
 - The view's host rule is the scheme. Loading a page that then talks to `localhost` from
