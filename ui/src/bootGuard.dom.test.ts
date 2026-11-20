@@ -181,4 +181,19 @@ describe("installBootGuard", () => {
     );
     expect(document.querySelector(".kin-boot button")?.textContent).toBe("Reload");
   });
+
+  it("tells a Chinese reader the retry is over and asks for a reload", () => {
+    document.documentElement.lang = "zh-Hans";
+    splash();
+    // The automatic retry is spent, so this screen is the only move left.
+    sessionStorage.setItem(RELOAD_STAMP_KEY, String(NOW));
+    installBootGuard({ reload: vi.fn() });
+
+    vi.advanceTimersByTime(BOOT_DEADLINE_MS);
+
+    // The line must ask for the reload, not claim a retry is still running:
+    // nothing is retrying once this state is on screen.
+    expect(document.querySelector(".kin-boot-note")?.textContent).toBe("网络有点慢，请重新加载");
+    expect(document.querySelector(".kin-boot button")?.textContent).toBe("重新加载");
+  });
 });
