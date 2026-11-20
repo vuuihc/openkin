@@ -54,6 +54,10 @@
       "css=[role='listbox']:visible, [role='dialog']:visible:has([data-search-option])"
     ],
     [
+      "wait",
+      "css=[data-search-option]:visible:has-text('(codex)')"
+    ],
+    [
       "count",
       "css=[data-search-option]:visible:has-text('(claude-code)')",
       "1"
