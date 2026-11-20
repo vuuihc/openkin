@@ -396,8 +396,8 @@ Ethan has not approved item 1 by then, record the block in that item's own line 
 console affordance over a route that does not exist would be a lie; do not merge the migration without his
 approval to hit the date.
 
-## Open phase (P14) — 开屏必须有界，并能自愈
-<!-- phase-open: P14-boot-guard target=2026-11-22T20:00 -->
+## Next phase (P14) — 开屏必须有界，并能自愈
+<!-- next-phase: P14-boot-guard target=2026-11-22T20:00 -->
 
 **Why this and not features.** On 2026-11-20 10:21 EST the owner's phone panel sat on the splash wheel and had
 to be force-quit twice. The measurement put the cause in two places: the first launch after a release downloads
@@ -423,12 +423,16 @@ the desktop boot surface (settled in P10/P11).
 the tunnel-stall replay cannot be reproduced on the field, record what the unit test and mutant prove and park
 the field proof as a followup — never report an unreplayed stall as verified.
 
-## Open phase (P15) — 手机先开包里的控制台，新版本后台整套换
-<!-- phase-open: P15-bundled-console target=2026-11-30T20:00 -->
+## Queued phase (P15) — 手机先开包里的控制台，新版本后台整套换
+<!-- queued-phase: P15-bundled-console target=2026-11-30T20:00 -->
 
 **Why this and not features.** P14 bounds the wheel but leaves the cold download in the start path. The phone
 app already ships a console (`mobile/capacitor.config.ts:50` `webDir: "../web/dist"`), yet uses it only as a
-fallback after a stored Hub fails (`:22-23`). The structural fix is to make that bundled copy the baseline and
+fallback after a stored Hub fails (`:22-23`). One constraint must be settled first: `mobile/capacitor.config.ts:8-12`
+records that the console signs in with a cookie and that the cookie and the relative `/api` calls are first-party
+only when the page is loaded from the Hub origin, so a bundled copy served from the app's own origin has no Hub
+session yet — the story has to settle how the bundled baseline reaches the Hub session/API, with an ADR if that
+changes the auth semantics. The structural fix is to make that bundled copy the baseline and
 treat the Hub's console as an update: verify a complete new set in the background, swap it in atomically, and
 keep the previous complete version. This is the B half of the owner's 2026-11-20 defect; it needs a signed
 story before any `ui/`/`mobile/` code.
