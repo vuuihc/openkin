@@ -23,7 +23,9 @@ function entry(id: number, position?: number): QueuedPrompt {
   return {
     id,
     prompt: `#${id}`,
-    user_seq: id,
+    // Deliberately not the id: the helpers must key on `id`, and `user_seq` is
+    // a different value in real data (the transcript seq, 0 when unwritten).
+    user_seq: id + 100,
     queued_at: 1,
     ...(position === undefined ? {} : { position }),
   };
@@ -324,6 +326,9 @@ describe("moveQueuedId", () => {
     expect(moveQueuedId([1, 2, 3], 1, -1)).toBeNull();
     expect(moveQueuedId([1, 2, 3], 3, 1)).toBeNull();
     expect(moveQueuedId([1, 2, 3], 99, -1)).toBeNull();
+    // An id that is not queued at all — a poll replaced the list between
+    // render and tap — is null whichever arrow was pressed.
+    expect(moveQueuedId([1, 2, 3], 99, 1)).toBeNull();
     expect(moveQueuedId([], 1, 1)).toBeNull();
   });
 
