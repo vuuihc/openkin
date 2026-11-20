@@ -12,5 +12,12 @@
     "test": "bash rsi/runtime/tests/test-lane-spare-pressure.sh",
     "old": "    free = swap_free_mb()",
     "new": "    free = swap_used_mb()"
+  },
+  {
+    "label": "cold-start defect restored: idle licences a second lane the claim gate refuses",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lane-spare-pressure.sh",
+    "old": "        if free and not ignore and (len(free) > 1 or len(free) < cap):",
+    "new": "        if free and len(free) < cap and not ignore:"
   }
 ]
