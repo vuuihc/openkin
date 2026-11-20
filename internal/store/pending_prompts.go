@@ -115,7 +115,18 @@ func (s *Store) AppendPendingPrompt(ctx context.Context, p PendingPrompt) (Pendi
 	if p.PermissionMode != nil {
 		mode = *p.PermissionMode
 	}
-	res, err := s.db.ExecContext(ctx, `
+	// The insert and the position read share one transaction: a turn boundary
+	// can pop the message the instant it is visible, and a second statement
+	// outside the transaction would read the position of a row that no longer
+	// exists -- failing an append whose message was already queued (and
+	// possibly already delivered).
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return PendingPrompt{}, fmt.Errorf("begin append pending prompt: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO task_pending_prompts (
 			task_id, prompt, agent, model, permission_mode, user_seq, queued_at, position
 		) VALUES (?, ?, ?, ?, ?, ?, ?,
@@ -129,9 +140,12 @@ func (s *Store) AppendPendingPrompt(ctx context.Context, p PendingPrompt) (Pendi
 		return PendingPrompt{}, fmt.Errorf("append pending prompt id: %w", err)
 	}
 	p.ID = id
-	if err := s.db.QueryRowContext(ctx,
+	if err := tx.QueryRowContext(ctx,
 		`SELECT position FROM task_pending_prompts WHERE id = ?`, id).Scan(&p.Position); err != nil {
 		return PendingPrompt{}, fmt.Errorf("append pending prompt position: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return PendingPrompt{}, fmt.Errorf("commit append pending prompt: %w", err)
 	}
 	return p, nil
 }

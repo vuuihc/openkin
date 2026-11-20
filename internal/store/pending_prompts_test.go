@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -681,5 +682,77 @@ func TestWithdrawingAQueuedMessageLeavesANoteAndNoCopy(t *testing.T) {
 	}
 	if len(events) != 1 {
 		t.Fatalf("events = %+v, want exactly the one withdrawal note", events)
+	}
+}
+
+// A turn boundary drains the queue while a sender is still appending. The
+// insert and the position read are one transaction, so a concurrent pop either
+// runs before the message exists (the pop finds an empty queue) or after the
+// message is durably queued with a known position (the pop delivers it) --
+// never between the two writes, where it could delete the row the append is
+// about to read back. This test keeps the queue nearly empty so that window is
+// the exact one a pop keeps landing in.
+func TestAppendPendingPromptIsAtomicAgainstConcurrentPops(t *testing.T) {
+	ctx := context.Background()
+	s := openQueueStore(t)
+	insertQueueTask(t, s, "task-append-race")
+
+	// The stop channel and the counter are set up before the popper starts.
+	stop := make(chan struct{})
+	var popWG sync.WaitGroup
+	popped := 0
+	popWG.Add(1)
+	go func() {
+		defer popWG.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			_, ok, err := s.PopPendingPrompt(ctx, "task-append-race")
+			if err != nil {
+				t.Errorf("pop during append: %v", err)
+				return
+			}
+			if ok {
+				popped++
+			}
+		}
+	}()
+
+	const appends = 500
+	for i := 0; i < appends; i++ {
+		p, err := s.AppendPendingPrompt(ctx, PendingPrompt{
+			TaskID: "task-append-race", Prompt: fmt.Sprintf("message %d", i),
+		})
+		if err != nil {
+			close(stop)
+			popWG.Wait()
+			t.Fatalf("append %d failed although its row had been queued: %v", i, err)
+		}
+		if p.ID <= 0 || p.Position <= 0 {
+			close(stop)
+			popWG.Wait()
+			t.Fatalf("append %d returned an unassigned row: id=%d position=%d", i, p.ID, p.Position)
+		}
+	}
+	close(stop)
+	popWG.Wait()
+
+	// The window is only exercised if the pop loop actually took messages; a run
+	// where it never won the connection would pass vacuously.
+	if popped == 0 {
+		t.Fatal("the racing pop never delivered a message, so the append window was not exercised")
+	}
+	// Every appended message was either delivered by the racing pop or is still
+	// queued; none may vanish between the two.
+	queued, err := s.ListPendingPrompts(ctx, "task-append-race")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if popped+len(queued) != appends {
+		t.Fatalf("popped %d and found %d queued, want all %d messages accounted for",
+			popped, len(queued), appends)
 	}
 }
