@@ -391,6 +391,23 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* KIN-CONTINUE-005 — the phone footer's geometry, declared once.
+   The bar floats 8px above the shell's bottom edge (the shell's `.safe-pad`
+   already spent the safe-area inset), stands 54px tall (a 48px touch target,
+   its 2px inner padding and its 1px frame), and every page that scrolls under
+   it reserves the bar plus the gap plus 12px of air. A page names
+   `.phone-footer-clearance` instead of hard-coding a bottom padding of its own. */
+:root {
+  --phone-footer-gap: 8px;
+  --phone-footer-bar: 54px;
+  --phone-footer-clearance: calc(var(--phone-footer-bar) + var(--phone-footer-gap) + 12px);
+}
+@media (max-width: 767.98px) {
+  .phone-footer-clearance {
+    padding-bottom: var(--phone-footer-clearance);
+  }
+}
+
 /* A horizontally scrolling strip that says so.
    The settings tab strip holds seven tabs and a phone shows about five of them;
    iOS draws no persistent scrollbar, so the sixth and seventh were invisible and
@@ -782,6 +799,39 @@
       backdrop-filter: none;
     }
     .kin-scrim {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+  /*
+    KIN-CONTINUE-005 — the footer's own edge and fallback.
+
+    The bar reuses `.kin-glass` for its fill and blur, and takes the float
+    surface's hairline and inner highlight so a scrolling row never touches
+    the icons directly. These rules are scoped to `[data-phone-footer]` on
+    purpose: the shared `.kin-glass` fallback stays at 0.98 for every other
+    surface, while the bar goes to 0.94 and keeps its border, because it is
+    the one surface that sits *over* readable content rather than a header
+    above it.
+  */
+  [data-phone-footer] {
+    /* 22px is the signed frame's corner. The radius ladder has no word for it,
+       and an arbitrary Tailwind value is what the token guard exists to stop,
+       so the one bespoke radius lives here with its reason. */
+    border-radius: 22px;
+    border: 1px solid var(--kin-hairline-strong);
+    box-shadow:
+      inset 0 0.5px 0 var(--kin-hairline-strong),
+      0 8px 24px -8px var(--kin-shadow-2);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    [data-phone-footer].kin-glass {
+      background: rgb(var(--kin-panel-rgb) / 0.94);
+    }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    [data-phone-footer].kin-glass {
+      background: rgb(var(--kin-panel-rgb) / 0.94);
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
     }

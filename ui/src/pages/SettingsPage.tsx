@@ -750,7 +750,7 @@ export default function SettingsPage() {
 
   if (!settings && loadError) {
     return (
-      <div className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll px-4 sm:px-6 py-6">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll phone-footer-clearance px-4 sm:px-6 py-6">
         <h1 className="hidden text-hero font-bold md:block">{tr("settings.title")}</h1>
         {/* One named failure with one action, in place of the form: a person
             whose daemon restarted mid-edit should not have to leave Settings to
@@ -772,7 +772,7 @@ export default function SettingsPage() {
 
   if (!settings) {
     return (
-      <div className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll px-4 sm:px-6 py-6 space-y-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll phone-footer-clearance px-4 sm:px-6 py-6 space-y-4">
         <h1 className="hidden text-hero font-bold md:block">{tr("settings.title")}</h1>
         <SlowConnectHint show={slow} />
         <div className="rounded-xl border border-[var(--kin-hairline)] p-4 space-y-3">
@@ -1171,6 +1171,9 @@ export default function SettingsPage() {
         {/* Auto Model Routing — team profiles */}
         <RoutingProfilesSection onDirtyChange={onRoutingProfilesDirty} />
       </SettingsTabPanel>
+      {/* The loaded settings body scrolls under the floating phone footer
+          (KIN-CONTINUE-005); this reserves the bar's clearance. */}
+      <div className="phone-footer-clearance" aria-hidden="true" />
     </SettingsLayout>
   );
 }
