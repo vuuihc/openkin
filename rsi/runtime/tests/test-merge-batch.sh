@@ -369,6 +369,13 @@ case "$mode" in
              if [ "$ONLY" -eq 1 ]; then echo "GATE_RESULT=PARTIAL:check"; else echo "GATE_RESULT=FAIL: check"; fi; exit 1
            fi
            if [ "$ONLY" -eq 1 ]; then echo GATE_RESULT=PARTIAL; else echo GATE_RESULT=PASS; fi; exit 0 ;;
+  outside) if [ "$ONLY" -eq 1 ]; then echo GATE_RESULT=PARTIAL; exit 0; fi
+           if [ "$(wc -l < "$RSI_TEST_GATE_COUNT")" -le 1 ]; then echo "GATE_RESULT=FAIL: check"; exit 1; fi
+           echo GATE_RESULT=PASS; exit 0 ;;
+  survivorfail)
+           if [ "$ONLY" -eq 0 ]; then echo "GATE_RESULT=FAIL: check"; exit 1; fi
+           if [ "$bad" -eq 1 ]; then echo "GATE_RESULT=PARTIAL:check"; exit 1; fi
+           echo GATE_RESULT=PARTIAL; exit 0 ;;
 esac
 exit 1
 SH
@@ -492,6 +499,42 @@ case_live_runner_prefix_mismatch_stops_the_batch() {
   pass live-runner-prefix-mismatch-stops-the-batch
 }
 
+# --- 12b. live-runner-outside-retry-keeps-the-verdict -------------------------------------------
+case_live_runner_outside_retry_keeps_the_verdict() {
+  reset_ctrl; stub_gate outside
+  # Outside-the-footprint failure only: the verifier's one flake rerun is allowed, and the second
+  # run passes. Its log line must not ride in the captured verdict ($v) as a prefix to PASS.
+  # outside_tests_only is defined below merge.sh's early --batch dispatch, so the child shell gets
+  # the predicate from BASH_ENV rather than from the file's own later definition.
+  printf 'outside_tests_only() { return 0; }\n' > "$T/outside-env.sh"
+  mk_runner_fixture outside; mk_one_stub 1 0
+  local mf="$T/outside.members" out rc
+  write_members "$mf" b-outside "$RF_BASE" "$RF_H1" "$RF_H2"
+  export RSI_TEST_GATE_MODE="$T/gate.mode" RSI_TEST_GATE_COUNT="$T/gate.count"
+  out="$(BASH_ENV="$T/outside-env.sh" run_batch b-outside "$mf" 2>&1)"; rc=$?
+  [ $rc -eq 0 ] || fail "outside-retry: a passing rerun was read as no verdict ($out)"
+  [ "$(wc -l < "$T/gate.count" | tr -d ' ')" = 2 ] || fail "outside-retry: expected the one flake rerun, full runs: $(wc -l < "$T/gate.count") ($out)"
+  grep -qx "head $RF_H1" "$LSTATE/merge/p1.batch" || fail "outside-retry: p1 marker missing ($out)"
+  grep -qx "head $RF_H2" "$LSTATE/merge/p2.batch" || fail "outside-retry: p2 marker missing ($out)"
+  [ "$(tr '\n' ',' < "$T/one.log")" = "101 p1,102 p2," ] || fail "outside-retry: members did not land ($(cat "$T/one.log"); $out)"
+  pass live-runner-outside-retry-keeps-the-verdict
+}
+
+# --- 12c. live-runner-survivor-fallback-skips-the-culprit ----------------------------------------
+case_live_runner_survivor_fallback_skips_the_culprit() {
+  reset_ctrl; stub_gate survivorfail; mk_runner_fixture surv; mk_one_stub 0 0
+  local mf="$T/surv.members" out rc
+  write_members "$mf" b-surv "$RF_BASE" "$RF_H1" "$RF_H2"
+  export RSI_TEST_GATE_MODE="$T/gate.mode" RSI_TEST_GATE_COUNT="$T/gate.count"
+  out="$(run_batch b-surv "$mf" 2>&1)"; rc=$?
+  [ $rc -ne 0 ] || fail "survivor-fallback: the batch claimed success ($out)"
+  [ -e "$LSTATE/sendback/p2.md" ] || fail "survivor-fallback: the culprit got no sendback ($out)"
+  # p2 was sent back on the union gate; the survivor fallback must not spend another --one on it.
+  [ "$(tr '\n' ',' < "$T/one.log")" = "101 p1," ] || fail "survivor-fallback: the sent-back culprit was re-entered ($(cat "$T/one.log"); $out)"
+  [ "$(wc -l < "$T/gate.count" | tr -d ' ')" = 2 ] || fail "survivor-fallback: expected union + survivors gates, got $(wc -l < "$T/gate.count") ($out)"
+  pass live-runner-survivor-fallback-skips-the-culprit
+}
+
 # --- 13. dispatcher-forms-batch-and-skips-singles ------------------------------------------------
 mk_dispatcher_fixture() { # reviewed PASS for p1/p2 + the PR list JSON the seam serves
   reset_ctrl
@@ -549,6 +592,8 @@ for c in only-partial-is-not-a-verdict batch-formation-disjoint union-tree-order
          live-runner-fail-bisects-and-sends-back-culprit \
          live-runner-nonattributable-falls-back-and-records \
          live-runner-prefix-mismatch-stops-the-batch \
+         live-runner-outside-retry-keeps-the-verdict \
+         live-runner-survivor-fallback-skips-the-culprit \
          dispatcher-forms-batch-and-skips-singles batch-off-is-today; do
   want "$c" || continue
   "case_${c//-/_}"

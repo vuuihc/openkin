@@ -792,7 +792,7 @@ batch_run_gate() { # <id> <worktree> <log> -> prints the verdict; one flake re-r
   # footprint (or known-flaky). A second failure is a real failure.
   if [ ! -e "$STATE/merge/$id.outside-retry" ] && outside_tests_only "$wt" "$gl" "" "$STATE/merge/$id.outside-reason.txt"; then
     touch "$STATE/merge/$id.outside-retry"
-    say "batch $id: gate failed only on tests outside the union footprint (or known-flaky); rerunning once"
+    say "batch $id: gate failed only on tests outside the union footprint (or known-flaky); rerunning once" >&2
     if mklock "$STATE/.gate.lock" 1800; then
       ( cd "$wt" && bash "$RSI_DIR/runtime/gate.sh" "$wt" ) > "$gl" 2>&1; rc=$?
       $GIT -C "$wt" checkout -q -- . 2>/dev/null
@@ -836,12 +836,14 @@ batch_land_members() { # <id> <record> — K_* arrays; re-enter --one and prove 
   done
   return 0
 }
-batch_fall_back() { # <id> <reason> — invalidate and start today's single verifier for every member
-  local id="$1" reason="$2" k=0
+batch_fall_back() { # <id> <reason> [skip-slug] — start today's single verifier for every member but skip-slug
+  local id="$1" reason="$2" skip_slug="${3:-}" k=0
   say "batch $id: $reason — falling back to single verification"
   batch_invalidate "$STATE" ${BM_SLUG[@]+"${BM_SLUG[@]}"}
   while [ $k -lt "$BM_COUNT" ]; do
-    batch_one_enter "${BM_NUM[$k]}" "${BM_SLUG[$k]}" "${BM_HEAD[$k]}"
+    # A member already sent back for rework is not re-entered: --one does not read the sendback
+    # file, so entering it again would spend another gate on the head just rejected.
+    [ "${BM_SLUG[$k]}" = "$skip_slug" ] || batch_one_enter "${BM_NUM[$k]}" "${BM_SLUG[$k]}" "${BM_HEAD[$k]}"
     k=$((k+1))
   done
 }
@@ -958,7 +960,7 @@ batch_run() { # <id> <members-file>
       rec2="$STATE/merge/$id.survivors.record"
       if ! batch_union "$BATCH_WT" "$BM_BASE" "$rec2" ${K_HEAD[@]+"${K_HEAD[@]}"}; then
         batch_needs_ceo "$id" "the surviving union conflicts outside web/dist/index.html after $cslug was sent back; survivors fall back to single verification"
-        batch_fall_back "$id" "survivor union conflict"
+        batch_fall_back "$id" "survivor union conflict" "$cslug"
         return 1
       fi
       gl2="$RUNS/batch-$id-gate-survivors.log"
@@ -966,7 +968,7 @@ batch_run() { # <id> <members-file>
       v2="$(batch_run_gate "$id" "$BATCH_WT" "$gl2")"
       if [ "$v2" != PASS ]; then
         batch_needs_ceo "$id" "survivors still failed the union gate after $cslug was sent back ($v2); survivors fall back to single verification"
-        batch_fall_back "$id" "survivor gate failed"
+        batch_fall_back "$id" "survivor gate failed" "$cslug"
         return 1
       fi
       ok=1; k=0
@@ -975,7 +977,7 @@ batch_run() { # <id> <members-file>
         K_MIX[$k]=$((k+1))
         k=$((k+1))
       done
-      if [ $ok -ne 1 ]; then batch_fall_back "$id" "a survivor marker could not be written"; return 1; fi
+      if [ $ok -ne 1 ]; then batch_fall_back "$id" "a survivor marker could not be written" "$cslug"; return 1; fi
       say "batch $id: survivors' union PASS; markers written"
       batch_land_members "$id" "$rec2"
       return $?

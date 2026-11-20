@@ -68,5 +68,26 @@
     "test": "RSI_TEST_ONLY=live-runner-fail-bisects-and-sends-back-culprit bash rsi/runtime/tests/test-merge-batch.sh",
     "old": "      chead=\"$(printf '%s\\n' \"$bout\" | awk '/^CULPRIT/{print $2; exit}')\"",
     "new": "      chead=\"${BM_HEAD[0]}\""
+  },
+  {
+    "label": "the outside-footprint retry's log line lands in the captured verdict, so a passing rerun reads as no verdict",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=live-runner-outside-retry-keeps-the-verdict bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "    say \"batch $id: gate failed only on tests outside the union footprint (or known-flaky); rerunning once\" >&2",
+    "new": "    say \"batch $id: gate failed only on tests outside the union footprint (or known-flaky); rerunning once\""
+  },
+  {
+    "label": "the survivor fallback re-enters --one for the culprit already sent back, spending a gate on the rejected head",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=live-runner-survivor-fallback-skips-the-culprit bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "    [ \"${BM_SLUG[$k]}\" = \"$skip_slug\" ] || batch_one_enter \"${BM_NUM[$k]}\" \"${BM_SLUG[$k]}\" \"${BM_HEAD[$k]}\"",
+    "new": "    batch_one_enter \"${BM_NUM[$k]}\" \"${BM_SLUG[$k]}\" \"${BM_HEAD[$k]}\""
+  },
+  {
+    "label": "the survivor fallback is not told which member was sent back, so it re-enters the culprit",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=live-runner-survivor-fallback-skips-the-culprit bash rsi/runtime/tests/test-merge-batch.sh",
+    "old": "        batch_fall_back \"$id\" \"survivor gate failed\" \"$cslug\"",
+    "new": "        batch_fall_back \"$id\" \"survivor gate failed\""
   }
 ]
