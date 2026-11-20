@@ -91,9 +91,10 @@ busy_lane "$T/sp1"; busy_lane "$T/sp2"; busy_lane "$T/sp3"
 RSI_STATE="$T/sp2" env $SPARE python3 "$H/lanes.py" claim 2 --slug pspare --item PS2 --brief "$T/brief.md" --paths ui/src/b.tsx >/dev/null 2>&1; [ $? -eq 8 ] && ok spare-refuses-second-claim || bad spare-refuses-second-claim
 RSI_STATE="$T/sp2" env $LOOSE python3 "$H/lanes.py" claim 2 --slug pspare --item PS2 --brief "$T/brief.md" --paths ui/src/b.tsx 2>/dev/null | grep -q "CLAIMED lane 2" && ok spare-admits-with-headroom || bad spare-admits-with-headroom
 RSI_STATE="$T/sp3" env $SPARE python3 "$H/lanes.py" claim 2 --slug prew --item PS2 --brief "$T/brief.md" --mode rework --paths ui/src/b.tsx 2>/dev/null | grep -q "CLAIMED lane 2" && ok spare-admits-rework || bad spare-admits-rework
-# an idle machine still offers both lanes (the gate is about the SECOND worker, not lane 2 itself)
+# a cold start under the spare floor still gets the first worker: the gate is about the SECOND
+# worker, and since 2026-11-20 `idle` must not licence a lane the claim gate would refuse.
 mkdir -p "$T/sp4/lanes" "$T/sp4/cloud"
-[ "$(RSI_STATE="$T/sp4" env $SPARE python3 "$H/lanes.py" idle 2>/dev/null | tr '\n' ' ')" = "1 2 " ] && ok spare-first-worker-unaffected || bad spare-first-worker-unaffected
+[ "$(RSI_STATE="$T/sp4" env $SPARE python3 "$H/lanes.py" idle 2>/dev/null | tr '\n' ' ')" = "1 " ] && ok spare-first-worker-unaffected || bad spare-first-worker-unaffected
 # root-file claim (e.g. Makefile) must succeed, while broad dir 'ui' is refused
 RSI_STATE="$T/st" env $NOPRESS python3 "$H/lanes.py" claim 2 --slug mk --item X2 --brief "$T/brief.md" --paths Makefile | grep -q "CLAIMED lane 2" && ok root-file-claim || bad root-file-claim
 ! RSI_STATE="$T/st" env $NOPRESS python3 "$H/lanes.py" claim 2 --slug bad --item X3 --brief "$T/brief.md" --paths ui >/dev/null 2>&1 && ok broad-dir-refused || bad broad-dir-refused

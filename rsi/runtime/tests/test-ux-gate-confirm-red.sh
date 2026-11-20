@@ -16,6 +16,13 @@
 # now hands the reviewer the confirm walk instead of $SHOTS, names the flakes as not evidence,
 # and a below-3 axis is grounded only by confirm-walk evidence; otherwise it is "no verdict".
 #
+# 2026-11-20 (R-ux-confirm-evidence): #467 showed the over-correction. The confirm walk only
+# re-walks the journeys its red named, so handing the reviewer $UXD/confirm alone made the
+# journeys the first walk walked green invisible; five axes were scored off one journey. In
+# CONFIRM_ONLY the evidence is now the union, attributed per journey: the confirm screens for
+# the re-walked journeys, the first walk's screens for the journeys its red did not name. The
+# flaked journey's first-walk screens and every first-walk hard-fail line stay non-evidence.
+#
 # Hermetic: a temp control tree (common.sh + ux-gate.sh, so RSI_DIR and STATE resolve there),
 # a throwaway git repo with an origin/main ref, and stubs for the walk, the reviewer and gh.
 # npm/go/node/gh/curl are booby traps (exit 97), so a seam that reached a build, a daemon or
@@ -84,6 +91,19 @@ if [ -e "$FIX/$n.missing" ]; then exit 0; fi
 if [ -s "$FIX/$n.json" ]; then cp "$FIX/$n.json" "$dir/walk.json"
 else printf '{"hardFail":[],"screens":[]}\n' > "$dir/walk.json"; fi
 printf 'png\n' > "$dir/seed-1-1.png"
+# One png per screen the fixture records, named the way the real walker names them, so a case
+# can prove which walk a screenshot in the prompt came from.
+python3 - "$dir/walk.json" "$dir" <<'PY'
+import json, sys
+try:
+    walk = json.load(open(sys.argv[1]))
+except Exception:
+    raise SystemExit
+for screen in (walk.get("screens") or []) if isinstance(walk, dict) else []:
+    name = screen.get("name") if isinstance(screen, dict) else None
+    if isinstance(name, str) and name and "/" not in name:
+        open(sys.argv[2] + "/" + name + ".png", "w").write("png\n")
+PY
 SH
 chmod +x "$WALK_STUB"
 
@@ -136,6 +156,13 @@ score_field() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); pri
 
 FLAKE="J9/mac: scroll-kept [role=region][tabindex='-1'] is at 0, want 320±48"
 flake_json() { printf '{"hardFail":["%s"],"screens":[]}\n' "$FLAKE"; }
+
+# R-ux-confirm-evidence: a red on J9 only. J1's screens came from a journey the confirm walk
+# never re-walks (the red did not name it); J9's came from the journey it did. The confirm walk
+# re-takes J9 at a different shot number, so a first-walk file name can never be mistaken for a
+# confirm-walk one.
+UNION_FIRST="$(printf '{"hardFail":["%s"],"screens":[{"journey":"J1","viewport":"390","name":"J1-390-01-home","lint":{"overflowX":false}},{"journey":"J9","viewport":"mac","name":"J9-mac-02-scrolled","lint":{"overflowX":false}}]}' "$FLAKE")"
+UNION_CONFIRM='{"hardFail":[],"screens":[{"journey":"J9","viewport":"mac","name":"J9-mac-03-reopened","lint":{"overflowX":false}}]}'
 
 # --- cases -----------------------------------------------------------------------------------
 
@@ -301,7 +328,8 @@ test_stale_confirm_evidence_does_not_poison() {
 # the prompt still named $SHOTS and never listed the flakes.
 test_flaked_only_red_reviews_confirm_evidence() {
   new_case flaked_only_pass
-  fixture 1 "$(flake_json)"
+  fixture 1 "$UNION_FIRST"
+  fixture 2 "$UNION_CONFIRM"
   run_gate
   [ "$RC" -eq 0 ] || fail "flaked-only-pass: exit $RC, want 0 ($(tail -3 "$T/$CASE.out" | tr '\n' ' '))"
   [ ! -s "$BODY" ] || fail "flaked-only-pass: a sendback body was written: $(head -3 "$BODY" | tr '\n' ' ')"
@@ -310,7 +338,12 @@ test_flaked_only_red_reviews_confirm_evidence() {
   prompt_has 1 "the walk screenshots in $UXD/confirm (" \
     || fail "flaked-only-pass: the prompt does not name the confirm walk: $(grep -i 'walk screenshots' "$PDIR/1.md" | head -1)"
   prompt_has 1 "$UXD/confirm/walk.json" || fail "flaked-only-pass: the prompt does not name the confirm walk.json"
-  prompt_has 1 "the walk screenshots in $SHOTS (" && fail "flaked-only-pass: the prompt still names the flaked first walk"
+  # Per journey, not per directory (Watch 53: a class-string proves a string, not a rule): the
+  # green J1 first-walk screen is evidence, the flaked J9 first-walk screen is not.
+  prompt_has 1 "$SHOTS/J1-390-01-home.png" \
+    || fail "flaked-only-pass: the green J1 first-walk screenshot is not named as evidence"
+  prompt_has 1 "$SHOTS/J9-mac-02-scrolled.png" \
+    && fail "flaked-only-pass: the flaked J9 first-walk screenshot is named as evidence"
   prompt_has 1 "$FLAKE" || fail "flaked-only-pass: the prompt does not list the flaked line verbatim"
   prompt_has 1 "not evidence about this PR" || fail "flaked-only-pass: the prompt does not say the flakes are not evidence"
   [ "$(score_field reproduced)" = 0 ] || fail "flaked-only-pass: scores.json walk_confirm.reproduced is not 0"
@@ -355,6 +388,68 @@ test_reproduced_red_still_reviews_first_walk() {
   prompt_has 1 "not evidence about this PR" && fail "reproduced-first-walk: the flaked preamble leaked into a reproduced red"
   hard_section | grep -Fq 'scroll-kept' || fail "reproduced-first-walk: the reproduced line is not billed"
   grep -Fq 'reproduced=1 flaked=0' "$BODY" || fail "reproduced-first-walk: the body does not count the reproduced line"
+}
+
+# R-ux-confirm-evidence case 1: a flaked-only red must not hide the journeys that stayed green.
+# The confirm walk re-walks J9 only, so its directory holds J9's screens and nothing else; J1 was
+# walked green by the first walk and must still be named, per journey, while the flaked J9
+# first-walk screen and the flaked line stay out of the evidence. RED on the branch base, where
+# the prompt handed the reviewer $UXD/confirm alone.
+test_flaked_only_red_keeps_green_journey_evidence() {
+  new_case flaked_only_union
+  fixture 1 "$UNION_FIRST"
+  fixture 2 "$UNION_CONFIRM"
+  run_gate
+  [ "$RC" -eq 0 ] || fail "flaked-only-union: exit $RC, want 0 ($(tail -3 "$T/$CASE.out" | tr '\n' ' '))"
+  [ "$(reviews)" = 1 ] || fail "flaked-only-union: $(reviews) reviews, want 1"
+  prompt_has 1 "journeys with no surviving failure (J1)" \
+    || fail "flaked-only-union: the prompt does not attribute the union per journey: $(grep -i 'first walk' "$PDIR/1.md" | head -1)"
+  prompt_has 1 "$SHOTS/J1-390-01-home.png" \
+    || fail "flaked-only-union: the green J1 first-walk screenshot is not named as evidence"
+  prompt_has 1 "$UXD/confirm/J9-mac-03-reopened.png" \
+    || fail "flaked-only-union: the J9 confirm screenshot is not named as evidence"
+  prompt_has 1 "$SHOTS/J9-mac-02-scrolled.png" \
+    && fail "flaked-only-union: the flaked J9 first-walk screenshot is named as evidence"
+  prompt_has 1 "$FLAKE" || fail "flaked-only-union: the flaked line is not listed"
+  prompt_has 1 "not evidence about this PR" || fail "flaked-only-union: the prompt does not say the flakes are not evidence"
+}
+
+# R-ux-confirm-evidence case 2: a below-3 axis grounded in a green journey's first-walk screen is
+# a normal sendback — one review, no re-ask, no "no verdict". The confirm walk never re-took J1
+# because the red named J9 only, but J1's screen is still evidence about this PR.
+test_green_journey_screen_grounds_a_below_three_axis() {
+  new_case green_journey_grounds
+  fixture 1 "$UNION_FIRST"
+  fixture 2 "$UNION_CONFIRM"
+  rev_fixture 1 "density: $SHOTS/J1-390-01-home.png shows a cramped empty state at 390; the list is clipped.
+UX_SCORES: clarity=4 density=2 consistency=4 feedback=4 keyboard=4
+UX_VERDICT: FAIL"
+  run_gate
+  [ "$RC" -eq 1 ] || fail "green-journey-grounds: exit $RC, want 1 (a grounded below-3 axis is a sendback)"
+  [ "$(reviews)" = 1 ] || fail "green-journey-grounds: $(reviews) reviews, want 1 (green evidence needs no re-ask)"
+  [ ! -e "$UXD/unavailable.txt" ] || fail "green-journey-grounds: a grounded finding was recorded as unavailable"
+  grep -Fq "density: $SHOTS/J1-390-01-home.png" "$BODY" || fail "green-journey-grounds: the green evidence line is not billed"
+}
+
+# R-ux-confirm-evidence case 3 (fail-closed): the flaked journey's first-walk screens stay out.
+# J9 was re-walked and its first-walk screen differs from the confirm screen; a finding that
+# quotes only the first-walk screen is ungrounded, so one re-ask, then "no verdict" — never a
+# sendback and never a merge on evidence the gate itself disproved.
+test_flaked_journey_screen_does_not_ground() {
+  new_case flaked_journey_ungrounded
+  fixture 1 "$UNION_FIRST"
+  fixture 2 "$UNION_CONFIRM"
+  rev_fixture 1 "density: $SHOTS/J9-mac-02-scrolled.png is cramped; the transcript is clipped.
+UX_SCORES: clarity=4 density=2 consistency=4 feedback=4 keyboard=4
+UX_VERDICT: FAIL"
+  rev_fixture 2 "density: $SHOTS/J9-mac-02-scrolled.png is cramped; the transcript is clipped.
+UX_SCORES: clarity=4 density=2 consistency=4 feedback=4 keyboard=4
+UX_VERDICT: FAIL"
+  run_gate
+  [ "$RC" -eq 2 ] || fail "flaked-journey-ungrounded: exit $RC, want 2 (no verdict, not a sendback)"
+  [ "$(reviews)" = 2 ] || fail "flaked-journey-ungrounded: $(reviews) reviews, want 2 (one re-ask)"
+  [ ! -s "$BODY" ] || fail "flaked-journey-ungrounded: a sendback body was written"
+  grep -Fq 'density' "$UXD/unavailable.txt" || fail "flaked-journey-ungrounded: the reason does not name the axis"
 }
 
 # The composition rule: a below-3 axis that DOES name confirm-walk evidence stays a normal
@@ -409,8 +504,8 @@ import sys
 
 manifest, gate = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 4:
-    raise SystemExit("manifest must be exactly four entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 6:
+    raise SystemExit("manifest must be exactly six entries, got %r" % (entries,))
 text = open(gate, encoding="utf-8").read()
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
@@ -425,7 +520,7 @@ for entry in entries:
         raise SystemExit("`old` occurs %d times in ux-gate.sh, not once: %r" % (count, entry["label"]))
     if "test-ux-gate-confirm-red.sh" not in entry["test"]:
         raise SystemExit("`test` does not run this suite: %r" % entry["label"])
-print("manifest ok: 4 mutants, each anchored once in ux-gate.sh")
+print("manifest ok: 6 mutants, each anchored once in ux-gate.sh")
 PY
   [ $? -eq 0 ] || fail "manifest: the mutants no longer point at the confirm block"
 }
@@ -449,6 +544,9 @@ run test_step_named_failure_is_confirmed
 run test_known_artefact_does_not_count_as_reproduced
 run test_stale_confirm_evidence_does_not_poison
 run test_flaked_only_red_reviews_confirm_evidence
+run test_flaked_only_red_keeps_green_journey_evidence
+run test_green_journey_screen_grounds_a_below_three_axis
+run test_flaked_journey_screen_does_not_ground
 run test_flaked_only_red_below_three_is_unavailable
 run test_reproduced_red_still_reviews_first_walk
 run test_flaked_only_grounded_below_three_is_a_red
