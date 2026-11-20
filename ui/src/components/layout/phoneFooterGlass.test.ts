@@ -58,12 +58,16 @@ describe("KIN-CONTINUE-005 footer glass", () => {
     expect(footer).not.toContain("bg-kin-sidebar");
     expect(footer).toContain("var(--phone-footer-bar)");
 
+    expect(source("src/pages/SettingsPage.tsx")).not.toContain(
+      '<div className="phone-footer-clearance" aria-hidden="true" />',
+    );
+
     // The list, routines and settings all read the same clearance; none of
     // them invents its own bottom padding.
     for (const file of [
       "src/components/mobile/MobileList.tsx",
       "src/pages/RoutinesPage.tsx",
-      "src/pages/SettingsPage.tsx",
+      "src/components/settings/SettingsPrimitives.tsx",
     ]) {
       expect(source(file), `${file} clears the floating footer`).toContain(
         "phone-footer-clearance",

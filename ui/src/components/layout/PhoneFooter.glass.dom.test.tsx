@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import PhoneFooter from "./PhoneFooter";
+import { SettingsLayout } from "../settings/SettingsPrimitives";
 import { setLocale } from "../../i18n";
 import type { Approval, UserQuestion } from "../../api/client";
 
@@ -98,6 +99,30 @@ describe("KIN-CONTINUE-005 phone footer", () => {
     expect(bar.querySelectorAll("a")).toHaveLength(4);
     expect(bar.querySelectorAll("button")).toHaveLength(0);
     expect(bar.querySelector("[role='dialog']")).toBeNull();
+  });
+
+  it("KIN-CONTINUE-005 clears the Settings directory after the General body", () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    render(
+      <SettingsLayout
+        title="Settings"
+        tabs={[
+          { id: "general", label: "General", description: "General settings" },
+          { id: "advanced", label: "Advanced", description: "Advanced settings" },
+        ]}
+        activeTab="general"
+        onTabChange={() => undefined}
+      >
+        <p>General body</p>
+      </SettingsLayout>,
+    );
+
+    const lastRow = screen.getByRole("button", { name: /Advanced/ });
+    const scroller = lastRow.closest(".overflow-y-auto");
+    expect(scroller).toBeTruthy();
+    expect(scroller?.classList.contains("phone-footer-clearance")).toBe(true);
+    expect(screen.getByText("General body").closest(".phone-footer-clearance")).toBe(scroller);
+    expect(document.querySelectorAll(".phone-footer-clearance")).toHaveLength(1);
   });
 
   it("KIN-CONTINUE-005 marks the waiting count on Chats and drops it at zero", () => {

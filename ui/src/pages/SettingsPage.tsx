@@ -1171,9 +1171,6 @@ export default function SettingsPage() {
         {/* Auto Model Routing — team profiles */}
         <RoutingProfilesSection onDirtyChange={onRoutingProfilesDirty} />
       </SettingsTabPanel>
-      {/* The loaded settings body scrolls under the floating phone footer
-          (KIN-CONTINUE-005); this reserves the bar's clearance. */}
-      <div className="phone-footer-clearance" aria-hidden="true" />
     </SettingsLayout>
   );
 }
