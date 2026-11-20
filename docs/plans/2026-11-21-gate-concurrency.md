@@ -9,8 +9,8 @@
 | 项目 | 状态 |
 |---|---|
 | `pace.py --concurrency` | green — `concurrency_split()`，新 flag，默认输出逐字节不变 |
-| 六个用例 | green — `bash rsi/runtime/tests/test-pace.sh` 全部 PASS |
-| 三个 mutant | green — `python3 scripts/mutants.py rsi/runtime/tests/pace-concurrency.mutants.json`，3/3 red |
+| 七个用例 | green — `bash rsi/runtime/tests/test-pace.sh` 全部 PASS |
+| 四个 mutant | green — `python3 scripts/mutants.py rsi/runtime/tests/pace-concurrency.mutants.json`，4/4 red |
 | 24h / 7d 实测表 | green — 下面两张表，命令见 `## 方法` |
 | `merge.sh` / `gate.sh` | 未改 — 建议只写在这里，由 CEO 决定 |
 
@@ -80,7 +80,7 @@ python3 rsi/runtime/pace.py --state <control tree>/rsi/state --concurrency --jso
 > and reports the tier mix.
 
 它对应的实现符号是 `rsi/runtime/pace.py` 里的 `concurrency_split()`，由
-`bash rsi/runtime/tests/test-pace.sh` 的六个 `concurrency-*` 用例证明。
+`bash rsi/runtime/tests/test-pace.sh` 的七个 `concurrency-*` 用例证明。
 
 一个容易误读的点：**level 不是“几个槽在跑”**。一个 30 分钟的长运行，被两个先后
 开始的 5 分钟短运行各覆盖一次，它的 level 就是 3，即使任意时刻最多只有两条在跑。
@@ -113,7 +113,7 @@ python3 rsi/runtime/pace.py --state <control tree>/rsi/state --concurrency --jso
 理由是数据而非偏好：level 3 的 p50 只比单跑贵 7 分钟（5m → 12m），远小于记录里的
 75 分钟；gate 是机器级单锁，第三条槽买到的是 sync/review 与队列深度，不是 gate
 吞吐；而 small 槽正是为了避免小改动排在两个大 review 后面。代价是真实的：level 3
-的 p90 是 22m（单跑 8m），24h 里 32/107（30%）的完成运行落在 level ≥3，尾部会继续
+的 p90 是 22m（单跑 8m），24h 里 40/107（37%）的完成运行落在 level ≥3，尾部会继续
 存在。
 
 如果 CEO 更在意尾部而不是队列深度，一行 follow-up 是
