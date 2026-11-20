@@ -317,8 +317,16 @@ parked row in `rsi/state/STATUS.md`.
 **Cut rule.** At 11-24 20:00 land what is green and queue the rest with its reason; do not extend the date. If
 item 1 is not green by then, land it alone — the number is what every later fix is judged against.
 
-## Current phase (P12) — 切换要跟手
-<!-- phase: P12-switch-feel target=2026-11-26T20:00 -->
+## Closed phase (P12) — 切换要跟手
+<!-- closed-phase: P12-switch-feel target=2026-11-26T20:00 -->
+
+Closed 2026-11-20, all three items landed: item 1 — attribution: `520d32ee` (#444); the same run splits
+`mac-area-to-area` p50 **81.6 ms** into dispatch **1.8**, projects read **1.3**, render-after-answer **78.6**
+(total p90 **135.9**; render p90 **133.1**, max **160.9**), so the tail was the render, not the fetch
+(`docs/plans/2026-11-20-switch-latency.md` table 2). Items 2–3 — the cut: `596b493f` (#445);
+`mac-area-to-area` p90 **157.8 → 66.0 ms**, p50 **61.9 → 63.9 ms** (load 11.5 vs 23.3), bar met
+(`63.9 ≤ 57.1 + 15`; `66.0 ≤ 1.25 × 63.9`), 390/1100 before/after shots in the PR body; the remaining ~60 ms
+is the area route transition and page mount, named, not hidden. P12 closed early; its target date is unchanged.
 
 **Why this and not features.** F4 is the one flow that is measured but not yet felt. On a warm console at
 `71f1d77b`, `docs/plans/2026-11-20-switch-latency.md` times click → the destination's own content on the real
@@ -351,6 +359,42 @@ every parked row in `rsi/state/STATUS.md`.
 **Cut rule.** At 11-26 20:00 land what is green and queue the rest with its reason; do not extend the date. If
 item 2 is not green, land item 1 and record the remaining mechanism with its number — a switch that explains
 itself is what the next fix is judged against.
+
+## Current phase (P13) — 排队顺序归人
+<!-- phase: P13-queue-order target=2026-11-28T20:00 -->
+
+**Why this and not features.** The queue is the only way a second instruction reaches a running task, and the
+person cannot change which one the agent answers next: delivery is `ORDER BY id ASC` in both the list and the
+pop (`internal/store/pending_prompts.go:152`, `:185`), and the only edit is withdraw-and-retype
+(`ui/src/lib/queuedPrompts.ts:123-138`). ADR 0033 (`docs/adr/0033-queued-prompt-order.md`, accepted 2026-11-20)
+decided the order lives where the pop reads it: an additive `position` column, a `PUT` order route, and a
+whole-queue `200` answer. The daemon half is PR #448; per MANDATE (migration + route) it is **held for Ethan**,
+and the console half cannot start until it merges.
+
+**Done means**
+1. The order is the daemon's, not the screen's: `position` is written by one transactional setter, both the list
+   and the pop read `position ASC, id ASC`, the `PUT /api/tasks/{id}/prompts/order` contract is the one in
+   ADR 0033 (`200` = whole queue in the new order; `400` malformed/duplicate/non-positive; `404` = unknown task
+   only; `409` = the ids are not exactly the current queue), OpenAPI and the generated client types carry it, and
+   a populated v49 database upgrades with its old id order intact. Evidence: store + api behavioural tests, and
+   mutants that put back `ORDER BY id` in each read turn red. **This item is #448 and lands only after Ethan
+   approves the migration + route** (MANDATE).
+2. A person can move a queued prompt up or down and the agent answers next in that order: the console re-reads
+   the daemon's queue after the write and renders the daemon's order (never a local-only reorder), a stale list
+   gets `409` → refetch + one honest sentence, the control is reachable and operable by keyboard, both locale
+   files are updated, 390/1100 shots show the moved row and the following delivery, and a DOM test plus a
+   mutant that reorders only locally turns red. No new event type; the existing poll + re-read is the
+   convergence path.
+3. One "what the user sees now" sentence with the queue length and the order the agent actually answered in, and
+   the phase names what it does not prove: cross-device order sync and reordering already-delivered messages.
+
+**Out of scope** — syncing the order between devices; reordering delivered/done turns; editing a queued message's
+text (the pencil stays withdraw-and-refill); hiding ended routine runs; any queue UI redesign; new event types.
+
+**Cut rule.** At 11-28 20:00 land what is green and queue the rest with its reason; do not extend the date. If
+Ethan has not approved item 1 by then, record the block in that item's own line and do not start item 2 — a
+console affordance over a route that does not exist would be a lie; do not merge the migration without his
+approval to hit the date.
 
 ## Closed phase (P9) — 把评审读进来，不用回 GitHub
 <!-- closed-phase: P9-review-in-place target=2026-11-25T20:00 -->
