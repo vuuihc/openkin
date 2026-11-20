@@ -1,0 +1,93 @@
+[
+  {
+    "label": "the moved queue is spliced locally instead of drawn from the PUT answer",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "          if (request !== queueMoveRequestRef.current) return;\n          const next = withoutWithdrawn(prompts, withdrawnRef.current);",
+    "new": "          if (request !== queueMoveRequestRef.current) return;\n          const next = withoutWithdrawn(order.map((id) => queue.find((prompt) => prompt.id === id)!), withdrawnRef.current);"
+  },
+  {
+    "label": "a 409 is treated as an ordinary failure and the stale order is kept",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "          if (err instanceof ApiError && err.status === 409) {",
+    "new": "          if (err instanceof ApiError && err.status === 999) {"
+  },
+  {
+    "label": "the up arrow sends the down delta",
+    "file": "ui/src/components/chat/ChatStream.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/chat/ChatStream.queue.dom.test.tsx",
+    "old": "                        onClick={(event) => {\n                          if (document.activeElement === event.currentTarget) {\n                            moveFocusedRef.current = true;\n                          }\n                          onMoveQueued(-1);\n                        }}",
+    "new": "                        onClick={(event) => {\n                          if (document.activeElement === event.currentTarget) {\n                            moveFocusedRef.current = true;\n                          }\n                          onMoveQueued(1);\n                        }}"
+  },
+  {
+    "label": "the memoized row ignores a changed place in line",
+    "file": "ui/src/components/chat/ChatStream.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "    a.queuePlace === b.queuePlace &&\n    a.queueLength === b.queueLength &&\n",
+    "new": ""
+  },
+  {
+    "label": "a queue read ignores the newer request generation",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "          if (!live || request !== queueMoveRequestRef.current) return;\n          const next = withoutWithdrawn(prompts, withdrawnRef.current);",
+    "new": "          if (!live) return;\n          const next = withoutWithdrawn(prompts, withdrawnRef.current);"
+  },
+  {
+    "label": "leaving a conversation does not invalidate its reorder",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "      queueMoveRequestRef.current += 1;\n",
+    "new": "      // mutant: keep the abandoned request current\n"
+  },
+  {
+    "label": "a queue read skipped during a move is dropped instead of run on settle",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "        if (deferredQueueReadRef.current) {\n          deferredQueueReadRef.current = false;\n          setQueueReload((n) => n + 1);\n        }",
+    "new": "        deferredQueueReadRef.current = false;"
+  },
+  {
+    "label": "a hung move keeps suppressing the queue poll past its deadline",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "      if (pending && editStillRunning(pending.startedAt, Date.now())) {",
+    "new": "      if (pending) {"
+  },
+  {
+    "label": "a hung move swallows the same tap past its deadline",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "      if (\n        pending &&\n        editStillRunning(pending.startedAt, Date.now()) &&\n        sameOrder(pending.ids, order)\n      ) {\n        return;\n      }",
+    "new": "      if (pending && sameOrder(pending.ids, order)) {\n        return;\n      }"
+  },
+  {
+    "label": "the queue poll keeps running while the pane is hidden",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "    if (!id || !task || !active) return;",
+    "new": "    if (!id || !task) return;"
+  },
+  {
+    "label": "showing the pane again does not re-read the queue",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx",
+    "old": "  }, [active, id, task?.id, task?.status, events.length, queueReload]);",
+    "new": "  }, [id, task?.id, task?.status, events.length, queueReload]);"
+  },
+  {
+    "label": "the surviving arrow is not focused after a keyboard move",
+    "file": "ui/src/components/chat/ChatStream.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/chat/ChatStream.queue.dom.test.tsx",
+    "old": "    (moveUpRef.current ?? moveDownRef.current)?.focus();",
+    "new": "    // mutant: leave focus on <body>"
+  },
+  {
+    "label": "the down arrow does not note that it was pressed from focus",
+    "file": "ui/src/components/chat/ChatStream.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/chat/ChatStream.queue.dom.test.tsx",
+    "old": "                          if (document.activeElement === event.currentTarget) {\n                            moveFocusedRef.current = true;\n                          }\n                          onMoveQueued(1);",
+    "new": "                          if (document.activeElement === event.currentTarget) {\n                            moveFocusedRef.current = false;\n                          }\n                          onMoveQueued(1);"
+  }
+]

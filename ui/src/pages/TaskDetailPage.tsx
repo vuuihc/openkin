@@ -37,6 +37,7 @@ import {
   listQueuedPrompts,
   listWorkerSteps,
   limitContinue,
+  reorderQueuedPrompts,
   restoreTaskWorkspace,
   retryTask,
   searchTaskSourceFiles,
@@ -96,6 +97,8 @@ import {
   canRefillComposer,
   editStillRunning,
   queuedMessageSeqs,
+  queueOrderAfterMove,
+  queuePositions,
   startEdit,
   startWithdrawal,
   withoutWithdrawn,
@@ -156,6 +159,11 @@ type TaskDetailPageProps = {
  *  return must not swallow a new tab or window. */
 function keepsBrowserLink(event: ReactMouseEvent): boolean {
   return event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+}
+
+/** The same permutation, id for id. */
+function sameOrder(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
 export default function TaskDetailPage({
@@ -239,6 +247,33 @@ export default function TaskDetailPage({
   const withdrawnRef = useRef<Set<number>>(new Set());
   /** Bumped to ask the queue effect below to re-read now, not on the next poll. */
   const [queueReload, setQueueReload] = useState(0);
+  /**
+   * The newest reorder request. Answers carry their request's number and only
+   * the newest one may write the queue: a slow answer to an older tap
+   * describes an order the reader has already replaced.
+   */
+  const queueMoveRequestRef = useRef(0);
+  /**
+   * The permutation the newest in-flight move sent, so a double tap is one
+   * request. `startedAt` bounds it the way an edit is: `apiFetch` has no
+   * timeout, and a request the network dropped must not suppress the queue
+   * poll or refuse the arrows for the life of the page.
+   */
+  const pendingMoveRef = useRef<{ request: number; ids: number[]; startedAt: number } | null>(null);
+  /** A queue read the poll skipped while a move was in flight. */
+  const deferredQueueReadRef = useRef(false);
+  // Invalidate callbacks before another conversation renders, on unmount, and
+  // when the host hides this pane without changing its id (`active` false):
+  // changing a dep runs the cleanup, so an answer that lands after the reader
+  // left cannot paint or toast over whatever they are looking at now.
+  useLayoutEffect(
+    () => () => {
+      queueMoveRequestRef.current += 1;
+      pendingMoveRef.current = null;
+      deferredQueueReadRef.current = false;
+    },
+    [active, id],
+  );
   const [usageLoading, setUsageLoading] = useState(true);
   const [sending, setSending] = useState(false);
   /**
@@ -563,18 +598,32 @@ export default function TaskDetailPage({
   // re-read it whenever events land, and keep a slow poll for the case where the
   // only thing that changed is that a waiting message got answered.
   useEffect(() => {
-    if (!id || !task) return;
-    let active = true;
+    if (!id || !task || !active) return;
+    let live = true;
     const load = () => {
+      // A read during a pending write could return the order before that write.
+      // The skip is remembered, not just taken: a poll that would have re-read
+      // the queue has to run once the move settles, or the queue a terminal
+      // event just drained stays stale until the next interval. Past the edit
+      // deadline the request no longer owns the queue — a hung move must not
+      // suppress the poll for the life of the page.
+      const pending = pendingMoveRef.current;
+      if (pending && editStillRunning(pending.startedAt, Date.now())) {
+        deferredQueueReadRef.current = true;
+        return;
+      }
+      const request = ++queueMoveRequestRef.current;
+      // A read is happening now; whatever an earlier poll deferred is covered.
+      deferredQueueReadRef.current = false;
       listQueuedPrompts(id)
         .then((prompts) => {
-          if (!active) return;
+          if (!live || request !== queueMoveRequestRef.current) return;
           const next = withoutWithdrawn(prompts, withdrawnRef.current);
           queuedPromptsRef.current = next;
           setQueuedPrompts(next);
         })
         .catch(() => {
-          if (!active) return;
+          if (!live || request !== queueMoveRequestRef.current) return;
           queuedPromptsRef.current = [];
           setQueuedPrompts([]);
         });
@@ -582,14 +631,33 @@ export default function TaskDetailPage({
     const timer = window.setTimeout(load, 250);
     const interval = isTerminal(task.status) ? undefined : window.setInterval(load, 3000);
     return () => {
-      active = false;
+      live = false;
       window.clearTimeout(timer);
       if (interval !== undefined) window.clearInterval(interval);
     };
-  }, [id, task?.id, task?.status, events.length, queueReload]);
+  }, [active, id, task?.id, task?.status, events.length, queueReload]);
 
   // Stable identity, so the stream only re-renders when the queue really changed.
   const queuedSeqs = useMemo(() => queuedMessageSeqs(queuedPrompts), [queuedPrompts]);
+
+  /**
+   * The place in line for each transcript message, keyed by its seq.
+   *
+   * The numbering comes from `queuePositions` over the queue as the daemon
+   * sent it — never from a local sort. Rows with `user_seq = 0` are waiting
+   * too and occupy a place, but have no transcript message to badge, so they
+   * are skipped here and still counted in the length.
+   */
+  const queuePlaces = useMemo(() => {
+    const byID = queuePositions(queuedPrompts);
+    const bySeq = new Map<number, number>();
+    for (const prompt of queuedPrompts) {
+      if (typeof prompt.user_seq !== "number" || prompt.user_seq <= 0) continue;
+      const place = byID.get(prompt.id);
+      if (place !== undefined) bySeq.set(prompt.user_seq, place);
+    }
+    return bySeq;
+  }, [queuedPrompts]);
 
   /**
    * Take a message back before the daemon delivers it.
@@ -647,6 +715,74 @@ export default function TaskDetailPage({
 
   /** The × in a queued message's badge: take it back and say nothing more. */
   const onWithdrawQueued = useCallback((seq: number) => withdrawQueued(seq), [withdrawQueued]);
+
+  /**
+   * The ‹ / › in a queued message's badge: move it one slot in the daemon's
+   * order.
+   *
+   * The permutation is built by `queueOrderAfterMove` from the queue as
+   * received — the row itself never re-sorts, and neither does this handler.
+   * The PUT's answer replaces the whole queue, so what the badges number next
+   * is the order the daemon accepted. A 409 means another device moved a row
+   * between this console's read and its write: the list here is stale, so say
+   * so and re-read instead of guessing. Answers carry their request number;
+   * an older answer that lands after a newer one is dropped.
+   */
+  const onMoveQueued = useCallback(
+    (seq: number, delta: -1 | 1) => {
+      const queue = queuedPromptsRef.current;
+      const row = queue.find((prompt) => prompt.user_seq === seq);
+      if (!row) return;
+      const order = queueOrderAfterMove(queue, row.id, delta);
+      if (!order) return;
+      // Two taps before the first answer describe one move, not two: sending
+      // the same permutation twice would only make the second race the first.
+      // Past the edit deadline the request no longer speaks for the queue, so
+      // a tap is a new move again rather than a duplicate of a hung one.
+      const pending = pendingMoveRef.current;
+      if (
+        pending &&
+        editStillRunning(pending.startedAt, Date.now()) &&
+        sameOrder(pending.ids, order)
+      ) {
+        return;
+      }
+
+      const request = ++queueMoveRequestRef.current;
+      pendingMoveRef.current = { request, ids: order, startedAt: Date.now() };
+      const settle = () => {
+        if (pendingMoveRef.current?.request !== request) return;
+        pendingMoveRef.current = null;
+        // A poll skipped while this move was in flight asked for a read the
+        // answer alone cannot give: another device may have changed the queue
+        // meanwhile, and a failed move changes nothing at all. Run it now.
+        if (deferredQueueReadRef.current) {
+          deferredQueueReadRef.current = false;
+          setQueueReload((n) => n + 1);
+        }
+      };
+      reorderQueuedPrompts(id, order).then(
+        (prompts) => {
+          settle();
+          if (request !== queueMoveRequestRef.current) return;
+          const next = withoutWithdrawn(prompts, withdrawnRef.current);
+          queuedPromptsRef.current = next;
+          setQueuedPrompts(next);
+        },
+        (err: unknown) => {
+          settle();
+          if (request !== queueMoveRequestRef.current) return;
+          if (err instanceof ApiError && err.status === 409) {
+            pushToast(tr("chat.queueOrderChanged"), "info");
+          } else {
+            pushToast(tr("chat.queueMoveFailed"), "error");
+          }
+          setQueueReload((n) => n + 1);
+        },
+      );
+    },
+    [id, pushToast, tr],
+  );
 
   useEffect(() => {
     if (!task) return;
@@ -2436,6 +2572,9 @@ export default function TaskDetailPage({
                 queuedSeqs={queuedSeqs}
                 onUnqueue={onWithdrawQueued}
                 onEditQueued={onEditQueued}
+                queuePositions={queuePlaces}
+                queueLength={queuedPrompts.length}
+                onMoveQueued={onMoveQueued}
                 pendingSlots={pendingSlots}
                 showMessageActions={terminal}
                 actionsBusy={actionBusy}
