@@ -5,7 +5,13 @@ import { within, cleanup, fireEvent, render, screen, waitFor } from "@testing-li
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import RoutinesPage from "./RoutinesPage";
 import { setLocale } from "../i18n";
-import { listRoutineRuns, listRoutines, runRoutineNow, type Routine, type Task } from "../api/client";
+import {
+  listRoutineRuns,
+  listRoutines,
+  runRoutineNow,
+  type Routine,
+  type Task,
+} from "../api/client";
 import type { WSMessage } from "../api/contract";
 import { hideRunIds } from "../lib/routineHiddenRuns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -331,11 +337,13 @@ describe("RoutinesPage hidden runs", () => {
       has_more: false,
     });
     const hiddenRun = quietRun("q1", "Quiet read run");
-    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, _cursor = "", id = "") => ({
-      routines: [],
-      runs: id ? [hiddenRun] : [hiddenRun],
-      has_more: false,
-    }));
+    vi.mocked(listRoutineRuns).mockImplementation(
+      async (_limit, _device, _cursor = "", id = "") => ({
+        routines: [],
+        runs: id ? [hiddenRun] : [hiddenRun],
+        has_more: false,
+      }),
+    );
     renderApp("/routines?device=dev-a");
     fireEvent.click(await screen.findByRole("button", { name: /routines\.showSilent/ }));
     fireEvent.click(await screen.findByRole("button", { name: "routines.hideEnded" }));

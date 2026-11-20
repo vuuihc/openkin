@@ -1,11 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  getHiddenRunIds,
-  HIDDEN_RUNS_MAX,
-  hideRunIds,
-  unhideAll,
-} from "./routineHiddenRuns";
+import { getHiddenRunIds, HIDDEN_RUNS_MAX, hideRunIds, unhideAll } from "./routineHiddenRuns";
 
 const STORAGE_KEY = "kin_routine_hidden_runs";
 

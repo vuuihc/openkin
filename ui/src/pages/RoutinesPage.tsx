@@ -261,9 +261,10 @@ export default function RoutinesPage() {
   // must not blank another device's rows), and a render between a switch and
   // the re-read below reads as nothing hidden rather than as the old machine's
   // set.
-  const [hiddenRuns, setHiddenRuns] = useState<{ scope: string; ids: ReadonlySet<string> }>(
-    () => ({ scope: deviceId, ids: getHiddenRunIds(deviceId) }),
-  );
+  const [hiddenRuns, setHiddenRuns] = useState<{ scope: string; ids: ReadonlySet<string> }>(() => ({
+    scope: deviceId,
+    ids: getHiddenRunIds(deviceId),
+  }));
   useEffect(() => {
     setHiddenRuns({ scope: deviceId, ids: getHiddenRunIds(deviceId) });
   }, [deviceId]);
