@@ -880,7 +880,11 @@ seen: 1
 | 发布流水线在第一个真 tag 之前先整条跑通一次 | 1 | 未升级；下一次改 `.github/workflows/` 先用预发布 tag 或 `workflow_dispatch` 跑通，并核对 `--version` 与 tag 一致 |
 | 列表响应按列表要用的字段投影，并在真实数据量上对着链路上限断言 | 1 | 未升级；`987d5788` 已给 routines 分页读加 summary 投影，下一次新增列表先把同一实体的所有读路径列出来并对 relay 上限断言 |
 | 合并或变基的结果当成一次新改动，提交前重跑 gate | 1 | 未升级；下一次解冲突或合并后先在合并树上跑 tsc/测试/格式/库存基线并重建 `web/dist`，ratchet 上调须在正文写明原因 |
-| 限流与额度只看结构化错误，不读正文 | 2 | 未升级；`note_agy_limit()` 只认结构化错误，`1444792c` 已让压缩状态按协议字段落定；下一个状态先问“有没有结构化字段” |
+| 限流与额度只看结构化错误，不读正文 | 2 | 未升级；`note_agy_limit()` 只认结构化错误，`1444792c` 已让压缩状态按协议字段落定，回归用例在 `rsi/runtime/tests/`；下一个状态先问“有没有结构化字段” |
+| 走查选择器静默丢参数时，绿色不是证据 | 1 | 未升级；#429 `70e07458` 已 fail closed，下一次改选择器先跑空选择负例 |
+| 等待面必须有一个说人话的终点 | 1 | 未升级；#423/#424 已补终态页与静态页测试，下一次新增等待面先写失败状态 |
+| 忙标志不能顺手拒绝可排队的下一条消息 | 2 | 未升级；#430 `cc3f47aa` 已落地并带「收尾中发送→收尾后投递」测试 |
+| 类名字符串测试证明不了生成的规则 | 1 | 未升级；#414 `f3a2258d` 已带 390px 断言，下一次改 utility 先在构建产物里数规则 |
 | 测量必须在 `origin/main` 的导出树上做 | 2 | 未升级；DREAM 夜报与 planner 卡已写抗体，下一次测量前先 `git archive` |
 | 只读评审者的搜索要限定在 state 目录 | 4 | AGENTS.md「Agent best practices」第 13 条；`merge.sh` 的 `$RB` 与 codex 看门狗已就位，仍需一条能复现“无界等待必然被信号终止”的回归测试，本轮不改代码 |
 | 同一份共享文件一轮只能有一个写者 | 2 | 未升级；baseline / locale 的单写者规则已进 DECISIONS，第三次时进 AGENTS.md |
@@ -1003,6 +1007,72 @@ seen: 1
 证据：ux-walk.sh J9 run 3 · SHA 0407766f · PASS scroll-kept 320 (max 1065), shell same element
 证据：ux-walk.sh J9 run 4 · SHA 0407766f · PASS scroll-kept 320 (max 1065), shell same element
 证据：ux-walk.sh J9 run 5 · SHA 0407766f · PASS scroll-kept 320 (max 1071), shell same element
+
+## 2026-11-20 · 走查选择器静默丢参数时，绿色不是证据
+seen: 1
+
+发生了什么：`ux-walk.sh` 只读第三个位置参数，`ux-walk.sh J9 J11` 实际只走 J9；`walk.mjs`
+对未知 journey id 静默过滤，`--journeys J9,J99` 走 0 条 journey 也 exit 0。两次都会打印一次
+绿色走查，而它证明的比操作者以为的少。
+
+为什么没拦住：选择参数没有任何测试；`--check-spec` 只钉 journey 内部的步骤，不钉「选了哪些
+journey」。删掉一个 id 或写错一个逗号，闸门仍然绿。
+
+规则：journey 选择必须合并全部位置参数，并对未知/空选择 fail closed；一次走查实际跑的
+journey 集合要与命令里点名的集合逐项相等，少一条就是假证据。改动要带一个「选择为空必须
+非零退出」的负例。
+
+证据：#429 `70e07458`；`rsi/runtime/ux-walk.sh:101` 的 `select_args`、
+`rsi/runtime/ux/walk.mjs --check-spec`。
+
+## 2026-11-20 · 等待面必须有一个说人话的终点
+seen: 1
+
+发生了什么：守护进程重试 20×15 s 后放弃，`main.ts` 只写一行日志，`desktop/boot.html` 的方块
+和动画永远留在屏幕上；同一启动面用的还是 11-19 被 owner 明确否掉的 K 品牌块。用户看到的是
+「一直在启动」，没有任何原因或动作。
+
+为什么没拦住：启动面是 console 之外的静态文件，产品测试只覆盖 console；「放弃」分支没有
+任何 DOM/截图断言，11-19 的否决也只进了决策，没有变成测试。
+
+规则：每个等待面都要有终态——一句人话的原因 + 一个可执行动作；加载器不能无限播放。静态页
+也要有一个能断言终态的测试或 390/1100 截图，owner 的否决要落成测试而不是只落成文字。
+
+证据：#423 `ad009bef`（iOS spinner）、#424 `3c825df9`（`desktop/boot-failed.html` +
+`desktop/src/boot-failed-page.test.ts` 的 `failed` phase）。
+
+## 2026-11-20 · 忙标志不能顺手拒绝可排队的下一条消息
+seen: 2
+
+发生了什么：`FollowUpWith` 在 `workspaceCommitting` 置位时拒绝每一条 follow-up，但这个标志
+是为了挡住 cancel/中断；回合边界的 drain 本来会在收尾后投递。CI 在 `9a64408a` 上红在
+`TestQueuedPromptsAreDeliveredOnePerTurnInOrder`（`conflict: workspace finalization is in progress`），
+同一个测试 11-16 也失败过一次。
+
+为什么没拦住：测试只覆盖收尾结束后的队列投递，没有覆盖「收尾进行中再发一条」；拒绝路径被
+当成并发保护，而不是产品契约。
+
+规则：一个为破坏性动作设置的忙标志，不得同时拒绝可排队的动作；接受之后必须证明投递
+（`clearWorkspaceCompletion` 前后的窗口也要覆盖）。修复不许只删 `if`。
+
+证据：`internal/task/approvals.go:464`、`internal/task/engine.go:3047/3228`；PR #430
+（写作时在合并门返工）。
+
+## 2026-11-20 · 类名字符串测试证明不了生成的规则
+seen: 1
+
+发生了什么：`max-md:pt-safe` 写在三个页面上，`pt-safe` 却是 `@layer utilities` 里的普通类，
+Tailwind 从不生成 `md:`/`max-md:` 变体；构建出的 CSS 里 `.pt-safe` 只有 1 条，两个变体 0 条。
+手机面板顶部安全区一直没生效，而 `topInset.test.ts` 是绿的。
+
+为什么没拦住：测试断言的是 className 字符串存在，没有断言产物里存在对应规则；「变体能不能
+生成」是构建器行为，不是源码字符串能证明的。
+
+规则：涉及构建器生成物的断言必须跑一次真实构建并检查产物（或等价的编译期 API）；类名测试
+只能证明「写了这个字符串」，不能证明「规则存在」。新 utility 先在构建产物里数一遍。
+
+证据：#414 `f3a2258d`、#412 `40b7c77e`；`ui/src/index.css`、
+`ui/src/components/layout/topInset.test.ts`。
 
 ## 评审复盘与协议
 
