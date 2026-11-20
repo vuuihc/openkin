@@ -349,10 +349,33 @@ def is_valid_path(p):
     return os.path.isfile(os.path.join(HERE, "..", "..", p))
 
 def unclaimed_sendbacks():
-    """Sendbacks the rework dispatcher has not claimed yet, oldest first (by mtime)."""
+    """Sendbacks no lane has taken yet, oldest first (by mtime).
+
+    A file alone is not "waiting". `lane.sh` archives a sendback only at the end of its
+    rework run (lane.sh:273), so for the whole run the file still sits in the queue; the
+    slug an active lane already runs is filtered out, mirroring the skip at lane.sh:93.
+    Two kinds autofill never picks up are also filtered, or the reservation would persist
+    with no rework coming: a size-only sendback whose cap the CEO waived (`source:
+    hold-size` plus `merge/<slug>.size-ok`), and a sendback whose PR is already terminal
+    (autofill archives that one on its next pass).
+    """
+    active = set()
+    for n in range(1, ALL_LANES + 1):
+        d = load(n)
+        if is_active(d): active.add(d.get("slug"))
     out = []
     for f in glob.glob(os.path.join(STATE, "sendback", "*.md")):
-        try: out.append((os.path.getmtime(f), f))
+        slug = os.path.basename(f)[:-3]
+        if slug in active: continue
+        try:
+            src = ""
+            with open(f, errors="replace") as fh:
+                for line in fh:
+                    if line.startswith("source:"):
+                        src = line.split(":", 1)[1].strip(); break
+            if src == "hold-size" and os.path.isfile(os.path.join(STATE, "merge", slug + ".size-ok")):
+                continue
+            out.append((os.path.getmtime(f), f))
         except OSError: continue
     return [f for _, f in sorted(out)]
 
@@ -396,7 +419,7 @@ def cmd_claim(a):
             if held:
                 free_after = [n for n in range(1, MAX_LANES + 1) if n != a.lane and not is_active(load(n))]
                 if not free_after:
-                    print(f"REFUSED: unclaimed rework {os.path.basename(held[0])[:-3]} gets the last free lane; run `lane.sh autofill rest`")
+                    print(f"REFUSED: unclaimed rework {os.path.basename(held[0])[:-3]} gets the last free lane; run `lane.sh autofill`")
                     sys.exit(10)
         for c in cloud_claims():
             if c.get("item") == a.item: print(f"REFUSED: {a.item} is handed to a cloud agent ({c.get('slug')})"); sys.exit(3)

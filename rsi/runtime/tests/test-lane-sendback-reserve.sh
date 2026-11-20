@@ -87,7 +87,7 @@ if run_case last-lane-reserved; then
   [ "$rc" -eq 10 ] || bad "last-lane-reserved: expected exit 10, got $rc (out: $O / err: $E)"
   grep -q "REFUSED: unclaimed rework link-exchange-bound gets the last free lane" <<<"$O" \
     || bad "last-lane-reserved: refusal does not name the sendback: $O"
-  grep -q "lane.sh autofill rest" <<<"$O" || bad "last-lane-reserved: refusal does not name autofill: $O"
+  grep -q "lane.sh autofill" <<<"$O" || bad "last-lane-reserved: refusal does not name autofill: $O"
   [ ! -f "$ST/lanes/2.json" ] || bad "last-lane-reserved: lane 2 was written anyway"
   ok last-lane-reserved
 fi
@@ -117,6 +117,42 @@ if run_case no-sendback-unaffected; then
   claim "$ST" 2 fresh-slice R-fresh
   [ "$rc" -eq 0 ] && grep -q "CLAIMED lane 2" <<<"$O" || bad "no-sendback-unaffected: claim refused ($rc): $O / $E"
   ok no-sendback-unaffected
+fi
+
+# --- running-rework-does-not-reserve ---------------------------------------------------------
+# A sendback stays in the queue for its whole rework run (lane.sh archives it at the end),
+# so the file must not reserve a second lane: the live 10:0x state was lane 2 running
+# link-exchange-bound with its sendback still queued, which must not block a fresh slice.
+if run_case running-rework-does-not-reserve; then
+  ST="$T/r6"; mkdir -p "$ST"; hold_lane "$ST" 1 link-exchange-bound; sendback "$ST" link-exchange-bound
+  claim "$ST" 2 fresh-slice R-fresh
+  [ "$rc" -eq 0 ] && grep -q "CLAIMED lane 2" <<<"$O" \
+    || bad "running-rework-does-not-reserve: claim refused ($rc): $O / $E"
+  ok running-rework-does-not-reserve
+fi
+
+# --- waived-hold-size-does-not-reserve -------------------------------------------------------
+# source: hold-size plus a standing merge/<slug>.size-ok is a pair autofill deliberately
+# skips without archiving (lane.sh:84-86); it must not hold the last lane with no rework coming.
+if run_case waived-hold-size-does-not-reserve; then
+  ST="$T/r7"; mkdir -p "$ST/merge" "$ST/sendback"; hold_lane "$ST" 1 running-slice
+  printf 'item: R-size-only\nattempt: 1\nsource: hold-size\n' > "$ST/sendback/size-only.md"
+  : > "$ST/merge/size-only.size-ok"
+  claim "$ST" 2 fresh-slice R-fresh
+  [ "$rc" -eq 0 ] && grep -q "CLAIMED lane 2" <<<"$O" \
+    || bad "waived-hold-size-does-not-reserve: claim refused ($rc): $O / $E"
+  ok waived-hold-size-does-not-reserve
+fi
+
+# --- hold-size-without-waiver-still-reserves -------------------------------------------------
+# The pair is the exemption, not the source: a size sendback with no waiver still waits for
+# its rework and keeps the last lane, exactly like any other.
+if run_case hold-size-without-waiver-still-reserves; then
+  ST="$T/r8"; mkdir -p "$ST/sendback"; hold_lane "$ST" 1 running-slice
+  printf 'item: R-size-only\nattempt: 1\nsource: hold-size\n' > "$ST/sendback/size-only.md"
+  claim "$ST" 2 fresh-slice R-fresh
+  [ "$rc" -eq 10 ] || bad "hold-size-without-waiver-still-reserves: expected exit 10, got $rc (out: $O / err: $E)"
+  ok hold-size-without-waiver-still-reserves
 fi
 
 # --- archived-sendback-unaffected ------------------------------------------------------------

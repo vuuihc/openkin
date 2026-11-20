@@ -19,5 +19,19 @@
     "test": "bash rsi/runtime/tests/test-lane-sendback-reserve.sh",
     "old": "    for f in glob.glob(os.path.join(STATE, \"sendback\", \"*.md\")):",
     "new": "    for f in glob.glob(os.path.join(STATE, \"sendback\", \"**\", \"*.md\"), recursive=True):"
+  },
+  {
+    "label": "a sendback whose rework is already running keeps reserving a second lane",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lane-sendback-reserve.sh",
+    "old": "        if slug in active: continue",
+    "new": "        if False: continue"
+  },
+  {
+    "label": "a waived size-only sendback reserves the last lane forever",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lane-sendback-reserve.sh",
+    "old": "            if src == \"hold-size\" and os.path.isfile(os.path.join(STATE, \"merge\", slug + \".size-ok\")):\n                continue",
+    "new": "            if src == \"hold-size\" and False:\n                continue"
   }
 ]
