@@ -14,6 +14,8 @@
 #   C. entry only                     -> the entry is found
 #   D. the tracked web/dist/index.html -> an entry is found (the direct
 #      regression for the `head -1` tree)
+#   E. scripts/smoke.sh's strict block  -> it calls this library; no `head -1`
+#      in its code (a source pin: A-D would stay green if smoke.sh reverted)
 #
 # Hermetic: reads fixtures and the tracked document; starts no daemon, runs no
 # build. Prints "ok: <case>" per case and exits non-zero on the first failure.
@@ -96,5 +98,28 @@ scripts="$(console_scripts "$(cat "$dist")")"
 printf '%s\n' "$scripts" | grep -qxF "$entry" ||
   fail "D: console_scripts does not include the entry [$entry]: [$scripts]"
 pass "D: tracked web/dist/index.html names an entry ($entry) and console_scripts lists it"
+
+# E. The strict block in smoke.sh is the consumer A-D exist for. Pin its source
+# control flow: the mutant this kills is restoring the origin/main block
+# (asset="$(grep -oE '/assets/[a-zA-Z0-9._-]+\.js' <<<"$html" | head -1)") in
+# scripts/smoke.sh, which leaves the library and A-D untouched and brings #488
+# back with every other suite green. The block's own comment names `head -1` as
+# the old bug, so the no-head check looks at code lines only.
+smoke="$REPO/scripts/smoke.sh"
+start="$(grep -nF 'KIN_SMOKE_REQUIRE_ASSETS:-0' "$smoke" | head -1 | cut -d: -f1)"
+[ -n "$start" ] || fail "E: scripts/smoke.sh has no KIN_SMOKE_REQUIRE_ASSETS guard"
+end="$(awk -v s="$start" 'NR > s && /^fi$/ { print NR; exit }' "$smoke")"
+[ -n "$end" ] || fail "E: the strict block in scripts/smoke.sh has no closing fi"
+block="$(sed -n "${start},${end}p" "$smoke")"
+grep -qF 'source "$ROOT/scripts/smoke-assets.sh"' <<<"$block" ||
+  fail "E: the strict block does not source scripts/smoke-assets.sh"
+grep -qF 'console_entry "$html"' <<<"$block" ||
+  fail "E: the strict block does not call console_entry"
+grep -qF 'console_scripts "$html"' <<<"$block" ||
+  fail "E: the strict block does not call console_scripts on the document"
+if grep -v '^[[:space:]]*#' <<<"$block" | grep -qF 'head -1'; then
+  fail "E: the strict block still takes the first /assets/*.js (head -1)"
+fi
+pass "E: scripts/smoke.sh's strict block sources the library and calls it"
 
 echo "test-smoke-assets: ALL-PASS"
