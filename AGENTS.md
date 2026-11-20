@@ -87,6 +87,11 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
     the delivery record are the same write, and a deliberate redo needs an
     explicit flag and a note. Queue readers consult that record, never prose
     status notes.
+15. **No disposition without reproduction.** A failing walk, gate or check is
+    replayed on the same tree with that tree's own tools before it costs an
+    attempt; confirmed-red blocks, confirmed-green clears, and a reviewer sees
+    per-journey evidence — the confirm walk for the journeys it re-walked and
+    the first walk for the ones it did not.
 
 ## Development workflow
 

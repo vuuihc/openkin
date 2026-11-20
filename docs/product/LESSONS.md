@@ -593,11 +593,12 @@ seen: 1
 证据：#96（`07e9b3b7`，669 行）对比 #97–#108（0 行），`rsi/state/merged.log` 02:34–07:39
 
 ## 2026-11-16 · 同一份交付只投递一次，认领随落库一起释放
-seen: 3
+seen: 4
 
 发生了什么：`state/cloud/design-system-gallery.json` 在 #96 合入后没有被释放，#97–#108 的重复投递就是这么来的。同一时期还有一类同源错误：`slices.py ready` 在 lane 退出后就把仍有开放 PR 的切片重新列为 ready（15:22 记录：N2/T1/L1/P1/Q3a 同时被列为 ready 而它们都有 live PR）。
 2026-11-19 再次出现：squash merge 不会把分支提交带进 main，`git diff origin/main...rsi/<slug>` 在 PR 合入后仍非空；残留的 `state/sendback/<slug>.md` 让 `lane.sh` autofill 为已经在 main 上的工作认领了一个幽灵 rework lane（lane 3 `cancelled: stale sendback`），损失一个 worker 轮次与一个 merge-lane 槽，merge.sh 也在该文件存在时拒绝已修好的 PR；`6ea5b433` 在合入成功时把 sendback 归档到 `state/sendback/done/`，autofill 先读 PR 状态再决定是否认领。
 2026-11-20 再次出现：认领端仍不读落库记录——一个通知文案条目在 PR 合入并发版数小时后还写着“queued for reproduction”，只靠人工重读产品代码才拦住一次对已完成工作的付费重做，提交正文记 “Prose notes failed four times in one day”（`43ed7134`）。`lanes.py claim` 与 `cloud-claim` 现在先读 `$STATE/merged.log`，已在其中的条目以 exit 9 拒绝并点名 PR 与 sha，只有 `--redeliver` 允许有意重做，`--mode rework` 跳过（rework 的 PR 本来就开着）。
+2026-11-20 再次出现（同一形状的另一端）：验证失败可能在 PR 关闭后几分钟才结束，写 sendback 的地方没有重读 PR 状态，已关闭/已合并的 PR 仍被排进 rework——#451 在 06:28Z 关闭，06:29:30Z 的 rework 产出 #453（同一行文档的第三份），吃掉一个 gate 槽与一个 lane 轮次（`83aa0cda`）。`sendback()`/`sendback_mech()` 现在先读 live PR 状态，MERGED/CLOSED 只归档到 `sendback/done/` 并留一行 needs-ceo，不加 attempt，也不再写 phantom scorecard 行。
 
 为什么没拦住：“已交付”只写在 `merged.log` 里，投递端（cloud/NAS ingest、scheduler）在决定要不要再干一次时不读它；认领的释放挂在合并流程之外，合入成功并不必然触发。
 
@@ -674,11 +675,12 @@ seen: 2
 证据：`ecb3485a`（06:36 记录）、`5ae52e54`（今晚 `origin/main` 导出树 `RATCHET_PASS`）
 
 ## 2026-11-17 · 只读评审者的搜索要限定在 state 目录，且每次等待都有超时
-seen: 4
+seen: 5
 
 发生了什么：G4 (#163) 的独立复审两次挂起，都是评审者在 `$HOME` 下执行 `find ... -name merged.log`（macOS 容器 / worktree 让这次遍历极慢）；第一次杀进程后复审再次复现，直到把 `$STATE` 的实际路径写进评审简报、并禁止跨 `$HOME` / `/Users` 的 `find`，`#163` 才在 07:36 以 `5ae52e54` 合入。
 2026-11-18 再次出现：Bash 工具的默认 55 分钟超时比 50 分钟的 worker 看门狗还长，`lanes.py status` 只打印 `ACTIVE age=39m`；一条嵌套 heredoc 吞掉闭合括号后挂在 stdin 上 2,400 秒，一个 worker 轮次就这样被吃掉，期间看起来一直“健康”（`920eb53c` 把默认值降到 10 分钟、上限 30 分钟，并让状态打印 silent 分钟数）。
 2026-11-19 再次出现：`run_codex` 是唯一没有 `DISPATCH_MAX_SECS` 的派发路径，merge.sh 等评审也没有自己的 deadline；2026-11-15 两次静默的 codex exec 评审占住两个 verifier 槽整整一小时（`e10d9cb4` 用与 claude/agy 相同的看门狗包住 codex，超时后走 reviewer-alt 回退，不伪造结论）。
+2026-11-20 再次出现（产品侧）：一次性链接兑换在 `bootProbe` 之前运行且没有自己的 deadline，Hub 接受 `POST /api/auth/login-link` 后永不回答时启动画面永远停在 splash，`#431` 的 1500 ms 账号探针超时没有机会执行；`4d08ce5f` 给兑换加了命名 deadline，超时后打开控制台并说明“链接没有完成”，迟到成功再补一次探测。
 
 为什么没拦住：评审简报只给了 `$STATE` 这个环境变量名，没有给出可直接 `ls` 的绝对路径，评审者按“找文件”的直觉搜索整个 home；watchdog 只看到“评审未返回”，分不清是模型慢还是子进程卡住。
 
@@ -766,10 +768,11 @@ seen: 1
 证据：`9d34c20e`（#254）；`rsi/state/needs-ceo.md` 2026-11-18 03:20
 
 ## 2026-11-18 · 同步/快进失败不得吞掉
-seen: 2
+seen: 3
 
 发生了什么：`sync_control_tree` 把 `merge --ff-only` 的错误送进 `/dev/null`，活动控制树停在 main 之前 5–6 个提交，合并与闸门连续跑了旧脚本；根因是一个未跟踪的旧草稿会被合入覆盖。
 同一天再次出现：`release.sh` 里 `git fetch -q origin main && git rev-parse origin/main` 遇到一次 github SSL 错误，返回空 SHA；脚本仍打印 `releasing  to node=1 hub=1`，用当时的 HEAD 重建并重启了 live 节点，直到 Hub 步骤的 `git archive ""` 才失败，并把没有 SHA 的 `node=` 写进 `state/last_release`。`b8828d55` 在重建任何东西之前拒绝空 SHA 与非十六进制 SHA，并点名失败的 fetch。
+2026-11-20 再次出现：一行未提交的 `rsi/DECISIONS.md` 把控制树钉在 `origin/main` 之后 17 个提交整整六小时（08:20–14:30），期间每个 gate、walker 与 `GOAL.md` 都来自旧树；pulse 只在 stderr 打一行 PINNED，`run.sh --status` 什么也不显示（`12814263`）。修法是同步只采纳“纯 EOF 追加”的 DECISIONS 尾巴到 `state/decisions-pending.md` 再恢复文件（`04fd5718`），并让 `--status` 打印 derived 的 `at origin/main` / `PINNED …` / `unpublished` 行；空的 behind/ahead 对也不能落进“已同步”的假健康。
 
 为什么没拦住：失败路径静默，`run.sh --sync-check` 不打印 SHA 也退出 0；「未跟踪文件」被当成无害噪音。
 
@@ -778,10 +781,12 @@ seen: 2
 证据：`b4ee0d5b`（#263）；`rsi/state/needs-ceo.md` 2026-11-18 04:55
 
 ## 2026-11-18 · 把一次失败计进 rework 之前，先在同一棵树上确认它能复现
-seen: 2
+seen: 4
 
 发生了什么：一条 J9 滚动失败曾让 PR #296 被计 9 分钟与 $0.89，而三次独立走查都无法复现；`8e23d244` 因此加了 confirm：只重走失败行点名的 journey，一次，同一棵树，flaked 记进 sendback 与 `scores.json`，复现的仍然阻塞。同一天 `9d03f1b5` 发现确认器只认 `<journey>/<viewport>: …` 行，而截图检查把硬失败写成 `<step>: blank page`（step 里已经含 journey，如 `J11-phone-03-switch-back`）；J11 的确认重走零硬失败，PR #330 仍被计一个 rework 轮次——同一类假红又来一次。
 2026-11-19 再次出现：gate 等 `state/.gate.lock` 超时（1800 s）本是循环自己的争用，却被记成“gate failed: gate lock timeout”算在分支头上——一个 rework lane、三次尝试之一、一个 worker 去改没人证明有错的代码（`c8e66893`，#387）；同一天确认重走在同一棵树上 `reproduced=0, flaked>0`，评审者拿到的仍是首次走查的 flaked 截图，PR #389 据此被打 density=2 feedback=2 并 block（`c22dc001`）。两处都改成“没有复现证据就不计费”：超时转 SKIP/exit 0 并留一次 needs-ceo 标记；确认侧把 flakes 列为非证据、只在确认目录或 `walk.json` 上 ground，必要时 exit 2 而不是 sendback。
+2026-11-20 再次出现：gate 用六条 J6/mac 行把 #435 退回，而在同一棵树上用该树自己的 walker 重放是 1 绿 5 红、同一份启动代码在 08:15 还是绿的；根因是 walker 在 `/api/agents` 未返回时就数选项，跟 PR 改动无关（`4d08ce5f` 记录、`46af34ad` 修复）。
+2026-11-20 再次出现：确认重走复现为零（`reproduced=0`），评审者却只拿到 confirm 目录，首走已走绿的 J1/J11/J12 变得不可见，五条评分轴被一条 journey 定成 mean 2.0、PR #467 被退回（`359a1a69`）；证据改成按 journey 取并集后，flaked journey 的首走截图与所有首走 hardFail 行仍不算证据。
 
 为什么没拦住：确认器按想象中的日志格式写解析，没有拿真实的失败行样本验证；“能确认”被实现成“能解析一种前缀”，其余形态静默落回计费路径；负向用例只覆盖了能被解析的那一种。
 
@@ -833,6 +838,61 @@ seen: 1
 
 证据：`f3a2258d`（#414）、`40b7c77e`（#412）（2026-11-20）
 
+## 2026-11-20 · 测试要等它断言的事件，不用睡眠或读一次赌时序
+seen: 1
+
+发生了什么：同一批里四处：`TestNodeChannelRecordsDeviceAndAgents` 在 `awaitDevice` 返回后立刻读 `conns.Connected`，而注册行先写、socket 后挂，2026-11-20 两次 CI 假红（#473 13:27Z、#483 16:15Z，`83ce5d9a`）；`TestAWorkspaceFailureReportsThePromptsItCouldNotDeliver` 等到 `StatusFailed` 就读一次事件，而报告在 `finishRun` 之后写，本机 1/30、CI 2/2 假红（`879150d4`）；J6 走查在 `/api/agents` 回答前数选项，负载下 0.6–1.6 s 的目录让两条计数读到 0，六条下游行为未改的 PR 行变红（`46af34ad`）；排队 prompt 测试靠 80 ms 运行时长赌 adapter 已启动（`a102ac14`）。随后 `a8b74835` 把“不用 sleep 当同步、改过的 Go 测试跑 `-count=5 -race`”写进 worker/reviewer 契约。
+
+为什么没拦住：这些断言都在“状态翻转”之后读一次，而产品保证的只是“最终会出现”，不是“翻转时已经在”；测试没有等它真正断言的那个信号（channel 挂上、报告落地、目录到达、adapter 启动），窗口小的时候本机偶发，负载一上来就必现。
+
+规则：测试只等它断言的那个事件（有界 helper：channel 连接、报告出现、目录包含目标项、启动信号），不用 sleep 或短运行时长当同步；等待要有超时并说明等的是什么；改并发/调度相关测试后跑 `-count=5 -race`；评审把“依赖调度顺序的绿”当 major，并要求指出它靠什么变红。
+
+证据：`83ce5d9a`、`879150d4`、`46af34ad`、`a102ac14`（2026-11-20）、`a8b74835`（2026-11-21）
+
+## 2026-11-20 · 读取失败不是空结果，不可读必须 fail closed 或显示失败态
+seen: 1
+
+发生了什么：三处把“读不到”折叠成“没有”：红线路径清单缺失或不可读时 `grep` 退出 2 被当成“没有红线路径”，CORS/依赖/迁移/认证 PR 会被放行（`379a123e`）；`--status` 的 behind/ahead 空对通过合并的十六进制守卫，打印 `at origin/main (<sha>)` 的假健康（`12814263`）；设置页的默认 agent 目录读失败时只渲染一个启用状态的 Auto 单选项并永远停在那里，可能用一个从未到达的目录覆盖已存默认值（`370a20af`）。
+
+为什么没拦住：空、缺失、不可读、尚未返回在代码里都变成同一个假值（空字符串、空列表、默认项）；这些路径没有“失败”分支，测试也只覆盖成功读取。
+
+规则：每次读取显式区分 loading / ready / failed / empty；gate 类判据不可读时 fail closed（HOLD/报错），UI 显示失败态与一个重试动作并保留上次好数据，选择器在 loading 时禁用；测试覆盖“文件缺失/不可读/请求失败”的负例。（与 2026-11-19「扫描目录要容忍条目在列举与读取之间消失」同源：失败不能折叠成空。）
+
+证据：`379a123e`（2026-11-21）、`12814263`、`370a20af`（2026-11-20）
+
+## 2026-11-20 · 同一判据只留一份实现，复制出来的副本会各自长洞
+seen: 1
+
+发生了什么：压缩交接记录的分类规则在实时解析与磁盘导入里各写一份，ACP 修复（#405）只补了一处，另一处仍把 20 KB 的提供方段落当成用户或 Kin 说的话显示在时间线里（`e91065e6`）；红线路径清单在三个调用点各抄一份，新增 `cors.go`/`secure.go` 时哪份都没登记，权限边界 PR 可以被验证并自动合入（`379a123e`）。
+
+为什么没拦住：判据按“用得到的地方”复制，修复时只改眼前那份；两份实现没有共享测试，改了一处另一处仍然全绿。
+
+规则：一个分类/清单/判据只保留一份实现（函数、常量或数据文件），所有调用点引用它；复制过的清单在合并前收敛成一份并加一条“清单含全部成员”的断言；修其中一处时先 grep 同名规则的所有副本。
+
+证据：`e91065e6`（2026-11-20）、`379a123e`（2026-11-21）
+
+## 2026-11-20 · 调度意图要在 claim 处机械执行，所有入口回答同一问题
+seen: 1
+
+发生了什么：三处同形：director 提示词写着“把 lane 留给 autofill”，但散文输给时钟——merge 在 09:03/09:05 写下两个 sendback，director 在 09:06 把两条 lane 都认领给新切片，autofill 只能打印 “no idle lane for rework”，两个开放 PR 多等 40 分钟（`1ce227f7`）；`lanes.py idle` 在冷启动时只在已有 worker 的路径上查备用 lane 门槛，于是它打印两条 lane、`claim` 随后以 “spare lane held” 拒绝，白烧一个派工槽（`0da63a2b`）；pulse 在到达 `lane.sh autofill` 之前就因八分钟 `last_fill` debounce 退出，模型无关的 rework 被一起延迟，拒绝到下一次验证 p50 11 分钟、p90 31 分钟，最近 24 个合入 PR 有 20 个需要 rework（`2e962351`）。
+
+为什么没拦住：调度不变量写在提示词、日志或两个各自实现的判据里，没有一个共同的机械入口；节流把确定性步骤和模型步骤绑在一起；两个入口对同一状态给出不同答案时没有测试。
+
+规则：每条调度不变量（未认领返工优先、保留最后一条 lane、节流只抑制模型步骤）由一个纯函数/判据实现，`idle`、`claim`、`autofill`、debounce 共用它；节流只作用于它要抑制的那一步，确定性步骤照常执行；测试断言两个入口对同一状态给出同一答案，并覆盖冷启动与“已有活跃 lane”两种路径。
+
+证据：`1ce227f7`、`0da63a2b`、`2e962351`（2026-11-20）
+
+## 2026-11-21 · 按“第一个”选元素或资源会被新增项打破，按身份选并断言
+seen: 1
+
+发生了什么：`#482` 把 `boot-guard.js` 放到 `<head>` 的第一个 module script 之后，两处“取第一个”同时失效：控制台版本监视把 guard 当成入口 chunk，`checkConsoleVersion()` 永远返回 skipped，陈旧控制台自动重载被静默关掉（`57abd128`）；smoke 的严格资源检查取第一个 `/assets/*.js`，1.8 kB 的 guard 返回 200，缺失的 1.9 MB 入口 chunk 仍然通过，gate 对一个起不来的控制台保持绿色（`ed9c707f`）。
+
+为什么没拦住：两处都把“文档里的第一个”当成“我要的那个”，而新增一个更靠前的元素不会让任何测试变红；入口 chunk 的身份是可推导的（`index-<hash>.js` 前缀、Vite manifest），代码却用了位置。
+
+规则：从 DOM 或构建产物里挑资源时按身份选（前缀、属性、manifest 条目），不按“第一个”；新增会改变顺序的元素或脚本时，先找遍所有 first-of-type 消费者；选择器本身要有源码级断言，另加一条“前面多一个同类元素仍选对”的用例。
+
+证据：`57abd128`、`ed9c707f`（2026-11-21）
+
 ---
 
 ## 升级记录
@@ -871,7 +931,7 @@ seen: 1
 | 串行检查的退出码要逐个传递，不能由最后一条覆盖 | 1 | 未升级；`1f630884` 已执行生产 job 的失败组合 |
 | AST 与 ESLint 守卫要验证语言绑定和真实配置语义 | 1 | 未升级；`568d7117` 已补四条红测，下一次新规则先列旁路 |
 | 合入必须改变树 | 1 | 未升级；`merge.sh` 需补 changedFiles > 0 断言，空 PR 关闭不合 |
-| 同一份交付只投递一次，认领随落库一起释放 | 3 | AGENTS.md「Agent best practices」第 14 条；`43ed7134` 已让 `claim`/`cloud-claim` 先读 `merged.log` 并以 exit 9 拒绝已合入条目；仍需一条能复现“已落库条目再次被认领必须拒绝”的回归测试，本轮不改代码 |
+| 同一份交付只投递一次，认领随落库一起释放 | 4 | AGENTS.md「Agent best practices」第 14 条；`43ed7134` 已让 `claim`/`cloud-claim` 先读 `merged.log`，`83aa0cda` 已让写 sendback 前重读 live PR 状态；仍需一条能复现“已落库条目再次被认领必须拒绝”的回归测试，本轮不改代码 |
 | 循环脚本安装要么整份要么不装 | 2 | 未升级；`node-stamp.sh` 已按整份恢复，`1ff7749b` 已在 `common.sh` 自愈可执行位；下一次安装脚本先断言存在性、语法与可执行位 |
 | gate 日志要留下失败测试的名字 | 1 | 未升级；`gate.sh` `step()` 已保留 FAIL 标识，下一次改日志先验分类器 |
 | 判断证据缺失要列目录，不要猜文件名 | 1 | 未升级；`rsi/roles/reviewer.md` 已写抗体 |
@@ -882,11 +942,11 @@ seen: 1
 | 合并或变基的结果当成一次新改动，提交前重跑 gate | 1 | 未升级；下一次解冲突或合并后先在合并树上跑 tsc/测试/格式/库存基线并重建 `web/dist`，ratchet 上调须在正文写明原因 |
 | 限流与额度只看结构化错误，不读正文 | 2 | 未升级；`note_agy_limit()` 只认结构化错误，`1444792c` 已让压缩状态按协议字段落定，回归用例在 `rsi/runtime/tests/`；下一个状态先问“有没有结构化字段” |
 | 走查选择器静默丢参数时，绿色不是证据 | 1 | 未升级；#429 `70e07458` 已 fail closed，下一次改选择器先跑空选择负例 |
-| 等待面必须有一个说人话的终点 | 1 | 未升级；#423/#424 已补终态页与静态页测试，下一次新增等待面先写失败状态 |
-| 忙标志不能顺手拒绝可排队的下一条消息 | 2 | 未升级；#430 `cc3f47aa` 已落地并带「收尾中发送→收尾后投递」测试 |
+| 等待面必须有一个说人话的终点 | 2 | 未升级；#423/#424 已补终态页与静态页测试，`10e695fb` 已让手动启动态的中英文都要求 reload；下一次新增等待面先写失败状态 |
+| 忙标志不能顺手拒绝可排队的下一条消息 | 3 | 未升级；#430 `cc3f47aa` 已落地并带「收尾中发送→收尾后投递」测试，`0fd6239b` 已补编排回合的 settle 路径；第三次仍只跨 2 个日期，满 3 个日期再升级 |
 | 类名字符串测试证明不了生成的规则 | 1 | 未升级；#414 `f3a2258d` 已带 390px 断言，下一次改 utility 先在构建产物里数规则 |
 | 测量必须在 `origin/main` 的导出树上做 | 2 | 未升级；DREAM 夜报与 planner 卡已写抗体，下一次测量前先 `git archive` |
-| 只读评审者的搜索要限定在 state 目录 | 4 | AGENTS.md「Agent best practices」第 13 条；`merge.sh` 的 `$RB` 与 codex 看门狗已就位，仍需一条能复现“无界等待必然被信号终止”的回归测试，本轮不改代码 |
+| 只读评审者的搜索要限定在 state 目录 | 5 | AGENTS.md「Agent best practices」第 13 条；`merge.sh` 的 `$RB` 与 codex 看门狗已就位，`4d08ce5f` 给产品侧链接兑换补了命名 deadline；仍需一条能复现“无界等待必然被信号终止”的回归测试，本轮不改代码 |
 | 同一份共享文件一轮只能有一个写者 | 2 | 未升级；baseline / locale 的单写者规则已进 DECISIONS，第三次时进 AGENTS.md |
 | 一个字段有多个展示副本时，改名要逐面接线并验证实时重绘 | 1 | 未升级；`taskDisplayTitle` 已收敛取名表达式，下一次新增可编辑字段先列展示副本并写“挂着时改名立即重绘”的测试 |
 | 截断用户或 PR 文本要按字符边界，不按字节 | 1 | 未升级；三处截断已改 `iconv -c`，下一次切文本先加一条中英混排的边界用例 |
@@ -894,13 +954,18 @@ seen: 1
 | `--no-build` 走查先校验 `index.html` 与 `assets/` 同源 | 2 | 未升级；`04fa6370` 已让可构建路径在不一致时重建，下一次复用 dist 前先断言入口 chunk 存在 |
 | 仓库自带的冒烟要自己 pin 它需要的环境变量 | 1 | 未升级；`RSI_FAKE_SLOW_SECS` 已进 smoke，下一次加时间窗步骤先补 export 与完整旅程 |
 | 新增可执行脚本必须以 100755 进 git | 1 | 未升级；#254 的脚本已修正，下一次新脚本用 `--chmod=+x` 并断言 `ls-files -s` |
-| 同步/快进失败不得吞掉 | 2 | 未升级；`b8828d55` 已在 release 重建前拒绝空 SHA 与非十六进制 SHA，下一次不可逆步骤前先断言目标 SHA |
-| 把一次失败计进 rework 之前，先在同一棵树上确认它能复现 | 2 | 未升级；`c8e66893` 把 gate-lock 超时转 SKIP、`c22dc001` 让评审只读确认证据；下一次新判据先用真实日志的每种格式各跑一遍 |
+| 同步/快进失败不得吞掉 | 3 | 未升级；`b8828d55` 已在 release 重建前拒绝空 SHA，`04fd5718`/`12814263` 已让被钉住的控制树在 `--status` 显式显示；下一次不可逆步骤前先断言目标 SHA 与树状态 |
+| 把一次失败计进 rework 之前，先在同一棵树上确认它能复现 | 4 | AGENTS.md「Agent best practices」第 15 条；`c8e66893`/`c22dc001`/`359a1a69` 已分别修超时计费、确认证据与绿 journey 证据并集；仍需一条能复现“未复现的失败不得计费”的端到端回归测试，本轮不改代码 |
 | 改到受版本控制的文件或生成物时，恢复要挂满退出与信号路径 | 1 | 未升级；`25dc3d81` 已挂 EXIT/TERM/HUP/INT 并有信号回放用例，下一次写临时改动受控文件的工具先复用 `restore_dist` |
 | 调度与健康判据读瞬时状态，不读累积计数或代理指标 | 1 | 未升级；`1505de69` 已改读 VM pressure 与真实 headroom，下一次加门槛先在“历史高水位、当前正常”的样本上验证不误拒 |
 | 散文承诺要写清它断言的那一行 | 4 | 未升级；仅 2026-11-19 一个日期（4 次），`2b78ee75` 已让 STATUS 发布行由 `release-check.sh` 推导；满 3 个日期再升级 |
 | 扫描目录要容忍条目在列举与读取之间消失 | 1 | 未升级；`efab74f2` 已逐条 stat 并加 `_sendback-order` stdin seam，下一次写批处理先区分“扫描失败”和“扫描为空” |
 | 变体工具类要在编译产物里断言有规则，安全区用注入值量 | 1 | 未升级；`@utility pt-safe` 已让变体产出规则，`topInset` 套件编译真实样式表覆盖每个 `*pt-safe` token；下一次新增自定义工具类先在构建产物里断言变体选择器 |
+| 测试要等它断言的事件，不用睡眠或读一次赌时序 | 1 | 未升级；`a8b74835` 已把“不用 sleep、`-count=5 -race`”写进 worker/reviewer 契约；下一次改并发测试先指出它等的是哪个信号 |
+| 读取失败不是空结果，不可读必须 fail closed 或显示失败态 | 1 | 未升级；`379a123e`/`12814263`/`370a20af` 已分别补 fail-closed、derived 状态行与 loading/ready/failed 三态；下一次新增读路径先写缺失/不可读负例 |
+| 同一判据只留一份实现，复制出来的副本会各自长洞 | 1 | 未升级；`e91065e6` 已把记录分类收敛到 sessioncatalog、`379a123e` 已把红线清单定义一次；下一次修判据先 grep 所有副本 |
+| 调度意图要在 claim 处机械执行，所有入口回答同一问题 | 1 | 未升级；`1ce227f7`/`0da63a2b` 已让 claim 与 idle 用同一门槛、`2e962351` 已把 debounce 与 autofill 解耦；下一次加调度规则先写两个入口同答的测试 |
+| 按“第一个”选元素或资源会被新增项打破，按身份选并断言 | 1 | 未升级；`57abd128` 已按入口 chunk 前缀选择、`ed9c707f` 已改为枚举全部 assets；下一次加脚本/资源先查 first-of-type 消费者 |
 
 ## 2026-11-19 · 走查步骤没有契约，就能在全绿时被删掉
 seen: 2
@@ -1026,7 +1091,7 @@ journey 集合要与命令里点名的集合逐项相等，少一条就是假证
 `rsi/runtime/ux/walk.mjs --check-spec`。
 
 ## 2026-11-20 · 等待面必须有一个说人话的终点
-seen: 1
+seen: 2
 
 发生了什么：守护进程重试 20×15 s 后放弃，`main.ts` 只写一行日志，`desktop/boot.html` 的方块
 和动画永远留在屏幕上；同一启动面用的还是 11-19 被 owner 明确否掉的 K 品牌块。用户看到的是
@@ -1037,12 +1102,13 @@ seen: 1
 
 规则：每个等待面都要有终态——一句人话的原因 + 一个可执行动作；加载器不能无限播放。静态页
 也要有一个能断言终态的测试或 390/1100 截图，owner 的否决要落成测试而不是只落成文字。
+2026-11-21 再次出现：手动启动状态只在自动重试已经用完之后出现，中文行却仍写“网络有点慢，正在重试”，承诺一个已经不在运行的动作；英文行已经要求 reload。`10e695fb` 改成与英文一致的“请重新加载”，并把提示与按钮文案在两种语言里都钉进测试。
 
 证据：#423 `ad009bef`（iOS spinner）、#424 `3c825df9`（`desktop/boot-failed.html` +
 `desktop/src/boot-failed-page.test.ts` 的 `failed` phase）。
 
 ## 2026-11-20 · 忙标志不能顺手拒绝可排队的下一条消息
-seen: 2
+seen: 3
 
 发生了什么：`FollowUpWith` 在 `workspaceCommitting` 置位时拒绝每一条 follow-up，但这个标志
 是为了挡住 cancel/中断；回合边界的 drain 本来会在收尾后投递。CI 在 `9a64408a` 上红在
@@ -1054,6 +1120,7 @@ seen: 2
 
 规则：一个为破坏性动作设置的忙标志，不得同时拒绝可排队的动作；接受之后必须证明投递
 （`clearWorkspaceCompletion` 前后的窗口也要覆盖）。修复不许只删 `if`。
+2026-11-20 再次出现：#430 留下的那一种情形——多 agent 回合正在收尾 workspace 时 `FollowUpWith` 仍拒绝——是编排路径只 arm 了 commit 标志、没有 arm settle hook；`0fd6239b` 让编排回合的每个结束分支走与 adapter 相同的 drain/report 收尾，测试从“拒绝”改为“接受后必须投递”，并覆盖失败、取消与复活。
 
 证据：`internal/task/approvals.go:464`、`internal/task/engine.go:3047/3228`；PR #430
 （写作时在合并门返工）。
