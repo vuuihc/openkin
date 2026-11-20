@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff"/>
+<rect x="0" y="0" width="1100" height="30" fill="#f6f6f8"/>
+<circle cx="18" cy="15" r="4" fill="#dddddd"/><circle cx="32" cy="15" r="4" fill="#dddddd"/><circle cx="46" cy="15" r="4" fill="#dddddd"/>
+<text x="560" y="19" font-size="10.5" fill="#6b6b6b" text-anchor="middle">Mac 1100×760 · 本条不变：没有底栏，左缘仍是区域栏 + 对话列表</text>
+
+<rect x="0" y="30" width="208" height="730" fill="#f6f6f8"/>
+<text x="16" y="62" font-size="15" font-weight="600" fill="#1a1a1a">Kin</text>
+<rect x="14" y="78" width="180" height="32" rx="9" fill="#ffffff" stroke="#dddddd"/>
+<text x="28" y="99" font-size="11" fill="#6b6b6b">搜索对话…  ⌘K</text>
+
+<rect x="8" y="126" width="192" height="34" rx="9" fill="#1f6feb" fill-opacity="0.1"/>
+<circle cx="28" cy="143" r="6" fill="none" stroke="#1f6feb" stroke-width="1.5"/>
+<text x="44" y="147" font-size="11.5" font-weight="600" fill="#1f6feb">对话</text>
+<text x="188" y="147" font-size="10" fill="#6b6b6b" text-anchor="end">⌘1</text>
+<circle cx="168" cy="137" r="7" fill="#b42318"/>
+<text x="168" y="140" font-size="8.5" fill="#ffffff" text-anchor="middle">3</text>
+
+<rect x="8" y="166" width="192" height="34" rx="9" fill="none"/>
+<rect x="22" y="176" width="12" height="10" rx="2" fill="none" stroke="#555" stroke-width="1.4"/>
+<text x="44" y="187" font-size="11.5" fill="#1a1a1a">项目</text>
+<text x="188" y="187" font-size="10" fill="#6b6b6b" text-anchor="end">⌘2</text>
+
+<rect x="8" y="206" width="192" height="34" rx="9" fill="none"/>
+<circle cx="28" cy="223" r="7" fill="none" stroke="#555" stroke-width="1.4"/>
+<path d="M28 218 v5 l3 2" stroke="#555" stroke-width="1.4" fill="none"/>
+<text x="44" y="227" font-size="11.5" fill="#1a1a1a">例行任务</text>
+<text x="188" y="227" font-size="10" fill="#6b6b6b" text-anchor="end">⌘3</text>
+
+<rect x="8" y="246" width="192" height="34" rx="9" fill="none"/>
+<circle cx="28" cy="263" r="6" fill="none" stroke="#555" stroke-width="1.4"/>
+<path d="M28 253 v3.5 M28 269.5 v3.5 M18 263 h3.5 M34.5 263 h3.5" stroke="#555" stroke-width="1.4"/>
+<text x="44" y="267" font-size="11.5" fill="#1a1a1a">设置</text>
+<text x="188" y="267" font-size="10" fill="#6b6b6b" text-anchor="end">⌘4</text>
+
+
+<rect x="208" y="30" width="300" height="730" fill="#ffffff" stroke="#eeeeee"/>
+<text x="224" y="62" font-size="15" font-weight="600" fill="#1a1a1a">对话</text>
+<rect x="326" y="42" width="76" height="28" rx="9" fill="#1f6feb"/>
+<text x="364" y="60" font-size="10.5" fill="#ffffff" text-anchor="middle">＋ 新建</text>
+<rect x="224" y="80" width="268" height="34" rx="10" fill="#f6f6f8"/>
+<text x="238" y="101" font-size="11" fill="#6b6b6b">搜索对话…</text>
+<circle cx="228" cy="142" r="4" fill="#137a3f"/>
+<text x="238" y="146" font-size="10.5" fill="#6b6b6b">机器 A · 在线</text>
+<text x="224" y="172" font-size="11.5" font-weight="600" fill="#1a1a1a">▾ 项目 alpha</text>
+<rect x="224" y="182" width="268" height="44" rx="9" fill="#f6f6f8"/>
+<text x="238" y="206" font-size="11" fill="#1a1a1a">整理发布说明</text>
+<text x="238" y="220" font-size="9.5" fill="#6b6b6b">刚刚 · 正在运行</text>
+<rect x="224" y="232" width="268" height="40" rx="9" fill="#ffffff"/>
+<text x="238" y="257" font-size="11" fill="#1a1a1a">把截图归档</text>
+
+<circle cx="228" cy="298" r="4" fill="#137a3f"/>
+<text x="238" y="302" font-size="10.5" fill="#6b6b6b">本机 · 在线</text>
+<text x="224" y="328" font-size="11.5" font-weight="600" fill="#1a1a1a">▾ 项目 beta</text>
+<rect x="224" y="338" width="268" height="40" rx="9" fill="#ffffff"/>
+<text x="238" y="363" font-size="11" fill="#1a1a1a">核对构建日志</text>
+
+<rect x="508" y="30" width="592" height="730" fill="#ffffff"/>
+<text x="536" y="66" font-size="15" font-weight="600" fill="#1a1a1a">整理发布说明</text>
+<text x="536" y="84" font-size="10.5" fill="#6b6b6b">机器 A · Claude Code · 运行中</text>
+<rect x="536" y="108" width="420" height="52" rx="12" fill="#f6f6f8"/>
+<text x="550" y="130" font-size="11.5" fill="#1a1a1a">把这周的发布说明整理成一页，</text>
+<text x="550" y="148" font-size="11.5" fill="#1a1a1a">标出需要我确认的三项。</text>
+<rect x="536" y="176" width="430" height="48" rx="12" fill="#ffffff" stroke="#dddddd"/>
+<text x="550" y="198" font-size="11" fill="#555">读取 3 个文件 · src/release/notes.md</text>
+<text x="550" y="214" font-size="10" fill="#6b6b6b">已读取 · 1.2 秒</text>
+
+<rect x="536" y="620" width="536" height="76" rx="14" fill="#ffffff" stroke="#1f6feb"/>
+<text x="552" y="648" font-size="11" fill="#6b6b6b">继续问…</text>
+<rect x="1026" y="646" width="38" height="26" rx="13" fill="#1f6feb"/>
+<text x="1045" y="664" font-size="12" fill="#ffffff" text-anchor="middle">↑</text>
+<text x="552" y="682" font-size="10.5" fill="#555">Claude Code · Sonnet · 只读</text>
+
+<rect x="520" y="700" width="500" height="46" rx="10" fill="#fff1f0" stroke="#b42318" stroke-dasharray="4 3"/>
+<text x="534" y="728" font-size="10.5" font-weight="600" fill="#b42318">Mac 没有底栏，也不加玻璃条：区域切换仍走左缘区域栏与 ⌘1–⌘4；本条只动手机壳。</text>
+<rect x="0.5" y="0.5" width="1099" height="759" fill="none" stroke="#bbbbbb"/>
+</g>
+</svg>
