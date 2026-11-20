@@ -8,7 +8,7 @@
 | `KIN-CONTINUE-001` | covered | P0 | J1、J2 | Mac/手机 | 接着问一段对话 | 26 |
 | `KIN-CONTINUE-002` | covered | P0 | J1、J2 | Mac/手机 | 手机只留一个导航面：列表页就是侧栏 | 6 |
 | `KIN-CONTINUE-003` | covered | P0 | J1、J2、J3、J4、J5、J6、J7 | Mac/手机 | 统一控制台的四区导航与工作台 | 12 |
-| `KIN-CONTINUE-004` | draft | P0 | J1、J2 | 手机 | 手机列表：按最近活动排设备、每设备新建、搜索收成放大镜 | 0 |
+| `KIN-CONTINUE-004` | approved | P0 | J1、J2 | 手机 | 手机列表：按最近活动排设备、每设备新建、搜索收成放大镜 | 3 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
 | `KIN-PROJECT-002` | covered | P0 | J4 | Mac/手机 | 项目的工作目录：看清这几个目录为什么在一起，并能增删 | 5 |
 | `KIN-RESULT-002` | covered | P0 | J4 | Mac/手机 | 读懂文件、预览并返回原对话 | 10 |
@@ -25,4 +25,4 @@
 
 ## 汇总
 
-approved 2 · covered 14 · draft 1
+approved 3 · covered 14
