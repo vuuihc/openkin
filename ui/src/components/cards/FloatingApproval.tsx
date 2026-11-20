@@ -111,9 +111,12 @@ export default function FloatingApproval({
   // sit on the row's centre and take the tap. The height is the part the strip
   // render loses; the right-hand gap comes from the container's CSS and stays
   // valid across a resize.
-  const expandedBox = useRef<{ id: string; height: number; rightGap: number; width: number } | null>(
-    null,
-  );
+  const expandedBox = useRef<{
+    id: string;
+    height: number;
+    rightGap: number;
+    width: number;
+  } | null>(null);
 
   // The oldest by its own timestamp rather than by position: the resource
   // happens to publish newest-first, and a card whose queue order depends on

@@ -228,9 +228,7 @@ describe("FloatingApproval over a changed-file row", () => {
 
     // Watch what the reader sees, not internals: each change of the card's
     // presence is one transition. Start from where the reader is — strip only.
-    const presence: boolean[] = [
-      Boolean(view.container.querySelector("[data-kin-approval-card]")),
-    ];
+    const presence: boolean[] = [Boolean(view.container.querySelector("[data-kin-approval-card]"))];
     const observer = new MutationObserver(() => {
       const now = Boolean(view.container.querySelector("[data-kin-approval-card]"));
       if (presence[presence.length - 1] !== now) presence.push(now);
