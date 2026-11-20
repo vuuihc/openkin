@@ -21,6 +21,12 @@
 # archive the file; those cases drive the same archive_sendback() through --archive-check and a
 # source guard keeps the success block calling it.
 #
+# A `closed-*`/`merged-*` group pins the write-time guard: a sendback must not be written for a
+# PR that is already finished. The read at the top of sendback()/sendback_mech() is slug-keyed
+# (sendback_mech has no PR number) and fails open when the state cannot be read. On 2026-11-20
+# #451 was closed at 06:28Z and a sync rework at 06:29:30Z still produced #453 — a third copy of
+# the same one-line doc change — taking a gate slot and a lane round.
+#
 # A second group (`item-*`) lives here because the same merge lane reads the slice id out of the
 # PR body, and both readers must agree: `RSI item: **F1**` used to parse as "" at both, so the
 # lane silently used R-<slug>, slices.py never marked the slice done and the F1-F3 package.json
@@ -57,6 +63,19 @@ set -eu
 printf '%s\n' "$STUB_HEAD_OUT"
 SH
 
+# RSI_PR_STATE_CMD replaces the `gh pr view rsi/<slug> --json state` call. STUB_STATE_OUT is what
+# it prints (default OPEN, i.e. today's path); STUB_STATE_FAIL=1 exits non-zero (a gh failure or
+# timeout); STUB_STATE_EMPTY_OK=1 exits 0 with no output; STUB_STATE_ARG_FILE records the argument
+# the helper received — the slug, because sendback_mech() has no PR number.
+cat > "$T/pr-state-stub.sh" <<'SH'
+#!/bin/bash
+set -u
+[ -n "${STUB_STATE_ARG_FILE:-}" ] && printf '%s' "${1:-UNSET}" > "$STUB_STATE_ARG_FILE"
+[ "${STUB_STATE_FAIL:-0}" = 1 ] && exit 1
+[ "${STUB_STATE_EMPTY_OK:-0}" = 1 ] && exit 0
+printf '%s\n' "${STUB_STATE_OUT:-OPEN}"
+SH
+
 # new_case <name> — fresh control tree and detail file, PAUSE left set on purpose (see header).
 # merge.sh resolves the item parser under RSI_DIR, so each control tree gets its own copy of the
 # module at the deployed path: the seam then fails if a reader looks anywhere else.
@@ -70,6 +89,7 @@ new_case() {
   DET="$T/$CASE.detail.txt"
   printf 'raw failure report for %s\n' "$CASE" > "$DET"
   STUB_HEAD_OUT=""; STUB_HEAD_FAIL=0; STUB_HEAD_EMPTY_OK=0; STUB_HEAD_ARG_FILE=""
+  STUB_STATE_OUT=OPEN; STUB_STATE_FAIL=0; STUB_STATE_EMPTY_OK=0; STUB_STATE_ARG_FILE=""
 }
 
 # run_seam <pr> <sha> — call merge.sh --stale-check the way the merge lane would call sendback().
@@ -78,9 +98,50 @@ new_case() {
 run_seam() {
   RSI_CTRL="$RSI_CTRL" \
   RSI_PR_HEAD_CMD="bash $T/head-stub.sh \"\$1\"" \
+  RSI_PR_STATE_CMD="bash $T/pr-state-stub.sh \"\$1\"" \
+  STUB_HEAD_OUT="$STUB_HEAD_OUT" STUB_HEAD_FAIL="$STUB_HEAD_FAIL" \
+  STUB_HEAD_EMPTY_OK="$STUB_HEAD_EMPTY_OK" STUB_HEAD_ARG_FILE="$STUB_HEAD_ARG_FILE" \
+  STUB_STATE_OUT="$STUB_STATE_OUT" STUB_STATE_FAIL="$STUB_STATE_FAIL" \
+  STUB_STATE_EMPTY_OK="$STUB_STATE_EMPTY_OK" STUB_STATE_ARG_FILE="$STUB_STATE_ARG_FILE" \
+    bash "$MERGE" --stale-check "$SLUG" "$ITEM" "$1" "$2" "$DET" > "$T/$CASE.out" 2>&1
+  RC=$?
+}
+
+# run_seam_no_state <pr> <sha> — the same seam with NO state override at all. The control for
+# open-unchanged: the bytes written on the OPEN path must match what the real (stubbed-head) path
+# writes without any state reader. The real gh path is absent on the NAS lane, so that control is
+# still hermetic there; on a Mac it fails fast for a slug that has no PR and fails open.
+run_seam_no_state() {
+  RSI_CTRL="$RSI_CTRL" \
+  RSI_PR_HEAD_CMD="bash $T/head-stub.sh \"\$1\"" \
   STUB_HEAD_OUT="$STUB_HEAD_OUT" STUB_HEAD_FAIL="$STUB_HEAD_FAIL" \
   STUB_HEAD_EMPTY_OK="$STUB_HEAD_EMPTY_OK" STUB_HEAD_ARG_FILE="$STUB_HEAD_ARG_FILE" \
     bash "$MERGE" --stale-check "$SLUG" "$ITEM" "$1" "$2" "$DET" > "$T/$CASE.out" 2>&1
+  RC=$?
+}
+
+# run_closed_seam <pr> <sha> — call merge.sh --closed-check, the seam that runs the same
+# sendback() before the PAUSE check (the suite leaves $STATE/PAUSE set on purpose).
+run_closed_seam() {
+  RSI_CTRL="$RSI_CTRL" \
+  RSI_PR_HEAD_CMD="bash $T/head-stub.sh \"\$1\"" \
+  RSI_PR_STATE_CMD="bash $T/pr-state-stub.sh \"\$1\"" \
+  STUB_HEAD_OUT="$STUB_HEAD_OUT" STUB_HEAD_FAIL="$STUB_HEAD_FAIL" \
+  STUB_HEAD_EMPTY_OK="$STUB_HEAD_EMPTY_OK" STUB_HEAD_ARG_FILE="$STUB_HEAD_ARG_FILE" \
+  STUB_STATE_OUT="$STUB_STATE_OUT" STUB_STATE_FAIL="$STUB_STATE_FAIL" \
+  STUB_STATE_EMPTY_OK="$STUB_STATE_EMPTY_OK" STUB_STATE_ARG_FILE="$STUB_STATE_ARG_FILE" \
+    bash "$MERGE" --closed-check "$SLUG" "$ITEM" "$1" "$2" "$DET" > "$T/$CASE.out" 2>&1
+  RC=$?
+}
+
+# run_mech_seam — call merge.sh --mech-check (sendback_mech) with the same state stub.
+run_mech_seam() {
+  RSI_CTRL="$RSI_CTRL" \
+  RSI_PR_STATE_CMD="bash $T/pr-state-stub.sh \"\$1\"" \
+  STUB_STATE_OUT="$STUB_STATE_OUT" STUB_STATE_FAIL="$STUB_STATE_FAIL" \
+  STUB_STATE_EMPTY_OK="$STUB_STATE_EMPTY_OK" STUB_STATE_ARG_FILE="$STUB_STATE_ARG_FILE" \
+    bash "$MERGE" --mech-check "$SLUG" "$ITEM" "merge conflict with main" "$DET" \
+      > "$T/$CASE.out" 2>&1
   RC=$?
 }
 
@@ -247,6 +308,108 @@ test_merge_success_archives_sendback() {
     || fail "archive-source-guard: the merge-success block does not call archive_sendback; a merged PR's sendback would outlive it"
 }
 
+# --- closed / merged write guard cases ---------------------------------------------------------
+# A verification can finish minutes after the PR was closed. On 2026-11-20 #451 was closed at
+# 06:28Z and a sync rework at 06:29:30Z still produced #453 — a third copy of the same one-line
+# doc change — taking a gate slot and a lane round. The guard reads the state by slug at both
+# write sites; MERGED/CLOSED archive the failure report under done/ and leave one CEO line instead
+# of writing a sendback; anything else, including an unreadable state, keeps today's behaviour.
+
+# want_finished <case> <state> <pr> <sha> — the shared assertions for CLOSED and MERGED.
+want_finished() {
+  new_case "$1"
+  STUB_STATE_OUT="$2"
+  run_closed_seam "$3" "$4"
+  [ "$RC" -eq 0 ] || fail "$1: seam exited $RC ($(tr '\n' ' ' < "$T/$CASE.out"))"
+  [ ! -e "$(sf)" ] || fail "$1: wrote a sendback for a $2 PR"
+  [ ! -e "$(st)/merge/$SLUG.attempts" ] || fail "$1: bumped the attempt counter ($(att))"
+  [ ! -e "$(st)/NO_MERGE" ] || fail "$1: contributed NO_MERGE"
+  local f="$(st)/sendback/done/$SLUG-closed-${4:0:8}.md"
+  [ -s "$f" ] || fail "$1: no archived failure report at $f"
+  cmp -s "$DET" "$f" || fail "$1: the archived bytes are not the failure report"
+  [ "$(grep -c . "$(st)/needs-ceo.md" 2>/dev/null || echo 0)" = 1 ] \
+    || fail "$1: needs-ceo.md is not exactly one line: $(cat "$(st)/needs-ceo.md" 2>/dev/null)"
+  grep -q "$2" "$(st)/needs-ceo.md" || fail "$1: the CEO line does not name the state: $(cat "$(st)/needs-ceo.md")"
+  grep -q "rsi/$SLUG" "$(st)/needs-ceo.md" || fail "$1: the CEO line does not name the slug"
+  grep -q "#$3" "$(st)/needs-ceo.md" || fail "$1: the CEO line does not name the PR"
+  grep -q "done/$SLUG-closed-${4:0:8}.md" "$(st)/needs-ceo.md" \
+    || fail "$1: the CEO line does not name the archived path"
+  grep -q "$2" "$T/$CASE.out" || fail "$1: no operator log line ($(tr '\n' ' ' < "$T/$CASE.out"))"
+}
+
+test_closed_no_sendback() { want_finished closed_no_sendback CLOSED 451 aaaa1111; }
+test_merged_no_sendback() { want_finished merged_no_sendback MERGED 452 bbbb2222; }
+
+# Fail open: a gh failure, empty output or a notice on stdout is no evidence the PR is finished.
+# Suppressing on it would swallow a real failure every cycle while gate and review re-run.
+test_unreadable_fails_open() {
+  local shape
+  for shape in fail empty garbage; do
+    new_case "unreadable_$shape"
+    case "$shape" in
+      fail) STUB_STATE_FAIL=1 ;;
+      empty) STUB_STATE_EMPTY_OK=1 ;;
+      garbage) STUB_STATE_OUT='warning: token scope' ;;
+    esac
+    run_closed_seam 242 aaaa1111
+    [ "$RC" -eq 0 ] || fail "unreadable-fails-open/$shape: seam exited $RC"
+    [ -s "$(sf)" ] || fail "unreadable-fails-open/$shape: no sendback when the state was unreadable"
+    [ "$(att)" = 1 ] || fail "unreadable-fails-open/$shape: attempts is $(att), want 1"
+    [ -z "$(ls "$(st)/sendback/done/$SLUG-closed-"*.md 2>/dev/null)" ] \
+      || fail "unreadable-fails-open/$shape: archived a sendback for an unreadable state"
+  done
+}
+
+# OPEN keeps today's bytes: compare the OPEN run with a control that has no state override at all.
+test_open_unchanged() {
+  new_case open_unchanged
+  STUB_STATE_OUT=OPEN
+  run_seam 242 aaaa1111
+  [ -s "$(sf)" ] || fail "open-unchanged: no sendback for an OPEN PR"
+  [ "$(att)" = 1 ] || fail "open-unchanged: attempts is $(att), want 1"
+  local want="$T/open_unchanged.want" det="$DET"
+  cp "$(sf)" "$want"
+  new_case open_unchanged_baseline
+  DET="$det"
+  run_seam_no_state 242 aaaa1111
+  [ -s "$(sf)" ] || fail "open-unchanged: the no-state control wrote no sendback"
+  cmp -s "$want" "$(sf)" || fail "open-unchanged: OPEN changed the sendback bytes"
+  [ "$(att)" = 1 ] || fail "open-unchanged: the control's attempts is $(att), want 1"
+}
+
+# The mechanical path has the same guard and no PR number: the read must be slug-keyed, its
+# failure report archived under `unknown` when no SHA exists.
+test_mech_closed_no_sendback() {
+  new_case mech_closed_no_sendback
+  STUB_STATE_OUT=CLOSED
+  run_mech_seam
+  [ "$RC" -eq 0 ] || fail "mech-closed: seam exited $RC"
+  [ ! -e "$(sf)" ] || fail "mech-closed: sendback_mech wrote a sendback for a CLOSED PR"
+  [ ! -e "$(st)/merge/$SLUG.mech" ] || fail "mech-closed: bumped the mech counter"
+  [ -s "$(st)/sendback/done/$SLUG-closed-unknown.md" ] \
+    || fail "mech-closed: no archived failure report under the unknown sha"
+  grep -q 'CLOSED' "$(st)/needs-ceo.md" || fail "mech-closed: no CEO line naming the state"
+  grep -q 'CLOSED' "$T/$CASE.out" || fail "mech-closed: no operator log line"
+}
+
+# Both call sites must ask the one slug-keyed helper: sendback_mech() has no PR number to read.
+test_state_read_is_slug_keyed() {
+  new_case state_slug_keyed
+  STUB_STATE_OUT=OPEN
+  STUB_STATE_ARG_FILE="$T/state_arg-sendback.txt"
+  run_closed_seam 242 aaaa1111
+  [ "$(cat "$T/state_arg-sendback.txt" 2>/dev/null)" = "$SLUG" ] \
+    || fail "state-slug-keyed: sendback() read '$(cat "$T/state_arg-sendback.txt" 2>/dev/null)', want '$SLUG'"
+  [ -s "$(sf)" ] || fail "state-slug-keyed: the OPEN sendback is missing"
+  new_case state_slug_keyed_mech
+  STUB_STATE_OUT=OPEN
+  STUB_STATE_ARG_FILE="$T/state_arg-mech.txt"
+  run_mech_seam
+  [ "$(cat "$T/state_arg-mech.txt" 2>/dev/null)" = "$SLUG" ] \
+    || fail "state-slug-keyed: sendback_mech() read '$(cat "$T/state_arg-mech.txt" 2>/dev/null)', want '$SLUG'"
+  [ -s "$(sf)" ] || fail "state-slug-keyed: the mechanical sendback is missing"
+}
+
 run() {
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   RAN=$((RAN+1))
@@ -344,6 +507,12 @@ run_item archive-merged-moves-file test_archive_merged_moves_file
 run_item archive-noop-without-file test_archive_noop_without_file
 run_item archive-leaves-other-slugs test_archive_leaves_other_slugs
 run_item archive-merge-success-call test_merge_success_archives_sendback
+run_item closed-no-sendback test_closed_no_sendback
+run_item merged-no-sendback test_merged_no_sendback
+run_item unreadable-fails-open test_unreadable_fails_open
+run_item open-unchanged test_open_unchanged
+run_item mech-closed-no-sendback test_mech_closed_no_sendback
+run_item state-read-is-slug-keyed test_state_read_is_slug_keyed
 run_item item-bold test_item_bold
 run_item item-bold-no-space test_item_bold_no_space
 run_item item-underscore test_item_underscore
