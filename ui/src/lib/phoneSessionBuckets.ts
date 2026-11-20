@@ -490,11 +490,23 @@ export function pinnedRowDeviceName(
  * loaded page) has no device of its own; it belongs to this machine, which is
  * the one holding the archive preference. Pinned rows are the page's own
  * section and are left out here — a pin is not a place on a machine.
+ *
+ * The two options separate the phone page from the Mac sidebar, which share
+ * this function but not their reading of a machine. `order: "activity"` is the
+ * phone's answer — what was used last leads, and this machine only breaks a
+ * tie. `includeEmptyDevices` gives a machine that has never run anything its
+ * own heading, which the phone needs because that heading is the only place
+ * from which a chat can be started on that machine. Both default to today's
+ * sidebar behaviour, so the column is unchanged.
  */
 export function groupProjectBucketsByDevice(
   buckets: readonly PhoneProjectBucket[],
   machines: readonly Machine[],
   selfDeviceId: string,
+  {
+    order = "sidebar",
+    includeEmptyDevices = false,
+  }: { order?: "sidebar" | "activity"; includeEmptyDevices?: boolean } = {},
 ): PhoneDeviceGroup[] {
   const selfId = selfDeviceId.trim();
   const known = new Map(machines.map((machine) => [machine.id, machine]));
@@ -556,9 +568,41 @@ export function groupProjectBucketsByDevice(
     });
   }
 
-  // This machine first, then the machines that can take work now, most
-  // recently busy first — the same order the sidebar's device tree uses, so
-  // the two lists do not disagree about which machine leads.
+  if (includeEmptyDevices) {
+    // A machine with no conversations still needs a heading on the phone: the
+    // heading is where its "new chat" action lives, and a machine that just
+    // joined would otherwise be invisible until someone found it in the
+    // composer's picker. This machine is keyed the way its rows were keyed, so
+    // an empty list cannot produce a second "this machine" heading.
+    for (const machine of machines) {
+      const id = machine.isSelf ? selfId : machine.id;
+      if (byDevice.has(id)) continue;
+      groups.push({
+        id,
+        label: machine.label || id,
+        isSelf: id === selfId,
+        online: machine.online,
+        buckets: [],
+        lastActivityAt: 0,
+        count: 0,
+      });
+    }
+  }
+
+  if (order === "activity") {
+    // The phone's order: the machine used most recently leads. This machine is
+    // a tie-break, not a permanent first row — a laptop that has not been
+    // touched for a week should not sit above the one used an hour ago.
+    groups.sort((a, b) => {
+      if (b.lastActivityAt !== a.lastActivityAt) return b.lastActivityAt - a.lastActivityAt;
+      if (a.isSelf !== b.isSelf) return a.isSelf ? -1 : 1;
+      return a.label.localeCompare(b.label);
+    });
+    return groups;
+  }
+
+  // The sidebar's order, unchanged: this machine first, then the machines that
+  // can take work now, most recently busy first.
   groups.sort((a, b) => {
     if (a.isSelf !== b.isSelf) return a.isSelf ? -1 : 1;
     if (a.online !== b.online) return a.online ? -1 : 1;
