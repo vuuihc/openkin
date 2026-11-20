@@ -153,7 +153,7 @@
 
 | 层级 | 位置 | Given / When / Then |
 |---|---|---|
-| 组件 | `ui/src/components/layout/PhoneFooter.shell.dom.test.tsx`（新，含故事 id） | Given 手机宽度 When 渲染底栏 Then 四个链接的可访问名仍是「对话 / 例行任务 / Agent 运维 / 设置」，可见文字不在布局里（sr-only），每个链接高 ≥48px；Given 当前区域 Then 该链接 `aria-current="page"` 且图标容器带选中类 |
+| 组件 | `ui/src/components/layout/PhoneFooter.glass.dom.test.tsx`（新，含故事 id） | Given 手机宽度 When 渲染底栏 Then 四个链接的可访问名仍是「对话 / 例行任务 / Agent 运维 / 设置」，可见文字不在布局里（sr-only），每个链接高 ≥48px；Given 当前区域 Then 该链接 `aria-current="page"` 且图标容器带选中类 |
 | 组件 | 同上 | Given 等待 3 When 渲染 Then 「对话」链接内有「3」徽标且徽标不是独立链接；Given 计数变 0 Then 徽标消失且不显示「0」；Given 深色或减弱透明 Then 底栏仍带玻璃类与回退类，布局不变 |
 | 页面 | `ui/src/components/layout/AppShell.dom.test.tsx` | Given 手机宽度 When 渲染四个 root Then 底栏都在；Given Mac 宽度 Then 底栏不在；Given zen When 开启 Then 底栏隐藏、内容延伸到安全区 |
 | 回归 | `ui/src/components/layout/PhoneNavigation.dom.test.tsx` | Given 任一入口 When 点击 Then 仍走 `phoneTabUrl` / `returnListUrl` 的同一 URL，记忆逻辑不变 |

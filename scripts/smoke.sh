@@ -12,9 +12,11 @@
 #   ./scripts/smoke.sh
 #   KIN_SMOKE_REQUIRE_ASSETS=1 ./scripts/smoke.sh
 #
-# KIN_SMOKE_REQUIRE_ASSETS=1 makes the entry-chunk check strict. CI builds the
-# console first and sets it; a fresh clone's tracked placeholder index points
-# at assets that are deliberately not committed, so the default stays lenient.
+# KIN_SMOKE_REQUIRE_ASSETS=1 makes the asset check strict: the document must
+# name a Vite entry chunk and every /assets/*.js it names must answer 200. CI
+# builds the console first and sets it; a fresh clone's tracked placeholder
+# index points at assets that are deliberately not committed, so the default
+# stays lenient.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -126,10 +128,18 @@ spa="$("${CURL[@]}" "$BASE/sessions")" || fail "GET /sessions"
 grep -q 'id="root"' <<<"$spa" || fail "GET /sessions did not return the console shell"
 
 if [[ "${KIN_SMOKE_REQUIRE_ASSETS:-0}" == "1" ]]; then
-  asset="$(grep -oE '/assets/[a-zA-Z0-9._-]+\.js' <<<"$html" | head -1)"
-  [[ -n "$asset" ]] || fail "the console HTML names no entry chunk"
-  code=$("${CURL[@]}" -o /dev/null -w '%{http_code}' "$BASE$asset")
-  [[ "$code" == "200" ]] || fail "the entry chunk $asset = $code"
+  # Check every script the document names, not just the first: #482 put the
+  # 1.8 kB boot guard ahead of the 1.9 MB entry in <head>, and `head -1` then
+  # kept the gate green while a missing entry left the console an empty shell.
+  # shellcheck source=smoke-assets.sh
+  source "$ROOT/scripts/smoke-assets.sh"
+  ent="$(console_entry "$html")"
+  [[ -n "$ent" ]] || fail "the console HTML names no entry chunk"
+  while IFS= read -r asset; do
+    [[ -n "$asset" ]] || continue
+    code=$("${CURL[@]}" -o /dev/null -w '%{http_code}' "$BASE$asset")
+    [[ "$code" == "200" ]] || fail "the console asset $asset = $code"
+  done < <(console_scripts "$html")
 fi
 
 for path in /api/agents /api/tasks /api/routines /api/settings; do

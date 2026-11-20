@@ -205,6 +205,7 @@
       <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
       <li><strong>最后看决定</strong>：D1、D2 已定；D3、D4 各有一个推荐和代价，页尾有回复模板，只回不同意的编号。</li>
     </ol>
+    <p><strong>阻塞：需要 Ethan 先定跨源能力（给 Hub 加来源白名单，或改用原生桥接）；在此之前不签字、不写代码。</strong></p>
     <p class="note">宽帧在卡片内左右滑动，页面本身不横滚。手机上正文不小于 16px。本页是纯文档：<code>ui/</code> 一个像素未动，实现发生在签字之后的实现 PR。</p>
   </section>
 
@@ -504,12 +505,14 @@
 
     <div class="decision open">
       <h3>D3 整套的存放与校验（待拍板）</h3>
+      <p><strong>阻塞：需要 Ethan 先定跨源能力（给 Hub 加来源白名单，或改用原生桥接）；在此之前不签字、不写代码。</strong></p>
       <p class="rec"><strong>推荐：</strong>App 私有目录按版本存放已验证的整套，清单与摘要随构建产物走；下次开屏从本地加载，只重新比版本与兼容。这样「上一份完整版本还在」由 App 自己保证，不依赖系统缓存的心情。</p>
       <p class="tradeoff"><strong>代价：</strong>本地多占一份控制台；清单格式变更要兼容旧包（旧包读不懂新清单时按「不换」处理）。另一条路是拿系统 WebView 缓存当存储——实现少，但系统会淘汰，无法保证「上一份完整版本还在」，不推荐。</p>
     </div>
 
     <div class="decision open">
       <h3>D4 基线控制台的登录（待拍板）</h3>
+      <p><strong>阻塞：需要 Ethan 先定跨源能力（给 Hub 加来源白名单，或改用原生桥接）；在此之前不签字、不写代码。</strong></p>
       <p class="rec"><strong>推荐：</strong>沿用现有设备令牌（<code>ui/src/api/client.ts:287</code> 的 Bearer），让随包控制台在 App 自己的 origin 上也能调 Hub；cookie 仍只用于 Hub origin。</p>
       <p class="tradeoff"><strong>代价：</strong>令牌要可撤销、不能变成第二个密码；首次安装没连过 Hub 时仍落在连接页。另一条路是原生层代理所有 API / SSE——登录最自然，但流式通道与新请求路径都要维护，第一版不推荐。</p>
     </div>
@@ -520,7 +523,8 @@
     <div class="card reply">
       <p class="note">长按下面这段复制，改掉不同意的；D1、D2 已定，不用回。都同意就复制第一行。</p>
       <pre>同意 KIN-CONTINUE-006：D3、D4 按推荐。
-推翻 D3：……（只写不同意的编号）</pre>
+推翻 D3：……（只写不同意的编号）
+跨源：给 Hub 加来源白名单 / 改用原生桥接 / 暂不做（只保留有界重试）——三选一。</pre>
     </div>
   </section>
 
@@ -528,7 +532,8 @@
     <h2>签字</h2>
     <div class="card sign">
       <p>本页不改任何状态：<code>KIN-CONTINUE-006.md</code> 保持 <code>draft</code>，<code>registry.json</code>、<code>COVERAGE.md</code>、<code>PLAN.md</code>、<code>IA.md</code> 都不动。</p>
-      <p>签字发生在实现 PR：那一版把 <code>KIN-CONTINUE-006.md</code> 从 <code>draft</code> 改成 <code>approved</code>（验收表里的测试以故事 id 命名），并由 CEO 在 <code>rsi/DECISIONS.md</code> 记一行。</p>
+      <p><strong>阻塞：需要 Ethan 先定跨源能力（给 Hub 加来源白名单，或改用原生桥接）；在此之前不签字、不写代码。</strong></p>
+      <p>Ethan 定下跨源后，签字才发生在实现 PR：那一版把 <code>KIN-CONTINUE-006.md</code> 从 <code>draft</code> 改成 <code>approved</code>（验收表里的测试以故事 id 命名），并由 CEO 在 <code>rsi/DECISIONS.md</code> 记一行。</p>
       <p>只有到那一步才动 <code>ui/</code>。Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-CONTINUE-006.figma/</code> 里的 SVG 帧和本页的流程。</p>
     </div>
   </section>

@@ -406,6 +406,15 @@
   .phone-footer-clearance {
     padding-bottom: var(--phone-footer-clearance);
   }
+  /* KIN-CONTINUE-005 — zen hides the bar, so the room the bar reserved goes
+     with it. Without this the last row of a list still stopped 74px above the
+     safe area with nothing there to explain the gap. The pair is 0-2-0 and
+     the rule above is 0-1-0, so order and specificity both win without
+     `!important`; the shell's `.safe-pad` already spends the inset, so the
+     content comes to rest at the safe area rather than at the screen edge. */
+  .kin-zen .phone-footer-clearance {
+    padding-bottom: 0;
+  }
 }
 
 /* A horizontally scrolling strip that says so.

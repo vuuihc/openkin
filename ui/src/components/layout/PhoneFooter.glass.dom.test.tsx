@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import PhoneFooter from "./PhoneFooter";
+import AppShell from "./AppShell";
 import { SettingsLayout } from "../settings/SettingsPrimitives";
 import { setLocale } from "../../i18n";
+import { useAppStore } from "../../store/appStore";
 import type { Approval, UserQuestion } from "../../api/client";
 
 /**
@@ -20,6 +22,7 @@ import type { Approval, UserQuestion } from "../../api/client";
 
 const fixtures = vi.hoisted(() => ({
   pending: { approvals: [] as Approval[], questions: [] as UserQuestion[] },
+  viewport: { width: 1100 },
 }));
 
 vi.mock("../../api/useLiveResources", () => ({
@@ -28,7 +31,48 @@ vi.mock("../../api/useLiveResources", () => ({
     loaded: true,
     error: null,
   }),
+  // `AppShell` reads both; the ancestor case below renders it whole so the
+  // footer's containing block is the real column, not a test wrapper.
+  useTaskList: () => ({ data: [], loaded: true, error: null, pageFull: false, loading: false }),
+  useTaskResource: () => ({ data: { task: undefined }, loaded: true, error: null }),
 }));
+
+// The shell answers `useMinWidth(768)` and `useMinWidth(1280)` from one number,
+// so a case can say "phone" and get the phone shell.
+vi.mock("../../hooks/useMinWidth", () => ({
+  useMinWidth: (px: number) => fixtures.viewport.width >= px,
+}));
+
+vi.mock("../../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/client")>();
+  return {
+    ...actual,
+    listAgentSessionsPage: vi.fn(async () => ({ items: [], next_cursor: undefined })),
+    listProjects: vi.fn(async () => []),
+    ensureProject: vi.fn(async () => ({ id: "project-1", name: "alpha" })),
+    getSettings: vi.fn(async () => ({})),
+    getUsageSummary: vi.fn(async () => []),
+    listAgents: vi.fn(async () => []),
+    serverVersion: vi.fn().mockResolvedValue({ desktop_id: "desktop-hub", desktop_name: "hub" }),
+    listMachines: vi.fn().mockResolvedValue([]),
+  };
+});
+
+vi.mock("../../hooks/useMachines", () => ({
+  useMachines: () => ({
+    machines: [
+      { id: "node-1", label: "workstation", isSelf: true, online: true, roots: [], agents: [] },
+    ],
+    loading: false,
+    failed: false,
+  }),
+}));
+
+vi.mock("../../hooks/useApprovalDecision", () => ({
+  useApprovalDecision: () => ({ busy: {}, decide: vi.fn() }),
+}));
+vi.mock("../../lib/desktop", () => ({ isKinDesktop: vi.fn(() => false) }));
+vi.mock("../terminal/TerminalPanel", () => ({ default: () => null }));
 
 function approval(id: string, taskId: string): Approval {
   return {
@@ -52,6 +96,9 @@ function footer(initialEntry = "/sessions") {
 beforeEach(() => {
   setLocale("en");
   fixtures.pending = { approvals: [], questions: [] };
+  fixtures.viewport.width = 1100;
+  useAppStore.getState().setWSStatus("connected");
+  useAppStore.setState({ shownPanel: null });
 });
 
 describe("KIN-CONTINUE-005 phone footer", () => {
@@ -78,6 +125,52 @@ describe("KIN-CONTINUE-005 phone footer", () => {
     ]);
 
     expect(document.querySelectorAll("[data-phone-footer] a[aria-current='page']")).toHaveLength(1);
+  });
+
+  it("KIN-CONTINUE-005 every footer entry is at least a 48px tap target", () => {
+    footer();
+
+    const links = [...document.querySelectorAll("[data-phone-footer] a")];
+    expect(links).toHaveLength(4);
+    // `min-h-12` is 3rem, the 48px TASTE asks of a phone control. The bar's own
+    // `min-h-[var(--phone-footer-bar)]` is the surface height; this row is the
+    // one a thumb lands on, so it is pinned on every entry rather than on one.
+    for (const link of links) {
+      expect(link.className.split(/\s+/)).toContain("min-h-12");
+    }
+  });
+
+  it("KIN-CONTINUE-005 positions the footer against the shell column, not the viewport", () => {
+    fixtures.viewport.width = 390;
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell pendingApprovals={[]}>
+          <div />
+        </AppShell>
+      </MemoryRouter>,
+    );
+
+    const bar = document.querySelector("[data-phone-footer]") as HTMLElement;
+    expect(bar).toBeTruthy();
+    // `absolute` is only meaningful relative to the nearest positioned
+    // ancestor. That ancestor has to be the shell's content column, which is
+    // `relative`; with the bar anchored to the viewport instead, a phone
+    // keyboard or a browser chrome resize would leave it floating over the
+    // wrong edge. The mutant that moves `relative` off this column is the
+    // proof this case is load-bearing.
+    expect(bar.className).toContain("absolute");
+    const column = bar.parentElement as HTMLElement;
+    expect(column).toBeTruthy();
+    const classes = column.className.split(/\s+/);
+    for (const name of ["relative", "flex", "flex-1", "flex-col", "min-w-0", "min-h-0"]) {
+      expect(classes, `the footer's containing block is the content column (${name})`).toContain(
+        name,
+      );
+    }
+    // Directly inside it: a wrapper between the two would become the offset
+    // parent for anything positioned inside the column. And the column itself
+    // is the shell root's child, the one that spends the safe-area inset.
+    expect(column.parentElement?.className).toContain("safe-pad");
   });
 
   it("KIN-CONTINUE-005 draws the bar as one floating glass surface over the content", () => {
