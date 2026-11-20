@@ -16,7 +16,7 @@
     "role_alert": {"label": "role=\"alert\"", "occurrences": 26, "files": 12},
     "use_anchored_panel": {"label": "useAnchoredPanel", "occurrences": 5, "files": 2},
     "create_portal": {"label": "createPortal", "occurrences": 8, "files": 4},
-    "push_toast": {"label": "pushToast", "occurrences": 137, "files": 17},
+    "push_toast": {"label": "pushToast", "occurrences": 134, "files": 17},
     "rounded_border_surface": {"label": "rounded-* + border 表面", "occurrences": 117, "files": 51},
     "magic_z": {"label": "z-[n] 数字层级", "occurrences": 4, "files": 4}
   }

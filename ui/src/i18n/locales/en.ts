@@ -416,8 +416,6 @@ const en: MessageTree = {
     moveQueuedUpNamed: "Move “{text}” up",
     moveQueuedDown: "Move down",
     moveQueuedDownNamed: "Move “{text}” down",
-    queueOrderChanged: "The queue changed — showing the latest order",
-    queueMoveFailed: "Could not reorder the queue",
     canceled: "Canceled",
     timedOut: "Timed out",
     task: "task",

@@ -399,8 +399,6 @@ const zh = {
     moveQueuedUpNamed: "上移“{text}”",
     moveQueuedDown: "下移",
     moveQueuedDownNamed: "下移“{text}”",
-    queueOrderChanged: "队列顺序已变化，已显示最新顺序",
-    queueMoveFailed: "调整排队顺序失败",
     canceled: "已取消",
     timedOut: "已超时",
     task: "任务",
