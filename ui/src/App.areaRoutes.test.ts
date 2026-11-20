@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { listProjects, type Project } from "./api/client";
 import App from "./App";
 import { setLocale } from "./i18n";
+import { resetProjectsCache } from "./lib/projectsCache";
 import { useAppStore } from "./store/appStore";
 
 /**
@@ -96,6 +97,9 @@ beforeEach(() => {
   setLocale("en");
   useAppStore.setState({ auth: { status: "ok" } });
   vi.mocked(listProjects).mockResolvedValue([]);
+  // This file mounts `/projects` more than once; the kept block must not leak
+  // from one route test into the next.
+  resetProjectsCache();
 });
 
 describe("area routes", () => {
