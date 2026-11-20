@@ -177,18 +177,26 @@ claim_check_gate() { # <pr-number> <slug> <item> <worktree> <body-file> <changed
 }
 
 # ------------------------------------------------- generated files (pure functions of the tree)
-# A merge of origin/main can conflict in files nobody wrote by hand: the embedded console entry and
-# the UI inventory baseline. Bouncing a PR back to a rework lane for those burns one of its three
-# attempts and taxes every future Astryx slice, so resolve them here by regenerating. Anything else
-# — another conflicted path, a failed regeneration, or a baseline that would grow — returns 1 and
-# the caller writes the usual "merge conflict with main" sendback.
+# A merge of origin/main can conflict in files nobody wrote by hand: the embedded console entry,
+# the UI inventory baseline, and the story ledger pair (COVERAGE.md, plus PLAN.md's generated
+# `状态：` sentence; both come from docs/product/stories/registry.json). Two story-carrying PRs in
+# flight conflicted on exactly those two ledger files while registry.json and IA.md auto-merged
+# (#467/#468, 2026-11-20), and bouncing one back for that burns one of its three attempts and
+# 10-30 minutes of lane time. So resolve them here by regenerating. PLAN.md is only half
+# generated: plan_guard_ok() refuses rather than dropping the other side's handwritten prose.
+# Anything else — another conflicted path, a failed regeneration, a baseline that would grow, or
+# a PLAN.md whose handwritten lines differ — returns 1 and the caller writes the usual sendback.
 GEN_DIST=web/dist/index.html
 GEN_INV=scripts/ui-inventory-baseline.json
-# Both regenerators are overridable so rsi/runtime/tests/test-merge-gen-resolve.sh can run in a
+GEN_COVERAGE=docs/product/stories/COVERAGE.md
+GEN_PLAN=docs/product/stories/PLAN.md
+GEN_STORIES="$GEN_COVERAGE $GEN_PLAN"   # the pair regenerated together (the followup's name)
+# Every regenerator is overridable so rsi/runtime/tests/test-merge-gen-resolve.sh can run in a
 # temp repo with stubs; the defaults are the commands a person would run.
 DIST_BUILD="${RSI_DIST_BUILD_CMD:-npm run build}"
 INV_UPDATE="${RSI_INV_UPDATE_CMD:-python3 scripts/check-ui-inventory.py --update}"
 INV_CHECK="${RSI_INV_CHECK_CMD:-python3 scripts/check-ui-inventory.py}"
+STORIES_UPDATE="${RSI_STORIES_CMD:-python3 scripts/stories.py --write-coverage}"
 # The live PR head, overridable so rsi/runtime/tests/test-loop-sendback-stale.sh can stub it.
 PR_HEAD_CMD="${RSI_PR_HEAD_CMD:-}"   # test seam; empty = the real gh call
 pr_head() { # <pr-number> -> prints the live head oid, non-zero on failure (an override reads it as $1)
@@ -260,19 +268,67 @@ PY
   rc=$?; rm -f "$base"; return $rc
 }
 
+# PLAN.md is only half generated: stories.py rewrites the counts span inside the one `状态：`
+# sentence — from `状态：` through the closing `）` — and leaves everything else, including the
+# sentence's handwritten tail on that line, alone. `checkout --ours` would silently drop
+# origin/main's words, so before touching the tree, require the two sides to be identical once
+# that exact span is normalised away; every other byte, tails included, compares literally.
+# Anything else (a missing side, a delete, a real prose edit) returns 1 and the caller sends back.
+plan_guard_ok() { # <worktree> -> 0 identical but for the generated 状态 span; 1 fail closed
+  local wt="$1" ours theirs rc
+  ours="$(mktemp "${TMPDIR:-/tmp}/rsi-plan-ours.XXXXXX")" || return 1
+  theirs="$(mktemp "${TMPDIR:-/tmp}/rsi-plan-theirs.XXXXXX")" || { rm -f "$ours"; return 1; }
+  if ! $GIT -C "$wt" show "HEAD:$GEN_PLAN" > "$ours" 2>/dev/null \
+     || ! $GIT -C "$wt" show "origin/main:$GEN_PLAN" > "$theirs" 2>/dev/null; then
+    rm -f "$ours" "$theirs"; return 1
+  fi
+  python3 - "$ours" "$theirs" <<'PY'
+import re, sys
+
+# The same span scripts/stories.py rewrites (its PLAN_STATUS_RE): the counts and their
+# parenthesised breakdown, from `状态：` to the closing `）`. The tail after it is handwritten
+# (real PLAN.md has one), so it is compared literally. A `状态：` line this cannot parse is
+# likewise compared literally, which refuses rather than dropping a person's words.
+PLAN_STATUS_RE = re.compile(
+    r"^状态：(?:\d+|[零〇一二两三四五六七八九十百]+)\s*条合同已写，"
+    r"(?:\d+|[零〇一二两三四五六七八九十百]+)\s*条已签字"
+    r"（[^）\n]*）",
+    re.M,
+)
+
+def norm(path):
+    with open(path, encoding="utf-8") as fh:
+        # count=1: rewrite_plan_counts() splices the first match only, so a second status-shaped
+        # line is handwritten and must compare literally.
+        return PLAN_STATUS_RE.sub("<status>", fh.read(), count=1)
+
+sys.exit(0 if norm(sys.argv[1]) == norm(sys.argv[2]) else 1)
+PY
+  rc=$?; rm -f "$ours" "$theirs"; return $rc
+}
+
 gen_resolve() { # worktree -> 0 resolved and committed; 1 anything else (caller aborts and sends back)
-  local wt="$1" un p has_dist=0 has_inv=0
+  local wt="$1" un p has_dist=0 has_inv=0 has_cov=0 has_plan=0
   un="$($GIT -C "$wt" diff --name-only --diff-filter=U)" || return 1
   [ -n "$un" ] || return 1
   while IFS= read -r p; do
     [ -z "$p" ] && continue
-    [ "$p" = "$GEN_DIST" ] || [ "$p" = "$GEN_INV" ] || return 1   # a source conflict is a person's job
+    case "$p" in
+      "$GEN_DIST"|"$GEN_INV"|"$GEN_COVERAGE"|"$GEN_PLAN") ;;
+      *) return 1 ;;   # a source conflict is a person's job
+    esac
   done <<< "$un"
   echo "$un" | grep -qxF "$GEN_DIST" && has_dist=1
   echo "$un" | grep -qxF "$GEN_INV" && has_inv=1
-  # Take ours as the base, then REGENERATE BEFORE COMMITTING: a failed build or a growing ratchet
-  # must leave `git merge --abort` possible, and that only restores an uncommitted merge. The
-  # regenerated files ride in the merge commit itself, so the tree is clean when this returns.
+  echo "$un" | grep -qxF "$GEN_COVERAGE" && has_cov=1
+  echo "$un" | grep -qxF "$GEN_PLAN" && has_plan=1
+  # The half-generated file is checked BEFORE any `checkout --ours`: a refusal must leave the merge
+  # exactly as git left it, so the caller's `git merge --abort` still restores the pre-merge tree.
+  if [ $has_plan -eq 1 ]; then plan_guard_ok "$wt" || return 1; fi
+  # Take ours as the base, then REGENERATE BEFORE COMMITTING: a failed build, a growing ratchet or
+  # a rejected ledger must leave `git merge --abort` possible, and that only restores an
+  # uncommitted merge. The regenerated files ride in the merge commit itself, so the tree is clean
+  # when this returns.
   while IFS= read -r p; do
     [ -z "$p" ] && continue
     $GIT -C "$wt" checkout --ours -- "$p" || return 1
@@ -286,6 +342,13 @@ gen_resolve() { # worktree -> 0 resolved and committed; 1 anything else (caller 
   if [ $has_inv -eq 1 ]; then
     ( cd "$wt" && bash -c "$INV_UPDATE" ) >/dev/null 2>&1 || return 1
     ratchet_ok "$wt" || return 1
+  fi
+  if [ $has_cov -eq 1 ] || [ $has_plan -eq 1 ]; then
+    # Fail closed: --write-coverage exits 1 when the regenerated ledger still has a problem, and
+    # that is a sendback, not a merge. It may rewrite PLAN.md's count sentence even when only
+    # COVERAGE.md conflicted, so stage the whole pair path-limited or the tree ends up dirty.
+    ( cd "$wt" && bash -c "$STORIES_UPDATE" ) >/dev/null 2>&1 || return 1
+    $GIT -C "$wt" add -- "$GEN_COVERAGE" "$GEN_PLAN" || return 1
   fi
   while IFS= read -r p; do
     [ -z "$p" ] && continue
