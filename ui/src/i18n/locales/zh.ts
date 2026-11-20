@@ -389,6 +389,7 @@ const zh = {
     withdrawNamed: "撤回“{text}”",
     withdrawFailed: "撤回失败",
     withdrawnNote: "一条排队中的消息已在发送前撤回",
+    interruptedNote: "已打断上一轮",
     editQueued: "编辑排队消息",
     editQueuedNamed: "编辑“{text}”",
     editNeedsEmptyComposer: "输入框里已有草稿，清空后才能编辑排队中的消息",

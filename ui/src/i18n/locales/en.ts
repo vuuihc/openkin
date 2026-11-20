@@ -404,6 +404,7 @@ const en: MessageTree = {
     withdrawNamed: "Withdraw “{text}”",
     withdrawFailed: "Could not withdraw the message",
     withdrawnNote: "A queued message was withdrawn before it was sent",
+    interruptedNote: "Interrupted the previous round",
     editQueued: "Edit queued message",
     editQueuedNamed: "Edit “{text}”",
     editNeedsEmptyComposer: "The composer already has a draft — clear it to edit a queued message",
