@@ -967,13 +967,12 @@ seen: 2
 发生了什么：一夜两次同一形状。① #504 改了 `FloatingApproval.tsx` 的 `stripOnly` 组合，
 却把 `ui/src/pages/floatingApprovalWiring.test.ts:72` 的旧正则留在原地，gate 先红在
 「PR 足迹之外」，返工才补上新断言；② #506 把 `task.notFound` 改成「对话不存在」，
-`ui/src/pages/TaskSessionHost.handoff.dom.test.tsx:317` 仍断言 `Task not found`，本地只跑
-brief 点名的文件，CI `build` 在 head `1849750d` 上 1 failed / 3713 passed。
+`ui/src/pages/TaskSessionHost.handoff.dom.test.tsx:317` 仍断言 `Task not found`——它不在
+PR 改的 8 个文件里，CI `build` 在 head `1849750d` 上 1 failed / 3713 passed。
 
-为什么没拦住：两条 lane 的验收只看 brief 里的路径；独立复核也没把「旧字符串/旧接线的
-每一处字面断言」当成本次 diff 的一部分（#506 的复核给了 PASS）。gate 的
-outside-footprint 分类按目录判断，#504 的失败因此被当成环境噪声，掩盖了它其实是本 PR
-的陈旧断言。
+为什么没拦住：两条 lane 的验收与独立复核都没有把「旧字符串/旧接线的每一处字面断言」
+当成本次 diff 的一部分（#506 的复核给了 PASS）。gate 的 outside-footprint 分类按目录
+判断，#504 的失败因此被当成环境噪声，掩盖了它其实是本 PR 的陈旧断言。
 
 规则：改一个用户可见字符串、或改一个被测试钉住的接线常量时，先 `grep -rn` 旧值在测试里
 的每一处字面断言，把它们与源码改动放进同一个提交；PR 体写一句「旧值的断言已全部更新 /
