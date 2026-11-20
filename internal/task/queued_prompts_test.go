@@ -396,6 +396,35 @@ func TestAFailedDeliveryNamesTheMessageItLost(t *testing.T) {
 	}
 }
 
+// waitReported polls the transcript until an error event contains needle and returns
+// the events it found. The turn reports its undelivered queue *after* it goes
+// terminal (engine.go: settlePromptsQueuedDuringFinalization is the last thing the
+// turn does), so a read taken the instant the status flips can legally miss it: this
+// test failed 1 in 30 local runs and 2 of 2 CI runs on 2026-11-20 with exactly that
+// read. The guarantee under test is that the report exists, not that it lands before
+// the status push; whether it should land first is a product question recorded in
+// rsi/state/followups.md rather than settled by a flaky assertion.
+func waitReported(t *testing.T, e *Engine, id, needle string, timeout time.Duration) []store.Event {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		evs, err := e.Events(context.Background(), id, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ev := range evs {
+			if ev.Type == "error" && strings.Contains(string(ev.Payload), needle) {
+				return evs
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no %q report within %s (%d events): the queue was stranded by a workspace failure without being reported",
+				needle, timeout, len(evs))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // A run that ends with the workspace unmerged delivers nothing, and says so: the
 // messages stay queued for whatever the user does next (a prompt, a retry), but
 // nothing should look like it is still on its way.
@@ -434,19 +463,7 @@ func TestAWorkspaceFailureReportsThePromptsItCouldNotDeliver(t *testing.T) {
 	}
 
 	_ = waitStatus(t, e, task.ID, StatusFailed, 5*time.Second)
-	evs, err := e.Events(ctx, task.ID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var told bool
-	for _, ev := range evs {
-		if ev.Type == "error" && strings.Contains(string(ev.Payload), "not delivered") {
-			told = true
-		}
-	}
-	if !told {
-		t.Fatal("the queue was stranded by a workspace failure without being reported")
-	}
+	_ = waitReported(t, e, task.ID, "not delivered", 2*time.Second)
 	// Stranded, not discarded: the message is still the user's to have answered, and
 	// the next prompt this task accepts delivers from the head.
 	if left, err := st.ListPendingPrompts(ctx, task.ID); err != nil || len(left) != 1 {
