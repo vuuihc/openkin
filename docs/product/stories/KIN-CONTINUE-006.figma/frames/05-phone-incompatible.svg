@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844" role="img" aria-label="手机与 Hub 不兼容：当前控制台仍在，弹层只有一个主行动">
+<title>05 手机与 Hub 不兼容：一个主行动，旧控制台仍开着</title>
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff" rx="24"/>
+<rect width="390" height="24" fill="#f6f6f8" rx="24"/>
+<rect y="14" width="390" height="10" fill="#f6f6f8"/>
+<text x="16" y="17" font-size="11" fill="#555">9:41</text>
+<text x="374" y="17" font-size="10" fill="#6b6b6b" text-anchor="end">KIN-CONTINUE-006 · 05 两侧不兼容</text>
+
+<text x="16" y="60" font-size="19" font-weight="600" fill="#1a1a1a">对话</text>
+<circle cx="350" cy="58" r="18" fill="#f6f6f8"/>
+<circle cx="347" cy="55" r="5.5" fill="none" stroke="#555" stroke-width="1.5"/>
+<line x1="351" y1="59" x2="355" y2="63" stroke="#555" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="16" y1="88" x2="374" y2="88" stroke="#eeeeee"/>
+
+<rect x="16" y="100" width="358" height="34" rx="10" fill="#fff1f0" stroke="#b42318"/>
+<circle cx="30" cy="117" r="4" fill="#b42318"/>
+<text x="42" y="121" font-size="11" fill="#8a1c13">本地版本 1.9.0 · 与这台 Hub 不能一起工作</text>
+
+<g opacity="0.4">
+<circle cx="18" cy="162" r="4" fill="#9a9a9a"/>
+<text x="28" y="166" font-size="12" font-weight="600" fill="#1a1a1a">机器 A · 上次同步 2 分钟前</text>
+<text x="16" y="196" font-size="12" font-weight="600" fill="#1a1a1a">▾ 项目 alpha</text>
+<rect x="16" y="208" width="358" height="48" rx="12" fill="#f6f6f8"/>
+<text x="30" y="230" font-size="12.5" font-weight="600" fill="#1a1a1a">整理发布说明</text>
+<text x="30" y="246" font-size="10.5" fill="#6b6b6b">刚刚 · 正在运行</text>
+<rect x="16" y="264" width="358" height="48" rx="12" fill="#ffffff" stroke="#eeeeee"/>
+<text x="30" y="286" font-size="12.5" font-weight="600" fill="#1a1a1a">把截图归档</text>
+<text x="30" y="302" font-size="10.5" fill="#6b6b6b">昨天 · 等你批准</text>
+<rect x="16" y="320" width="358" height="48" rx="12" fill="#ffffff" stroke="#eeeeee"/>
+<text x="30" y="342" font-size="12.5" font-weight="600" fill="#1a1a1a">核对构建日志</text>
+<text x="30" y="358" font-size="10.5" fill="#6b6b6b">3 天前 · 已完成</text>
+</g>
+
+<path d="M0 454 q0 -24 24 -24 h342 q24 0 24 24 v390 h-390 z" fill="#ffffff" stroke="#dedee3"/>
+<rect x="171" y="444" width="48" height="4" rx="2" fill="#d5d5dd"/>
+<text x="24" y="486" font-size="16" font-weight="600" fill="#1a1a1a">这台 Hub 需要更新的 App</text>
+<text x="24" y="512" font-size="11.5" fill="#555">App 1.9.0 · Hub 2.0.0</text>
+<text x="24" y="532" font-size="11.5" fill="#555">这台 Hub 要求 App 2.0 或更新。当前控制台仍然开着，</text>
+<text x="24" y="550" font-size="11.5" fill="#555">可以看已经加载的内容，但无法同步新消息。</text>
+
+<rect x="24" y="578" width="342" height="46" rx="12" fill="#1f6feb"/>
+<text x="195" y="606" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle">更新 App</text>
+<text x="195" y="652" font-size="11.5" fill="#555" text-anchor="middle">稍后</text>
+
+<line x1="24" y1="676" x2="366" y2="676" stroke="#eeeeee"/>
+<text x="24" y="700" font-size="10.5" font-weight="600" fill="#1a1a1a">只有一个主行动</text>
+<text x="24" y="718" font-size="10.5" fill="#555">「稍后」不是同等按钮；Esc / 返回先关这张卡，不退出控制台。</text>
+<text x="24" y="736" font-size="10.5" fill="#555">读不到 Hub 版本时写「无法确认」，不判不兼容、不锁死。</text>
+
+<rect x="24" y="760" width="342" height="56" rx="12" fill="#f6f6f8" stroke="#d5d5dd" stroke-dasharray="4 3"/>
+<text x="38" y="782" font-size="11" font-weight="600" fill="#1a1a1a">App 太旧：更新 App</text>
+<text x="38" y="800" font-size="10.5" fill="#555">Hub 太旧：同一个位置写「这台 Hub 需要更新」+ 去设置 / 复制地址。</text>
+<rect x="0.5" y="0.5" width="389" height="843" rx="23.5" fill="none" stroke="#bbbbbb"/>
+</g>
+</svg>
