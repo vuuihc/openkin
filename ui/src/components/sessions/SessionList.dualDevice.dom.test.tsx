@@ -159,8 +159,14 @@ describe("a project menu on a path two machines share", () => {
         "/work/shared",
       ]),
     );
-    // The local heading is put away; the NAS copy of the same path is not.
-    await waitFor(() => expect(screen.queryByRole("region", { name: /This machine/ })).toBeNull());
+    // The local project is put away; the NAS copy of the same path is not.
+    // KIN-CONTINUE-004 keeps the machine heading itself: a machine with no
+    // visible project is still a place to start a chat.
+    await waitFor(() =>
+      expect(
+        within(section(/This machine/)).queryByRole("button", { name: "shared" }),
+      ).toBeNull(),
+    );
     const remote = section(/Studio/);
     expect(within(remote).getByRole("button", { name: "shared" })).toBeTruthy();
   });
