@@ -1,0 +1,23 @@
+[
+  {
+    "label": "overlap compares only the run's start minute, so a run that began inside another's interval buckets as level 1",
+    "file": "rsi/runtime/pace.py",
+    "test": "bash rsi/runtime/tests/test-pace.sh",
+    "old": "                        if j != i and start2 < end and end2 > start)",
+    "new": "                        if j != i and start2 == start)"
+  },
+  {
+    "label": "cached and zero-length runs enter the duration buckets, so a cached pass moves the level and the p50",
+    "file": "rsi/runtime/pace.py",
+    "test": "bash rsi/runtime/tests/test-pace.sh",
+    "old": "             for pr, end, dur, gate, tier in in_window if gate == \"ran\" and dur > 0]",
+    "new": "             for pr, end, dur, gate, tier in in_window if gate != \"?\" and dur >= 0]"
+  },
+  {
+    "label": "tier pairs with the first verifier_started instead of the latest, so a retiered PR keeps its old tier",
+    "file": "rsi/runtime/pace.py",
+    "test": "bash rsi/runtime/tests/test-pace.sh",
+    "old": "            last_start[pr] = t.group(1) if t else \"unknown\"",
+    "new": "            last_start.setdefault(pr, t.group(1) if t else \"unknown\")"
+  }
+]

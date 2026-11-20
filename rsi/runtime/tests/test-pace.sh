@@ -96,6 +96,36 @@ eqp() {
   [ "$got" = "$2" ] || { printf '%s\n' "$LAST" >&2; fail "$CASE: $1=$got, want $2"; }
 }
 
+# jgeti <dotted.path> — jgetp with numeric parts indexing lists, so a case can
+# read concurrency.24h.levels.0.n directly.
+jgeti() {
+  printf '%s' "$LAST" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("<invalid-json>"); raise SystemExit
+cur = d
+for part in sys.argv[1].split("."):
+    try:
+        cur = cur[int(part)] if isinstance(cur, list) else cur[part]
+    except (KeyError, IndexError, ValueError):
+        print("<missing>"); raise SystemExit
+if cur is None:
+    print("null")
+elif isinstance(cur, (dict, list)):
+    print(json.dumps(cur, sort_keys=True))
+else:
+    print(cur)
+' "$1"
+}
+
+# eqi <dotted.path> <want> — eq with list indices allowed.
+eqi() {
+  local got; got="$(jgeti "$1")"
+  [ "$got" = "$2" ] || { printf '%s\n' "$LAST" >&2; fail "$CASE: $1=$got, want $2"; }
+}
+
 # stamps <offset-min>... — `YYYY-MM-DD HH:MM` for each offset from one shared
 # now, so relative stage gaps are exact even across a minute boundary.
 stamps() {
@@ -383,6 +413,152 @@ printf '%s\n' "$OUT" | tail -n 1 | grep -q '^pace verdict: ' \
   || { printf '%s\n' "$OUT" >&2; fail "$CASE: verdict is not the last line"; }
 grep -qE 'pre_verify|verify_to_merge|latency by stage' <<<"$OUT" \
   && { printf '%s\n' "$OUT" >&2; fail "$CASE: latency text leaked into default output"; }
+pass "$CASE"
+
+# 14. Two 6m gate=ran runs ending the same minute share the whole interval, so
+#     each sees one other run: both land at level 2, and the duration table is
+#     the pair (p50 6m), not two level-1 singletons.
+CASE=concurrency-two-overlapping-runs-bucket-as-2
+R="$T/r14"; S="$T/s14"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+END="$(stamps -6)"
+printf '%s #101 a verify=6m gate=ran review=ran\n%s #102 b verify=6m gate=ran review=ran\n' \
+  "$END" "$END" > "$S/merge/cycles.log"
+run_json "$R" "$S" --concurrency
+eqi concurrency.24h.runs 2
+eqi concurrency.24h.bucketed 2
+eqi concurrency.24h.cached 0
+eqi concurrency.24h.levels.0.level 2
+eqi concurrency.24h.levels.0.n 2
+eqi concurrency.24h.levels.0.p50 6
+eqi concurrency.24h.levels.0.tiers.unknown 2
+pass "$CASE"
+
+# 15. A 5m gate=ran run alone is level 1; a verify=0m gate=cached line is counted
+#     in cached and must not enter the duration bucket (it would otherwise add a
+#     zero-length run and make the solo run level 2).
+CASE=concurrency-solo-run-buckets-as-1-and-cached-runs-are-not-bucketed
+R="$T/r15"; S="$T/s15"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+ST="$(stamps -5 -4)"; V="$(sed -n 1p <<<"$ST")"; C="$(sed -n 2p <<<"$ST")"
+printf '%s #201 a verify=5m gate=ran review=ran\n%s #202 b verify=0m gate=cached review=cached\n' \
+  "$V" "$C" > "$S/merge/cycles.log"
+run_json "$R" "$S" --concurrency
+eqi concurrency.24h.runs 2
+eqi concurrency.24h.bucketed 1
+eqi concurrency.24h.cached 1
+eqi concurrency.24h.levels.0.level 1
+eqi concurrency.24h.levels.0.n 1
+eqi concurrency.24h.levels.0.p50 5
+eqi concurrency.24h.levels.0.max 5
+pass "$CASE"
+
+# 16. Overlap is the whole interval, not the start minute. A ran 10:00-10:20
+#     (20m, ends -10); B ran 10:19-10:25 (6m, ends -9). B starts inside A's
+#     interval but not at A's start minute, so an implementation that compares
+#     only starts reports two level-1 runs.
+CASE=concurrency-overlap-uses-the-whole-interval-not-just-the-start
+R="$T/r16"; S="$T/s16"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+ST="$(stamps -10 -9)"; A="$(sed -n 1p <<<"$ST")"; B="$(sed -n 2p <<<"$ST")"
+printf '%s #301 a verify=20m gate=ran review=ran\n%s #302 b verify=6m gate=ran review=ran\n' \
+  "$A" "$B" > "$S/merge/cycles.log"
+run_json "$R" "$S" --concurrency
+eqi concurrency.24h.levels.0.level 2
+eqi concurrency.24h.levels.0.n 2
+eqi concurrency.24h.levels.0.p50 6
+eqi concurrency.24h.levels.0.p90 20
+pass "$CASE"
+
+# 17. Tier comes from the latest verifier_started at or before the verify line,
+#     not the first one. One PR starts small at -30 and large at -10; the run
+#     ending -25 is small, the run ending -6 is large. Pairing with the first
+#     start would report two small runs.
+CASE=concurrency-tiers-come-from-the-latest-start-per-pr
+R="$T/r17"; S="$T/s17"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+ST="$(stamps -30 -25 -10 -6)"
+S1="$(sed -n 1p <<<"$ST")"; V1="$(sed -n 2p <<<"$ST")"
+S2="$(sed -n 3p <<<"$ST")"; V2="$(sed -n 4p <<<"$ST")"
+printf '%s #401 a verifier_started queue_wait=0m tier=small\n%s #401 a verify=5m gate=ran review=ran\n%s #401 a verifier_started queue_wait=0m tier=large\n%s #401 a verify=4m gate=ran review=ran\n' \
+  "$S1" "$V1" "$S2" "$V2" > "$S/merge/cycles.log"
+run_json "$R" "$S" --concurrency
+eqi concurrency.24h.levels.0.level 1
+eqi concurrency.24h.levels.0.n 2
+eqi concurrency.24h.levels.0.tiers.small 1
+eqi concurrency.24h.levels.0.tiers.large 1
+eqi concurrency.24h.levels.0.tiers.unknown 0
+pass "$CASE"
+
+# 18. No readable cycles.log (missing, then a directory where the file should
+#     be): zero runs and an empty level list, never a made-up bucket and never
+#     a traceback.
+CASE=concurrency-missing-log-reports-zero-not-a-number
+R="$T/r18"; S="$T/s18"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+run_json "$R" "$S" --concurrency
+eqi concurrency.24h.runs 0
+eqi concurrency.24h.bucketed 0
+eqi concurrency.24h.cached 0
+eqi concurrency.24h.levels '[]'
+eqi concurrency.7d.levels '[]'
+rmdir "$S/merge"; mkdir -p "$S/merge/cycles.log"
+run_json "$R" "$S" --concurrency
+eqi concurrency.24h.runs 0
+eqi concurrency.24h.levels '[]'
+LAST="$(python3 "$PACE" --concurrency --repo "$R" --state "$S" 2>&1)"; RC=$?
+case "$RC" in 0|3) ;; *) printf '%s\n' "$LAST" >&2; fail "$CASE: pace exited $RC";; esac
+grep -q '^concurrency by verifier overlap, 24h (runs=0 bucketed=0 cached=0;' <<<"$LAST" \
+  || { printf '%s\n' "$LAST" >&2; fail "$CASE: empty-window header"; }
+grep -qi 'traceback' <<<"$LAST" \
+  && { printf '%s\n' "$LAST" >&2; fail "$CASE: traceback"; }
+pass "$CASE"
+
+# 19. The flag is additive. No flag and --latency keep exactly their old JSON
+#     keys and human lines; --concurrency adds one JSON key and one text block
+#     after the verdict, and does not change a line above it. The two runs here
+#     touch endpoints (-5) without overlapping, so both are level 1 and the
+#     touching-endpoint rule is pinned by the p50 of 4m, not 15m.
+CASE=concurrency-flag-leaves-default-and-latency-output-alone
+R="$T/r19"; S="$T/s19"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+ST="$(stamps -20 -5 -1)"
+V1="$(sed -n 1p <<<"$ST")"; V2="$(sed -n 2p <<<"$ST")"; M="$(sed -n 3p <<<"$ST")"
+printf '%s #501 a verify=15m gate=ran review=ran\n%s #502 b verify=4m gate=ran review=ran\n%s #501 a MERGED open_to_merge=25m\n' \
+  "$V1" "$V2" "$M" > "$S/merge/cycles.log"
+keys() { printf '%s' "$LAST" | python3 -c 'import json,sys; print(",".join(sorted(json.load(sys.stdin))))'; }
+run_json "$R" "$S"
+KEYS_N="$(keys)"
+eq concurrency '<missing>'
+eqp latency '<missing>'
+OUT_N="$(python3 "$PACE" --repo "$R" --state "$S" 2>&1)"
+run_json "$R" "$S" --latency
+KEYS_L="$(keys)"
+eq concurrency '<missing>'
+eqp latency.24h.merged_n 1
+OUT_L="$(python3 "$PACE" --latency --repo "$R" --state "$S" 2>&1)"
+run_json "$R" "$S" --concurrency
+KEYS_C="$(keys)"
+eqp latency '<missing>'
+EXPECT_L="$(python3 -c 'import sys; print(",".join(sorted(set(sys.argv[1].split(",")) | {"latency"})))' "$KEYS_N")"
+EXPECT_C="$(python3 -c 'import sys; print(",".join(sorted(set(sys.argv[1].split(",")) | {"concurrency"})))' "$KEYS_N")"
+[ "$KEYS_L" = "$EXPECT_L" ] || { printf '%s\n' "$LAST" >&2; fail "$CASE: --latency JSON keys: $KEYS_L"; }
+[ "$KEYS_C" = "$EXPECT_C" ] || { printf '%s\n' "$LAST" >&2; fail "$CASE: --concurrency JSON keys: $KEYS_C"; }
+eqi concurrency.24h.runs 2
+eqi concurrency.24h.levels.0.level 1
+OUT_C="$(python3 "$PACE" --concurrency --repo "$R" --state "$S" 2>&1)"
+norm() { sed -E 's/left=[0-9.]+h/left=Hh/' <<<"$1"; }
+N="$(printf '%s\n' "$OUT_N" | wc -l | tr -d ' ')"
+[ "$(norm "$(printf '%s\n' "$OUT_C" | sed -n "1,${N}p")")" = "$(norm "$OUT_N")" ] \
+  || { printf '%s\n--- with flag ---\n%s\n' "$OUT_N" "$OUT_C" >&2; fail "$CASE: --concurrency moved the default lines"; }
+[ "$(norm "$(printf '%s\n' "$OUT_L" | sed -n "1,${N}p")")" = "$(norm "$OUT_N")" ] \
+  || { printf '%s\n--- latency ---\n%s\n' "$OUT_N" "$OUT_L" >&2; fail "$CASE: --latency moved the default lines"; }
+grep -q 'concurrency by verifier overlap' <<<"$OUT_N$OUT_L" \
+  && { printf '%s\n' "$OUT_L" >&2; fail "$CASE: concurrency text leaked into no-flag/--latency output"; }
+grep -q '^concurrency by verifier overlap, 24h (runs=2 bucketed=2 cached=0;' <<<"$OUT_C" \
+  || { printf '%s\n' "$OUT_C" >&2; fail "$CASE: concurrency header"; }
+grep -q '^  level 1  n=2 p50=4m p90=15m max=15m tiers=small:0 medium:0 large:0 unknown:2$' <<<"$OUT_C" \
+  || { printf '%s\n' "$OUT_C" >&2; fail "$CASE: concurrency level line"; }
 pass "$CASE"
 
 echo "all cases passed"
