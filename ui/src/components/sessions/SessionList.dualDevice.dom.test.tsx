@@ -43,7 +43,10 @@ vi.mock("../../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/client")>();
   return {
     ...actual,
-    listAgentSessionsPage: vi.fn(async () => ({ items: [] as AgentSession[], next_cursor: undefined })),
+    listAgentSessionsPage: vi.fn(async () => ({
+      items: [] as AgentSession[],
+      next_cursor: undefined,
+    })),
     listProjects: vi.fn(async () => fixtures.projects),
     listTasks: vi.fn(async () => []),
     ensureProject: vi.fn(async () => ({ id: "p", name: "shared" })),
@@ -159,8 +162,12 @@ describe("a project menu on a path two machines share", () => {
         "/work/shared",
       ]),
     );
-    // The local heading is put away; the NAS copy of the same path is not.
-    await waitFor(() => expect(screen.queryByRole("region", { name: /This machine/ })).toBeNull());
+    // The local project is put away; the NAS copy of the same path is not.
+    // KIN-CONTINUE-004 keeps the machine heading itself: a machine with no
+    // visible project is still a place to start a chat.
+    await waitFor(() =>
+      expect(within(section(/This machine/)).queryByRole("button", { name: "shared" })).toBeNull(),
+    );
     const remote = section(/Studio/);
     expect(within(remote).getByRole("button", { name: "shared" })).toBeTruthy();
   });
@@ -187,9 +194,7 @@ describe("a project menu on a path two machines share", () => {
     // project. They share a path but not an identity, so the remote row has
     // no Restore and the empty local heading still does.
     const remote = section(/Studio/);
-    expect(
-      await within(remote).findByRole("button", { name: /remote-put-away/ }),
-    ).toBeTruthy();
+    expect(await within(remote).findByRole("button", { name: /remote-put-away/ })).toBeTruthy();
     expect(within(remote).queryByRole("button", { name: /Restore/ })).toBeNull();
 
     const local = section(/This machine/);
