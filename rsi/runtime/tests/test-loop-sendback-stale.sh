@@ -392,6 +392,20 @@ test_mech_closed_no_sendback() {
   grep -q 'CLOSED' "$T/$CASE.out" || fail "mech-closed: no operator log line"
 }
 
+# A suppressed sendback is not a rework round: the gate+review and UX-gate blocks skip their
+# `patched` scorecard row when SB_SUPPRESSED is set (the weekly fold maps that cell into its own
+# bucket). The closed/merged path must set the same flag the head-moved suppression does, or the
+# weekly fold records a rework that never happened — the phantom-record class this guard exists
+# to stop. No seam reaches those blocks, so this pins the flag at its source.
+test_finished_sets_sb_suppressed() {
+  local f="$ROOT/rsi/runtime/merge.sh"
+  [ -f "$f" ] || fail "suppressed-flag: missing $f"
+  sed -n '/^pr_finished()/,/^}/p' "$f" | grep -q 'SB_SUPPRESSED=1' \
+    || fail "suppressed-flag: pr_finished() does not set SB_SUPPRESSED; a closed/merged PR would still record a patched scorecard row"
+  [ "$(grep -cF '[ -z "${SB_SUPPRESSED:-}" ] && scorecard_row' "$f")" = 2 ] \
+    || fail "suppressed-flag: expected two scorecard_row consumers guarded by SB_SUPPRESSED"
+}
+
 # Both call sites must ask the one slug-keyed helper: sendback_mech() has no PR number to read.
 test_state_read_is_slug_keyed() {
   new_case state_slug_keyed
@@ -512,6 +526,7 @@ run_item merged-no-sendback test_merged_no_sendback
 run_item unreadable-fails-open test_unreadable_fails_open
 run_item open-unchanged test_open_unchanged
 run_item mech-closed-no-sendback test_mech_closed_no_sendback
+run_item finished-sets-suppressed test_finished_sets_sb_suppressed
 run_item state-read-is-slug-keyed test_state_read_is_slug_keyed
 run_item item-bold test_item_bold
 run_item item-bold-no-space test_item_bold_no_space

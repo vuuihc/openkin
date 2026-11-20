@@ -142,7 +142,7 @@ pr_finished() { # <slug> <pr-number|""> <sha> <detail-file> -> 0 finished and ar
   printf -- '- %s %srsi/%s: PR is %s; sendback suppressed (archived sendback/done/%s-closed-%s.md)\n' \
     "$(date '+%F %H:%M')" "${n:+PR #$n }" "$slug" "$pstate" "$slug" "$sha8" >> "$STATE/needs-ceo.md"
   say "$slug: PR $pstate; sendback suppressed (archived sendback/done/$slug-closed-$sha8.md)"
-  KICK=1
+  KICK=1; SB_SUPPRESSED=1
   return 0
 }
 
