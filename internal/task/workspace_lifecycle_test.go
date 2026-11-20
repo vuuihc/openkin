@@ -328,7 +328,7 @@ func TestFollowUpDuringFinalizationIsDeliveredWhenFinalizationEnds(t *testing.T)
 		t.Fatalf("finish run: %v", err)
 	}
 	e.clearWorkspaceCompletion(task.ID, "execution-1")
-	e.settlePromptsQueuedDuringFinalization(ctx, task.ID, "")
+	e.settlePromptsQueuedDuringFinalization(ctx, task.ID, "", 0)
 
 	waitForDeliveredPrompt(t, st, ad, task.ID, "beta")
 }
@@ -361,7 +361,7 @@ func TestFollowUpDuringFinalizationIsDeliveredAfterTheTaskEnded(t *testing.T) {
 	}
 
 	e.clearWorkspaceCompletion(task.ID, "execution-1")
-	e.settlePromptsQueuedDuringFinalization(ctx, task.ID, "")
+	e.settlePromptsQueuedDuringFinalization(ctx, task.ID, "", 0)
 
 	waitForDeliveredPrompt(t, st, ad, task.ID, "beta")
 }
@@ -440,19 +440,11 @@ func TestInterruptedTurnThatFailsToFinalizeReportsPromptsQueuedDuringFinalizatio
 	close(rt.release)
 	_ = waitStatus(t, e, task.ID, StatusFailed, 3*time.Second)
 
-	// The report lands after the status write, so wait for it instead of reading
-	// the events once the task row says failed.
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		n := reportsNaming(t, st, task.ID, 0,
-			"queued prompt(s) not delivered: workspace finalization failed")
-		if n == 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("reports=%d want 1: a message accepted during a failed finalization must be reported, not parked", n)
-		}
-		time.Sleep(10 * time.Millisecond)
+	// The status and the report commit together, so a reader that can see the
+	// failed row can already read why the message was not delivered. One read.
+	if n := reportsNaming(t, st, task.ID, 0,
+		"queued prompt(s) not delivered: workspace finalization failed"); n != 1 {
+		t.Fatalf("reports=%d want 1: a message accepted during a failed finalization must be reported with the status that stranded it", n)
 	}
 }
 
