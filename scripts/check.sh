@@ -226,6 +226,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-walk-mutant.sh || return 1
   bash rsi/runtime/tests/test-mutants-restore.sh || return 1
   bash rsi/runtime/tests/test-journeys-smoke-assets.sh || return 1
+  bash rsi/runtime/tests/test-smoke-assets.sh || return 1
   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest >/dev/null || return 1
   bash rsi/runtime/tests/test-ux-walker.sh || return 1
   bash rsi/runtime/tests/test-ux-walk-timeout.sh || return 1
