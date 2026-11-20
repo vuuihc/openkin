@@ -663,6 +663,34 @@
         "ui/src/components/layout/phoneFooterGlass.test.ts"
       ],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-CONTINUE-006",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J1"
+      ],
+      "surfaces": [
+        "phone"
+      ],
+      "title": "手机开屏：先用自己的控制台打开，新版本在后台整套换",
+      "file": "docs/product/stories/KIN-CONTINUE-006.md",
+      "surface": "手机 App 的开屏控制台",
+      "ownerPaths": [
+        "mobile/capacitor.config.ts",
+        "mobile/ios/App/App/KinHubConfigPlugin.swift",
+        "mobile/ios/App/App/KinBridgeViewController.swift",
+        "ui/index.html",
+        "ui/src/main.tsx",
+        "ui/src/lib/consoleVersion.ts",
+        "ui/src/lib/bootProbe.ts",
+        "ui/src/api/client.ts",
+        "ui/src/i18n/locales/en.ts",
+        "ui/src/i18n/locales/zh.ts"
+      ],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }

@@ -95,7 +95,7 @@
 |---|---|---|
 | 控制台设置 `/settings` | Hub | Agent、模型、权限等运行默认值（KIN-SETTINGS-001 的面；该故事于 2026-11-17 CEO 代签，D1–D8 已定，设计页 5 帧）；远程 / 通知两个 tab 已于 2026-11-11（R0b-3）删除，relay / APNs 仍是 daemon API；通知只保留 iPhone 首次授权的一行；`?tab=operations` 托管 Agent 运维（原 `AgentsPage` 主体，N4 已接管），E4a 已由 #141 `71402048` 交付、`/agents` 与 `/usage` 都 `replace` 到它；分区 ID 仍是 `general` / `agents` / `providers` / `routing` / `advanced` / `operations`，`?tab=agents` 永远是本地 Agent 与角色 |
 | 菜单栏托盘（Mac） | 桌面壳 | 常驻版本行「Kin X」；检查更新、下载（进度）、安装（open dmg + 确认退出）、删除已下载的安装包；只连 github.com 官方 Releases，不做后台轮询 |
-| 手机 | 无此面 | PWA 由 Hub 重新部署时自然更新；手机上没有桌面壳的升级问题 |
+| 手机 | 手机 App 自己（`KIN-CONTINUE-006`） | 开屏先跑随包的控制台（基线），新版本在后台整套取回、校验（版本 / Hub API 兼容 / 字节完整）后原子换入，并保留上一份完整版本；取不回、只取到一半或两侧不兼容时继续用基线，用一句话说明，不转圈。浏览器 PWA 仍由 Hub 重新部署时自然更新 |
 
 - Agent 目录最多 10 个产品（同一产品的 native / ACP / CLI 只算一个）；发现新 agent 不自动加入目录，必须由用户确认；加入目录不导入历史会话，会话只在用户手动导入时进来（2026-11-11，KIN-AGENTS-001 签字）。交付：目录按浏览器保存，发现区只列可托管且已安装的产品，Mac 表格对齐帧的 9 列（2026-11-11 交付）。
 - 桌面壳的更新是壳的事：Hub 不认识壳，控制台 SPA 里永远不出现升级入口。
