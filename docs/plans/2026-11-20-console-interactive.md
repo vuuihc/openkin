@@ -213,10 +213,10 @@ At 390×844 and again at 1100×760: 400 ms after the document loaded the splash
 was up (`#root .kin-boot` = 1, the iOS wheel = 1, no text); 1800 ms later the
 console had committed (`kin-boot` = 0, wheel = 0), showing the conversation list
 and navigation, with one held request at each size, no dialog, and no page
-error. The route was released afterwards. Shots live in the lane's gitignored
-state: `rsi/state/shots/console-handover/{390,1100}-{splash,console}.png`.
+error. The route was released afterwards. The four shots were captured on the
+lane's machine and are not committed.
 
-
+### What it does not prove
 
 - **Dev shell, not the packaged `.dmg`/asar build.** A packaged app may parse
   and unpack differently.
@@ -233,7 +233,7 @@ state: `rsi/state/shots/console-handover/{390,1100}-{splash,console}.png`.
 - **Millisecond resolution.** `Date.now()` on the main process floors each mark
   to a whole millisecond; gaps of a few milliseconds are not meaningful.
 - **No before/after claim.** The measurement rows in the first table were taken
-  before this delivery and are kept as the baseline; the re-measured rows below
+  before this delivery and are kept as the baseline; the re-measured rows above
   are the same command on the branch.
 - **The one-time-link exchange is still unbounded.** `signInWithLink` keeps its
   explicit failure path and no deadline of its own: a Hub that accepts the POST
@@ -249,15 +249,34 @@ state: `rsi/state/shots/console-handover/{390,1100}-{splash,console}.png`.
 
 ## Reproduce
 
+The number is one command, from the repository root:
+
 ```bash
+./scripts/desktop-startup.sh --runs 3 --json
+```
+
+It builds the console, `./kin` and the desktop shell, then boots three
+throwaway daemons and prints every mark and median as JSON — the values the
+tables above quote. `--runs 1` is the same command with one launch. It needs
+no prior build step and no additional flag.
+
+The rest is optional evidence. Each command below guards a claim; none of them
+produces the number:
+
+```bash
+# Guard: the parser needs all nine marks and rejects a gap. Builds nothing,
+# launches no Electron, opens no network.
 bash scripts/desktop-startup.sh --selftest          # 9 parsed marks, gap rejected
-bash scripts/desktop-startup.sh --runs 3 --json     # the tables above
+
+# Guards: removing the once-per-launch/URL rule or the deadline turns a suite
+# red; the script restores each file byte for byte.
 ./scripts/mutants.py desktop/src/console-interactive.mutants.json
 ./scripts/mutants.py ui/src/lib/bootProbe.mutants.json   # 6/6 red
 
-# Claim check: the bound is in the code and the doc, and the never-answers
-# test exists.
-rg -n 'PRE_RENDER_DEADLINE_MS|1500' ui/src/lib/bootProbe.ts docs/plans/2026-11-20-console-interactive.md
+# Guard: the bound is in the code and the doc, and the never-answers test
+# exists. The symbol alone is grepped in the code, so prose cannot satisfy it.
+rg -n 'PRE_RENDER_DEADLINE_MS' ui/src/lib/bootProbe.ts
+rg -n 'PRE_RENDER_DEADLINE_MS = 1500' docs/plans/2026-11-20-console-interactive.md
 cd ui && npx vitest run src/lib/bootProbe.test.ts -t 'never answers'
 ```
 
