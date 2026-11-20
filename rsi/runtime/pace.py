@@ -4,7 +4,8 @@
 Local only (no network, no daemon): reads the loop's own ledgers and answers
 "are we on pace for the phase target, and is the pipeline flowing?".
 
-  python3 rsi/runtime/pace.py [--min-per-day N] [--json] [--latency] [--repo DIR] [--state DIR]
+  python3 rsi/runtime/pace.py [--min-per-day N] [--json] [--latency] [--concurrency]
+                              [--repo DIR] [--state DIR]
 
 `--latency` adds a per-stage split of the same open->merge wait, for the 24h and
 7d windows: verify is every verifier run at or before MERGED summed (a reworked
@@ -19,6 +20,16 @@ stage here is minute resolution; a PR whose summed verify + verify_to_merge
 exceeds open_to_merge is counted as n_negative and kept out of pre_verify rather
 than printing a negative stage. Without the flag the output is byte-identical
 to before.
+
+`--concurrency` groups the same verify= lines by overlap instead of by PR: a run
+that ended at minute T with verify=NNm occupied [T-NN, T], and its level is 1
+plus the number of other gate=ran runs with a positive duration whose interval
+overlaps that whole interval (endpoints that merely touch do not overlap).
+gate=cached and verify=0m runs are counted in cached, never as durations; the
+tier is read from the last verifier_started line for the same PR before the
+run's line, else unknown. The text block is printed after the latency block, or
+after the verdict when --latency is absent; without the flag the output is
+byte-identical to before.
 
 Unshipped follows the release gate (release-check.sh), not the clock: the older of
 the node=/hub= commits in state/last_release is the baseline, and every subject
@@ -60,6 +71,7 @@ LATENCY = re.compile(r"open_to_merge=(\d+)m")
 PRNUM = re.compile(r"#(\d+)\b")
 VERIFY = re.compile(r"\bverify=(\d+)m")
 GATE = re.compile(r"\bgate=(ran|cached)\b")
+TIER = re.compile(r"\btier=(small|medium|large)\b")
 QUEUE_WAIT = re.compile(r"\bqueue_wait=(\d+)m")
 PHASE = re.compile(r"<!--\s*phase:\s*(\S+)\s+target=(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})\s*-->")
 PR_SUBJECT = re.compile(r"\(#[0-9]+\)$")
@@ -185,11 +197,69 @@ def latency_split(state, since):
             "verify_gate_cached": stage_stats(cached)}
 
 
+def concurrency_split(state, since):
+    """Bucket completed gate runs by how many other runs overlapped them.
+
+    A verify=NNm line at minute T completed a run that filled [T-NN, T]; the
+    interval comes from the line, so it includes gate-lock wait, review, sync
+    and CI, not only the gate step. A run's level is 1 + the number of other
+    gate=ran runs with a positive duration whose interval overlaps its whole
+    interval (start2 < end and end2 > start; endpoints that merely touch do
+    not overlap). gate=cached and verify=0m runs are not durations — everything
+    not bucketed is counted in cached, so a cached pass cannot pose as a fast
+    run. Tier comes from the last verifier_started line for the same PR before
+    this verify line in the log, else unknown; log order settles the 29
+    same-minute start/verify pairs a plain timestamp join would read backwards.
+    Minute resolution, and only runs whose verify line is inside the window
+    take part.
+    """
+    last_start, runs = {}, []
+    for ln in lines(state / "merge" / "cycles.log"):
+        when = minute(ln)
+        n = PRNUM.search(ln)
+        if when is None or not n:
+            continue
+        pr = int(n.group(1))
+        if " verifier_started " in ln:
+            t = TIER.search(ln)
+            last_start[pr] = t.group(1) if t else "unknown"
+        elif " MERGED " not in ln:
+            v = VERIFY.search(ln)
+            if v:
+                g = GATE.search(ln)
+                runs.append((pr, when, int(v.group(1)), g.group(1) if g else "?",
+                             last_start.get(pr, "unknown")))
+
+    in_window = [r for r in runs if r[1] >= since]
+    spans = [(pr, end - timedelta(minutes=dur), end, dur, tier)
+             for pr, end, dur, gate, tier in in_window if gate == "ran" and dur > 0]
+    levels = {}
+    for i, (pr, start, end, dur, tier) in enumerate(spans):
+        level = 1 + sum(1 for j, (_, start2, end2, _, _) in enumerate(spans)
+                        if j != i and start2 < end and end2 > start)
+        levels.setdefault(level, []).append((dur, tier))
+
+    buckets = []
+    for level in sorted(levels):
+        vals = [dur for dur, _ in levels[level]]
+        tiers = {"small": 0, "medium": 0, "large": 0, "unknown": 0}
+        for _, tier in levels[level]:
+            tiers[tier] += 1
+        buckets.append({"level": level, "n": len(vals),
+                        "p50": pct(vals, 0.5), "p90": pct(vals, 0.9),
+                        "max": max(vals), "tiers": tiers})
+    return {"runs": len(in_window), "bucketed": len(spans),
+            "cached": len(in_window) - len(spans), "levels": buckets}
+
+
+def mins(v):
+    """A duration in minutes, or `-` when the sample is empty."""
+    return f"{v}m" if v is not None else "-"
+
+
 def stage_line(label, s, extra=""):
-    def fmt(v):
-        return f"{v}m" if v is not None else "-"
-    return (f"  {label:<18} n={s['n']} p50={fmt(s['p50'])} "
-            f"p90={fmt(s['p90'])} max={fmt(s['max'])}{extra}")
+    return (f"  {label:<18} n={s['n']} p50={mins(s['p50'])} "
+            f"p90={mins(s['p90'])} max={mins(s['max'])}{extra}")
 
 
 def print_latency(lat):
@@ -207,6 +277,20 @@ def print_latency(lat):
                          f"/{d['merged_n']} merged (missing != 0)"))
         print(stage_line("verify gate=ran", d["verify_gate_ran"]))
         print(stage_line("verify gate=cached", d["verify_gate_cached"]))
+
+
+def print_concurrency(conc):
+    for window in ("24h", "7d"):
+        d = conc[window]
+        print(f"concurrency by verifier overlap, {window} "
+              f"(runs={d['runs']} bucketed={d['bucketed']} cached={d['cached']}; "
+              f"minute resolution; gate=ran only):")
+        for lv in d["levels"]:
+            t = lv["tiers"]
+            print(f"  level {lv['level']}  n={lv['n']} p50={mins(lv['p50'])} "
+                  f"p90={mins(lv['p90'])} max={mins(lv['max'])} "
+                  f"tiers=small:{t['small']} medium:{t['medium']} "
+                  f"large:{t['large']} unknown:{t['unknown']}")
 
 
 def last_release(state):
@@ -292,6 +376,8 @@ def main():
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--latency", action="store_true",
                     help="add the pre_verify / verify / verify_to_merge split (24h and 7d)")
+    ap.add_argument("--concurrency", action="store_true",
+                    help="bucket completed gate runs by overlapping verifier runs (24h and 7d)")
     ap.add_argument("--repo", default=None, help="checkout to count from (default: this repo)")
     ap.add_argument("--state", default=None, help="state dir (default: rsi/state beside this script)")
     a = ap.parse_args()
@@ -343,6 +429,10 @@ def main():
         data["latency"] = {"resolution_min": 1,
                            "24h": latency_split(state, day_ago),
                            "7d": latency_split(state, week_ago)}
+    if a.concurrency:
+        data["concurrency"] = {"resolution_min": 1,
+                               "24h": concurrency_split(state, day_ago),
+                               "7d": concurrency_split(state, week_ago)}
     if a.json:
         print(json.dumps(data, ensure_ascii=False))
         return 0 if verdict != "BEHIND" else 3
@@ -358,6 +448,8 @@ def main():
           + (f" ({len(m24)} merges/24h vs min {a.min_per_day:g})" if name else " (no phase marker in GOAL.md)"))
     if a.latency:
         print_latency(data["latency"])
+    if a.concurrency:
+        print_concurrency(data["concurrency"])
     return 0 if verdict != "BEHIND" else 3
 
 
