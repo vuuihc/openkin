@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import PhoneFooter from "./PhoneFooter";
 import AppShell from "./AppShell";
 import { SettingsLayout } from "../settings/SettingsPrimitives";
-import { setLocale } from "../../i18n";
+import { setLocale, t } from "../../i18n";
 import { useAppStore } from "../../store/appStore";
 import type { Approval, UserQuestion } from "../../api/client";
 
@@ -173,6 +173,23 @@ describe("KIN-CONTINUE-005 phone footer", () => {
     expect(column.parentElement?.className).toContain("safe-pad");
   });
 
+  it("KIN-CONTINUE-005 leaves the Mac shell without a footer", () => {
+    fixtures.viewport.width = 1100;
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell pendingApprovals={[]}>
+          <div />
+        </AppShell>
+      </MemoryRouter>,
+    );
+
+    // Acceptance row 3, Mac half: the footer belongs to the phone shell, and a
+    // Mac keeps its area rail instead (story `各面差异`). Asserting the rail
+    // first keeps this case from passing on a tree that rendered nothing.
+    expect(screen.getByRole("navigation", { name: t("nav.areas") })).toBeTruthy();
+    expect(document.querySelector("[data-phone-footer]")).toBeNull();
+  });
+
   it("KIN-CONTINUE-005 draws the bar as one floating glass surface over the content", () => {
     footer();
 
@@ -247,6 +264,23 @@ describe("KIN-CONTINUE-005 phone footer", () => {
     const quiet = screen.getByRole("link", { name: "Chats" });
     expect(quiet.textContent).not.toContain("waiting for you");
     expect(quiet.textContent).not.toContain("0");
+  });
+
+  it("KIN-CONTINUE-005 shows a single waiting count as itself, not a cap", () => {
+    fixtures.pending = {
+      approvals: [approval("a1", "t1"), approval("a2", "t2"), approval("a3", "t3")],
+      questions: [],
+    };
+    footer();
+
+    const chats = screen.getByRole("link", { name: /Chats/ });
+    // Acceptance row 2 says a waiting count of 3 renders "3"; the 9+ cap is a
+    // separate layout decision and must not swallow the single digit.
+    expect(within(chats).getByText("3")).toBeTruthy();
+    expect(within(chats).getByText("3 waiting for you")).toBeTruthy();
+    expect(chats.textContent).not.toContain("9+");
+    // Still a mark inside the link, never a second control.
+    expect(chats.querySelectorAll("button")).toHaveLength(0);
   });
 
   it("KIN-CONTINUE-005 keeps the current area as a filled capsule and the rest linear", () => {

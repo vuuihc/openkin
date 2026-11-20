@@ -155,7 +155,7 @@
 |---|---|---|
 | 组件 | `ui/src/components/layout/PhoneFooter.glass.dom.test.tsx`（新，含故事 id） | Given 手机宽度 When 渲染底栏 Then 四个链接的可访问名仍是「对话 / 例行任务 / Agent 运维 / 设置」，可见文字不在布局里（sr-only），每个链接高 ≥48px；Given 当前区域 Then 该链接 `aria-current="page"` 且图标容器带选中类 |
 | 组件 | 同上 | Given 等待 3 When 渲染 Then 「对话」链接内有「3」徽标且徽标不是独立链接；Given 计数变 0 Then 徽标消失且不显示「0」；Given 深色或减弱透明 Then 底栏仍带玻璃类与回退类，布局不变 |
-| 页面 | `ui/src/components/layout/AppShell.dom.test.tsx` | Given 手机宽度 When 渲染四个 root Then 底栏都在；Given Mac 宽度 Then 底栏不在；Given zen When 开启 Then 底栏隐藏、内容延伸到安全区 |
+| 页面 | `ui/src/components/layout/PhoneFooter.glass.dom.test.tsx`（渲染真 `AppShell`）与 `phoneFooterGlass.test.ts`（zen 规则）；四个 root 另见 `PhoneNavigation.dom.test.tsx` | Given 手机宽度 When 渲染四个 root Then 底栏都在；Given Mac 宽度 Then 底栏不在；Given zen When 开启 Then 底栏隐藏、内容延伸到安全区 |
 | 回归 | `ui/src/components/layout/PhoneNavigation.dom.test.tsx` | Given 任一入口 When 点击 Then 仍走 `phoneTabUrl` / `returnListUrl` 的同一 URL，记忆逻辑不变 |
 | 真浏览器 | 390（非零安全区，CDP 注入）/ 1100，四个区域 | 390：逐个点四个图标、看选中胶囊与等待数；搜索展开弹键盘、收键盘；开 zen；切深色与减弱透明。1100：Mac 左栏与今天一致 |
 | 视觉 | 390 / 1100 截图 + 真机 | 390 对照 `01-phone-footer-default.svg` … `05-phone-footer-dark-fallback.svg`；1100 对照 `06-mac-unchanged.svg`；至少一台最老受支持 iPhone 滚动测 blur 帧率 |
@@ -164,10 +164,24 @@
 
 ## 证据
 
-- 之前：本轮不新增截图（docs-only）；现状事实见「现在」的代码行号与调研 §二。之后：交付时补 390（含非零安全区）/ 1100 前后截图、真机滚动与 J1 走查；本轮的证据是 SVG 帧。
+2026-11-21 逐行核对验收表（`R-story-ledger-005`）。六行结论：
+
+| 行 | 结论 | 证据 |
+|---|---|---|
+| 1 组件：四个可访问名、sr-only、≥48px、选中态 | 绿 | `PhoneFooter.glass.dom.test.tsx`：`KIN-CONTINUE-005 keeps four icon-only entries with the four accessible names`（四个名字、`sr-only`、恰好一个 `aria-current="page"`）；`KIN-CONTINUE-005 every footer entry is at least a 48px tap target`（四条链接都带 `min-h-12`）；`KIN-CONTINUE-005 keeps the current area as a filled capsule and the rest linear`（`bg-kin-blue` + `text-kin-on-brand` + `rounded-full`，其余无实底）。`min-h-12` 与定位祖先的 mutant 见 `ui/src/components/layout/phoneFooter.mutants.json`。 |
+| 2 组件：等待数、归零、深色/减弱透明 | 绿 | 同上：`KIN-CONTINUE-005 marks the waiting count on Chats and drops it at zero`（12 → `9+`，可访问名 `12 waiting for you`；0 时无徽标、不显示 `0`）；`KIN-CONTINUE-005 shows a single waiting count as itself, not a cap`（3 → `3`，不是 `9+`，徽标不是第二个控件）；`KIN-CONTINUE-005 draws the bar as one floating glass surface over the content`（`kin-glass`、无 `bg-kin-sidebar`）。回退是 CSS 媒体查询而不是 DOM 类：`phoneFooterGlass.test.ts` 的 `KIN-CONTINUE-005 keeps a near-opaque fallback under reduced transparency and no backdrop-filter` 钉住 `[data-phone-footer]` 的 0.94 + 1px 描边，`.kin-glass` 0.74 不动；深色只换 token，不换类与布局。 |
+| 3 页面：手机四个 root、Mac 无底栏、zen 隐藏 | 绿 | 手机：`PhoneNavigation.dom.test.tsx` 的 `carries how many things wait on the reader`（列表 root）、`keeps Chats, Routines, Agent Ops and Settings on every root page`（例行任务 root）、`keeps the tabs on /settings?tab=operations` 与 `keeps the tabs on /settings`；`PhoneFooter.glass.dom.test.tsx` 的 `positions the footer against the shell column, not the viewport` 在 390 渲染真 `AppShell`。Mac：同文件新增 `KIN-CONTINUE-005 leaves the Mac shell without a footer`（1100 有区域栏、无 `[data-phone-footer]`）。zen：`phoneFooterGlass.test.ts` 的 `KIN-CONTINUE-005 zen hides the bar without leaving its clearance`；走查 `rsi/state/shots/phone-shell-nits/measurements.json`：zen 开时条高 0、scroller `padding-bottom 0px`、内容底 810 = 安全区边（844 − 34）。 |
+| 4 回归：四个入口仍回记住的 URL | 绿 | `PhoneNavigation.dom.test.tsx` 的 `returns each tab to where the reader last was in that area`（依次点例行任务 / 设置 / Agent 运维，URL 为 `/routines`、`/settings`、`/settings?tab=operations`）、两条 `keeps the tabs on …`（`aria-current` 跟 `tab=` 参数）、`the tab bar stays on area roots only`。`PhoneFooter.tsx` 仍只经 `phoneTabUrl` / `returnListUrl` 取目标，本条没有改记忆逻辑。 |
+| 5 真浏览器：390 / 1100、四个区域 | 部分——真机键盘与系统级减弱透明未验 | 390×844、非零安全区（CDP `Emulation.setSafeAreaInsetsOverride`）：`rsi/state/shots/phone-shell-nits/measurements.json` 记录条 `top 748 / bottom 802 / height 54`、壳 `padding-bottom 34px`、scroller `padding-bottom 74px`、zen-off 内容底 736（高于玻璃 12px）；四个区域与 zen 前后截图 `rsi/state/shots/phone-shell-nits/after-390-{routines,agent-ops,settings}-bottom.png`、`after-390-zen-{on,off}-list-bottom.png`；玻璃走查另有 `rsi/state/shots/phone-shell-glass/after-390-{default,bottom,fallback}.png` 与 `journeys/J1-phone-02-search.png`（搜索展开）。1100：`macFooterPresent: false`、`macSettings.bar: null`，截图 `after-1100-settings.png`、`phone-shell-glass/after-1100.png`。**未验**：真机软键盘弹起/收起（headless Chromium 不会弹系统键盘）；系统「减弱透明度」只能注规则模拟（`after-390-fallback.png`），没有在真机上切过。 |
+| 6 视觉：390 / 1100 对照帧、真机帧率 | 部分——真机 blur 帧率未验 | 390 对照 `01-phone-footer-default.svg` … `05-phone-footer-dark-fallback.svg`：`rsi/state/shots/phone-shell-glass/after-390-{default,bottom,fallback}.png`、`rsi/state/shots/phone-shell-nits/after-390-{routines,agent-ops,settings}-bottom.png`、`after-390-zen-{on,off}-list-bottom.png`；1100 对照 `06-mac-unchanged.svg`：`phone-shell-glass/after-1100.png`、`phone-shell-nits/after-1100-settings.png`。**未验**：至少一台最老受支持 iPhone 上滚动测 blur 帧率——需要真机，仓库与 `rsi/state` 里没有这项记录。 |
+
+结论：第 1–4 行全绿，第 5、6 行的真机部分没有证据，所以 `registry.json` 保持 `approved`，不签 `covered`；补齐真机键盘、系统级减弱透明与最老 iPhone 的 blur 帧率后再签。
+
+红验：临时清单 `.tmp/story-ledger-005.mutants.json`（未提交）跑 `python3 scripts/mutants.py` → `2/2 mutants red`：Mac 壳长出底栏、单数字被截成 `9+` 都会让新例变红，源文件按字节还原。
 
 ## 变更记录
 
 - 2026-11-20 创建（draft）。D6（`KIN-CONTINUE-004.review.html:538`）定为独立共享 shell 故事，与本条背靠背交付；方向由 Ethan 2026-11-20 16:52 批准（CSS 玻璃先行、不写原生 bar）。
 - 2026-11-20 审阅页交付（`R-phone-shell-review`）：`KIN-CONTINUE-005.review.html`，6 帧 + 每屏六段用户流程，含 MECE 与 002 迁移一节；状态仍为 `draft`。
 - 2026-11-20 实现交付（`R-phone-shell-glass`）：状态 `draft → approved`，CEO 代签；底栏改为贴底悬浮玻璃 + 四个纯图标入口，可访问名不变；`phone-footer-clearance` 为列表 / 例行任务 / 设置留出清位。
+- 2026-11-21 账本核对（`R-story-ledger-005`）：六行验收逐行对过测试与走查，补 `leaves the Mac shell without a footer` 与 `shows a single waiting count as itself, not a cap` 两例并红验；行 3 的位置改成真正承载用例的文件。第 5 行的真机键盘/系统级减弱透明、第 6 行的真机 blur 帧率仍无证据，状态保持 `approved`。
