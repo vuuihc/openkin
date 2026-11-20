@@ -45,10 +45,18 @@ PY
 
 # The story-ledger regenerator runs with cwd = the repo root, exactly like
 # `python3 scripts/stories.py --write-coverage`: it rewrites COVERAGE.md from registry.json and
-# the PLAN.md `状态：` line. STUB_STORIES_FAIL=1 writes and then exits 1, the shape of
-# stories.py rejecting the ledger it just regenerated.
+# the PLAN.md `状态：` counts span. The span mirrors stories.py's PLAN_STATUS_RE and merge.sh's
+# plan_guard_ok(): `状态：N 条合同已写，M 条已签字（…）` up to the closing bracket, leaving any
+# handwritten tail on the same line untouched. STUB_STORIES_FAIL=1 writes and then exits 1, the
+# shape of stories.py rejecting the ledger it just regenerated.
 cat > "$T/stories-stub.py" <<'PY'
 import json, os, re, sys
+
+PLAN_STATUS_RE = re.compile(
+    r"(?m)^状态：(?:\d+|[零〇一二两三四五六七八九十百]+)\s*条合同已写，"
+    r"(?:\d+|[零〇一二两三四五六七八九十百]+)\s*条已签字"
+    r"（[^）\n]*）"
+)
 
 with open(os.path.join("docs", "product", "stories", "registry.json"), encoding="utf-8") as fh:
     ids = [s.get("id", "?") for s in json.load(fh).get("stories", [])]
@@ -59,7 +67,7 @@ with open(os.path.join("docs", "product", "stories", "COVERAGE.md"), "w", encodi
 
 plan = os.path.join("docs", "product", "stories", "PLAN.md")
 text = open(plan, encoding="utf-8").read()
-text = re.sub(r"(?m)^状态：.*$", "状态：%d 条合同已写，0 条已签字" % len(ids), text)
+text = PLAN_STATUS_RE.sub("状态：%d 条合同已写，0 条已签字（0 条 `draft`）" % len(ids), text, count=1)
 with open(plan, "w", encoding="utf-8") as fh:
     fh.write(text)
 
@@ -127,14 +135,19 @@ plan_md() {
     > "$1/docs/product/stories/PLAN.md"
 }
 
-# start_conflict_stories <name> <dist 0|1> <handwritten 0|1>
+# start_conflict_stories <name> <dist 0|1> <handwritten 0|1> [status-tail 0|1]
 # The #467/#468 collision: both branches add a story to registry.json at well-separated anchors
 # (so the JSON auto-merges) and both write a different COVERAGE.md and a different generated
-# `状态：` line in PLAN.md. <handwritten>=1 also edits a prose line of PLAN.md on origin/main —
-# the edit `--ours` would silently drop.
+# `状态：` counts span in PLAN.md. <handwritten>=1 also edits a prose line of PLAN.md on
+# origin/main — the edit `--ours` would silently drop. <status-tail>=1 instead edits only the
+# handwritten tail of the `状态：` line on origin/main (the counts span is identical on both
+# sides), the tail stories.py never rewrites and `--ours` would likewise drop.
 start_conflict_stories() {
-  local name="$1" dist="$2" hand="$3"
+  local name="$1" dist="$2" hand="$3" tail="${4:-0}"
   local base_ids="KIN-TEST-090 KIN-TEST-091 KIN-TEST-092 KIN-TEST-093 KIN-TEST-094 KIN-TEST-095 KIN-TEST-096 KIN-TEST-097 KIN-TEST-098 KIN-TEST-099 KIN-TEST-100 KIN-TEST-101"
+  local feat_status='状态：13 条合同已写，0 条已签字（0 条 `draft`）。'
+  local main_status='状态：13 条合同已写，1 条已签字（1 条 `covered`、0 条 `draft`）。'
+  [ "$tail" = 1 ] && main_status='状态：13 条合同已写，0 条已签字（0 条 `draft`）；main 手写尾注。'
   R="$T/$name"; rm -rf "$R"; mkdir -p "$R/docs/product/stories" "$R/web/dist" "$R/ui/src"
   g init -q -b main || fail "$name: git init"
   g config user.name tester; g config user.email owner@example.com; g config commit.gpgsign false
@@ -146,13 +159,13 @@ start_conflict_stories() {
   g update-ref refs/remotes/origin/main HEAD
   g checkout -q -b feat
   stories_json "$R" KIN-TEST-090 KIN-TEST-001 ${base_ids#KIN-TEST-090 }
-  plan_md "$R" '状态：feat-ours'
+  plan_md "$R" "$feat_status"
   printf 'coverage-feat\n' > "$R/docs/product/stories/COVERAGE.md"
   [ "$dist" = 1 ] && printf 'dist-ours\n' > "$R/web/dist/index.html"
   commit ours
   g checkout -q main
   stories_json "$R" $base_ids KIN-TEST-002
-  plan_md "$R" '状态：main-theirs' "$([ "$hand" = 1 ] && printf '正文（main 手写）。' || printf '正文。')"
+  plan_md "$R" "$main_status" "$([ "$hand" = 1 ] && printf '正文（main 手写）。' || printf '正文。')"
   printf 'coverage-main\n' > "$R/docs/product/stories/COVERAGE.md"
   [ "$dist" = 1 ] && printf 'dist-theirs\n' > "$R/web/dist/index.html"
   commit theirs
@@ -264,6 +277,10 @@ test_stories_only() {
   grep -qx 'KIN-TEST-002' "$R/docs/product/stories/COVERAGE.md" || fail "stories-only: main's story missing"
   cmp -s "$R/docs/product/stories/COVERAGE.md" "$T/stories.out" || fail "stories-only: COVERAGE.md is not the regenerated output"
   grep -q '^状态：14 条合同已写' "$R/docs/product/stories/PLAN.md" || fail "stories-only: PLAN.md count sentence was not regenerated"
+  # The regenerator rewrites the counts span only: feat's handwritten tail after the closing
+  # bracket must survive. If the stub or the guard normalised the whole line, this would drop.
+  grep -qxF '状态：14 条合同已写，0 条已签字（0 条 `draft`）。' "$R/docs/product/stories/PLAN.md" \
+    || fail "stories-only: PLAN.md status-line tail was not preserved"
   clean_tree || fail "stories-only: tree is not clean"
 }
 
@@ -311,6 +328,21 @@ test_refuses_handwritten_plan_edit() {
     || fail "handwritten-plan: PLAN.md no longer unmerged"
 }
 
+# The other half of the same line: stories.py rewrites only the counts span, so the handwritten
+# tail after the closing `）` is prose too. A main-side edit to that tail (the counts span being
+# identical on both sides) must refuse — normalising the whole `状态：` line would pass here and
+# `checkout --ours` would silently drop main's note.
+test_refuses_plan_tail_edit() {
+  start_conflict_stories tail_plan 0 0 1
+  local old; old="$(g rev-parse HEAD)"
+  resolve; [ $? -ne 0 ] || fail "plan-tail: resolver returned 0"
+  [ "$(g rev-parse HEAD)" = "$old" ] || fail "plan-tail: resolver committed"
+  g diff --name-only --diff-filter=U | grep -qx 'docs/product/stories/PLAN.md' \
+    || fail "plan-tail: PLAN.md no longer unmerged"
+  g show :3:docs/product/stories/PLAN.md | grep -q 'main 手写尾注' \
+    || fail "plan-tail: main's tail is not in the unmerged stage"
+}
+
 run() {
   [ -z "${TEST_ONLY:-}" ] || [ "$TEST_ONLY" = "$1" ] || return 0
   "$1" || exit 1; pass "$1"
@@ -325,3 +357,4 @@ run test_stories_only
 run test_stories_and_dist
 run test_failed_stories_regen_leaves_merge_abortable
 run test_refuses_handwritten_plan_edit
+run test_refuses_plan_tail_edit

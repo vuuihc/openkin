@@ -258,11 +258,13 @@ PY
   rc=$?; rm -f "$base"; return $rc
 }
 
-# PLAN.md is only half generated: stories.py rewrites the one `状态：` sentence, everything else is
-# handwritten. `checkout --ours` would silently drop origin/main's prose, so before touching the
-# tree, require the two sides to be identical once every generated sentence is normalised away.
+# PLAN.md is only half generated: stories.py rewrites the counts span inside the one `状态：`
+# sentence — from `状态：` through the closing `）` — and leaves everything else, including the
+# sentence's handwritten tail on that line, alone. `checkout --ours` would silently drop
+# origin/main's words, so before touching the tree, require the two sides to be identical once
+# that exact span is normalised away; every other byte, tails included, compares literally.
 # Anything else (a missing side, a delete, a real prose edit) returns 1 and the caller sends back.
-plan_guard_ok() { # <worktree> -> 0 identical but for the 状态 lines; 1 fail closed
+plan_guard_ok() { # <worktree> -> 0 identical but for the generated 状态 span; 1 fail closed
   local wt="$1" ours theirs rc
   ours="$(mktemp "${TMPDIR:-/tmp}/rsi-plan-ours.XXXXXX")" || return 1
   theirs="$(mktemp "${TMPDIR:-/tmp}/rsi-plan-theirs.XXXXXX")" || { rm -f "$ours"; return 1; }
@@ -271,11 +273,24 @@ plan_guard_ok() { # <worktree> -> 0 identical but for the 状态 lines; 1 fail c
     rm -f "$ours" "$theirs"; return 1
   fi
   python3 - "$ours" "$theirs" <<'PY'
-import sys
+import re, sys
+
+# The same span scripts/stories.py rewrites (its PLAN_STATUS_RE): the counts and their
+# parenthesised breakdown, from `状态：` to the closing `）`. The tail after it is handwritten
+# (real PLAN.md has one), so it is compared literally. A `状态：` line this cannot parse is
+# likewise compared literally, which refuses rather than dropping a person's words.
+PLAN_STATUS_RE = re.compile(
+    r"^状态：(?:\d+|[零〇一二两三四五六七八九十百]+)\s*条合同已写，"
+    r"(?:\d+|[零〇一二两三四五六七八九十百]+)\s*条已签字"
+    r"（[^）\n]*）",
+    re.M,
+)
 
 def norm(path):
     with open(path, encoding="utf-8") as fh:
-        return "".join("<status>\n" if line.startswith("状态：") else line for line in fh)
+        # count=1: rewrite_plan_counts() splices the first match only, so a second status-shaped
+        # line is handwritten and must compare literally.
+        return PLAN_STATUS_RE.sub("<status>", fh.read(), count=1)
 
 sys.exit(0 if norm(sys.argv[1]) == norm(sys.argv[2]) else 1)
 PY
