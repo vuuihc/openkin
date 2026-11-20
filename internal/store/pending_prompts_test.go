@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -421,6 +422,193 @@ func TestTasksWithPendingPromptsFindsEveryQueue(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != "task-two" {
 		t.Fatalf("after draining one queue = %v, want only the task still waiting", got)
+	}
+}
+
+// The order a person sets is the order the agent answers in. Both reads have to
+// agree -- the delivery path pops, the console lists -- and a message queued
+// after a reorder joins the tail rather than the id order it was sent in.
+func TestSetPendingPromptOrderPersistsAndPops(t *testing.T) {
+	ctx := context.Background()
+	s := openQueueStore(t)
+	insertQueueTask(t, s, "task-order")
+	var rows []PendingPrompt
+	for _, text := range []string{"first", "second", "third"} {
+		p, err := s.AppendPendingPrompt(ctx, PendingPrompt{TaskID: "task-order", Prompt: text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows = append(rows, p)
+	}
+
+	got, err := s.SetPendingPromptOrder(ctx, "task-order",
+		[]int64{rows[2].ID, rows[0].ID, rows[1].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("reorder returned %d rows, want the whole queue", len(got))
+	}
+	for i, want := range []string{"third", "first", "second"} {
+		if got[i].Prompt != want || got[i].Position != int64(i+1) {
+			t.Fatalf("row %d = (%q, position %d), want (%q, %d)",
+				i, got[i].Prompt, got[i].Position, want, i+1)
+		}
+	}
+
+	listed, err := s.ListPendingPrompts(ctx, "task-order")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{"third", "first", "second"} {
+		if listed[i].Prompt != want {
+			t.Fatalf("list position %d = %q, want %q", i, listed[i].Prompt, want)
+		}
+	}
+
+	// A later message is appended behind everything that is queued, wherever the
+	// reorder put it.
+	fourth, err := s.AppendPendingPrompt(ctx, PendingPrompt{TaskID: "task-order", Prompt: "fourth"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fourth.Position != 4 {
+		t.Fatalf("appended position = %d, want the tail (4)", fourth.Position)
+	}
+	listed, err = s.ListPendingPrompts(ctx, "task-order")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 4 || listed[3].Prompt != "fourth" {
+		t.Fatalf("queue after append = %+v, want fourth at the tail", listed)
+	}
+
+	// The pop is the delivery order, one per turn boundary.
+	for _, want := range []string{"third", "first"} {
+		p, ok, err := s.PopPendingPrompt(ctx, "task-order")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok || p.Prompt != want {
+			t.Fatalf("pop = (%q, %v), want %q", p.Prompt, ok, want)
+		}
+	}
+	rest, err := s.ListPendingPrompts(ctx, "task-order")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rest) != 2 || rest[0].Prompt != "second" || rest[1].Prompt != "fourth" {
+		t.Fatalf("remaining queue = %+v, want second then fourth", rest)
+	}
+	// A delivery leaves a hole: positions order the queue, they are not indices.
+	if rest[0].Position != 3 || rest[1].Position != 4 {
+		t.Fatalf("positions after a pop = %d, %d; want them left as written",
+			rest[0].Position, rest[1].Position)
+	}
+}
+
+func queueTableShape(t *testing.T, s *Store) []string {
+	t.Helper()
+	rows, err := s.db.Query(`
+		SELECT name, type, "notnull", COALESCE(dflt_value, ''), pk
+		FROM pragma_table_info('task_pending_prompts') ORDER BY cid`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var name, typ, dflt string
+		var notNull, pk int
+		if err := rows.Scan(&name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, fmt.Sprintf("%s|%s|%d|%s|%d", name, typ, notNull, dflt, pk))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// Migration 050 adds the delivery-order column without disturbing the order a
+// database already has: every existing row shares position 0, so the id
+// tiebreak reproduces the old ORDER BY id. The upgraded path and the fresh
+// install have to reach the same table shape.
+func TestMigration050KeepsExistingPendingPromptOrder(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kin.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertQueueTask(t, s, "task-v49")
+	// The v49 table, with three messages queued by that build.
+	if _, err := s.db.ExecContext(ctx, `
+		DROP TABLE task_pending_prompts;
+		CREATE TABLE task_pending_prompts (
+		  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+		  task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+		  prompt          TEXT NOT NULL,
+		  agent           TEXT NOT NULL DEFAULT '',
+		  model           TEXT,
+		  permission_mode TEXT,
+		  user_seq        INTEGER NOT NULL DEFAULT 0,
+		  queued_at       INTEGER NOT NULL
+		);
+		CREATE INDEX idx_task_pending_prompts_queue ON task_pending_prompts(task_id, id);
+		INSERT INTO task_pending_prompts (task_id, prompt, user_seq, queued_at)
+		VALUES ('task-v49', 'first', 0, 1),
+		       ('task-v49', 'second', 0, 2),
+		       ('task-v49', 'third', 0, 3);
+		PRAGMA user_version = 49;`); err != nil {
+		t.Fatalf("recreate the v49 queue: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	upgraded, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen at version 49: %v", err)
+	}
+	t.Cleanup(func() { _ = upgraded.Close() })
+	if got := schemaVersionOf(t, upgraded); got != schemaVersion {
+		t.Fatalf("user_version after upgrade = %d, want %d", got, schemaVersion)
+	}
+
+	kept, err := upgraded.ListPendingPrompts(ctx, "task-v49")
+	if err != nil {
+		t.Fatalf("the upgraded queue cannot be read: %v", err)
+	}
+	if len(kept) != 3 {
+		t.Fatalf("queue holds %d messages after the upgrade, want 3", len(kept))
+	}
+	for i, want := range []string{"first", "second", "third"} {
+		if kept[i].Prompt != want || kept[i].Position != 0 {
+			t.Fatalf("row %d = (%q, position %d), want (%q, 0)",
+				i, kept[i].Prompt, kept[i].Position, want)
+		}
+	}
+	// A message queued after the upgrade joins the tail.
+	tail, err := upgraded.AppendPendingPrompt(ctx, PendingPrompt{TaskID: "task-v49", Prompt: "fourth"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tail.Position != 1 {
+		t.Fatalf("appended position on an upgraded database = %d, want 1", tail.Position)
+	}
+
+	fresh := openQueueStore(t)
+	upgradedShape := queueTableShape(t, upgraded)
+	freshShape := queueTableShape(t, fresh)
+	if len(upgradedShape) != len(freshShape) {
+		t.Fatalf("upgraded shape = %v, fresh shape = %v", upgradedShape, freshShape)
+	}
+	for i := range freshShape {
+		if upgradedShape[i] != freshShape[i] {
+			t.Fatalf("column %d differs: upgraded %q, fresh %q", i, upgradedShape[i], freshShape[i])
+		}
 	}
 }
 
