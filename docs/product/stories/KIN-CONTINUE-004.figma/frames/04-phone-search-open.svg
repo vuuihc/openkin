@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff" rx="24"/>
+<rect width="390" height="24" fill="#f6f6f8" rx="24"/>
+<rect y="14" width="390" height="10" fill="#f6f6f8"/>
+<text x="16" y="17" font-size="11" fill="#555">9:41</text>
+<text x="374" y="17" font-size="11" fill="#555" text-anchor="end">手机 390×844 · 搜索展开</text>
+
+<text x="16" y="60" font-size="19" font-weight="600" fill="#1a1a1a">对话</text>
+<rect x="232" y="40" width="82" height="36" rx="10" fill="#ffffff" stroke="#dddddd"/>
+<text x="273" y="63" font-size="11.5" fill="#1a1a1a" text-anchor="middle">＋ 新建</text>
+<circle cx="350" cy="58" r="18" fill="#eef3ff" stroke="#1f6feb" stroke-width="1.5"/>
+<circle cx="347" cy="55" r="5.5" fill="none" stroke="#1f6feb" stroke-width="1.5"/>
+<line x1="351" y1="59" x2="355" y2="63" stroke="#1f6feb" stroke-width="1.5" stroke-linecap="round"/>
+
+<rect x="16" y="92" width="358" height="44" rx="22" fill="#f6f6f8" stroke="#1f6feb" stroke-width="1.5"/>
+<circle cx="37" cy="113" r="6" fill="none" stroke="#1f6feb" stroke-width="1.6"/>
+<line x1="41" y1="117" x2="46" y2="122" stroke="#1f6feb" stroke-width="1.6" stroke-linecap="round"/>
+<text x="56" y="119" font-size="13" fill="#1a1a1a">发布</text>
+<circle cx="348" cy="114" r="14" fill="#ffffff"/>
+<text x="348" y="119" font-size="12" fill="#6b6b6b" text-anchor="middle">×</text>
+
+<text x="16" y="158" font-size="11" fill="#1f6feb">同一个 SessionsSearch · 地址栏 ?search=发布</text>
+<text x="16" y="176" font-size="10.5" fill="#6b6b6b">Esc：有词先清词，再按一次才收起；放大镜保持激活态</text>
+
+<circle cx="18" cy="208" r="4" fill="#137a3f"/>
+<text x="28" y="212" font-size="12" font-weight="600" fill="#1a1a1a">机器 A · 在线</text>
+<rect x="330" y="192" width="44" height="44" rx="12" fill="#ffffff" stroke="#1f6feb"/>
+<text x="352" y="220" font-size="20" fill="#1f6feb" text-anchor="middle">＋</text>
+
+<text x="16" y="258" font-size="12" font-weight="600" fill="#1a1a1a">▾ 项目 alpha</text>
+<text x="374" y="258" font-size="10" fill="#6b6b6b" text-anchor="end">1 个匹配</text>
+
+<rect x="16" y="270" width="358" height="52" rx="12" fill="#f6f6f8"/>
+<text x="30" y="292" font-size="12.5" font-weight="600" fill="#1a1a1a">整理发布说明</text>
+<text x="30" y="310" font-size="10.5" fill="#6b6b6b">刚刚 · 正在运行</text>
+<circle cx="356" cy="296" r="5" fill="#1f6feb"/>
+
+<line x1="16" y1="342" x2="374" y2="342" stroke="#eeeeee"/>
+
+<circle cx="18" cy="366" r="4" fill="#137a3f"/>
+<text x="28" y="370" font-size="12" font-weight="600" fill="#1a1a1a">本机 · 在线</text>
+<rect x="330" y="350" width="44" height="44" rx="12" fill="#ffffff" stroke="#1f6feb"/>
+<text x="352" y="378" font-size="20" fill="#1f6feb" text-anchor="middle">＋</text>
+<text x="16" y="416" font-size="11" fill="#6b6b6b">这台设备没有匹配的对话；标题仍在，不被整段藏掉。</text>
+
+<rect x="16" y="452" width="358" height="96" rx="12" fill="#eef3ff" stroke="#1f6feb" stroke-dasharray="4 3"/>
+<text x="30" y="476" font-size="12" font-weight="600" fill="#1f6feb">一个列表，一个搜索框（TASTE 4）</text>
+<text x="30" y="498" font-size="11" fill="#3a3f47">放大镜展开的就是原来的 SessionsSearch，</text>
+<text x="30" y="516" font-size="11" fill="#3a3f47">不是第二个控件；查询仍在地址栏里，</text>
+<text x="30" y="534" font-size="11" fill="#3a3f47">刷新、深链、从对话返回都不丢。</text>
+
+<text x="16" y="584" font-size="11" fill="#b42318">本条不改底栏：玻璃 / 纯图标归共享 shell 故事（见 D6）。</text>
+
+<line x1="0" y1="744" x2="390" y2="744" stroke="#e2e2e6"/>
+<rect x="0" y="745" width="390" height="75" fill="#f6f6f8"/>
+<g stroke="#555" stroke-width="1.4" fill="none">
+  <rect x="54" y="762" width="20" height="16" rx="3"/>
+  <line x1="54" y1="767" x2="74" y2="767"/>
+  <circle cx="151" cy="770" r="8"/>
+  <path d="M151 765 v5 l3 2"/>
+  <rect x="228" y="762" width="6" height="6" rx="1"/>
+  <rect x="238" y="762" width="6" height="6" rx="1"/>
+  <rect x="228" y="772" width="6" height="6" rx="1"/>
+  <rect x="238" y="772" width="6" height="6" rx="1"/>
+  <circle cx="325" cy="770" r="7"/>
+  <path d="M325 759 v4 M325 777 v4 M314 770 h4 M332 770 h4"/>
+</g>
+<g text-anchor="middle" font-size="9.5" fill="#555">
+  <text x="64" y="804">对话</text>
+  <text x="151" y="804">例行</text>
+  <text x="238" y="804">Agent</text>
+  <text x="325" y="804">设置</text>
+</g>
+<rect x="136" y="830" width="118" height="5" rx="2.5" fill="#1a1a1a"/>
+<rect x="0.5" y="0.5" width="389" height="843" fill="none" rx="24" stroke="#bbbbbb"/>
+</g>
+</svg>

@@ -620,6 +620,24 @@
         "scripts/journeys_fake_agent_test.py"
       ],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-CONTINUE-004",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J1",
+        "J2"
+      ],
+      "surfaces": [
+        "phone"
+      ],
+      "title": "手机列表：按最近活动排设备、每设备新建、搜索收成放大镜",
+      "file": "docs/product/stories/KIN-CONTINUE-004.md",
+      "surface": "",
+      "ownerPaths": [],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }

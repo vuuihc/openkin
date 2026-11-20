@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff"/>
+<rect x="0" y="0" width="1100" height="30" fill="#f6f6f8"/>
+<circle cx="18" cy="15" r="4" fill="#dddddd"/><circle cx="32" cy="15" r="4" fill="#dddddd"/><circle cx="46" cy="15" r="4" fill="#dddddd"/>
+<text x="560" y="19" font-size="10.5" fill="#6b6b6b" text-anchor="middle">Mac 1100×760 · 本条不变：左栏顺序、搜索框、行操作都保持今天的样子</text>
+
+<rect x="0" y="30" width="300" height="730" fill="#f6f6f8"/>
+<text x="16" y="62" font-size="15" font-weight="600" fill="#1a1a1a">Kin</text>
+<rect x="16" y="76" width="268" height="34" rx="10" fill="#1f6feb"/>
+<text x="150" y="98" font-size="11.5" fill="#ffffff" text-anchor="middle">＋ 新建对话</text>
+
+<rect x="12" y="120" width="276" height="40" rx="10" fill="#ffffff" stroke="#b42318" stroke-dasharray="4 3"/>
+<text x="28" y="145" font-size="11" fill="#6b6b6b">搜索对话…</text>
+<text x="16" y="114" font-size="10" fill="#b42318">不变：整行搜索框，不是放大镜</text>
+
+<circle cx="20" cy="182" r="4" fill="#137a3f"/>
+<text x="30" y="186" font-size="10.5" fill="#6b6b6b">本机 · 在线</text>
+<text x="16" y="212" font-size="11.5" font-weight="600" fill="#1a1a1a">▾ 项目 alpha</text>
+<rect x="16" y="222" width="268" height="40" rx="9" fill="#ffffff"/>
+<text x="28" y="247" font-size="11" fill="#1a1a1a">整理发布说明</text>
+<rect x="16" y="268" width="268" height="40" rx="9" fill="#ffffff"/>
+<text x="28" y="293" font-size="11" fill="#1a1a1a">把截图归档</text>
+
+<line x1="16" y1="324" x2="284" y2="324" stroke="#e2e2e6"/>
+<circle cx="20" cy="348" r="4" fill="#137a3f"/>
+<text x="30" y="352" font-size="10.5" fill="#6b6b6b">机器 A · 在线</text>
+<text x="16" y="378" font-size="11.5" font-weight="600" fill="#1a1a1a">▾ 项目 beta</text>
+<rect x="16" y="388" width="268" height="40" rx="9" fill="#ffffff"/>
+<text x="28" y="413" font-size="11" fill="#1a1a1a">核对构建日志</text>
+<rect x="16" y="434" width="268" height="40" rx="9" fill="#ffffff"/>
+<text x="28" y="459" font-size="11" fill="#9a9a9a">部署预演（离线，历史只读）</text>
+
+<rect x="12" y="500" width="276" height="96" rx="10" fill="#fff1f0" stroke="#b42318" stroke-dasharray="4 3"/>
+<text x="24" y="522" font-size="11" font-weight="600" fill="#b42318">Mac 不加这一刀</text>
+<text x="24" y="542" font-size="10.5" fill="#3a3f47">没有每设备新建，没有放大镜；</text>
+<text x="24" y="560" font-size="10.5" fill="#3a3f47">设备顺序仍是本机 → 在线 → 最近活动。</text>
+<text x="24" y="578" font-size="10.5" fill="#3a3f47">手机与 Mac 共用列表组件，</text>
+<text x="24" y="594" font-size="10.5" fill="#3a3f47">所以行为只加在手机壳上。</text>
+
+<line x1="0" y1="690" x2="300" y2="690" stroke="#e2e2e6"/>
+<g text-anchor="middle" font-size="10" fill="#555">
+  <text x="38" y="716">▣</text><text x="92" y="716">↧</text><text x="146" y="716">◷</text><text x="200" y="716">▦</text><text x="254" y="716">⚙</text>
+</g>
+<text x="150" y="740" font-size="9.5" fill="#6b6b6b" text-anchor="middle">底部一行图标：归档 · 导入 · 例行 · Agent · 设置</text>
+
+<rect x="300" y="30" width="800" height="730" fill="#ffffff"/>
+<text x="330" y="70" font-size="15" font-weight="600" fill="#1a1a1a">整理发布说明</text>
+<text x="330" y="88" font-size="10.5" fill="#6b6b6b">正在运行 · 12:04</text>
+<rect x="700" y="52" width="80" height="28" rx="14" fill="#eef3ff"/>
+<text x="740" y="70" font-size="10.5" fill="#1f6feb" text-anchor="middle">运行中</text>
+
+<rect x="330" y="120" width="460" height="56" rx="12" fill="#f6f6f8"/>
+<text x="344" y="144" font-size="11.5" fill="#1a1a1a">把这周的发布说明整理成一页，</text>
+<text x="344" y="162" font-size="11.5" fill="#1a1a1a">标出需要我确认的三项。</text>
+<rect x="330" y="192" width="420" height="56" rx="12" fill="#ffffff" stroke="#dddddd"/>
+<text x="344" y="216" font-size="11" fill="#555">读取 3 个文件 · src/release/notes.md</text>
+<text x="344" y="234" font-size="10" fill="#6b6b6b">已读取 · 1.2 秒</text>
+
+<rect x="330" y="618" width="740" height="82" rx="14" fill="#ffffff" stroke="#1f6feb"/>
+<text x="346" y="646" font-size="11" fill="#6b6b6b">继续问…</text>
+<rect x="1010" y="646" width="42" height="26" rx="13" fill="#1f6feb"/>
+<text x="1031" y="664" font-size="12" fill="#ffffff" text-anchor="middle">↑</text>
+<text x="346" y="682" font-size="10.5" fill="#555">Claude Code · Sonnet · 只读</text>
+<text x="1054" y="682" font-size="10.5" fill="#1f6feb" text-anchor="end">运行设置 ▾</text>
+
+<text x="330" y="730" font-size="10.5" fill="#6b6b6b">回归由 Sidebar.dom.test.tsx 守住：1100 宽仍是这一栏、这一种搜索。</text>
+<rect x="0.5" y="0.5" width="1099" height="759" fill="none" stroke="#bbbbbb"/>
+</g>
+</svg>
