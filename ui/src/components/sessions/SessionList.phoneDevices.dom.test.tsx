@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import SessionList from "./SessionList";
@@ -176,6 +176,19 @@ describe("a machine heading on the phone list", () => {
     // invented project row.
     expect(actions).toHaveLength(1);
     expect(actions[0]!.getAttribute("aria-label")).toBe("New chat on Attic Mac");
+  });
+
+  it("returns focus to the device action after the draft closes", async () => {
+    const first = page();
+    await userEvent.click(screen.getByRole("button", { name: "New chat on Studio" }));
+    first.unmount();
+
+    // Closing the draft remounts the list; focus goes back to the control the
+    // reader used, not to the top of the page.
+    page();
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("aria-label")).toBe("New chat on Studio"),
+    );
   });
 
   it("keeps the header new-chat action", () => {

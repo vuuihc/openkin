@@ -160,6 +160,18 @@ const ROWS_BEFORE_SHOW_ALL = 5;
 const EMPTY_IDS: ReadonlySet<string> = new Set();
 const SEARCH_DEBOUNCE_MS = 200;
 
+/**
+ * The machine heading whose new-chat action opened the draft on screen.
+ *
+ * Closing the draft puts focus back there, the way the header's own button
+ * uses the place-return mark (`lib/placeReturn.ts`). That mark carries one of
+ * four fixed ids in sessionStorage; a device id is neither fixed nor safe in
+ * its selector, and a reload has no reason to restore this — the draft it
+ * belonged to is gone. So the return lives in memory for exactly the route
+ * change the click caused.
+ */
+let deviceNewReturn: string | null = null;
+
 /** The drag in flight: which bucket, which row, the order being drawn, and
  *  how far the row has followed the finger. */
 type SessionDrag = {
@@ -628,6 +640,17 @@ export default function SessionList({
     !archivedList.error &&
     lastLoadedArchivedTasks.current.length === 0;
   const loading = (!taskList.loaded && tasks.length === 0) || machinesLoading || archiveWaiting;
+  // Returning from the draft a machine's action opened: put focus back on that
+  // same action once the headings are on screen. A group the return cannot
+  // find (a filter arrived first) leaves focus alone rather than guessing.
+  useEffect(() => {
+    if (!deviceNewReturn || loading) return;
+    const target = deviceNewReturn;
+    const buttons = listRef.current?.querySelectorAll<HTMLElement>("[data-device-new]") ?? [];
+    const button = Array.from(buttons).find((node) => node.dataset.deviceNew === target);
+    deviceNewReturn = null;
+    button?.focus();
+  }, [loading, deviceGroups]);
   const now = Date.now();
   const viewedIds = useMemo(() => new Set(getViewedSessionIds()), [viewTick]);
   // A reorder here would mean "reorder the current results", not the project:
@@ -1124,6 +1147,7 @@ export default function SessionList({
     runGuardedNavigation(() => {
       // This machine is stored as no machine, the same spelling every other
       // local entry point uses.
+      deviceNewReturn = group.id || "__self__";
       setDraftMachine(group.isSelf ? "" : group.id.trim());
       setDraftCwd(cwd);
       const to = `${DRAFT_PATH}${listStateQuery(params, cwd ? { cwd } : {})}`;
@@ -1639,6 +1663,7 @@ function DeviceSection({
           // a native disabled control cannot be focused or read.
           <Button
             variant="quiet"
+            data-device-new={group.id || "__self__"}
             aria-label={tr("sessions.newChatOnDevice", { device: label })}
             aria-disabled={group.online ? undefined : true}
             aria-describedby={group.online ? undefined : offlineReasonId}
