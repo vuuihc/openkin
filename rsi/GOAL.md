@@ -360,8 +360,15 @@ every parked row in `rsi/state/STATUS.md`.
 item 2 is not green, land item 1 and record the remaining mechanism with its number — a switch that explains
 itself is what the next fix is judged against.
 
-## Current phase (P13) — 排队顺序归人
-<!-- phase: P13-queue-order target=2026-11-28T20:00 -->
+## Closed phase (P13) — 排队顺序归人
+<!-- closed-phase: P13-queue-order target=2026-11-28T20:00 -->
+
+Closed 2026-11-21, both items landed: item 1's daemon half `c9cb8ef8` (#448) — the ordered `position` column
+and `PUT /api/tasks/{id}/prompts/order`, merged on the owner's 2026-11-20 18:25 authorization (the `hold` was
+cleared by that decision, not bypassed) — and item 2 `c6939be4` (#478), the console's numbered rows and ‹ ›
+controls (23/23 DOM tests, 13/13 mutants red; its 1110-line diff merged under the 2026-11-20 23:32 size waiver).
+A person now reorders queued prompts and the agent answers in that order; P13 does not prove cross-device order
+sync or reordering already-delivered turns (its Out of scope). P13 closed early; its target date is unchanged.
 
 **Why this and not features.** The queue is the only way a second instruction reaches a running task, and the
 person cannot change which one the agent answers next: delivery is `ORDER BY id ASC` in both the list and the
@@ -396,8 +403,8 @@ Ethan has not approved item 1 by then, record the block in that item's own line 
 console affordance over a route that does not exist would be a lie; do not merge the migration without his
 approval to hit the date.
 
-## Next phase (P14) — 开屏必须有界，并能自愈
-<!-- next-phase: P14-boot-guard target=2026-11-22T20:00 -->
+## Current phase (P14) — 开屏必须有界，并能自愈
+<!-- phase: P14-boot-guard target=2026-11-22T20:00 -->
 
 **Why this and not features.** On 2026-11-20 10:21 EST the owner's phone panel sat on the splash wheel and had
 to be force-quit twice. The measurement put the cause in two places: the first launch after a release downloads
@@ -423,8 +430,8 @@ the desktop boot surface (settled in P10/P11).
 the tunnel-stall replay cannot be reproduced on the field, record what the unit test and mutant prove and park
 the field proof as a followup — never report an unreplayed stall as verified.
 
-## Queued phase (P15) — 手机先开包里的控制台，新版本后台整套换
-<!-- queued-phase: P15-bundled-console target=2026-11-30T20:00 -->
+## Next phase (P15) — 手机先开包里的控制台，新版本后台整套换
+<!-- next-phase: P15-bundled-console target=2026-11-30T20:00 -->
 
 **Why this and not features.** P14 bounds the wheel but leaves the cold download in the start path. The phone
 app already ships a console (`mobile/capacitor.config.ts:50` `webDir: "../web/dist"`), yet uses it only as a
