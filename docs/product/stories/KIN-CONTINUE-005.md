@@ -136,7 +136,7 @@
 
 ## 设计
 
-设计稿：`KIN-CONTINUE-005.figma/frames/`（5 张 390×844 手机帧 + 1 张 1100×760 Mac 不变帧，SVG 源）。审阅页随签字轮交付（`R-phone-shell-review`）：Figma 帧为主体，每屏六段用户流程；本条刻意不带 `KIN-CONTINUE-005.review.html`，状态保持 `draft`。必须画到的状态：默认、当前区域 + 等待数、搜索展开、zen 隐藏、深色 + 减弱透明/不支持 blur 的回退、Mac 不变。
+设计稿：`KIN-CONTINUE-005.figma/frames/`（5 张 390×844 手机帧 + 1 张 1100×760 Mac 不变帧，SVG 源）。审阅页：`KIN-CONTINUE-005.review.html`（Figma 帧为主体，每屏六段用户流程）；状态保持 `draft`，签字随第一条实现 PR。必须画到的状态：默认、当前区域 + 等待数、搜索展开、zen 隐藏、深色 + 减弱透明/不支持 blur 的回退、Mac 不变。
 
 ## Do not
 
@@ -167,4 +167,5 @@
 
 ## 变更记录
 
-- 2026-11-20 创建（draft）。D6（`KIN-CONTINUE-004.review.html:538`）定为独立共享 shell 故事，与本条背靠背交付；方向由 Ethan 2026-11-20 16:52 批准（CSS 玻璃先行、不写原生 bar）。审阅页在 B 部分 `R-phone-shell-review`，本行不含。
+- 2026-11-20 创建（draft）。D6（`KIN-CONTINUE-004.review.html:538`）定为独立共享 shell 故事，与本条背靠背交付；方向由 Ethan 2026-11-20 16:52 批准（CSS 玻璃先行、不写原生 bar）。
+- 2026-11-20 审阅页交付（`R-phone-shell-review`）：`KIN-CONTINUE-005.review.html`，6 帧 + 每屏六段用户流程，含 MECE 与 002 迁移一节；状态仍为 `draft`。
