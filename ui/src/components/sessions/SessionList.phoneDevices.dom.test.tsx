@@ -7,6 +7,7 @@ import SessionList from "./SessionList";
 import SessionsHeader from "../mobile/SessionsHeader";
 import { setLocale } from "../../i18n";
 import type { Machine } from "../../lib/devices";
+import { forgetPlaceReturn } from "../../lib/placeReturn";
 import type { AgentSession, Project, Task } from "../../api/client";
 
 /**
@@ -25,13 +26,14 @@ const fixtures = vi.hoisted(() => ({
   projects: [] as Project[],
   machines: [] as Machine[],
   failed: false,
+  taskError: null as string | null,
 }));
 
 vi.mock("../../api/useLiveResources", () => ({
   useTaskList: () => ({
     data: fixtures.tasks,
     loaded: true,
-    error: null,
+    error: fixtures.taskError,
     pageFull: false,
     loading: false,
   }),
@@ -121,9 +123,11 @@ beforeEach(() => {
   setLocale("en");
   localStorage.clear();
   sessionStorage.clear();
+  forgetPlaceReturn();
   fixtures.tasks = [task("local-work", "/work/alpha"), task("remote-work", "/srv/beta", "nas-1")];
   fixtures.projects = [];
   fixtures.failed = false;
+  fixtures.taskError = null;
   fixtures.machines = [machine("mac-1", "MacBook", true), machine("nas-1", "Studio")];
   viewport();
 });
@@ -176,6 +180,32 @@ describe("a machine heading on the phone list", () => {
     // invented project row.
     expect(actions).toHaveLength(1);
     expect(actions[0]!.getAttribute("aria-label")).toBe("New chat on Attic Mac");
+  });
+
+  it("does not call a failed load an empty machine", () => {
+    // The list could not be read, so no heading may claim that machine simply
+    // has no chats: the page's error state is the only account of the screen.
+    fixtures.tasks = [];
+    fixtures.taskError = "daemon did not answer";
+    page();
+
+    expect(screen.getByText("Could not load chats")).toBeTruthy();
+    expect(screen.queryByText("No chats on this machine yet")).toBeNull();
+  });
+
+  it("drops the device return once the draft is submitted", async () => {
+    const first = page();
+    await userEvent.click(screen.getByRole("button", { name: "New chat on Studio" }));
+    first.unmount();
+
+    // The submit path (`NewChatPage`) forgets the mark: the draft became a
+    // chat, so the machine action is no longer where the reader came from.
+    forgetPlaceReturn();
+    page();
+
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("aria-label")).not.toBe("New chat on Studio"),
+    );
   });
 
   it("returns focus to the device action after the draft closes", async () => {

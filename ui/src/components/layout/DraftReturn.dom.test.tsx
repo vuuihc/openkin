@@ -7,6 +7,13 @@ import AppShell from "./AppShell";
 import SessionsPage from "../../pages/SessionsPage";
 import { setLocale } from "../../i18n";
 import { resetLeaveGuard } from "../../lib/leaveGuard";
+import {
+  forgetPlaceReturn,
+  rememberDeviceNewReturn,
+  rememberPlaceReturn,
+  takeDeviceNewReturn,
+  takePlaceReturn,
+} from "../../lib/placeReturn";
 
 /**
  * Closing the draft is a return, not a new visit: the list comes back exactly
@@ -120,6 +127,7 @@ beforeEach(() => {
   setLocale("en");
   localStorage.clear();
   sessionStorage.clear();
+  forgetPlaceReturn();
   window.history.replaceState({}, "", "/");
   viewport();
 });
@@ -140,6 +148,29 @@ describe("closing the draft returns to the list that was left", () => {
     expect(screen.getByRole("link", { name: "Chats" }).getAttribute("href")).toContain(
       "scope=archived",
     );
+  });
+
+  it("drops a pending device return when the shell takes a footer destination", () => {
+    // A draft was opened from a machine heading, then the reader left through
+    // the footer instead of closing it. The footer's mark wins; the machine
+    // action must not also take the focus on a later return to the list.
+    rememberDeviceNewReturn("__self__");
+    rememberPlaceReturn("settings");
+    // A shell-only route: the list would consume the device mark on mount, so
+    // the assertion has to see what the shell itself did with it.
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell pendingApprovals={[]}>
+          <Routes>
+            <Route path="/sessions" element={<div>shell only</div>} />
+          </Routes>
+        </AppShell>
+      </MemoryRouter>,
+    );
+
+    // The layout effect consumed the footer mark, and with it the stale one.
+    expect(takePlaceReturn()).toBeNull();
+    expect(takeDeviceNewReturn()).toBeNull();
   });
 
   it("synthesizes the list for a cold /new", async () => {

@@ -31,6 +31,7 @@ import { settleArchiveBatch } from "../../lib/archiveBatch";
 import type { Machine } from "../../lib/devices";
 import { runGuardedNavigation } from "../../lib/leaveGuard";
 import { draftEntryState, listUrlFor, phonePush } from "../../lib/phoneNavigation";
+import { rememberDeviceNewReturn, takeDeviceNewReturn } from "../../lib/placeReturn";
 import {
   DRAFT_PATH,
   getDraftCwd,
@@ -159,18 +160,6 @@ function listStateQuery(params: URLSearchParams, extra: Record<string, string> =
 const ROWS_BEFORE_SHOW_ALL = 5;
 const EMPTY_IDS: ReadonlySet<string> = new Set();
 const SEARCH_DEBOUNCE_MS = 200;
-
-/**
- * The machine heading whose new-chat action opened the draft on screen.
- *
- * Closing the draft puts focus back there, the way the header's own button
- * uses the place-return mark (`lib/placeReturn.ts`). That mark carries one of
- * four fixed ids in sessionStorage; a device id is neither fixed nor safe in
- * its selector, and a reload has no reason to restore this — the draft it
- * belonged to is gone. So the return lives in memory for exactly the route
- * change the click caused.
- */
-let deviceNewReturn: string | null = null;
 
 /** The drag in flight: which bucket, which row, the order being drawn, and
  *  how far the row has followed the finger. */
@@ -589,7 +578,17 @@ export default function SessionList({
         // gives it a heading. A search or a status filter narrows what is
         // listed, and "no chats" would then describe the filter, not the
         // machine — those views stay with the machines that have matches.
-        includeEmptyDevices: shell === "page" && !searching && !status && scope === "active",
+        includeEmptyDevices:
+          shell === "page" &&
+          !searching &&
+          !status &&
+          scope === "active" &&
+          // A failed read has no "empty": the page says it could not load the
+          // list, and a machine heading under that would claim the failure
+          // was an absence of chats.
+          taskList.loaded &&
+          !taskList.error &&
+          !(!status && sessionsFailed && listed.length === 0),
       },
     ).map((group) => ({
       ...group,
@@ -616,6 +615,9 @@ export default function SessionList({
     shell,
     searching,
     status,
+    taskList.loaded,
+    taskList.error,
+    sessionsFailed,
   ]);
   const foldSets = useMemo(() => {
     const collapsed = new Set<string>();
@@ -644,11 +646,11 @@ export default function SessionList({
   // same action once the headings are on screen. A group the return cannot
   // find (a filter arrived first) leaves focus alone rather than guessing.
   useEffect(() => {
-    if (!deviceNewReturn || loading) return;
-    const target = deviceNewReturn;
+    if (loading) return;
+    const target = takeDeviceNewReturn();
+    if (!target) return;
     const buttons = listRef.current?.querySelectorAll<HTMLElement>("[data-device-new]") ?? [];
     const button = Array.from(buttons).find((node) => node.dataset.deviceNew === target);
-    deviceNewReturn = null;
     button?.focus();
   }, [loading, deviceGroups]);
   const now = Date.now();
@@ -1147,7 +1149,7 @@ export default function SessionList({
     runGuardedNavigation(() => {
       // This machine is stored as no machine, the same spelling every other
       // local entry point uses.
-      deviceNewReturn = group.id || "__self__";
+      rememberDeviceNewReturn(group.id || "__self__");
       setDraftMachine(group.isSelf ? "" : group.id.trim());
       setDraftCwd(cwd);
       const to = `${DRAFT_PATH}${listStateQuery(params, cwd ? { cwd } : {})}`;
@@ -1670,7 +1672,10 @@ function DeviceSection({
             onClick={() => {
               if (group.online) onNewChat();
             }}
-            className="-my-1 h-11 w-11 flex-none items-center justify-center rounded-full p-0 text-kin-muted!"
+            className={[
+              "-my-1 h-11 w-11 flex-none items-center justify-center rounded-full p-0 text-kin-muted!",
+              !group.online ? "cursor-not-allowed opacity-40 hover:bg-transparent!" : "",
+            ].join(" ")}
           >
             <IconPlus size={16} strokeWidth={2} />
           </Button>

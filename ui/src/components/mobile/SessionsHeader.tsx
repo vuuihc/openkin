@@ -104,7 +104,7 @@ export default function SessionsHeader() {
             }}
             className={[
               "h-11 w-11 flex-none items-center justify-center rounded-full p-0 text-kin-muted!",
-              open ? "bg-[var(--kin-fill)]" : "",
+              open ? "bg-[var(--kin-fill)]!" : "",
             ].join(" ")}
           >
             <IconSearch size={18} strokeWidth={2} />
