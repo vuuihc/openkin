@@ -24,6 +24,7 @@ all nine marks exactly once.
 | Re-measured `console-interactive` | **1113 ms** median; **155 ms** after `sidecar-ready`, **44 ms** after `window-first-load` (3 runs, table below) |
 | Deadline path in a real browser | green — held `/api/auth/status`, throwaway daemon, both viewports: splash at 400 ms, console committed 1800 ms later, no dialog or page error |
 | One-time-link exchange | green — bounded by `LINK_EXCHANGE_DEADLINE_MS = 1500` in `ui/src/lib/linkExchange.ts`; a late success re-probes and opens the gate without a second render; 6 Vitest tests, 4 mutants red |
+| UX gate re-walk, 2026-11-20 (#435) | **not this slice** — the six J6/mac hard lines are a catalog-load race: the walker counts the default-agent picker's options about 1.4 s after mount, while `/api/agents` was still in flight (measured 0.5–1.6 s under the page's concurrent mount reads). The same build passed the same walk once and failed five times, and the same boot code passed J6/mac on `console-handover` at 08:15. No changed file is on the picker path. Follow-up filed in `rsi/state/followups.md`. |
 
 ## Why `window-first-load` was not "usable"
 
