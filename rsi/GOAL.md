@@ -235,7 +235,7 @@ median; item 2 (`R-window-before-daemon`) `b47032f1` (#418) — `window-ready-to
 console is captured as `rsi/state/shots/settled-console-shots/console-1100x760.png` and `console-390x844.png`
 (`71f1d77b`, #425); item 3 (`R-remeasure`) `7e3776e0` (#420) — the desktop table was re-measured on `main`
 with the load average, recorded as §「2026-11-20 — the window paints first」 of
-`docs/plans/2026-11-19-startup-baseline.md`. Two mechanism rows landed in the same window: `9a64408a` (#421)
+`docs/plans/2026-11-19-startup-baseline.md`. Two related rows landed in the same window: `9a64408a` (#421)
 took up the `engine-build` row P10 put out of scope (`engine-build` 188/190 → 0/0 ms, total-to-healthy
 242/201 ms), and `ad009bef` (#423) drew the iOS wait cue on the shell and console splash. P10 closed early;
 its target date is unchanged.
@@ -272,8 +272,17 @@ anything that starts a second daemon or opens `~/.kin`.
 item 2 is not green by then, land item 1 alone with its measured floor: it is the edge that costs the most, and
 item 2 inherits whatever headroom it leaves.
 
-## Current phase (P11) — 控制台接管
-<!-- phase: P11-console-ready target=2026-11-24T20:00 -->
+## Closed phase (P11) — 控制台接管
+<!-- closed-phase: P11-console-ready target=2026-11-24T20:00 -->
+
+Closed 2026-11-20, all three items landed: item 1 (`R-console-interactive`) `890c15dd` (#427) — the
+`console-interactive` mark is stamped on the shell's clock after the console's first commit, and the
+re-measure puts the console usable **1113 ms** after launch, **155 ms** after `sidecar-ready` and **44 ms**
+after `window-first-load` (3 runs, load recorded); item 2 (`R-console-handover`) `e62efa31` (#431) — the
+pre-render account probe is bounded at `PRE_RENDER_DEADLINE_MS = 1500`, with the never-answers path proven in
+a real browser at 390×844 and 1100×760; item 3 (`R-p11-reproduce`) `78ead790` (#436) — the number is one
+command with no prior build step, `./scripts/desktop-startup.sh --runs 3 --json`, and the doc names what it
+does not prove. P11 closed early; its target date is unchanged.
 
 **Why this and not features.** P10 made the edge a person can see from outside the window cheap: the window
 paints its own boot surface at a **555 ms** median and the daemon answers at a **1192 ms** median, both measured
@@ -303,10 +312,89 @@ the person still sees the static splash in `ui/index.html:81-82`. That is the la
 **Out of scope** — the packaged `.dmg`/asar boot; the daemon's remaining boot (242/201 ms to healthy after
 `9a64408a`, `docs/plans/2026-11-20-engine-build.md`; its own row only if a number demands it); the phone
 webview's first load (same console, separate measure); F4 switch latency (measured, not this phase); every
-parked row in `rsi/STATUS.md`.
+parked row in `rsi/state/STATUS.md`.
 
 **Cut rule.** At 11-24 20:00 land what is green and queue the rest with its reason; do not extend the date. If
 item 1 is not green by then, land it alone — the number is what every later fix is judged against.
+
+## Closed phase (P12) — 切换要跟手
+<!-- closed-phase: P12-switch-feel target=2026-11-26T20:00 -->
+
+Closed 2026-11-20, all three items landed: item 1 — attribution: `520d32ee` (#444); the same run splits
+`mac-area-to-area` p50 **81.6 ms** into dispatch **1.8**, projects read **1.3**, render-after-answer **78.6**
+(total p90 **135.9**; render p90 **133.1**, max **160.9**), so the tail was the render, not the fetch
+(`docs/plans/2026-11-20-switch-latency.md` table 2). Items 2–3 — the cut: `596b493f` (#445);
+`mac-area-to-area` p90 **157.8 → 66.0 ms**, p50 **61.9 → 63.9 ms** (load 11.5 vs 23.3), bar met
+(`63.9 ≤ 57.1 + 15`; `66.0 ≤ 1.25 × 63.9`), 390/1100 before/after shots in the PR body; the remaining ~60 ms
+is the area route transition and page mount, named, not hidden. P12 closed early; its target date is unchanged.
+
+**Why this and not features.** F4 is the one flow that is measured but not yet felt. On a warm console at
+`71f1d77b`, `docs/plans/2026-11-20-switch-latency.md` times click → the destination's own content on the real
+console, 10 runs per leg, with three guards that exit 2 instead of producing a number. The worst leg is
+`mac-area-to-area`: p50 **99.2 ms**, p90 **150.8 ms** (range 64.9–155), against `mac-chat-to-chat` p50
+**56.2 ms** and the phone leg 64.3 ms. The doc does not attribute the spread — "a cached task row, a faster
+fetch, or frame alignment would all look like this" — and the owner's question ("is 99 ms 涩?") is still open.
+The switch doc closes with exactly this hand-off ("this document is the baseline the next switch phase opens
+from"), and P11 listed F4 switch latency as "measured, not this phase" in its Out of scope. The measurement was
+the point; there is one now.
+
+**Done means**
+1. The spread is attributed, not guessed: the same script reports, per run on the page clock, how much of
+   `mac-area-to-area` is the projects read and how much is the render after it answers, and the plan doc gains
+   that split with the load average; a run that cannot attribute says so instead of reporting a number it did
+   not measure.
+2. The worst leg is cut with a before/after in one session: `mac-area-to-area` p50 lands within **15 ms** of
+   the `mac-chat-to-chat` p50 measured in the same invocation, and its p90 is at most **1.25×** its own p50;
+   guards (a) `destination-never-appeared`, (b) `shell-rebuilt` and (c) `splash-blank-or-error` still exit 2
+   on `--break-target`, `--break-shell`, `--break-splash`, `--break-alert` and `--break-blank`, and the
+   measured leg trips none of them.
+3. The person's question is answerable from the branch: 390×844 and 1100×760 shots of a projects switch
+   before/after and one "what the user sees now" sentence; if the bar is not reached by the target, the doc
+   names the mechanism that is left and why, rather than moving the bar.
+
+**Out of scope** — the phone→Hub→Mac network route (every number is loopback); the packaged `.dmg`/asar shell;
+the daemon's boot; the reverse and alternating legs beyond what item 1 needs to attribute the forward leg;
+every parked row in `rsi/state/STATUS.md`.
+
+**Cut rule.** At 11-26 20:00 land what is green and queue the rest with its reason; do not extend the date. If
+item 2 is not green, land item 1 and record the remaining mechanism with its number — a switch that explains
+itself is what the next fix is judged against.
+
+## Current phase (P13) — 排队顺序归人
+<!-- phase: P13-queue-order target=2026-11-28T20:00 -->
+
+**Why this and not features.** The queue is the only way a second instruction reaches a running task, and the
+person cannot change which one the agent answers next: delivery is `ORDER BY id ASC` in both the list and the
+pop (`internal/store/pending_prompts.go:152`, `:185`), and the only edit is withdraw-and-retype
+(`ui/src/lib/queuedPrompts.ts:123-138`). ADR 0033 (`docs/adr/0033-queued-prompt-order.md`, accepted 2026-11-20)
+decided the order lives where the pop reads it: an additive `position` column, a `PUT` order route, and a
+whole-queue `200` answer. The daemon half is PR #448; per MANDATE (migration + route) it is **held for Ethan**,
+and the console half cannot start until it merges.
+
+**Done means**
+1. The order is the daemon's, not the screen's: `position` is written by one transactional setter, both the list
+   and the pop read `position ASC, id ASC`, the `PUT /api/tasks/{id}/prompts/order` contract is the one in
+   ADR 0033 (`200` = whole queue in the new order; `400` malformed/duplicate/non-positive; `404` = unknown task
+   only; `409` = the ids are not exactly the current queue), OpenAPI and the generated client types carry it, and
+   a populated v49 database upgrades with its old id order intact. Evidence: store + api behavioural tests, and
+   mutants that put back `ORDER BY id` in each read turn red. **This item is #448 and lands only after Ethan
+   approves the migration + route** (MANDATE).
+2. A person can move a queued prompt up or down and the agent answers next in that order: the console re-reads
+   the daemon's queue after the write and renders the daemon's order (never a local-only reorder), a stale list
+   gets `409` → refetch + one honest sentence, the control is reachable and operable by keyboard, both locale
+   files are updated, 390/1100 shots show the moved row and the following delivery, and a DOM test plus a
+   mutant that reorders only locally turns red. No new event type; the existing poll + re-read is the
+   convergence path.
+3. One "what the user sees now" sentence with the queue length and the order the agent actually answered in, and
+   the phase names what it does not prove: cross-device order sync and reordering already-delivered messages.
+
+**Out of scope** — syncing the order between devices; reordering delivered/done turns; editing a queued message's
+text (the pencil stays withdraw-and-refill); hiding ended routine runs; any queue UI redesign; new event types.
+
+**Cut rule.** At 11-28 20:00 land what is green and queue the rest with its reason; do not extend the date. If
+Ethan has not approved item 1 by then, record the block in that item's own line and do not start item 2 — a
+console affordance over a route that does not exist would be a lie; do not merge the migration without his
+approval to hit the date.
 
 ## Closed phase (P9) — 把评审读进来，不用回 GitHub
 <!-- closed-phase: P9-review-in-place target=2026-11-25T20:00 -->

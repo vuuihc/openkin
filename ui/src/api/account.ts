@@ -131,6 +131,45 @@ export function clearAuthErrorFromURL(): void {
 }
 
 /**
+ * Whether the pre-render account probe is still waiting for its answer.
+ *
+ * At the pre-render deadline the console opens before this answer exists, and
+ * the store then holds a placeholder — NO_ACCOUNT with `enabled: true`. That
+ * value is not a verdict about the daemon; it exists only so App's mount effect
+ * does not read "no account yet" as "this daemon has none" and close the gate
+ * on the token screen. While this is true, no visit gate may be decided from
+ * it, and the placeholder is retired at the first such decision so an API 401
+ * afterwards reads as NO_ACCOUNT rather than inventing a login screen for a
+ * daemon that may not have one.
+ */
+let accountProbeUnanswered = false;
+let placeholderRetired = false;
+
+/**
+ * Whether the probe still has no answer.
+ *
+ * The placeholder may already be retired by an earlier visit-gate decision
+ * (StrictMode runs App's mount effect twice), so `account.enabled === false`
+ * alone cannot tell "the daemon has no accounts" apart from "the question is
+ * still open". App's mount effect asks this before closing the gate.
+ */
+export function isAccountProbeUnanswered(): boolean {
+  return accountProbeUnanswered;
+}
+
+/** Say that the pre-render account probe has no answer yet. */
+export function beginUnansweredAccountProbe(): void {
+  accountProbeUnanswered = true;
+  placeholderRetired = false;
+  useAppStore.getState().setAccount({ ...NO_ACCOUNT, enabled: true });
+}
+
+/** Say that the probe has answered and the store holds its real state. */
+export function endUnansweredAccountProbe(): void {
+  accountProbeUnanswered = false;
+}
+
+/**
  * Decide which gate this visit faces and put it in the store.
  *
  * Both entry points call this rather than assembling the answer themselves:
@@ -141,6 +180,17 @@ export function clearAuthErrorFromURL(): void {
  * Hub, so the URL-blind answer won.
  */
 export function applyVisitGate(): void {
+  if (accountProbeUnanswered) {
+    // The console was let through at the deadline and App's mount effect is
+    // asking about a placeholder. Retiring it here (once: StrictMode runs the
+    // effect twice in development) keeps a later 401 on the token screen
+    // instead of a login screen the daemon may not be able to serve.
+    if (!placeholderRetired) {
+      placeholderRetired = true;
+      useAppStore.getState().setAccount(NO_ACCOUNT);
+    }
+    return;
+  }
   const { account, requireAccount } = useAppStore.getState();
   if (!account.enabled) return;
   if (account.authenticated) {
@@ -267,9 +317,7 @@ export async function signOut(): Promise<void> {
   // still runs under the credential it revokes.
   const token = getToken();
   clearToken();
-  const headers: HeadersInit | undefined = token
-    ? { Authorization: `Bearer ${token}` }
-    : undefined;
+  const headers: HeadersInit | undefined = token ? { Authorization: `Bearer ${token}` } : undefined;
   // Unregister first: the delete is authorized by the cookie logout revokes,
   // and a phone left showing the sign-in screen must not keep ringing with
   // this account's work. The node deletes session-bound rows on logout too;

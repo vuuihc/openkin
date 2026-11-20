@@ -6,8 +6,10 @@ import { bootstrapTokenFromURL, getToken } from "./api/client";
 import {
   applyVisitGate,
   AuthError,
+  beginUnansweredAccountProbe,
   clearAuthErrorFromURL,
   cleanVisitCredentials,
+  endUnansweredAccountProbe,
   refreshAccount,
   signInWithLink,
 } from "./api/account";
@@ -15,6 +17,9 @@ import { AstryxProvider } from "./design/AstryxProvider";
 import { useAppStore } from "./store/appStore";
 import { loginVisit, withoutLoginHash } from "./lib/loginLink";
 import { hubAnswers, hubBootPlan } from "./lib/hubBoot";
+import { bootProbe } from "./lib/bootProbe";
+import { linkExchange, linkVisitPlan } from "./lib/linkExchange";
+import type { AuthErrorCode } from "./lib/accountGate";
 import { checkConsoleVersion } from "./lib/consoleVersion";
 import { ConsoleReady } from "./lib/consoleInteractive";
 import { currentHubUrl, hubConfigPlugin } from "./lib/hubConfig";
@@ -45,20 +50,6 @@ function showLinkFailure(err: unknown): void {
   window.history.replaceState({}, "", url.toString());
 }
 
-/**
- * Resolve the auth gate before the first render.
- *
- * Three things are needed to know which gate applies: the URL may carry a
- * device token, a one-time sign-in link, or neither, and the daemon may be a
- * Hub that signs browsers in with a cookie instead. Probing first means a
- * signed-in Hub user never sees the token screen flash by, and a standalone
- * daemon never sees a login form it cannot serve.
- *
- * The link is spent before `refreshAccount` so that probe already sees the new
- * session: the person arrives signed in, rather than watching a login form,
- * submitting nothing, and being reloaded. Its fragment is cleared first so the
- * credential does not stay in history.
- */
 /**
  * Reopen onto the Hub this phone was connected to, before the bundled console
  * paints.
@@ -132,69 +123,102 @@ function watchConsoleVersion(): void {
   });
 }
 
+// Resolve the auth gate before the first render, but never wait for it
+// forever.
+//
+// Three things are needed to know which gate applies: the URL may carry a
+// device token, a one-time sign-in link, or neither, and the daemon may be a
+// Hub that signs browsers in with a cookie instead. Probing first means a
+// signed-in Hub user never sees the token screen flash by, and a standalone
+// daemon never sees a login form it cannot serve.
+//
+// The link is spent before `refreshAccount` so that probe already sees the new
+// session: the person arrives signed in, rather than watching a login form,
+// submitting nothing, and being reloaded. Its fragment is cleared first so the
+// credential does not stay in history. The exchange itself is bounded too
+// (`LINK_EXCHANGE_DEADLINE_MS`): a Hub that accepts the POST and never answers
+// opens the console at the deadline instead of holding the splash forever.
 void (async () => {
   // Before the auth probe: a stored Hub is a different origin, so asking this
   // one who the visitor is would only produce the connect screen this avoids.
   if (await bootIntoStoredHub()) return;
   await bootstrapTokenFromURL();
-  const visit = loginVisit(window.location.hash);
+  const plan = linkVisitPlan(loginVisit(window.location.hash));
   let linkFailed = false;
-  if (visit) {
+
+  /** Report a failed link, and remember it for the account probe's decision. */
+  const failLink = (code: AuthErrorCode, message = ""): void => {
+    linkFailed = true;
+    showLinkFailure(new AuthError(code, message));
+  };
+
+  // The rest of boot: the bounded account probe, the gate, and the one render.
+  // `linkFailed` is read here, after the link branch below has set it, so a
+  // failed or timed-out link reaches the account screen.
+  const boot = async (): Promise<void> => {
+    // From here to the first render the console waits for the Hub's account
+    // answer. The wait is bounded: if the probe is accepted and never answered,
+    // the console opens anyway and the verdict is applied when it lands. Until
+    // then the store must not say "no accounts" -- that is a verdict, and there
+    // is not one yet -- or App's mount effect would close the gate on a token
+    // screen the deadline did not ask for.
+    if (!getToken()) beginUnansweredAccountProbe();
+    await bootProbe({
+      probe: refreshAccount(),
+      linkFailed,
+      hasDeviceToken: () => !!getToken(),
+      setAuthOk: () => useAppStore.getState().setAuthOk(),
+      applyVisitGate,
+      endUnanswered: endUnansweredAccountProbe,
+      cleanVisitCredentials,
+      clearAuthErrorFromURL,
+      render: () => {
+        // Before the router mounts, give a cold deep link a parent entry so the
+        // system Back returns to the list instead of leaving Kin.
+        synthesizePhoneParent();
+        createRoot(root).render(
+          <StrictMode>
+            <AstryxProvider>
+              <BrowserRouter>
+                {/* Reports the first committed screen to the desktop shell; the
+                    splash is gone at this point. Renders nothing. */}
+                <ConsoleReady />
+                <App />
+              </BrowserRouter>
+            </AstryxProvider>
+          </StrictMode>,
+        );
+        // Only after the console has painted: a stale document is still a
+        // document the person can use, and the reload is an upgrade, not a
+        // prerequisite.
+        watchConsoleVersion();
+      },
+    });
+  };
+
+  if (plan.kind !== "none") {
     // Clear it first: the token is about to be spent, and a reload while the
     // request is in flight must not post the same link twice.
     window.history.replaceState({}, "", withoutLoginHash(window.location.href));
-    if (visit.malformed) {
-      // A truncated or mangled link is still a link somebody followed. Saying
-      // so beats ignoring it, which looks identical to a link that never
-      // existed.
-      linkFailed = true;
-      showLinkFailure(new AuthError("login_link_invalid", ""));
-    } else {
-      try {
-        await signInWithLink(visit.token);
-      } catch (err) {
-        linkFailed = true;
-        showLinkFailure(err);
-      }
-    }
   }
-  const state = await refreshAccount();
-  if (getToken()) {
-    // A device token still works on a Hub, so it wins when one is present --
-    // and this visit will never reach the account screen. A one-time code left
-    // in the address bar would only sit in the history.
-    cleanVisitCredentials();
-    if (linkFailed) {
-      // The failed exchange closed the gate on its way out. The device token is
-      // still here, so the visitor is not signed out; reopen it rather than
-      // flash the connect screen.
-      useAppStore.getState().setAuthOk();
-    }
+  if (plan.kind === "malformed") {
+    // A truncated or mangled link is still a link somebody followed. Saying
+    // so beats ignoring it, which looks identical to a link that never
+    // existed.
+    failLink("login_link_invalid");
+    await boot();
+  } else if (plan.kind === "exchange") {
+    await linkExchange({
+      token: plan.token,
+      exchange: signInWithLink,
+      boot,
+      onFailed: failLink,
+      reprobe: refreshAccount,
+      setAuthOk: () => useAppStore.getState().setAuthOk(),
+      cleanVisitCredentials,
+      clearAuthErrorFromURL,
+    });
   } else {
-    applyVisitGate();
+    await boot();
   }
-  // The account screen is the only place that reads the failure parameters.
-  // For a visitor who is already signed in it never renders, so the message
-  // would stay in the URL and resurface on the next load.
-  if (linkFailed && (getToken() || state.authenticated)) {
-    clearAuthErrorFromURL();
-  }
-  // Before the router mounts, give a cold deep link a parent entry so the
-  // system Back returns to the list instead of leaving Kin.
-  synthesizePhoneParent();
-  createRoot(root).render(
-    <StrictMode>
-      <AstryxProvider>
-        <BrowserRouter>
-          {/* Reports the first committed screen to the desktop shell; the
-              splash is gone at this point. Renders nothing. */}
-          <ConsoleReady />
-          <App />
-        </BrowserRouter>
-      </AstryxProvider>
-    </StrictMode>,
-  );
-  // Only after the console has painted: a stale document is still a document
-  // the person can use, and the reload is an upgrade, not a prerequisite.
-  watchConsoleVersion();
 })();

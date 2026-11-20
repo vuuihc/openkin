@@ -447,10 +447,10 @@ func (e *Engine) FollowUp(ctx context.Context, id, prompt string) (store.Task, e
 //     and deliver next -- that path answers and denies the same way, on purpose,
 //     because the process it is talking to is about to die.
 //   - workspace past its commit point: a message still waits in the queue and the
-//     turn end that follows finalization delivers it, but an interrupt is refused
-//     because past that point the turn cannot be stopped. A turn end with no settle
-//     hook behind it (the orchestrated finisher) refuses the message too, rather
-//     than accept one that nothing would deliver.
+//     turn end that follows finalization delivers it -- both turn ends settle their
+//     commit window -- but an interrupt is refused because past that point the turn
+//     cannot be stopped. A commit window with no settle hook behind it still refuses
+//     the message rather than accept one that nothing would deliver.
 func (e *Engine) FollowUpWith(ctx context.Context, id string, req FollowUpRequest) (store.Task, error) {
 	e.retryMu.Lock()
 	defer e.retryMu.Unlock()
@@ -474,10 +474,9 @@ func (e *Engine) FollowUpWith(ctx context.Context, id string, req FollowUpReques
 		// refused. A message is not an interrupt: it stops nothing, so it waits in
 		// the queue like any other message sent to a busy task, and the turn end
 		// that clears the flag delivers it (settlePromptsQueuedDuringFinalization).
-		// Accepting it a moment earlier or later is the same delivery -- only the
-		// accept path used to disagree. A commit window with no settle hook behind
-		// it (the orchestrated finisher) still refuses: a refusal the user can retry
-		// is honest; a message nothing will deliver is not.
+		// Both turn ends arm that hook beside the flag. A commit window with no hook
+		// behind it still refuses: a refusal the user can retry is honest; a message
+		// nothing will deliver is not.
 		if req.Interrupt || !settles {
 			return t, fmt.Errorf("%w: workspace finalization is in progress", ErrConflict)
 		}

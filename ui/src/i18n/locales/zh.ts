@@ -1166,6 +1166,8 @@ const zh = {
       autoOption: "自动（Provider 就绪时用 Kin，否则用第一个 CLI）",
       unavailable: " — 不可用",
       currentDefault: " — 当前默认",
+      agentListLoading: "正在读取本机的 agent…",
+      agentListFailed: "无法读取 agent 列表。",
       defaultAgentHint:
         "仅可选择本机已安装且可用的 agent。自动：Provider 就绪时用 Kin，否则用第一个可用 CLI。",
       defaultAgentEffect: "新建对话默认用它，除非你在输入框里另选。",
@@ -1660,6 +1662,7 @@ const zh = {
       claim_code_invalid: "认领码无效或已过期。",
       invite_invalid: "邀请码无效或已过期。",
       login_link_invalid: "这条登录链接无效或已过期。让 agent 重新生成一条。",
+      login_link_timeout: "这条登录链接没有完成登录。请重新打开，或让 agent 重新生成一条。",
       login_code_invalid: "这次登录已失效，请回到应用重新开始。",
       browser_unavailable: "无法打开系统浏览器。第三方登录需要 https:// 的 Hub 地址。",
       registration_closed: "这台 Hub 已有所有者，请直接登录。",

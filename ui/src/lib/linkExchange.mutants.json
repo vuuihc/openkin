@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the deadline never fires: the console renders only when the exchange settles",
+    "file": "ui/src/lib/linkExchange.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/linkExchange.test.ts",
+    "old": "    const timer = setTimeout(() => resolve({ answered: false }), deadlineMs);",
+    "new": "    const timer = setTimeout(() => {}, deadlineMs);"
+  },
+  {
+    "label": "the late success is dropped after the deadline render",
+    "file": "ui/src/lib/linkExchange.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/linkExchange.test.ts",
+    "old": "  const late = await outcome;\n  if (!late.ok) return;",
+    "new": "  const late = await outcome;\n  if (late) return; // MUTANT: the late success is dropped."
+  },
+  {
+    "label": "the late success renders the console a second time",
+    "file": "ui/src/lib/linkExchange.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/linkExchange.test.ts",
+    "old": "  deps.setAuthOk();\n}",
+    "new": "  deps.setAuthOk();\n  await deps.boot(); // MUTANT: the late path renders again.\n}"
+  },
+  {
+    "label": "the fast path waits for the deadline before it takes an answer it already has",
+    "file": "ui/src/lib/linkExchange.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/linkExchange.test.ts",
+    "old": "    work.then((value) => {\n      // Cleared the moment the answer lands, so a settled launch never carries\n      // a stray deadline into its later life.\n      clearTimeout(timer);\n      resolve({ answered: true, value });\n    });",
+    "new": "    work.then((value) => {\n      // MUTANT: the answer is only delivered at the deadline.\n      setTimeout(() => resolve({ answered: true, value }), deadlineMs);\n    });"
+  }
+]

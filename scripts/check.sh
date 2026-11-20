@@ -230,6 +230,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-ux-walk-timeout.sh || return 1
   bash rsi/runtime/tests/test-loop-sendback-stale.sh || return 1
   bash rsi/runtime/tests/test-lane-autofill.sh || return 1
+  bash rsi/runtime/tests/test-lane-sendback-reserve.sh || return 1
   bash rsi/runtime/tests/test-sendback-provenance.sh || return 1
   bash rsi/runtime/tests/test-release.sh || return 1
   bash rsi/runtime/tests/test-pace.sh || return 1
@@ -248,6 +249,7 @@ job_shell_test() {
   bash rsi/runtime/ux/retry-test.sh || return 1
   bash rsi/runtime/tests/test-ux-gate-confirm-red.sh || return 1
   bash rsi/runtime/tests/test-ux-gate-grounded-red.sh || return 1
+  bash rsi/runtime/tests/test-switch-attribution.sh || return 1
   bash rsi/runtime/tests/test-wiring.sh
 }
 

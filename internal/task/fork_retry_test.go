@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -576,7 +577,11 @@ func TestOrchestratedWorkspaceCompletionFinalizesBeforeFollowUp(t *testing.T) {
 	}
 }
 
-func TestFollowUpRejectedWhileOrchestratedWorkspaceFinalizes(t *testing.T) {
+// A follow-up that arrives while an orchestrated turn finalizes its workspace
+// waits in the queue and is delivered when finalization ends -- the same
+// contract the adapter run loop keeps. This test used to assert the refusal the
+// orchestrated finisher alone kept, before it had a settle hook of its own.
+func TestFollowUpDuringOrchestratedWorkspaceFinalizationIsQueuedAndDelivered(t *testing.T) {
 	host := &fakeAdapter{events: successEvents()}
 	worker := &fakeAdapter{events: successEvents()}
 	e, st := testEngine(t, 1, host)
@@ -616,18 +621,31 @@ func TestFollowUpRejectedWhileOrchestratedWorkspaceFinalizes(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("workspace finalization did not start")
 	}
-	if _, err := e.FollowUp(ctx, task.ID, "arrived during finalization"); !errors.Is(err, ErrConflict) {
-		t.Fatalf("follow-up error=%v want conflict", err)
+	if _, err := e.FollowUp(ctx, task.ID, "arrived during finalization"); err != nil {
+		t.Fatalf("a message sent while the workspace finalizes should be accepted: %v", err)
 	}
-	close(rt.finalizeRelease)
-	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
-
-	generations, err := st.ListTaskWorkspaces(ctx, task.ID)
+	queued, err := st.ListPendingPrompts(ctx, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(generations) != 1 || generations[0].State != store.WorkspaceReleased {
-		t.Fatalf("workspace generations=%+v want released", generations)
+	if len(queued) != 1 || queued[0].Prompt != "arrived during finalization" {
+		t.Fatalf("queue = %+v, want the message that just arrived", queued)
+	}
+	close(rt.finalizeRelease)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		got, err := st.GetTask(ctx, task.ID)
+		if err == nil && got.Status == StatusSucceeded && strings.Contains(got.Prompt, "arrived during finalization") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the queued message was not delivered: task=%+v err=%v", got, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if left, err := st.ListPendingPrompts(ctx, task.ID); err != nil || len(left) != 0 {
+		t.Fatalf("queue after delivery = %+v (err %v), want the message delivered exactly once", left, err)
 	}
 }
 

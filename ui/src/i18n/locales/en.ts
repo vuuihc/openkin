@@ -1198,6 +1198,8 @@ const en: MessageTree = {
       autoOption: "Auto (Kin if provider ready, else first CLI)",
       unavailable: " — unavailable",
       currentDefault: " — current default",
+      agentListLoading: "Loading the agents on this machine…",
+      agentListFailed: "Couldn't read the agent list.",
       defaultAgentHint:
         "Only agents installed and ready on this machine can be selected. Auto picks Kin when the provider is ready, otherwise the first ready CLI.",
       defaultAgentEffect:
@@ -1731,6 +1733,8 @@ const en: MessageTree = {
       invite_invalid: "That invitation is not valid or has expired.",
       login_link_invalid:
         "This sign-in link is not valid or has expired. Ask your agent for a new one.",
+      login_link_timeout:
+        "This sign-in link didn't finish signing you in. Open it again, or ask your agent for a new one.",
       login_code_invalid: "This sign-in attempt is no longer valid. Start again from the app.",
       browser_unavailable:
         "The system browser could not be opened. Sign-in through a provider needs an https:// Hub address.",
