@@ -1146,16 +1146,16 @@ paths:
     get:
       operationId: listQueuedPrompts
       description: |
-        Prompts accepted for this task that are still waiting for a turn,
-        oldest first. An empty list means every message the user has sent has
-        been answered. Items carry the `user_seq` of the message event that was
-        written when the prompt was accepted, which is what a client marks as
-        waiting for an answer.
+        Prompts accepted for this task that are still waiting for a turn, in
+        delivery order (`position`, then `id`). An empty list means every
+        message the user has sent has been answered. Items carry the `user_seq`
+        of the message event that was written when the prompt was accepted,
+        which is what a client marks as waiting for an answer.
       parameters:
         - $ref: "#/components/parameters/TaskId"
       responses:
         "200":
-          description: Queued prompts, oldest first
+          description: Queued prompts, in delivery order
           content:
             application/json:
               schema:
@@ -1164,6 +1164,47 @@ paths:
                   $ref: "#/components/schemas/QueuedPrompt"
         "404":
           description: Task not found
+  /api/tasks/{taskId}/prompts/order:
+    put:
+      operationId: reorderQueuedPrompts
+      description: |
+        Set the order in which this task's queued prompts are delivered.
+
+        `ids` lists every currently queued prompt id exactly once, in the wanted
+        delivery order. The answer is the whole queue in the GET shape, in the
+        new order; sending the current order is a no-op. A reorder writes no
+        transcript event: the messages already exist and their wording does not
+        change, and the console converges by re-reading the queue.
+
+        `404` means the task does not exist. `409` means the submitted ids are
+        not exactly the current queue — an id is omitted, or an id is absent
+        because it was never queued or a turn boundary already delivered it.
+        Both stale-list cases are one answer because a delivered id and a
+        never-queued id are the same observable state once the row is gone;
+        refetch and render the daemon's order.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueuedPromptOrder"
+      responses:
+        "200":
+          description: The queue in its new order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QueuedPrompt"
+        "400":
+          description: Malformed body, duplicate id, or non-positive id
+        "404":
+          description: Task not found
+        "409":
+          description: The ids are not exactly the current queue
   /api/tasks/{taskId}/prompts/{promptId}:
     delete:
       operationId: withdrawQueuedPrompt
@@ -5340,6 +5381,26 @@ components:
         queued_at:
           type: integer
           description: When the prompt was queued, in epoch milliseconds.
+        position:
+          type: integer
+          description: |
+            Delivery order within the queue: lower goes first, and `id` breaks a
+            tie. Rows written before ordering existed share 0. This is an
+            ordering key, not an index — a delivered prompt leaves a hole and
+            nothing renumbers the survivors. Optional because the field is
+            additive: this daemon always sends it, and a client written before
+            it existed is still a valid client.
+    QueuedPromptOrder:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          description: |
+            Every currently queued prompt id, once, in the wanted delivery
+            order. A duplicate or non-positive id is rejected.
+          items:
+            type: integer
     ReplayRequest:
       type: object
       required: [mode]

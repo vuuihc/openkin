@@ -462,6 +462,7 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/browser/actions", s.handleBrowserAction)
 			r.Get("/limit-wait", s.handleTaskLimitWait)
 			r.Get("/prompts", s.handleListQueuedPrompts)
+			r.Put("/prompts/order", s.handleUpdateQueuedPromptOrder)
 			r.Delete("/prompts/{promptID}", s.handleDeleteQueuedPrompt)
 			r.Get("/workspaces", s.handleListTaskWorkspaces)
 			r.Get("/workspaces/{workspace_id}/tree", s.handleListWorkspaceTree)
