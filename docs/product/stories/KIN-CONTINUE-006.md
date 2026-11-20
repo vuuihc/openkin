@@ -168,3 +168,4 @@
 ## 变更记录
 
 - 2026-11-21 创建（draft）：P15 的结构半边；CEO 2026-11-20 23:47 定下基线先行与原子换入，A（有界重试）归 `R-boot-guard`；审阅页归 `R-continue-006-review`。
+- 2026-11-21 审阅页 `KIN-CONTINUE-006.review.html`（R-continue-006-review）：6 张帧 + 每帧六段流程 + D1–D4；状态仍为 draft，待签字。
