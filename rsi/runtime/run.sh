@@ -51,6 +51,54 @@ adopt_untracked_collision() {
     return 1
   done < <($GIT -C "$RSI_CTRL" diff --no-renames --name-only --diff-filter=A HEAD origin/main 2>/dev/null)
 }
+# adopt_pending_decisions — the last adoptable dirty shape: a pure append at EOF of
+# rsi/DECISIONS.md while HEAD is behind origin/main. The director records CEO calls as
+# uncommitted lines at the end of DECISIONS.md (prompts/fill.md §4); one such line pinned the
+# live tree 17 commits behind main for six hours on 2026-11-20, so every gate, walker and
+# GOAL.md the loop ran came from the stale tree. Only this exact shape is adopted: the added
+# lines are copied to gitignored state/decisions-pending.md first, then the tracked file is
+# restored and the caller fast-forwards. A deletion, a mid-file edit, a rewrite, any other
+# dirty tracked path, or a tree already at origin/main returns 0 and leaves the existing
+# pin/leave-alone path to speak. Returns 1 only after pinning: the tail could not be saved.
+adopt_pending_decisions() {
+  local behind dirty total diff_out tail_lines header l all pending
+  behind="$($GIT -C "$RSI_CTRL" rev-list --count HEAD..origin/main 2>/dev/null)"
+  case "$behind" in ''|*[!0-9]*|0) return 0;; esac
+  $GIT -C "$RSI_CTRL" cat-file -e HEAD:rsi/DECISIONS.md 2>/dev/null || return 0
+  dirty="$($GIT -C "$RSI_CTRL" diff --name-only HEAD 2>/dev/null)"
+  [ "$dirty" = rsi/DECISIONS.md ] || return 0
+  total="$($GIT -C "$RSI_CTRL" show HEAD:rsi/DECISIONS.md 2>/dev/null | wc -l | tr -d ' ')"
+  # -U0 keeps only changed lines: no `-` line may appear (other than the --- header) and every
+  # `+` hunk must start past the old file's last line, so only an EOF append passes. The diff is
+  # unscoped because the path check above already proved the only dirty path is DECISIONS.md;
+  # letting the path check be what restricts it keeps that guard load-bearing. The added lines
+  # are printed verbatim, prefix stripped, for the pending record.
+  diff_out="$($GIT -C "$RSI_CTRL" diff -U0 HEAD 2>/dev/null)"
+  tail_lines="$(printf '%s\n' "$diff_out" | awk -v total="$total" '
+    /^@@ / { inhunk = 1; if (!match($0, /\+[0-9]+/) || substr($0, RSTART + 1, RLENGTH - 1) + 0 <= total) early = 1; next }
+    inhunk && /^-/ { deleted = 1; next }
+    inhunk && /^\+/ { print substr($0, 2); next }
+    END { exit (deleted || early) ? 1 : 0 }
+  ')" || return 0
+  [ -n "$tail_lines" ] || return 0
+  pending="$STATE/decisions-pending.md"
+  mkdir -p "$STATE" 2>/dev/null || { pinned "could not preserve the DECISIONS tail: cannot create $STATE"; return 1; }
+  # Idempotent: a line already in the pending record is not appended again.
+  all=1
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    grep -Fqx -- "$l" "$pending" 2>/dev/null || { all=0; break; }
+  done <<< "$tail_lines"
+  if [ "$all" = 0 ]; then
+    header="- $(date '+%Y-%m-%d %H:%M %z' | sed 's/\([+-][0-9][0-9]\)[0-9][0-9]$/\1/') · adopted from an uncommitted rsi/DECISIONS.md tail (never committed) — fold into DECISIONS.md in a docs batch:"
+    printf '%s\n%s\n' "$header" "$tail_lines" >> "$pending" 2>/dev/null \
+      || { pinned "could not preserve the DECISIONS tail in $pending"; return 1; }
+  fi
+  $GIT -C "$RSI_CTRL" checkout HEAD -- rsi/DECISIONS.md 2>/dev/null \
+    || { pinned "restore of rsi/DECISIONS.md after adopting its tail failed"; return 1; }
+  echo "control tree: adopted the rsi/DECISIONS.md tail into rsi/state/decisions-pending.md" >&2
+  return 0
+}
 sync_control_tree() {
   local before after
   local behind
@@ -64,6 +112,7 @@ sync_control_tree() {
     return 1
   fi
   adopt_untracked_collision || return 1
+  adopt_pending_decisions || return 1
   if [ -z "$($GIT -C "$RSI_CTRL" status --porcelain --untracked-files=no)" ]; then
     $GIT -C "$RSI_CTRL" merge -q --ff-only origin/main 2>/dev/null || {
       pinned "fast-forward to origin/main failed"
