@@ -1752,6 +1752,8 @@ const zh = {
     emptyList: "尚未配置例行任务。打开项目添加一个。",
     showSilent: "显示 {count} 条安静运行",
     hideSilent: "收起安静运行（{count}）",
+    hideEnded: "在本机隐藏这些安静运行",
+    hiddenEnded: "本机已隐藏 {count} 条安静运行 · 恢复",
     noteworthy: "值得关注",
     statusQueued: "排队中",
     statusRunning: "执行中",
