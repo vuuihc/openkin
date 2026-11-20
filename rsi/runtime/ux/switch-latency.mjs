@@ -4,6 +4,7 @@
 //   node switch-latency.mjs [--kin <binary>] [--runs N] [--out DIR]
 //                           [--legs mac-chat-to-chat,mac-area-to-area,phone-list-to-chat]
 //                           [--break-target] [--break-shell]
+//                           [--break-splash] [--break-alert] [--break-blank]
 //   node switch-latency.mjs --print DIR/switch-latency.json
 //
 // Boots its own throwaway daemon (free port, mktemp KIN_STATE_DIR, the
@@ -29,7 +30,10 @@
 //   (c) splash-blank-or-error — a boot splash, an empty <main>, or an error
 //       surface (visible role=alert) is what is on screen.
 // `--break-target` points every destination at #never-appears; `--break-shell`
-// reloads the page right after the click. Each must exit 2 with its guard.
+// reloads the page right after the click. `--break-splash`, `--break-alert` and
+// `--break-blank` inject, after the press landed and the destination appeared,
+// the boot splash, a visible role=alert error surface, or an emptied <main>.
+// Each must exit 2 with its guard.
 //
 // The daemon is always a throwaway: never ~/.kin, never :7777. Needs
 // playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome,
@@ -97,6 +101,9 @@ const WAIT_MS = (() => { const n = Number(arg('wait-ms', '15000')); return Numbe
 const outDir = path.resolve(arg('out', path.join(repo, 'rsi/state/switch-latency')));
 const breakTarget = flag('break-target');
 const breakShell = flag('break-shell');
+const breakSplash = flag('break-splash');
+const breakAlert = flag('break-alert');
+const breakBlank = flag('break-blank');
 const only = (arg('legs', '') || '').split(',').map((s) => s.trim()).filter(Boolean);
 
 const SHA = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
@@ -358,6 +365,28 @@ async function measureOnce(page, leg, destination) {
   }
   if (state.t0 === null || state.clicks === 0) {
     guard('a', 'click-never-landed', 'the press never reached the page, so there is no start instant to measure from');
+  }
+  // The committed way to red guard (c). The injection waits until the press
+  // landed and its destination appeared, so guards (a) and (b) cannot answer
+  // first; it runs after t1 and the shell check, so it can never change a
+  // number or be mistaken for a rebuilt shell.
+  if (breakSplash || breakAlert || breakBlank) {
+    await page.evaluate((kind) => {
+      if (kind === 'splash') {
+        const el = document.createElement('div');
+        el.className = 'kin-boot';
+        el.textContent = 'injected boot splash (--break-splash)';
+        document.querySelector('#root').appendChild(el);
+      } else if (kind === 'alert') {
+        const el = document.createElement('div');
+        el.setAttribute('role', 'alert');
+        el.textContent = 'injected error surface (--break-alert)';
+        document.body.appendChild(el);
+      } else {
+        const main = document.querySelector('main');
+        if (main) main.replaceChildren();
+      }
+    }, breakSplash ? 'splash' : breakAlert ? 'alert' : 'blank');
   }
   const surface = await page.evaluate(() => {
     const vis = (el) => !!el && el.getClientRects().length > 0;

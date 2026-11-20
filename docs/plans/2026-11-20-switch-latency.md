@@ -12,7 +12,7 @@ made: this document is the baseline the next switch phase opens from.
 | Real end-to-end run (10 runs/leg) | green — table 1 below; JSON at `rsi/state/switch-latency/switch-latency.json` |
 | Guard (a) `--break-target` | green — exit 2, `GUARD (a) destination-never-appeared` |
 | Guard (b) `--break-shell` | green — exit 2, `GUARD (b) shell-rebuilt` |
-| Guard (c) splash/blank/error | implemented, not exercised by a committed flag |
+| Guard (c) splash/blank/error | green — `--break-splash`, `--break-alert`, `--break-blank` each exit 2 with `GUARD (c) splash-blank-or-error` and their own detail |
 | `--print <json>` claim check | green — prints the same p50/p90 as the run |
 | Product code changed | none — script and this document only |
 
@@ -61,8 +61,14 @@ A guard exits 2, records no number for any leg, and prints which guard fired:
   is blank, or a visible `[role=alert]` error surface is what the reader sees.
 
 `--break-target` points every destination at `#never-appears`; `--break-shell`
-reloads the page right after the press. Both are committed flags, and both were
-run for this document (see Reproduce).
+reloads the page right after the press. `--break-splash`, `--break-alert` and
+`--break-blank` inject the guard (c) failure after the press landed and its
+destination appeared (so guards (a) and (b) cannot answer first): one visible
+`#root .kin-boot`, one visible `[role=alert]`, or an emptied `<main>`. All five
+are committed flags with a recorded run (see Reproduce).
+
+Guard runs pass `--out "$(mktemp -d)"`: they write a guard JSON with no
+numbers, and must never replace a real measurement file.
 
 ## Table 1 — measured 2026-11-20
 
@@ -130,6 +136,10 @@ entry chunk), so nothing under `web/dist/` is part of this change.
   appears, not what restoring those costs.
 - **A controlled machine.** Other RSI lanes share this host; load is recorded
   above but was not held constant, and 10 runs per leg is a small sample.
+- **A guard proof is not a measurement.** `--break-splash`, `--break-alert` and
+  `--break-blank` show the surface read fails loudly on each condition it
+  names; they say nothing about how often the real console shows a splash, a
+  blank `<main>` or an alert during a switch, and they record no number.
 - **Paint.** `t1` is the first animation frame after the visibility poll, so the
   duration is an upper bound that includes the poll lag and up to one frame.
 
@@ -147,12 +157,24 @@ node rsi/runtime/ux/switch-latency.mjs --kin ./kin --runs 10
 node rsi/runtime/ux/switch-latency.mjs --print rsi/state/switch-latency/switch-latency.json
 
 # Guard (a): a destination that never appears.
-node rsi/runtime/ux/switch-latency.mjs --kin ./kin --runs 1 --legs mac-chat-to-chat --break-target
+node rsi/runtime/ux/switch-latency.mjs --kin ./kin --runs 1 --legs mac-chat-to-chat --break-target --out "$(mktemp -d)"
 # -> GUARD (a) destination-never-appeared: ... ; exit 2, no number recorded
 
 # Guard (b): a reload in place of a switch.
-node rsi/runtime/ux/switch-latency.mjs --kin ./kin --runs 1 --legs mac-chat-to-chat --break-shell
+node rsi/runtime/ux/switch-latency.mjs --kin ./kin --runs 1 --legs mac-chat-to-chat --break-shell --out "$(mktemp -d)"
 # -> GUARD (b) shell-rebuilt: ... ; exit 2, no number recorded
+
+# Guard (c), splash: the boot splash is still what is on screen.
+node rsi/runtime/ux/switch-latency.mjs --kin ./kin --runs 1 --legs mac-chat-to-chat --break-splash --out "$(mktemp -d)"
+# -> GUARD (c) splash-blank-or-error: the boot splash is still the surface on screen ; exit 2
+
+# Guard (c), blank: <main> has no text.
+node rsi/runtime/ux/switch-latency.mjs --kin ./kin --runs 1 --legs mac-chat-to-chat --break-blank --out "$(mktemp -d)"
+# -> GUARD (c) splash-blank-or-error: the main surface is blank ; exit 2
+
+# Guard (c), error: a visible role=alert is on screen.
+node rsi/runtime/ux/switch-latency.mjs --kin ./kin --runs 1 --legs mac-chat-to-chat --break-alert --out "$(mktemp -d)"
+# -> GUARD (c) splash-blank-or-error: an error surface is on screen: ... ; exit 2
 ```
 
 The script kills its daemon and removes its `mktemp` directory on exit. It
