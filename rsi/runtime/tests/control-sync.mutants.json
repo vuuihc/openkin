@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the single-path check is dropped, so an EOF append to another tracked file is adopted too",
+    "file": "rsi/runtime/run.sh",
+    "test": "bash rsi/runtime/tests/test-control-sync.sh",
+    "old": "  [ \"$dirty\" = rsi/DECISIONS.md ] || return 0",
+    "new": "  :"
+  },
+  {
+    "label": "the append-only/EOF verdict is dropped, so a mid-file edit is adopted as a tail",
+    "file": "rsi/runtime/run.sh",
+    "test": "bash rsi/runtime/tests/test-control-sync.sh",
+    "old": "    END { exit (deleted || early) ? 1 : 0 }",
+    "new": "    END { exit 0 }"
+  },
+  {
+    "label": "the pending-file write is skipped, so the adopted tail is lost when the file is restored",
+    "file": "rsi/runtime/run.sh",
+    "test": "bash rsi/runtime/tests/test-control-sync.sh",
+    "old": "    printf '%s\\n%s\\n' \"$header\" \"$tail_lines\" >> \"$pending\" 2>/dev/null \\\n      || { pinned \"could not preserve the DECISIONS tail in $pending\"; return 1; }",
+    "new": "    :"
+  },
+  {
+    "label": "the behind check is dropped, so a tree already at origin/main is adopted instead of left alone",
+    "file": "rsi/runtime/run.sh",
+    "test": "bash rsi/runtime/tests/test-control-sync.sh",
+    "old": "  case \"$behind\" in ''|*[!0-9]*|0) return 0;; esac",
+    "new": "  case \"$behind\" in '') return 0;; esac"
+  }
+]
