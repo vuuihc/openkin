@@ -4,7 +4,18 @@
 Local only (no network, no daemon): reads the loop's own ledgers and answers
 "are we on pace for the phase target, and is the pipeline flowing?".
 
-  python3 rsi/runtime/pace.py [--min-per-day N] [--json] [--repo DIR] [--state DIR]
+  python3 rsi/runtime/pace.py [--min-per-day N] [--json] [--latency] [--repo DIR] [--state DIR]
+
+`--latency` adds a per-stage split of the same open->merge wait, for the 24h and
+7d windows: pre_verify (open to the last verifier's start: dispatch, slot queue,
+CI hold — nobody has looked at the branch yet), verify (the verifier's own run:
+gate-lock wait + gate + review, never just the gate), and verify_to_merge (last
+verify line's minute to MERGED: land lock, sync, merge command). It also reports
+recorded queue_wait separately and verify split by gate=ran / gate=cached. The
+log is minute-stamped, so every stage here is minute resolution; a PR whose
+verify + verify_to_merge exceed open_to_merge is counted as n_negative and kept
+out of pre_verify rather than printing a negative stage. Without the flag the
+output is byte-identical to before.
 
 Unshipped follows the release gate (release-check.sh), not the clock: the older of
 the node=/hub= commits in state/last_release is the baseline, and every subject
@@ -43,6 +54,10 @@ NOW = datetime.now()
 
 STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})")
 LATENCY = re.compile(r"open_to_merge=(\d+)m")
+PRNUM = re.compile(r"#(\d+)\b")
+VERIFY = re.compile(r"\bverify=(\d+)m")
+GATE = re.compile(r"\bgate=(ran|cached)\b")
+QUEUE_WAIT = re.compile(r"\bqueue_wait=(\d+)m")
 PHASE = re.compile(r"<!--\s*phase:\s*(\S+)\s+target=(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})\s*-->")
 PR_SUBJECT = re.compile(r"\(#[0-9]+\)$")
 
@@ -63,19 +78,121 @@ def merge_times(state):
     return out
 
 
+def minute(ln):
+    """The line's minute stamp, or None when it is unreadable (garbage log)."""
+    m = STAMP.match(ln)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1) + " " + m.group(2), "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
+
 def latencies(state, since):
     out = []
     for ln in lines(state / "merge" / "cycles.log"):
-        m = STAMP.match(ln)
-        if not m or " MERGED " not in ln:
-            continue
-        when = datetime.strptime(m.group(1) + " " + m.group(2), "%Y-%m-%d %H:%M")
-        if when < since:
+        when = minute(ln)
+        if when is None or when < since or " MERGED " not in ln:
             continue
         n = LATENCY.search(ln)
         if n:
             out.append(int(n.group(1)))
     return out
+
+
+def stage_stats(vals):
+    return {"n": len(vals), "p50": pct(vals, 0.5), "p90": pct(vals, 0.9),
+            "max": max(vals) if vals else None}
+
+
+def latency_split(state, since):
+    """Split open->merge for merged PRs in the window; minute resolution.
+
+    The log stamps minutes, so verify=NNm ends at its line's minute and started
+    NN minutes earlier; pre_verify = open_to_merge - verify - (merge minute -
+    verify minute). verify is the verifier's whole run (gate-lock wait + gate +
+    review), not just the gate. A missing queue_wait= means none was recorded,
+    not zero. Only the last verify= line at or before MERGED is joined, because
+    a re-verified head has earlier, larger lines. A non-positive residual is
+    counted in n_negative and left out of pre_verify instead of skewing it.
+    """
+    merged, verifies, queues = {}, {}, {}
+    for ln in lines(state / "merge" / "cycles.log"):
+        when = minute(ln)
+        n = PRNUM.search(ln)
+        if when is None or not n:
+            continue
+        pr = int(n.group(1))
+        if " MERGED " in ln:
+            o = LATENCY.search(ln)
+            if o:
+                merged[pr] = (when, int(o.group(1)))
+        elif " verifier_started " in ln:
+            q = QUEUE_WAIT.search(ln)
+            if q:
+                queues.setdefault(pr, []).append((when, int(q.group(1))))
+        else:
+            v = VERIFY.search(ln)
+            if v:
+                g = GATE.search(ln)
+                verifies.setdefault(pr, []).append(
+                    (when, int(v.group(1)), g.group(1) if g else "?"))
+
+    pre, ver, vtm, qw, ran, cached = [], [], [], [], [], []
+    negative = 0
+    in_window = {pr: ev for pr, ev in merged.items() if ev[0] >= since}
+    for pr, (merged_at, open_min) in in_window.items():
+        q = [x for x in queues.get(pr, []) if x[0] <= merged_at]
+        if q:
+            qw.append(max(q, key=lambda x: x[0])[1])
+        seen = [v for v in verifies.get(pr, []) if v[0] <= merged_at]
+        if not seen:
+            continue
+        verified_at, v_min, gate = max(seen, key=lambda v: v[0])
+        land = int((merged_at - verified_at).total_seconds() // 60)
+        residual = open_min - v_min - land
+        if residual < 0:
+            negative += 1
+        else:
+            pre.append(residual)
+        ver.append(v_min)
+        vtm.append(land)
+        if gate == "ran":
+            ran.append(v_min)
+        elif gate == "cached":
+            cached.append(v_min)
+
+    wait = stage_stats(qw)
+    wait["with_queue_wait"] = len(qw)
+    return {"merged_n": len(in_window), "n_negative": negative,
+            "pre_verify": stage_stats(pre), "verify": stage_stats(ver),
+            "verify_to_merge": stage_stats(vtm), "queue_wait": wait,
+            "verify_gate_ran": stage_stats(ran),
+            "verify_gate_cached": stage_stats(cached)}
+
+
+def stage_line(label, s, extra=""):
+    def fmt(v):
+        return f"{v}m" if v is not None else "-"
+    return (f"  {label:<18} n={s['n']} p50={fmt(s['p50'])} "
+            f"p90={fmt(s['p90'])} max={fmt(s['max'])}{extra}")
+
+
+def print_latency(lat):
+    for window in ("24h", "7d"):
+        d = lat[window]
+        print(f"latency by stage, {window} (n={d['merged_n']} merged; "
+              f"minute resolution; verify = gate-lock wait + gate + review):")
+        print(stage_line("pre_verify", d["pre_verify"],
+                         f" skipped_negative={d['n_negative']}"))
+        print(stage_line("verify", d["verify"]))
+        print(stage_line("verify_to_merge", d["verify_to_merge"]))
+        print(stage_line("queue_wait", d["queue_wait"],
+                         f" recorded={d['queue_wait']['with_queue_wait']}"
+                         f"/{d['merged_n']} merged (missing != 0)"))
+        print(stage_line("verify gate=ran", d["verify_gate_ran"]))
+        print(stage_line("verify gate=cached", d["verify_gate_cached"]))
 
 
 def last_release(state):
@@ -159,6 +276,8 @@ def main():
     ap.add_argument("--min-per-day", type=float, default=20.0,
                     help="24h merges below this is BEHIND (default 20; 11-15..17 held 22-95/day)")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--latency", action="store_true",
+                    help="add the pre_verify / verify / verify_to_merge split (24h and 7d)")
     ap.add_argument("--repo", default=None, help="checkout to count from (default: this repo)")
     ap.add_argument("--state", default=None, help="state dir (default: rsi/state beside this script)")
     a = ap.parse_args()
@@ -206,6 +325,10 @@ def main():
         "phase_hours_left": round(hours_left, 1) if hours_left is not None else None,
         "verdict": verdict,
     }
+    if a.latency:
+        data["latency"] = {"resolution_min": 1,
+                           "24h": latency_split(state, day_ago),
+                           "7d": latency_split(state, week_ago)}
     if a.json:
         print(json.dumps(data, ensure_ascii=False))
         return 0 if verdict != "BEHIND" else 3
@@ -219,6 +342,8 @@ def main():
         print(f"phase: {name} target={data['phase_target']} left={data['phase_hours_left']}h")
     print(f"pace verdict: {verdict}"
           + (f" ({len(m24)} merges/24h vs min {a.min_per_day:g})" if name else " (no phase marker in GOAL.md)"))
+    if a.latency:
+        print_latency(data["latency"])
     return 0 if verdict != "BEHIND" else 3
 
 
