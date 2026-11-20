@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -634,11 +635,28 @@ func TestTheRetryDiscardReportSurvivesAProcessThatDiesBeforePublishingIt(t *test
 // whatever happens to be newest.
 func TestADeliveredPromptIsAnsweredOnceAndAnchoredAtItsOwnMessage(t *testing.T) {
 	ctx := context.Background()
+	// The gate holds the first turn inside Start, so "the task is busy when the
+	// message is sent" is a fact the test establishes, not a race against a wall
+	// clock. A turn that is merely slow can finish on a loaded runner before
+	// FollowUp lands; the message is then legitimately a new turn and the queue is
+	// correctly empty, which is how this test used to flake.
+	gate := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(gate) }) }
+	// Defers run before testEngine's t.Cleanup(e.Close), so even a failure
+	// before the release point unblocks Start before engine cleanup.
+	defer release()
+	firstStart := make(chan struct{}, 1)
+	var startOnce sync.Once
 	ad := &fakeAdapter{
 		events: []adapter.Event{
 			{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s1"}`)},
 		},
 		runFor: 80 * time.Millisecond,
+		gate:   gate,
+		onStart: func(adapter.TaskSpec) {
+			startOnce.Do(func() { firstStart <- struct{}{} })
+		},
 	}
 	e, st := testEngine(t, 4, ad)
 	rt := &fakeWorkspaceRuntime{}
@@ -650,15 +668,22 @@ func TestADeliveredPromptIsAnsweredOnceAndAnchoredAtItsOwnMessage(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	select {
+	case <-firstStart:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first turn never reached the adapter")
+	}
 	if _, err := e.FollowUp(ctx, task.ID, "beta"); err != nil {
 		t.Fatal(err)
 	}
+	// Asserted while the first turn is provably still inside Start: the queue is
+	// the only place this message can be.
 	queued, err := st.ListPendingPrompts(ctx, task.ID)
 	if err != nil || len(queued) != 1 {
 		t.Fatalf("queue = %+v (err %v), want the message just sent", queued, err)
 	}
 	target := queued[0].UserSeq
+	release()
 	specs := waitForStarts(t, ad, 2, 5*time.Second)
 
 	// The delivered turn continues the same session. Saying "interrupted" instead
