@@ -104,7 +104,9 @@ async function bootIntoStoredHub(): Promise<boolean> {
 function watchConsoleVersion(): void {
   const check = (): void => {
     try {
-      const script = document.querySelector<HTMLScriptElement>('script[type="module"][src]');
+      const script = document.querySelector<HTMLScriptElement>(
+        'script[type="module"][src*="/assets/index-"]',
+      );
       void checkConsoleVersion({
         fetchImpl: (url, init) => window.fetch(url, init),
         currentEntry: script?.getAttribute("src") ?? null,
