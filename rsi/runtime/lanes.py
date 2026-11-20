@@ -7,6 +7,8 @@ or `running` with a live pid.  Claims declare the repo paths the lane will touch
 that overlaps another active lane's paths is refused (exit 3).  Mutations hold an flock.
 
   lanes.py status                      table of lanes (+ last result of idle ones)
+  lanes.py facts [--now EPOCH]         mutable facts (sendback queue, active lanes, cloud claims,
+                                       merged tail) as one paste-able key=value block
   lanes.py idle                        idle lane numbers, one per line (honours load guard)
   lanes.py claim N --slug S --item ID --brief FILE [--mode new|rework] --paths P [P ...]
   lanes.py get N                       shell-quotable key=value lines
@@ -17,8 +19,10 @@ that overlaps another active lane's paths is refused (exit 3).  Mutations hold a
 Exit codes: 3 overlap/busy, 4 no such lane or lane busy, 5 bad paths, 6 missing brief,
 7 UX gate, 8 host pressure, 9 item already merged (pass --redeliver or use a new id),
 10 the last usable lane is reserved for an unclaimed rework.
+`facts` exits 0 whenever the block prints, and 2 only when $STATE itself cannot be read (then
+every value is `unknown`).
 """
-import subprocess, argparse, fcntl, fnmatch, json, os, sys, time, glob, shlex
+import subprocess, argparse, datetime, fcntl, fnmatch, json, os, sys, time, glob, shlex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE = os.environ.get("RSI_STATE") or os.path.normpath(os.path.join(HERE, "..", "state"))
@@ -148,7 +152,13 @@ IGNORED = {"web/dist/index.html"}
 TOO_BROAD = {".", "", "*", "**", "ui", "ui/src", "internal", "web", "docs", "scripts", "desktop", "mobile", "cmd"}
 CDIR = os.path.join(STATE, "cloud")          # slices handed to external (cloud) agents: claims keep local lanes off their paths
 CLOUD_TTL = int(os.environ.get("RSI_CLOUD_TTL_MIN", "180")) * 60
-os.makedirs(os.path.join(LDIR, "history"), exist_ok=True); os.makedirs(os.path.join(CDIR, "expired"), exist_ok=True)
+try:
+    os.makedirs(os.path.join(LDIR, "history"), exist_ok=True); os.makedirs(os.path.join(CDIR, "expired"), exist_ok=True)
+except OSError:
+    # `facts` must report an unreadable state dir as `state=unknown` (exit 2) instead of dying at
+    # import; every other subcommand keeps crashing here exactly as before.
+    if sys.argv[1:2] != ["facts"]:
+        raise
 # Lanes above MAX_LANES that are still running (after the limit was lowered) stay visible so claims/merge-lane see them.
 _ex = [int(os.path.basename(f)[:-5]) for f in glob.glob(os.path.join(LDIR, "[0-9]*.json"))]
 ALL_LANES = max([MAX_LANES] + _ex)
@@ -524,6 +534,127 @@ def cmd_slugs(a):  # slugs of active lanes (merge lane must not touch their work
         d = load(n)
         if is_active(d): print(d.get("slug"))
 
+SG = datetime.timezone(datetime.timedelta(hours=8))
+
+def sg_time(ts):
+    return datetime.datetime.fromtimestamp(ts, SG)
+
+def dir_state(path):
+    """`missing`, `ok` or `unreadable` for a mutable directory under $STATE.
+
+    A missing directory is a real "nothing here" (0/none). A path that exists but is not a
+    readable directory is a failed read, and must never be reported as 0/none.
+    """
+    if not os.path.exists(path):
+        return "missing"
+    if not os.path.isdir(path):
+        return "unreadable"
+    try:
+        os.listdir(path)
+    except OSError:
+        return "unreadable"
+    return "ok"
+
+def merged_rows():
+    """Well-formed $STATE/merged.log rows in file order, or None when the log exists unreadably.
+
+    A row is well formed when it carries the `DATE TIME PR #N slug item merged SHA` fields
+    (an optional url may follow), the 3rd field is PR and the 7th is merged, and date and time
+    parse. Malformed rows and a missing log are simply not rows, like delivered_item().
+    """
+    path = os.path.join(STATE, "merged.log")
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, errors="replace") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return None
+    rows = []
+    for ln in lines:
+        f = ln.split()
+        if len(f) < 8 or f[2] != "PR" or f[6] != "merged":
+            continue
+        try:
+            datetime.datetime.strptime(f[0], "%Y-%m-%d"); datetime.datetime.strptime(f[1], "%H:%M")
+        except ValueError:
+            continue
+        rows.append(f)
+    return rows
+
+def cmd_facts(a):
+    """Print the loop's mutable facts as one paste-able key=value block.
+
+    STATUS.md is written by a director model that characterizes these directories in prose,
+    and the prose was false four times on 2026-11-20 (16:27 said the sendback queue was empty
+    while a rework had waited since 16:23). One command, read once and pasted verbatim, cannot
+    drift from the directories it describes. `unknown` is a third state beside 0 and none: a
+    path that exists but cannot be read must never print as empty.
+    """
+    now = float(a.now) if a.now is not None else time.time()
+    print("now=" + sg_time(now).strftime("%Y-%m-%dT%H:%M:%S+08:00"))
+    try:
+        os.listdir(STATE)
+    except OSError:
+        for k in ("state", "sendback_pending", "sendback", "lanes_active", "lanes",
+                  "cloud_claims", "cloud", "merged_today", "merged_last"):
+            print(k + "=unknown")
+        sys.exit(2)
+    print("state=ok")
+
+    if dir_state(os.path.join(STATE, "sendback")) == "unreadable":
+        print("sendback_pending=unknown"); print("sendback=unknown")
+    else:
+        try:
+            ages = ["%s:%dm" % (os.path.basename(f), max(0, int((now - os.path.getmtime(f)) / 60)))
+                    for f in unclaimed_sendbacks()]
+        except OSError:
+            ages = None
+        if ages is None:
+            print("sendback_pending=unknown"); print("sendback=unknown")
+        else:
+            print("sendback_pending=%d" % len(ages))
+            shown = ages[:6] + (["+%d more" % (len(ages) - 6)] if len(ages) > 6 else [])
+            print("sendback=" + (",".join(shown) if shown else "none"))
+
+    if dir_state(LDIR) == "unreadable":
+        print("lanes_active=unknown"); print("lanes=unknown")
+    else:
+        act = []
+        for n in range(1, ALL_LANES + 1):
+            d = load(n)
+            if is_active(d): act.append("%s:%s" % (d.get("item", "?"), d.get("slug", "?")))
+        print("lanes_active=%d" % len(act))
+        print("lanes=" + (",".join(act) if act else "none"))
+
+    if dir_state(CDIR) == "unreadable":
+        print("cloud_claims=unknown"); print("cloud=unknown")
+    else:
+        try:
+            claims = cloud_claims()
+        except OSError:
+            claims = None
+        if claims is None:
+            print("cloud_claims=unknown"); print("cloud=unknown")
+        else:
+            lab = []
+            for c in claims:
+                s = "%s:%s" % (c.get("item", "?"), c.get("slug", "?"))
+                if c.get("status"): s += ":%s" % c["status"]
+                lab.append(s)
+            print("cloud_claims=%d" % len(lab))
+            print("cloud=" + (",".join(lab) if lab else "none"))
+
+    rows = merged_rows()
+    if rows is None:
+        print("merged_today=unknown"); print("merged_last=unknown")
+    else:
+        today = sg_time(now).strftime("%Y-%m-%d")
+        todays = [f for f in rows if f[0] == today]
+        print("merged_today=%d" % len(todays))
+        print("merged_last=" + ("%s %s at %s" % (todays[-1][4], todays[-1][7], todays[-1][1])
+                                if todays else "none"))
+
 p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="c", required=True)
 sub.add_parser("status").set_defaults(f=cmd_status)
 i = sub.add_parser("idle"); i.add_argument("--ignore-pressure", action="store_true"); i.set_defaults(f=cmd_idle)
@@ -531,6 +662,7 @@ sub.add_parser("claimed").set_defaults(f=cmd_claimed)
 sub.add_parser("host-ok").set_defaults(f=cmd_host_ok)
 
 sub.add_parser("slugs").set_defaults(f=cmd_slugs)
+fa = sub.add_parser("facts"); fa.add_argument("--now", type=float); fa.set_defaults(f=cmd_facts)
 c = sub.add_parser("claim"); c.add_argument("lane", type=int); c.add_argument("--slug", required=True); c.add_argument("--item", required=True)
 c.add_argument("--brief", required=True); c.add_argument("--mode", default="new", choices=["new", "rework"]); c.add_argument("--paths", nargs="+", default=[]); c.add_argument("--redeliver", action="store_true"); c.set_defaults(f=cmd_claim)
 cc = sub.add_parser("cloud-claim"); cc.add_argument("--slug", required=True); cc.add_argument("--item", required=True); cc.add_argument("--brief", required=True); cc.add_argument("--paths", nargs="+", default=[]); cc.add_argument("--redeliver", action="store_true"); cc.set_defaults(f=cmd_cloud_claim)

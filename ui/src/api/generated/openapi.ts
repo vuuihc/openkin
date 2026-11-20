@@ -684,14 +684,45 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Prompts accepted for this task that are still waiting for a turn,
-         *     oldest first. An empty list means every message the user has sent has
-         *     been answered. Items carry the `user_seq` of the message event that was
-         *     written when the prompt was accepted, which is what a client marks as
-         *     waiting for an answer.
+        /** @description Prompts accepted for this task that are still waiting for a turn, in
+         *     delivery order (`position`, then `id`). An empty list means every
+         *     message the user has sent has been answered. Items carry the `user_seq`
+         *     of the message event that was written when the prompt was accepted,
+         *     which is what a client marks as waiting for an answer.
          *      */
         get: operations["listQueuedPrompts"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/prompts/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Set the order in which this task's queued prompts are delivered.
+         *
+         *     `ids` lists every currently queued prompt id exactly once, in the wanted
+         *     delivery order. The answer is the whole queue in the GET shape, in the
+         *     new order; sending the current order is a no-op. A reorder writes no
+         *     transcript event: the messages already exist and their wording does not
+         *     change, and the console converges by re-reading the queue.
+         *
+         *     `404` means the task does not exist. `409` means the submitted ids are
+         *     not exactly the current queue — an id is omitted, or an id is absent
+         *     because it was never queued or a turn boundary already delivered it.
+         *     Both stale-list cases are one answer because a delivered id and a
+         *     never-queued id are the same observable state once the row is gone;
+         *     refetch and render the daemon's order.
+         *      */
+        put: operations["reorderQueuedPrompts"];
         post?: never;
         delete?: never;
         options?: never;
@@ -3214,6 +3245,20 @@ export interface components {
             user_seq: number;
             /** @description When the prompt was queued, in epoch milliseconds. */
             queued_at: number;
+            /** @description Delivery order within the queue: lower goes first, and `id` breaks a
+             *     tie. Rows written before ordering existed share 0. This is an
+             *     ordering key, not an index — a delivered prompt leaves a hole and
+             *     nothing renumbers the survivors. Optional because the field is
+             *     additive: this daemon always sends it, and a client written before
+             *     it existed is still a valid client.
+             *      */
+            position?: number;
+        };
+        QueuedPromptOrder: {
+            /** @description Every currently queued prompt id, once, in the wanted delivery
+             *     order. A duplicate or non-positive id is rejected.
+             *      */
+            ids: number[];
         };
         ReplayRequest: {
             /** @enum {string} */
@@ -6320,7 +6365,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Queued prompts, oldest first */
+            /** @description Queued prompts, in delivery order */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6331,6 +6376,53 @@ export interface operations {
             };
             /** @description Task not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reorderQueuedPrompts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueuedPromptOrder"];
+            };
+        };
+        responses: {
+            /** @description The queue in its new order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueuedPrompt"][];
+                };
+            };
+            /** @description Malformed body, duplicate id, or non-positive id */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The ids are not exactly the current queue */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

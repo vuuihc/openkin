@@ -294,6 +294,224 @@ func TestQueuedPromptsAPIAlwaysCarriesTheAnchorField(t *testing.T) {
 // the event does not refetch the transcript for it, so a withdrawal that only
 // wrote the row would look like nothing happened until the next reload — on the
 // very devices whose reading of the bubble the note exists to correct.
+// The order the console shows has to be the order the agent answers in, so the
+// reorder route is a write to the delivery queue, not a display preference.
+// These are its four answers: applied, stale (409), malformed (400), and the
+// message already gone (404).
+
+func appendQueuedPrompts(t *testing.T, s *Server, taskID string, texts ...string) []store.PendingPrompt {
+	t.Helper()
+	ctx := context.Background()
+	out := make([]store.PendingPrompt, 0, len(texts))
+	for _, text := range texts {
+		p, err := s.Store.AppendPendingPrompt(ctx, store.PendingPrompt{
+			TaskID: taskID, Prompt: text, QueuedAt: time.Now().UnixMilli(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func reorderQueuedPrompts(t *testing.T, s *Server, token, taskID, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPut,
+		"/api/tasks/"+taskID+"/prompts/order", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+	return rr
+}
+
+func idsBody(ids ...int64) string {
+	if ids == nil {
+		ids = []int64{}
+	}
+	raw, _ := json.Marshal(map[string]any{"ids": ids})
+	return string(raw)
+}
+
+func queuedOrder(t *testing.T, s *Server, taskID string) []string {
+	t.Helper()
+	rows, err := s.Store.ListPendingPrompts(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Prompt)
+	}
+	return out
+}
+
+func assertOrder(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("queue = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("queue = %v, want %v", got, want)
+		}
+	}
+}
+
+// A list that is not the current queue is refused whole. The daemon's queue is
+// the truth: a partial list would either drop a message from the order or
+// invent one, and neither is an order the sender asked for.
+func TestReorderQueuedPromptsRejectsNonPermutation(t *testing.T) {
+	s, token := newTestServer(t)
+	task := insertRunningTask(t, s, "api-order-conflict")
+	rows := appendQueuedPrompts(t, s, task.ID, "a", "b", "c")
+
+	// One currently queued id is missing.
+	if rr := reorderQueuedPrompts(t, s, token, task.ID,
+		idsBody(rows[0].ID, rows[1].ID)); rr.Code != http.StatusConflict {
+		t.Fatalf("missing id: status %d body %s, want 409", rr.Code, rr.Body.String())
+	}
+
+	// An id that is not queued cannot be ordered either; a stale or foreign
+	// list gets the same answer as a missing one, whether it is longer than the
+	// queue or replaces one of its ids.
+	extra := idsBody(rows[0].ID, rows[1].ID, rows[2].ID, rows[2].ID+1000)
+	if rr := reorderQueuedPrompts(t, s, token, task.ID, extra); rr.Code != http.StatusConflict {
+		t.Fatalf("extra id: status %d body %s, want 409", rr.Code, rr.Body.String())
+	}
+	swapped := idsBody(rows[0].ID, rows[1].ID, rows[2].ID+1000)
+	if rr := reorderQueuedPrompts(t, s, token, task.ID, swapped); rr.Code != http.StatusConflict {
+		t.Fatalf("swapped id: status %d body %s, want 409", rr.Code, rr.Body.String())
+	}
+
+	// Neither refused list moved anything.
+	assertOrder(t, queuedOrder(t, s, task.ID), "a", "b", "c")
+	stored, err := s.Store.ListPendingPrompts(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{"a", "b", "c"} {
+		if stored[i].ID != rows[i].ID || stored[i].Prompt != want || stored[i].Position != int64(i+1) {
+			t.Fatalf("row %d = (%d, %q, position %d), want (%d, %q, %d)",
+				i, stored[i].ID, stored[i].Prompt, stored[i].Position, rows[i].ID, want, i+1)
+		}
+	}
+}
+
+// Sending the order the queue already has is a no-op, not an error: a client
+// that retries after a dropped response must not be told its order was wrong.
+func TestReorderQueuedPromptsIdempotent(t *testing.T) {
+	s, token := newTestServer(t)
+	task := insertRunningTask(t, s, "api-order-idempotent")
+	rows := appendQueuedPrompts(t, s, task.ID, "a", "b", "c")
+	body := idsBody(rows[2].ID, rows[0].ID, rows[1].ID)
+
+	first := reorderQueuedPrompts(t, s, token, task.ID, body)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first reorder: status %d body %s", first.Code, first.Body.String())
+	}
+	var applied []struct {
+		ID       int64  `json:"id"`
+		Prompt   string `json:"prompt"`
+		Position int64  `json:"position"`
+		UserSeq  int    `json:"user_seq"`
+	}
+	if err := json.Unmarshal(first.Body.Bytes(), &applied); err != nil {
+		t.Fatalf("reorder json: %v body %s", err, first.Body.String())
+	}
+	if len(applied) != 3 {
+		t.Fatalf("reorder returned %+v, want the whole queue", applied)
+	}
+	for i, want := range []string{"c", "a", "b"} {
+		if applied[i].Prompt != want || applied[i].Position != int64(i+1) {
+			t.Fatalf("row %d = (%q, position %d), want (%q, %d)",
+				i, applied[i].Prompt, applied[i].Position, want, i+1)
+		}
+	}
+
+	second := reorderQueuedPrompts(t, s, token, task.ID, body)
+	if second.Code != http.StatusOK {
+		t.Fatalf("repeat reorder: status %d body %s", second.Code, second.Body.String())
+	}
+	// The answer is the whole queue in the GET shape, so the two must agree
+	// byte for byte -- there is no separate reorder projection to drift.
+	if second.Body.String() != first.Body.String() {
+		t.Fatalf("repeat answer = %s, want %s", second.Body.String(), first.Body.String())
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/prompts", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK || rr.Body.String() != first.Body.String() {
+		t.Fatalf("GET after reorder = %d %s, want the reorder answer %s",
+			rr.Code, rr.Body.String(), first.Body.String())
+	}
+	assertOrder(t, queuedOrder(t, s, task.ID), "c", "a", "b")
+}
+
+// A list cannot express an order if an id appears twice or is not a row id at
+// all; those are client bugs, and the queue is left alone.
+func TestReorderQueuedPromptsRejectsDuplicateAndNonPositive(t *testing.T) {
+	s, token := newTestServer(t)
+	task := insertRunningTask(t, s, "api-order-bad")
+	rows := appendQueuedPrompts(t, s, task.ID, "a", "b")
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"duplicate", idsBody(rows[0].ID, rows[0].ID, rows[1].ID)},
+		{"zero", idsBody(rows[0].ID, 0, rows[1].ID)},
+		{"negative", idsBody(rows[0].ID, -3, rows[1].ID)},
+		{"not a number", `{"ids":["nope"]}`},
+		{"missing field", `{}`},
+		{"not json", `nonsense`},
+	}
+	for _, tc := range cases {
+		if rr := reorderQueuedPrompts(t, s, token, task.ID, tc.body); rr.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status %d body %s, want 400", tc.name, rr.Code, rr.Body.String())
+		}
+	}
+	assertOrder(t, queuedOrder(t, s, task.ID), "a", "b")
+}
+
+// 404 is only for a task that does not exist. A turn boundary can deliver the
+// head between the caller's read and its write, and the resulting list is
+// stale in the same way as one that omits a queued id: after the row is gone a
+// delivered id and a never-queued id are the same observable state, so both
+// answer 409 and the caller refetches the daemon's queue (ADR 0033).
+func TestReorderQueuedPromptsUnknownTaskOrPoppedID(t *testing.T) {
+	s, token := newTestServer(t)
+
+	if rr := reorderQueuedPrompts(t, s, token, "nope", idsBody()); rr.Code != http.StatusNotFound {
+		t.Fatalf("unknown task: status %d body %s, want 404", rr.Code, rr.Body.String())
+	}
+
+	task := insertRunningTask(t, s, "api-order-popped")
+	rows := appendQueuedPrompts(t, s, task.ID, "a", "b", "c")
+	if _, ok, err := s.Store.PopPendingPrompt(context.Background(), task.ID); err != nil || !ok {
+		t.Fatalf("deliver the head = (ok=%v, err=%v)", ok, err)
+	}
+
+	if rr := reorderQueuedPrompts(t, s, token, task.ID,
+		idsBody(rows[0].ID, rows[1].ID, rows[2].ID)); rr.Code != http.StatusConflict {
+		t.Fatalf("popped id: status %d body %s, want 409", rr.Code, rr.Body.String())
+	}
+	// The refusal changed nothing: the surviving rows keep their order and
+	// their positions, so a refetch renders exactly what the daemon holds.
+	left, err := s.Store.ListPendingPrompts(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 2 || left[0].ID != rows[1].ID || left[1].ID != rows[2].ID {
+		t.Fatalf("queue after the refusal = %+v, want b then c", left)
+	}
+	if left[0].Position != 2 || left[1].Position != 3 {
+		t.Fatalf("positions after the refusal = %d, %d; want them untouched",
+			left[0].Position, left[1].Position)
+	}
+}
+
 func TestWithdrawingAQueuedPromptTellsOtherDevices(t *testing.T) {
 	s, token := newTestServer(t)
 	h := s.Handler()

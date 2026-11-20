@@ -7,7 +7,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 49
+const schemaVersion = 50
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -865,9 +865,11 @@ CREATE INDEX IF NOT EXISTS idx_pr_observations_open ON pr_observations(state, at
 //
 // A table rather than a JSON column on tasks because of how the queue is used:
 // appended at the tail, read and removed at the head, and never rewritten as a
-// whole. `id` is the order -- AUTOINCREMENT so a removed id is never handed out
-// again, which keeps "the message I sent second is still behind the first" true
-// without a separate position column.
+// whole. `id` is identity, not order: AUTOINCREMENT so a removed id is never
+// handed out again, which the finalize watermark (MAX(id)) and the client's row
+// identity both depend on. Delivery order is `position` (migration 050): rows
+// written before it existed share 0 and fall back to id order, and a reorder
+// rewrites 1..N without moving an id.
 //
 // `model` and `permission_mode` are nullable on purpose. For both, "absent" and
 // "the empty string" are different instructions (leave the task's setting alone
@@ -887,7 +889,8 @@ CREATE TABLE IF NOT EXISTS task_pending_prompts (
   model           TEXT,
   permission_mode TEXT,
   user_seq        INTEGER NOT NULL DEFAULT 0,
-  queued_at       INTEGER NOT NULL
+  queued_at       INTEGER NOT NULL,
+  position        INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_task_pending_prompts_queue
 ON task_pending_prompts(task_id, id);
@@ -2707,6 +2710,53 @@ CREATE INDEX IF NOT EXISTS idx_push_subscriptions_created ON push_subscriptions(
 		v = 49
 	}
 
+	if v == 49 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 050: %w", err)
+		}
+		// Delivery order used to be the row id. `position` makes the order
+		// explicit so a reorder can change what the agent answers next without
+		// moving ids: the finalize watermark reads MAX(id) and clients key their
+		// rows on it. Existing rows default to 0 and keep id order through the
+		// tiebreak, so this migration changes no behaviour by itself.
+		//
+		// A file without the queue table is left to the reconciler below, the
+		// same way migration 047 treats a missing registry.
+		var hasTable int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'task_pending_prompts'`,
+		).Scan(&hasTable); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("inspect task_pending_prompts: %w", err)
+		}
+		if hasTable > 0 {
+			var exists int
+			if err := tx.QueryRow(
+				`SELECT COUNT(*) FROM pragma_table_info('task_pending_prompts') WHERE name = 'position'`,
+			).Scan(&exists); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("inspect task_pending_prompts.position: %w", err)
+			}
+			if exists == 0 {
+				if _, err := tx.Exec(
+					`ALTER TABLE task_pending_prompts ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
+				); err != nil {
+					_ = tx.Rollback()
+					return fmt.Errorf("add task_pending_prompts.position: %w", err)
+				}
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 50`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 050: %w", err)
+		}
+		v = 50
+	}
+
 	// Every path out of here has to reach the same shape, so the assertion runs
 	// on the upgraded path too rather than only on the already-current one.
 	return s.ensureCurrentSchema()
@@ -3280,7 +3330,8 @@ func (s *Store) ensureIdentityRoleSchema() error {
 // stamped once before `user_seq` existed on this table, and such a database
 // would otherwise fail every queue read with "no such column" -- including reads
 // in the delivery path, where failing means a visible message stops being
-// answered.
+// answered. `position` is checked the same way for databases that report 50 but
+// were written before the column existed.
 func (s *Store) ensurePendingPromptSchema() error {
 	present, err := s.tableExists("task_pending_prompts")
 	if err != nil {
@@ -3289,19 +3340,22 @@ func (s *Store) ensurePendingPromptSchema() error {
 	if !present {
 		return nil
 	}
-	var exists int
-	if err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM pragma_table_info('task_pending_prompts') WHERE name = ?`,
-		"user_seq").Scan(&exists); err != nil {
-		return fmt.Errorf("inspect task_pending_prompts: %w", err)
-	}
-	if exists > 0 {
-		return nil
-	}
-	if _, err := s.db.Exec(
-		`ALTER TABLE task_pending_prompts ADD COLUMN user_seq INTEGER NOT NULL DEFAULT 0`,
-	); err != nil {
-		return fmt.Errorf("add task_pending_prompts.user_seq: %w", err)
+	for _, column := range []struct{ name, ddl string }{
+		{"user_seq", `ALTER TABLE task_pending_prompts ADD COLUMN user_seq INTEGER NOT NULL DEFAULT 0`},
+		{"position", `ALTER TABLE task_pending_prompts ADD COLUMN position INTEGER NOT NULL DEFAULT 0`},
+	} {
+		var exists int
+		if err := s.db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('task_pending_prompts') WHERE name = ?`,
+			column.name).Scan(&exists); err != nil {
+			return fmt.Errorf("inspect task_pending_prompts.%s: %w", column.name, err)
+		}
+		if exists > 0 {
+			continue
+		}
+		if _, err := s.db.Exec(column.ddl); err != nil {
+			return fmt.Errorf("add task_pending_prompts.%s: %w", column.name, err)
+		}
 	}
 	return nil
 }

@@ -13,6 +13,8 @@
 #
 # Each target records its own SHA in state/last_release, so a release that shipped the
 # node but failed on the Hub is retried by the next one instead of counted as shipped.
+# A marker write is read back and compared before the run calls that target shipped, and
+# when both targets run in one invocation the second refuses a stale first value.
 # Nothing here force-pushes, tags, publishes a dmg, or touches relay/Hub config.
 #
 # usage: release.sh [--repo DIR] [--node-only|--hub-only] [--dry-run]
@@ -111,16 +113,39 @@ case "$SHA" in ''|*[!0-9a-f]*) die "cannot read the shipped commit in $REPO; not
 SHORT="$(printf '%s' "$SHA" | cut -c1-8)"
 [ "$SHA" = "$PRE_SHA" ] || say "origin/main moved mid-release; shipping $SHORT (pre-flight ${PRE_SHA:0:8})"
 
-mark() { # mark <target> — record this SHA as released for one target, keeping the other.
-  local t="$1" other="" tmp
-  [ "$t" = node ] && other="$(sed -n 's/^hub=//p' "$STATE/last_release" 2>/dev/null | head -1)"
-  [ "$t" = hub ] && other="$(sed -n 's/^node=//p' "$STATE/last_release" 2>/dev/null | head -1)"
+MARKER="$STATE/last_release"
+
+# mark <target> — record this SHA as released for one target, keeping the other, and prove
+# the record landed. A write this script cannot see is not a release: on 2026-11-20 a run
+# printed `node: shipped <sha>` while the file still held the previous SHA, and the Hub
+# phase then copied that stale value forward as if it were this run's.
+mark() {
+  local t="$1" peer other="" tmp want got
+  case "$t" in
+    node) peer=hub ;;
+    hub)  peer=node ;;
+    *) die "mark: unknown target '$t'" ;;
+  esac
+  other="$(sed -n "s/^$peer=//p" "$MARKER" 2>/dev/null | head -1)"
+  # One release ships one commit: SHA is HEAD after integration, so both targets must end
+  # up at it. If the peer already holds something else while both phases run, something
+  # else wrote the file (or the last write did not land). Refuse before writing so the
+  # file is left exactly as we found it, and print what it says.
+  if [ "$NODE" = 1 ] && [ "$HUB" = 1 ] && [ "$t" = hub ] && [ "$other" != "$SHA" ]; then
+    die "$t: $MARKER says $peer=${other:-<missing>}, not $SHA that this run shipped; refusing to carry a stale value (file: $(tr '\n' ';' <"$MARKER" 2>/dev/null))"
+  fi
   tmp="$STATE/.last_release.$$"
-  : > "$tmp"
+  : > "$tmp" || die "$t: cannot write $tmp"
   { [ "$t" = node ] && echo "node=$SHA" || { [ -n "$other" ] && echo "node=$other"; }; } >> "$tmp"
   { [ "$t" = hub ] && echo "hub=$SHA" || { [ -n "$other" ] && echo "hub=$other"; }; } >> "$tmp"
   echo "released_at=$(date '+%F %T %z')" >> "$tmp"
-  mv "$tmp" "$STATE/last_release"
+  want="$(cat "$tmp")"
+  mv "$tmp" "$MARKER" || die "$t: could not move $tmp into $MARKER"
+  # Read the file back and compare it with what we just wrote. A rename that does not land
+  # (or a concurrent writer) must stop the release, not be reported as shipped.
+  got="$(cat "$MARKER" 2>/dev/null)"
+  [ "$got" = "$want" ] \
+    || die "$t: marker write did not land in $MARKER (expected $t=$SHA; file says: $(printf '%s' "$got" | tr '\n' ';'))"
 }
 
 # 3. Node: the console + binary Ethan is looking at. desktop-rebuild.sh owns the

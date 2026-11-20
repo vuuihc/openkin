@@ -391,4 +391,108 @@ grep -q "^node=$(cat "$BUILT")$" "$STATE/last_release" \
   || fail "mid-release: the marker must name the commit the node built"
 pass "release: the marker records the commit the node built when origin moved mid-release"
 
+# 14. A marker write that does not land must stop the release. mark() used to write the
+#     file and never read it back, so a rename that never happened (wrong path, full disk,
+#     an atomic-write bug) was indistinguishable from one that did: the run printed
+#     "node: shipped" and the marker kept the previous SHA. A `mv` wrapper drops exactly
+#     the temp -> last_release rename and passes every other move.
+start_node '[]'
+MARK="$STATE/last_release"
+REALMV="$(command -v mv)"
+DROPMV="$T/wrap-drop-mv"; mkdir -p "$DROPMV"
+cat > "$DROPMV/mv" <<SH
+#!/bin/bash
+case " \${2:-} " in
+  *"/last_release ") exit 0 ;;
+esac
+exec "$REALMV" "\$@"
+SH
+chmod +x "$DROPMV/mv"
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$MARK"
+BEFORE_MARK="$(cat "$MARK")"
+out="$(env PATH="$DROPMV:$PATH" RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+[ "$rc" != 0 ] || { printf '%s\n' "$out" >&2; fail "mark-readback: a lost marker write must fail the release"; }
+case "$out" in *"node: shipped"*) fail "mark-readback: a lost marker write still reported the node shipped" ;; esac
+[ "$(cat "$MARK")" = "$BEFORE_MARK" ] || fail "mark-readback: a lost marker write changed the marker"
+pass "release: a marker write that does not land stops the release"
+
+# 15. A value overwritten between the node and Hub phases must stop the run, not be carried
+#     forward as this run's. On 2026-11-20 the node phase printed "shipped <sha>" and the
+#     file held the previous SHA; mark hub then copied that old SHA into its own write.
+#     The node command leaves a rewriter behind keyed to the marker landing; the docker
+#     stub waits for it, so the overwrite happens after node was marked and before the Hub
+#     line is written — the incident's exact window.
+HEAD_NOW="$(git -C "$SECOND" rev-parse HEAD)"
+REWRITE="$T/rewrite-marker.sh"
+cat > "$REWRITE" <<SH
+#!/bin/bash
+( for _ in \$(seq 1 500); do
+    grep -q "^node=$HEAD_NOW\$" "$MARK" && break
+    sleep 0.02
+  done
+  sleep 0.2
+  printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$MARK"
+) &
+SH
+chmod +x "$REWRITE"
+BIN2="$T/bin-overwrite"; mkdir -p "$BIN2"
+cat > "$BIN2/docker" <<SH
+#!/bin/bash
+case "\${1:-}" in
+  info)   # let the overwrite land before the Hub phase can record anything
+    for _ in \$(seq 1 500); do grep -q "^node=$ROOT\$" "$MARK" && exit 0; sleep 0.02; done
+    exit 0 ;;
+esac
+exit 0
+SH
+cat > "$BIN2/ssh" <<'SH'
+#!/bin/bash
+case "$*" in *"docker ps"*) echo "Up 1 minute (healthy)" ;; esac
+exit 0
+SH
+chmod +x "$BIN2/docker" "$BIN2/ssh"
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$MARK"
+out="$(env PATH="$BIN2:$PATH" RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD="$REWRITE" bash "$RELEASE" --repo "$SECOND" 2>&1)"; rc=$?
+[ "$rc" != 0 ] || { printf '%s\n' "$out" >&2; fail "cross-phase: a stale node SHA was carried into the hub write"; }
+case "$out" in *"hub: shipped"*) fail "cross-phase: the run reported the hub shipped after the marker changed under it" ;; esac
+grep -q "node=$ROOT" <<<"$out" || { printf '%s\n' "$out" >&2; fail "cross-phase: the abort did not print the marker contents"; }
+pass "release: a marker overwritten between node and Hub stops the release"
+
+# 16. Positive control: one run marks both targets at the shipped commit, stamps a fresh
+#     released_at, and the gate's reader counts 0 unshipped against it.
+printf 'node=%s\nhub=%s\nreleased_at=2000-01-01 00:00:00 +0000\n' "$ROOT" "$ROOT" > "$MARK"
+BEFORE_MARK="$(cat "$MARK")"
+BIN3="$T/bin-both"; mkdir -p "$BIN3"
+cat > "$BIN3/docker" <<'SH'
+#!/bin/bash
+exit 0
+SH
+cp "$BIN2/ssh" "$BIN3/ssh"
+chmod +x "$BIN3/docker" "$BIN3/ssh"
+out="$(env PATH="$BIN3:$PATH" RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$SECOND" 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "both-targets: expected exit 0, got $rc"; }
+grep -q "^node=$HEAD_NOW$" "$MARK" || fail "both-targets: node marker is not the shipped SHA"
+grep -q "^hub=$HEAD_NOW$" "$MARK" || fail "both-targets: hub marker is not the shipped SHA"
+grep -q '^released_at=' "$MARK" || fail "both-targets: no released_at line"
+[ "$(cat "$MARK")" != "$BEFORE_MARK" ] || fail "both-targets: the marker was not rewritten"
+run 10 "both-targets: the gate's reader sees 0 unshipped against it"
+grep -q '^unshipped=0 ' <<<"$LAST" || fail "both-targets: release-check still counts unshipped work: $LAST"
+pass "release: one run leaves both targets at the shipped SHA"
+
+# 17. The abort names the target, the SHA it expected and what the file actually says, so
+#     the next person can see the 2026-11-20 shape without re-running the release. This
+#     run marks the hub only, so the read-back (not the cross-phase check) has to speak.
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$MARK"
+HUB_NOW="$(git -C "$SECOND" rev-parse HEAD)"
+out="$(env PATH="$DROPMV:$BIN3:$PATH" RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  bash "$RELEASE" --repo "$SECOND" --hub-only 2>&1)"; rc=$?
+[ "$rc" != 0 ] || { printf '%s\n' "$out" >&2; fail "readback-message: a lost hub marker write must fail"; }
+grep -q 'hub' <<<"$out" || fail "readback-message: the abort does not name the target"
+grep -q "$HUB_NOW" <<<"$out" || fail "readback-message: the abort does not name the SHA it expected"
+grep -q "$ROOT" <<<"$out" || fail "readback-message: the abort does not print the marker contents"
+pass "release: the failure message names the target and the file"
+
 echo "all cases passed"
