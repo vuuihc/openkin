@@ -251,7 +251,10 @@ describe("the projects block is kept across a switch", () => {
     // Hold the answer so "before it lands" is a fact, not a microtask race.
     let answer!: (list: Project[]) => void;
     vi.mocked(listProjects).mockImplementationOnce(
-      () => new Promise<Project[]>((resolve) => { answer = resolve; }),
+      () =>
+        new Promise<Project[]>((resolve) => {
+          answer = resolve;
+        }),
     );
     renderPage();
 
@@ -286,7 +289,10 @@ describe("the projects block is kept across a switch", () => {
 
     let answer!: (list: Project[]) => void;
     vi.mocked(listProjects).mockImplementationOnce(
-      () => new Promise<Project[]>((resolve) => { answer = resolve; }),
+      () =>
+        new Promise<Project[]>((resolve) => {
+          answer = resolve;
+        }),
     );
     renderPage();
 

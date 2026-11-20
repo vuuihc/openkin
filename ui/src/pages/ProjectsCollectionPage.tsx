@@ -111,7 +111,9 @@ export default function ProjectsCollectionPage() {
         ) : projects.length === 0 ? (
           // Empty is an answer from a successful read; a failed refresh over a
           // kept empty block already said so above and must not claim both.
-          failed ? null : <p className="text-body leading-5 text-kin-muted">{tr("projects.empty")}</p>
+          failed ? null : (
+            <p className="text-body leading-5 text-kin-muted">{tr("projects.empty")}</p>
+          )
         ) : (
           // Rows are direct children of the list, on the page surface: the row
           // shape Chats and Routines use, not a card inside the page. The
