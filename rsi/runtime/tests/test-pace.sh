@@ -67,6 +67,46 @@ eq() {
   [ "$got" = "$2" ] || { printf '%s\n' "$LAST" >&2; fail "$CASE: $1=$got, want $2"; }
 }
 
+# jgetp <dotted.path> — a nested JSON field of LAST; null prints as `null`,
+# a missing path as <missing>.
+jgetp() {
+  printf '%s' "$LAST" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("<invalid-json>"); raise SystemExit
+cur = d
+for part in sys.argv[1].split("."):
+    if not isinstance(cur, dict) or part not in cur:
+        print("<missing>"); raise SystemExit
+    cur = cur[part]
+if cur is None:
+    print("null")
+elif isinstance(cur, (dict, list)):
+    print(json.dumps(cur, sort_keys=True))
+else:
+    print(cur)
+' "$1"
+}
+
+# eqp <dotted.path> <want> — the nested field must have exactly this value.
+eqp() {
+  local got; got="$(jgetp "$1")"
+  [ "$got" = "$2" ] || { printf '%s\n' "$LAST" >&2; fail "$CASE: $1=$got, want $2"; }
+}
+
+# stamps <offset-min>... — `YYYY-MM-DD HH:MM` for each offset from one shared
+# now, so relative stage gaps are exact even across a minute boundary.
+stamps() {
+  python3 - "$@" <<'PY'
+import sys, datetime
+now = datetime.datetime.now()
+for a in sys.argv[1:]:
+    print((now + datetime.timedelta(minutes=int(a))).strftime("%Y-%m-%d %H:%M"))
+PY
+}
+
 # 1. A PR merged in the same minute as the release is still unshipped: the gate counts
 #    commits, not clock minutes. Red before this change (pace said 0).
 CASE=t_same_minute_merge_is_unshipped
@@ -171,6 +211,178 @@ grep -qE '^release: last .* unshipped=[0-9]+/[0-9]+' <<<"$LAST" \
   || { printf '%s\n' "$LAST" >&2; fail "$CASE: release line shape"; }
 grep -qE '^pace verdict: ' <<<"$LAST" \
   || { printf '%s\n' "$LAST" >&2; fail "$CASE: verdict line missing"; }
+pass "$CASE"
+
+# 8. --latency splits open->merge into pre_verify / verify / verify_to_merge.
+#    verify=9m ending 10:31, MERGED at 10:51 (open_to_merge=30m): the verifier
+#    started at 10:22, so 1m was spent before it and 20m after it.
+CASE=latency-splits-three-stages
+R="$T/r8"; S="$T/s8"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+ST="$(stamps -21 -1)"; V="$(sed -n 1p <<<"$ST")"; M="$(sed -n 2p <<<"$ST")"
+printf '%s #101 demo verify=9m gate=ran review=ran\n%s #101 demo MERGED open_to_merge=30m\n' \
+  "$V" "$M" > "$S/merge/cycles.log"
+run_json "$R" "$S" --latency
+eqp latency.24h.merged_n 1
+eqp latency.24h.verify.n 1
+eqp latency.24h.verify.p50 9
+eqp latency.24h.verify_to_merge.p50 20
+eqp latency.24h.pre_verify.p50 1
+eqp latency.24h.n_negative 0
+eqp latency.7d.verify_to_merge.p50 20
+pass "$CASE"
+
+# 9. Every verify run before MERGED is summed: a re-verified head records 30m at
+#    09:00 and 9m at 10:31. verify is 39m, verify_to_merge is the last line's
+#    20m, so the residual is 30-39-20 = -29: reported as n_negative, not as a
+#    negative stage (the old last-only join reported verify 9m / pre_verify 1m
+#    and hid the 30m run).
+CASE=latency-sums-every-verify-before-merge
+R="$T/r9"; S="$T/s9"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+ST="$(stamps -90 -25 -20 0)"; E="$(sed -n 1p <<<"$ST")"; Q="$(sed -n 2p <<<"$ST")"
+V="$(sed -n 3p <<<"$ST")"; M="$(sed -n 4p <<<"$ST")"
+printf '%s #102 demo verify=30m gate=ran review=ran\n%s #102 demo verifier_started queue_wait=3m tier=small\n%s #102 demo verify=9m gate=ran review=ran\n%s #102 demo MERGED open_to_merge=30m\n' \
+  "$E" "$Q" "$V" "$M" > "$S/merge/cycles.log"
+run_json "$R" "$S" --latency
+eqp latency.24h.verify.n 1
+eqp latency.24h.verify_runs 2
+eqp latency.24h.verify.p50 39
+eqp latency.24h.verify.max 39
+eqp latency.24h.verify_to_merge.p50 20
+eqp latency.24h.n_negative 1
+eqp latency.24h.pre_verify.n 0
+eqp latency.24h.pre_verify.p50 null
+eqp latency.24h.verify_gate_ran.n 2
+eqp latency.24h.verify_gate_ran.max 30
+eqp latency.24h.queue_wait.n 1
+eqp latency.24h.queue_wait.p50 3
+eqp latency.24h.queue_wait.with_queue_wait 1
+pass "$CASE"
+
+# 9b. Two runs with a non-negative residual: 10m gate=ran ends at -35 and 5m
+#     gate=cached at -20, MERGED at 0 with open_to_merge=45m. verify sums to
+#     15m, land is 20m, so pre_verify is 10m — not the 20m a last-only join
+#     would leave. Each run lands in its own gate bucket.
+CASE=latency-two-runs-feed-pre-verify
+R="$T/r9b"; S="$T/s9b"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+ST="$(stamps -35 -20 0)"; V1="$(sed -n 1p <<<"$ST")"; V2="$(sed -n 2p <<<"$ST")"; M="$(sed -n 3p <<<"$ST")"
+printf '%s #103 e verify=10m gate=ran review=ran\n%s #103 e verify=5m gate=cached review=cached\n%s #103 e MERGED open_to_merge=45m\n' \
+  "$V1" "$V2" "$M" > "$S/merge/cycles.log"
+run_json "$R" "$S" --latency
+eqp latency.24h.verify.n 1
+eqp latency.24h.verify_runs 2
+eqp latency.24h.verify.p50 15
+eqp latency.24h.verify_to_merge.p50 20
+eqp latency.24h.pre_verify.p50 10
+eqp latency.24h.n_negative 0
+eqp latency.24h.verify_gate_ran.p50 10
+eqp latency.24h.verify_gate_cached.p50 5
+pass "$CASE"
+
+# 10. A cached gate pass is its own bucket: it must not move the gate=ran p50.
+CASE=latency-cached-gate-not-mixed-into-gate-ran
+R="$T/r10"; S="$T/s10"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+ST="$(stamps -21 -11 -1)"; V1="$(sed -n 1p <<<"$ST")"; V2="$(sed -n 2p <<<"$ST")"; M="$(sed -n 3p <<<"$ST")"
+printf '%s #201 a verify=9m gate=ran review=ran\n%s #201 a MERGED open_to_merge=30m\n%s #202 b verify=2m gate=cached review=cached\n%s #202 b MERGED open_to_merge=10m\n' \
+  "$V1" "$M" "$V2" "$M" > "$S/merge/cycles.log"
+run_json "$R" "$S" --latency
+eqp latency.24h.verify_gate_ran.n 1
+eqp latency.24h.verify_gate_ran.p50 9
+eqp latency.24h.verify_gate_cached.n 1
+eqp latency.24h.verify_gate_cached.p50 2
+pass "$CASE"
+
+# 11. verify + verify_to_merge larger than open_to_merge is rounding noise or a
+#     clock skew, not a stage: count it in n_negative, keep it out of pre_verify,
+#     and print `-` instead of a negative p50.
+CASE=latency-negative-residual-is-reported
+R="$T/r11"; S="$T/s11"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+ST="$(stamps -21 -1)"; V="$(sed -n 1p <<<"$ST")"; M="$(sed -n 2p <<<"$ST")"
+printf '%s #301 c verify=9m gate=ran review=ran\n%s #301 c MERGED open_to_merge=5m\n' \
+  "$V" "$M" > "$S/merge/cycles.log"
+run_json "$R" "$S" --latency
+eqp latency.24h.n_negative 1
+eqp latency.24h.pre_verify.n 0
+eqp latency.24h.pre_verify.p50 null
+eqp latency.24h.verify.p50 9
+LAST="$(python3 "$PACE" --latency --repo "$R" --state "$S" 2>&1)"; RC=$?
+case "$RC" in 0|3) ;; *) printf '%s\n' "$LAST" >&2; fail "$CASE: pace exited $RC";; esac
+grep -qE 'pre_verify.*p50=-' <<<"$LAST" || { printf '%s\n' "$LAST" >&2; fail "$CASE: empty pre_verify not '-'"; }
+pass "$CASE"
+
+# 12. Empty or malformed cycles.log: every stage is empty (p50 `-`), JSON says
+#     n=0, no traceback.
+CASE=latency-empty-and-malformed-log
+R="$T/r12"; S="$T/s12"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge"
+: > "$S/merge/cycles.log"
+run_json "$R" "$S" --latency
+eqp latency.24h.merged_n 0
+eqp latency.24h.verify.n 0
+# An unparseable date on a MERGED line is the crash latencies() used to take:
+# the default path must skip it, not traceback.
+printf 'garbage\nnot a date #x\n2026-13-99 99:99 #1 m verify=oops\n2026-13-99 99:99 #1 m MERGED open_to_merge=5m\n2026-11-18 00:00 #2 m MERGED open_to_merge=xm\n' \
+  > "$S/merge/cycles.log"
+run_json "$R" "$S" --latency
+eqp latency.24h.merged_n 0
+eqp latency.24h.verify.n 0
+eqp latency.24h.verify_runs 0
+eqp latency.24h.pre_verify.n 0
+eqp latency.7d.pre_verify.p50 null
+run_json "$R" "$S"
+eq latency_n 0
+grep -qi 'traceback' <<<"$LAST" && { printf '%s\n' "$LAST" >&2; fail "$CASE: traceback on default path"; }
+LAST="$(python3 "$PACE" --latency --repo "$R" --state "$S" 2>&1)"; RC=$?
+case "$RC" in 0|3) ;; *) printf '%s\n' "$LAST" >&2; fail "$CASE: pace exited $RC";; esac
+grep -qi 'traceback' <<<"$LAST" && { printf '%s\n' "$LAST" >&2; fail "$CASE: traceback"; }
+grep -qE 'pre_verify.*p50=-' <<<"$LAST" || { printf '%s\n' "$LAST" >&2; fail "$CASE: human stage line"; }
+pass "$CASE"
+
+# 13. Without --latency the output is exactly today's: same known lines, same
+#     JSON keys, no latency parsing visible. A state with verify/queue lines and
+#     one with only the same MERGED line must render identically (modulo the
+#     phase clock), so the flag alone decides the extra output.
+CASE=latency-default-output-unchanged
+R="$T/r13"; S="$T/s13"; S0="$T/s13-nolat"; new_repo "$R"; origin_main "$R" HEAD
+mkdir -p "$S/merge" "$S0/merge"
+ST="$(stamps -21 -1)"; V="$(sed -n 1p <<<"$ST")"; M="$(sed -n 2p <<<"$ST")"
+printf '%s #401 d verify=9m gate=ran review=ran\n%s #401 d MERGED open_to_merge=30m\n' \
+  "$V" "$M" > "$S/merge/cycles.log"
+# Same MERGED line, no verify/queue lines: the legacy open->merge line must not move.
+printf '%s #401 d MERGED open_to_merge=30m\n' "$M" > "$S0/merge/cycles.log"
+run_json "$R" "$S"
+eq latency '<missing>'
+KEYS="$(printf '%s' "$LAST" | python3 -c 'import json,sys; print(",".join(sorted(json.load(sys.stdin))))')"
+WANT_KEYS="commits,last_release_at,last_release_sha,latency_n,merges_24h,merges_7d,merges_today,p50_open_to_merge_m,p90_open_to_merge_m,phase,phase_hours_left,phase_target,release_min,unshipped,unshipped_source,verdict"
+[ "$KEYS" = "$WANT_KEYS" ] || { printf '%s\n' "$LAST" >&2; fail "$CASE: JSON keys changed: $KEYS"; }
+OUT="$(python3 "$PACE" --repo "$R" --state "$S" 2>&1)"; RC=$?
+case "$RC" in 0|3) ;; *) printf '%s\n' "$OUT" >&2; fail "$CASE: pace exited $RC";; esac
+OUT0="$(python3 "$PACE" --repo "$R" --state "$S0" 2>&1)"
+norm() { sed -E 's/left=[0-9.]+h/left=Hh/' <<<"$1"; }
+[ "$(norm "$OUT")" = "$(norm "$OUT0")" ] \
+  || { printf '%s\n--- no cycles.log ---\n%s\n' "$OUT" "$OUT0" >&2; fail "$CASE: default output depends on --latency data"; }
+WANT_HEAD='merges: 24h=0 7d=0 today=0
+open->merge: p50=30m p90=30m (n=1, 24h)
+release: last None at None, unshipped=0/5'
+[ "$(printf '%s\n' "$OUT0" | sed -n '1,3p')" = "$WANT_HEAD" ] \
+  || { printf '%s\n' "$OUT0" >&2; fail "$CASE: default lines changed"; }
+# The phase line comes from the live rsi/GOAL.md, which this test does not
+# control (and whose target may have passed), so assert the output's shape
+# rather than a phase state: only known line prefixes, and the verdict last.
+LINES="$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
+[ "$LINES" -ge 4 ] && [ "$LINES" -le 5 ] \
+  || { printf '%s\n' "$OUT" >&2; fail "$CASE: default output has $LINES lines"; }
+UNKNOWN="$(printf '%s\n' "$OUT" | grep -vcE '^(merges: |open->merge: |release: |phase: \S+ target=[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} left=-?[0-9.]+h$|pace verdict: )')"
+[ "$UNKNOWN" = 0 ] \
+  || { printf '%s\n' "$OUT" >&2; fail "$CASE: unknown default line"; }
+printf '%s\n' "$OUT" | tail -n 1 | grep -q '^pace verdict: ' \
+  || { printf '%s\n' "$OUT" >&2; fail "$CASE: verdict is not the last line"; }
+grep -qE 'pre_verify|verify_to_merge|latency by stage' <<<"$OUT" \
+  && { printf '%s\n' "$OUT" >&2; fail "$CASE: latency text leaked into default output"; }
 pass "$CASE"
 
 echo "all cases passed"
