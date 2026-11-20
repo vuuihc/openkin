@@ -1194,6 +1194,24 @@ export function withdrawQueuedPrompt(id: string, promptId: number): Promise<void
 }
 
 /**
+ * Put the queued prompts in this delivery order.
+ *
+ * The body is every currently queued id, once, in the wanted order. The answer is
+ * the whole queue in the list shape — never a delta, because a list applied to a
+ * queue that changed in between would compose an order that never existed. A 409
+ * means the ids are not exactly the current queue (a turn boundary delivered the
+ * head, or another device changed it): the caller re-reads the queue rather than
+ * retrying with the same ids.
+ */
+export function reorderQueuedPrompts(id: string, ids: number[]): Promise<QueuedPrompt[]> {
+  return apiFetch<QueuedPrompt[]>(`/api/tasks/${encodeURIComponent(id)}/prompts/order`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+}
+
+/**
  * Cached GitHub state for the task's current workspace branch.
  *
  * The daemon reads its cache and nothing else, so this never waits on the

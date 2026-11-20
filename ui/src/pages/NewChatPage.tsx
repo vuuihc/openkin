@@ -533,6 +533,9 @@ export default function NewChatPage() {
         // last showing, and the routine just created would be missing from it.
         writeRoutineDevice(machineId || THIS_MACHINE);
         clearDraftPrompt();
+        // The draft became a routine; returning to the list later should not
+        // put focus back on the button that opened it.
+        forgetPlaceReturn();
         setAsRoutine(false);
         navigate(`/routines`, { replace: true, state: { createdId: routine.id } });
         pushToast(tr("routines.created"), "info");

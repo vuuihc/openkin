@@ -42,7 +42,7 @@ import {
 import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
 import { placeById } from "../../lib/places";
-import { focusPlaceReturn, takePlaceReturn } from "../../lib/placeReturn";
+import { focusPlaceReturn, forgetDeviceNewReturn, takePlaceReturn } from "../../lib/placeReturn";
 import { taskDisplayTitle } from "../../lib/taskTitle";
 import { useLocalTaskTitles } from "../../lib/taskTitles";
 import { floatingApprovals } from "../../lib/floatingApprovals";
@@ -360,6 +360,9 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
     }
     if (returnedPlace.current) return;
     const id = takePlaceReturn();
+    // This arrival belongs to a footer destination, not to the machine action
+    // that opened a draft earlier; a stale device mark would steal the focus.
+    if (id) forgetDeviceNewReturn();
     if (id && focusPlaceReturn(id)) returnedPlace.current = id;
   }, [location, wide, pathname]);
 

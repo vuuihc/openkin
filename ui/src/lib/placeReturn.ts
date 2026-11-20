@@ -37,9 +37,35 @@ export function takePlaceReturn(): string | null {
   }
 }
 
+/**
+ * The machine heading whose new-chat action opened the draft on screen.
+ *
+ * A device id is neither one of the fixed ids above nor safe in the attribute
+ * selector, and a reload has no reason to restore this — the draft it belonged
+ * to is gone. So the return lives in memory for exactly the route change the
+ * click caused, beside the stored mark so forgetting one forgets both.
+ */
+let deviceNewReturn: string | null = null;
+
+export function rememberDeviceNewReturn(id: string): void {
+  deviceNewReturn = id;
+}
+
+/** The machine action to focus, once — reads and clears the mark. */
+export function takeDeviceNewReturn(): string | null {
+  const id = deviceNewReturn;
+  deviceNewReturn = null;
+  return id;
+}
+
+export function forgetDeviceNewReturn(): void {
+  deviceNewReturn = null;
+}
+
 /** Drop the mark without using it: the draft became a conversation, so the
  *  new-chat button is no longer where the reader came from. */
 export function forgetPlaceReturn(): void {
+  forgetDeviceNewReturn();
   try {
     sessionStorage.removeItem(KEY);
   } catch {
