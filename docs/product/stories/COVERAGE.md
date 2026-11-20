@@ -10,6 +10,7 @@
 | `KIN-CONTINUE-003` | covered | P0 | J1、J2、J3、J4、J5、J6、J7 | Mac/手机 | 统一控制台的四区导航与工作台 | 12 |
 | `KIN-CONTINUE-004` | approved | P0 | J1、J2 | 手机 | 手机列表：按最近活动排设备、每设备新建、搜索收成放大镜 | 3 |
 | `KIN-CONTINUE-005` | approved | P0 | J1、J2 | 手机 | 手机底栏：玻璃与纯图标，四个区域共用 | 2 |
+| `KIN-CONTINUE-006` | draft | P0 | J1 | 手机 | 手机开屏：先用自己的控制台打开，新版本在后台整套换 | 0 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
 | `KIN-PROJECT-002` | covered | P0 | J4 | Mac/手机 | 项目的工作目录：看清这几个目录为什么在一起，并能增删 | 5 |
 | `KIN-RESULT-002` | covered | P0 | J4 | Mac/手机 | 读懂文件、预览并返回原对话 | 10 |
@@ -26,4 +27,4 @@
 
 ## 汇总
 
-approved 4 · covered 14
+approved 4 · covered 14 · draft 1
