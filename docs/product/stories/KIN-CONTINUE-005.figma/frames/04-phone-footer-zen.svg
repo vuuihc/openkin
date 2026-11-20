@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff" rx="24"/>
+<rect width="390" height="24" fill="#f6f6f8" rx="24"/>
+<rect y="14" width="390" height="10" fill="#f6f6f8"/>
+<text x="16" y="17" font-size="11" fill="#555">9:41</text>
+<text x="374" y="17" font-size="11" fill="#555" text-anchor="end">手机 390×844 · zen：底栏隐藏</text>
+
+<text x="16" y="56" font-size="11" fill="#6b6b6b">← 对话</text>
+<text x="374" y="56" font-size="11" fill="#1f6feb" text-anchor="end">退出 zen</text>
+<text x="16" y="92" font-size="17" font-weight="600" fill="#1a1a1a">整理发布说明</text>
+<text x="16" y="112" font-size="10.5" fill="#6b6b6b">机器 A · Claude Code · 只读</text>
+<line x1="16" y1="128" x2="374" y2="128" stroke="#eeeeee"/>
+
+<rect x="16" y="146" width="300" height="58" rx="12" fill="#f6f6f8"/>
+<text x="30" y="170" font-size="11.5" fill="#1a1a1a">把这周的发布说明整理成一页，</text>
+<text x="30" y="188" font-size="11.5" fill="#1a1a1a">标出需要我确认的三项。</text>
+<rect x="16" y="218" width="358" height="96" rx="12" fill="#ffffff" stroke="#dddddd"/>
+<text x="30" y="242" font-size="11" fill="#1a1a1a">读完了 3 个文件，先给出结论：</text>
+<text x="30" y="262" font-size="11" fill="#3a3f47">1. 本周共 14 个改动，3 个需要确认；</text>
+<text x="30" y="280" font-size="11" fill="#3a3f47">2. 发布说明已按模块分组；</text>
+<text x="30" y="298" font-size="11" fill="#3a3f47">3. 截图归档还差最后一步。</text>
+<text x="16" y="344" font-size="11.5" fill="#1a1a1a">第一项需要你确认：这次是否升 minor。</text>
+<text x="16" y="366" font-size="11" fill="#6b6b6b">正文留在不透明表面上；玻璃从来不承担可读性。</text>
+
+<rect x="16" y="402" width="358" height="88" rx="12" fill="#eef3ff" stroke="#1f6feb" stroke-dasharray="4 3"/>
+<text x="30" y="426" font-size="12" font-weight="600" fill="#1f6feb">zen：底栏整体隐藏，不是变透明</text>
+<text x="30" y="446" font-size="11" fill="#3a3f47">内容延伸到安全区，最后一行可直接读到手势区上沿；</text>
+<text x="30" y="464" font-size="11" fill="#3a3f47">退出 zen 后底栏原位回来，区域、搜索与滚动都不变。</text>
+<text x="30" y="482" font-size="11" fill="#3a3f47">zen 的开关沿用现有入口，底栏不新增按钮。</text>
+
+<rect x="16" y="520" width="358" height="72" rx="12" fill="#f6f6f8"/>
+<text x="30" y="546" font-size="11.5" fill="#1a1a1a">接下来我可以：</text>
+<text x="30" y="568" font-size="11" fill="#3a3f47">把三项确认做成清单，或先生成草稿。</text>
+<rect x="16" y="608" width="170" height="40" rx="10" fill="#ffffff" stroke="#dddddd"/>
+<text x="101" y="633" font-size="11" fill="#1a1a1a" text-anchor="middle">做清单</text>
+<rect x="204" y="608" width="170" height="40" rx="10" fill="#ffffff" stroke="#dddddd"/>
+<text x="289" y="633" font-size="11" fill="#1a1a1a" text-anchor="middle">生成草稿</text>
+
+<line x1="16" y1="690" x2="374" y2="690" stroke="#eeeeee" stroke-dasharray="4 4"/>
+<text x="16" y="712" font-size="10.5" fill="#9a9a9f">这一带在默认态是悬浮玻璃底栏；zen 下不画、不占位。</text>
+<text x="16" y="732" font-size="10.5" fill="#9a9a9f">底栏隐藏时 Tab 序也不含四个入口。</text>
+
+<rect x="136" y="830" width="118" height="5" rx="2.5" fill="#1a1a1a"/>
+<rect x="0.5" y="0.5" width="389" height="843" fill="none" rx="24" stroke="#bbbbbb"/>
+</g>
+</svg>
