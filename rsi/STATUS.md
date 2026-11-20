@@ -15,7 +15,7 @@ Facts with the command that proves each (checked 2026-11-19):
 - No slice is dispatchable: `python3 rsi/runtime/slices.py ready --local` prints
   `(no ready Astryx slice)`.
 - The live queue is `rsi/state/STATUS.md` (gitignored; written by the fill pulse, the daily regroom and dream — write it atomically).
-- Phases live in `rsi/GOAL.md`: P15 is current, P1–P14 are closed.
+- Phases live in `rsi/GOAL.md`: no current phase (P15 parked); P1–P14 are closed.
 
 ## Template — sections a live STATUS uses
 

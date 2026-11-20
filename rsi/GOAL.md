@@ -438,8 +438,14 @@ the desktop boot surface (settled in P10/P11).
 the tunnel-stall replay cannot be reproduced on the field, record what the unit test and mutant prove and park
 the field proof as a followup — never report an unreplayed stall as verified.
 
-## Current phase (P15) — 手机先开包里的控制台，新版本后台整套换
-<!-- phase: P15-bundled-console target=2026-11-30T20:00 -->
+## Parked phase (P15) — 手机先开包里的控制台，新版本后台整套换
+<!-- closed-phase: P15-bundled-console target=2026-11-30T20:00 -->
+
+**Parked 2026-11-21 (CEO, option ③).** The story is `blocked` and there is no current phase: the measured
+benefit is at most 3.7 s (`docs/plans/2026-11-21-phone-console-baseline.md`), the failure it was meant to cover
+is already bounded by P14 (#482), and its precondition (a Hub CORS allow-list or a Swift bridge) changes a
+permission boundary for that 3.7 s. The design below is kept as the record; a future phase starts from a defect
+the owner names, a dogfood finding, or his explicit ask to revive this one (`gh pr reopen 495` or a new story).
 
 **Why this and not features.** P14 bounds the wheel but leaves the cold download in the start path. The phone
 app already ships a console (`mobile/capacitor.config.ts:50` `webDir: "../web/dist"`), yet uses it only as a

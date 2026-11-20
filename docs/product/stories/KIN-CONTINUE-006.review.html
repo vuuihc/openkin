@@ -182,15 +182,15 @@
 <main class="page">
 
   <header>
-    <div class="eyebrow">Figma 审阅版 · 约 6 分钟 · 4 个决定（2 已定 · 2 待拍板）</div>
+    <div class="eyebrow">Figma 审阅版 · 约 6 分钟 · 4 个决定（2 已定 · 2 暂不做）</div>
     <h1>KIN-CONTINUE-006 · 手机开屏：先用自己的控制台打开，新版本在后台整套换<small>首帧不等网络 · 后台取回与三项校验 · 原子换入 · 失败只说一句</small></h1>
-    <p class="meta">draft · 面：手机（Mac 不变）· 对照 <code>KIN-CONTINUE-006.md</code></p>
+    <p class="meta">blocked（暂不做）· 面：手机（Mac 不变）· 对照 <code>KIN-CONTINUE-006.md</code></p>
     <p class="meta">2026-11-21 · 6 屏（5 张手机帧 + 1 张 Mac 不变帧）· 8 个状态</p>
     <div class="tags">
-      <span class="pill warn">待签字</span>
+      <span class="pill warn">暂不做</span>
       <span class="pill plain">旅程 J1</span>
       <span class="pill plain">面：手机</span>
-      <span class="pill draft">draft</span>
+      <span class="pill draft">blocked</span>
     </div>
   </header>
 
@@ -203,10 +203,10 @@
     <ol>
       <li><strong>先看切法</strong>：这条为什么单独成一条，开屏与换版为什么属于「接着问」，相邻的格归谁。</li>
       <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
-      <li><strong>最后看决定</strong>：D1、D2 已定；D3、D4 各有一个推荐和代价，页尾有回复模板，只回不同意的编号。</li>
+      <li><strong>最后看决定</strong>：D1、D2 已定；D3、D4 保留了推荐与代价，但 2026-11-21 已由 CEO 记为暂不做，页尾只留恢复方式。</li>
     </ol>
-    <p><strong>阻塞：需要 Ethan 先定跨源能力（给 Hub 加来源白名单，或改用原生桥接）；在此之前不签字、不写代码。</strong></p>
-    <p class="note">宽帧在卡片内左右滑动，页面本身不横滚。手机上正文不小于 16px。本页是纯文档：<code>ui/</code> 一个像素未动，实现发生在签字之后的实现 PR。</p>
+    <p><strong>暂不做（CEO 2026-11-21，③）：</strong>实测限速下开屏只差 3.7 秒（warm 61 ms / cold 177 ms / 限速 3,674 ms 到可用），那天的「一直进不去」已由 #482 的 12 秒兜底与重载按钮覆盖；跨源白名单属权限边界，不值得为此开。恢复：Ethan 说一句要它，reopen #495（选项①已写好）或按选项②重开故事。</p>
+      <p class="note">宽帧在卡片内左右滑动，页面本身不横滚。手机上正文不小于 16px。本页是纯文档：<code>ui/</code> 一个像素未动，实现发生在签字之后的实现 PR。</p>
   </section>
 
   <nav class="toc" aria-label="页内导航">
@@ -504,15 +504,15 @@
     </div>
 
     <div class="decision open">
-      <h3>D3 整套的存放与校验（待拍板）</h3>
-      <p><strong>阻塞：需要 Ethan 先定跨源能力（给 Hub 加来源白名单，或改用原生桥接）；在此之前不签字、不写代码。</strong></p>
+      <h3>D3 整套的存放与校验（暂不做）</h3>
+      <p><strong>暂不做（CEO 2026-11-21）：</strong>保留下面的推荐与代价，不再等人拍板；恢复时按推荐走，先定跨源。</p>
       <p class="rec"><strong>推荐：</strong>App 私有目录按版本存放已验证的整套，清单与摘要随构建产物走；下次开屏从本地加载，只重新比版本与兼容。这样「上一份完整版本还在」由 App 自己保证，不依赖系统缓存的心情。</p>
       <p class="tradeoff"><strong>代价：</strong>本地多占一份控制台；清单格式变更要兼容旧包（旧包读不懂新清单时按「不换」处理）。另一条路是拿系统 WebView 缓存当存储——实现少，但系统会淘汰，无法保证「上一份完整版本还在」，不推荐。</p>
     </div>
 
     <div class="decision open">
-      <h3>D4 基线控制台的登录（待拍板）</h3>
-      <p><strong>阻塞：需要 Ethan 先定跨源能力（给 Hub 加来源白名单，或改用原生桥接）；在此之前不签字、不写代码。</strong></p>
+      <h3>D4 基线控制台的登录（暂不做）</h3>
+      <p><strong>暂不做（CEO 2026-11-21）：</strong>保留下面的推荐与代价；恢复时按推荐走，先定跨源。</p>
       <p class="rec"><strong>推荐：</strong>沿用现有设备令牌（<code>ui/src/api/client.ts:287</code> 的 Bearer），让随包控制台在 App 自己的 origin 上也能调 Hub；cookie 仍只用于 Hub origin。</p>
       <p class="tradeoff"><strong>代价：</strong>令牌要可撤销、不能变成第二个密码；首次安装没连过 Hub 时仍落在连接页。另一条路是原生层代理所有 API / SSE——登录最自然，但流式通道与新请求路径都要维护，第一版不推荐。</p>
     </div>
@@ -521,19 +521,17 @@
   <section id="reply">
     <h2>回复模板</h2>
     <div class="card reply">
-      <p class="note">长按下面这段复制，改掉不同意的；D1、D2 已定，不用回。都同意就复制第一行。</p>
-      <pre>同意 KIN-CONTINUE-006：D3、D4 按推荐。
-推翻 D3：……（只写不同意的编号）
-跨源：给 Hub 加来源白名单 / 改用原生桥接 / 暂不做（只保留有界重试）——三选一。</pre>
+      <p class="note">本条已由 CEO 记为暂不做（2026-11-21），不需要回复。如果你想要它：复制下面第一行，或直接告诉我要哪条路。</p>
+      <pre>恢复 KIN-CONTINUE-006：跨源选 ① Hub 来源白名单（#495 已写好，reopen 即可）/ ② 原生桥接。
+推翻 D3：……（只写不同意的编号）</pre>
     </div>
   </section>
 
   <section id="sign">
     <h2>签字</h2>
     <div class="card sign">
-      <p>本页不改任何状态：<code>KIN-CONTINUE-006.md</code> 保持 <code>draft</code>，<code>registry.json</code>、<code>COVERAGE.md</code>、<code>PLAN.md</code>、<code>IA.md</code> 都不动。</p>
-      <p><strong>阻塞：需要 Ethan 先定跨源能力（给 Hub 加来源白名单，或改用原生桥接）；在此之前不签字、不写代码。</strong></p>
-      <p>Ethan 定下跨源后，签字才发生在实现 PR：那一版把 <code>KIN-CONTINUE-006.md</code> 从 <code>draft</code> 改成 <code>approved</code>（验收表里的测试以故事 id 命名），并由 CEO 在 <code>rsi/DECISIONS.md</code> 记一行。</p>
+      <p>本页不写代码：<code>KIN-CONTINUE-006.md</code> 现在记为 <code>blocked</code>（CEO 2026-11-21 暂不做跨源），<code>registry.json</code> 的 <code>blockedReason</code> 写着原因与恢复方式；<code>COVERAGE.md</code> 与 <code>PLAN.md</code> 的计数由 <code>scripts/stories.py</code> 重生，<code>IA.md</code> 的那一行同步更新。</p>
+      <p><strong>恢复：</strong>Ethan 说一句要它，CEO 把状态改回 <code>draft</code>/<code>approved</code> 并先定跨源（① 白名单 / ② 原生桥接）；或在原 PR #495 上 reopen。</p>
       <p>只有到那一步才动 <code>ui/</code>。Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-CONTINUE-006.figma/</code> 里的 SVG 帧和本页的流程。</p>
     </div>
   </section>
