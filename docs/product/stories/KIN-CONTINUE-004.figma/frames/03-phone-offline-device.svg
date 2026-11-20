@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff" rx="24"/>
+<rect width="390" height="24" fill="#f6f6f8" rx="24"/>
+<rect y="14" width="390" height="10" fill="#f6f6f8"/>
+<text x="16" y="17" font-size="11" fill="#555">9:41</text>
+<text x="374" y="17" font-size="11" fill="#555" text-anchor="end">手机 390×844 · 离线设备</text>
+
+<text x="16" y="60" font-size="19" font-weight="600" fill="#1a1a1a">对话</text>
+<rect x="232" y="40" width="82" height="36" rx="10" fill="#ffffff" stroke="#dddddd"/>
+<text x="273" y="63" font-size="11.5" fill="#1a1a1a" text-anchor="middle">＋ 新建</text>
+<circle cx="350" cy="58" r="18" fill="#f6f6f8"/>
+<circle cx="347" cy="55" r="5.5" fill="none" stroke="#555" stroke-width="1.5"/>
+<line x1="351" y1="59" x2="355" y2="63" stroke="#555" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="16" y1="88" x2="374" y2="88" stroke="#eeeeee"/>
+
+<circle cx="18" cy="110" r="4" fill="none" stroke="#9a9a9a" stroke-width="1.5"/>
+<text x="28" y="114" font-size="12" font-weight="600" fill="#1a1a1a">机器 A · 离线</text>
+<rect x="330" y="94" width="44" height="44" rx="12" fill="#f1f1f4"/>
+<text x="352" y="122" font-size="20" fill="#b9b9bf" text-anchor="middle">＋</text>
+<text x="16" y="150" font-size="11" fill="#b42318">离线，连上后可在本机新建</text>
+
+<text x="16" y="186" font-size="12" font-weight="600" fill="#1a1a1a">▾ 项目 alpha</text>
+<text x="374" y="186" font-size="10" fill="#6b6b6b" text-anchor="end">2 段对话</text>
+
+<rect x="16" y="198" width="358" height="52" rx="12" fill="#ffffff"/>
+<text x="30" y="220" font-size="12.5" font-weight="600" fill="#1a1a1a">部署预演</text>
+<text x="30" y="238" font-size="10.5" fill="#6b6b6b">1 小时前 · 已完成 · 历史只读</text>
+<text x="362" y="228" font-size="14" fill="#9a9a9a" text-anchor="middle">›</text>
+
+<rect x="16" y="256" width="358" height="52" rx="12" fill="#ffffff"/>
+<text x="30" y="278" font-size="12.5" font-weight="600" fill="#1a1a1a">检查昨天的构建</text>
+<text x="30" y="296" font-size="10.5" fill="#6b6b6b">昨天 · 已完成</text>
+<text x="362" y="286" font-size="14" fill="#9a9a9a" text-anchor="middle">›</text>
+
+<line x1="16" y1="328" x2="374" y2="328" stroke="#eeeeee"/>
+
+<circle cx="18" cy="352" r="4" fill="#137a3f"/>
+<text x="28" y="356" font-size="12" font-weight="600" fill="#1a1a1a">本机 · 在线</text>
+<text x="322" y="356" font-size="10" fill="#1f6feb" text-anchor="end">在这台新建</text>
+<rect x="330" y="336" width="44" height="44" rx="12" fill="#ffffff" stroke="#1f6feb"/>
+<text x="352" y="364" font-size="20" fill="#1f6feb" text-anchor="middle">＋</text>
+
+<text x="16" y="406" font-size="12" font-weight="600" fill="#1a1a1a">▾ 项目 beta</text>
+<text x="374" y="406" font-size="10" fill="#6b6b6b" text-anchor="end">1 段对话</text>
+
+<rect x="16" y="418" width="358" height="52" rx="12" fill="#ffffff"/>
+<text x="30" y="440" font-size="12.5" font-weight="600" fill="#1a1a1a">核对构建日志</text>
+<text x="30" y="458" font-size="10.5" fill="#6b6b6b">3 天前 · 已完成</text>
+
+<rect x="16" y="500" width="358" height="112" rx="12" fill="#fff1f0" stroke="#b42318" stroke-dasharray="4 3"/>
+<text x="30" y="524" font-size="12" font-weight="600" fill="#b42318">离线只锁新建，不锁历史</text>
+<text x="30" y="546" font-size="11" fill="#3a3f47">设备仍按最近活动出现在原位置，</text>
+<text x="30" y="564" font-size="11" fill="#3a3f47">已有对话仍可打开，只是不能再开新的。</text>
+<text x="30" y="584" font-size="11" fill="#3a3f47">禁用按钮带 aria-disabled，原因在可达文本里，</text>
+<text x="30" y="600" font-size="11" fill="#3a3f47">不靠 title，也不画一个点了没反应的按钮。</text>
+
+<text x="16" y="686" font-size="11" fill="#b42318">本条不改底栏：玻璃 / 纯图标归共享 shell 故事（见 D6）。</text>
+
+<line x1="0" y1="744" x2="390" y2="744" stroke="#e2e2e6"/>
+<rect x="0" y="745" width="390" height="75" fill="#f6f6f8"/>
+<g stroke="#555" stroke-width="1.4" fill="none">
+  <rect x="54" y="762" width="20" height="16" rx="3"/>
+  <line x1="54" y1="767" x2="74" y2="767"/>
+  <circle cx="151" cy="770" r="8"/>
+  <path d="M151 765 v5 l3 2"/>
+  <rect x="228" y="762" width="6" height="6" rx="1"/>
+  <rect x="238" y="762" width="6" height="6" rx="1"/>
+  <rect x="228" y="772" width="6" height="6" rx="1"/>
+  <rect x="238" y="772" width="6" height="6" rx="1"/>
+  <circle cx="325" cy="770" r="7"/>
+  <path d="M325 759 v4 M325 777 v4 M314 770 h4 M332 770 h4"/>
+</g>
+<g text-anchor="middle" font-size="9.5" fill="#555">
+  <text x="64" y="804">对话</text>
+  <text x="151" y="804">例行</text>
+  <text x="238" y="804">Agent</text>
+  <text x="325" y="804">设置</text>
+</g>
+<rect x="136" y="830" width="118" height="5" rx="2.5" fill="#1a1a1a"/>
+<rect x="0.5" y="0.5" width="389" height="843" fill="none" rx="24" stroke="#bbbbbb"/>
+</g>
+</svg>

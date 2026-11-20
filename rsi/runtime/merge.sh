@@ -50,6 +50,11 @@ item_id() { # slug body -> the marker's id, else R-<slug>: the one reader and th
 }
 sendback() { # slug item title detail-file [source] [spec] [cmd]
   local slug="$1" item="$2" title="$3" det="$4" a live src="${5:-unknown}" spec="${6:--}" cmd="${7:--}"
+  # A sendback must not outlive its PR: never queue a rework round for a PR that is already
+  # MERGED or CLOSED. The write site inside the cycle is the only place the state was not read;
+  # lane.sh autofill already archives on sight, but only after the merge lane spent the round.
+  # An unreadable state keeps today's behaviour (a rare phantom costs less than a stalled rework).
+  pr_finished "$slug" "${N:-}" "${SHA:-}" "$det" && return
   # A rework lane can push the fix WHILE this lane is still reviewing. Bouncing the PR on the SHA
   # that failed would then hand back a head that already contains the fix, burning one of three
   # attempts and 10-20 min of lane time. If the live head moved past the reviewed SHA, suppress the
@@ -94,7 +99,11 @@ write_sendback() { # slug item title detail-file attempt-label kind(targeted|mec
   } > "$STATE/sendback/$slug.md"
 }
 sendback_mech() { # slug item title detail-file [source] [spec] [cmd] : mechanical failure (merge conflict, format, infra). Does NOT count as a sendback; capped at 5 then counts.
-  local slug="$1" item="$2" title="$3" det="$4" src="${5:-mech}" spec="${6:--}" cmd="${7:--}" m; m=$(( $(cat "$STATE/merge/$slug.mech" 2>/dev/null || echo 0) + 1 )); echo $m > "$STATE/merge/$slug.mech"
+  local slug="$1" item="$2" title="$3" det="$4" src="${5:-mech}" spec="${6:--}" cmd="${7:--}" m
+  # Same guard as sendback(): the mechanical path forwards into a real sendback later, and a
+  # closed PR must not even get a mechanical round.
+  pr_finished "$slug" "${N:-}" "${SHA:-}" "$det" && return
+  m=$(( $(cat "$STATE/merge/$slug.mech" 2>/dev/null || echo 0) + 1 )); echo $m > "$STATE/merge/$slug.mech"
   if [ $m -gt 5 ]; then sendback "$slug" "$item" "$title (mechanical x$m)" "$det" "$src" "$spec" "$cmd"; return; fi
   SB_FIXLIST="" SB_GATEFAILS="" write_sendback "$slug" "$item" "$title" "$det" "mech-$m" mechanical "$src" "$spec" "$cmd"
   say "mechanical rework $slug (#$m, not counted as a sendback): $title"; KICK=1
@@ -108,6 +117,60 @@ archive_sendback() { # slug reason sha8 — move state/sendback/<slug>.md under 
   [ -e "$STATE/sendback/$slug.md" ] || return 0
   mkdir -p "$STATE/sendback/done"
   mv "$STATE/sendback/$slug.md" "$STATE/sendback/done/$slug-$reason-$sha8.md"
+}
+# The live PR state, keyed by slug: sendback_mech() has no PR number. Empty or unrecognised output
+# is unreadable and callers fail open. The override is a test seam, the same shape as lane.sh's.
+PR_STATE_CMD="${RSI_PR_STATE_CMD:-}"   # test seam; empty = the real gh call
+pr_state() { # <slug> -> prints OPEN|MERGED|CLOSED; non-zero when the state cannot be read
+  if [ -n "$PR_STATE_CMD" ]; then bash -c "$PR_STATE_CMD" pr-state "$1"
+  else "$GH" pr view "rsi/$1" --repo "$GH_REPO" --json state --jq .state; fi
+}
+# A sendback must not outlive its PR. A verification can finish minutes after the PR was closed:
+# #451 was closed at 06:28Z and a sync rework at 06:29:30Z still produced #453, a third copy of
+# the same one-line doc change, taking a gate slot and a lane round. At the write site, MERGED or
+# CLOSED archives the failure report and leaves one CEO line instead; no attempt/mech counter is
+# bumped and the head-moved suppression does not run. Anything else (including an unreadable
+# state) returns 1 and the caller continues exactly as today.
+pr_finished() { # <slug> <pr-number|""> <sha> <detail-file> -> 0 finished and archived, 1 continue
+  local slug="$1" n="$2" sha="${3:-}" det="$4" pstate sha8=unknown
+  pstate="$(pr_state "$slug" 2>/dev/null || true)"
+  case "$pstate" in MERGED|CLOSED) ;; *) return 1 ;; esac
+  oid "$sha" && sha8="${sha:0:8}"
+  archive_sendback "$slug" closed "$sha8"
+  mkdir -p "$STATE/sendback/done"
+  cp "$det" "$STATE/sendback/done/$slug-closed-$sha8.md" 2>/dev/null || true
+  printf -- '- %s %srsi/%s: PR is %s; sendback suppressed (archived sendback/done/%s-closed-%s.md)\n' \
+    "$(date '+%F %H:%M')" "${n:+PR #$n }" "$slug" "$pstate" "$slug" "$sha8" >> "$STATE/needs-ceo.md"
+  say "$slug: PR $pstate; sendback suppressed (archived sendback/done/$slug-closed-$sha8.md)"
+  KICK=1; SB_SUPPRESSED=1
+  return 0
+}
+# The prose claim check (R-latency-fix, 2026-11-20): a PR that changes a prose-assertion path must
+# carry a command the gate can run and the output it claims; runtime/claim_check.py owns the rule.
+# It runs before the reviewer is launched, so a missing or false claim costs no model call. The
+# sendback is mechanical on purpose: it is a missing proof, not a quality finding, and the
+# scorecard counts quality sendbacks. A waiver is recorded as claim_check=waived in cycles.log so
+# the patrol can watch the rate instead of trusting it.
+claim_check_gate() { # <pr-number> <slug> <item> <worktree> <body-file> <changed-files-file> -> 0 pass/NA/waived, 1 sent back
+  local n="$1" slug="$2" item="$3" wt="$4" bodyf="$5" pathsf="$6" out rc det
+  out="$(python3 "$RSI_DIR/runtime/claim_check.py" "$wt" "$bodyf" "$pathsf" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    det="$STATE/merge/$slug.claim.txt"
+    printf '%s\n' "$out" > "$det"
+    # Provenance per write_sendback's contract: source=mech-claim, spec="-", cmd=the command the
+    # worker must run (so the rework lane can reproduce the check without opening this script).
+    sendback_mech "$slug" "$item" "claim check" "$det" "mech-claim" - \
+      "python3 rsi/runtime/claim_check.py <worktree> <body-file> <changed-files-file>"
+    say "#$n $slug: claim check failed — sent back before the reviewer"
+    return 1
+  fi
+  case "${out%%$'\n'*}" in
+    CLAIM_WAIVED:*)
+      echo "$(date '+%F %H:%M') #$n $slug claim_check=waived" >> "$STATE/merge/cycles.log"
+      say "#$n $slug: claim check waived ($(printf '%s\n' "$out" | head -1))" ;;
+    *) say "#$n $slug: claim check ok" ;;
+  esac
+  return 0
 }
 
 # ------------------------------------------------- generated files (pure functions of the tree)
@@ -404,6 +467,50 @@ queue_carry_step() { # <wt> <old-head> <incoming> <new-sha> <pr-changed> <gate-f
   queue_carry "$1" "$2" "$4" "$3" "$5" "$6" "$7" "${8:-$(cut -d' ' -f3 "$6" 2>/dev/null | head -1)}"
 }
 
+# ------------------------------------------------------------------ re-verification accounting
+reverify_reason() { # <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason>
+  # Accounting only (retro 2026-11-20 §5.2): WHY a gate that already ran is paid for again. Writes
+  # nothing and is read by no gate decision, lock or verdict — the gate-start line in step 4
+  # appends its one word to state/merge/cycles.log, so a week of data says whether re-verification
+  # is bought by shared surfaces moving or by rework, instead of tightening the carry rules on
+  # intuition. <prior-reachable> is 1 only when the prior gate head is a proven ancestor of the
+  # current head. Prints exactly one word:
+  #   first-gate      no prior gate head: the denominator, not a re-verification
+  #   rework          the PR's own code changed, the branch was rewritten, or nothing else moved
+  #   shared-surface  main moved a surface every PR depends on, so every PR re-gates
+  #   main-moved      main moved a path this PR does not verify, yet the gate ran again
+  local prior_sha="$1" prior_key="$2" cur_key="$3" reachable="$4" incoming="$5" reason="$6"
+  if [ -z "$prior_sha" ]; then echo first-gate; return 0; fi
+  # An empty prior key is not evidence: a missing review cache must fall through, not claim rework.
+  if [ -n "$prior_key" ] && [ "$prior_key" != "$cur_key" ]; then echo rework; return 0; fi
+  if [ "$reachable" = 0 ]; then echo rework; return 0; fi
+  if [ -n "$incoming" ]; then
+    case "$reason" in
+      *"shared surface moved"*|*"the gate runs this script"*|*"the PR touches scripts/ or ui/"*)
+        echo shared-surface ;;
+      *) echo main-moved ;;
+    esac
+    return 0
+  fi
+  echo rework
+}
+
+prior_gate_capture() { # <pr> <verified-file> <reviewed-file> <gate-head-file>
+  # What the last cycle left behind, for the gate-start accounting line. The verified/reviewed PASS
+  # lines are written only on a combined gate+review PASS, so a gate that FAILED (or passed while
+  # the review failed) leaves none: fall back to the gate-head marker the gate-start block writes.
+  # The marker is keyed by PR number so a reused slug cannot inherit a dead PR's head. Prints
+  # "<prior-gate-sha> <prior-diff-key>"; either field may be empty (a true first gate).
+  local n="$1" sha key
+  sha="$(cut -d' ' -f1 "$2" 2>/dev/null)"
+  key="$(cut -d' ' -f1 "$3" 2>/dev/null)"
+  if [ "$(cut -d' ' -f1 "$4" 2>/dev/null)" = "$n" ]; then
+    [ -n "$sha" ] || sha="$(cut -d' ' -f2 "$4" 2>/dev/null)"
+    [ -n "$key" ] || key="$(cut -d' ' -f3 "$4" 2>/dev/null)"
+  fi
+  printf '%s %s\n' "$sha" "$key"
+}
+
 # ------------------------------------------------------------------ CI-first hold
 CI_HOLD_MAX_SECS=2700   # 45 min: a hold may defer the step-1 sync at most this long
 ci_hold_window() { # <marker-file> -> 0 when a hold may continue (fresh marker, or one just written)
@@ -598,6 +705,20 @@ if [ "${1:-}" != "--one" ]; then
   # the same dispatch_rows() the loop calls — over gh `pr list` JSON on stdin, with the
   # needs-ceo/hold labels applied because a held PR is not a candidate. No gh, fetch or state write.
   if [ "${1:-}" = "--pr-select-check" ]; then dispatch_rows --candidate-labels; exit $?; fi
+  # Hermetic seam for rsi/runtime/tests/test-claim-check.sh: the prose claim check on a throwaway
+  # worktree and two files on disk, the same script the verifier runs. No state, lock, gh or model;
+  # the exit code is the check's own (0 pass/not-applicable/waived, 1 failed).
+  if [ "${1:-}" = "--claim-check" ]; then
+    [ $# -ge 4 ] || { echo "usage: merge.sh --claim-check <worktree> <body-file> <changed-files-file>" >&2; exit 2; }
+    python3 "$RSI_DIR/runtime/claim_check.py" "$2" "$3" "$4"; exit $?
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-claim-check.sh: the same claim_check_gate() the
+  # verifier calls, sendback included, against a temp control tree whose PR state stub says OPEN.
+  # No lock, fetch, gate, review or dispatch.
+  if [ "${1:-}" = "--claim-gate-check" ]; then
+    [ $# -ge 7 ] || { echo "usage: merge.sh --claim-gate-check <pr-number> <slug> <item> <worktree> <body-file> <changed-files-file>" >&2; exit 2; }
+    claim_check_gate "$2" "$3" "$4" "$5" "$6" "$7"; exit $?
+  fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the queue-time carry step 1 applies
   # after sync_main, with lists of paths on disk. No locks, fetch, gate, review, merge or dispatch.
   if [ "${1:-}" = "--queue-carry-check" ]; then
@@ -608,6 +729,24 @@ if [ "${1:-}" != "--one" ]; then
       echo "CARRY $QUEUE_CARRY_REASON"; exit 0
     fi
     echo "REGATE $QUEUE_CARRY_REASON"; exit 1
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the pure re-verification classifier the
+  # gate-start accounting line writes. No state, no lock, no gate, no dispatch — one word out.
+  if [ "${1:-}" = "--reverify-reason-check" ]; then
+    [ $# -ge 7 ] || {
+      echo "usage: merge.sh --reverify-reason-check <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason>" >&2
+      exit 2
+    }
+    reverify_reason "$2" "$3" "$4" "$5" "$6" "$7"; exit 0
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the same prior_gate_capture() step 1
+  # reads the accounting inputs with, over files on disk. No state, lock, gate, review or dispatch.
+  if [ "${1:-}" = "--prior-gate-check" ]; then
+    [ $# -ge 5 ] || {
+      echo "usage: merge.sh --prior-gate-check <pr> <verified-file> <reviewed-file> <gate-head-file>" >&2
+      exit 2
+    }
+    prior_gate_capture "$2" "$3" "$4" "$5"; exit 0
   fi
   # Hermetic seam for rsi/runtime/tests/test-verifier-ci-hold.sh: run the same ci_first_decision()
   # step 1 calls, with the non-waiting CI read passed in. No lock, fetch, gate, review or dispatch.
@@ -674,6 +813,14 @@ if [ "${1:-}" != "--one" ]; then
     SLUG="${2:?slug required}"; ITEM="${3:?item required}"; N="${4:?pr required}"
     SHA="${5-}"; DET="${6:?detail file required}"
     sendback "$SLUG" "$ITEM" "stale-check" "$DET" "test" - "bash rsi/runtime/tests/test-loop-sendback-stale.sh"
+    exit 0
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-loop-sendback-stale.sh: the same sendback() the land
+  # loop calls, with the PR state stubbed. Sits before the PAUSE check like --stale-check.
+  if [ "${1:-}" = "--closed-check" ]; then
+    SLUG="${2:?slug required}"; ITEM="${3:?item required}"; N="${4-}"
+    SHA="${5-}"; DET="${6:?detail file required}"
+    sendback "$SLUG" "$ITEM" "closed-check" "$DET" "test" - "bash rsi/runtime/tests/test-loop-sendback-stale.sh"
     exit 0
   fi
   # Hermetic seam for rsi/runtime/tests/test-sendback-provenance.sh: run the same sendback_mech()
@@ -768,7 +915,7 @@ cleanup() { [ -n "$CHILD" ] && kill $CHILD 2>/dev/null; rm -rf "$L"
 trap cleanup EXIT
 [ -e "$STATE/PAUSE" ] && exit 0
 BR="rsi/$SLUG"; WT="$WT_ROOT/rsi-$SLUG"; PRURL="https://github.com/$GH_REPO/pull/$N"
-BODY="$($GH pr view "$N" --repo "$GH_REPO" --json body --jq .body 2>/dev/null)"
+BODY="$($GH pr view "$N" --repo "$GH_REPO" --json body --jq .body 2>/dev/null)"; BODY_RC=$?
 ITEM="$(item_id "$SLUG" "$BODY")"
 V="$STATE/merge/$SLUG.verified"; RV="$STATE/merge/$SLUG.reviewed"; PREV="$STATE/merge/$SLUG.review.txt"
 QW=""; if [ -s "$STATE/merge/$SLUG.queued_at" ]; then QW=" queue_wait=$(( (T0 - $(cat "$STATE/merge/$SLUG.queued_at")) / 60 ))m"; rm -f "$STATE/merge/$SLUG.queued_at"; fi
@@ -906,6 +1053,13 @@ OLDBASE="$($GIT -C "$WT" merge-base HEAD origin/main)"
 # PR's own three-dot diff, QUEUE_INCOMING is main's move since the pre-sync merge base.
 CH="$($GIT -C "$WT" -c core.fileMode=false diff --no-renames --raw origin/main...HEAD | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}')"
 QUEUE_INCOMING="$($GIT -C "$WT" diff --name-only "$OLDBASE" origin/main 2>/dev/null)"
+# The prior cycle's gate head and review key, captured before queue_carry_step rewrites or removes
+# them: the gate-start accounting line needs what the last cycle left behind to say why this head
+# has no PASS. The PASS lines exist only after a combined gate+review PASS, so a gate that FAILED
+# (or passed while the review failed) leaves none: prior_gate_capture falls back to the gate-head
+# marker the gate-start block writes. Empty is normal (a true first gate).
+PRIOR_CAPTURE="$(prior_gate_capture "$N" "$V" "$RV" "$STATE/merge/$SLUG.gate-head")"
+PRIOR_GATE_SHA="${PRIOR_CAPTURE%% *}"; PRIOR_DIFF_KEY="${PRIOR_CAPTURE#* }"
 ci_first_decision "$WT" "$BR" "$V" "$RV" "$(ci_probe_once)" "$STATE/merge/$SLUG.ci-hold" "$QUEUE_INCOMING" "$CH"
 CI_FIRST_RC=$?
 # The measurement line: the next retro compares skip vs sync per verifier start.
@@ -918,6 +1072,10 @@ else
 fi
 bash "$RSI_DIR/runtime/prep-worktree.sh" "$WT" 2>&1 | tail -2
 SHA="$($GIT -C "$WT" rev-parse HEAD)"
+# Was the prior gate head an ancestor of this head? 1 only when proven, so a rewritten branch or an
+# unknown/unreadable sha stays 0 and is never mistaken for a carry candidate.
+PRIOR_REACHABLE=0
+[ -n "$PRIOR_GATE_SHA" ] && $GIT -C "$WT" merge-base --is-ancestor "$PRIOR_GATE_SHA" "$SHA" 2>/dev/null && PRIOR_REACHABLE=1
 
 # 2. hold rules (MANDATE): never auto-merge these
 # A main move that is disjoint from the PR's own files and the shared surfaces does not invalidate
@@ -1023,6 +1181,23 @@ if [ $NEED_REV -eq 1 ] && [ "$ROLE" = reviewer-alt ] && python3 "$RSI_DIR/runtim
   say "#$N $SLUG: holding review, no strong reviewer available (Hydrogen/sol limited) (no retry)"
   exit 0
 fi
+# The prose claim check, before the reviewer is paid for (R-latency-fix). CH was taken at step 1
+# from origin/main...HEAD, so it is the PR's own diff, and BODY is the live PR body the check
+# reads. A cached review (NEED_REV=0) skips this on purpose: a rework's re-review is not asked to
+# re-prove a sentence the gate already ran on this diff.
+if [ $NEED_REV -eq 1 ]; then
+  if [ "$BODY_RC" -eq 0 ]; then
+    CLAIM_BODY="$STATE/merge/$SLUG.body"; CLAIM_PATHS="$STATE/merge/$SLUG.changed"
+    printf '%s\n' "$BODY" > "$CLAIM_BODY"; printf '%s\n' "$CH" > "$CLAIM_PATHS"
+    claim_check_gate "$N" "$SLUG" "$ITEM" "$WT" "$CLAIM_BODY" "$CLAIM_PATHS"; CLAIM_RC=$?
+    rm -f "$CLAIM_BODY" "$CLAIM_PATHS"
+    [ $CLAIM_RC -ne 0 ] && exit 0
+  else
+    # An unreadable body is not evidence of a missing claim: a transient gh failure would
+    # otherwise bounce a prose PR mechanically. Fail open; the next cycle re-reads the body.
+    say "#$N $SLUG: claim check skipped (PR body unreadable); the next cycle re-reads it"
+  fi
+fi
 if [ $NEED_REV -eq 1 ]; then
   LASTREV="$(cut -d' ' -f3 "$RV" 2>/dev/null)"   # last reviewed SHA (any verdict)
   RB="$STATE/briefs/$SLUG-review.md"
@@ -1052,6 +1227,14 @@ if [ $NEED_REV -eq 1 ]; then
 fi
 GATE_OK=1; GATE_NOTE=""; GATE_OUTSIDE=0
 if [ $NEED_GATE -eq 1 ]; then
+  # The retrospective's accounting line (2026-11-20 §5.2): record WHY this gate is paid for, before
+  # the lock, so a FAIL or a lock timeout still counts. Deliberately not folded into the verify=
+  # line at the bottom: that one is never written on a FAIL and would bias the data to cheap passes.
+  RR="$(reverify_reason "$PRIOR_GATE_SHA" "$PRIOR_DIFF_KEY" "$DH" "$PRIOR_REACHABLE" "$QUEUE_INCOMING" "${QUEUE_CARRY_REASON:-}")"
+  echo "$(date '+%F %H:%M') #$N $SLUG reverify_reason=$RR" >> "$STATE/merge/cycles.log"
+  # The head and diff key this gate is about to run on: a FAIL writes no verified/reviewed PASS line,
+  # so the next cycle's accounting reads them from here (prior_gate_capture).
+  printf '%s %s %s\n' "$N" "$SHA" "$DH" > "$STATE/merge/$SLUG.gate-head"
   say "#$N $SLUG: gate on ${SHA:0:8} ($SIZE lines)"
   if mklock "$STATE/.gate.lock" 1800; then
     # Workers often build before their last edit: regenerate web/dist/index.html (the only tracked build output) so a stale bundle

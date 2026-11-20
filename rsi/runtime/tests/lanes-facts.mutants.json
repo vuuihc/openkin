@@ -1,0 +1,23 @@
+[
+  {
+    "label": "facts enumerates sendback/*.md itself, so a slug an active lane already runs is counted as waiting",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lanes-facts.sh",
+    "old": "                    for f in unclaimed_sendbacks()]",
+    "new": "                    for f in sorted(glob.glob(os.path.join(STATE, \"sendback\", \"*.md\")))]"
+  },
+  {
+    "label": "a sendback path that cannot be read as a directory falls back to 0/none",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lanes-facts.sh",
+    "old": "    if dir_state(os.path.join(STATE, \"sendback\")) == \"unreadable\":",
+    "new": "    if False:"
+  },
+  {
+    "label": "merged_today counts every line of merged.log, malformed rows included",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lanes-facts.sh",
+    "old": "        if len(f) < 8 or f[2] != \"PR\" or f[6] != \"merged\":",
+    "new": "        if False:"
+  }
+]

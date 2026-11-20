@@ -51,6 +51,54 @@ adopt_untracked_collision() {
     return 1
   done < <($GIT -C "$RSI_CTRL" diff --no-renames --name-only --diff-filter=A HEAD origin/main 2>/dev/null)
 }
+# adopt_pending_decisions — the last adoptable dirty shape: a pure append at EOF of
+# rsi/DECISIONS.md while HEAD is behind origin/main. The director records CEO calls as
+# uncommitted lines at the end of DECISIONS.md (prompts/fill.md §4); one such line pinned the
+# live tree 17 commits behind main for six hours on 2026-11-20, so every gate, walker and
+# GOAL.md the loop ran came from the stale tree. Only this exact shape is adopted: the added
+# lines are copied to gitignored state/decisions-pending.md first, then the tracked file is
+# restored and the caller fast-forwards. A deletion, a mid-file edit, a rewrite, any other
+# dirty tracked path, or a tree already at origin/main returns 0 and leaves the existing
+# pin/leave-alone path to speak. Returns 1 only after pinning: the tail could not be saved.
+adopt_pending_decisions() {
+  local behind dirty total diff_out tail_lines header l all pending
+  behind="$($GIT -C "$RSI_CTRL" rev-list --count HEAD..origin/main 2>/dev/null)"
+  case "$behind" in ''|*[!0-9]*|0) return 0;; esac
+  $GIT -C "$RSI_CTRL" cat-file -e HEAD:rsi/DECISIONS.md 2>/dev/null || return 0
+  dirty="$($GIT -C "$RSI_CTRL" diff --name-only HEAD 2>/dev/null)"
+  [ "$dirty" = rsi/DECISIONS.md ] || return 0
+  total="$($GIT -C "$RSI_CTRL" show HEAD:rsi/DECISIONS.md 2>/dev/null | wc -l | tr -d ' ')"
+  # -U0 keeps only changed lines: no `-` line may appear (other than the --- header) and every
+  # `+` hunk must start past the old file's last line, so only an EOF append passes. The diff is
+  # unscoped because the path check above already proved the only dirty path is DECISIONS.md;
+  # letting the path check be what restricts it keeps that guard load-bearing. The added lines
+  # are printed verbatim, prefix stripped, for the pending record.
+  diff_out="$($GIT -C "$RSI_CTRL" diff -U0 HEAD 2>/dev/null)"
+  tail_lines="$(printf '%s\n' "$diff_out" | awk -v total="$total" '
+    /^@@ / { inhunk = 1; if (!match($0, /\+[0-9]+/) || substr($0, RSTART + 1, RLENGTH - 1) + 0 <= total) early = 1; next }
+    inhunk && /^-/ { deleted = 1; next }
+    inhunk && /^\+/ { print substr($0, 2); next }
+    END { exit (deleted || early) ? 1 : 0 }
+  ')" || return 0
+  [ -n "$tail_lines" ] || return 0
+  pending="$STATE/decisions-pending.md"
+  mkdir -p "$STATE" 2>/dev/null || { pinned "could not preserve the DECISIONS tail: cannot create $STATE"; return 1; }
+  # Idempotent: a line already in the pending record is not appended again.
+  all=1
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    grep -Fqx -- "$l" "$pending" 2>/dev/null || { all=0; break; }
+  done <<< "$tail_lines"
+  if [ "$all" = 0 ]; then
+    header="- $(date '+%Y-%m-%d %H:%M %z' | sed 's/\([+-][0-9][0-9]\)[0-9][0-9]$/\1/') · adopted from an uncommitted rsi/DECISIONS.md tail (never committed) — fold into DECISIONS.md in a docs batch:"
+    printf '%s\n%s\n' "$header" "$tail_lines" >> "$pending" 2>/dev/null \
+      || { pinned "could not preserve the DECISIONS tail in $pending"; return 1; }
+  fi
+  $GIT -C "$RSI_CTRL" checkout HEAD -- rsi/DECISIONS.md 2>/dev/null \
+    || { pinned "restore of rsi/DECISIONS.md after adopting its tail failed"; return 1; }
+  echo "control tree: adopted the rsi/DECISIONS.md tail into rsi/state/decisions-pending.md" >&2
+  return 0
+}
 sync_control_tree() {
   local before after
   local behind
@@ -64,6 +112,7 @@ sync_control_tree() {
     return 1
   fi
   adopt_untracked_collision || return 1
+  adopt_pending_decisions || return 1
   if [ -z "$($GIT -C "$RSI_CTRL" status --porcelain --untracked-files=no)" ]; then
     $GIT -C "$RSI_CTRL" merge -q --ff-only origin/main 2>/dev/null || {
       pinned "fast-forward to origin/main failed"
@@ -87,10 +136,35 @@ sync_control_tree() {
   after="$($GIT -C "$RSI_CTRL" rev-parse HEAD 2>/dev/null)"
   [ "$before" = "$after" ] || echo "control tree synced to ${after:0:8} (tracked content already matched)" >&2
 }
+# fill_plan <debounced:0|1> [workers:0|1] — the ordered actions for one pulse, one line, nothing
+# else: no clock, no files, no state. The pulse makes the two decisions (may the director run?
+# may workers run?) and executes the list in order. R-rework-dispatch: the debounce suppresses
+# ONLY the expensive director run and its last_fill write. The model-free autofill that dispatches
+# a rejected PR's rework used to sit below the debounce's `exit`, so a sendback waited out the
+# eight minutes (rejection -> next verify p50 11 min, p90 31 min; 73% of open-to-merge).
+fill_plan() {
+  local debounced="${1:-0}" workers="${2:-1}" plan=""
+  [ "$workers" = 1 ] && plan="autofill-astryx autofill-rest"
+  [ "$debounced" = 1 ] || plan="${plan:+$plan }director"
+  [ -n "$plan" ] && printf '%s\n' "$plan"
+  return 0
+}
+
 # --sync-check: run only the control-tree sync and exit — no lock, no daemon, no launchd.
 # Exit 0 means the tree is at origin/main (or legitimately ahead with unpublished loop commits);
 # exit 1 means it is pinned behind it, with the reason already on stderr.
 case "${1:-}" in --sync-check) sync_control_tree || exit 1; exit 0;; esac
+# --fill-plan: print the ordering decision for a test without a clock, lock or model. The worker
+# gate is resolved here (the only state fill_plan needs) exactly as the pulse resolves it.
+case "${1:-}" in
+  --fill-plan)
+    case "${2:-}" in
+      0|1) [ $# -eq 2 ] || { echo "usage: run.sh --fill-plan <0|1>" >&2; exit 2; }
+           FILL_WORKERS=0; rsi_allow_workers && FILL_WORKERS=1
+           fill_plan "$2" "$FILL_WORKERS"; exit 0;;
+      *) echo "usage: run.sh --fill-plan <0|1>" >&2; exit 2;;
+    esac;;
+esac
 
 # merge_lane_line — one line of truth for the merge lane. The lane moved from one global
 # .merge.lock to one lock per PR: state/merge/<slug>.lock is a directory holding the verifier's
@@ -113,6 +187,29 @@ merge_lane_line() {
   if [ "$n" -eq 0 ]; then echo "merge lane: idle"; else echo "merge lane: $n running ($names)"; fi
 }
 
+# control_tree_line — one line of truth for how far the control tree is from origin/main. The pulse
+# pins a tree it cannot move on stderr only, so `--status` looked healthy while the loop ran stale
+# runtime scripts, a stale walker and a stale GOAL.md (2026-11-20: one uncommitted DECISIONS line held
+# the live tree 17 commits behind main for six hours). Read-only: no fetch, no fast-forward.
+control_tree_line() {
+  local head behind ahead dirty
+  head="$($GIT -C "$RSI_CTRL" rev-parse --short HEAD 2>/dev/null)"
+  behind="$($GIT -C "$RSI_CTRL" rev-list --count HEAD..origin/main 2>/dev/null)"
+  ahead="$($GIT -C "$RSI_CTRL" rev-list --count origin/main..HEAD 2>/dev/null)"
+  case "$head" in ''|*[!0-9a-f]*) echo "control tree: unreadable at ${head:-?} (no origin/main ref?)"; return 0;; esac
+  case "$behind$ahead" in ''|*[!0-9]*) echo "control tree: unreadable at $head (no origin/main ref?)"; return 0;; esac
+  dirty="$($GIT -C "$RSI_CTRL" status --porcelain --untracked-files=no 2>/dev/null | cut -c4- | paste -sd' ' -)"
+  if [ "$behind" -gt 0 ]; then
+    echo "control tree: PINNED $behind behind origin/main at $head$([ "$ahead" -gt 0 ] && echo ", $ahead unpublished commit(s)")${dirty:+ — uncommitted tracked changes: $dirty}"
+  elif [ "$ahead" -gt 0 ]; then
+    echo "control tree: $ahead unpublished commit(s) on top of origin/main ($head)${dirty:+ — uncommitted tracked changes: $dirty}"
+  elif [ -n "$dirty" ]; then
+    echo "control tree: at origin/main ($head) with uncommitted tracked changes: $dirty"
+  else
+    echo "control tree: at origin/main ($head)"
+  fi
+}
+
 MODE=""; FORCE=0; DRY=0; CHECK=0; STAT=0
 for a in "$@"; do case "$a" in pulse|daily|dream) MODE="$a";; --force) FORCE=1;; --dry-run) DRY=1;; --check) CHECK=1;; --status) STAT=1;; *) echo "unknown arg $a"; exit 2;; esac; done
 
@@ -128,6 +225,7 @@ if [ $CHECK -eq 1 ] || [ $STAT -eq 1 ]; then
   python3 "$RSI_DIR/runtime/volc-budget.py" --apply >/dev/null 2>&1 || true
   [ -s "$STATE/volc-budget.json" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print('volc list CNY today: ¥%.2f (%s); Kimi ¥%.2f / ¥%.0f'%(d['cny'],d['level'],d.get('kimi_cny') or 0,d.get('kimi_day_max') or 150))" "$STATE/volc-budget.json" 2>/dev/null
   echo "consec_fail=$(cat "$STATE/consec_fail" 2>/dev/null || echo 0) consec_timeout=$(cat "$STATE/consec_timeout" 2>/dev/null || echo 0)"
+  control_tree_line
   merge_lane_line
   BP_NOTE=""
   if rsi_open_pr_backpressure; then BP_NOTE=" (BACKPRESSURE: pausing new slices; rework+merge only)"; fi
@@ -171,12 +269,21 @@ IDLE=""; LANES_TXT=""
 case "$MODE" in
   pulse)
     MAXSECS="$FILL_SECS"; PROMPT_FILE="$RSI_DIR/runtime/prompts/fill.md"
-    # debounce: lane-finish / merge triggers + the 20-min tick must not stack director runs
-    if [ $FORCE -eq 0 ] && [ -e "$STATE/last_fill" ] && [ $(( $(date +%s) - $(cat "$STATE/last_fill") )) -lt 480 ]; then echo "skip: fill ran <8 min ago"; exit 0; fi
-    if [ $DRY -eq 0 ] && rsi_allow_workers; then
-      bash "$RSI_DIR/runtime/lane.sh" autofill astryx   # Astryx sendbacks -> rework lanes first, no LLM
-      bash "$RSI_DIR/runtime/lane.sh" autofill rest     # non-Astryx reworks take remaining idle slots before exit
-    fi
+    # debounce: lane-finish / merge triggers + the 20-min tick must not stack director runs.
+    # It gates only the director (and its last_fill write), never the model-free autofill below:
+    # a rejected PR's rework must not wait out the eight minutes (R-rework-dispatch).
+    DEBOUNCED=0
+    if [ $FORCE -eq 0 ] && [ -e "$STATE/last_fill" ] && [ $(( $(date +%s) - $(cat "$STATE/last_fill") )) -lt 480 ]; then DEBOUNCED=1; fi
+    WORKERS=0; [ $DRY -eq 0 ] && rsi_allow_workers && WORKERS=1
+    DIRECTOR=0
+    for action in $(fill_plan "$DEBOUNCED" "$WORKERS"); do
+      case "$action" in
+        autofill-astryx) bash "$RSI_DIR/runtime/lane.sh" autofill astryx;;   # Astryx sendbacks -> rework lanes first, no LLM
+        autofill-rest) bash "$RSI_DIR/runtime/lane.sh" autofill rest;;       # non-Astryx reworks take remaining idle slots before exit
+        director) DIRECTOR=1;;
+      esac
+    done
+    if [ $DIRECTOR -eq 0 ]; then echo "skip: fill ran <8 min ago"; exit 0; fi
     if [ $DRY -eq 0 ] && rsi_open_pr_backpressure; then
       if rsi_allow_workers && [ -x "$RSI_DIR/runtime/nas/ingest-nas.sh" ]; then
         nohup /bin/bash "$RSI_DIR/runtime/nas/ingest-nas.sh" >> "$RUNS/launchd-nas.log" 2>&1 < /dev/null & disown 2>/dev/null || true

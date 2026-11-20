@@ -30,7 +30,11 @@ pair() {
   mkdir -p "$d"
   git init -q -b main "$d/seed"
   ( cd "$d/seed"
-    echo base > tracked.txt; git add tracked.txt; git commit -q -m "chore: base"
+    echo base > tracked.txt
+    printf 'note one\nnote two\nnote three\nnote four\n' > notes.txt
+    mkdir -p rsi
+    printf '# RSI decisions\n\n- 2026-11-01 · baseline entry\n- 2026-11-02 · second entry\n' > rsi/DECISIONS.md
+    git add tracked.txt notes.txt rsi/DECISIONS.md; git commit -q -m "chore: base"
     echo rt > runtime.sh; git add runtime.sh; git commit -q -m "feat: runtime" )
   git init -q --bare -b main "$d/origin.git"
   git -C "$d/seed" remote add origin "$d/origin.git"
@@ -51,6 +55,14 @@ sync() {
 }
 
 head_now() { git -C "$WORK" rev-parse HEAD; }
+
+# status [env assignments...] — run only `--status` against $WORK; RSI_MAX_OPEN_PRS=0 keeps it off `gh`.
+# Sets RC, SOUT and SERR. Defined once so every case reads the same output shape.
+status() {
+  env RSI_CTRL="$WORK" RSI_MAX_OPEN_PRS=0 "$@" bash "$RUN" --status >"$T/sout" 2>"$T/serr"; RC=$?
+  SOUT="$(cat "$T/sout")"; SERR="$(cat "$T/serr")"
+}
+ctrl_line() { grep '^control tree: ' "$T/sout"; }
 
 # 1. A clean tree behind origin/main is fast-forwarded, silently.
 pair clean
@@ -237,12 +249,6 @@ pair status
 STATE="$WORK/rsi/state"
 mkdir -p "$STATE" "$WORK/rsi/runtime"
 printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$WORK/rsi/runtime/lanes.py"
-# status [env...] — run only `--status` against $WORK; RSI_MAX_OPEN_PRS=0 keeps it off `gh`.
-# Sets RC, SOUT and SERR.
-status() {
-  env RSI_CTRL="$WORK" RSI_MAX_OPEN_PRS=0 "$@" bash "$RUN" --status >"$T/sout" 2>"$T/serr"; RC=$?
-  SOUT="$(cat "$T/sout")"; SERR="$(cat "$T/serr")"
-}
 merge_line() { grep '^merge lane: ' "$T/sout"; }
 
 # 12a. No locks at all: exactly `merge lane: idle`.
@@ -283,5 +289,157 @@ status
   || fail "status-legacy: expected 1 running (legacy), got: $(merge_line)"
 rm -rf "$STATE/.merge.lock"
 pass "status-counts-the-legacy-lock"
+
+# 13. `--status` must name how far the control tree is from origin/main. The pulse only pins a tree it
+#     cannot move on stderr, so a patrol reading `--status` saw a healthy loop while it ran stale
+#     runtime scripts: 2026-11-20 one uncommitted `rsi/DECISIONS.md` line held the live tree 17 commits
+#     behind main for six hours (five `rsi/` commits missed, including the rework-lane guard and the J6
+#     walker wait). The line is read-only: no fetch, no fast-forward, HEAD never moves.
+pair status-ctrl
+STATE="$WORK/rsi/state"; mkdir -p "$STATE" "$WORK/rsi/runtime"
+printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$WORK/rsi/runtime/lanes.py"
+git -C "$WORK" fetch -q origin main
+short="$(git -C "$WORK" rev-parse --short HEAD)"
+before="$(head_now)"
+status
+[ "$RC" = 0 ] || { printf '%s\n' "$SERR" >&2; fail "ctrl-behind: expected exit 0, got $RC"; }
+[ "$(head_now)" = "$before" ] || fail "ctrl-behind: --status moved HEAD"
+[ "$(ctrl_line)" = "control tree: PINNED 1 behind origin/main at $short" ] \
+  || fail "ctrl-behind: expected a PINNED line naming the lag, got: $(ctrl_line)"
+pass "status-names-a-pinned-tree"
+
+# 13b. The pin names the tracked paths in the way: that is what a patrol has to act on.
+echo "local edit" >> "$WORK/tracked.txt"
+status
+[ "$(ctrl_line)" = "control tree: PINNED 1 behind origin/main at $short — uncommitted tracked changes: tracked.txt" ] \
+  || fail "ctrl-behind-dirty: expected the path in the pin, got: $(ctrl_line)"
+git -C "$WORK" checkout -q -- tracked.txt
+pass "status-names-the-path-in-the-way"
+
+# 13c. Synced: one short line, no lag claim.
+git -C "$WORK" merge -q --ff-only origin/main
+short="$(git -C "$WORK" rev-parse --short HEAD)"
+status
+[ "$(ctrl_line)" = "control tree: at origin/main ($short)" ] \
+  || fail "ctrl-synced: expected an at-origin/main line, got: $(ctrl_line)"
+pass "status-reads-at-origin-main"
+
+# 13d. An unpublished local loop commit is ahead, not behind: the line must say so instead of
+#      claiming the tree is at origin/main.
+( cd "$WORK" && echo mine > mine.txt && git add mine.txt && git commit -q -m "fix: local loop commit" )
+status
+[ "$(ctrl_line)" = "control tree: 1 unpublished commit(s) on top of origin/main ($(git -C "$WORK" rev-parse --short HEAD))" ] \
+  || fail "ctrl-ahead: expected an unpublished-commit line, got: $(ctrl_line)"
+pass "status-reads-an-unpublished-commit"
+
+# 13e. No origin/main ref at all: `behind`/`ahead` are empty, and that must not read as a synced
+#      tree. (The combined `$head$behind$ahead` hex guard only checked the concatenation, so an
+#      unreadable pair with a valid head slipped through and printed "at origin/main".)
+NOr="$T/status-no-origin"; mkdir -p "$NOr"
+git init -q -b main "$NOr"
+( cd "$NOr" && echo base > tracked.txt && git add tracked.txt && git commit -q -m "chore: base" )
+WORK="$NOr"; STATE="$WORK/rsi/state"; mkdir -p "$STATE" "$WORK/rsi/runtime"
+printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$WORK/rsi/runtime/lanes.py"
+status
+short="$(git -C "$WORK" rev-parse --short HEAD)"
+[ "$RC" = 0 ] || { printf '%s\n' "$SERR" >&2; fail "ctrl-no-origin: expected exit 0, got $RC"; }
+[ "$(ctrl_line)" = "control tree: unreadable at $short (no origin/main ref?)" ] \
+  || fail "ctrl-no-origin: expected an unreadable line, got: $(ctrl_line)"
+pass "status-no-origin-is-unreadable"
+
+# 14. A pure append at EOF of rsi/DECISIONS.md while the tree is behind is the last adoptable
+#     shape. The director records CEO calls there (prompts/fill.md §4); 2026-11-20 one such
+#     uncommitted line pinned the live tree 17 commits behind main for six hours, so every gate
+#     and walker ran old runtime code. The tail moves to gitignored state/decisions-pending.md
+#     (with a dated header), the tracked file is restored, and the tree fast-forwards.
+tail_line='- 2026-11-20 09:15 · owner approved the adopted-tail rule'
+pair adopt-tail
+printf '%s\n' "$tail_line" >> "$WORK/rsi/DECISIONS.md"
+sync
+[ "$RC" = 0 ] || { printf '%s\n' "$ERR" >&2; fail "adopt-tail: expected exit 0, got $RC"; }
+[ "$(head_now)" = "$ORIGIN_SHA" ] || fail "adopt-tail: HEAD did not become origin/main"
+pending_now="$WORK/rsi/state/decisions-pending.md"
+[ -f "$pending_now" ] || fail "adopt-tail: no state/decisions-pending.md was written"
+grep -Fqx -- "$tail_line" "$pending_now" || fail "adopt-tail: the tail was not preserved verbatim"
+! grep -q '^++ ' "$pending_now" || fail "adopt-tail: the diff's +++ header leaked into the pending file: $(cat "$pending_now")"
+grep -Eq '^- [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \+08 · adopted from an uncommitted rsi/DECISIONS\.md tail' "$pending_now" \
+  || fail "adopt-tail: the dated adoption header was missing: $(cat "$pending_now")"
+[ "$(cat "$WORK/rsi/DECISIONS.md")" = "$(git -C "$WORK" show HEAD:rsi/DECISIONS.md)" ] \
+  || fail "adopt-tail: the worktree DECISIONS.md differs from origin/main's"
+[ -z "$(git -C "$WORK" status --porcelain --untracked-files=no)" ] \
+  || fail "adopt-tail: the tracked tree is still dirty after the adopt"
+grep -q 'adopted the rsi/DECISIONS.md tail into rsi/state/decisions-pending.md' <<<"$ERR" \
+  || fail "adopt-tail: the adopt was not reported: $ERR"
+pass "adopt-decisions-tail-at-eof"
+
+# 15. A second adopt must not duplicate the record: the tail appears exactly once. The tree has to
+#     reach the adopt path again, so origin/main moves on and the same tail is re-appended; a clean
+#     second sync would take the fast-forward and never exercise the dedupe.
+( cd "$T/adopt-tail/seed" && echo later > later.txt && git add later.txt \
+  && git commit -q -m "feat: later" && git push -q origin main )
+printf '%s\n' "$tail_line" >> "$WORK/rsi/DECISIONS.md"
+sync
+[ "$RC" = 0 ] || { printf '%s\n' "$ERR" >&2; fail "adopt-idempotent: expected exit 0, got $RC"; }
+[ "$(head_now)" = "$(git -C "$T/adopt-tail/origin.git" rev-parse main)" ] \
+  || fail "adopt-idempotent: HEAD did not become the new origin/main"
+[ "$(grep -Fxc -- "$tail_line" "$pending_now")" = 1 ] \
+  || fail "adopt-idempotent: the tail appears $(grep -Fxc -- "$tail_line" "$pending_now") times, expected once"
+pass "adopt-decisions-tail-idempotent"
+
+# 16. Editing a line in the middle is a rewrite, not an append: pinned, path named, nothing written.
+pair keep-midfile
+sed '3s/.*/- 2026-11-01 · edited baseline entry/' "$WORK/rsi/DECISIONS.md" > "$T/mid" \
+  && mv "$T/mid" "$WORK/rsi/DECISIONS.md"
+before="$(head_now)"
+sync
+[ "$RC" = 1 ] || fail "keep-midfile: expected exit 1 from a pinned tree, got $RC"
+grep -q 'control tree pinned' <<<"$ERR" || fail "keep-midfile: the pin was silent: $ERR"
+grep -q 'rsi/DECISIONS.md' <<<"$ERR" || fail "keep-midfile: the pin did not name the path: $ERR"
+[ ! -e "$WORK/rsi/state/decisions-pending.md" ] \
+  || fail "keep-midfile: a rejected edit still wrote the pending file"
+[ "$(head_now)" = "$before" ] || fail "keep-midfile: HEAD moved over a mid-file edit"
+grep -q 'edited baseline entry' "$WORK/rsi/DECISIONS.md" || fail "keep-midfile: the edit was discarded"
+pass "midfile-edit-is-not-adopted"
+
+# 17. The rule is path-specific: an append-only change to a different tracked file stays pinned.
+pair keep-other-file
+echo "extra note" >> "$WORK/notes.txt"
+before="$(head_now)"
+sync
+[ "$RC" = 1 ] || fail "keep-other-file: expected exit 1 from a pinned tree, got $RC"
+grep -q 'control tree pinned' <<<"$ERR" || fail "keep-other-file: the pin was silent: $ERR"
+grep -q 'notes.txt' <<<"$ERR" || fail "keep-other-file: the pin did not name notes.txt: $ERR"
+[ ! -e "$WORK/rsi/state/decisions-pending.md" ] \
+  || fail "keep-other-file: an append to another file was adopted"
+[ "$(head_now)" = "$before" ] || fail "keep-other-file: HEAD moved over another file's append"
+pass "append-to-another-file-is-not-adopted"
+
+# 18. An EOF append plus any other dirty tracked path is not the lone-tail shape: pinned, nothing written.
+pair keep-mixed
+printf '%s\n' "$tail_line" >> "$WORK/rsi/DECISIONS.md"
+echo "mixed edit" >> "$WORK/tracked.txt"
+before="$(head_now)"
+sync
+[ "$RC" = 1 ] || fail "keep-mixed: expected exit 1 from a pinned tree, got $RC"
+grep -q 'control tree pinned' <<<"$ERR" || fail "keep-mixed: the pin was silent: $ERR"
+[ ! -e "$WORK/rsi/state/decisions-pending.md" ] \
+  || fail "keep-mixed: the pending file was written despite another dirty path"
+[ "$(head_now)" = "$before" ] || fail "keep-mixed: HEAD moved over a mixed dirty tree"
+pass "mixed-dirty-tree-is-not-adopted"
+
+# 19. Already at origin/main: the dirty-tail shape is the in-place hotfix path, not an adopt.
+#     Exit 0, the tail stays in the file, nothing is written to state.
+pair dirty-at-main
+git -C "$WORK" fetch -q origin main && git -C "$WORK" reset -q --hard origin/main
+printf '%s\n' "$tail_line" >> "$WORK/rsi/DECISIONS.md"
+before="$(head_now)"
+sync
+[ "$RC" = 0 ] || { printf '%s\n' "$ERR" >&2; fail "dirty-at-main: expected exit 0, got $RC"; }
+[ "$(head_now)" = "$before" ] || fail "dirty-at-main: HEAD moved under an in-place tail"
+grep -qF -- "$tail_line" "$WORK/rsi/DECISIONS.md" || fail "dirty-at-main: the tail was removed"
+[ ! -e "$WORK/rsi/state/decisions-pending.md" ] \
+  || fail "dirty-at-main: a tree already at origin/main wrote the pending file"
+grep -q 'leaving it alone' <<<"$ERR" || fail "dirty-at-main: the leave-alone line was missing: $ERR"
+pass "tail-at-origin-main-left-alone"
 
 echo "all cases passed"
