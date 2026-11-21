@@ -19,5 +19,19 @@
     "test": "bash rsi/runtime/tests/test-escalate.sh",
     "old": "\"ANTHROPIC_DEFAULT_OPUS_MODEL\": \"volcengine-gw/volcengine/deepseek-v4.1-flash[1m]\",",
     "new": ""
+  },
+  {
+    "label": "put the nas-side settings file (copied over $HOME/.claude/settings.json on every lane) back on Kimi; the guard must read it and go red",
+    "file": "rsi/runtime/nas/nas-side/claude-settings.json",
+    "test": "bash rsi/runtime/tests/test-escalate.sh",
+    "old": "\"ANTHROPIC_DEFAULT_OPUS_MODEL\": \"volcengine-gw/volcengine/deepseek-v4.1-flash[1m]\"",
+    "new": "\"ANTHROPIC_DEFAULT_OPUS_MODEL\": \"volcengine-gw/kimi-k3.1-pro[1m]\""
+  },
+  {
+    "label": "hide the drift in modelOverrides instead of env: the override scan must still resolve claude-opus-5-5 to Kimi and go red",
+    "file": "rsi/runtime/nas/compose/claude-settings.json",
+    "test": "bash rsi/runtime/tests/test-escalate.sh",
+    "old": "\"claude-opus-5-5\": \"volcengine-gw/volcengine/deepseek-v4.1-flash[1m]\"",
+    "new": "\"claude-opus-5-5\": \"volcengine-gw/kimi-k3.1-pro[1m]\""
   }
 ]
