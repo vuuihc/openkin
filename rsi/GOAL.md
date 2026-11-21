@@ -8,7 +8,7 @@ the five flows below closer to "passes without a human noticing".
 
 | # | Flow | Pass means |
 |---|---|---|
-| F1 | New chat → send | Message and waiting row appear instantly and **never vanish**: no full-page skeleton, no blank area, and a composer visible at every 16 ms sample across `/new` → `/tasks/:id`, its box moving at most 460 px (measured 451 px at 390, 244 px at 1100; the detail page mounts its own composer, so element identity is not claimed — J3 `sample`/`steady`; gap-log 2026-11-14 高). |
+| F1 | New chat → send | Message and waiting row appear instantly and **never vanish**: no full-page skeleton, no blank area, and a composer visible at every 16 ms sample across `/new` → `/tasks/:id`, its box moving at most 24 px (measured 2026-11-21: 2 px at 390, 4 px at 1100; the conversation's composer takes the caret and the draft composer's `expanded` arrangement on arrival, so Start does not resize the box; the detail page mounts its own composer, so element identity is not claimed — J3 `sample`/`steady`; gap-log 2026-11-14 高). |
 | F2 | Mid-run control | While an agent runs: send a follow-up, interrupt, approve/deny, answer a question, all from the composer/cards with consistent pickers (agent/model/permission/dir open the same way, no layout jump). YOLO means no approval prompts. Steer is honest: native if the agent supports it, otherwise labelled interrupt+requeue. |
 | F3 | Review → PR | See what changed this round, open the diff, comment on lines, send comments back, commit/push/open PR without leaving the conversation (parity target: Lody diff comments, T3 one-button PR). |
 | F4 | Switch without repaint | Chat↔chat, chat↔project, area↔area keep shell, scroll, drafts and loaded content. Skeleton only on the first load of a block (TASTE 15). |
