@@ -64,19 +64,18 @@ function setup(overrides: Partial<TaskHeaderProps> = {}) {
   return { props, utils };
 }
 
-/** The phone bar is the only `<header>` on the screen. */
+/** The phone bar is the only `<header>` on the screen, and only at `phone`. */
 function phoneBar(utils: ReturnType<typeof setup>["utils"]) {
   return within(utils.container.querySelector("header") as HTMLElement);
 }
 
 /**
- * The desktop bar is the phone bar's sibling. The two bars are one another's
- * mirror image at the `md` breakpoint: the phone bar carries `md:hidden` and
- * the desktop bar carries `hidden md:flex`. Reading the sibling rather than a
- * test id keeps the assertion about the split the component actually renders.
+ * The desktop bar is the one `phone={false}` renders. Exactly one bar is in
+ * the DOM at a time, so it is read directly rather than as the phone bar's
+ * sibling — two bars meant two controls with the same accessible name.
  */
 function desktopBar(utils: ReturnType<typeof setup>["utils"]) {
-  return (utils.container.querySelector("header") as HTMLElement).nextElementSibling as HTMLElement;
+  return utils.container.querySelector('[data-task-header="desktop"]') as HTMLElement;
 }
 
 /** The phone bar's own element, for assertions the query helpers cannot scope. */
@@ -90,18 +89,21 @@ function statusPill(bar: HTMLElement) {
 }
 
 describe("TaskHeader", () => {
-  it("keeps the phone and desktop bars on opposite sides of the md breakpoint", () => {
-    const { utils } = setup();
-    const phone = utils.container.querySelector("header") as HTMLElement;
-    const desktop = desktopBar(utils);
+  it("renders exactly one bar per width, never both CSS-hidden in the DOM", () => {
+    const phone = setup({ phone: true });
+    expect(phoneBarEl(phone.utils).className.split(/\s+/)).toContain("md:hidden");
+    expect(phone.utils.container.querySelector('[data-task-header="desktop"]')).toBeNull();
+    phone.utils.unmount();
 
-    expect(phone.className.split(/\s+/)).toContain("md:hidden");
-    expect(desktop.className.split(/\s+/)).toContain("hidden");
-    expect(desktop.className.split(/\s+/)).toContain("md:flex");
+    const desktop = setup();
+    expect(desktop.utils.container.querySelector("header")).toBeNull();
+    const classes = desktopBar(desktop.utils).className.split(/\s+/);
+    expect(classes).toContain("hidden");
+    expect(classes).toContain("md:flex");
   });
 
   it("renders the phone header with the session title and a back button", () => {
-    const { props, utils } = setup();
+    const { props, utils } = setup({ phone: true });
     const header = phoneBar(utils);
     expect(header.getByText("Fix the header")).toBeTruthy();
 
@@ -185,14 +187,14 @@ describe("TaskHeader", () => {
   });
 
   it("phone: the trailing ⋯ button opens the action sheet via the passed-in onOpenActions callback", () => {
-    const { props, utils } = setup();
+    const { props, utils } = setup({ phone: true });
     const more = phoneBar(utils).getByRole("button", { name: t("task.sessionActions") });
     fireEvent.click(more);
     expect(props.onOpenActions).toHaveBeenCalledTimes(1);
   });
 
   it("phone: puts the live status in a non-wrapping pill on the subtitle row", () => {
-    const { utils } = setup();
+    const { utils } = setup({ phone: true });
     const pill = statusPill(phoneBarEl(utils));
 
     expect(pill).not.toBeNull();
@@ -203,7 +205,10 @@ describe("TaskHeader", () => {
   });
 
   it("phone: the subtitle keeps the project and adds the branch", () => {
-    const { utils } = setup({ task: { ...task, workspace_branch: "rsi/header-pill" } });
+    const { utils } = setup({
+      phone: true,
+      task: { ...task, workspace_branch: "rsi/header-pill" },
+    });
     const pill = statusPill(phoneBarEl(utils)) as HTMLElement;
     const row = pill.parentElement as HTMLElement;
 
@@ -216,7 +221,7 @@ describe("TaskHeader", () => {
   });
 
   it("phone: hides the status pill once the turn is terminal", () => {
-    const { utils } = setup({ terminal: true });
+    const { utils } = setup({ phone: true, terminal: true });
     const phone = phoneBarEl(utils);
 
     expect(statusPill(phone)).toBeNull();
@@ -224,7 +229,7 @@ describe("TaskHeader", () => {
   });
 
   it("phone: says reconnect in the pill while the live stream is degraded", () => {
-    const { utils } = setup({ degraded: true });
+    const { utils } = setup({ phone: true, degraded: true });
 
     expect(statusPill(phoneBarEl(utils))?.textContent).toBe(t("task.reconnect"));
   });
@@ -292,7 +297,7 @@ describe("TaskHeader", () => {
     // The phone has no list column: its list is the page, and a control that
     // reveals a column it does not have is the phone control TASTE 3 forbids
     // on the Mac surface (and vice versa).
-    const { utils } = setup({ panelOpen: true });
+    const { utils } = setup({ phone: true, panelOpen: true });
     expect(within(phoneBarEl(utils)).queryByRole("button", { name: t("nav.showList") })).toBeNull();
   });
 
@@ -312,24 +317,25 @@ describe("TaskHeader", () => {
     // no button, no panel, no per-subagent stop. It sits immediately before
     // the pill on the desktop cluster and just after it on the phone's
     // subtitle row, so it reads as part of the same state, never a new line.
+    const label = t("task.subagentCount", { count: 2 });
     const plain = setup();
     const buttonsBefore = screen.queryAllByRole("button").length;
     plain.utils.unmount();
 
     const { utils } = setup({ subagentsRunning: 2 });
-    const label = t("task.subagentCount", { count: 2 });
-
     const desktop = desktopBar(utils);
     const desktopCount = within(desktop).getByText(label);
     expect(desktopCount.closest("button")).toBeNull();
     expect(desktopCount.getAttribute("tabindex")).toBeNull();
     expect(desktopCount.nextElementSibling).toBe(statusPill(desktop));
-
-    const phone = phoneBarEl(utils);
-    expect(within(phone).getByText(label).previousElementSibling).toBe(statusPill(phone));
-
     // A count is not a control: the header's set of buttons did not grow.
     expect(screen.queryAllByRole("button").length).toBe(buttonsBefore);
+    utils.unmount();
+
+    // One bar per width: the phone's own render carries the same count.
+    const { utils: phoneUtils } = setup({ phone: true, subagentsRunning: 2 });
+    const phone = phoneBarEl(phoneUtils);
+    expect(within(phone).getByText(label).previousElementSibling).toBe(statusPill(phone));
   });
 
   it("hides the count at zero and when the turn is terminal", () => {

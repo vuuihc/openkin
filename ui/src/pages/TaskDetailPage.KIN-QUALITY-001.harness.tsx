@@ -223,10 +223,9 @@ export function conversationColumn(container: HTMLElement) {
   return column;
 }
 export function desktopBar(container: HTMLElement) {
-  // MobileHeader is mocked as a div; the desktop bar is its next sibling.
-  return conversationColumn(container).querySelector<HTMLElement>(
-    '[data-testid="mobile-header"] + div',
-  )!;
+  // Exactly one bar renders: above `md` it is the desktop bar, and the phone
+  // header is not in the DOM at all.
+  return conversationColumn(container).querySelector<HTMLElement>('[data-task-header="desktop"]')!;
 }
 export function reportColumnWidth(width: number) {
   const column = document.querySelector(".kin-surface-chat") as HTMLElement;

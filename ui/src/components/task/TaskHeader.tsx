@@ -136,6 +136,15 @@ export type TaskHeaderProps = {
    *  trigger, chosen by measured column width plus coarse pointer, never the
    *  viewport alone; every other verb lives in the page's action sheet. */
   compact?: boolean;
+  /**
+   * The viewport is below the desktop breakpoint, so render the phone bar.
+   *
+   * The page's own `useMinWidth(768)` decides. Exactly one bar is in the DOM
+   * at any width — the other is not rendered, not merely CSS-hidden — so the
+   * two bars can never contribute a second control with the same accessible
+   * name.
+   */
+  phone?: boolean;
   /** Files this turn changed, shown beside the files entry's name. */
   changedFileCount?: number;
 };
@@ -165,6 +174,7 @@ export default function TaskHeader({
   onShowList,
   topInset = true,
   compact = false,
+  phone = false,
   changedFileCount = 0,
 }: TaskHeaderProps) {
   const tr = useT();
@@ -180,66 +190,73 @@ export default function TaskHeader({
   const title = taskDisplayTitle(task, localTitles);
   const archiveLabel = task.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession");
 
+  if (phone) {
+    return (
+      <>
+        {/*
+          The phone's one bar: back, the session's title, and the ⋯ that opens
+          the same action sheet the chip row used to. The chip row was a second
+          44px line holding a host badge, a project link, a status word and the
+          overflow trigger — on a 390px screen it took two rows and its own
+          horizontal scroll, and the title above it was truncated to make room.
+          The status survives as the subtitle; everything else is one tap away.
+        */}
+        {/* 43 px + the hairline is the 44 px reading bar; `box-content` keeps a
+          notch's safe-area inset outside it. */}
+        <MobileHeader
+          topInset={topInset}
+          className="box-content h-[43px] [&>div]:h-full [&>div]:min-h-0"
+          title={title}
+          subtitle={
+            // The project and branch are what the session belongs to; the round's
+            // state is a pill that leads the row while it is live rather than
+            // replacing them, so the second line still answers "which session is
+            // this" when a run is in flight. The text truncates, the pill does
+            // not: a long project can no longer squeeze the state out of view.
+            task.cwd || !terminal ? (
+              <span className="flex min-w-0 items-center justify-center gap-1.5">
+                {!terminal && <StatusPill degraded={degraded} />}
+                {!terminal && subagentsRunning > 0 && <SubagentCount count={subagentsRunning} />}
+                {task.cwd && (
+                  <span className="min-w-0 truncate">
+                    {[project, task.workspace_branch].filter(Boolean).join(" · ")}
+                  </span>
+                )}
+              </span>
+            ) : undefined
+          }
+          leading={
+            <MobileHeaderButton label={tr("app.back")} onClick={onBack}>
+              <IconBack size={20} strokeWidth={2} />
+            </MobileHeaderButton>
+          }
+          trailing={
+            <>
+              <MobileHeaderButton label={filesLabel} onClick={onToggleWorkspace} tone="muted">
+                <span className="text-caption font-medium leading-flush">
+                  {tr("workspace.title")}
+                </span>
+              </MobileHeaderButton>
+              <MobileHeaderButton
+                label={tr("task.sessionActions")}
+                onClick={onOpenActions}
+                tone="muted"
+              >
+                <IconMore size={19} />
+              </MobileHeaderButton>
+            </>
+          }
+        />
+      </>
+    );
+  }
+
   return (
     <>
-      {/*
-        The phone's one bar: back, the session's title, and the ⋯ that opens
-        the same action sheet the chip row used to. The chip row was a second
-        44px line holding a host badge, a project link, a status word and the
-        overflow trigger — on a 390px screen it took two rows and its own
-        horizontal scroll, and the title above it was truncated to make room.
-        The status survives as the subtitle; everything else is one tap away.
-      */}
-      {/* 43 px + the hairline is the 44 px reading bar; `box-content` keeps a
-          notch's safe-area inset outside it. */}
-      <MobileHeader
-        topInset={topInset}
-        className="box-content h-[43px] [&>div]:h-full [&>div]:min-h-0"
-        title={title}
-        subtitle={
-          // The project and branch are what the session belongs to; the round's
-          // state is a pill that leads the row while it is live rather than
-          // replacing them, so the second line still answers "which session is
-          // this" when a run is in flight. The text truncates, the pill does
-          // not: a long project can no longer squeeze the state out of view.
-          task.cwd || !terminal ? (
-            <span className="flex min-w-0 items-center justify-center gap-1.5">
-              {!terminal && <StatusPill degraded={degraded} />}
-              {!terminal && subagentsRunning > 0 && <SubagentCount count={subagentsRunning} />}
-              {task.cwd && (
-                <span className="min-w-0 truncate">
-                  {[project, task.workspace_branch].filter(Boolean).join(" · ")}
-                </span>
-              )}
-            </span>
-          ) : undefined
-        }
-        leading={
-          <MobileHeaderButton label={tr("app.back")} onClick={onBack}>
-            <IconBack size={20} strokeWidth={2} />
-          </MobileHeaderButton>
-        }
-        trailing={
-          <>
-            <MobileHeaderButton label={filesLabel} onClick={onToggleWorkspace} tone="muted">
-              <span className="text-caption font-medium leading-flush">
-                {tr("workspace.title")}
-              </span>
-            </MobileHeaderButton>
-            <MobileHeaderButton
-              label={tr("task.sessionActions")}
-              onClick={onOpenActions}
-              tone="muted"
-            >
-              <IconMore size={19} />
-            </MobileHeaderButton>
-          </>
-        }
-      />
-
       {/* Desktop's bar. Same content as before; the phone branch above owns
           the small widths now, so the mobile-only controls are gone. */}
       <div
+        data-task-header="desktop"
         /* `h-11` is the 44 px chrome (hairline included); `min-h-11` stays for the walk's selector. */
         className="hidden md:flex min-h-11 h-11 flex-none items-center px-5 border-b border-[var(--kin-hairline)]"
         style={{ WebkitAppRegion: "drag" } as CSSProperties}

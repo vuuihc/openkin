@@ -2563,6 +2563,10 @@ export default function TaskDetailPage({
           // rather than leaving both columns to squeeze the conversation.
           onShowList={() => closeFilesPanel()}
           compact={compact}
+          // One bar, chosen here: below `md` the phone bar, above it the
+          // desktop bar. Rendering both and letting CSS hide one left two
+          // Files and two Session actions controls in the accessible tree.
+          phone={!wide}
           changedFileCount={changedFiles.length}
         />
 

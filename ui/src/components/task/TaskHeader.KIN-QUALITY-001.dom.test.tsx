@@ -52,9 +52,9 @@ function setup(overrides: Partial<TaskHeaderProps> = {}) {
   );
   return { props, utils: render(view) };
 }
-/** The desktop bar is the phone bar's sibling (`hidden md:flex`). */
+/** The desktop bar is the one `phone={false}` renders. */
 function desktopBar(utils: ReturnType<typeof setup>["utils"]) {
-  return (utils.container.querySelector("header") as HTMLElement).nextElementSibling as HTMLElement;
+  return utils.container.querySelector('[data-task-header="desktop"]') as HTMLElement;
 }
 describe("TaskHeader KIN-QUALITY-001", () => {
   it("820 touch: the compact header keeps only the title, project, files entry and actions trigger", () => {
