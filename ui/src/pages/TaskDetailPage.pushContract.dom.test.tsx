@@ -124,13 +124,7 @@ vi.mock("../components/mobile/MobileHeader", () => ({
 }));
 vi.mock("../components/chat/Composer", () => ({ default: () => null }));
 vi.mock("../components/chat/ChatStream", () => ({
-  default: ({
-    findOpen,
-    onFork,
-  }: {
-    findOpen?: boolean;
-    onFork?: (fromSeq: number) => void;
-  }) => (
+  default: ({ findOpen, onFork }: { findOpen?: boolean; onFork?: (fromSeq: number) => void }) => (
     <div>
       {findOpen ? <div role="search" aria-label="Find in conversation" /> : null}
       <button type="button" onClick={() => onFork?.(1)}>
@@ -458,7 +452,6 @@ describe("late answers belong to the view that asked", () => {
     expect(window.history.state.idx).toBe(1);
     view.unmount();
   });
-
 });
 
 describe("the files panel's one close", () => {
@@ -521,7 +514,6 @@ describe("the files panel's one close", () => {
 });
 
 describe("a notification closes the conversation's action sheet", () => {
-
   it("closes a directly hosted conversation's sheet before routing to Inbox", async () => {
     const user = userEvent.setup();
     const view = browser("/sessions");
@@ -531,9 +523,7 @@ describe("a notification closes the conversation's action sheet", () => {
     expect(await screen.findByRole("dialog", { name: "Session actions" })).toBeTruthy();
 
     act(() => {
-      window.dispatchEvent(
-        new CustomEvent(NOTIFICATION_EVENT, { detail: { url: "/inbox" } }),
-      );
+      window.dispatchEvent(new CustomEvent(NOTIFICATION_EVENT, { detail: { url: "/inbox" } }));
     });
 
     await waitFor(() => expect(window.location.pathname).toBe("/inbox"));
@@ -553,9 +543,7 @@ describe("a notification closes the conversation's action sheet", () => {
     expect(await screen.findByRole("dialog", { name: "Session actions" })).toBeTruthy();
 
     act(() => {
-      window.dispatchEvent(
-        new CustomEvent(NOTIFICATION_EVENT, { detail: { url: "/inbox" } }),
-      );
+      window.dispatchEvent(new CustomEvent(NOTIFICATION_EVENT, { detail: { url: "/inbox" } }));
     });
 
     await waitFor(() => expect(window.location.pathname).toBe("/inbox"));
