@@ -115,6 +115,11 @@
       "run-config-closed-focus"
     ],
     [
+      "sample",
+      "css=[data-kin-bottom-chrome]",
+      "composer"
+    ],
+    [
       "send",
       "button[aria-label='开始'], button[aria-label='Start']"
     ],
@@ -129,6 +134,11 @@
     [
       "wait",
       "css=[role=status][aria-label*='思考'], [role=status][aria-label*='thinking']"
+    ],
+    [
+      "steady",
+      "composer",
+      "460"
     ],
     [
       "shot",

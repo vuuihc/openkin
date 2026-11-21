@@ -44,6 +44,8 @@ person can see; the fix and its verification belong in the PR.
   - **不要的做法**：不要按 cwd 分桶、再把两个桶的标题都改成项目名（现在就是这样：两个根 = 两个同名标题）；不要用「隐藏空标题」掩盖重复——空的那个根上还挂着项目级动作，且根目录仍是新建对话的可选项；也不要把两个根目录的对话混进同一个目录。
   - **照抄的同类**：没有同类可抄——标题已经按项目名（`ui/src/lib/phoneSessionBuckets.ts:314` 的 `headingFor` + `projectNameFor`），但分桶键仍是 cwd（`ui/src/lib/phoneSessionBuckets.ts:296` 的 `bucketKey`），仓库里没有按项目 id 合并多个根目录的实现。
 
+- 2026-11-21 · 中 · 新建对话点「开始」后输入框从页面中部跳到任务页底部：`/new` 的 composer 居中/顶部对齐，任务页把它停靠到底部，同一个 `[data-kin-bottom-chrome]` 带在 390 宽移动 451 px、1100 宽移动 244 px（首个可见帧→最后一个可见帧 507.6 px / 428 px）。期望行为：人正要用的那个 composer 留在任务页放它的位置——照抄任务页已经做对的停靠（`TaskComposerDock`），把 `/new` 的 composer 也钉到底部，跨路由没有半屏位移；验收沿用 J3 `steady` 的同一选择器与两个视口，修好后把步进上界收紧到接近 0，不要靠放宽上界变绿。已定的取舍：布局修复是后续项，J3 `steady` 暂以每个 16 ms 采样步进 ≤ 460 px（两个视口）+ 0 absent / 0 skeleton 作为过渡上界。
+
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
