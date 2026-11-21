@@ -10,8 +10,15 @@
     "label": "the step-log ENOSPC scan is removed, leaving only the probe",
     "file": "rsi/runtime/gate-env.sh",
     "test": "RSI_TEST_ONLY=test_gate_env_failure_detects_enospc_in_a_step_log bash rsi/runtime/tests/test-gate-no-verdict.sh",
-    "old": "  grep -aqE \"$GATE_ENV_LOG_RE\" \"$log\" 2>/dev/null || return 1\n",
+    "old": "  hits=\"$(grep -aE \"$GATE_ENV_LOG_RE\" \"$log\" 2>/dev/null | grep -avE \"$GATE_ENV_TEST_OUTPUT_RE\")\" || true\n  [ -n \"$hits\" ] || return 1\n",
     "new": "  return 1\n"
+  },
+  {
+    "label": "test-runner output that quotes the marker is classified as ENOSPC, so a red test is retried forever",
+    "file": "rsi/runtime/gate-env.sh",
+    "test": "RSI_TEST_ONLY=test_gate_env_failure_ignores_a_red_test_log bash rsi/runtime/tests/test-gate-no-verdict.sh",
+    "old": "  hits=\"$(grep -aE \"$GATE_ENV_LOG_RE\" \"$log\" 2>/dev/null | grep -avE \"$GATE_ENV_TEST_OUTPUT_RE\")\" || true\n",
+    "new": "  hits=\"$(grep -aE \"$GATE_ENV_LOG_RE\" \"$log\" 2>/dev/null)\" || true\n"
   },
   {
     "label": "the probe write is removed (a gate that trusts the filesystem unconditionally)",
@@ -33,6 +40,20 @@
     "test": "RSI_TEST_ONLY=test_batch_gate_verdict_reads_no_verdict_not_fail bash rsi/runtime/tests/test-gate-no-verdict.sh",
     "old": "  # The gate refused to judge (exit 3, ENOSPC or another environment failure). That is not a\n  # union failure to bisect and send back: its own arm, so a --union batch falls back to the\n  # per-PR path instead of billing a member for the machine.\n  if grep -q '^GATE_RESULT=NO_VERDICT' \"$1\" 2>/dev/null; then\n    echo \"NO_VERDICT:$(grep '^GATE_RESULT=NO_VERDICT' \"$1\" | head -1 | sed 's/^GATE_RESULT=NO_VERDICT:[[:space:]]*//')\"\n    return 0\n  fi\n",
     "new": ""
+  },
+  {
+    "label": "a bisect run that could not judge is printed as a CULPRIT and sent back to a member",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_bisect_no_verdict_is_not_a_culprit bash rsi/runtime/tests/test-gate-no-verdict.sh",
+    "old": "    if grep -q '^GATE_RESULT=NO_VERDICT' \"$rec.log\" 2>/dev/null; then\n      rm -f \"$rec\" \"$rec.log\"\n      echo \"NO_VERDICT $step\"\n      return 0\n    fi\n",
+    "new": ""
+  },
+  {
+    "label": "the no-verdict skip writes a sendback, billing the machine's retry to the branch",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_merge_no_verdict_path_writes_no_sendback bash rsi/runtime/tests/test-gate-no-verdict.sh",
+    "old": "gate_no_verdict_skip() { # <pr> <slug> <reason>\n  say",
+    "new": "gate_no_verdict_skip() { # <pr> <slug> <reason>\n  mkdir -p \"$STATE/sendback\" 2>/dev/null; : > \"$STATE/sendback/$2.md\"\n  say"
   },
   {
     "label": "the no-verdict suite is dropped from the gate wiring, so nobody runs it",

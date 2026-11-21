@@ -77,6 +77,19 @@ test_gate_env_failure_ignores_a_red_test_log() {
     fail "red: an ordinary failing-test log was classified as an environment failure"
   fi
   [ -s "$T/red.out" ] && fail "red: the classifier printed a reason for a normal red log"
+  # A FAIL line that only QUOTES the marker (this suite's own fail() text, or a test that dumps a
+  # gate log) is test-runner output, not the machine: it must stay a real red.
+  {
+    echo "FAIL gate-nv: a step log with 'No space left on device' was classified as a real failure"
+    echo "FAIL step-red: exit 1, want 1 (GATE_RESULT=FAIL: check ... No space left on device ...)"
+    echo "AssertionError: expected 'no space left on device' to be absent"
+    echo "✗ ENOSPC was detected in a log that only quoted it"
+    echo "× --- FAIL: TestX (ENOSPC)"
+  } > "$T/red-quoted.log"
+  if gate_env_failure_in_log check "$T/red-quoted.log" > "$T/red-quoted.out"; then
+    fail "red-quoted: a log quoting the marker in test output was classified as an environment failure"
+  fi
+  [ -s "$T/red-quoted.out" ] && fail "red-quoted: the classifier printed a reason for a quoted marker"
   return 0
 }
 
@@ -139,7 +152,9 @@ test_batch_gate_verdict_reads_no_verdict_not_fail() {
 
 # 6. The merge lane retries a no-verdict cycle: no sendback, no attempt burned, exit 0.
 test_merge_no_verdict_path_writes_no_sendback() {
-  local st="$T/state-nv" log="$T/nv-merge.log"
+  # merge.sh's $STATE is $RSI_CTRL/rsi/state, so the assertions must observe THAT dir: a state
+  # tree the seam never reads would keep them green even if the skip wrote a sendback.
+  local st="$T/ctrl/rsi/state" log="$T/nv-merge.log"
   rm -rf "$st"; mkdir -p "$st/merge" "$st/sendback"
   echo 1 > "$st/merge/t.attempts"
   printf '%s\n' \
@@ -222,6 +237,51 @@ SH
   return 0
 }
 
+# 9. A bisect run that cannot judge (exit 3) attributes nothing. At a singleton the old read
+# printed CULPRIT and batch_run sent that member back for the machine's own failure.
+test_bisect_no_verdict_is_not_a_culprit() {
+  local repo="$T/repo-bisect" ctrl="$T/ctrl-bisect" base h1 h2 out
+  rm -rf "$repo" "$ctrl"; mkdir -p "$repo/scripts" "$ctrl/rsi/runtime"
+  # gate.sh is invoked from the runtime under merge.sh's RSI_CTRL; stage only the files a --only
+  # check run sources, so this stays hermetic without copying runtime/runs.
+  cp "$RUNTIME/common.sh" "$RUNTIME/node-stamp.sh" "$RUNTIME/gate-env.sh" "$RUNTIME/gate.sh" \
+    "$ctrl/rsi/runtime/" || fail "bisect-nv: cannot stage the runtime"
+  cat > "$repo/scripts/check.sh" <<'SH'
+#!/bin/bash
+# The machine's own failure text on a line that is not test-runner output: gate.sh reports
+# GATE_RESULT=NO_VERDICT and exits 3.
+echo "cp: /tmp/bisect: No space left on device" >&2
+exit 1
+SH
+  chmod +x "$repo/scripts/check.sh"
+  echo base > "$repo/README.md"
+  $GIT init -q -b main "$repo" || fail "bisect-nv: git init"
+  $GIT -C "$repo" add -A || fail "bisect-nv: git add"
+  $GIT -C "$repo" commit -qm base || fail "bisect-nv: git commit"
+  base="$($GIT -C "$repo" rev-parse HEAD)"
+  $GIT -C "$repo" update-ref refs/remotes/origin/main HEAD
+  $GIT -C "$repo" checkout -q -b rsi/nv1 main
+  echo one > "$repo/one.txt"; $GIT -C "$repo" add -A; $GIT -C "$repo" commit -qm one
+  h1="$($GIT -C "$repo" rev-parse HEAD)"
+  $GIT -C "$repo" checkout -q -b rsi/nv2 main
+  echo two > "$repo/two.txt"; $GIT -C "$repo" add -A; $GIT -C "$repo" commit -qm two
+  h2="$($GIT -C "$repo" rev-parse HEAD)"
+  $GIT -C "$repo" checkout -q main
+  # Singleton: before the fix this printed CULPRIT <h1>, which batch_run sends back.
+  out="$(RSI_CTRL="$ctrl" bash "$MERGE" --batch-bisect-check "$repo" "$base" check "$h1" 2>&1)"
+  printf '%s\n' "$out" | grep -q '^NO_VERDICT' \
+    || fail "bisect-nv: a run that could not judge did not print NO_VERDICT ($out)"
+  printf '%s\n' "$out" | grep -q '^CULPRIT' \
+    && fail "bisect-nv: blamed a member for the machine's own failure ($out)"
+  # Two heads: the no-verdict union stops the branch instead of recursing into two more runs.
+  out="$(RSI_CTRL="$ctrl" bash "$MERGE" --batch-bisect-check "$repo" "$base" check "$h1" "$h2" 2>&1)"
+  [ "$(printf '%s\n' "$out" | grep -c '^NO_VERDICT')" -eq 1 ] \
+    || fail "bisect-nv: want exactly one NO_VERDICT for a two-head bisect ($out)"
+  printf '%s\n' "$out" | grep -q '^CULPRIT' \
+    && fail "bisect-nv: a two-head no-verdict bisect blamed a member ($out)"
+  return 0
+}
+
 run() {
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   "$1" || exit 1
@@ -236,4 +296,5 @@ run test_batch_gate_verdict_reads_no_verdict_not_fail
 run test_merge_no_verdict_path_writes_no_sendback
 run test_gate_step_enospc_prints_no_verdict
 run test_gate_step_red_test_still_fails
+run test_bisect_no_verdict_is_not_a_culprit
 echo ALL-PASS

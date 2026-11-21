@@ -19,13 +19,19 @@ fi
 # The markers the OS leaves when a write cannot be satisfied. Matched case-sensitively: this is
 # the tool's own error text, not prose.
 GATE_ENV_LOG_RE='No space left on device|ENOSPC'
+# A test runner's own output quotes logs and assertions, so a marker ON a test-output line is
+# prose about the marker, not the machine's error: this suite's own fail() text names it, and a
+# gate log tail can quote one inside a FAIL assertion. Counting those would read a genuinely red
+# test as ENOSPC and retry it forever with no sendback.
+GATE_ENV_TEST_OUTPUT_RE='^(FAIL |--- FAIL|AssertionError|✗|×)'
 
 # gate_env_failure_in_log <step> <log> — 0 and prints the reason when the log proves the machine
 # failed, not the branch. A red test log with no marker keeps today's FAIL verdict byte for byte.
 gate_env_failure_in_log() {
-  local step="$1" log="$2"
+  local step="$1" log="$2" hits
   [ -r "$log" ] || return 1
-  grep -aqE "$GATE_ENV_LOG_RE" "$log" 2>/dev/null || return 1
+  hits="$(grep -aE "$GATE_ENV_LOG_RE" "$log" 2>/dev/null | grep -avE "$GATE_ENV_TEST_OUTPUT_RE")" || true
+  [ -n "$hits" ] || return 1
   printf 'disk: no space left on device during %s\n' "$step"
   return 0
 }

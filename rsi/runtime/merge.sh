@@ -869,6 +869,14 @@ batch_bisect_list() {
   if batch_union "$repo" "$base" "$rec" "${heads[@]}"; then
     ( cd "$repo" && bash "$RSI_DIR/runtime/gate.sh" --only "$step" "$repo" ) > "$rec.log" 2>&1; rc=$?
     if [ $rc -eq 0 ] && grep -q '^GATE_RESULT=PARTIAL$' "$rec.log"; then rm -f "$rec" "$rec.log"; return 0; fi
+    # A filtered run that could not judge (exit 3, ^GATE_RESULT=NO_VERDICT) failed on the machine,
+    # not on these members: attribute nobody, and stop this branch instead of recursing into a
+    # singleton CULPRIT that batch_run would send back to a worker.
+    if grep -q '^GATE_RESULT=NO_VERDICT' "$rec.log" 2>/dev/null; then
+      rm -f "$rec" "$rec.log"
+      echo "NO_VERDICT $step"
+      return 0
+    fi
   fi
   rm -f "$rec" "$rec.log"
   if [ $n -eq 1 ]; then echo "CULPRIT ${heads[0]}"; return 0; fi
@@ -1126,6 +1134,13 @@ batch_run() { # <id> <members-file>
       [ -n "$step" ] || step=check
       say "batch $id: union gate failed at step '$step'; bisecting"
       bout="$(batch_bisect "$BATCH_WT" "$BM_BASE" "$step" ${BM_HEAD[@]+"${BM_HEAD[@]}"})"
+      # A bisect run that could not judge names no member: the machine failed, so no worker is
+      # billed for it. Fall back to single verification, where each member's own cycle skips.
+      if printf '%s\n' "$bout" | grep -q '^NO_VERDICT'; then
+        batch_needs_ceo "$id" "union gate failed at '$step' and a bisect run could not judge (the machine, not a member); all members fall back to single verification"
+        batch_fall_back "$id" "no-verdict bisect"
+        return 1
+      fi
       ncul="$(printf '%s\n' "$bout" | grep -c '^CULPRIT' || true)"
       if [ "${ncul:-0}" -ne 1 ]; then
         batch_needs_ceo "$id" "union gate failed at '$step' but no single member is attributable; all members fall back to single verification"
