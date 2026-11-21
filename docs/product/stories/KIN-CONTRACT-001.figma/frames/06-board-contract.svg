@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="880" viewBox="0 0 1200 880">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1200" height="880" fill="#fbfbfd"/><text x="16" y="22" font-size="12" fill="#555">KIN-CONTRACT-001 · 契约板 1200×880 · 15 条路由 → 5 个面 + 一张退场表</text>
+<text x="1184" y="22" font-size="10" fill="#8a8a8a" text-anchor="end">每条线条目都写「能力去哪」和「谁负责」</text><line x1="0" y1="34" x2="1200" y2="34" stroke="#e0e0e0"/>
+<rect x="16" y="50" width="520" height="800" rx="14" fill="#ffffff" stroke="#dcdcdc"/>
+<text x="34" y="80" font-size="13" fill="#1a1a1a" font-weight="600">现在 · 15 条 Route（ui/src/App.tsx）</text>
+<text x="34" y="102" font-size="9.5" fill="#8a8a8a">其中 4 条已经是 redirect；真页面约 10 个</text>
+<line x1="34" y1="112" x2="518" y2="112" stroke="#efefef"/>
+<g font-size="10.5" fill="#333">
+<text x="34" y="136">/</text><text x="300" y="136" fill="#8a8a8a">入口，落到哪由 StartRoute 决定</text>
+<text x="34" y="162">/new</text><text x="300" y="162" fill="#8a8a8a">新对话草稿</text>
+<text x="34" y="188">/sessions</text><text x="300" y="188" fill="#8a8a8a">会话列表</text>
+<text x="34" y="214">/inbox</text><text x="300" y="214" fill="#8a8a8a">redirect → /sessions</text>
+<text x="34" y="240">/approvals</text><text x="300" y="240" fill="#8a8a8a">redirect → /sessions</text>
+<text x="34" y="266">/tasks/:id</text><text x="300" y="266" fill="#8a8a8a">对话（TaskSessionHost 渲染）</text>
+<text x="34" y="292">/projects</text><text x="300" y="292" fill="#8a8a8a">项目集合页</text>
+<text x="34" y="318">/projects/:id</text><text x="300" y="318" fill="#8a8a8a">项目封面</text>
+<text x="34" y="344">/agents</text><text x="300" y="344" fill="#8a8a8a">redirect → /settings?tab=operations</text>
+<text x="34" y="370">/routines</text><text x="300" y="370" fill="#8a8a8a">例行任务整页</text>
+<text x="34" y="396">/machines/:device/tasks/:id</text><text x="300" y="396" fill="#8a8a8a">远端节点的任务</text>
+<text x="34" y="422">/usage</text><text x="300" y="422" fill="#8a8a8a">redirect → /settings?tab=operations</text>
+<text x="34" y="448">/settings</text><text x="300" y="448" fill="#8a8a8a">6 个 tab</text>
+<text x="34" y="474">/agent-sessions/:id</text><text x="300" y="474" fill="#8a8a8a">Agent 会话详情页</text>
+<text x="34" y="500">*</text><text x="300" y="500" fill="#8a8a8a">redirect → /new</text>
+<text x="34" y="526" fill="#8a8a8a">design-system</text><text x="300" y="526" fill="#8a8a8a">仅 dev build 存在，生产没有</text>
+</g>
+<line x1="34" y1="544" x2="518" y2="544" stroke="#efefef"/>
+<text x="34" y="572" font-size="11" fill="#b42318" font-weight="600">问题不在数量，在没有边界</text>
+<text x="34" y="594" font-size="10" fill="#7a3b34">每加一个面，手机底栏就多一个 tab、验收就多一屏；</text>
+<text x="34" y="612" font-size="10" fill="#7a3b34">十个面各好一半，没有一个面被真机验收到底。</text>
+<text x="34" y="640" font-size="10" fill="#7a3b34">塌缩的不是功能，是「哪个面是产品」这件事。</text>
+<rect x="34" y="660" width="484" height="1" fill="#efefef"/>
+<text x="34" y="690" font-size="10" fill="#6b6b6b">已做的第一步：#547 删掉 1,090 行死代码并让</text>
+<text x="34" y="708" font-size="10" fill="#6b6b6b">removed-surfaces 常驻在 scripts/check.sh。</text>
+<text x="34" y="726" font-size="10" fill="#6b6b6b">本条不删任何页面，只冻结目标与退场顺序。</text>
+<text x="34" y="766" font-size="9.5" fill="#8a8a8a">Settings 现存 tab：general、agents、operations、providers、…（共 6）</text>
+<text x="34" y="784" font-size="9.5" fill="#8a8a8a">手机底栏现存 4 个：sessions、agents、routines、settings</text>
+<text x="34" y="812" font-size="9.5" fill="#8a8a8a">契约板只描述目标；实际删除按计划队列一行一条 PR</text>
+<rect x="560" y="50" width="624" height="380" rx="14" fill="#ffffff" stroke="#93b8f5"/>
+<text x="578" y="80" font-size="13" fill="#1f6feb" font-weight="600">之后 · 5 个面（每条都有 owner 故事）</text>
+<line x1="578" y1="92" x2="1166" y2="92" stroke="#dbe7fb"/>
+<g font-size="11" fill="#1a1a1a">
+<text x="578" y="118" font-weight="600">1 · /sessions</text><text x="760" y="118" fill="#555">会话列表：设备 → 项目 → 对话，层级默认折叠</text><text x="1166" y="118" fill="#1f6feb" text-anchor="end">KIN-MANAGE-001</text>
+<text x="578" y="146" font-weight="600">2 · /tasks/:id</text><text x="760" y="146" fill="#555">对话 + composer；文件/diff/PR 是同一路由内的面板</text><text x="1166" y="146" fill="#1f6feb" text-anchor="end">KIN-CONTINUE-001</text>
+<text x="578" y="174" font-weight="600">3 · /new</text><text x="760" y="174" fill="#555">草稿：选 agent/模型/权限，发送后变成 2</text><text x="1166" y="174" fill="#1f6feb" text-anchor="end">KIN-START-001</text>
+<text x="578" y="202" font-weight="600">4 · /projects/:id</text><text x="760" y="202" fill="#555">项目封面：工作说明 + 该项目的对话；集合页退场（D4）</text><text x="1166" y="202" fill="#1f6feb" text-anchor="end">KIN-PROJECT-003</text>
+<text x="578" y="230" font-weight="600">5 · /settings</text><text x="760" y="230" fill="#555">两个 tab：Providers、General</text><text x="1166" y="230" fill="#1f6feb" text-anchor="end">KIN-SETTINGS-00x</text>
+</g>
+<line x1="578" y1="246" x2="1166" y2="246" stroke="#efefef"/>
+<text x="578" y="274" font-size="10" fill="#555">其余能力不再占路由：</text>
+<text x="578" y="294" font-size="10" fill="#333">provider 凭据 → Provider sheet（R-provider-sheet）</text>
+<text x="578" y="312" font-size="10" fill="#333">用量 → composer footer「用量 ▾」sheet（R-usage-surface）</text>
+<text x="578" y="330" font-size="10" fill="#333">例行任务 → routine 工具 + RoutineCard（R-routine-tool）</text>
+<text x="578" y="348" font-size="10" fill="#333">Agent Ops → agent-status card（R-agent-status）</text>
+<text x="578" y="366" font-size="10" fill="#333">diff / PR → 对话内面板（已有，KIN-RESULT-002/003）</text>
+<text x="578" y="392" font-size="9.5" fill="#8a8a8a">卡片与工具是真能力，不是「删掉」：协议、Go 引擎、store 全部保留</text>
+<text x="578" y="410" font-size="9.5" fill="#8a8a8a">手机底栏随之 4 → 2（对话、设置），「新对话」在列表头部（D6）</text>
+<rect x="560" y="446" width="624" height="404" rx="14" fill="#ffffff" stroke="#dcdcdc"/>
+<text x="578" y="476" font-size="13" fill="#1a1a1a" font-weight="600">退场表 · 每条旧路径都有落点与负责人</text>
+<line x1="578" y1="488" x2="1166" y2="488" stroke="#efefef"/>
+<g font-size="10" fill="#333">
+<text x="578" y="512">/inbox、/approvals</text><text x="740" y="512">→ /sessions（已 redirect）</text><text x="1166" y="512" text-anchor="end" fill="#8a8a8a">已落地</text>
+<text x="578" y="538">/usage</text><text x="740" y="538">→ 用量 sheet</text><text x="1166" y="538" text-anchor="end" fill="#8a8a8a">R-usage-surface</text>
+<text x="578" y="564">/routines</text><text x="740" y="564">→ routine 工具 + RoutineCard</text><text x="1166" y="564" text-anchor="end" fill="#8a8a8a">R-routine-tool</text>
+<text x="578" y="590">/agents</text><text x="740" y="590">→ agent-status card</text><text x="1166" y="590" text-anchor="end" fill="#8a8a8a">R-agent-status</text>
+<text x="578" y="616">/agent-sessions/:id</text><text x="740" y="616">→ agent-status card 的展开</text><text x="1166" y="616" text-anchor="end" fill="#8a8a8a">R-agent-status</text>
+<text x="578" y="642">Settings 的 4 个 tab</text><text x="740" y="642">→ Provider sheet / 对话里的卡片</text><text x="1166" y="642" text-anchor="end" fill="#8a8a8a">R-provider-sheet</text>
+<text x="578" y="668">/projects</text><text x="740" y="668">→ 列表层级 + /projects/:id</text><text x="1166" y="668" text-anchor="end" fill="#8a8a8a">R-delete-pages</text>
+<text x="578" y="694">/machines/:device/tasks/:id</text><text x="740" y="694">→ /tasks/:id?device=（D5）</text><text x="1166" y="694" text-anchor="end" fill="#8a8a8a">本条</text>
+<text x="578" y="720">design-system</text><text x="740" y="720">→ 仅 dev；生产路由清单不含</text><text x="1166" y="720" text-anchor="end" fill="#8a8a8a">本条</text>
+</g>
+<line x1="578" y1="736" x2="1166" y2="736" stroke="#efefef"/>
+<text x="578" y="762" font-size="10" fill="#6b6b6b">规则：能力没搬完，旧路径不删；退场表里「谁负责」为空的一行，</text>
+<text x="578" y="780" font-size="10" fill="#6b6b6b">清单测试就不允许把它从契约里去掉。</text>
+<text x="578" y="806" font-size="10" fill="#6b6b6b">清单测试：App.tsx 的每条 path 必须在「5 个面」或「退场表」里，</text>
+<text x="578" y="824" font-size="10" fill="#6b6b6b">多一条、少一条都红，并打印 KIN-CONTRACT-001。</text>
+</g>
+</svg>

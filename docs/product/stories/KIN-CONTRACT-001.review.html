@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f6feb'/%3E%3Cpath d='M16 7a5 5 0 0 0-5 5v3l-2 3h14l-2-3v-3a5 5 0 0 0-5-5zm0 18a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 16 25z' fill='white'/%3E%3C/svg%3E">
+<title>KIN-CONTRACT-001 · Figma 审阅</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1a1a1a;
+    --muted: #666a73;
+    --line: #dedee3;
+    --bg: #f1f1f4;
+    --page: #fbfbfd;
+    --card: #ffffff;
+    --accent: #1f6feb;
+    --accent-soft: #eef3ff;
+    --warn: #b42318;
+    --warn-soft: #fff1f0;
+    --ok: #137a3f;
+    --ok-soft: #eef8f1;
+    --gutter: clamp(16px, 5vw, 24px);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7;
+      --muted: #a1a1aa;
+      --line: #35353a;
+      --bg: #0b0b0d;
+      --page: #141416;
+      --card: #1d1d20;
+      --accent: #6ea8fe;
+      --accent-soft: #17243a;
+      --warn: #ff8a80;
+      --warn-soft: #2a1717;
+      --ok: #6dd58c;
+      --ok-soft: #13251b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  code { padding: 1px 5px; border-radius: 5px; background: var(--bg); font-size: .9em; overflow-wrap: anywhere; }
+  .page { max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom)); background: var(--page); }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 26px; line-height: 1.28; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 2px; font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill { display: inline-flex; align-items: center; height: 25px; padding: 0 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.draft { color: var(--muted); background: var(--bg); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 15.5px; }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 14.5px; }
+  .howto li { margin: 5px 0; }
+  .note { color: var(--muted); font-size: 13.5px; }
+  .howto .note { margin: 4px 0 0; }
+  .toc {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 8px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 8px var(--gutter);
+    overflow-x: auto;
+    background: var(--page);
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none; display: inline-flex; align-items: center;
+    min-height: 44px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink);
+    font-size: 13px; text-decoration: none; white-space: nowrap;
+  }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 0 0 6px; font-size: 16px; line-height: 1.4; }
+  h4 { margin: 16px 0 8px; font-size: 15px; line-height: 1.4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .lead { font-size: 15px; }
+  .bullets { font-size: 14.5px; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 12.5px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card h3 { font-size: 15px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a {
+    display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 12px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none;
+  }
+  .screen { margin: 16px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+  .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll {
+    overflow-x: auto; overflow-y: hidden;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: #fff;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-phone .frame-scroll { max-width: 390px; margin: 0 auto; }
+  .fig-phone img { width: 100%; }
+  .fig-wide img { width: 1100px; }
+  .fig-board img { width: 1600px; }
+  .frame figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li {
+    display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); font-size: 14.5px;
+  }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+  .state-list { display: grid; gap: 8px; margin-top: 10px; }
+  .state { padding: 11px 13px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
+  .state b { display: block; margin-bottom: 2px; font-size: 14.5px; }
+  .state span { color: var(--muted); }
+  .decision { margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 14px; }
+  .decision h3 { font-size: 16px; }
+  .decision p { font-size: 14.5px; }
+  .decision .rec { margin: 6px 0; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 13.5px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+  .reply { margin-top: 10px; }
+  .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 13.5px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .sign { border-left: 4px solid var(--ok); }
+  .sign p { margin: 6px 0; }
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+  a:focus-visible, .screen-index a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+    .toc { border-radius: 0; }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 380px) {
+    .flow li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 约 6 分钟 · 4 个决定（D3–D6）</div>
+    <h1>KIN-CONTRACT-001 · 只留五个面</h1>
+    <p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-CONTRACT-001.md</code></p>
+    <p class="meta">2026-11-22 · 5 屏 + 2 块板 · 6 个状态</p>
+    <div class="tags">
+      <span class="pill here">待签字</span>
+      <span class="pill plain">旅程 J1、J2、J4、J6</span>
+      <span class="pill plain">15 条路由 → 5 个面</span>
+    </div>
+  </header>
+
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>当我每天打开 Kin 继续干活，我想只看到五个面——列表、对话、新建、项目封面、设置——其余能力收进对话里的卡片或 sheet，以便每个留下的面都能被真机验收到底，而不是十个页面各好一半。</p>
+  </section>
+
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：这条不是第六个意图，它是其余六条意图共同生活的边界；确认这个切法对不对。</li>
+      <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
+      <li><strong>最后回决定</strong>：D1、D2 已定；D3–D6 各写推荐和代价，页尾有回复模板。</li>
+    </ol>
+    <p class="note">都同意就回「全部同意」；有修改就回「D4 改成…」。宽帧在卡片内左右滑动，页面本身不横滚。</p>
+  </section>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">这条不是第七个意图，而是六条意图共同生活的边界：哪些面存在、每个面归谁、旧路径怎么退场。切错的样子是把它写成「删页面」的施工单，或并进某一条产品故事，于是边界随着每条故事各自漂移。</p>
+    <div class="card mece">
+      <div class="mece-row">
+        <div class="name">接着问一段对话<div class="who">KIN-CONTINUE-001 / 002 / 004、KIN-QUALITY-001</div></div>
+        <span class="pill draft">在 /tasks/:id 里</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">新建一段对话<div class="who">KIN-START-001</div></div>
+        <span class="pill draft">在 /new 里</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">看它改了什么<div class="who">KIN-RESULT-001 / 002 / 003</div></div>
+        <span class="pill draft">对话内面板</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">管理对话<div class="who">KIN-MANAGE-001</div></div>
+        <span class="pill draft">在 /sessions 里</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">设置与环境<div class="who">KIN-SETTINGS-001 / 002</div></div>
+        <span class="pill draft">在 /settings 里</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">通知与例行任务<div class="who">KIN-NOTIFY-001、KIN-ROUTINE-001</div></div>
+        <span class="pill draft">落到上面五个面</span>
+      </div>
+      <div class="mece-row here">
+        <div class="name"><strong>契约：哪些面存在</strong><div class="who">KIN-CONTRACT-001 · 这条</div></div>
+        <span class="pill here">本页</span>
+      </div>
+    </div>
+    <ul class="bullets">
+      <li><strong>为什么单独一条：</strong>「哪些面存在」不属于任何一条意图；它决定其余六条各自做到哪、在哪个面上被验收。没有它，每加一个面只需一次普通 PR。</li>
+      <li><strong>为什么不并进相邻故事：</strong>并进去就会变成「顺手删一个页面」，删的依据是那条故事的方便，不是能力有没有搬完。退场表的每一行都要点名负责故事，正是为了挡住这种顺手。</li>
+      <li><strong>设备只是差异：</strong>这条覆盖 Mac 与手机；平板 820 是宽度与输入变体，不是第三个注册面。差异写在故事「各面差异」，不按设备拆故事。</li>
+      <li><strong>不在这一条：</strong>真正删页面（<code>R-routine-tool</code>、<code>R-provider-sheet</code>、<code>R-usage-surface</code>、<code>R-delete-pages</code>）、RN 客户端（独立 ADR/phase）、列表密度（parked <code>R-list-scan</code>）。</li>
+      <li><strong>大小：</strong>5 屏 + 契约板 + 状态板；一次交付能装下：契约、退场表、路由清单测试。删除按退场表一行一条 PR，不夹带。</li>
+    </ul>
+  </section>
+
+  <section id="before-after">
+    <h2>现在 → 之后</h2>
+    <div class="two">
+      <div class="card now">
+        <h3>现在</h3>
+        <ul>
+          <li>15 条路由、约 10 个真页面、6 个 Settings tab、手机底栏 4 个入口。</li>
+          <li>没有东西阻止下一条 PR 再加一个面；每个面只做完一半。</li>
+          <li>旧路径已经 redirect 了 4 条，但退场原因只写在注释里。</li>
+        </ul>
+      </div>
+      <div class="card after">
+        <h3>之后</h3>
+        <ul>
+          <li>5 个面；文件/diff/PR 是对话内的面板，不是第六个面。</li>
+          <li>一张退场表：每条旧路径都有落点、能力去处和负责故事。</li>
+          <li>路由清单测试把新面拦在门外：多一条、少一条都红，并打印 KIN-CONTRACT-001。</li>
+        </ul>
+      </div>
+    </div>
+    <figure class="frame fig-board" style="margin-top:16px">
+      <div class="frame-scroll" role="region" aria-label="契约板的 Figma 板" tabindex="0">
+        <img src="KIN-CONTRACT-001.figma/frames/06-board-contract.svg" width="1200" height="880" alt="左栏是现在的 15 条路由与它们的问题；右上是保留的 5 个面和各自 owner 故事；右下是退场表，每条旧路径写落点、能力去处和负责故事。" loading="lazy" decoding="async">
+      </div>
+      <figcaption>
+        <span>1200×880 · 契约板 · 左右滑动或打开原图</span>
+        <a href="KIN-CONTRACT-001.figma/frames/06-board-contract.svg">打开原图</a>
+      </figcaption>
+    </figure>
+  </section>
+
+  <section id="screens">
+    <h2>界面与用户流程</h2>
+    <p class="note">每一屏先看 Figma 帧，再读下面六段流程。帧是设计源；宽帧在卡片内左右滑动，点「打开原图」可以全尺寸看。</p>
+
+    <div class="screen-index" aria-label="界面索引">
+      <a href="#screen-1">01 · 手机 · 列表</a>
+      <a href="#screen-2">02 · 手机 · 对话</a>
+      <a href="#screen-3">03 · 手机 · 设置</a>
+      <a href="#screen-4">04 · Mac · 对话与面板</a>
+      <a href="#screen-5">05 · Mac · 项目封面</a>
+    </div>
+
+    <article class="screen" id="screen-1">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">01 · 手机 · 390×844</div>
+          <h3>列表：设备 → 项目 → 对话</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机列表的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTRACT-001.figma/frames/01-phone-list.svg" width="390" height="844" alt="手机列表：标题「对话」、一个「新对话」按钮、搜索框；设备本机下是项目 alpha，展开三条对话，第一条标着等你处理；项目 beta 折叠；底部两个入口：对话 2 个待处理、设置。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTRACT-001.figma/frames/01-phone-list.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>打开 Kin 落在对话列表；顶部只有标题、一个主按钮、搜索；项目与设备默认折叠，只展开上次那个项目。</span></li>
+        <li><b>动作</b><span>点项目标题展开一层，或直接点一段对话的标题。</span></li>
+        <li><b>立刻看到</b><span>对话占满主区并在同一个 shell 里打开；列表留在下面，滚动位置与展开层级不变。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>首屏行骨架、不整页白；空写「还没有对话」+「新对话」；搜索无结果写清搜索词；离线设备的行不可展开，点一次说明「连不上这台设备」。</span></li>
+        <li><b>键盘与焦点</b><span>Tab 先到搜索框；↑↓ 在行间移动，Enter 打开，Esc 清空搜索并留在列表；行本身是整行命中区，计数只是行内标记。</span></li>
+        <li><b>离开再回来</b><span>搜索词、筛选、滚动、展开层级都保留；从对话返回落在原行，不回到顶部。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-2">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">02 · 手机 · 390×844</div>
+          <h3>对话：一条 header、正文、一个 composer</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机对话的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTRACT-001.figma/frames/02-phone-reading.svg" width="390" height="844" alt="手机对话：44px header 有返回、标题、文件 2、更多；正文是一条回答和一张可横滑的表格；底部固定的 composer 有「用量 ▾」、模型、权限与发送按钮；右侧小卡片标注文件、diff、PR 是同一路由内的面板。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTRACT-001.figma/frames/02-phone-reading.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>从列表点进来，或从通知/深链直接落到这条对话；正文上方只有一条 44px header。</span></li>
+        <li><b>动作</b><span>滚动读回答；点「文件 2」打开面板；在 composer 接着问。</span></li>
+        <li><b>立刻看到</b><span>面板在同一条对话上打开，地址不换路由；发出去的消息入流、composer 清空并保持焦点。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>流式时保留已收到的内容；断线时内容不丢、一条 transient 说明；发送失败草稿留在 composer 并给原因。</span></li>
+        <li><b>键盘与焦点</b><span>composer 是唯一输入路径；⌘Enter 发送；Esc 关面板并把焦点还给「文件 2」；返回键第一下只关面板。</span></li>
+        <li><b>离开再回来</b><span>草稿、滚动位置、面板开关都按 F4 恢复；不重复发送，不重复弹权限。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-3">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">03 · 手机 · 390×844</div>
+          <h3>设置：只剩 Providers 与 General</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机设置的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTRACT-001.figma/frames/03-phone-settings.svg" width="390" height="844" alt="手机设置：两个 tab，Providers 下两个 provider 行（已连接、未配置）与一个打开 Provider sheet 的按钮；General 下外观、默认 agent 与模型、默认权限三个开关；一个红框说明其余能力在对话里的卡片与工具；底部两个入口。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTRACT-001.figma/frames/03-phone-settings.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>从底栏进入设置；默认停在 General（上次看的那一页）。</span></li>
+        <li><b>动作</b><span>切到 Providers，点「配置」打开 Provider sheet，或在 General 改默认 agent、模型、权限。</span></li>
+        <li><b>立刻看到</b><span>tab 切换只换内容不换面；sheet 从底部升起，关掉回到同一行；保存后新值立刻用于下一次新对话。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>打开设置不读 secure store、不调第三方；只有「验证 / 配置」这一次动作才读，失败只说这一行失败，不影响其它 provider。</span></li>
+        <li><b>键盘与焦点</b><span>tab 之间 ←→；sheet 关闭回触发按钮；未连接的 provider 行写明原因，不是灰掉不说话。</span></li>
+        <li><b>离开再回来</b><span>回到上次的 tab；改到一半的 key 输入在 sheet 关闭时清空，不留在内存快照里。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-4">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">04 · Mac · 1100×760</div>
+          <h3>对话与面板：两栏，面板不换路由</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 对话与面板的 Figma 帧" tabindex="0" data-start="330">
+          <img src="KIN-CONTRACT-001.figma/frames/04-mac-shell.svg" width="1100" height="760" alt="Mac 对话：左侧 300px 列表，主区 header 有标题、项目名、文件 2、更多；正文是一条回答和表格；右侧是打开的文件/diff 面板，底部有「发回对话」；composer 在主区底部，面板打开时不移动。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-CONTRACT-001.figma/frames/04-mac-shell.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>从列表打开一段对话；面板默认收起，header 只有「文件 2」与「⋯」两个入口。</span></li>
+        <li><b>动作</b><span>点「文件 2」打开面板，选中一个文件，在 diff 行上留评论，点「发回对话」。</span></li>
+        <li><b>立刻看到</b><span>面板在主区内展开，对话列变窄但 composer 不动；评论出现在 composer 的待发区，发送后回到对话。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>diff 读取失败只在面板内说一行加重试；没有改动文件时面板写「这一轮还没有改动」；断线时评论留在本地待发区。</span></li>
+        <li><b>键盘与焦点</b><span>Esc 关面板并把焦点还给「文件 2」；Tab 在面板内循环；⌘Enter 发送评论。</span></li>
+        <li><b>离开再回来</b><span>面板开关、选中的文件、未发的评论都保留；切到设置再回来不丢。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-5">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">05 · Mac · 1100×760</div>
+          <h3>项目封面：保留 /projects/:id，集合页退场</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 项目封面的 Figma 帧" tabindex="0" data-start="330">
+          <img src="KIN-CONTRACT-001.figma/frames/05-mac-project.svg" width="1100" height="760" alt="Mac 项目封面：左侧列表里项目 alpha 可进封面；主区有返回、项目名、更多；封面卡片是可读的工作说明；下面是该项目的三条对话和一个「在这个项目里新对话」按钮。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-CONTRACT-001.figma/frames/05-mac-project.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>在列表里点项目名的「封面 ›」，或从旧书签 `/projects/:id` 进来。</span></li>
+        <li><b>动作</b><span>读工作说明；点「在这个项目里新对话」；要改说明就点「⋯ → 编辑工作说明」。</span></li>
+        <li><b>立刻看到</b><span>新对话在同一个 shell 里打开，工作说明已经带上；封面保持只读，不出现第二份可编辑副本。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>空写「还没有工作说明」+「写一段」；保存失败保留原内容并给重试；断线时封面可读，写入禁用并说明原因。</span></li>
+        <li><b>键盘与焦点</b><span>编辑入口在「⋯」；Esc 回「⋯」；保存后焦点回到「⋯」。</span></li>
+        <li><b>离开再回来</b><span>滚动位置保留；说明改了以后，下一段新对话用上新值。</span></li>
+      </ol>
+    </article>
+  </section>
+
+  <section id="states">
+    <h2>状态</h2>
+    <p class="note">状态不是新面：都在同一个 shell 里说一句话。先看状态板，再看下面的检查表。宽板在卡片内左右滑动。</p>
+    <figure class="frame fig-board">
+      <div class="frame-scroll" role="region" aria-label="状态板的 Figma 板" tabindex="0">
+        <img src="KIN-CONTRACT-001.figma/frames/07-states.svg" width="1200" height="620" alt="状态板：空、加载、失败与断线、锁定（旧路径的能力还没搬完）、键盘与焦点，各自写一句用户看到的话和一个下一步。" loading="lazy" decoding="async">
+      </div>
+      <figcaption>
+        <span>1200×620 · 状态板 · 左右滑动或打开原图</span>
+        <a href="KIN-CONTRACT-001.figma/frames/07-states.svg">打开原图</a>
+      </figcaption>
+    </figure>
+    <div class="state-list">
+      <div class="state"><b>空</b><span>列表「还没有对话」+ 一个「新对话」；项目封面「还没有工作说明」+「写一段」；不铺整页插画，不藏搜索框。</span></div>
+      <div class="state"><b>加载</b><span>只局部：列表行骨架、对话保留已读内容；禁止整页骨架，F1 要求消息不消失；超过 8 秒补一句「还在读取」。</span></div>
+      <div class="state"><b>失败</b><span>一行原因 + 重试；内容保留；不弹模态、不跳设置页。</span></div>
+      <div class="state"><b>断线</b><span>一条 transient 说明，草稿与待发评论不丢；离线设备的行不可展开，点一次说明原因。</span></div>
+      <div class="state"><b>锁定 / 禁用</b><span>能力还没搬完的旧路径仍可用；退场表写「等哪条故事」；「负责」为空时清单测试不允许删掉它。</span></div>
+      <div class="state"><b>运行中 / 等待批准</b><span>状态写在列表行与对话 header 里，不新开一个面；approval / question 仍是卡片。</span></div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>要你拍板的</h2>
+    <p class="note">每条都写推荐和代价；只回不同意的编号就行。D1、D2 已定，不用回。</p>
+    <div class="decision settled">
+      <h3>D1 先删后重构，T3 split</h3>
+      <p class="rec"><strong>已定：</strong>先把 UI 面删到最小契约，再用 Expo/RN 重建手机端；桌面保留 Electron + React/Vite，Go daemon 与共享 TS 不重写（ADR 0035，owner 2026-11-21）。</p>
+      <p class="tradeoff"><strong>代价：</strong>短期内手机端没有新功能，只有变少、变稳；换来 RN 建立时不必照着十个页面重画。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D2 Settings 6 个 tab → 2 个</h3>
+      <p class="rec"><strong>已定：</strong>只留 Providers 与 General；Agent Ops、路由、账号、推送、角色改为对话里的卡片或工具（计划与 `R-provider-sheet`）。</p>
+      <p class="tradeoff"><strong>代价：</strong>低频设置要多一次「先开对话再用工具」；换来设置不再是一个要单独验收的 App。</p>
+    </div>
+    <div class="decision">
+      <h3>D3 文件 / diff / PR 不新增路由</h3>
+      <p class="rec"><strong>推荐：</strong>作为 `/tasks/:id` 内的面板。读与改留在同一条对话里，滚动、草稿、待发评论都不丢；手机上是同一条对话上的面板页，返回第一下只关面板。</p>
+      <p class="tradeoff"><strong>代价：</strong>深链要带面板参数才能直达某个 diff；390 上打开面板是整屏覆盖，得靠返回把上下文还回来。</p>
+    </div>
+    <div class="decision">
+      <h3>D4 `/projects` 集合页退场，保留 `/projects/:id`</h3>
+      <p class="rec"><strong>推荐：</strong>退场。跨项目浏览由列表的设备 → 项目层级与搜索承担；封面保留，因为工作说明是每次新对话都要读的内容。</p>
+      <p class="tradeoff"><strong>代价：</strong>没有一个「所有项目排成卡片」的总览；换来少一个约 2,691 行的面（计划估算），以及列表成为唯一入口。</p>
+    </div>
+    <div class="decision">
+      <h3>D5 `/machines/:device/tasks/:id` 合并进 `/tasks/:id?device=`</h3>
+      <p class="rec"><strong>推荐：</strong>合并。远端任务与本地任务共用同一份阅读面；RN 端只需要实现一次。</p>
+      <p class="tradeoff"><strong>代价：</strong>一个路由里多一个设备维度，深链必须带对 device；远端离线时要在同一页说明「这台设备现在连不上」，而不是换一个页面。</p>
+    </div>
+    <div class="decision">
+      <h3>D6 手机底栏 4 → 2（对话、设置）</h3>
+      <p class="rec"><strong>推荐：</strong>只留两个契约入口，「新对话」移到列表头部的按钮；例行任务与 Agent Ops 从对话里的卡片/工具进入。</p>
+      <p class="tradeoff"><strong>代价：</strong>去例行任务要多一步（开对话 → 工具）；换来底栏每个入口都是一个被真机验收的面，而不是一个半成品页面。</p>
+    </div>
+  </section>
+
+  <section id="reply">
+    <h2>回复模板</h2>
+    <div class="card reply">
+      <p class="note">长按下面这段复制，改掉不同意的；都同意就回「全部同意」。</p>
+      <pre>D3 同意
+D4 同意
+D5 同意
+D6 同意
+（都同意就回「全部同意」；D1、D2 已定，不用回）</pre>
+    </div>
+  </section>
+
+  <section id="sign">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p>你回「全部同意」后，我把 <code>KIN-CONTRACT-001.md</code> 改成 <code>approved</code>，然后交付：契约、退场表、路由清单测试（新增/删除一条路由都必须先改表）。</p>
+      <p class="note">页面删除不在这一次交付里：退场表一行一条 PR，能力搬完才删。帧或流程改了会重新发这一页。</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>设计源：<code>KIN-CONTRACT-001.figma/frames/</code>（7 张 SVG 帧）</p>
+    <p>审阅编排：<code>KIN-CONTRACT-001.review.html</code>（本页）</p>
+    <p>合同：<code>KIN-CONTRACT-001.md</code></p>
+    <p>Figma 审阅版 · figma-flow-v1</p>
+  </footer>
+
+</main>
+<script>
+  // 宽帧默认露出主区；仍可左右滑回侧栏。无脚本时从左侧开始，不影响阅读。
+  for (const el of document.querySelectorAll('.frame-scroll[data-start]')) {
+    el.scrollLeft = Number(el.dataset.start) || 0;
+  }
+</script>
+</body>
+</html>
