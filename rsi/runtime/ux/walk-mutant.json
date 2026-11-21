@@ -93,8 +93,8 @@
   {
     "label": "the detail route draws no composer until its GET lands, so the hand-off has a hole",
     "file": "ui/src/components/task/TaskComposerDock.tsx",
-    "old": "  const wide = useMinWidth(768);",
-    "new": "  const wide = useMinWidth(768);\n  // R-f1-composer-handoff: the dock withheld until the detail GET answers on\n  // purpose — the held answer leaves /tasks/:id with no composer on screen,\n  // which is the absent frame the hand-off sampler must name.\n  if (!detailLoaded) return null;",
+    "old": "  const rail = useMinWidth(1600);",
+    "new": "  const rail = useMinWidth(1600);\n  // R-f1-composer-handoff: the dock withheld until the detail GET answers on\n  // purpose — the held answer leaves /tasks/:id with no composer on screen,\n  // which is the absent frame the hand-off sampler must name.\n  if (!detailLoaded) return null;",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J3"
   },
   {

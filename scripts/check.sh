@@ -337,6 +337,12 @@ job_journeys_smoke() {
   python3 -B scripts/journeys_smoke_test.py || return 1
 }
 
+# KIN-QUALITY-001's reading rules, fixture and gate wiring without a browser;
+# the pixel rows are the one-command walk the PR carries.
+job_quality_reading_contract() {
+  python3 -B scripts/quality_001_reading_test.py
+}
+
 start gofmt job_gofmt
 start vet job_vet
 start gotest job_gotest
@@ -357,6 +363,7 @@ start ui-lint-guard job_ui_lint_guard
 start walk-contract job_walk_contract
 start phone-baseline-contract job_phone_baseline_contract
 start journeys-smoke job_journeys_smoke
+start quality-reading-contract job_quality_reading_contract
 
 FAILED=()
 for i in "${!PIDS[@]}"; do
