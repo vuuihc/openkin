@@ -1,0 +1,30 @@
+[
+  {
+    "label": "no live-holder refusal",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "    if [ -n \"$held\" ] && kill -0 \"$held\" 2>/dev/null; then\n      say \"release: another release is running (pid $held); nothing shipped\"\n      log \"SKIP another release is running (pid $held)\"\n      exit 0\n    fi\n",
+    "new": "    # mutant: no live-holder refusal\n"
+  },
+  {
+    "label": "no stale-lock clear",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "    say \"release: clearing a stale release lock (pid ${held:-unknown})\"\n    rm -rf \"$LOCK\"\n",
+    "new": "    say \"release: clearing a stale release lock (pid ${held:-unknown})\"\n"
+  },
+  {
+    "label": "no cleanup on exit",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "  trap release_lock_release EXIT\n",
+    "new": "  # mutant: no cleanup on exit\n"
+  },
+  {
+    "label": "hub stage trap drops the lock cleanup",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "  trap 'release_lock_release; rm -rf \"$STAGE\"' EXIT\n",
+    "new": "  trap 'rm -rf \"$STAGE\"' EXIT\n"
+  }
+]

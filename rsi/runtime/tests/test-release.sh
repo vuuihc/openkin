@@ -164,6 +164,27 @@ for l in "$STATE/lanes/1.lock" "$STATE/lanes/2.lock" "$STATE/merge/x.lock"; do e
 run 0 "GO: lanes waiting on a model call hold no slot"
 rm -rf "$STATE/lanes" "$STATE/merge"
 
+# 7c. Two releases must not run at once. Two patrol rounds can pass the same gate seconds
+#     apart (2026-11-21, overlapping CEO rounds); the second must refuse before it reads
+#     anything, so the live node is restarted once. The lock is a live pid; a dead one is
+#     a crash leftover and must not block the next real release.
+mkdir -p "$STATE/.release.lock"; printf '%s\n' $$ > "$STATE/.release.lock/pid"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$T/not-a-checkout" KIN_API="$(API)" \
+  bash "$RELEASE" --node-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "release-lock: a held lock must skip with exit 0, got $rc"; }
+grep -q 'another release is running' <<<"$out" || fail "release-lock: the skip did not name the holder"
+case "$out" in *verdict=*) fail "release-lock: the second release ran the gate instead of refusing" ;; esac
+rm -rf "$STATE/.release.lock"
+pass "release: a second release refuses while the first holds the lock"
+
+mkdir -p "$STATE/.release.lock"; printf '99999998\n' > "$STATE/.release.lock/pid"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_REPO="$REPO" KIN_API="$(API)" RSI_RELEASE_MIN=99 \
+  bash "$RELEASE" --node-only --repo "$REPO" 2>&1)"; rc=$?
+[ "$rc" = 1 ] || { printf '%s\n' "$out" >&2; fail "release-lock: a stale lock must let the release reach its gate (got $rc)"; }
+grep -q 'clearing a stale release lock' <<<"$out" || fail "release-lock: the stale lock was not reported"
+[ -d "$STATE/.release.lock" ] && fail "release-lock: a HOLD release left the lock behind"
+pass "release: a dead pid is a stale lock, and a HOLD releases it"
+
 # 8. Unshipped is measured per target, so a half-release is retried, never counted done.
 printf 'node=%s\nhub=%s\n' "$HEAD_SHA" "$ROOT" > "$STATE/last_release"
 run 0 "GO: node at tip but hub baseline at the root still counts the work"
@@ -193,6 +214,7 @@ git -C "$SECOND" reset -q --hard "$BASE2"
 merge_run "release: a lagging checkout is fast-forwarded" 0
 [ "$(git -C "$SECOND" rev-list --count origin/main..HEAD)" = 0 ] || fail "fast-forward left local commits"
 grep -q "^node=$HEAD_SHA" "$STATE/last_release" || fail "node marker not written after a release"
+[ -d "$STATE/.release.lock" ] && fail "release-lock: a finished release left its lock behind"
 
 # (b) local main has an unpublished docs commit -> merge commit, nothing rewritten.
 printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
@@ -481,6 +503,7 @@ grep -q '^released_at=' "$MARK" || fail "both-targets: no released_at line"
 run 10 "both-targets: the gate's reader sees 0 unshipped against it"
 grep -q '^unshipped=0 ' <<<"$LAST" || fail "both-targets: release-check still counts unshipped work: $LAST"
 pass "release: one run leaves both targets at the shipped SHA"
+[ -d "$STATE/.release.lock" ] && fail "both-targets: a finished release left its lock behind"
 
 # 17. The abort names the target, the SHA it expected and what the file actually says, so
 #     the next person can see the 2026-11-20 shape without re-running the release. This
@@ -494,5 +517,6 @@ grep -q 'hub' <<<"$out" || fail "readback-message: the abort does not name the t
 grep -q "$HUB_NOW" <<<"$out" || fail "readback-message: the abort does not name the SHA it expected"
 grep -q "$ROOT" <<<"$out" || fail "readback-message: the abort does not print the marker contents"
 pass "release: the failure message names the target and the file"
+[ -d "$STATE/.release.lock" ] && fail "readback-message: an aborted release left its lock behind"
 
 echo "all cases passed"
