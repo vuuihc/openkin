@@ -19,5 +19,12 @@
     "test": "RSI_TEST_ONLY=no-full-gate-instruction bash rsi/runtime/tests/test-lane-worker-contract.sh",
     "old": "Test first. Run FOCUSED checks only (typecheck, lint on changed files, the tests you wrote/touched, \\`go test\\` for touched packages). The merge lane runs the full gate (\\`gate.sh\\`) and an independent review afterwards. ",
     "new": ""
+  },
+  {
+    "label": "the contract drops the sentence that makes the Claims block a writing rule rather than a gate",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=claims-block-rule bash rsi/runtime/tests/test-lane-worker-contract.sh",
+    "old": " The reviewer checks each line against the diff; this is a writing rule, not a hard gate.",
+    "new": ""
   }
 ]
