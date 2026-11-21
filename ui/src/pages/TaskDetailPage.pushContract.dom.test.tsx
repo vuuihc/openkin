@@ -13,6 +13,7 @@ import { setLocale } from "../i18n";
 import { resetLeaveGuard } from "../lib/leaveGuard";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { NOTIFICATION_EVENT } from "../lib/notificationRoute";
+import { synthesizePhoneParent } from "../lib/phoneDeepLinkParent";
 import type { Task } from "../api/client";
 
 /**
@@ -234,8 +235,11 @@ function DirtySettings() {
   );
 }
 
-function browser(initial: string) {
+function browser(initial: string, options?: { synthesize?: boolean }) {
   window.history.replaceState({ idx: 0 }, "", initial);
+  // A cold launch of a pushed screen gets the parent the app itself
+  // synthesizes before the router mounts (`main.tsx` → `phoneDeepLinkParent`).
+  if (options?.synthesize) synthesizePhoneParent();
   return render(app());
 }
 
@@ -455,6 +459,65 @@ describe("late answers belong to the view that asked", () => {
     view.unmount();
   });
 
+});
+
+describe("the files panel's one close", () => {
+  it("returns the phone's back arrow to the list after the files panel is closed", async () => {
+    const user = userEvent.setup();
+    browserAt(["/sessions", "/tasks/task-1", "/tasks/task-1?panel=files"]);
+    await screen.findByRole("button", { name: "Close files panel" });
+
+    await user.click(screen.getByRole("button", { name: "Close files panel" }));
+
+    // Back on the conversation entry itself, not on a fourth entry the close
+    // appended: the old push left `?panel=files` directly beneath the reader.
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(window.history.state.idx).toBe(1);
+
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.history.state.idx).toBe(0);
+  });
+
+  it("does not reopen the panel after a cold files deep link is closed", async () => {
+    const user = userEvent.setup();
+    // A cold launch: the app synthesized [list, conversation, panel] beneath
+    // the address before the router mounted.
+    browser("/tasks/task-1?panel=files", { synthesize: true });
+    expect(window.history.state.idx).toBe(2);
+    await screen.findByRole("button", { name: "Close files panel" });
+
+    await user.click(screen.getByRole("button", { name: "Close files panel" }));
+
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(window.history.state.idx).toBe(1);
+
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.history.state.idx).toBe(0);
+  });
+
+  it("pops every panel entry the reader opened, not just one", async () => {
+    const user = userEvent.setup();
+    browserAt([
+      "/sessions",
+      "/tasks/task-1",
+      "/tasks/task-1?panel=files",
+      "/tasks/task-1?panel=files&file=notes.md",
+    ]);
+    await screen.findByRole("button", { name: "Close files panel" });
+
+    await user.click(screen.getByRole("button", { name: "Close files panel" }));
+
+    // The file list and the file are one place the reader is leaving; one
+    // close pops both, back to the conversation entry.
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(window.history.state.idx).toBe(1);
+
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.history.state.idx).toBe(0);
+  });
 });
 
 describe("a notification closes the conversation's action sheet", () => {

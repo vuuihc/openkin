@@ -166,6 +166,22 @@ function sameOrder(a: readonly number[], b: readonly number[]): boolean {
   return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
+/**
+ * The browser entry's index, or null when `window.history` is not this route's
+ * stack.
+ *
+ * `BrowserRouter` keeps its entries in the document's history, so `idx` is the
+ * reader's real stack. A `MemoryRouter` (tests, and the rare embedded host)
+ * drives the router without moving the document: its `idx` would be some other
+ * stack's, and popping it would leave the screen rather than go back.
+ */
+function routeHistoryIndex(pathname: string): number | null {
+  if (typeof window === "undefined") return null;
+  if (window.location.pathname !== pathname) return null;
+  const idx = (window.history.state as { idx?: unknown } | null)?.idx;
+  return typeof idx === "number" && Number.isFinite(idx) ? idx : null;
+}
+
 export default function TaskDetailPage({
   taskId,
   active = true,
@@ -535,6 +551,10 @@ export default function TaskDetailPage({
   // button) comes back (TASTE 15).
   const prSurfaceOpen = shownPanel?.view === id && shownPanel.id === "pr";
   const publishSurfaceOpen = shownPanel?.view === id && shownPanel.id === "publish";
+  // The conversation entry the panel's addresses are stacked on. One close
+  // pops back to it instead of pushing a second conversation entry on top
+  // (see `closeFilesPanel`).
+  const panelBaseIdx = useRef<number | null>(null);
   useEffect(() => {
     if (!filesPanelOpen && !prSurfaceOpen && !publishSurfaceOpen) setWorkspaceOpenPath(null);
   }, [filesPanelOpen, prSurfaceOpen, publishSurfaceOpen]);
@@ -568,6 +588,7 @@ export default function TaskDetailPage({
     stickToBottomRef.current = true;
     pendingRestoreRef.current = null;
     programmaticScrollTopRef.current = null;
+    panelBaseIdx.current = null;
     listAgents()
       .then(setAgents)
       .catch(() => setAgents([]));
@@ -1309,6 +1330,23 @@ export default function TaskDetailPage({
   // `?focus=` link uses, because consuming the link there would drop it before
   // the routed pane ever saw it.
   const appliedWorkspaceKey = useRef<string | null>(null);
+  /**
+   * Remember the conversation entry the panel's addresses are stacked on.
+   *
+   * An opener calls this while the reader is still on the conversation. An
+   * address that already names the panel (a cold deep link, a refresh, a
+   * Forward) never passed an opener, so the trail the address implies supplies
+   * the depth: a file is two stops above the conversation (the file list, then
+   * the conversation), every other addressable surface one. Left null when the
+   * document history is not this route's stack, where there is no browser
+   * entry to pop.
+   */
+  const notePanelBase = useCallback((stopsAboveConversation = 0) => {
+    if (panelBaseIdx.current !== null) return;
+    const here = routeHistoryIndex(locationRef.current.pathname);
+    if (here === null) return;
+    panelBaseIdx.current = Math.max(0, here - stopsAboveConversation);
+  }, []);
   const writeWorkspaceSearch = useCallback(
     (next: string, opts?: { replace?: boolean }) => {
       const here = locationRef.current;
@@ -1343,7 +1381,12 @@ export default function TaskDetailPage({
       // Back/Forward to a conversation: the address says no panel, so the pane
       // closes. A push the page made itself already closed it. Publish has no
       // address yet, so it is not this branch's to close.
-      if (navigationType === "POP" && (filesPanelOpen || prSurfaceOpen)) hidePanel(id);
+      if (navigationType === "POP" && (filesPanelOpen || prSurfaceOpen)) {
+        hidePanel(id);
+        // The reader left the panel by the browser's own Back: the next open
+        // starts a fresh stack, so the old conversation depth is not evidence.
+        panelBaseIdx.current = null;
+      }
       return;
     }
     if (!link.explicit) {
@@ -1355,6 +1398,7 @@ export default function TaskDetailPage({
       // The PR tab is a place now: reading its address opens the surface and
       // rewrites no bytes and adds no entry. A remembered file is handed to
       // the panel as state — nothing opens on arrival, so no nonce bump.
+      notePanelBase(1);
       showPanel(id, "pr");
       if (link.file) setWorkspaceOpenPath(link.file);
       return;
@@ -1365,6 +1409,7 @@ export default function TaskDetailPage({
     writeWorkspaceSearch(patchWorkspaceLink(here.search, { panel: "files", file: link.file }), {
       replace: true,
     });
+    notePanelBase(link.file ? 2 : 1);
     showPanel(id, "files");
     if (link.file) {
       if (workspaceOpenPath !== link.file) {
@@ -1392,6 +1437,7 @@ export default function TaskDetailPage({
     prSurfaceOpen,
     hidePanel,
     showPanel,
+    notePanelBase,
     workspaceOpenPath,
     writeWorkspaceSearch,
     location.key,
@@ -1948,6 +1994,7 @@ export default function TaskDetailPage({
       pushToast(tr("workspace.outsideWorkspace"), "error");
       return false;
     }
+    notePanelBase();
     showPanel(id, "files");
     setWorkspaceOpenPath(next);
     // Bump the nonce so re-clicking the same path re-loads/focuses it.
@@ -2001,16 +2048,41 @@ export default function TaskDetailPage({
 
   /** Opening the panel is a place the reader can share: one history entry. */
   function openFilesPanel() {
+    notePanelBase();
     showPanel(id, "files");
     writeWorkspaceSearch(
       patchWorkspaceLink(locationRef.current.search, { panel: "files", file: null }),
     );
   }
 
-  /** Closing returns the address to the conversation, also one entry. */
+  /**
+   * Closing the panel returns to the entry it was opened from, not a new one.
+   *
+   * Opening pushed the panel's addresses on top of the conversation. Pushing
+   * the conversation again on close would leave `?panel=…` directly beneath
+   * the reader, so the phone's top-left Back would reopen the panel it just
+   * closed instead of returning to the list (TASTE 15: a close is not a new
+   * place). One POP removes every entry the panel added — the file list, a
+   * file, a surface switch — in a single step. With no browser entry to pop
+   * (the panel never pushed one, or a MemoryRouter drives the address) the
+   * close replaces its own entry instead of appending.
+   */
   function closeFilesPanel() {
     hidePanel(id);
-    writeWorkspaceSearch(patchWorkspaceLink(locationRef.current.search, null));
+    const base = panelBaseIdx.current;
+    const current = routeHistoryIndex(locationRef.current.pathname);
+    if (base !== null && current !== null && current > base) {
+      navigate(base - current);
+    } else if (current !== null) {
+      writeWorkspaceSearch(patchWorkspaceLink(locationRef.current.search, null), {
+        replace: true,
+      });
+    } else {
+      // Not this router's browser stack: keep the router's own one-entry
+      // contract rather than guessing at a `window.history` that is not ours.
+      writeWorkspaceSearch(patchWorkspaceLink(locationRef.current.search, null));
+    }
+    panelBaseIdx.current = null;
   }
 
   function toggleFilesPanel() {
@@ -2051,6 +2123,7 @@ export default function TaskDetailPage({
    * panel's one close and clears both keys.
    */
   function showPrSurface() {
+    notePanelBase();
     showPanel(id, "pr");
     writeWorkspaceSearch(
       patchWorkspaceLink(locationRef.current.search, { panel: "pr", file: null }),
@@ -2068,6 +2141,7 @@ export default function TaskDetailPage({
    * close still closes it.
    */
   function openPublishPanel() {
+    notePanelBase();
     showPanel(id, "publish");
   }
 
