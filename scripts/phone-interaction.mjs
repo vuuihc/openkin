@@ -43,6 +43,12 @@
  *   console-never-usable       #root never left the boot splash
  *   console-error-surface      a visible role=alert / [data-error-surface]
  *   stale-dist                 the served entry chunk != web/dist/index.html
+ *   glass-override-not-applied --glass=off was injected, but a mounted
+ *                              .kin-glass / .kin-glass-float /
+ *                              .kin-sheet-surface / .kin-scrim element still
+ *                              computes a backdrop-filter
+ *   glass-ab-needs-two-runs    --glass=ab with --runs 1 cannot pair
+ *   glass-unknown-value        --glass is not one of on|off|ab
  *   list-never-rendered        no [data-session-row] appeared
  *   scroll-did-not-move        scrollTop did not change, so the swipe proved
  *                              nothing
@@ -60,8 +66,18 @@
  * isolated honestly the leg prints `unmeasured: <reason>` instead of a number.
  *
  * Usage:
- *   node scripts/phone-interaction.mjs [--runs N] [--json] [--headless]
+ *   node scripts/phone-interaction.mjs [--runs N] [--glass=on|off|ab] [--json] [--headless]
  *   node scripts/phone-interaction.mjs --self-check
+ *
+ * `--glass` is a measurement-only control for the four backdrop-blur carriers
+ * (`ui/src/index.css:775-794`), not a product change. `on` (the default) and
+ * `off` each inject one stylesheet before the measured scroll window — a no-op
+ * custom property in the on arm, `backdrop-filter: none !important` in the off
+ * arm — and print `glass=` next to the browser. `ab` measures both scroll legs
+ * twice per run, re-opening the page per arm, with the arm order alternating
+ * by run parity (run 1 on→off, run 2 off→on) so load drift cannot masquerade
+ * as the variable. Each arm's idle-p50 is recorded with its numbers, and the
+ * printed and JSON summaries add the paired per-run delta (off − on).
  *
  * Chrome runs headed by default: headless Chrome on this machine advances
  * requestAnimationFrame at 20 Hz, so its frame intervals describe the browser,
@@ -100,11 +116,24 @@ const TAP_DEADLINE_MS = 15_000;
 const SWIPES = 4;
 const SWIPE_STEPS = 10;
 
+/**
+ * The four classes `ui/src/index.css:775-794` gives a backdrop filter. The A/B
+ * overrides exactly these, so the measurement removes the blur and nothing
+ * else. Both arms inject one stylesheet with the same selector list and one
+ * declaration per element: the on arm's declaration is an inert custom
+ * property, so neither arm gets a different amount of style work or a
+ * different injection moment.
+ */
+const GLASS_CARRIER_SELECTOR = ".kin-glass, .kin-glass-float, .kin-sheet-surface, .kin-scrim";
+const GLASS_OFF_CSS = `${GLASS_CARRIER_SELECTOR} {\n  backdrop-filter: none !important;\n  -webkit-backdrop-filter: none !important;\n}\n`;
+const GLASS_ON_CSS = `${GLASS_CARRIER_SELECTOR} {\n  --kin-perf-glass-arm: on;\n}\n`;
+
 const GUARD_NAMES = [
   "daemon-never-healthy",
   "console-never-usable",
   "console-error-surface",
   "stale-dist",
+  "glass-override-not-applied",
   "list-never-rendered",
   "scroll-did-not-move",
   "too-few-frames",
@@ -225,6 +254,9 @@ function runGuards(sample) {
   }
   if (sample.errorSurface) guard("console-error-surface", sample.errorSurface);
   if (sample.staleDist) guard("stale-dist", sample.staleDist);
+  if (sample.glassArm === "off" && sample.glassViolation) {
+    guard("glass-override-not-applied", sample.glassViolation);
+  }
   if (sample.leg === "sessions" && !sample.listRendered) {
     guard("list-never-rendered", sample.listDetail || "no [data-session-row] appeared");
   }
@@ -278,6 +310,8 @@ function sampleFor(kind) {
     consoleDetail: "",
     errorSurface: null,
     staleDist: null,
+    glassArm: "on",
+    glassViolation: null,
     leg: "sessions",
     listRendered: true,
     listDetail: "",
@@ -303,6 +337,13 @@ function sampleFor(kind) {
       return { ...good, errorSurface: "a visible error surface: 无法连接" };
     case "stale-dist":
       return { ...good, staleDist: "the daemon served index-old.js, not index-new.js" };
+    case "glass-override-not-applied":
+      return {
+        ...good,
+        glassArm: "off",
+        glassViolation:
+          "backdrop-filter=saturate(1.9) blur(24px) on header.kin-glass (the override did not apply)",
+      };
     case "list-never-rendered":
       return { ...good, listRendered: false };
     case "scroll-did-not-move":
@@ -343,6 +384,42 @@ function selfCheckCase(kind) {
     const doc = {
       schema: "phone-interaction/1",
       legs: { sessions: { runs, summary: summarizeRuns(runs) } },
+      guards: [],
+    };
+    process.stdout.write(`${JSON.stringify(doc)}\n`);
+    return;
+  }
+  if (kind === "glass-plan-alternates-by-run-parity") {
+    const list = (plan) => plan.map((arms, index) => `${index + 1}=${arms.join(",")}`).join(" ");
+    process.stdout.write(
+      `ab ${list(glassPlan(4, "ab"))}; single on ${list(glassPlan(2, "on"))}; ` +
+        `single off ${list(glassPlan(2, "off"))}\n`,
+    );
+    return;
+  }
+  if (kind === "glass-off-css-covers-all-four-classes") {
+    process.stdout.write(`${JSON.stringify(GLASS_OFF_CSS)}\n`);
+    return;
+  }
+  if (kind === "glass-json-carries-arm") {
+    // Two synthetic A/B runs whose arms measure differently: the on arm is a
+    // 16/17 ms clock, the off arm a 33/50 ms one, so the paired delta must be
+    // +17 ms at p50. Nearest-rank, like every other number here.
+    const onMetrics = frameMetrics([16, 16, 17, 16, 16], []);
+    const offMetrics = frameMetrics([33, 33, 50, 33, 33], []);
+    const runsDetail = [1, 2].map((run) => ({
+      run,
+      glassOrder: run % 2 === 1 ? ["on", "off"] : ["off", "on"],
+      glassArms: [
+        { glass: "on", sessions: { glass: "on", metrics: onMetrics } },
+        { glass: "off", sessions: { glass: "off", metrics: offMetrics } },
+      ],
+    }));
+    const doc = {
+      schema: "phone-interaction/1",
+      glass: "ab",
+      runsDetail,
+      legs: { sessions: summarizeGlassAb(runsDetail, "sessions") },
       guards: [],
     };
     process.stdout.write(`${JSON.stringify(doc)}\n`);
@@ -425,13 +502,114 @@ function selfCheck() {
     }
   }
 
+  const runArgs = (args) =>
+    spawnSync(process.execPath, [SELF, ...args], { encoding: "utf8", timeout: 20_000 });
+
+  // --glass=bogus must be refused at parse time, before any preflight or
+  // browser work. The trailing case keeps a regressed parser from falling
+  // through into a real run.
+  const bogus = runArgs(["--glass=bogus", "--self-check-case", "stats-nearest-rank"]);
+  const bogusLine = (bogus.stderr || "").trim().split("\n")[0] || "";
+  if (bogus.status !== 2 || !bogusLine.startsWith("GUARD glass-unknown-value: ")) {
+    fail(
+      `--glass=bogus exited ${bogus.status} with '${bogusLine || "(empty)"}', ` +
+        "want exit 2 and 'GUARD glass-unknown-value: ...'",
+    );
+  } else {
+    process.stdout.write(`ok glass-unknown-value exits 2: ${bogusLine}\n`);
+  }
+
+  const abOnce = runArgs(["--glass=ab", "--runs", "1", "--self-check-case", "stats-nearest-rank"]);
+  const abOnceLine = (abOnce.stderr || "").trim().split("\n")[0] || "";
+  if (abOnce.status !== 2 || !abOnceLine.startsWith("GUARD glass-ab-needs-two-runs: ")) {
+    fail(
+      `--glass=ab --runs 1 exited ${abOnce.status} with '${abOnceLine || "(empty)"}', ` +
+        "want exit 2 and 'GUARD glass-ab-needs-two-runs: ...'",
+    );
+  } else {
+    process.stdout.write(`ok glass-ab-needs-two-runs exits 2: ${abOnceLine}\n`);
+  }
+
+  const plan = run("glass-plan-alternates-by-run-parity");
+  const planText = (plan.stdout || "").trim();
+  const planChecks = [
+    ["ab 1=on,off 2=off,on 3=on,off 4=off,on", /ab 1=on,off 2=off,on 3=on,off 4=off,on/],
+    ["single on 1=on 2=on", /single on 1=on 2=on/],
+    ["single off 1=off 2=off", /single off 1=off 2=off/],
+  ];
+  const planMissing = planChecks.filter(([, pattern]) => !pattern.test(planText)).map(([want]) => want);
+  if (plan.status !== 0 || planMissing.length > 0) {
+    fail(`glass plan exited ${plan.status} printed '${planText}', missing: ${planMissing.join("; ")}`);
+  } else {
+    process.stdout.write(`ok glass plan alternates by run parity: ${planText}\n`);
+  }
+
+  const cssRun = run("glass-off-css-covers-all-four-classes");
+  let glassCss = null;
+  try {
+    glassCss = JSON.parse(cssRun.stdout || "");
+  } catch {
+    glassCss = null;
+  }
+  // The selector list is spelled out here on purpose: a typo in the
+  // implementation's own list must not satisfy its own check.
+  const wantedSelectors = [".kin-glass", ".kin-glass-float", ".kin-sheet-surface", ".kin-scrim"];
+  if (cssRun.status !== 0 || typeof glassCss !== "string") {
+    fail(`glass-off-css case exited ${cssRun.status} without a CSS string`);
+  } else {
+    const missing = wantedSelectors.filter((selector) => !glassCss.includes(selector));
+    const noStandard = !/(^|\n)\s*backdrop-filter:\s*none\s*!important/.test(glassCss);
+    const noWebkit = !/(^|\n)\s*-webkit-backdrop-filter:\s*none\s*!important/.test(glassCss);
+    if (missing.length > 0 || noStandard || noWebkit) {
+      fail(
+        `glass off CSS is incomplete: missing ${missing.join(", ") || "nothing"}` +
+          `${noStandard ? "; no backdrop-filter: none !important" : ""}` +
+          `${noWebkit ? "; no -webkit-backdrop-filter: none !important" : ""}`,
+      );
+    } else {
+      process.stdout.write(
+        "ok glass off CSS: four carriers, both properties, every declaration !important\n",
+      );
+    }
+  }
+
+  const abRun = run("glass-json-carries-arm");
+  let abDoc = null;
+  try {
+    abDoc = JSON.parse(abRun.stdout || "");
+  } catch {
+    abDoc = null;
+  }
+  const abLeg = abDoc?.legs?.sessions;
+  if (abRun.status !== 0 || !abDoc) {
+    fail(`glass-json-carries-arm exited ${abRun.status} without parseable JSON`);
+  } else if (
+    abLeg?.arms?.on?.glass !== "on" ||
+    abLeg?.arms?.off?.glass !== "off" ||
+    abLeg?.arms?.on?.summary?.p50?.p50 !== 16 ||
+    abLeg?.arms?.off?.summary?.p50?.p50 !== 33 ||
+    abLeg?.paired?.summary?.p50?.p50 !== 17 ||
+    abLeg?.paired?.runs?.length !== 2
+  ) {
+    fail(`glass JSON did not carry both arms and the paired delta: ${JSON.stringify(abLeg)}`);
+  } else {
+    const orders = (abDoc.runsDetail || []).map((row) => (row.glassOrder || []).join("->")).join(",");
+    if (!/on->off/.test(orders) || !/off->on/.test(orders)) {
+      fail(`glass JSON did not carry both arm orders per run: '${orders}'`);
+    } else {
+      process.stdout.write(
+        `ok glass JSON carries the arm: on p50 16 -> off p50 33, paired +17 ms, orders ${orders}\n`,
+      );
+    }
+  }
+
   if (failures > 0) {
     process.stderr.write(`FAIL phone-interaction --self-check: ${failures} case(s) failed\n`);
     process.exit(1);
   }
   process.stdout.write(
     `ok phone-interaction --self-check: nearest-rank pinned, ${GUARD_NAMES.length} guards exit 2, ` +
-      "short sets refused, JSON round-trips\n",
+      "short sets refused, JSON round-trips, glass plan/CSS/arm JSON pinned\n",
   );
   process.exit(0);
 }
@@ -441,7 +619,15 @@ function selfCheck() {
 /* ------------------------------------------------------------------ */
 
 function parseArgs(argv) {
-  const opts = { runs: 5, json: false, selfCheck: false, selfCheckCase: null, headless: false, help: false };
+  const opts = {
+    runs: 5,
+    json: false,
+    selfCheck: false,
+    selfCheckCase: null,
+    headless: false,
+    glass: "on",
+    help: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--runs" || arg.startsWith("--runs=")) {
@@ -450,6 +636,12 @@ function parseArgs(argv) {
         throw new Error(`--runs must be a positive integer, got '${value ?? ""}'`);
       }
       opts.runs = Number(value);
+    } else if (arg === "--glass" || arg.startsWith("--glass=")) {
+      const value = arg === "--glass" ? argv[++i] : arg.slice("--glass=".length);
+      if (!["on", "off", "ab"].includes(value)) {
+        guard("glass-unknown-value", `--glass must be on, off or ab, got '${value ?? ""}'`);
+      }
+      opts.glass = value;
     } else if (arg === "--json") {
       opts.json = true;
     } else if (arg === "--headless") {
@@ -466,6 +658,17 @@ function parseArgs(argv) {
     }
   }
   return opts;
+}
+
+/**
+ * Which arms each run measures, in order. `ab` alternates by run parity: a
+ * fixed order would let load drift over the run sequence masquerade as an arm
+ * effect. Pure, so the self-check can pin the alternation without a browser.
+ */
+function glassPlan(runs, mode) {
+  return Array.from({ length: runs }, (_, index) =>
+    mode === "ab" ? (index % 2 === 0 ? ["on", "off"] : ["off", "on"]) : [mode],
+  );
 }
 
 function summarizeRuns(runs) {
@@ -948,6 +1151,34 @@ async function now(page) {
   return page.evaluate(() => performance.now());
 }
 
+/**
+ * Inject this arm's stylesheet, then prove it: in the off arm every mounted
+ * blur carrier's computed filter must read `none` before a frame is recorded.
+ * The violation goes into the sample so the single guard site decides.
+ */
+async function applyGlass(page, arm) {
+  await page.addStyleTag({ content: arm === "off" ? GLASS_OFF_CSS : GLASS_ON_CSS });
+  const checked = await page.evaluate((selector) => {
+    const describe = (el) => {
+      const classes = String(el.className || "").trim().split(/\s+/).filter(Boolean).join(".");
+      return `${el.tagName.toLowerCase()}${classes ? `.${classes}` : ""}`;
+    };
+    const carriers = [...document.querySelectorAll(selector)];
+    const violations = [];
+    for (const el of carriers) {
+      const style = getComputedStyle(el);
+      for (const property of ["backdrop-filter", "-webkit-backdrop-filter"]) {
+        const value = style.getPropertyValue(property);
+        if (value && value !== "none") {
+          violations.push(`${property}=${value} on ${describe(el)}`);
+        }
+      }
+    }
+    return { carriers: carriers.length, violations };
+  }, GLASS_CARRIER_SELECTOR);
+  return { carriers: checked.carriers, violation: checked.violations[0] ?? null };
+}
+
 /* ------------------------------------------------------------------ */
 /* Page helpers                                                       */
 /* ------------------------------------------------------------------ */
@@ -1068,10 +1299,11 @@ async function open(page, url) {
   await waitUsable(page);
 }
 
-async function measureSessions(page, cdp, expectedEntry) {
+async function measureSessions(page, cdp, expectedEntry, glassArm = "on") {
   await open(page, `${page.__base}/sessions`);
   const staleDist = checkServed(await servedEntry(page), expectedEntry);
   if (staleDist) guard("stale-dist", staleDist);
+  const glass = await applyGlass(page, glassArm);
 
   await page
     .locator("[data-session-row]")
@@ -1108,11 +1340,15 @@ async function measureSessions(page, cdp, expectedEntry) {
     longtasks: window.longtasks,
     longtaskSupported: window.longtaskSupported,
     idleP50: idle.p50,
+    glassArm,
+    glassViolation: glass.violation,
   };
   const metrics = runGuards(sample);
   return {
     metrics,
     idle,
+    glass: glassArm,
+    glassCarriers: glass.carriers,
     rows: await rowCount(page),
     folds,
     intervals: sample.intervals,
@@ -1215,8 +1451,9 @@ async function measureComposer(page, cdp, daemon, taskId) {
 }
 
 /** Scroll a long transcript from its bottom upward. */
-async function measureTranscript(page, cdp, taskId, idleP50) {
+async function measureTranscript(page, cdp, taskId, idleP50, glassArm = "on") {
   await open(page, `${page.__base}/tasks/${taskId}`);
+  const glass = await applyGlass(page, glassArm);
   await page
     .locator("[data-conversation-pane]")
     .first()
@@ -1264,11 +1501,16 @@ async function measureTranscript(page, cdp, taskId, idleP50) {
     longtasks: window.longtasks,
     longtaskSupported: window.longtaskSupported,
     idleP50,
+    glassArm,
+    glassViolation: glass.violation,
   };
   const metrics = runGuards(sample);
   return {
     metrics,
     messages,
+    glass: glassArm,
+    glassCarriers: glass.carriers,
+    idleP50,
     intervals: sample.intervals,
     longtasks: sample.longtasks,
     scrollTop: { before: before.scrollTop, after: after?.scrollTop ?? null },
@@ -1284,7 +1526,7 @@ function printReport(doc) {
     `machine: ${doc.machine.platform} ${doc.machine.release} ${doc.machine.arch}, ` +
       `${doc.machine.cpus} cpus; load average ${doc.machine.loadavg.map((v) => v.toFixed(2)).join(" ")}`,
   );
-  say(`browser: ${doc.chrome} (${doc.browserMode})`);
+  say(`browser: ${doc.chrome} (${doc.browserMode}); glass=${doc.glass}`);
   say(`viewport: ${doc.viewport.width}x${doc.viewport.height} (Chrome, isMobile, hasTouch)`);
   say(`commit: ${doc.commit}`);
   say(`entry chunk: ${doc.entry.path} (${doc.entry.bytes} bytes)`);
@@ -1295,9 +1537,26 @@ function printReport(doc) {
   );
   say("");
   for (const run of doc.runsDetail) {
+    const tapText = Number.isFinite(run.tap?.duration) ? `${run.tap.duration}ms` : "unmeasured";
+    if (run.glassArms) {
+      say(`run ${run.run}  glass order ${run.glassOrder.join(" -> ")}  tap=${tapText}`);
+      for (const arm of run.glassArms) {
+        const s = arm.sessions.metrics;
+        const t = arm.transcript.metrics;
+        say(
+          `  glass=${arm.glass.padEnd(3)} carriers=${arm.sessions.glassCarriers}/${arm.transcript.glassCarriers}  ` +
+            `sessions rows=${arm.sessions.rows} frames=${s.frames} ` +
+            `p50=${s.p50}ms p90=${s.p90}ms dropped=${s.droppedPct}% ` +
+            `longtasks=${s.longTasks}/${s.blockingMs}ms idle-p50=${arm.sessions.idle.p50}ms  ` +
+            `transcript frames=${t.frames} p50=${t.p50}ms p90=${t.p90}ms ` +
+            `dropped=${t.droppedPct}% longtasks=${t.longTasks}/${t.blockingMs}ms ` +
+            `idle-p50=${arm.transcript.idleP50}ms`,
+        );
+      }
+      continue;
+    }
     const sessions = run.sessions;
     const transcript = run.transcript;
-    const tapText = Number.isFinite(run.tap?.duration) ? `${run.tap.duration}ms` : "unmeasured";
     say(
       `run ${run.run}  sessions rows=${sessions.rows} frames=${sessions.metrics.frames} ` +
         `p50=${sessions.metrics.p50}ms p90=${sessions.metrics.p90}ms dropped=${sessions.metrics.droppedPct}% ` +
@@ -1314,6 +1573,17 @@ function printReport(doc) {
     const tasks = doc.runsDetail.flatMap((run) => run[leg].longtasks || []);
     return frameMetrics(all, tasks);
   };
+  const pooledArm = (leg, arm) => {
+    const armLegs = doc.runsDetail.flatMap((run) =>
+      (run.glassArms || []).filter((entry) => entry.glass === arm).map((entry) => entry[leg]),
+    );
+    return frameMetrics(
+      armLegs.flatMap((entry) => entry.intervals || []),
+      armLegs.flatMap((entry) => entry.longtasks || []),
+    );
+  };
+  const signed = (value, unit = "") =>
+    Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value}${unit}` : "n/a";
   // The per-run metrics are what the JSON carries; the printed headline pools
   // every frame interval of every run, so a single bad run cannot be averaged
   // away by a good one.
@@ -1321,6 +1591,28 @@ function printReport(doc) {
     ["sessions", "/sessions scroll"],
     ["transcript", "/tasks/:id transcript scroll"],
   ]) {
+    if (doc.glass === "ab") {
+      say(`${label} — glass A/B, ${doc.runs} runs (off − on per run):`);
+      for (const arm of ["on", "off"]) {
+        const metric = pooledArm(leg, arm);
+        say(
+          `  glass=${arm.padEnd(3)} frame interval p50 ${metric.p50}ms p90 ${metric.p90}ms · ` +
+            `dropped ${metric.droppedPct}% · long tasks ${metric.longTasks} (${metric.blockingMs} ms blocking)`,
+        );
+      }
+      const paired = doc.legs[leg].paired;
+      const perRun = paired.runs
+        .map(
+          (pair) =>
+            `run ${pair.run} ${pair.order} p90 ${signed(pair.p90, "ms")} dropped ${signed(pair.droppedPct, "pp")}`,
+        )
+        .join(" · ");
+      say(
+        `  paired p50 ${signed(paired.summary.p50.p50, "ms")} p90 ${signed(paired.summary.p90.p50, "ms")} ` +
+          `dropped ${signed(paired.summary.droppedPct.p50, "pp")} · ${perRun}`,
+      );
+      continue;
+    }
     const metric = pooled(leg);
     say(
       `${label}: frame interval p50 ${metric.p50}ms p90 ${metric.p90}ms · ` +
@@ -1357,6 +1649,57 @@ function summarizeLeg(runs) {
   return { runs: measured, summary: summarizeRuns(measured) };
 }
 
+const delta = (off, on) => (Number.isFinite(off) && Number.isFinite(on) ? r1(off - on) : null);
+
+/**
+ * Per-leg A/B summary: each arm keeps the single-arm shape, and the paired
+ * per-run delta is reported as off − on (negative = the blur arm cost more).
+ * The paired summary is nearest-rank over the per-run deltas, not a
+ * difference of pooled medians: the pairing is what removes machine drift.
+ */
+function summarizeGlassAb(runsDetail, leg) {
+  const on = [];
+  const off = [];
+  const pairs = [];
+  for (const run of runsDetail) {
+    const arms = run.glassArms || [];
+    const onArm = arms.find((arm) => arm.glass === "on");
+    const offArm = arms.find((arm) => arm.glass === "off");
+    if (!onArm?.[leg] || !offArm?.[leg]) continue;
+    on.push(onArm[leg]);
+    off.push(offArm[leg]);
+    const onMetrics = onArm[leg].metrics || {};
+    const offMetrics = offArm[leg].metrics || {};
+    pairs.push({
+      run: run.run,
+      order: arms.map((arm) => arm.glass).join("->"),
+      p50: delta(offMetrics.p50, onMetrics.p50),
+      p90: delta(offMetrics.p90, onMetrics.p90),
+      droppedPct: delta(offMetrics.droppedPct, onMetrics.droppedPct),
+      longTasks:
+        Number.isFinite(offMetrics.longTasks) && Number.isFinite(onMetrics.longTasks)
+          ? offMetrics.longTasks - onMetrics.longTasks
+          : null,
+    });
+  }
+  return {
+    glass: "ab",
+    arms: {
+      on: { glass: "on", ...summarizeLeg(on) },
+      off: { glass: "off", ...summarizeLeg(off) },
+    },
+    paired: {
+      runs: pairs,
+      summary: {
+        p50: stats(pairs.map((pair) => pair.p50)),
+        p90: stats(pairs.map((pair) => pair.p90)),
+        droppedPct: stats(pairs.map((pair) => pair.droppedPct)),
+        longTasks: stats(pairs.map((pair) => pair.longTasks)),
+      },
+    },
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* Main                                                               */
 /* ------------------------------------------------------------------ */
@@ -1367,9 +1710,15 @@ async function main() {
 
   if (opts.help) {
     process.stdout.write(
-      "usage: node scripts/phone-interaction.mjs [--runs N] [--json] [--headless] [--self-check]\n",
+      "usage: node scripts/phone-interaction.mjs [--runs N] [--glass=on|off|ab] [--json] [--headless] [--self-check]\n",
     );
     return;
+  }
+  if (opts.glass === "ab" && opts.runs < 2) {
+    guard(
+      "glass-ab-needs-two-runs",
+      `--glass=ab pairs the two arms inside each run, so it needs --runs 2 or more (got ${opts.runs})`,
+    );
   }
   if (opts.selfCheckCase) {
     selfCheckCase(opts.selfCheckCase);
@@ -1429,7 +1778,9 @@ async function main() {
         `follow-ups=${transcript.sent}`,
     );
 
+    const plans = glassPlan(opts.runs, opts.glass);
     for (let run = 1; run <= opts.runs; run++) {
+      const arms = plans[run - 1];
       const context = await browser.newContext({
         viewport: VIEWPORT,
         deviceScaleFactor: 1,
@@ -1457,26 +1808,68 @@ async function main() {
       await page.addInitScript(installProbes);
       const cdp = await context.newCDPSession(page);
       try {
-        const sessions = await measureSessions(page, cdp, entryFile.name);
-        const tapped = await measureTap(page, cdp);
-        const sheet = await measureSheet(page, cdp);
-        const composer = await measureComposer(page, cdp, daemon, morning.id);
-        const transcriptRun = await measureTranscript(page, cdp, morning.id, sessions.idle.p50);
-        runsDetail.push({
+        let tapped;
+        let sheet;
+        let composer;
+        const armResults = [];
+        if (arms.length > 1) {
+          // Interactions keep today's single measurement per run; the A/B is
+          // the two scroll legs, each on a freshly opened page per arm so the
+          // navigation (and its scroll reset) is the same work in both.
+          tapped = await measureTap(page, cdp);
+          sheet = await measureSheet(page, cdp);
+          composer = await measureComposer(page, cdp, daemon, morning.id);
+          for (const arm of arms) {
+            const sessions = await measureSessions(page, cdp, entryFile.name, arm);
+            const transcriptRun = await measureTranscript(page, cdp, morning.id, sessions.idle.p50, arm);
+            armResults.push({ glass: arm, sessions, transcript: transcriptRun });
+          }
+        } else {
+          const arm = arms[0];
+          const sessions = await measureSessions(page, cdp, entryFile.name, arm);
+          tapped = await measureTap(page, cdp);
+          sheet = await measureSheet(page, cdp);
+          composer = await measureComposer(page, cdp, daemon, morning.id);
+          const transcriptRun = await measureTranscript(page, cdp, morning.id, sessions.idle.p50, arm);
+          armResults.push({ glass: arm, sessions, transcript: transcriptRun });
+        }
+        const detail = {
           run,
           loadavg: os.loadavg().map((value) => Number(value.toFixed(2))),
-          sessions: { ...sessions, run },
-          transcript: { ...transcriptRun, run },
           tap: { ...tapped, run },
           sheet: { ...sheet, run },
           composer: { ...composer, run },
           pageErrors: errors.slice(0, 10),
-        });
-        say(
-          `run ${run}/${opts.runs}: sessions p50 ${sessions.metrics.p50}ms dropped ${sessions.metrics.droppedPct}% · ` +
-            `transcript p50 ${transcriptRun.metrics.p50}ms dropped ${transcriptRun.metrics.droppedPct}% · ` +
-            `tap ${tapped.duration}ms`,
-        );
+        };
+        if (arms.length > 1) {
+          detail.glassOrder = arms;
+          detail.glassArms = armResults.map((result) => ({
+            glass: result.glass,
+            sessions: { ...result.sessions, run },
+            transcript: { ...result.transcript, run },
+          }));
+        } else {
+          detail.sessions = { ...armResults[0].sessions, run };
+          detail.transcript = { ...armResults[0].transcript, run };
+        }
+        runsDetail.push(detail);
+        if (arms.length > 1) {
+          say(`run ${run}/${opts.runs}: glass order ${arms.join(" -> ")}`);
+          for (const result of armResults) {
+            say(
+              `  glass=${result.glass}: sessions p50 ${result.sessions.metrics.p50}ms ` +
+                `dropped ${result.sessions.metrics.droppedPct}% · transcript p50 ` +
+                `${result.transcript.metrics.p50}ms dropped ${result.transcript.metrics.droppedPct}%`,
+            );
+          }
+        } else {
+          say(
+            `run ${run}/${opts.runs}: sessions p50 ${armResults[0].sessions.metrics.p50}ms ` +
+              `dropped ${armResults[0].sessions.metrics.droppedPct}% · transcript p50 ` +
+              `${armResults[0].transcript.metrics.p50}ms dropped ${armResults[0].transcript.metrics.droppedPct}% · ` +
+              `tap ${tapped.duration}ms`,
+          );
+        }
       } finally {
         await context.close().catch(() => {});
       }
@@ -1499,6 +1892,7 @@ async function main() {
     },
     chrome: chromeVersion,
     browserMode,
+    glass: opts.glass,
     viewport: VIEWPORT,
     entry: entryFile,
     seed: seedCounts,
@@ -1506,8 +1900,14 @@ async function main() {
     runsDetail,
     guards: [],
     legs: {
-      sessions: summarizeLeg(runsDetail.map((run) => run.sessions)),
-      transcript: summarizeLeg(runsDetail.map((run) => run.transcript)),
+      sessions:
+        opts.glass === "ab"
+          ? summarizeGlassAb(runsDetail, "sessions")
+          : { glass: opts.glass, ...summarizeLeg(runsDetail.map((run) => run.sessions)) },
+      transcript:
+        opts.glass === "ab"
+          ? summarizeGlassAb(runsDetail, "transcript")
+          : { glass: opts.glass, ...summarizeLeg(runsDetail.map((run) => run.transcript)) },
     },
     tap: stats(runsDetail.map((run) => run.tap?.duration).filter(Number.isFinite)),
     sheet: stats(runsDetail.map((run) => run.sheet?.duration).filter(Number.isFinite)),
