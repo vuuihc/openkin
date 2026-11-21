@@ -692,6 +692,25 @@
       ],
       "tests": [],
       "blockedReason": "CEO 2026-11-21 决定暂不做跨源（③）：实测限速下开屏只差 3.7 秒（warm 61 ms / cold 177 ms / 限速 3,674 ms），失败已由 #482 的有界重试与重载按钮覆盖；跨源白名单属权限边界，不值得为此开。恢复：Ethan 说一句要它，reopen #495（选项①）或按选项②重开本合同，再改回 draft/approved。"
+    },
+    {
+      "id": "KIN-QUALITY-001",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J1",
+        "J2"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "读完整条回答，再接着问（820 优先）",
+      "file": "docs/product/stories/KIN-QUALITY-001.md",
+      "surface": "Mac 上接着问 / 手机上接着问",
+      "ownerPaths": [],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }
