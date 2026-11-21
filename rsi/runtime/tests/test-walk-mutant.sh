@@ -45,8 +45,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 13:
-    raise SystemExit("manifest must be exactly thirteen entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 14:
+    raise SystemExit("manifest must be exactly fourteen entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -220,10 +220,24 @@ if '"pr"' not in panel_exit["old"] or '"pr"' in panel_exit["new"]:
     raise SystemExit("the J13 mutant does not refuse the PR panel value in parseWorkspaceLink")
 if "--walk-once J13" not in panel_exit["test"]:
     raise SystemExit("the J13 entry's `test` does not walk J13 (--walk-once J13)")
-print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
+# The J15 mutant must stop the question card from rendering, not rename a
+# testid: the walk waits for the question text a person reads, so a hidden or
+# renamed card would redden for the wrong reason. A typed `true` condition
+# keeps the JSX narrowed and type-checked while the bundle renders null;
+# `false ? null : <card>` would still pick the card branch, and `false &&`
+# breaks the narrowing, so both are the no-ops this pin exists to catch.
+question_card = next((e for e in entries if e["file"] == "ui/src/pages/TaskDetailPage.tsx"
+                      and "--walk-once J15" in e["test"]), None)
+if question_card is None:
+    raise SystemExit("no J15 entry for ui/src/pages/TaskDetailPage.tsx")
+if "<UserQuestionCard" not in question_card["old"] or "(true as boolean) ? null :" not in question_card["new"]:
+    raise SystemExit("the J15 mutant does not stop the question card from rendering")
+if "data-testid" in question_card["new"]:
+    raise SystemExit("the J15 mutant renames a testid instead of not rendering the card")
+print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
       % (j3["file"], j7["file"], j10["file"], follow["file"], review["file"],
          rerun["file"], stop["file"], shell["file"], pr["file"], rowmenu["file"],
-         phone["file"], panel_exit["file"]))
+         phone["file"], panel_exit["file"], question_card["file"]))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"

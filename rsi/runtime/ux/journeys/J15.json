@@ -1,0 +1,88 @@
+{
+  "title": "Mac: answer the agent's mid-run question from its card",
+  "viewports": [
+    "mac"
+  ],
+  "steps": [
+    [
+      "goto",
+      "/tasks/{conversation}?focus={focus}"
+    ],
+    [
+      "wait",
+      "text=How should the release go out?"
+    ],
+    [
+      "wait",
+      "text=Ship it now"
+    ],
+    [
+      "wait",
+      "text=Wait for the review"
+    ],
+    [
+      "shot",
+      "question-card"
+    ],
+    [
+      "click",
+      "css=[data-testid=\"user-question-card\"] button[aria-label='Ship it now']"
+    ],
+    [
+      "click",
+      "css=[data-testid=\"user-question-card\"]:has-text('How should the release go out?') button:has-text('提交'), [data-testid=\"user-question-card\"]:has-text('How should the release go out?') button:has-text('Submit')"
+    ],
+    [
+      "gone",
+      "css=[data-testid=\"user-question-card\"]:has-text('How should the release go out?')"
+    ],
+    [
+      "wait",
+      "text=What should the release notes say?"
+    ],
+    [
+      "fill",
+      "css=[data-testid=\"user-question-card\"]:has-text('What should the release notes say?') input[type=text]",
+      "Go out tomorrow morning, with the migration note first."
+    ],
+    [
+      "key",
+      "Enter"
+    ],
+    [
+      "gone",
+      "css=[data-testid=\"user-question-card\"]"
+    ],
+    [
+      "count",
+      "css=[data-testid=\"user-question-card\"]",
+      "0"
+    ],
+    [
+      "shot",
+      "answered"
+    ],
+    [
+      "goto",
+      "/tasks/{conversation}"
+    ],
+    [
+      "wait",
+      "css=p:text-is('需要你的回答'), p:text-is('Needs your answer')"
+    ],
+    [
+      "count",
+      "css=p:text-is('需要你的回答'), p:text-is('Needs your answer')",
+      "2"
+    ],
+    [
+      "count",
+      "css=[data-testid=\"user-question-card\"]",
+      "0"
+    ],
+    [
+      "shot",
+      "answered-after-reload"
+    ]
+  ]
+}
