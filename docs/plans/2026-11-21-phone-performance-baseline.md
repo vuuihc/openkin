@@ -137,7 +137,8 @@ decisions; this repository already deleted 15,364 lines of native iOS once
 2. **Glass A/B before blaming the blur.** If containment alone does not close
    the gap, add a glass-off control to this script and re-measure; the p90
    signature points at blur over a tall scrolling layer but this run did not
-   isolate it.
+   isolate it. **Row 19 ran that control: the blur is not attributable — see
+   `## Glass A/B (row 19)` below, and the next candidate is step 1.**
 3. **Do not virtualize 61 messages.** The absence of long tasks and the
    existing memoized message components say the DOM count is not the cost.
 4. **Do not start an RN client.** The measured interactions are 50–151 ms and
@@ -169,3 +170,65 @@ node scripts/phone-interaction.mjs --runs 5 --json  # headed Chrome required
 The JSON copy for this run is kept under the lane's local `state/shots/`
 directory and is not committed. Exit 0 = measured; exit 2 = a guard fired or
 the measurement could not run.
+
+## Glass A/B (row 19)
+
+**Status: measured — control clean, verdict `not attributable`.** Command:
+`node scripts/phone-interaction.mjs --runs 5 --glass=ab --json` on the product
+tree at `06dbce0b` (this row touches no product file; the harness is the one
+this row adds), exit 0, **no guard fired**. Chrome **157.0.8103.51 headed**,
+viewport **390×844** (`isMobile`, `hasTouch`), 8 CPUs, 1-minute load
+**7.7–9.9** across the five runs, idle-rAF p50 **8.3–8.4 ms** in every arm
+(120 Hz clock, not throttled). Seed: **30 rows**, **61 message events**, 19
+follow-ups.
+
+Each run measured both scroll legs twice, re-opening the page per arm; arm
+order alternated by run parity (1 on→off, 2 off→on, …). The off arm set
+`backdrop-filter: none !important` (and `-webkit-`) on the four carriers; the
+on arm injected an inert declaration through the same `<style>` element. The
+override was proven on every mounted carrier — **2 on `/sessions`**
+(`SessionsHeader` + phone footer, both `.kin-glass`) and **1 on
+`/tasks/:id`** (`MobileHeader`) — in all ten arm visits; the
+`glass-override-not-applied` guard never fired. The `/sessions` leg was
+included in both arms; the whole five-run pass plus build and seed finished in
+under two minutes, so the extra list leg stayed far inside the 30 s/run budget.
+
+Pooled over five runs (frame intervals, same method as #522):
+
+| Leg | Arm | Frames | Frame p50 | Frame p90 | Dropped | Long tasks |
+|---|---|---:|---:|---:|---:|---:|
+| `/sessions` scroll | on | 1,215 | 8.3 ms | 9.2 ms | 3.3 % | 0 |
+| `/sessions` scroll | off | 1,225 | 8.3 ms | 9.2 ms | 4.8 % | 0 |
+| `/tasks/:id` transcript scroll | on | 1,212 | 8.3 ms | 11.6 ms | 9.8 % | 0 |
+| `/tasks/:id` transcript scroll | off | 1,215 | 8.3 ms | 10.8 ms | 8.6 % | 0 |
+
+Paired per run (off − on; nearest-rank over the five per-run deltas, which is
+the statistic that removes machine drift):
+
+| Leg | p90 | Dropped | Per-run p90 / dropped |
+|---|---:|---:|---|
+| `/sessions` | **+0.3 ms** | **+2.5 pp** | +0.3/+3.7, −0.4/+0.9, +0.4/+2.5, +0.8/+2.6, −0.2/−2.1 |
+| Transcript | **+0.1 ms** | **+1.3 pp** | +1.1/+1.9, +0.1/−0.8, +3.4/+1.8, −7.2/−10.1, −0.4/+1.3 |
+
+**Verdict: not attributable.** Removing the blur moved the transcript's paired
+p90 by a median **+0.1 ms** and its dropped-frame ratio by **+1.3 pp** — both
+inside the `/sessions` leg's own paired spread (same carriers, same override:
+median **+0.3 ms** / **+2.5 pp**, range **−2.1 to +3.7 pp**) — and the
+transcript's per-run deltas changed sign (−10.1 to +1.9 pp); the glass is not
+this transcript's measured frame cost. The next candidate is step 1,
+transcript paint containment: the transcript still drops 8.6–9.8 % with zero
+long tasks while the list drops 3.3–4.8 % under the same carriers. No product
+code was written and no story is signed by this row.
+
+The tap (p50 134 / p90 155 ms), sheet (57/60 ms) and composer (54/60 ms) legs
+were measured once per run outside the A/B and stayed in #522's band.
+
+**What this cannot prove.** Chrome headed is a proxy; WKWebView on a real
+iPhone is the fact. The machine was shared (load printed above) and the
+override is a simulation of removing blur, not a product change — it also
+removed the phone footer's blur on `/sessions` because the footer carries
+`.kin-glass`. This run's absolute cost is lower than #522's (transcript on-arm
+9.8 % dropped / p90 11.6 ms here vs 18.0 % / 16.3 ms there, at a lower load),
+so the two rows' absolute numbers are not comparable; the paired delta inside
+this run is the evidence, and a longer transcript or a loaded device could
+still make the blur matter.
