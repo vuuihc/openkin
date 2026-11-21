@@ -59,9 +59,12 @@ const DELAY_TASKS_MS = (() => { const n = Number(arg('delay-tasks', '0')); retur
 // The J3 contract the gate depends on: the walk must press Start for real and
 // then prove the send landed. A spec that only asserts Start is usable
 // photographs a page, not the product — the F1 path could lose the pending
-// bubble between /new and /tasks/:id and still walk green. The same parser
-// that runs the walk checks the contract, so the regression is red before a
-// browser starts:
+// bubble between /new and /tasks/:id and still walk green. It also has to
+// prove the screen *during* the route change: a frame sampler started before
+// Start and read by `steady` before the `sent` shot is the only evidence that
+// the composer never left and no skeleton flashed. The same parser that runs
+// the walk checks the contract, so the regression is red before a browser
+// starts:
 //   node walk.mjs --check-spec [--spec path/to/journeys.json]
 function checkJ3Contract(spec) {
   const steps = (((spec || {}).journeys || {}).J3 || {}).steps;
@@ -130,6 +133,28 @@ function checkJ3Contract(spec) {
   else if (replyWait >= 0 && sentAt > replyWait) errs.push('the `sent` shot must be taken while the run is still pending, before the reply');
   if (repliedAt < 0) errs.push('J3 takes no `replied` shot');
   else if (replyWait >= 0 && repliedAt < replyWait) errs.push('the `replied` shot must follow the reply wait');
+  // The hand-off frame proof (R-f1-composer-handoff). F1 is about the screen
+  // *during* the route change, not only after it: a frame sampler started
+  // before Start records whether the composer is on screen and where, and
+  // `steady` reads it back. Two placement rules keep the proof alive — the
+  // sampler starts before Start, and the assert sits after Start but before
+  // the `sent` shot. A `steady` after `sent` is refused because the mutant
+  // runner cuts the spec at that shot; the walk would then report green with
+  // the frames collected and never read.
+  const sampleAt = idx(([op]) => op === 'sample');
+  const sampleName = sampleAt >= 0 ? String(steps[sampleAt][2] ?? '').trim() : '';
+  if (sampleAt < 0) errs.push('J3 never starts a hand-off sampler (`sample css=<selector> <name>`) before Start');
+  else if (!sampleName) errs.push('the J3 `sample` step has no name; `steady` could not read it back');
+  else if (sendAt >= 0 && sampleAt > sendAt) errs.push('J3 starts the hand-off sampler after Start; the route change it exists to prove would already be over');
+  const steadyAt = sampleName ? idx(([op, name]) => op === 'steady' && String(name ?? '').trim() === sampleName) : -1;
+  if (sampleAt >= 0 && steadyAt < 0) {
+    errs.push(`J3 starts the hand-off sampler "${sampleName}" but never asserts it with a \`steady\` step; the frames are collected and thrown away`);
+  } else if (steadyAt >= 0) {
+    if (sendAt >= 0 && steadyAt < sendAt) errs.push('J3 asserts the hand-off sampler before Start; the route change it exists to prove has not happened yet');
+    if (sentAt >= 0 && steadyAt > sentAt) errs.push('the hand-off `steady` assert sits after the `sent` shot; the mutant runner cuts the spec at `sent`, so the frame proof would be dropped');
+    const maxJump = Number(steps[steadyAt][2]);
+    if (!(Number.isFinite(maxJump) && maxJump >= 0)) errs.push('the hand-off `steady` step needs a non-negative maxJumpPx — the measured bound the F1 claim quotes');
+  }
   const emptyAt = idx(([op, sel, want]) => op === 'value' && /textarea/.test(String(sel)) && String(want) === '');
   if (emptyAt < 0) errs.push('J3 never proves the composer emptied (value textarea "")');
   else if (repliedAt >= 0 && emptyAt < repliedAt) errs.push('the empty-composer check must follow the reply');
@@ -3724,6 +3749,127 @@ for (const j of want) {
           if (same) log.push('rows ' + value + ' = ' + wanted.join(' | '));
           else if (optional) log.push('skipped rows ' + value + ' (is ' + got.join(' | ') + ')');
           else hardFail.push(`${j}/${vpName}: rows ${value} are ${JSON.stringify(got)}, want ${JSON.stringify(wanted)}`);
+        } else if (op === 'sample') {
+          // `["sample", "css=<selector>", "<name>"]`: start a
+          // requestAnimationFrame loop in the page. Each painted frame records
+          // whether the element is visible (exists, non-zero box, not
+          // `visibility:hidden`, intersects the viewport), its viewport box,
+          // whether any skeleton is anywhere on the page, and a slice of the
+          // body text. It only reads — no node is inserted and no layout is
+          // written. The loop lives in the document, so a client-side route
+          // change keeps it and a document reload loses it; `steady` names that
+          // loss rather than reporting an empty sample as green. Capped at 20s
+          // or 1500 frames (rAF cadence, ~16ms).
+          const selector = String(a ?? '').trim();
+          const name = String(b ?? '').trim();
+          if (!selector.startsWith('css=') || !name) {
+            hardFail.push(`${j}/${vpName}: sample needs css=<selector> and a name, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          const css = selector.slice('css='.length);
+          await page.evaluate(({ css, name }) => {
+            const CAP_MS = 20000, CAP_FRAMES = 1500;
+            const state = { selector: css, started: performance.now(), frames: [], capped: false, raf: 0 };
+            window.__kinWalkSamples = window.__kinWalkSamples || {};
+            window.__kinWalkSamples[name] = state;
+            const round = (v) => Math.round(v * 10) / 10;
+            const record = () => {
+              if (state.frames.length >= CAP_FRAMES || performance.now() - state.started >= CAP_MS) {
+                state.capped = true;
+                state.raf = 0;
+                return;
+              }
+              let entry;
+              try {
+                const el = document.querySelector(css);
+                const r = el ? el.getBoundingClientRect() : null;
+                const style = el ? getComputedStyle(el) : null;
+                entry = {
+                  t: round(performance.now() - state.started),
+                  visible: !!(el && r && r.width > 0 && r.height > 0
+                    && style.visibility !== 'hidden'
+                    && r.right > 0 && r.bottom > 0
+                    && r.left < window.innerWidth && r.top < window.innerHeight),
+                  rect: r ? { x: round(r.x), y: round(r.y), width: round(r.width), height: round(r.height) } : null,
+                  skeleton: document.querySelector('.kin-skeleton, [data-testid$="-skeleton"]') !== null,
+                  bodyText: (document.body.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 160),
+                };
+              } catch (_) {
+                entry = { t: round(performance.now() - state.started), visible: false, rect: null, skeleton: false, bodyText: '' };
+              }
+              state.frames.push(entry);
+              state.raf = requestAnimationFrame(record);
+            };
+            state.raf = requestAnimationFrame(record);
+          }, { css, name });
+          log.push(`sample ${name} started (${selector})`);
+        } else if (op === 'steady') {
+          // `["steady", "<name>", "<maxJumpPx>"]`: stop the sampler, read the
+          // frames back, and print the measurement in one line. The hand-off
+          // claim is the visible-at-every-frame half plus stable geometry: at
+          // least 20 frames, 0 absent, 0 skeleton, and no box (x, y, width,
+          // height) moving more than maxJumpPx between consecutive visible
+          // frames. Element identity is NOT claimed — the detail page mounts
+          // its own composer — so the rect is re-read from the selector every
+          // frame rather than pinned to one node.
+          const name = String(a ?? '').trim();
+          const maxJump = Number(b);
+          if (!name || !Number.isFinite(maxJump) || maxJump < 0) {
+            hardFail.push(`${j}/${vpName}: steady needs a sample name and a non-negative maxJumpPx, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          // The route change can finish inside three or four painted frames
+          // (the message and the waiting row are handed over in memory), and an
+          // assert that fired that early would fail the ≥20-frame floor for
+          // being early rather than for what the screen did. Give the loop up
+          // to 1.2s to reach the floor, then stop it; a sample still short of
+          // the floor after that is the hard failure below.
+          const stopBy = Date.now() + 1200;
+          for (;;) {
+            const painted = await page.evaluate((name) => {
+              const state = (window.__kinWalkSamples || {})[name];
+              return state ? state.frames.length : null;
+            }, name).catch(() => null);
+            if (painted === null || painted >= 20 || Date.now() >= stopBy) break;
+            await page.waitForTimeout(50);
+          }
+          const got = await page.evaluate((name) => {
+            const state = (window.__kinWalkSamples || {})[name];
+            if (!state) return null;
+            if (state.raf) cancelAnimationFrame(state.raf);
+            state.raf = 0;
+            return { frames: state.frames, capped: state.capped, selector: state.selector };
+          }, name).catch(() => null);
+          if (!got) {
+            hardFail.push(`${j}/${vpName}: ${name} steady: the sample is gone — the document reloaded after it started, so no frames survive to prove the route change`);
+            continue;
+          }
+          const frames = got.frames;
+          const absent = frames.filter((f) => !f.visible).length;
+          const skeleton = frames.filter((f) => f.skeleton).length;
+          const r0 = (v) => Math.round(v * 10) / 10;
+          let jump = 0, prev = null, first = null, last = null;
+          for (const f of frames) {
+            if (!f.visible || !f.rect) continue;
+            if (!first) first = f.rect;
+            if (prev) {
+              jump = Math.max(jump,
+                Math.abs(f.rect.x - prev.x), Math.abs(f.rect.y - prev.y),
+                Math.abs(f.rect.width - prev.width), Math.abs(f.rect.height - prev.height));
+            }
+            prev = f.rect;
+            last = f.rect;
+          }
+          const span = first && last ? Math.hypot(last.x - first.x, last.y - first.y) : NaN;
+          const line = `${name} steady: ${frames.length} frames, ${absent} absent, ${skeleton} skeleton, max jump ${r0(jump)}px, first→last ${Number.isFinite(span) ? r0(span) + 'px' : 'n/a'}`;
+          log.push(line + (got.capped ? ' (loop capped)' : ''));
+          const why = [];
+          if (frames.length < 20) why.push(`only ${frames.length} painted frames`);
+          if (absent > 0) why.push(`${absent} frame(s) with no visible ${got.selector}`);
+          if (skeleton > 0) why.push(`${skeleton} frame(s) with a skeleton on the page`);
+          if (jump > maxJump) why.push(`the box moved or resized ${r0(jump)}px between painted frames (max ${maxJump}px)`);
+          if (why.length) hardFail.push(`${j}/${vpName}: ${line} — ${why.join('; ')}`);
+          else log.push(`steady ${name} within ${maxJump}px`);
         }
         else { hardFail.push(`${j}/${vpName}: unknown step op ${JSON.stringify(op)}`); }
       } catch (e) {
