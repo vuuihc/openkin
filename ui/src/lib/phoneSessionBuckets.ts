@@ -85,8 +85,13 @@ export type PhoneProjectBucket = {
   key: string;
   label: string;
   /** The project's cwd; empty for the pinned and imported buckets, which are
-   *  not places on a machine. */
+   *  not places on a machine. For a project record with several roots this is
+   *  the record's first root, the one the heading is keyed by. */
   cwd: string;
+  /** Every root that files under this heading. A folder no record claims is
+   *  its own one root; a record's roots travel together so archiving and
+   *  restoring the heading act on all of them, never on half of it. */
+  roots?: string[];
   rows: PhoneSessionRow[];
   lastActivityAt: number;
   /** Earliest task or session creation in the bucket, for the "date created"
@@ -99,6 +104,32 @@ export type PhoneProjectBucket = {
    *  Empty means this machine: a seeded local project record and the pinned
    *  bucket are not machine facts. */
   deviceId?: string;
+};
+
+/**
+ * A project record, as the list's rules need it.
+ *
+ * `/api/projects` is the authority for a project's identity and name; a cwd is
+ * only one of its addresses. The caller adapts the API type to this shape, so
+ * this module stays free of the record's other fields and its endpoint.
+ */
+export type PhoneProjectRecord = {
+  id: string;
+  name: string;
+  /** The record's roots, first one first. The first readable root is the
+   *  heading's key, so the key does not depend on which root has rows. */
+  roots: readonly string[];
+};
+
+/** The one heading a row files under, and the roots that heading covers. */
+type BucketIdentity = {
+  key: string;
+  label: string;
+  cwd: string;
+  roots: string[];
+  /** True when a local project record set the key and roots, rather than the
+   *  cwd standing for itself. */
+  merged: boolean;
 };
 
 /** One machine's projects, the phone list's top level. */
@@ -174,17 +205,18 @@ function tailOf(cwd: string | undefined): string {
 /**
  * A bucket's heading: the project record's name, else the folder's.
  *
- * The lookup is asked about the cwd itself, not the bucket key: in the archived
- * scope a remote copy's key carries a `\u0000device:` suffix for its own
- * identity, and that suffix is not part of the project's address. A
- * whitespace-only name is no name, so it falls through like a missing record.
+ * A whitespace-only name is no name, so it falls through like a missing
+ * record. `cwd` is the heading's own address — the record's first root when a
+ * record claims it — so the folder fallback names the place the heading opens.
+ * The record is still consulted for a remote row's name: the Hub's records
+ * describe paths, and the person named that path the same way everywhere.
  */
 function headingFor(
   cwd: string | undefined,
-  projectNameFor: (cwd: string | undefined) => string | undefined,
+  record: PhoneProjectRecord | undefined,
   noProject: string,
 ): string {
-  return (projectNameFor(cwd) ?? "").trim() || tailOf(cwd) || noProject;
+  return (record?.name ?? "").trim() || tailOf(cwd) || noProject;
 }
 
 /**
@@ -248,15 +280,15 @@ export function phoneProjectBuckets(
    *  what was put away, so it can be restored without leaving the list. It is
    *  this machine's archive, for the same reason. */
   scope: PhoneBucketScope = "active",
-  /** The `/api/projects` name for a cwd, when a record claims it.
+  /** The `/api/projects` record that claims a cwd, when one does.
    *
-   *  The record is the project's own name; the folder is only its address. A
-   *  heading that used the folder whenever rows existed gave one project two
-   *  names — `alpha` here, `Project Alpha` on the empty heading beside it —
-   *  and flipped between them as the last conversation came and went. The
-   *  caller supplies the lookup so this module stays free of the record type
-   *  and its API; with no lookup the old folder-name behaviour stands. */
-  projectNameFor: (cwd: string | undefined) => string | undefined = () => undefined,
+   *  The record is the project's own identity and name; a folder is only one
+   *  of its addresses. A record can claim several roots, and the person reads
+   *  that as one project: every root files under one heading keyed by the
+   *  record's first root. The caller supplies the lookup so this module stays
+   *  free of the record type and its API; with no lookup every cwd is its own
+   *  project. */
+  projectFor: (cwd: string | undefined) => PhoneProjectRecord | undefined = () => undefined,
   /** A bucket's manual order, keyed the way the list stores it. It replaces
    *  the attention/recency rule inside that bucket whole: a status change or a
    *  new message must not undo a move the person made. Imported sessions have
@@ -277,8 +309,59 @@ export function phoneProjectBuckets(
   // safe mistake is to disable a local write, never to point one at the wrong
   // filesystem.
   const localDevice = (device: string): boolean => !device || (selfId !== "" && device === selfId);
-  const keepProject = (cwd: string | undefined, device: string): boolean => {
-    const isArchived = localDevice(device) && archived.has(projectKeyOf(cwd));
+  /**
+   * The heading a row files under.
+   *
+   * A project record can name several roots, and the person reads that as one
+   * project: every root lands in one bucket keyed by the record's *first*
+   * root. The key is deliberately not "the root with the rows" — that would
+   * move the heading, and with it the stored manual order and the archive
+   * entry, whenever activity crossed roots. A cwd no record claims keeps its
+   * own key, so every single-root project's key stays byte-identical to the
+   * one its stored order, pin and archive entries already use.
+   *
+   * The record claims only rows that run on this machine: it describes this
+   * machine's filesystem, and a remote machine's `/work/alpha` is not the same
+   * directory. A remote row still borrows the record's *name* — a person names
+   * the path, not the machine — but keeps its own key and one root, so two
+   * remote roots never merge into one heading.
+   */
+  const identityOf = (cwd: string | undefined, device: string): BucketIdentity => {
+    const record = projectFor(cwd);
+    const roots: string[] = [];
+    const rootKeys = new Set<string>();
+    for (const root of record?.roots ?? []) {
+      const rootKey = bucketKeyFor(root);
+      if (rootKey === UNASSIGNED_PROJECT || rootKeys.has(rootKey)) continue;
+      rootKeys.add(rootKey);
+      roots.push(root);
+    }
+    // Only the record that owns the heading's key may merge. When an earlier
+    // record already claimed this record's first root, merging would let this
+    // record's rows overwrite that heading's name, cwd and archive roots in
+    // feed order; a non-owning record keeps its own cwd key and one root.
+    const first = roots[0];
+    const merged =
+      localDevice(device) && first !== undefined && projectFor(first)?.id === record?.id;
+    const primary = merged ? first : undefined;
+    const key = primary !== undefined ? projectKeyOf(primary) : projectKeyOf(cwd);
+    if (key === UNASSIGNED_PROJECT) {
+      return { key, label: copy.noProject, cwd: "", roots: [], merged: false };
+    }
+    return {
+      key,
+      label: headingFor(primary ?? cwd, record, copy.noProject),
+      cwd: primary ?? cwd ?? "",
+      roots: merged ? [...roots] : [cwd ?? ""],
+      merged,
+    };
+  };
+  const keepProject = (identity: BucketIdentity, device: string): boolean => {
+    // One project, one archive entry: the heading is put away through its
+    // first root, which is the entry `archivedCwdFor` finds and Restore
+    // clears. A stale entry left on another root cannot hide half a heading
+    // while its first root is still filed.
+    const isArchived = localDevice(device) && archived.has(projectKeyOf(identity.cwd));
     return scope === "archived" ? isArchived : !isArchived;
   };
   /**
@@ -293,10 +376,9 @@ export function phoneProjectBuckets(
    * looking at. Outside the archived scope the copies are split by machine
    * before display, so the shared key is only a grouping detail there.
    */
-  const bucketKey = (cwd: string | undefined, device: string): string => {
-    const key = projectKeyOf(cwd);
-    if (scope !== "archived" || localDevice(device)) return key;
-    return `${key}\u0000device:${device}`;
+  const bucketKey = (identity: BucketIdentity, device: string): string => {
+    if (scope !== "archived" || localDevice(device)) return identity.key;
+    return `${identity.key}\u0000device:${device}`;
   };
   const byKey = new Map<string, PhoneProjectBucket>();
   // The conversations already spoken for by a task row in this feed. An
@@ -306,16 +388,25 @@ export function phoneProjectBuckets(
   // filtered out of this scope leaves no duplicate behind.
   const claimed = new Set<string>();
 
-  const bucketFor = (cwd: string | undefined, device: string): PhoneProjectBucket => {
-    const key = bucketKey(cwd, device);
+  const bucketFor = (identity: BucketIdentity, device: string): PhoneProjectBucket => {
+    const key = bucketKey(identity, device);
     const found = byKey.get(key);
-    if (found) return found;
-    const label =
-      key === UNASSIGNED_PROJECT ? copy.noProject : headingFor(cwd, projectNameFor, copy.noProject);
+    if (found) {
+      // The local record is the heading's authority even when a remote copy of
+      // the same path happened to create the bucket first. Its roots travel
+      // with it so archive and restore act on the whole record.
+      if (identity.merged) {
+        found.label = identity.label;
+        found.cwd = identity.cwd;
+        found.roots = identity.roots;
+      }
+      return found;
+    }
     const made: PhoneProjectBucket = {
       key,
-      label,
-      cwd: key === UNASSIGNED_PROJECT ? "" : (cwd ?? ""),
+      label: identity.label,
+      cwd: identity.cwd,
+      roots: identity.roots,
       rows: [],
       lastActivityAt: 0,
       createdAt: 0,
@@ -332,11 +423,13 @@ export function phoneProjectBuckets(
     // The project's archive is a local preference, so a remote task answers to
     // its own flag but never to this machine's project archive.
     const device = (task.executing_device_id ?? "").trim();
-    if (task.archived_at ? scope !== "archived" : !keepProject(task.cwd, deviceOf(device))) {
+    const rowDevice = deviceOf(device);
+    const filed = identityOf(task.cwd, rowDevice);
+    if (task.archived_at ? scope !== "archived" : !keepProject(filed, rowDevice)) {
       continue;
     }
     const at = taskActivityAt(task);
-    const bucket = bucketFor(task.cwd, deviceOf(device));
+    const bucket = bucketFor(filed, rowDevice);
     rememberCreated(bucket, task.created_at);
     if (isActiveStatus(task.status)) bucket.hasActiveTask = true;
     const identity = conversationKey(task.session_ref_device_id, task.session_ref, selfDeviceId);
@@ -361,7 +454,7 @@ export function phoneProjectBuckets(
   for (const session of sessions) {
     const rawDevice = (session.device_id ?? "").trim();
     const device = deviceOf(rawDevice);
-    if (!keepProject(session.cwd, device)) continue;
+    if (!keepProject(identityOf(session.cwd, device), device)) continue;
     const identity = conversationKey(session.device_id, session.external_ref, selfDeviceId);
     if (identity && claimed.has(identity)) continue;
     const at = session.updated_at ?? 0;
@@ -398,15 +491,22 @@ export function phoneProjectBuckets(
   // no rows still gets its heading — that heading is where Restore lives.
   if (scope === "archived") {
     for (const cwd of archivedCwds) {
-      const key = archivedKeyOf(cwd);
+      const filed = identityOf(cwd, "");
+      // A record is one project: its archived entry is the first root's, so a
+      // stale entry on a second root neither draws a heading of its own nor
+      // resurrects a record the person has not put away.
+      if (filed.merged && !archived.has(filed.key)) continue;
+      const key = filed.merged ? filed.key : archivedKeyOf(cwd);
       if (byKey.has(key)) continue;
       byKey.set(key, {
         key,
-        label:
-          key === UNASSIGNED_PROJECT
+        label: filed.merged
+          ? filed.label
+          : key === UNASSIGNED_PROJECT
             ? copy.noProject
-            : headingFor(cwd, projectNameFor, copy.noProject),
-        cwd: key === UNASSIGNED_PROJECT ? "" : cwd,
+            : headingFor(cwd, projectFor(cwd), copy.noProject),
+        cwd: filed.merged ? filed.cwd : key === UNASSIGNED_PROJECT ? "" : cwd,
+        roots: filed.merged ? filed.roots : key === UNASSIGNED_PROJECT ? [] : [cwd],
         rows: [],
         lastActivityAt: 0,
         createdAt: 0,
