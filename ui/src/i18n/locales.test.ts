@@ -92,6 +92,44 @@ describe("locale catalogs", () => {
 });
 
 /**
+ * One object — the thing a person opens, sends a message to, and comes back to
+ * — had three names in Chinese: 会话 in the project row's menu, 任务 in the
+ * usage bar and on the not-found page. The list heading and its new button
+ * already said 对话, so the drift was visible within one screen.
+ *
+ * The three keys below are the drifted ones. `task.notFound` is only read by
+ * the conversation detail page; routine tasks keep their own vocabulary.
+ */
+describe("conversation vocabulary", () => {
+  const drifted = [
+    ["nav.newSessionIn", zh.nav.newSessionIn, en.nav.newSessionIn],
+    ["task.notFound", zh.task.notFound, en.task.notFound],
+    ["usage.taskSummary", zh.usage.taskSummary, en.usage.taskSummary],
+  ] as const;
+
+  it("names the object 对话 in the three drifted zh keys", () => {
+    for (const [path, value] of drifted) {
+      expect({ path, names: value.includes("对话") }).toEqual({ path, names: true });
+      expect({ path, drifted: /会话|任务/.test(value) }).toEqual({ path, drifted: false });
+    }
+  });
+
+  it("names the object a conversation in the three drifted en keys", () => {
+    for (const [path, , value] of drifted) {
+      expect({ path, names: /conversation/i.test(value) }).toEqual({ path, names: true });
+      expect({ path, drifted: /session|task/i.test(value) }).toEqual({ path, drifted: false });
+    }
+  });
+
+  it("leaves the routine a 例行任务", () => {
+    // 任务 is not banned from the catalogue, only from this object: a routine
+    // really is a task and keeps its name.
+    expect(zh.nav.routines).toBe("例行任务");
+    expect(en.nav.routines).toBe("Routines");
+  });
+});
+
+/**
  * Chinese text has its own punctuation, and the console was written with the
  * English kind: an ASCII colon between a label and its value, and three ASCII
  * dots for an ellipsis. Both are visible — a fullwidth colon carries its own

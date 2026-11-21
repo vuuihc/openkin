@@ -414,7 +414,9 @@ describe("the Mac sidebar list", () => {
     await userEvent.click(within(remote).getByRole("button", { name: "shared" }));
     expect(screen.getByTestId("location").textContent).toBe("/");
 
-    await userEvent.click(within(remote).getByRole("button", { name: "New session in shared" }));
+    await userEvent.click(
+      within(remote).getByRole("button", { name: "New conversation in shared" }),
+    );
     await waitFor(() => expect(localStorage.getItem("kin_draft_cwd")).toBe("/work/shared"));
     expect(localStorage.getItem("kin_draft_machine")).toBe("nas-1");
 
@@ -424,13 +426,13 @@ describe("the Mac sidebar list", () => {
       .getByRole("heading", { name: /Studio/ })
       .closest("section") as HTMLElement;
     await userEvent.click(
-      within(remoteSection).getByRole("button", { name: /New session in shared/ }),
+      within(remoteSection).getByRole("button", { name: /New conversation in shared/ }),
     );
     const localSection = screen
       .getByRole("heading", { name: /This machine/ })
       .closest("section") as HTMLElement;
     await userEvent.click(
-      within(localSection).getByRole("button", { name: "New session in shared" }),
+      within(localSection).getByRole("button", { name: "New conversation in shared" }),
     );
     await waitFor(() => expect(localStorage.getItem("kin_draft_machine")).toBeNull());
     expect(localStorage.getItem("kin_draft_cwd")).toBe("/work/shared");
