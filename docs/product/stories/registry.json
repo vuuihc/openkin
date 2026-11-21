@@ -739,7 +739,7 @@
       ],
       "title": "只留五个面：一份会被检查器执行的最小契约",
       "file": "docs/product/stories/KIN-CONTRACT-001.md",
-      "surface": "",
+      "surface": "Mac / 手机 · 五个面（列表、对话、新建、项目封面、设置）与退场表",
       "ownerPaths": [],
       "tests": [],
       "blockedReason": null
