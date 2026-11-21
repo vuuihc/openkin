@@ -4889,6 +4889,163 @@ class JourneyContractCoverageTest(unittest.TestCase):
         )
 
 
+TABLET_SPEC = os.path.join(ROOT, "rsi", "runtime", "ux", "tablet-reading.json")
+
+
+def reading_metrics(**over: object) -> dict:
+    """A measured state that passes every tablet-reading criterion.
+
+    The shape is walk.mjs's `reading` op output, not a product fixture: the
+    tests below only vary one measured field at a time so a red verdict names
+    the criterion that produced it.
+    """
+    metrics: dict = {
+        "fixture": {"marker": True, "rows": 5},
+        "viewport": {"width": 820, "height": 1180},
+        "chrome": {"height": 44},
+        "scrollPane": {"present": True},
+        "actions": [
+            {"name": "workspace", "width": 44, "height": 44, "clipped": False},
+            {"name": "pull-request", "width": 44, "height": 44, "clipped": False},
+            {"name": "share", "width": 44, "height": 44, "clipped": False},
+        ],
+        "cells": [
+            {"row": 0, "col": 0, "kind": "th", "visible": True, "relation": "self"},
+            {"row": 0, "col": 1, "kind": "th", "visible": True, "relation": "descendant"},
+            {"row": 1, "col": 0, "kind": "td", "visible": True, "relation": "descendant"},
+            {"row": 4, "col": 0, "kind": "td", "visible": True, "relation": "self"},
+            {"row": 4, "col": 3, "kind": "td", "visible": True, "relation": "descendant"},
+            # A cell below the fold is measured, never sampled; it must not
+            # turn the verdict green or red on its own.
+            {"row": 5, "col": 0, "kind": "td", "visible": False},
+        ],
+        "lastRow": {"present": True, "visible": True, "fullyVisible": True},
+        "newActivity": {"present": False, "covers": 0},
+    }
+    metrics.update(over)
+    return metrics
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class WalkTabletReadingTest(unittest.TestCase):
+    """The 820 reading diagnostic is a real seam, not a renamed green walk."""
+
+    def run_node(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [NODE, WALK, *args], capture_output=True, text=True, timeout=60
+        )
+
+    def verdict(self, metrics: dict) -> tuple[int, dict]:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "metrics.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(metrics, fh)
+            result = self.run_node("--reading-verdict", path)
+        self.assertTrue(result.stdout.strip(), result.stderr)
+        return result.returncode, json.loads(result.stdout)
+
+    def test_tablet_context_has_touch_without_phone_layout(self) -> None:
+        # 820 is the owner's iPad width: a desktop layout (isMobile false) that
+        # still receives a finger (hasTouch true). Asking the resolver the walk
+        # itself calls, not a second copy of the numbers.
+        result = self.run_node("--spec", TABLET_SPEC, "--context-options", "tablet")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        tablet = json.loads(result.stdout)
+        self.assertEqual(tablet["viewport"], {"width": 820, "height": 1180})
+        self.assertTrue(tablet["hasTouch"])
+        self.assertFalse(tablet["isMobile"])
+
+        # The two acceptance widths keep their meaning: 390 is a phone (touch
+        # and phone layout), 1100 is a pointer device (desktop layout).
+        for name, touch, mobile in (("phone", True, True), ("mac", False, False)):
+            result = self.run_node("--spec", SPEC, "--context-options", name)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            got = json.loads(result.stdout)
+            self.assertEqual(got["hasTouch"], touch, name)
+            self.assertEqual(got["isMobile"], mobile, name)
+
+        # An unknown name must refuse rather than invent a context.
+        result = self.run_node("--spec", TABLET_SPEC, "--context-options", "watch")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("watch", result.stderr)
+
+    def test_tablet_reading_metrics_reject_empty_or_hidden_cells(self) -> None:
+        # No verdict may be produced from a fixture that never rendered, from
+        # samples that are all off screen, or from a page with no actions or
+        # scroll pane: an empty measurement is unavailable, never 0 failures.
+        cases = {
+            "zero-table-rows": reading_metrics(fixture={"marker": True, "rows": 0}),
+            "marker-absent": reading_metrics(fixture={"marker": False, "rows": 5}),
+            "off-screen-only": reading_metrics(
+                cells=[{"row": 0, "col": 0, "kind": "td", "visible": False}]
+            ),
+            "no-actions": reading_metrics(actions=[]),
+            "no-scroll-pane": reading_metrics(scrollPane={"present": False}),
+            "no-final-row": reading_metrics(lastRow={"present": False}),
+        }
+        for name, metrics in cases.items():
+            with self.subTest(case=name):
+                code, doc = self.verdict(metrics)
+                self.assertEqual(code, 2, doc)
+                self.assertFalse(doc["available"], doc)
+                self.assertFalse(doc["ok"], doc)
+                self.assertTrue(doc.get("unavailable"), doc)
+
+    def test_tablet_reading_detects_small_action_and_occluded_cell(self) -> None:
+        # The four findings, each carried by its own criterion so one failure
+        # cannot suppress the others.
+        red = reading_metrics(
+            chrome={"height": 170},
+            actions=[
+                {"name": "pull-request", "width": 30, "height": 44, "clipped": True},
+                {"name": "share", "width": 44, "height": 44, "clipped": False},
+            ],
+            cells=[
+                {"row": 0, "col": 0, "kind": "th", "visible": True, "relation": "self"},
+                {"row": 4, "col": 0, "kind": "td", "visible": True, "relation": "other"},
+            ],
+            lastRow={"present": True, "visible": True, "fullyVisible": False},
+            newActivity={"present": True, "covers": 1},
+        )
+        code, doc = self.verdict(red)
+        self.assertEqual(code, 1, doc)
+        self.assertFalse(doc["ok"], doc)
+        self.assertEqual(
+            {name for name, value in doc["criteria"].items() if not value["ok"]},
+            {"chrome", "actions", "cells", "lastRow", "newActivity"},
+            doc,
+        )
+        text = " ".join(doc["failures"])
+        for want in ("chrome", "30", "cell", "final table row", "new-activity"):
+            self.assertIn(want, text, doc)
+
+        # 44 px targets, a cell or a descendant of it under the point, a 44 px
+        # chrome, and a full final row are green. An unrelated ancestor under
+        # the point is not the cell and must stay red.
+        green = reading_metrics(newActivity={"present": True, "covers": 0})
+        code, doc = self.verdict(green)
+        self.assertEqual(code, 0, doc)
+        self.assertTrue(doc["ok"], doc)
+        self.assertNotIn("failures", [key for key, value in doc["criteria"].items() if not value["ok"]])
+
+        ancestor = reading_metrics(
+            cells=[{"row": 0, "col": 0, "kind": "td", "visible": True, "relation": "ancestor"}]
+        )
+        code, doc = self.verdict(ancestor)
+        self.assertEqual(code, 1, doc)
+        self.assertFalse(doc["criteria"]["cells"]["ok"], doc)
+
+        # The reported pill-over-table shape: the control geometrically
+        # overlaps visible cells even when another element wins the hit test.
+        overlaps_only = reading_metrics(
+            newActivity={"present": True, "covers": 0, "overlaps": 2}
+        )
+        code, doc = self.verdict(overlaps_only)
+        self.assertEqual(code, 1, doc)
+        self.assertFalse(doc["criteria"]["newActivity"]["ok"], doc)
+        self.assertIn("overlaps 2 visible cell", " ".join(doc["failures"]), doc)
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--check-spec"]:
         raise SystemExit(subprocess.call([NODE, WALK, "--check-spec", "--spec", SPEC]))
