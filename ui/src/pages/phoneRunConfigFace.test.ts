@@ -18,7 +18,8 @@ import { describe, expect, it } from "vitest";
  *   settings surface behind it owns the location rows. A second arrangement
  *   (the eight-chip sideways scroller that used to sit below the composer) is
  *   the defect `gap-log` 2026-11-08 recorded. The machine and the project left
- *   the run surface in KIN-START-001: they are one place row under the card,
+ *   the run surface in KIN-START-001: they are one place row above the card
+ *   (amended 2026-11-21, so the card can be the conversation's bottom band),
  *   not two rows inside the settings layer.
  *
  * Source rather than DOM, like `phoneKeyboardHints.test.ts`: "this element
@@ -67,8 +68,8 @@ describe("the composer's run-config face", () => {
     expect(source.indexOf("<RunConfigControl", footerAt)).toBeGreaterThan(footerAt);
     expect(source.indexOf("footerWide", footerAt)).toBeGreaterThan(footerAt);
     // The face's settings surface still carries the run-shape rows (role,
-    // branch, dispatch, routine); the machine and the project moved out to the
-    // place row under the card.
+    // branch, dispatch, routine); the machine and the project live on the
+    // place row above the card.
     expect(source.indexOf("extraRows=")).toBeGreaterThan(footerAt);
     // ...and no second arrangement below the composer: no desktop strip, no
     // second open-state flag.
@@ -97,14 +98,16 @@ describe("the composer's run-config face", () => {
     }
   });
 
-  it("puts the machine and the project in one row under the card", () => {
+  it("puts the machine and the project in one row above the card", () => {
     const source = read("src/pages/NewChatPage.tsx");
-    // One card, then the place row. The project summary (when there is one)
-    // follows the row, never between the card and the place.
+    // The place row decides where the card's run goes, so it reads before the
+    // card and stays in the scrolling region while the card is pinned. The
+    // project summary (when there is one) follows the row.
     const composerAt = source.indexOf("<Composer");
     const placeAt = source.indexOf("<PlacePicker");
     expect(composerAt).toBeGreaterThan(-1);
-    expect(placeAt).toBeGreaterThan(composerAt);
+    expect(placeAt).toBeGreaterThan(-1);
+    expect(placeAt).toBeLessThan(composerAt);
     expect(source.indexOf("<ProjectSummaryCard", placeAt)).toBeGreaterThan(placeAt);
 
     // Neither the folder browser nor the machine select is a row in the run

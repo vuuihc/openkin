@@ -56,6 +56,25 @@ describe("Composer refill", () => {
     expect(box().value).toBe("from a link");
     expect(document.activeElement).not.toBe(box());
   });
+
+  it("draws the raised arrangement from the signal, before any focus lands", () => {
+    // The conversation entered from Start mounts with the signal while its
+    // detail — and the textarea — are still disabled, so no focus event can
+    // arrive yet. The box must already be the shape the draft page left: a
+    // compact first frame resizes the band the J3 hand-off sampler watches.
+    const { container } = setup({ focusSignal: 1, disabled: true });
+    expect(document.activeElement).not.toBe(box());
+    expect(container.querySelector("[data-kin-composer-row]")?.className).toContain("mt-2");
+    expect(box().className).toContain("min-h-11");
+    expect(box().className).not.toContain("kin-composer-input");
+  });
+
+  it("keeps an empty, unfocused composer compact", () => {
+    // The raised shape is the signal's doing, not a restyle of every composer.
+    const { container } = setup();
+    expect(container.querySelector("[data-kin-composer-row]")?.className).toContain("mt-1.5");
+    expect(box().className).toContain("kin-composer-input");
+  });
 });
 
 describe("a send that fails while a refill lands", () => {
