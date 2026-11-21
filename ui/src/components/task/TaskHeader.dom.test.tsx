@@ -183,10 +183,9 @@ describe("TaskHeader", () => {
       t("task.archiveSession"),
       t("task.deleteSession"),
     ]) {
-      expect(
-        desktop.getByRole("button", { name: label }).className.split(/\s+/),
-        label,
-      ).toContain("flex-none");
+      expect(desktop.getByRole("button", { name: label }).className.split(/\s+/), label).toContain(
+        "flex-none",
+      );
     }
   });
 

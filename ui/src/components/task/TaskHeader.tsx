@@ -199,9 +199,7 @@ export default function TaskHeader({
    */
   const filesName = tr("workspace.title");
   const filesLabel =
-    changedFileCount > 0
-      ? tr("workspace.filesCount", { count: changedFileCount })
-      : filesName;
+    changedFileCount > 0 ? tr("workspace.filesCount", { count: changedFileCount }) : filesName;
   // This browser's renames, the same map the list's row menu writes
   // (`taskTitles.ts`). The header is open when a rename happens in the sidebar
   // or another tab, so it subscribes and re-reads rather than trusting the
