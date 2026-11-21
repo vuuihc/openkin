@@ -7,7 +7,8 @@
 # walk-select-guard-071822, phone-console-baseline-b-045503). `scripts/mutants.py` already proves
 # a test notices a mutant; what was missing is a hand-off rule. `lane.sh --mutant-evidence-check`
 # decides which changed loop files need one, runs every covering manifest, and fails closed on a
-# missing entry, a surviving mutant, a malformed manifest or a missing runner. lane.sh runs the
+# missing entry, a surviving mutant, a malformed manifest or a missing runner. Coverage is per
+# branch: only manifests this branch adds or modifies count and run. lane.sh runs the
 # same seam after the format commit and before the push, and the worker contract tells the worker
 # to run it first.
 #
@@ -120,6 +121,23 @@ case_manifest_with_red_mutant_passes() {
   [ "$RC" -eq 0 ] || fail "redmutant: exit $RC ($OUT; $(cat "$T/seam.err"))"
   [ "$OUT" = "MUTANT_EVIDENCE_OK: 1 file(s) covered by 1 manifest(s)" ] \
     || fail "redmutant: unexpected output: $OUT"
+}
+
+# Coverage is per branch, not per file: a manifest already on main proves main's code, not this
+# edit. lane.sh, merge.sh and ux/walk.mjs already have manifests, so without this a new guard in
+# one of them hands off with no mutant (2026-11-21 review, major).
+case_preexisting_manifest_does_not_cover_new_edit() {
+  new_repo preexisting
+  manifest rsi/runtime/tests/lane.mutants.json \
+    '[{"label":"main guard","file":"rsi/runtime/lane.sh","test":"true","old":"GUARD=enabled","new":"GUARD=broken"}]'
+  g add -A >/dev/null && g commit -q -m 'pre-existing manifest' || fail "preexisting: commit failed"
+  g push -q origin main || fail "preexisting: push failed"
+  g update-ref refs/remotes/origin/main HEAD
+  edit_lane 'WORKER=done'
+  seam
+  [ "$RC" -ne 0 ] || fail "preexisting: a manifest already on main covered a new edit (output: $OUT)"
+  [ "$OUT" = "MUTANT_EVIDENCE_MISSING: rsi/runtime/lane.sh" ] \
+    || fail "preexisting: unexpected output: $OUT"
 }
 
 # A test that passes with and without the mutant proves nothing: the seam must be red AND the
@@ -267,6 +285,7 @@ run() { # a case is named either test_x_... or its short form, x-...
 run case_skip_when_no_loop_code_changed
 run case_changed_loop_file_without_manifest_fails
 run case_manifest_entry_for_another_file_does_not_count
+run case_preexisting_manifest_does_not_cover_new_edit
 run case_manifest_with_red_mutant_passes
 run case_surviving_mutant_fails_and_restores
 run case_invalid_manifest_fails_closed

@@ -75,5 +75,12 @@
     "test": "RSI_TEST_ONLY=case_origin_main_advance_does_not_add_files bash rsi/runtime/tests/test-lane-mutants.sh",
     "old": "\"$GIT\" -C \"$wt\" diff --name-only --diff-filter=d \"$base\" 2>/dev/null",
     "new": "\"$GIT\" -C \"$wt\" diff --name-only --diff-filter=d origin/main 2>/dev/null"
+  },
+  {
+    "label": "a manifest already on main covers a new edit, so its new guard needs no proof",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_preexisting_manifest_does_not_cover_new_edit bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "  manifests=\"$(\n    { \"$GIT\" -C \"$wt\" diff --name-only --diff-filter=d \"$base\" -- '*.mutants.json' 2>/dev/null\n      \"$GIT\" -C \"$wt\" ls-files --others --exclude-standard -- '*.mutants.json' 2>/dev/null\n    } | LC_ALL=C sort -u\n  )\"",
+    "new": "  manifests=\"$(\"$GIT\" -C \"$wt\" ls-files -co --exclude-standard -- '*.mutants.json' 2>/dev/null | LC_ALL=C sort -u)\""
   }
 ]

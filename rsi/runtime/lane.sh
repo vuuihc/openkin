@@ -90,7 +90,7 @@ You are the WORKER for RSI item $item in worktree \`$wt\` on branch \`$br\`. Mod
 - Concurrency test ordering: set the shared state (the flag, channel or map the goroutine reads) before you start the goroutine. Never start the goroutine and then write the flag it reads — that order is the race the gate and the reviewer are looking for.
 - A new or changed Go test self-checks with \`go test -count=5 -race ./internal/<touched-package>/...\` on the touched package(s) before you finish. One green run of a concurrency test is not evidence; five runs under \`-race\` are what make it trustworthy.
 - If \`ui/\` changed: \`cd ui && npm run build\`, commit \`web/dist/index.html\` only (never \`web/dist/assets/\`). For visible UI also save 390×844 and 1100×760 before/after screenshots under \`$STATE/shots/$slug/\`.
-- Loop code (\`rsi/runtime/**\` or \`scripts/**\` ending \`.sh\`, \`.bash\`, \`.py\`, \`.mjs\`, \`.js\` or \`.ts\`; not \`rsi/runtime/{tests,runs,prompts}/**\`, \`ux/journeys/**\`, \`rsi/state/**\` or a deleted file): every changed file needs a \`*.mutants.json\` entry whose \`file\` is that path, and that entry's test must fail while its mutant is applied. Make the mutant break the behaviour you changed, not an unrelated line. Run \`bash rsi/runtime/lane.sh --mutant-evidence-check "\$PWD"\` from your worktree before you finish: only \`MUTANT_EVIDENCE_OK\` (or \`MUTANT_EVIDENCE_SKIP\` when no loop code changed) proves the hand-off; a missing entry prints \`MUTANT_EVIDENCE_MISSING\` and a surviving mutant prints \`MUTANT_EVIDENCE_RED\`. The lane runs the same seam before pushing, and either verdict there fails the lane.
+- Loop code (\`rsi/runtime/**\` or \`scripts/**\` ending \`.sh\`, \`.bash\`, \`.py\`, \`.mjs\`, \`.js\` or \`.ts\`; not \`rsi/runtime/{tests,runs,prompts}/**\`, \`rsi/runtime/ux/journeys/**\`, \`rsi/state/**\` or a deleted file): add or update an entry in a \`*.mutants.json\` manifest this branch adds or modifies for every changed file, with \`file\` set to that path, and that entry's test must fail while its mutant is applied. A manifest already on main does not cover your edit, so an already-covered file still needs a new entry. Make the mutant break the behaviour you changed, not an unrelated line. Run \`bash rsi/runtime/lane.sh --mutant-evidence-check "\$PWD"\` from your worktree before you finish: only \`MUTANT_EVIDENCE_OK\` (or \`MUTANT_EVIDENCE_SKIP\` when no loop code changed) proves the hand-off; a missing entry prints \`MUTANT_EVIDENCE_MISSING\` and a surviving mutant prints \`MUTANT_EVIDENCE_RED\`. The lane runs the same seam before pushing, and either verdict there fails the lane.
 - UI ratchet: \`python3 scripts/check-ui-inventory.py\` must not grow. If your change IS the sanctioned primitive/facade (its own raw \`<button>\`, \`createPortal\`, \`role="dialog"\`, \`useAnchoredPanel\` use is the point), run \`python3 scripts/check-ui-inventory.py --update\`, commit the baseline, and say so in the PR body (Risk section). Also run the focused UI suites your change touches plus the design-token test: \`cd ui && npx vitest run <the suites you touched> src/design/tokens.test.ts\` (e.g. focus ring must use \`outline-kin-focus-ring\`). The merge gate owns the full suite; a worker does not run it.
 - Commit everything with Conventional Commits and explicit paths. Do NOT push, do NOT open the PR, do NOT touch other worktrees.
 - Before you finish write the PR body to \`$STATE/lanes/$slug.pr-body.md\` with sections: Symptom · Change · Verification (commands + results) · Screenshots (paths, or "none: not visible") · Risk · \`RSI item: $item\`.
@@ -126,7 +126,10 @@ write_worker_brief() { # prints the header dispatch.sh receives; reads ITEM MODE
 # a removed file cannot be mutated, and demanding an entry for it would make a cleanup unlandable.
 # In scope: code under rsi/runtime/** or scripts/**. Out: rsi/runtime/tests/**, runs/**, prompts/**,
 # ux/journeys/**, rsi/state/** and the manifests themselves — adding proof must not require
-# proving the manifest. Other manifest files that name a changed path still run against it.
+# proving the manifest. Coverage is per branch, not per file: a manifest already on main proves the
+# code as it stood there, so an edit to an already-covered file (lane.sh, merge.sh, ux/walk.mjs)
+# would otherwise hand off with no mutant for its new guard. Only manifests this branch adds or
+# modifies count and run (2026-11-21 review, major).
 mutant_evidence_check() { # <worktree> — prints one verdict line; 0 = ok/skip, 1 = red/missing
   local wt="$1" base changed manifests
   [ -d "$wt" ] || { echo "MUTANT_EVIDENCE_RED: $wt · worktree not found"; return 1; }
@@ -149,8 +152,14 @@ mutant_evidence_check() { # <worktree> — prints one verdict line; 0 = ok/skip,
     echo "MUTANT_EVIDENCE_SKIP: no loop-code change"
     return 0
   fi
-  manifests="$("$GIT" -C "$wt" ls-files -co --exclude-standard -- '*.mutants.json' 2>/dev/null \
-    | LC_ALL=C sort -u)"
+  # Only manifests this branch added or modified: a pre-existing one proves main's code, not the
+  # worker's new guard. Tracked changes come from the same branch point as the changed set;
+  # untracked ones are files the worker has not committed yet.
+  manifests="$(
+    { "$GIT" -C "$wt" diff --name-only --diff-filter=d "$base" -- '*.mutants.json' 2>/dev/null
+      "$GIT" -C "$wt" ls-files --others --exclude-standard -- '*.mutants.json' 2>/dev/null
+    } | LC_ALL=C sort -u
+  )"
   MUTANT_CHANGED="$changed" MUTANT_MANIFESTS="$manifests" python3 - "$wt" <<'PY'
 import json, os, re, subprocess, sys
 
