@@ -359,6 +359,46 @@ test_citation_unreadable_fails() {
   pass "$CASE"
 }
 
+# --- 16. only the lines this branch added are scanned -------------------------------------------
+# rsi/GOAL.md:547 `J2.json:68`, DECISIONS.md:64 `tokens.test.ts:1562` and LESSONS.md:1185
+# `TaskDetailPage.tsx:1286` are pre-existing stale citations in living files. Scanning a whole
+# living file would reject every future waiver that touches one of them, so a git worktree with a
+# resolvable origin/main scans only the branch's added lines. The same repo still rejects a bad
+# citation this branch adds, so the narrowing is not a skip.
+test_citation_historical_lines_are_not_rescanned() {
+  new_prose_case citation-historical-lines
+  mkdir -p "$WT/rsi" "$WT/docs/plans"
+  printf '%s\n' "# Goal" "" 'A historical citation `rsi/GOAL.md:434` that main already carried.' \
+    > "$WT/rsi/GOAL.md"
+  printf '%s\n' "# Patrol" "" 'The notes at `NOTES.md:2` agree.' > "$WT/docs/plans/patrol.md"
+  ( cd "$WT" && "$GIT" init -q && "$GIT" add -A \
+    && "$GIT" -c user.name=test -c user.email=test@example.com commit -qm "main" \
+    && "$GIT" update-ref refs/remotes/origin/main HEAD ) \
+    || fail "$CASE: cannot build the branch fixture"
+  paths "rsi/GOAL.md" "docs/plans/patrol.md"
+  body "Claim check: none: the historical line is not part of this PR"
+  printf '%s\n' 'The sentence at `docs/plans/patrol.md:1` is this PR only.' >> "$WT/rsi/GOAL.md"
+  ( cd "$WT" && "$GIT" add -A \
+    && "$GIT" -c user.name=test -c user.email=test@example.com commit -qm "branch" ) \
+    || fail "$CASE: cannot commit this branch's change"
+  run_check
+  [ "$RC" -eq 0 ] || fail "$CASE: exit $RC, want 0 for an untouched historical citation ($OUT)"
+  case "$OUT" in CLAIM_WAIVED:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_WAIVED" ;; esac
+
+  # A citation the branch itself adds is still the branch's claim, so it must still fail. The
+  # line's own text starts with `++`, so the diff marks it `+++...`: a parser that skips every
+  # `+++` line as a header would silently drop it.
+  printf '%s\n' '++ `ui/src/gone.tsx:9` this branch adds.' \
+    >> "$WT/docs/plans/patrol.md"
+  ( cd "$WT" && "$GIT" add -A \
+    && "$GIT" -c user.name=test -c user.email=test@example.com commit -qm "branch line" ) \
+    || fail "$CASE: cannot commit the added citation"
+  run_check
+  [ "$RC" -eq 1 ] || fail "$CASE: exit $RC, want 1 for a citation this branch added ($OUT)"
+  case "$OUT" in *"ui/src/gone.tsx:9"*) ;; *) fail "$CASE: does not name the added citation: $OUT" ;; esac
+  pass "$CASE"
+}
+
 run() { # <function> [<case name>] — RSI_TEST_ONLY accepts either spelling
   local fn="$1" name="${2:-$1}"
   [ -n "${RSI_TEST_ONLY:-}" ] && [ "$fn" != "$RSI_TEST_ONLY" ] && [ "$name" != "$RSI_TEST_ONLY" ] \
@@ -380,5 +420,6 @@ run test_citation_resolves_waives citation-resolves-waives
 run test_citation_code_only_na citation-code-only-na
 run test_citation_real_command_unchanged citation-real-command-unchanged
 run test_citation_unreadable_fails citation-unreadable-fails
+run test_citation_historical_lines_are_not_rescanned citation-historical-lines
 run test_claim_check_runs_before_the_reviewer_is_launched
 echo "test-claim-check: ALL-PASS"

@@ -25,10 +25,13 @@ The rule this enforces:
 
 A waiver is not a free pass. It says no command can prove the sentence, not
 that the branch's own citations are exempt: before the waiver is accepted,
-every `path:line` and `path:start-end` citation in the changed prose files is
-resolved against the worktree (the file exists, it has that many lines, and a
-range is ordered and fits). Measured 2026-11-21: #546 waived the check while
-its ADR cited `rsi/GOAL.md:434`, a line the branch's own GOAL.md did not have.
+every `path:line` and `path:start-end` citation in the lines this branch added
+to its changed prose files is resolved against the worktree (the file exists,
+it has that many lines, and a range is ordered and fits). Only added lines are
+scanned when `origin/main` resolves, so a historical citation nobody touched
+on this branch cannot reject an unrelated waiver. Measured 2026-11-21: #546
+waived the check while its ADR cited `rsi/GOAL.md:434`, a line the branch's
+own GOAL.md did not have.
 A real `Claim check:` command is its own proof and is never second-guessed by
 the scan. A changed prose file that exists but cannot be read fails closed --
 a citation set that cannot be read is not proven.
@@ -73,6 +76,9 @@ CITATION_RE = re.compile(
 )
 CITATION_MAX_REPORTED = 5
 TIMEOUT_SECS = 60
+# Each git read gets its own bound, shorter than the whole check's, so a wedged git cannot eat
+# the claim check's budget before the check itself has run.
+GIT_TIMEOUT_SECS = 30
 # The command's stdout+stderr goes to a temp file, never a pipe, and only this
 # many trailing bytes are read back: a command that floods output cannot grow
 # this process's memory or blow up the comparison. A claim that only matches
@@ -115,14 +121,70 @@ def plural_lines(count):
     return "%d line%s" % (count, "" if count == 1 else "s")
 
 
+def git_stdout(worktree, args):
+    """One git command's stdout in `worktree`, or None when it cannot run or exits non-zero.
+
+    Never raises and never touches the network. None is the caller's signal that git cannot say
+    which lines this branch added; every caller treats that as "scan the whole file".
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", worktree, "--no-pager"] + args,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=GIT_TIMEOUT_SECS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.decode("utf-8", "replace")
+
+
+def added_lines(worktree, rel):
+    """The `+` lines this branch added to `rel`, or None when the branch diff cannot be read.
+
+    Production resolves `origin/main` (merge.sh and lane.sh both build the changed list from
+    `origin/main...HEAD`), so a changed prose file is scanned only where this branch wrote. A
+    throwaway fixture or a plain directory cannot say what the branch added, and an unknown set
+    stays strict as the whole file. `--no-renames` matches the changed-list computation: a rename
+    arrives as every line added, not as a silently unscanned file.
+    """
+    if git_stdout(worktree, ["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]) is None:
+        return None
+    if git_stdout(worktree, ["ls-files", "--error-unmatch", "--", rel]) is None:
+        return None
+    diff = git_stdout(
+        worktree,
+        ["diff", "--no-renames", "--no-color", "--no-ext-diff", "-U0",
+         "origin/main...HEAD", "--", rel],
+    )
+    if diff is None:
+        return None
+    added = []
+    in_hunk = False
+    for line in diff.splitlines():
+        if line.startswith("@@"):
+            in_hunk = True
+            continue
+        # Only inside a hunk is a leading `+` an added line: the `+++ b/<path>` header sits before
+        # the first `@@`, and an added line whose own text starts with `++` still counts.
+        if in_hunk and line.startswith("+"):
+            added.append(line[1:])
+    return added
+
+
 def citation_problem(worktree, prose):
     """The citations in the changed prose that the worktree cannot prove, or None.
 
     Only `prose` -- the changed-file list filtered through is_prose_path() -- is read, so the
     scan costs the PR's own prose and never walks the repo. A changed prose path missing from the
     tree is a deletion in the diff and is skipped; one that is there but cannot be read fails
-    closed, because a citation set that cannot be read is not proven. A citation resolves when
-    its file exists under the worktree, holds at least `line` lines, and for a range
+    closed, because a citation set that cannot be read is not proven. Inside a git worktree whose
+    `origin/main` resolves, only the lines the branch added are scanned (see added_lines); any
+    other tree is scanned whole, which is stricter. A citation resolves when its file exists
+    under the worktree, holds at least `line` lines, and for a range
     `start <= end <= lines`.
     """
     root = os.path.realpath(worktree)
@@ -137,7 +199,8 @@ def citation_problem(worktree, prose):
             text = read_text(source)
         except OSError as exc:
             return "cannot read the changed prose file %s: %s" % (rel, exc)
-        for line in text.splitlines():
+        added = added_lines(worktree, rel)
+        for line in (text.splitlines() if added is None else added):
             # Backticks are markdown formatting around a citation, never part of its path.
             for match in CITATION_RE.finditer(line.replace("`", "")):
                 cited, start = match.group(0), int(match.group(2))

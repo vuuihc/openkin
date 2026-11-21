@@ -68,5 +68,19 @@
     "test": "bash rsi/runtime/tests/test-claim-check.sh",
     "old": "        if not os.path.exists(source):\n            continue",
     "new": "        if not os.path.exists(source):  # mutant: a deletion is unreadable\n            return \"cannot read the changed prose file %s\" % rel"
+  },
+  {
+    "label": "scan the whole prose file instead of this branch's added lines",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=citation-historical-lines bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "        added = added_lines(worktree, rel)\n        for line in (text.splitlines() if added is None else added):",
+    "new": "        added = None  # mutant: scan the whole file again\n        for line in (text.splitlines() if added is None else added):"
+  },
+  {
+    "label": "skip an added line whose own text starts with ++",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=citation-historical-lines bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "        if in_hunk and line.startswith(\"+\"):",
+    "new": "        if in_hunk and line.startswith(\"+\") and not line.startswith(\"+++\"):  # mutant: a ++ line is a header"
   }
 ]
