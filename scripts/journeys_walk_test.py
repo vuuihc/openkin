@@ -6,7 +6,7 @@ seed.log and spec files, no browser, no daemon, no network. The walker's
 `--resolve-j1` / `--resolve-j7` modes run the same read/apply functions the
 real walk uses, so a green case here is the resolution that walk would take.
 `--check-spec` runs the J2 review-loop, J3 send, J8 phone-tap, J9 Mac switch,
-J11 phone switch, J12 thumb gesture, J13 phone file-link and J14 cold-start /
+J11 phone switch, J12 thumb gesture, J13 phone file-link, J14 cold-start /
 palette / one-list contracts through the same parser, so a spec that regressed
 to photographing the diff, to merely asserting Start is usable, to pressing a
 desktop chord on the phone, to leaving the shell, the scroll, the draft or the
@@ -4667,6 +4667,131 @@ class WalkMutantManifestTest(unittest.TestCase):
                          "the manifest grew without bumping the pinned count")
 
 
+class WalkJ15ContractTest(unittest.TestCase):
+    """F2's question leg must stay walked: card, both answers, reload.
+
+    Until R-f2-question-leg no journey touched ``UserQuestionCard`` at all, so
+    a card that stopped drawing or an answer the daemon stopped persisting kept
+    every gate green. Same shape as WalkJ14ContractTest: the walker's own
+    ``--check-spec`` is the reader, so a rule cannot drift between the spec and
+    the gate. The card must be read as visible copy (question and both option
+    labels), answered by an option *and* through the Other input, and the
+    reload must still show the request anchors with a zero card count.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j15-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec["journeys"]["J15"]["steps"])
+        path = os.path.join(self.tmp, "resolved.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    def copy_spec_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec)
+        path = os.path.join(self.tmp, "paths.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    @staticmethod
+    def steps() -> list:
+        return load_spec()["journeys"]["J15"]["steps"]
+
+    def test_shipped_j15_spec_is_ok(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J15", out)
+        self.assertEqual(load_spec()["journeys"]["J15"]["viewports"], ["mac"],
+                         "J15 is the Mac conversation proof")
+
+    def test_j15_without_reading_the_question_is_red(self) -> None:
+        # The card is proof only if the walk reads what a person reads: the
+        # question and both option labels are visible text before the press.
+        # A testid-only wait would pass a card that drew with no copy.
+        steps = self.steps()
+        question = next(i for i, step in enumerate(steps)
+                        if step[0] == "wait" and str(step[1]).startswith("text=")
+                        and "How should the release go out?" in str(step[1]))
+        option = next(i for i, step in enumerate(steps)
+                      if step[0] == "click" and "aria-label=" in str(step[1]))
+        for label, index, needle in (
+            ("the question text", question, "three visible strings"),
+            ("the option press", option, "aria label"),
+        ):
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J15", out)
+                self.assertIn(needle, out)
+
+    def test_j15_without_the_other_answer_is_red(self) -> None:
+        # Answering an option twice would leave other_text dead and the walk
+        # green, so the Other field is its own proof: the fill and the Enter.
+        steps = self.steps()
+        fill = next(i for i, step in enumerate(steps)
+                    if step[0] == "fill" and "input[type=text]" in str(step[1]))
+        enter = next(i for i, step in enumerate(steps)
+                     if step[0] == "key" and step[1] == "Enter")
+        for label, index, needle in (
+            ("the Other input", fill, "Other input"),
+            ("the Enter submit", enter, "Enter"),
+        ):
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J15", out)
+                self.assertIn(needle, out)
+
+    def test_j15_without_the_reload_proof_is_red(self) -> None:
+        # The reload is the persistence proof: the same conversation without a
+        # focus query, the request anchors still on screen, and the card at
+        # zero. A card that only left the DOM would come back here.
+        steps = self.steps()
+        reload = next(i for i, step in enumerate(steps)
+                      if step[0] == "goto" and "?" not in str(step[1]))
+        zeroes = [i for i, step in enumerate(steps)
+                  if step[0] == "count" and "user-question-card" in str(step[1])
+                  and str(step[2]) == "0" and i > reload]
+        self.assertEqual(len(zeroes), 1, zeroes)
+        for label, index, needle in (
+            ("the reload", reload, "never reloads the conversation"),
+            ("the zero card count", zeroes[0], "counts the card as 0 after the reload"),
+        ):
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J15", out)
+                self.assertIn(needle, out)
+
+    def test_j15_paths_rows_select_it(self) -> None:
+        # A diff to the card, its page or its labels must select J15: first
+        # match wins, so a row that loses J15 lets the leg rot unwalked.
+        def drop(spec):
+            for row in spec["paths"]:
+                if ("TaskDetail" in row[0] or "i18n/locales" in row[0]) and "J15" in row[1]:
+                    row[1] = [journey for journey in row[1] if journey != "J15"]
+
+        code, out = self.check(self.copy_spec_with(drop))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J15", out)
+        self.assertIn("paths table", out)
+
+
 class JourneyContractCoverageTest(unittest.TestCase):
     """The index, the contracts and their test classes must name the same journeys.
 
@@ -4758,8 +4883,8 @@ class JourneyContractCoverageTest(unittest.TestCase):
             "not shrink the set silently",
         )
         self.assertIn(
-            "J14", journeys,
-            "the guard no longer sees J14, the newest journey before this row; "
+            "J15", journeys,
+            "the guard no longer sees J15, the newest journey before this row; "
             "the journey reader is broken",
         )
 

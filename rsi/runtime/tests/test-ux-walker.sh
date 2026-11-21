@@ -497,6 +497,56 @@ PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
 
+# --- J15: the mid-run question leg has a seeded target and a resolver ------------
+# No journey walked the question card at all: answer an option, answer the
+# Other field, watch the card leave, reload and find the transcript still
+# answered. The seed names the conversation and the first card, the resolver
+# substitutes both into the spec through the same functions the walk uses, and
+# a missing line is a skip — never a walk against an invented id (the J7 rule).
+case_name="test_spec_ids_include_j15"
+ids="$(python3 "$REPO/rsi/runtime/ux/spec.py" --ids "$REPO/rsi/runtime/ux/journeys.json" 2>"$T/ids.err")"
+rc=$?
+[ $rc -eq 0 ] || fail "$case_name: spec.py exited $rc ($(cat "$T/ids.err"))"
+printf '%s\n' "$ids" | tr ' ' '\n' | grep -qx J15 \
+  || fail "$case_name: J15 is not in the resolved ids: $ids"
+case " $ids " in *" J14 "*) ;; *) fail "$case_name: the ids lost J14: $ids" ;; esac
+pass "$case_name"
+
+case_name="j15_resolver_skips_without_a_seed_line"
+printf 'journeys seed: base http://127.0.0.1:1\n' > "$T/seed-no-j15.log"
+out="$("$REAL_NODE" "$UXDIR/walk.mjs" --resolve-j15 "$T/seed-no-j15.log" 2>&1)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($out)"
+[ "$out" = "J15 skip: no seeded question target" ] \
+  || fail "$case_name: got '$out', wanted the skip line"
+pass "$case_name"
+
+case_name="j15_resolver_substitutes_the_conversation_and_card"
+printf 'j15 target conversation=task-q focus=uq-1\n' > "$T/seed-j15.log"
+out="$("$REAL_NODE" "$UXDIR/walk.mjs" --resolve-j15 "$T/seed-j15.log" 2>&1)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($out)"
+[ "$out" = "J15 /tasks/task-q?focus=uq-1" ] \
+  || fail "$case_name: got '$out', wanted the resolved URL"
+plan="$("$REAL_NODE" "$UXDIR/walk.mjs" --resolve-j15-plan "$T/seed-j15.log" 2>&1)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: plan exit $rc ($plan)"
+printf '%s' "$plan" > "$T/j15-plan.json"
+python3 - "$T/j15-plan.json" <<'PY' || exit 1
+import json
+import sys
+
+plan = json.load(open(sys.argv[1], encoding="utf-8"))
+steps = plan.get("steps") or []
+text = "\n".join(" ".join(str(part) for part in step) for step in steps)
+if "{conversation}" in text or "{focus}" in text:
+    raise SystemExit("the plan still carries a placeholder")
+if ["goto", "/tasks/task-q?focus=uq-1"] not in steps:
+    raise SystemExit("the plan has no resolved deep link")
+if not any(step[0] == "gone" and "user-question-card" in str(step[1]) for step in steps):
+    raise SystemExit("the plan never proves the card left")
+if len([step for step in steps if step[0] == "goto" and step[1] == "/tasks/task-q"]) != 1:
+    raise SystemExit("the plan does not reload the conversation exactly once")
+PY
+pass "$case_name"
+
 # --- 10-13: J13's undrawable-file leg is walked, and only J13 gets a bridge ----
 # The shipped "Open in…" control renders only behind Electron's
 # `window.kinDesktop` (ui/src/components/workspace/OpenInMenu.tsx), and the
@@ -631,4 +681,4 @@ PY
 [ $rc -eq 0 ] || fail "$case_name: $out"
 pass "$case_name"
 
-echo "ux-walker contract: 26/26 cases passed"
+echo "ux-walker contract: 29/29 cases passed"
