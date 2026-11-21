@@ -1,0 +1,23 @@
+[
+  {
+    "label": "a dirty worktree stops disqualifying itself, so the report offers uncommitted work for clearing",
+    "file": "rsi/runtime/worktree-report.py",
+    "test": "RSI_TEST_ONLY=dirty-is-not-reclaimable bash rsi/runtime/tests/test-worktree-report.sh",
+    "old": "    elif dirty:\n        reasons.append(\"dirty\")",
+    "new": "    elif False:\n        reasons.append(\"dirty\")"
+  },
+  {
+    "label": "the suite is no longer run by the gate, so its guards can rot unnoticed",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-worktree-report.sh || return 1\n",
+    "new": "  true  # mutated: the worktree-report suite is not run\n"
+  },
+  {
+    "label": "git reads ignore their per-call deadline and fall back to the long default",
+    "file": "rsi/runtime/worktree-report.py",
+    "test": "RSI_TEST_ONLY=git-timeout-is-honoured bash rsi/runtime/tests/test-worktree-report.sh",
+    "old": "text=True, env=env, timeout=timeout)",
+    "new": "text=True, env=env, timeout=GIT_TIMEOUT)"
+  }
+]
