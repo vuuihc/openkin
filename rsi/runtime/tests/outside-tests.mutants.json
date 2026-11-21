@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the locale branch never fires, so a PR that moved a locale value is rerun forever instead of sent back (2026-11-21 #506)",
+    "file": "rsi/runtime/outside-tests.py",
+    "test": "RSI_TEST_ONLY=test_locale_value_change_sends_back bash rsi/runtime/tests/test-outside-tests.sh",
+    "old": "        if locale_changed and UI_TEST_FILE.match(name):",
+    "new": "        if False:"
+  },
+  {
+    "label": "the locale branch fires for every failure, so a locale-only change pulls unrelated Go failures into scope",
+    "file": "rsi/runtime/outside-tests.py",
+    "test": "RSI_TEST_ONLY=test_locale_change_keeps_go_tests_mechanical bash rsi/runtime/tests/test-outside-tests.sh",
+    "old": "        if locale_changed and UI_TEST_FILE.match(name):",
+    "new": "        if True:"
+  },
+  {
+    "label": "any ui change counts as a locale change, so an ordinary ui PR loses its mechanical rerun-once",
+    "file": "rsi/runtime/outside-tests.py",
+    "test": "RSI_TEST_ONLY=test_ui_change_without_locale_keeps_outside_test_mechanical bash rsi/runtime/tests/test-outside-tests.sh",
+    "old": "LOCALE_FILE = re.compile(r\"^ui/src/i18n/locales/[^/]+\\.tsx?$\")",
+    "new": "LOCALE_FILE = re.compile(r\"^ui/src/\")"
+  }
+]
