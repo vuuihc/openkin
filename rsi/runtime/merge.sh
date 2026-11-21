@@ -14,9 +14,38 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 MERGE_WORKERS="${RSI_MERGE_WORKERS:-2}"          # verifier slots for any PR
 SMALL_SLOTS="${RSI_MERGE_SMALL_SLOTS:-1}"        # extra slot only small-safe PRs may use: a 3-line refactor never queues behind two big reviews
+REWORK_STALL_MIN="${RSI_REWORK_STALL_MIN:-20}"   # a sendback no lane picks up for this long is escalated, not waited on
 unset SB_FIXLIST SB_GATEFAILS
 say() { echo "[$(date +%T)] $*"; }
 attempts() { cat "$STATE/merge/$1.attempts" 2>/dev/null || echo 0; }
+# A sendback that no lane picks up must not be waited on forever. 2026-11-21: #506's rework lane
+# died with `push failed` at 07:59 and the sendback stayed put, so a PR whose gate, review and CI
+# were all green sat OPEN for ~50 minutes (open_to_merge=59m) until a person reconciled it by hand.
+# The branch below runs AFTER the active-lane check, so "no lane holds this slug" is already proven;
+# the only missing bound is AGE. After REWORK_STALL_MIN minutes: say the age, write one
+# `rework_stalled` line to cycles.log, and leave one needs-ceo line per (slug, sendback file) — a
+# fresh sendback on the same slug escalates again, the same one never repeats. A sendback whose
+# age cannot be read keeps the old wording and never escalates (fail closed: a phantom stall
+# message is worse than a quiet wait).
+rework_wait() { # <pr-number> <slug> <state-dir>: prints, and bounds the wait; never a verdict
+  local n="$1" slug="$2" state="$3" sb info mtime age marker
+  sb="$state/sendback/$slug.md"
+  info="$(python3 -c 'import os,sys,time
+st=os.stat(sys.argv[1]); print(int(st.st_mtime), int((time.time()-st.st_mtime)//60))' "$sb" 2>/dev/null)"
+  # An unreadable or malformed age keeps the old wording: a phantom stall line is worse than a wait.
+  [ -n "$info" ] && [ "${info#* }" != "$info" ] || { say "#$n $slug: waiting for rework"; return 0; }
+  mtime="${info%% *}"; age="${info##* }"
+  case "$mtime$age" in ''|*[!0-9]*) say "#$n $slug: waiting for rework"; return 0 ;; esac
+  say "#$n $slug: waiting for rework (${age}m, no lane)"
+  [ "$age" -ge "$REWORK_STALL_MIN" ] || return 0
+  marker="$state/merge/$slug.rework-stalled"
+  [ "$(cat "$marker" 2>/dev/null)" = "$mtime" ] && return 0
+  echo "$mtime" > "$marker"
+  printf '%s #%s %s rework_stalled age=%sm sendback=%s\n' "$(date '+%F %H:%M')" "$n" "$slug" "$age" "$sb" >> "$state/merge/cycles.log"
+  printf -- '- %s [merge lane · auto] PR #%s rsi/%s: the rework note %s has had no lane for %s minutes; the PR stays OPEN and nothing in the loop will pick it up. Dispatch a rework lane for it, or move the note into sendback/done with a reason. reverse: delete this line and %s.\n' \
+    "$(date '+%F %H:%M')" "$n" "$slug" "$sb" "$age" "$marker" >> "$state/needs-ceo.md"
+  return 0
+}
 # The machine-wide gate lock: claim by mkdir, reclaim a lock whose pid is dead, otherwise poll
 # until max seconds have passed. RSI_GATE_LOCK_POLL shortens only the poll cadence, for the
 # hermetic seam (tests/test-gate-lock-timeout.sh); production keeps 15 s and the same max in
@@ -1639,7 +1668,7 @@ if [ "${1:-}" != "--one" ]; then
     [ -z "$N" ] && continue
     if [ -n "$BATCH_SLUGS" ] && printf ' %s ' "$BATCH_SLUGS" | grep -q " $SLUG "; then say "#$N $SLUG: in batch $BATCH_ID, skip"; continue; fi
     echo "$ACTIVE" | grep -qx "$SLUG" && { say "#$N $SLUG: lane active, skip"; continue; }
-    [ -e "$STATE/sendback/$SLUG.md" ] && { say "#$N $SLUG: waiting for rework"; continue; }
+    [ -e "$STATE/sendback/$SLUG.md" ] && { rework_wait "$N" "$SLUG" "$STATE"; continue; }
     if r="$(ceo_hold_skip "$SLUG" "$LABELS" "$N")"; then say "#$N $SLUG: $r"; continue; fi
     L="$STATE/merge/$SLUG.lock"
     if [ -d "$L" ]; then if kill -0 "$(cat "$L/pid" 2>/dev/null || echo 0)" 2>/dev/null; then continue; fi; rm -rf "$L"; fi
