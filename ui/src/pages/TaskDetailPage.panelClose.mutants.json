@@ -12,5 +12,12 @@
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.pushContract.dom.test.tsx -t \"pops every panel entry\"",
     "old": "      navigate(base - current);\n",
     "new": "      navigate(-1);\n"
+  },
+  {
+    "label": "a transcript file opened from the conversation forgets the entry it was opened from",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.pushContract.dom.test.tsx -t \"returns to the conversation when a transcript file\"",
+    "old": "    notePanelBase();\n    showPanel(id, \"files\");\n    setWorkspaceOpenPath(next);\n",
+    "new": "    showPanel(id, \"files\");\n    setWorkspaceOpenPath(next);\n"
   }
 ]

@@ -123,12 +123,27 @@ vi.mock("../components/mobile/MobileHeader", () => ({
   ),
 }));
 vi.mock("../components/chat/Composer", () => ({ default: () => null }));
+// Two tests here open a file in the panel, and the real setup imports a
+// multi-megabyte Monaco bundle; the editor's behaviour is not what this file
+// measures. `CodeViewer`'s own tests mock it the same way.
+vi.mock("../components/workspace/monacoSetup", () => ({}));
 vi.mock("../components/chat/ChatStream", () => ({
-  default: ({ findOpen, onFork }: { findOpen?: boolean; onFork?: (fromSeq: number) => void }) => (
+  default: ({
+    findOpen,
+    onFork,
+    onOpenPath,
+  }: {
+    findOpen?: boolean;
+    onFork?: (fromSeq: number) => void;
+    onOpenPath?: (path: string) => void;
+  }) => (
     <div>
       {findOpen ? <div role="search" aria-label="Find in conversation" /> : null}
       <button type="button" onClick={() => onFork?.(1)}>
         fork conversation
+      </button>
+      <button type="button" onClick={() => onOpenPath?.("notes.md")}>
+        open a file from the transcript
       </button>
     </div>
   ),
@@ -481,6 +496,49 @@ describe("the files panel's one close", () => {
     await screen.findByRole("button", { name: "Close files panel" });
 
     await user.click(screen.getByRole("button", { name: "Close files panel" }));
+
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(window.history.state.idx).toBe(1);
+
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.history.state.idx).toBe(0);
+  });
+
+  it("returns to the conversation when Files was opened from it", async () => {
+    const user = userEvent.setup();
+    // A warm stack: the reader is on the conversation and opens the panel
+    // with a control there. The opener records the entry it opened from, so
+    // the close pops back to that entry instead of appending a second
+    // conversation above `?panel=files`.
+    browserAt(["/sessions", "/tasks/task-1"]);
+    await user.click(await screen.findByRole("button", { name: "Files" }));
+    await waitFor(() => expect(window.location.search).toBe("?panel=files"));
+    expect(window.history.state.idx).toBe(2);
+
+    await user.click(await screen.findByRole("button", { name: "Close files panel" }));
+
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(window.history.state.idx).toBe(1);
+
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.history.state.idx).toBe(0);
+  });
+
+  it("returns to the conversation when a transcript file was opened from it", async () => {
+    const user = userEvent.setup();
+    // The same arrangement, but the opener is a path in the transcript: the
+    // panel opens on that file without the reader ever seeing a panel address
+    // first, so only the opener's record can say where the close should land.
+    browserAt(["/sessions", "/tasks/task-1"]);
+    await user.click(
+      await screen.findByRole("button", { name: "open a file from the transcript" }),
+    );
+    await waitFor(() => expect(window.location.search).toBe("?panel=files&file=notes.md"));
+    expect(window.history.state.idx).toBe(2);
+
+    await user.click(await screen.findByRole("button", { name: "Close files panel" }));
 
     await waitFor(() => expect(window.location.search).toBe(""));
     expect(window.history.state.idx).toBe(1);
