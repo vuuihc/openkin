@@ -4792,6 +4792,172 @@ class WalkJ15ContractTest(unittest.TestCase):
         self.assertIn("paths table", out)
 
 
+class WalkJ16ContractTest(unittest.TestCase):
+    """The 820x1180 touch reading surface must stay an acceptance width.
+
+    #537's four high findings shipped through a green gate because every
+    screenshot was 390 or 1100. J16 is the gate's own walk of the width the
+    owner reads on, and ``--check-spec`` is the reader, so a rule cannot drift
+    between the spec and the gate. The viewport object is part of the proof:
+    a bare "820x1180" string resolves to hasTouch false through the walker's
+    phoneLayout rule, i.e. an iPad measured as a mouse.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j16-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec["journeys"]["J16"]["steps"])
+        path = os.path.join(self.tmp, "steps.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    def copy_spec_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec)
+        path = os.path.join(self.tmp, "spec.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    @staticmethod
+    def steps() -> list:
+        return load_spec()["journeys"]["J16"]["steps"]
+
+    def test_shipped_j16_spec_is_ok(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J16", out)
+        self.assertEqual(load_spec()["journeys"]["J16"]["viewports"], ["tablet"],
+                         "J16 is the 820 touch reading proof")
+
+    def test_j16_without_either_reading_verdict_is_red(self) -> None:
+        # Both verdicts are the proof: the table bottom at the reading
+        # position, and the incoming state with the new-activity requirement.
+        steps = self.steps()
+        table = next(i for i, step in enumerate(steps)
+                     if step[0] == "reading" and step[1] == "table-bottom")
+        incoming = next(i for i, step in enumerate(steps)
+                        if step[0] == "reading" and step[1] == "incoming")
+        for label, index, needle in (
+            ("the table-bottom verdict", table, "table-bottom"),
+            ("the incoming verdict", incoming, "require-new-activity"),
+        ):
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J16", out)
+                self.assertIn(needle, out)
+
+    def test_j16_without_the_held_follow_up_is_red(self) -> None:
+        # Without the held reply there is no new-activity state to measure,
+        # and a verdict that never runs would leave the pill's overlap
+        # unproven while the gate stayed green.
+        steps = self.steps()
+        slow = next(i for i, step in enumerate(steps)
+                    if step[0] == "fill" and "[seed] slow" in str(step[2]))
+        code, out = self.check(self.copy_with(lambda steps: steps.pop(slow)))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("[seed] slow", out)
+
+    def test_j16_without_the_approval_card_hygiene_is_red(self) -> None:
+        # #542 proved the seeded inbox's approval card covers the table; the
+        # deny/gone fixture hygiene is the difference between a reading and a
+        # photograph of an overlay. Dropping the deny clicks must be loud.
+        steps = self.steps()
+        deny = [i for i, step in enumerate(steps)
+                if step[0] == "click" and str(step[1]).startswith("?[data-kin-approval-card]")]
+        self.assertEqual(len(deny), 3, steps)
+
+        def drop_denies(steps):
+            steps[:] = [step for step in steps
+                        if not (step[0] == "click"
+                                and str(step[1]).startswith("?[data-kin-approval-card]"))]
+
+        code, out = self.check(self.copy_with(drop_denies))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("deny the seeded approvals", out)
+
+    def test_j16_scrolls_away_before_the_follow_up_bubble_is_red(self) -> None:
+        # The send pins the pane to the bottom. Without the bubble wait the
+        # scroll-away races that pin and the reply lands in view, so the
+        # incoming verdict measures the wrong state.
+        def drop_bubble_wait(steps):
+            steps[:] = [step for step in steps
+                        if not (step[0] == "wait"
+                                and "Reading follow-up while the reader is away" in str(step[1]))]
+
+        code, out = self.check(self.copy_with(drop_bubble_wait))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("follow-up bubble", out)
+
+    def test_j16_paths_rows_cover_layout_design_and_locales(self) -> None:
+        # First match wins: a tabs/chrome diff, a CSS/token diff and a label
+        # diff each stop at their own row, so J16 must be on all three or the
+        # 820 width is skipped for exactly the changes #537 found.
+        def drop(spec):
+            for row in spec["paths"]:
+                if row[0].startswith(("ui/src/components/layout/", "ui/src/components/ui/",
+                                      "ui/src/i18n/locales/")):
+                    row[1] = [journey for journey in row[1] if journey != "J16"]
+
+        code, out = self.check(self.copy_spec_with(drop))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        for needle in ("SessionTabs.tsx", "ui/src/index.css", "ui/src/i18n/locales/en.ts"):
+            self.assertIn(needle, out)
+
+    def test_j16_tablet_viewport_without_touch_is_red(self) -> None:
+        # A bare "820x1180" string is the regression this journey exists to
+        # keep out: it resolves to hasTouch false and measures a mouse.
+        def strip_touch(spec):
+            spec["viewports"]["tablet"] = "820x1180"
+
+        code, out = self.check(self.copy_spec_with(strip_touch))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("hasTouch false", out)
+
+    def test_j16_paths_rows_select_it_and_stop_at_settings(self) -> None:
+        # First match wins: dropping J16 from the conversation row must be
+        # red, and a broad row that hands a settings diff the tablet walk must
+        # be red too.
+        def drop(spec):
+            for row in spec["paths"]:
+                if "TaskDetail" in row[0] and "J16" in row[1]:
+                    row[1] = [journey for journey in row[1] if journey != "J16"]
+
+        code, out = self.check(self.copy_spec_with(drop))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("paths table", out)
+
+        def broaden(spec):
+            for row in spec["paths"]:
+                if row[0].startswith("ui/src/pages/Settings"):
+                    row[1].append("J16")
+
+        code, out = self.check(self.copy_spec_with(broaden))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("settings diff", out)
+
+
 class JourneyContractCoverageTest(unittest.TestCase):
     """The index, the contracts and their test classes must name the same journeys.
 
