@@ -5,7 +5,12 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale, t } from "../i18n";
 import {
-  cleanupPage, conversationColumn, desktopBar, renderPage, reportColumnWidth, resetPage,
+  cleanupPage,
+  conversationColumn,
+  desktopBar,
+  renderPage,
+  reportColumnWidth,
+  resetPage,
 } from "./TaskDetailPage.KIN-QUALITY-001.harness";
 beforeEach(() => {
   resetPage();
@@ -24,7 +29,9 @@ describe("TaskDetailPage KIN-QUALITY-001", () => {
     const wrapper = transcript.parentElement as HTMLElement;
     const children = [...column.children];
     expect(children.slice(children.indexOf(bar) + 1, children.indexOf(wrapper))).toEqual([]);
-    await waitFor(() => expect(screen.getByTestId("chat-stream").textContent).toContain("one composer"));
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-stream").textContent).toContain("one composer"),
+    );
   });
   it("a markdown table scrolls inside its own container with a natural column width", () => {
     renderPage();
@@ -41,7 +48,9 @@ describe("TaskDetailPage KIN-QUALITY-001", () => {
     expect(screen.getAllByTestId("composer")).toHaveLength(1);
     const dock = container.querySelector("[data-kin-bottom-chrome]") as HTMLElement;
     await waitFor(() => {
-      expect(within(dock).getByRole("button", { name: new RegExp(t("usage.taskSummary")) })).toBeTruthy();
+      expect(
+        within(dock).getByRole("button", { name: new RegExp(t("usage.taskSummary")) }),
+      ).toBeTruthy();
     });
     const files = within(desktopBar(container)).getByRole("button", {
       name: t("workspace.filesCount", { count: 2 }),
@@ -52,12 +61,18 @@ describe("TaskDetailPage KIN-QUALITY-001", () => {
     const { container } = renderPage();
     reportColumnWidth(520);
     // Compact by measured column width, not by viewport: 820 keeps the split.
-    fireEvent.click(within(desktopBar(container)).getByRole("button", { name: t("task.sessionActions") }));
+    fireEvent.click(
+      within(desktopBar(container)).getByRole("button", { name: t("task.sessionActions") }),
+    );
     await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
     const dialog = screen.getByRole("dialog");
     for (const label of [
-      t("task.sessionActions"), t("task.share"), t("workspace.title"),
-      t("pr.title"), t("task.archiveSession"), t("task.deleteSession"),
+      t("task.sessionActions"),
+      t("task.share"),
+      t("workspace.title"),
+      t("pr.title"),
+      t("task.archiveSession"),
+      t("task.deleteSession"),
     ]) {
       expect(within(dialog).getAllByText(label).length).toBeGreaterThan(0);
     }

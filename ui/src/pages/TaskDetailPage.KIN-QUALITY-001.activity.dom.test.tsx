@@ -8,7 +8,14 @@ import type { TaskEvent } from "../api/client";
 import { setLocale, t } from "../i18n";
 import { useAppStore } from "../store/appStore";
 import {
-  cleanupPage, detail, newActivityButton, pageTree, pending, renderPage, resetPage, store,
+  cleanupPage,
+  detail,
+  newActivityButton,
+  pageTree,
+  pending,
+  renderPage,
+  resetPage,
+  store,
 } from "./TaskDetailPage.KIN-QUALITY-001.harness";
 const VIEWPORT = 400;
 let contentHeight = 1000;
@@ -20,13 +27,19 @@ function installLayout() {
     scrollTop: {
       configurable: true,
       get: () => scrollTop,
-      set: (value: number) => { scrollTop = Math.max(0, Math.min(value, contentHeight - VIEWPORT)); },
+      set: (value: number) => {
+        scrollTop = Math.max(0, Math.min(value, contentHeight - VIEWPORT));
+      },
     },
   });
 }
-const messageEvent = (seq: number) => ({
-  seq, type: "message", payload: { role: "assistant", speaker: "kin", text: `reply ${seq}`, model: "test-model" }, created_at: seq,
-}) as unknown as TaskEvent;
+const messageEvent = (seq: number) =>
+  ({
+    seq,
+    type: "message",
+    payload: { role: "assistant", speaker: "kin", text: `reply ${seq}`, model: "test-model" },
+    created_at: seq,
+  }) as unknown as TaskEvent;
 function appendMessage() {
   act(() => store.append(messageEvent(store.state.events.length + 1)));
 }
@@ -80,14 +93,25 @@ describe("TaskDetailPage KIN-QUALITY-001 activity", () => {
     expect(screen.getByTestId("chat-stream")).toBeTruthy();
   });
   it("an offline message keeps the draft, the cards and the single composer", () => {
-    localStorage.setItem("kin_followup_draft:task-1", JSON.stringify({
-      prompt: "half-written question", attachments: [], updatedAt: 1,
-    }));
+    localStorage.setItem(
+      "kin_followup_draft:task-1",
+      JSON.stringify({
+        prompt: "half-written question",
+        attachments: [],
+        updatedAt: 1,
+      }),
+    );
     pending.state.data = {
-      approvals: [{
-        id: "ap-only", task_id: "task-1", kind: "tool_use",
-        payload: { tool_name: "Write", input: { path: "a.ts" } }, decision: "pending", created_at: 1,
-      }],
+      approvals: [
+        {
+          id: "ap-only",
+          task_id: "task-1",
+          kind: "tool_use",
+          payload: { tool_name: "Write", input: { path: "a.ts" } },
+          decision: "pending",
+          created_at: 1,
+        },
+      ],
       questions: [],
     };
     useAppStore.setState({ wsStatus: "disconnected" });

@@ -221,11 +221,7 @@ export default function TaskHeader({
         }
         trailing={
           <>
-            <MobileHeaderButton
-              label={filesLabel}
-              onClick={onToggleWorkspace}
-              tone="muted"
-            >
+            <MobileHeaderButton label={filesLabel} onClick={onToggleWorkspace} tone="muted">
               <span className="text-caption font-medium leading-flush">
                 {tr("workspace.title")}
               </span>
@@ -293,145 +289,145 @@ export default function TaskHeader({
           </>
         ) : (
           <>
-        {/* The title keeps a readable floor rather than yielding to the verbs:
+            {/* The title keeps a readable floor rather than yielding to the verbs:
             with a panel open at 1100px the row is ~700px wide, and a `flex-1`
             title with no floor collapsed to its first character. The action
             cluster is the one that scrolls when space runs out. */}
-        <div className="min-w-cell flex-1">
-          <div className="text-strong font-semibold text-kin-text truncate">{title}</div>
-        </div>
-        <div
-          /* `min-w-0`, not `flex-none`: the row is desktop-only now, and a
+            <div className="min-w-cell flex-1">
+              <div className="text-strong font-semibold text-kin-text truncate">{title}</div>
+            </div>
+            <div
+              /* `min-w-0`, not `flex-none`: the row is desktop-only now, and a
              non-shrinking cluster whose natural width passes the window edge
              was clipped there instead of scrolling inside its own box. */
-          className="ml-2 flex min-w-0 items-center gap-2 overflow-x-auto kin-scroll whitespace-nowrap text-body text-kin-muted"
-          style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
-        >
-          <span
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1"
-            title={tr("newChat.hostAgent", { name: hostAgentName })}
-          >
-            <span
-              className={`w-4 h-4 rounded-md inline-flex items-center justify-center text-micro font-semibold ${hostAgentAvatar.className}`}
+              className="ml-2 flex min-w-0 items-center gap-2 overflow-x-auto kin-scroll whitespace-nowrap text-body text-kin-muted"
+              style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
             >
-              {hostAgentAvatar.initials}
-            </span>
-            <span className="hidden xl:inline">
-              {tr("newChat.hostAgent", { name: hostAgentName })}
-            </span>
-          </span>
-          {/* The list column yielded to an open panel; this is its way back.
+              <span
+                className="inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1"
+                title={tr("newChat.hostAgent", { name: hostAgentName })}
+              >
+                <span
+                  className={`w-4 h-4 rounded-md inline-flex items-center justify-center text-micro font-semibold ${hostAgentAvatar.className}`}
+                >
+                  {hostAgentAvatar.initials}
+                </span>
+                <span className="hidden xl:inline">
+                  {tr("newChat.hostAgent", { name: hostAgentName })}
+                </span>
+              </span>
+              {/* The list column yielded to an open panel; this is its way back.
               It is desktop-only because the phone has no list column to
               reveal — its list is a page, not a column (TASTE 3). */}
-          {panelOpen && (
-            <Button
-              variant="secondary"
-              onClick={onShowList}
-              aria-label={tr("nav.showList")}
-              className="h-11 gap-1.5 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
-              title={tr("nav.showList")}
-            >
-              <IconSessions size={13} />
-              <span>{tr("nav.showList")}</span>
-            </Button>
-          )}
-          <Button
-            variant="secondary"
-            onClick={onToggleWorkspace}
-            aria-pressed={filesOpen}
-            aria-label={filesLabel}
-            className={[
-              "h-11 min-w-11 gap-1.5 rounded-md px-2 text-body font-normal",
-              filesOpen
-                ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
-                : "text-kin-secondary hover:text-kin-text",
-            ].join(" ")}
-            title={tr("workspace.toggle")}
-          >
-            <IconPanel size={13} />
-            {/* Below `xl` the verbs keep their icon, accessible name and
-                tooltip but give up the word; the count stays in the name. */}
-            <span className="hidden xl:inline">{filesLabel}</span>
-          </Button>
-          {/* The pull request is a sibling surface to the workspace, in the
-              same right-side container (TASTE 17), so its toggle is that
-              toggle's peer rather than a row inside the file tree. */}
-          <Button
-            variant="secondary"
-            onClick={onTogglePr}
-            aria-pressed={prOpen}
-            aria-label={tr("pr.title")}
-            className={[
-              "h-11 gap-1.5 rounded-md px-2 text-body font-normal",
-              prOpen
-                ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
-                : "text-kin-secondary hover:text-kin-text",
-            ].join(" ")}
-            title={tr("pr.title")}
-          >
-            <IconPullRequest size={13} />
-            <span>{tr("pr.title")}</span>
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={onShare}
-            aria-label={tr("task.share")}
-            className="h-11 gap-1.5 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
-            title={tr("task.shareTitle")}
-          >
-            <IconShare size={13} />
-            <span className="hidden xl:inline">{tr("task.share")}</span>
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => void onToggleArchive()}
-            disabled={archiving}
-            className="h-11 min-w-11 gap-1 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text disabled:opacity-40"
-            title={archiveLabel}
-            aria-label={archiveLabel}
-          >
-            {task.archived_at ? <IconRestore size={13} /> : <IconArchive size={13} />}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => void onDelete()}
-            disabled={deleting}
-            className="h-11 min-w-11 gap-1 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
-            title={tr("task.deleteSession")}
-            aria-label={tr("task.deleteSession")}
-          >
-            <IconTrash size={13} />
-          </Button>
-          {task.project_id ? (
-            <Link
-              to={`/projects/${encodeURIComponent(task.project_id)}`}
-              title={project}
-              className="max-w-[10rem] md:max-w-none truncate text-kin-secondary hover:text-kin-text hover:underline"
-            >
-              {project}
-            </Link>
-          ) : (
-            <span className="max-w-[10rem] md:max-w-none truncate" title={project}>
-              {project}
-            </span>
-          )}
-          {!terminal && (
-            <>
-              {/* The count merges into the live-state cluster the pill already
-                  leads: same row, same moment, no new container. */}
-              {subagentsRunning > 0 && <SubagentCount count={subagentsRunning} />}
-              <StatusPill degraded={degraded} />
+              {panelOpen && (
+                <Button
+                  variant="secondary"
+                  onClick={onShowList}
+                  aria-label={tr("nav.showList")}
+                  className="h-11 gap-1.5 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
+                  title={tr("nav.showList")}
+                >
+                  <IconSessions size={13} />
+                  <span>{tr("nav.showList")}</span>
+                </Button>
+              )}
               <Button
                 variant="secondary"
-                onClick={() => void onStop()}
-                disabled={stopping}
-                className="h-11 text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-2 rounded-md border-kin-red/30 bg-kin-red/10"
+                onClick={onToggleWorkspace}
+                aria-pressed={filesOpen}
+                aria-label={filesLabel}
+                className={[
+                  "h-11 min-w-11 gap-1.5 rounded-md px-2 text-body font-normal",
+                  filesOpen
+                    ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
+                    : "text-kin-secondary hover:text-kin-text",
+                ].join(" ")}
+                title={tr("workspace.toggle")}
               >
-                {stopping ? tr("task.stopping") : tr("composer.stop")}
+                <IconPanel size={13} />
+                {/* Below `xl` the verbs keep their icon, accessible name and
+                tooltip but give up the word; the count stays in the name. */}
+                <span className="hidden xl:inline">{filesLabel}</span>
               </Button>
-            </>
-          )}
-        </div>
+              {/* The pull request is a sibling surface to the workspace, in the
+              same right-side container (TASTE 17), so its toggle is that
+              toggle's peer rather than a row inside the file tree. */}
+              <Button
+                variant="secondary"
+                onClick={onTogglePr}
+                aria-pressed={prOpen}
+                aria-label={tr("pr.title")}
+                className={[
+                  "h-11 gap-1.5 rounded-md px-2 text-body font-normal",
+                  prOpen
+                    ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
+                    : "text-kin-secondary hover:text-kin-text",
+                ].join(" ")}
+                title={tr("pr.title")}
+              >
+                <IconPullRequest size={13} />
+                <span>{tr("pr.title")}</span>
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={onShare}
+                aria-label={tr("task.share")}
+                className="h-11 gap-1.5 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
+                title={tr("task.shareTitle")}
+              >
+                <IconShare size={13} />
+                <span className="hidden xl:inline">{tr("task.share")}</span>
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => void onToggleArchive()}
+                disabled={archiving}
+                className="h-11 min-w-11 gap-1 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text disabled:opacity-40"
+                title={archiveLabel}
+                aria-label={archiveLabel}
+              >
+                {task.archived_at ? <IconRestore size={13} /> : <IconArchive size={13} />}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => void onDelete()}
+                disabled={deleting}
+                className="h-11 min-w-11 gap-1 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
+                title={tr("task.deleteSession")}
+                aria-label={tr("task.deleteSession")}
+              >
+                <IconTrash size={13} />
+              </Button>
+              {task.project_id ? (
+                <Link
+                  to={`/projects/${encodeURIComponent(task.project_id)}`}
+                  title={project}
+                  className="max-w-[10rem] md:max-w-none truncate text-kin-secondary hover:text-kin-text hover:underline"
+                >
+                  {project}
+                </Link>
+              ) : (
+                <span className="max-w-[10rem] md:max-w-none truncate" title={project}>
+                  {project}
+                </span>
+              )}
+              {!terminal && (
+                <>
+                  {/* The count merges into the live-state cluster the pill already
+                  leads: same row, same moment, no new container. */}
+                  {subagentsRunning > 0 && <SubagentCount count={subagentsRunning} />}
+                  <StatusPill degraded={degraded} />
+                  <Button
+                    variant="secondary"
+                    onClick={() => void onStop()}
+                    disabled={stopping}
+                    className="h-11 text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-2 rounded-md border-kin-red/30 bg-kin-red/10"
+                  >
+                    {stopping ? tr("task.stopping") : tr("composer.stop")}
+                  </Button>
+                </>
+              )}
+            </div>
           </>
         )}
       </div>

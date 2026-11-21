@@ -151,10 +151,7 @@ export default function TaskComposerDock({
     >
       {/* New activity is a row in the bottom lane, never an overlay. The live
           region stays mounted while empty so its arrival is announced. */}
-      <div
-        aria-live="polite"
-        className="max-w-conversation mx-auto flex flex-none justify-center"
-      >
+      <div aria-live="polite" className="max-w-conversation mx-auto flex flex-none justify-center">
         {unseen > 0 && (
           <Button
             variant="secondary"
