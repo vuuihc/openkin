@@ -34,6 +34,10 @@ FAIL_FILE = re.compile(
 TEST_FILE_HINT = re.compile(
     r"^\s+((?:[./])?(?:internal|cmd|scripts|ui|src)/[\w./-]+_test\.go):"
 )
+# A locale value change moves user-visible copy that UI tests assert as
+# literals. Path rule, not a content diff: classify() only sees changed paths.
+LOCALE_FILE = re.compile(r"^ui/src/i18n/locales/[^/]+\.tsx?$")
+UI_TEST_FILE = re.compile(r"^ui/src/(?:.+/)?[^/]+\.(?:test|spec)\.[jt]sx?$")
 NON_TEST_HINTS = re.compile(
     r"(error TS\d+|ELIFECYCLE|prettier --check|Type error|"
     r"CHECK_UI_INVENTORY|ui-lint-guard|eslint|"
@@ -221,6 +225,7 @@ def classify(
 
     go_scope_all = any(p == "go.mod" or p == "go.sum" or p.endswith("/go.mod") or p.endswith("/go.sum") for p in changed)
     ui_touched = any(p.startswith("ui/") for p in changed)
+    locale_changed = any(LOCALE_FILE.match(p) for p in changed)
     failures, saw_non_test = parse_failures(log_text, mod)
     if saw_non_test:
         return False, "log contains a non-test failure (typecheck/lint/inventory/build)"
@@ -235,6 +240,18 @@ def classify(
             continue
         if ui_touched and name == "ui/src/design/tokens.test.ts":
             return False, f"{name} scans all ui/ files (ui/ changed)"
+        # 2026-11-21: #506 changed task.notFound in en.ts/zh.ts while
+        # ui/src/pages/TaskSessionHost.handoff.dom.test.tsx still asserted
+        # "Task not found". The test file was outside the PR's paths, so it was
+        # classified mechanical and CI was rerun every cycle instead of the PR
+        # going back to rework. UI tests legitimately assert copy that a locale
+        # value just moved, so a locale change puts them in scope. A Go failure
+        # or a non-UI test stays outside (pinned by the suite).
+        if locale_changed and UI_TEST_FILE.match(name):
+            return False, (
+                f"{name} in {pkg or 'ui'} asserts user-visible copy "
+                "while a locale value changed"
+            )
         if pkg is None:
             return False, f"{name} has no package and is not known-flaky"
         # A go.mod change makes every Go package in-scope; a known-flaky name
@@ -374,6 +391,27 @@ build	Run go test ./...	2026-11-15T11:49:13.4234567Z	FAIL	github.com/vuuihc/open
     assert not ok and "scans all ui/ files" in reason, reason
     ok, reason = classify(tokens_vitest, ["internal/node/approvals.go"], set(), mod, None)
     assert ok and "outside" in reason, reason
+
+    # 2026-11-21 (#506): #506 changed task.notFound in en.ts/zh.ts while
+    # ui/src/pages/TaskSessionHost.handoff.dom.test.tsx still asserted the old
+    # copy. The test file was outside the PR's paths, so it was called
+    # mechanical and CI was rerun forever instead of the PR being sent back.
+    locale_change = ["ui/src/i18n/locales/en.ts", "ui/src/i18n/locales/zh.ts"]
+    copy_vitest = (
+        "FAIL  src/pages/TaskSessionHost.handoff.dom.test.tsx > shows the missing conversation\n"
+    )
+    ok, reason = classify(copy_vitest, locale_change, set(), mod, None)
+    assert not ok, reason
+    assert reason.startswith("ui/src/pages/TaskSessionHost.handoff.dom.test.tsx"), reason
+    assert "ui/src/pages" in reason and "locale" in reason, reason
+
+    # A locale value change must not pull Go failures into scope.
+    ok, reason = classify(ci_log, locale_change, set(), mod, None)
+    assert ok and "outside PR footprint" in reason, reason
+
+    # Without a locale change the same UI test is still an outside rerun-once.
+    ok, reason = classify(copy_vitest, ["ui/src/main.tsx"], set(), mod, None)
+    assert ok and "outside PR footprint" in reason, reason
 
     print("self-test: ALL-PASS")
     return 0

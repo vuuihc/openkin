@@ -2,7 +2,7 @@
 # walk-mutant-test.sh — the one-command red proof for the walk contracts (R-walk-mutant, R-walk-tap-j7).
 #
 #   bash rsi/runtime/ux/walk-mutant-test.sh                    # apply every committed mutant, require red, restore
-#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J5|J7|J2|J8|J9|J10|J11|J12|J13] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
+#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
 #   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest
 #
 # J3 has two contracts. One: pressing Start on /new must keep the typed message
@@ -87,6 +87,12 @@
 # switch-back and switch-area-back notes to carry the same-shell line and both
 # draft/scroll reads. J9 has no Back step, so this mutant is J11's own.
 #
+# J15: the agent's mid-run question. The manifest stops the question card from
+# rendering in the conversation (`) : (true as boolean) ? null : (`); the walk's first
+# question-text wait then times out and --walk-once J15 prints red. Without
+# the walk half, a card that stopped drawing — or an answer that stopped
+# persisting — would keep every gate green, because no journey walked the leg.
+#
 # J12: the phone's three thumb gestures as real touch. The manifest disables the
 # edge back at `begin`, so the finger still lands in the strip but no gesture
 # starts and the list never comes back; the journey's `url ^/sessions` then
@@ -157,8 +163,8 @@ case "${1:-}" in
   --walk-once)
     JOURNEY="${2:-J3}"
     case "$JOURNEY" in
-      J3|J5|J7|J2|J8|J9|J10|J11|J12|J13) ;;
-      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J5, J7, J2, J8, J9, J10, J11, J12 or J13" ;;
+      J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15) ;;
+      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J5, J7, J2, J8, J9, J10, J11, J12, J13 or J15" ;;
     esac
     ;;
   --trap-check)
@@ -802,6 +808,62 @@ print("walk-mutant: %s green: comment -> tray -> anchored follow-up -> empty tra
       % (journey, "the phone width" if viewports == ["phone"] else "both viewports"))
 PY
 }
+
+if [ "$JOURNEY" = "J15" ]; then
+  bash rsi/runtime/ux-walk.sh "$WT" "$OUT" J15 >"$OUT/ux-walk.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    unavailable "$(cat "$OUT/UNAVAILABLE" 2>/dev/null || tail -c 300 "$OUT/ux-walk.log")"
+  fi
+  [ "$rc" -eq 0 ] || unavailable "ux-walk.sh exited $rc: $(tail -c 300 "$OUT/ux-walk.log")"
+  [ -s "$OUT/walk.json" ] || unavailable "the walker wrote no walk.json"
+
+  python3 - "$OUT/walk.json" <<'PY'
+import json
+import sys
+
+walk = json.load(open(sys.argv[1], encoding="utf-8"))
+screens = [s for s in walk.get("screens", []) if s.get("journey") == "J15"]
+names = [str(s.get("name", "")) for s in screens]
+skips = [n for n in names if "-skipped-" in n]
+if skips:
+    # No seeded question card: a wait on an empty transcript proves nothing.
+    # Fail closed as "could not run" rather than pass an under-run.
+    print("UNAVAILABLE: J15 was skipped (" + ", ".join(skips[:2]) + ")")
+    sys.exit(2)
+
+# Step failures are `J15/…`; screenshot lint is `J15-<vp>-…`. Both are J15's.
+hard = [f for f in walk.get("hardFail", [])
+        if str(f).startswith("J15/") or str(f).startswith("J15-")]
+print("J15 screens: " + (", ".join(names) or "none"))
+for f in hard:
+    print("J15 hardFail: " + str(f))
+if hard:
+    print("walk-mutant: J15 red: %d hard failure(s)" % len(hard))
+    sys.exit(1)
+
+# The two photographs are the evidence: the card on screen before the answer,
+# and the transcript after a real reload with no card left. The reload shot is
+# only proof if the walk read the card count as 0 on it.
+after = [s for s in screens if str(s.get("name", "")).endswith("-answered-after-reload")]
+missing = []
+if not any(n.endswith("-question-card") for n in names):
+    missing.append("the question-card shot")
+if not any(n.endswith("-answered") for n in names):
+    missing.append("the answered shot")
+if not after:
+    missing.append("the answered-after-reload shot")
+else:
+    notes = [str(n) for n in after[-1].get("notes", [])]
+    if not any(n.startswith("count ") and n.endswith("= 0") and "user-question-card" in n for n in notes):
+        missing.append("the card-gone count on the reloaded transcript")
+if missing:
+    print("walk-mutant: J15 red: no " + ", ".join(missing))
+    sys.exit(1)
+print("walk-mutant: J15 green: the card drew, took both answers and stayed gone after a reload")
+PY
+  exit $?
+fi
 
 if [ "$JOURNEY" = "J2" ] || [ "$JOURNEY" = "J8" ]; then
   bash rsi/runtime/ux-walk.sh "$WT" "$OUT" "$JOURNEY" >"$OUT/ux-walk.log" 2>&1

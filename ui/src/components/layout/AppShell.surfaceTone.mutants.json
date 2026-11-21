@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the conversation tone falls back to the page tone: the band stays grey under a chat",
+    "file": "ui/src/components/layout/AppShell.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/layout/AppShell.surfaceTone.dom.test.tsx",
+    "old": "  bg: \"bg-[var(--kin-bg)]\",\n",
+    "new": "  bg: \"bg-[var(--kin-page)]\",\n"
+  },
+  {
+    "label": "an open panel no longer tones the band: files and PR keep the page grey",
+    "file": "ui/src/components/layout/AppShell.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/layout/AppShell.surfaceTone.dom.test.tsx",
+    "old": "  const rootTone: RootTone = panelOpen\n    ? \"inspector\"\n    : selectedTaskId !== null || draftActive\n      ? \"bg\"\n      : \"page\";",
+    "new": "  const rootTone: RootTone = selectedTaskId !== null || draftActive ? \"bg\" : \"page\";"
+  },
+  {
+    "label": "the draft loses its own tone: /new keeps the list page's grey band",
+    "file": "ui/src/components/layout/AppShell.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/layout/AppShell.surfaceTone.dom.test.tsx",
+    "old": "    : selectedTaskId !== null || draftActive\n",
+    "new": "    : selectedTaskId !== null\n"
+  }
+]
