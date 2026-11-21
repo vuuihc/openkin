@@ -345,7 +345,7 @@ export function phoneProjectBuckets(
     return {
       key,
       label: headingFor(primary ?? cwd, record, copy.noProject),
-      cwd: primary ?? (cwd ?? ""),
+      cwd: primary ?? cwd ?? "",
       roots: merged ? [...roots] : [cwd ?? ""],
       merged,
     };

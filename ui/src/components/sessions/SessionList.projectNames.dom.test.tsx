@@ -175,9 +175,7 @@ describe("a project's heading in the conversation list", () => {
    * the same list, so both are checked.
    */
   it("draws one heading for a project with two roots", async () => {
-    fixtures.projects = [
-      project("p-alpha", "Project Alpha", ["/work/alpha", "/work/aaa-config"]),
-    ];
+    fixtures.projects = [project("p-alpha", "Project Alpha", ["/work/alpha", "/work/aaa-config"])];
     fixtures.tasks = [task("alpha-work", "/work/alpha")];
 
     for (const shell of ["page", "sidebar"] as const) {
@@ -194,9 +192,7 @@ describe("a project's heading in the conversation list", () => {
   });
 
   it("files conversations from both roots under that heading", async () => {
-    fixtures.projects = [
-      project("p-alpha", "Project Alpha", ["/work/alpha", "/work/aaa-config"]),
-    ];
+    fixtures.projects = [project("p-alpha", "Project Alpha", ["/work/alpha", "/work/aaa-config"])];
     fixtures.tasks = [task("alpha-work", "/work/alpha"), task("config-work", "/work/aaa-config")];
 
     list("page");
@@ -213,9 +209,7 @@ describe("a project's heading in the conversation list", () => {
 
   it("archives every root of a merged heading and restores one heading", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    fixtures.projects = [
-      project("p-alpha", "Project Alpha", ["/work/alpha", "/work/aaa-config"]),
-    ];
+    fixtures.projects = [project("p-alpha", "Project Alpha", ["/work/alpha", "/work/aaa-config"])];
     fixtures.tasks = [task("alpha-work", "/work/alpha"), task("config-work", "/work/aaa-config")];
 
     const active = list("page");
@@ -260,9 +254,9 @@ describe("a project's heading in the conversation list", () => {
     const restored = list("page");
     const restoredHeading = await screen.findByRole("button", { name: "Project Alpha" });
     const restoredRegion = screen.getByRole("region", { name: /This machine/ });
-    expect(
-      within(restoredRegion).queryAllByRole("button", { name: "Project Alpha" }),
-    ).toHaveLength(1);
+    expect(within(restoredRegion).queryAllByRole("button", { name: "Project Alpha" })).toHaveLength(
+      1,
+    );
     const restoredSection = restoredHeading.closest("section")!;
     expect(within(restoredSection).getByRole("button", { name: /alpha-work/ })).toBeTruthy();
     expect(within(restoredSection).getByRole("button", { name: /config-work/ })).toBeTruthy();
