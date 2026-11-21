@@ -253,6 +253,51 @@ claim_lane_check() { # <worktree> <body-file> — prints one CLAIM_LANE_* verdic
   return "$rc"
 }
 
+# The pre-push seam proves the worker's file; the post-PR seam proves what GitHub retained.
+# Probe with a missing body so claim_check.py alone decides NA, without running a local claim
+# command twice or giving code-only PRs a new network dependency. A prose PR must both pass the
+# merge gate's rule on its live text and match the intended body (ignoring trailing newlines).
+pr_body_check() { # <worktree> <pr-number> <local-body-file> — one PR_BODY_OK/FAIL verdict
+  local wt="$1" prn="$2" body="$3" tmp out rc attempt
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/pr-body.XXXXXX")" \
+    || { echo "PR_BODY_FAIL: cannot create a temp directory for the live body"; return 1; }
+  out="$(claim_lane_check "$wt" "$tmp/live" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] && [[ "$out" = CLAIM_LANE_NA:* ]]; then
+    rm -rf "$tmp"
+    echo "PR_BODY_OK: NA (code-only PR; no live body read)"
+    return 0
+  fi
+  # Only the missing-body verdict is expected here. A bad branch point must not turn into NA.
+  if [[ "$out" != 'CLAIM_LANE_FAIL: cannot read the PR body:'* ]]; then
+    rm -rf "$tmp"
+    printf 'PR_BODY_FAIL: %s\n' "$out"
+    return 1
+  fi
+  for attempt in 1 2; do
+    bounded_run 5 "$GH" pr view "$prn" --repo "$GH_REPO" --json body --jq .body \
+      > "$tmp/live" 2> "$tmp/read.err"; rc=$?
+    [ "$rc" -eq 0 ] && LC_ALL=C grep -q '[^[:space:]]' "$tmp/live" && break
+  done
+  if [ "$rc" -ne 0 ] || ! LC_ALL=C grep -q '[^[:space:]]' "$tmp/live"; then
+    rm -rf "$tmp"
+    echo "PR_BODY_FAIL: cannot read live PR #$prn body after 2 attempts (rc=$rc; empty or unreadable body)"
+    return 1
+  fi
+  out="$(claim_lane_check "$wt" "$tmp/live" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    rm -rf "$tmp"
+    printf 'PR_BODY_FAIL: %s\n' "${out#CLAIM_LANE_FAIL: }"
+    return 1
+  fi
+  if [ ! -r "$body" ] || [ "$(<"$tmp/live")" != "$(<"$body")" ]; then
+    rm -rf "$tmp"
+    echo "PR_BODY_FAIL: live PR #$prn body differs from the local handoff body"
+    return 1
+  fi
+  rm -rf "$tmp"
+  printf 'PR_BODY_OK: live body matches local; %s\n' "${out#CLAIM_LANE_}"
+}
+
 if [ "$CMD" = _sendback-order ]; then sendback_order; exit 0; fi
 
 # Seams. --worker-contract-check prints the contract and exits before PAUSE, locks, fetch,
@@ -266,6 +311,10 @@ fi
 if [ "$CMD" = --claim-check-check ]; then
   [ "$#" -eq 3 ] || { echo "usage: lane.sh --claim-check-check <worktree> <body-file>" >&2; exit 2; }
   claim_lane_check "$2" "$3"; exit $?
+fi
+if [ "$CMD" = --pr-body-check ]; then
+  [ "$#" -eq 4 ] || { echo "usage: lane.sh --pr-body-check <worktree> <pr-number> <local-body-file>" >&2; exit 2; }
+  pr_body_check "$2" "$3" "$4"; exit $?
 fi
 if [ "$CMD" = --worker-contract-check ]; then
   [ "$#" -eq 5 ] || { echo "usage: lane.sh --worker-contract-check <item> <mode> <worktree> <branch>" >&2; exit 2; }
@@ -507,11 +556,29 @@ if [ -z "$PRN" ]; then
 else
   PRURL="https://github.com/$GH_REPO/pull/$PRN"
   if [ -s "$STATUS_NOTE_FILE" ] && [ "$STATUS_NOTE_FILE" -nt "$HDR" ]; then
-    $GH pr edit "$PRN" --repo "$GH_REPO" --body-file "$STATUS_NOTE_FILE" >/dev/null 2>&1 || true
+    bounded_run 10 "$GH" pr edit "$PRN" --repo "$GH_REPO" --body-file "$STATUS_NOTE_FILE" \
+      >"$STATE/lanes/$N.pr-edit.log" 2>&1; PR_EDIT_RC=$?
+    if [ "$PR_EDIT_RC" -ne 0 ]; then
+      echo "PR body edit failed (rc=$PR_EDIT_RC); live read-back decides; see lanes/$N.pr-edit.log"
+    fi
   fi
   $GH pr comment "$PRN" --repo "$GH_REPO" --body "RSI lane $N pushed a rework for the merge lane's findings ($(date '+%F %H:%M %Z'))." >/dev/null 2>&1
 fi
 [ -n "$PRN" ] || { count_fail "lane $N PR" "$PRURL"; finish failed "" "pr create failed: $PRURL"; exit 1; }
+# Only the body the merge lane will read can authorize the handoff. The branch is already pushed;
+# on failure keep it committed, record the verdict, and leave the lane failed for a body repair.
+PR_BODY_EV="$(bounded_run "${RSI_PR_BODY_CHECK_SECS:-180}" bash "$SELF" --pr-body-check "$WT" "$PRN" "$STATUS_NOTE_FILE" 2>&1)"; PR_BODY_RC=$?
+if [ "$PR_BODY_RC" -ne 0 ]; then
+  if [ "$PR_BODY_RC" -eq 124 ]; then
+    PR_BODY_EV="PR_BODY_FAIL: live body check timed out (no verdict)"
+  fi
+  [ -n "$PR_BODY_EV" ] || PR_BODY_EV="PR_BODY_FAIL: live body check produced no verdict"
+  printf '%s\n' "$PR_BODY_EV"
+  PR_BODY_NOTE="$(printf '%s' "$PR_BODY_EV" | tr '\n' ' ' | sed 's/  */ /g')"
+  finish failed "" "pr body: ${PR_BODY_NOTE:-check produced no output}"
+  exit 1
+fi
+[ -n "$PR_BODY_EV" ] && printf '%s\n' "$PR_BODY_EV"
 [ "$MODE" = rework ] && mkdir -p "$STATE/sendback/done" && mv "$STATE/sendback/$SLUG.md" "$STATE/sendback/done/$SLUG-$(date +%H%M%S).md" 2>/dev/null
 
 if [ $TIMEDOUT -eq 1 ]; then count_timeout "lane $N ($SLUG)" "partial work pushed as PR #$PRN"; else count_ok; fi
