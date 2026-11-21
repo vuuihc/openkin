@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the close pushes the conversation again: the phone's Back reopens the panel",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.pushContract.dom.test.tsx -t \"returns the phone\"",
+    "old": "    if (base !== null && current !== null && current > base) {\n      navigate(base - current);\n    } else if (current !== null) {\n      writeWorkspaceSearch(patchWorkspaceLink(locationRef.current.search, null), {\n        replace: true,\n      });\n    } else {\n      // Not this router's browser stack: keep the router's own one-entry\n      // contract rather than guessing at a `window.history` that is not ours.\n      writeWorkspaceSearch(patchWorkspaceLink(locationRef.current.search, null));\n    }\n",
+    "new": "    writeWorkspaceSearch(patchWorkspaceLink(locationRef.current.search, null));\n"
+  },
+  {
+    "label": "the close pops one entry instead of every panel entry the reader opened",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.pushContract.dom.test.tsx -t \"pops every panel entry\"",
+    "old": "      navigate(base - current);\n",
+    "new": "      navigate(-1);\n"
+  },
+  {
+    "label": "a transcript file opened from the conversation forgets the entry it was opened from",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.pushContract.dom.test.tsx -t \"returns to the conversation when a transcript file\"",
+    "old": "    notePanelBase();\n    showPanel(id, \"files\");\n    setWorkspaceOpenPath(next);\n",
+    "new": "    showPanel(id, \"files\");\n    setWorkspaceOpenPath(next);\n"
+  }
+]
