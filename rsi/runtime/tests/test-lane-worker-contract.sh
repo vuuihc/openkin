@@ -153,8 +153,10 @@ PY
   # One line per claim, in field order: where it lives, the test, the mutant/check that goes red.
   grep -Fq '<path:line> · <test name> · <mutant or the check that would go red without the line>' <<<"$text" \
     || bad "claims-block-rule: the path:line · test · mutant field order is not stated"
-  # A claim with no test is waived with a reason, not silently dropped.
-  grep -Fq 'none: <reason of at least 20 characters>' <<<"$text" \
+  # A claim with no test is waived with a reason, not silently dropped. Anchor on the Claims
+  # sentence: the bare `none:` text also appears in the older prose Claim-check rule, so only the
+  # full sentence makes this case go red when the Claims waiver is deleted.
+  grep -Fq 'A claim with no test is `none: <reason of at least 20 characters>`' <<<"$text" \
     || bad "claims-block-rule: the none: waiver and its 20-character minimum are not stated"
   # It is a writing rule the reviewer applies; it is not a second hard gate.
   grep -Fq 'this is a writing rule, not a hard gate' <<<"$text" \
