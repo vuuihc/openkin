@@ -722,6 +722,27 @@
         "scripts/quality_001_reading_test.py"
       ],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-CONTRACT-001",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J1",
+        "J2",
+        "J4",
+        "J6"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "只留五个面：一份会被检查器执行的最小契约",
+      "file": "docs/product/stories/KIN-CONTRACT-001.md",
+      "surface": "Mac / 手机 · 五个面（列表、对话、新建、项目封面、设置）与退场表",
+      "ownerPaths": [],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }
