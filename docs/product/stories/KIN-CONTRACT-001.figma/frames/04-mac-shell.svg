@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff"/><text x="12" y="17" font-size="11" fill="#555">KIN-CONTRACT-001 · Mac 1100×760 · 面 2/5 对话（面板打开态）</text>
+<text x="1088" y="17" font-size="10" fill="#8a8a8a" text-anchor="end">两栏；面板在主区内，不换路由</text><line x1="0" y1="26" x2="1100" y2="26" stroke="#e6e6e6"/>
+<rect x="0" y="26" width="300" height="734" fill="#fbfbfb"/><line x1="300" y1="26" x2="300" y2="760" stroke="#e3e3e3"/>
+<text x="14" y="56" font-size="14" fill="#1a1a1a" font-weight="600">对话</text>
+<rect x="180" y="34" width="104" height="36" rx="9" fill="#1f6feb"/><text x="232" y="57" font-size="11" fill="#ffffff" text-anchor="middle">＋ 新对话</text>
+<rect x="12" y="82" width="276" height="36" rx="9" fill="#f2f2f5" stroke="#dcdcdc"/><text x="24" y="105" font-size="10.5" fill="#8a8a8a">搜索</text>
+<text x="16" y="146" font-size="10" fill="#8a8a8a">设备 · 本机</text><text x="286" y="146" font-size="9.5" fill="#1f6feb" text-anchor="end">仅本机</text>
+<line x1="14" y1="156" x2="286" y2="156" stroke="#efefef"/>
+<text x="16" y="180" font-size="11" fill="#333" font-weight="600">项目 · alpha</text><text x="286" y="180" font-size="9.5" fill="#8a8a8a" text-anchor="end">3 条</text>
+<rect x="10" y="190" width="280" height="40" rx="8" fill="#eef3ff"/><text x="24" y="215" font-size="11" fill="#1f4f9e">这段对话的标题（打开中）</text>
+<text x="16" y="254" font-size="10" fill="#6b6b6b">本机 · 正在运行 · 2 个待处理</text>
+<text x="16" y="284" font-size="11" fill="#333">另一段对话</text><text x="16" y="304" font-size="9.5" fill="#8a8a8a">昨天 · 已完成</text>
+<line x1="0" y1="700" x2="300" y2="700" stroke="#efefef"/><text x="16" y="726" font-size="9.5" fill="#8a8a8a">列表记住搜索、滚动、展开</text>
+<text x="16" y="744" font-size="9.5" fill="#8a8a8a">切到设置再回来不重排</text>
+<rect x="300" y="26" width="800" height="44" fill="#ffffff"/><line x1="300" y1="70" x2="1100" y2="70" stroke="#e0e0e0"/>
+<text x="318" y="53" font-size="13" fill="#1a1a1a" font-weight="600">一段对话的标题…</text><text x="700" y="52" font-size="10" fill="#666">项目 · alpha</text>
+<rect x="820" y="26" width="64" height="44" rx="8" fill="#ffffff" stroke="#93b8f5"/><text x="852" y="52" font-size="10.5" fill="#1f6feb" text-anchor="middle">文件 2</text>
+<rect x="892" y="26" width="44" height="44" rx="8" fill="#ffffff" stroke="#d8d8d8"/><text x="914" y="53" font-size="14" fill="#444" text-anchor="middle">⋯</text>
+<text x="318" y="96" font-size="10.5" fill="#8a8a8a">Kin · 刚刚</text>
+<text x="318" y="122" font-size="12" fill="#1f1f1f">已经整理完，先看结论：这周的变化集中在两处，表格里逐项列出。</text>
+<rect x="312" y="140" width="466" height="120" rx="10" fill="#fbfbfd" stroke="#d8d8d8"/>
+<text x="324" y="160" font-size="9.5" fill="#6b6b6b">表格 · 自身容器横滑</text><line x1="324" y1="168" x2="766" y2="168" stroke="#e0e0e0"/>
+<text x="330" y="186" font-size="10" fill="#1f4f9e" font-weight="600">项目</text><text x="440" y="186" font-size="10" fill="#1f4f9e" font-weight="600">状态</text>
+<text x="540" y="186" font-size="10" fill="#1f4f9e" font-weight="600">负责人</text><text x="640" y="186" font-size="10" fill="#1f4f9e" font-weight="600">下一步</text>
+<line x1="324" y1="194" x2="766" y2="194" stroke="#e0e0e0"/><text x="330" y="212" font-size="10" fill="#333">示例行 1</text>
+<text x="440" y="212" font-size="10" fill="#333">进行中</text><text x="540" y="212" font-size="10" fill="#333">本机</text><text x="640" y="212" font-size="10" fill="#333">等待确认</text>
+<line x1="324" y1="222" x2="766" y2="222" stroke="#efefef"/><text x="330" y="240" font-size="10" fill="#333">示例行 2 · 最后一行完整可见</text>
+<text x="440" y="240" font-size="10" fill="#333">待确认</text><text x="540" y="240" font-size="10" fill="#333">本机</text><text x="640" y="240" font-size="10" fill="#333">回复后继续</text>
+<rect x="788" y="88" width="300" height="470" rx="12" fill="#fbfbfd" stroke="#93b8f5"/>
+<text x="804" y="114" font-size="11" fill="#1f6feb" font-weight="600">文件 · diff · PR（同一路由内的面板）</text>
+<text x="804" y="132" font-size="9.5" fill="#6b6b6b">默认收起；点 header「文件 2」打开</text>
+<line x1="804" y1="144" x2="1072" y2="144" stroke="#e0e0e0"/>
+<rect x="804" y="154" width="268" height="28" rx="6" fill="#ffffff" stroke="#dcdcdc"/><text x="814" y="173" font-size="10" fill="#333">M ui/src/pages/TaskDetailPage.tsx</text>
+<rect x="804" y="190" width="268" height="28" rx="6" fill="#ffffff" stroke="#dcdcdc"/><text x="814" y="209" font-size="10" fill="#333">+ ui/src/components/task/TaskHeader.tsx</text>
+<rect x="804" y="234" width="268" height="130" rx="8" fill="#12141a"/><text x="816" y="256" font-size="9.5" fill="#c9d1d9">@@ -1,4 +1,4 @@</text>
+<text x="816" y="276" font-size="9.5" fill="#ff8a80">- 旧的调用</text><text x="816" y="294" font-size="9.5" fill="#6dd58c">+ 新的调用</text>
+<text x="816" y="318" font-size="9.5" fill="#c9d1d9">…</text><text x="816" y="344" font-size="9" fill="#8a8a8a">行内评论入口 ≥44×44</text>
+<text x="804" y="392" font-size="9.5" fill="#8a8a8a">面板底部：把评论发回对话（不离开这条对话）</text>
+<rect x="804" y="410" width="268" height="36" rx="9" fill="#eef3ff"/><text x="938" y="433" font-size="10.5" fill="#1f6feb" text-anchor="middle">发回对话 · 提交 2 条评论</text>
+<text x="804" y="470" font-size="9.5" fill="#8a8a8a">Esc 关闭面板并把焦点还给「文件 2」</text>
+<rect x="312" y="600" width="466" height="96" rx="14" fill="#ffffff" stroke="#1f6feb"/>
+<text x="328" y="628" font-size="11" fill="#999">接着问…</text>
+<rect x="728" y="628" width="36" height="36" rx="8" fill="#eef3ff"/><text x="746" y="652" font-size="13" fill="#1f6feb" text-anchor="middle">↑</text>
+<text x="328" y="680" font-size="9.5" fill="#8a8a8a">composer 在主区底部占布局；面板打开时它不移动</text>
+<line x1="300" y1="720" x2="1100" y2="720" stroke="#efefef"/>
+<text x="318" y="742" font-size="9.5" fill="#8a8a8a">用量、改动文件、会话动作三处各自最多一个动作可达；都不是常驻条</text>
+</g>
+</svg>

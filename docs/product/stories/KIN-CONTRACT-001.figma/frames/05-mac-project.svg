@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff"/><text x="12" y="17" font-size="11" fill="#555">KIN-CONTRACT-001 · Mac 1100×760 · 面 4/5 项目封面</text>
+<text x="1088" y="17" font-size="10" fill="#8a8a8a" text-anchor="end">/projects/:id 保留；/projects 集合页退场</text><line x1="0" y1="26" x2="1100" y2="26" stroke="#e6e6e6"/>
+<rect x="0" y="26" width="300" height="734" fill="#fbfbfb"/><line x1="300" y1="26" x2="300" y2="760" stroke="#e3e3e3"/>
+<text x="14" y="56" font-size="14" fill="#1a1a1a" font-weight="600">对话</text>
+<rect x="12" y="82" width="276" height="36" rx="9" fill="#f2f2f5" stroke="#dcdcdc"/><text x="24" y="105" font-size="10.5" fill="#8a8a8a">搜索</text>
+<text x="16" y="146" font-size="10" fill="#8a8a8a">设备 · 本机</text><line x1="14" y1="156" x2="286" y2="156" stroke="#efefef"/>
+<rect x="10" y="166" width="280" height="36" rx="8" fill="#ffffff" stroke="#e3e3e3"/><text x="24" y="189" font-size="11" fill="#333">项目 · alpha</text>
+<text x="286" y="189" font-size="9.5" fill="#1f6feb" text-anchor="end">封面 ›</text>
+<text x="24" y="226" font-size="10.5" fill="#333">这段对话的标题</text><text x="24" y="246" font-size="9.5" fill="#8a8a8a">昨天 · 已完成</text>
+<text x="16" y="300" font-size="9.5" fill="#8a8a8a">集合页的职责已被这三件事吃掉：</text>
+<text x="16" y="318" font-size="9.5" fill="#8a8a8a">列表的层级、搜索、项目封面</text>
+<rect x="300" y="26" width="800" height="44" fill="#ffffff"/><line x1="300" y1="70" x2="1100" y2="70" stroke="#e0e0e0"/>
+<rect x="304" y="26" width="44" height="44" fill="#ffffff"/><text x="318" y="53" font-size="16" fill="#1a1a1a">‹</text>
+<text x="356" y="53" font-size="13" fill="#1a1a1a" font-weight="600">项目 · alpha</text>
+<rect x="1012" y="26" width="44" height="44" rx="8" fill="#ffffff" stroke="#d8d8d8"/><text x="1034" y="53" font-size="14" fill="#444" text-anchor="middle">⋯</text>
+<text x="320" y="102" font-size="11" fill="#8a8a8a">封面 · 只读；编辑走「⋯ → 编辑工作说明」</text>
+<line x1="320" y1="112" x2="1080" y2="112" stroke="#efefef"/>
+<rect x="320" y="124" width="760" height="150" rx="12" fill="#fbfbfd" stroke="#dcdcdc"/>
+<text x="338" y="150" font-size="12" fill="#1a1a1a" font-weight="600">这个项目怎么干活</text>
+<text x="338" y="176" font-size="10.5" fill="#555">工作说明（one-pager）：目标、边界、先读哪些文件。</text>
+<text x="338" y="198" font-size="10.5" fill="#555">新对话一开就带上它，不需要每次复述。</text>
+<text x="338" y="226" font-size="10" fill="#6b6b6b">示例段落，最多四行，长文滚动在卡片内</text>
+<text x="338" y="250" font-size="9.5" fill="#8a8a8a">空：写「还没有工作说明」+ 一个「写一段」；失败：保留上一次内容并说明</text>
+<text x="320" y="306" font-size="12" fill="#1a1a1a" font-weight="600">这个项目的对话 · 3</text>
+<line x1="320" y1="316" x2="1080" y2="316" stroke="#efefef"/>
+<rect x="320" y="326" width="760" height="44" rx="8" fill="#ffffff"/><text x="336" y="353" font-size="11.5" fill="#333">这段对话的标题</text><text x="1064" y="353" font-size="9.5" fill="#8a8a8a" text-anchor="end">昨天 · 已完成</text>
+<rect x="320" y="378" width="760" height="44" rx="8" fill="#ffffff"/><text x="336" y="405" font-size="11.5" fill="#333">另一段对话</text><text x="1064" y="405" font-size="9.5" fill="#8a8a8a" text-anchor="end">3 天前 · 已完成</text>
+<rect x="320" y="430" width="760" height="44" rx="8" fill="#ffffff"/><text x="336" y="457" font-size="11.5" fill="#333">第三段对话</text><text x="1064" y="457" font-size="9.5" fill="#8a8a8a" text-anchor="end">上周 · 已归档</text>
+<rect x="320" y="500" width="366" height="44" rx="10" fill="#1f6feb"/><text x="503" y="527" font-size="11.5" fill="#ffffff" text-anchor="middle">在这个项目里新对话</text>
+<line x1="300" y1="700" x2="1100" y2="700" stroke="#efefef"/>
+<text x="320" y="726" font-size="9.5" fill="#8a8a8a">项目声音、路由、agent 归属不在这里：对话里的卡片或设置里的 providers</text>
+<text x="320" y="744" font-size="9.5" fill="#8a8a8a">离开再回来：滚动位置与展开的对话列表保留</text>
+</g>
+</svg>

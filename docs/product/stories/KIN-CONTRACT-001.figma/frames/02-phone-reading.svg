@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff"/><text x="12" y="16" font-size="11" fill="#555">KIN-CONTRACT-001 · 手机 390×844 · 面 2/5 对话</text>
+<text x="378" y="16" font-size="10" fill="#8a8a8a" text-anchor="end">文件/diff/PR 是面板，不是路由</text><line x1="0" y1="24" x2="390" y2="24" stroke="#e6e6e6"/>
+<rect x="0" y="24" width="390" height="44" fill="#ffffff"/><line x1="0" y1="68" x2="390" y2="68" stroke="#e0e0e0"/>
+<rect x="4" y="24" width="44" height="44" fill="#ffffff"/><text x="18" y="51" font-size="16" fill="#1a1a1a">‹</text>
+<text x="44" y="51" font-size="13" fill="#1a1a1a" font-weight="600">一段对话的标题…</text>
+<rect x="288" y="24" width="52" height="44" rx="8" fill="#ffffff" stroke="#d8d8d8"/><text x="314" y="51" font-size="10.5" fill="#444" text-anchor="middle">文件 2</text>
+<rect x="344" y="24" width="44" height="44" rx="8" fill="#ffffff" stroke="#d8d8d8"/><text x="366" y="51" font-size="14" fill="#444" text-anchor="middle">⋯</text>
+<text x="18" y="96" font-size="10.5" fill="#8a8a8a">Kin · 刚刚</text>
+<text x="18" y="120" font-size="12.5" fill="#1f1f1f">已经整理完，先看结论：</text>
+<text x="18" y="142" font-size="12.5" fill="#1f1f1f">这周的变化集中在两处，表格逐项列出；</text>
+<text x="18" y="164" font-size="12.5" fill="#1f1f1f">第二行需要你确认后我才继续。</text>
+<rect x="12" y="182" width="366" height="176" rx="10" fill="#fbfbfd" stroke="#d8d8d8"/>
+<text x="22" y="202" font-size="10" fill="#6b6b6b">表格容器 · 容器内横滑，页面不横滚</text><line x1="22" y1="210" x2="368" y2="210" stroke="#e0e0e0"/>
+<rect x="22" y="216" width="120" height="22" fill="#eef3ff"/><text x="30" y="231" font-size="10.5" fill="#1f4f9e" font-weight="600">项目</text>
+<text x="152" y="231" font-size="10.5" fill="#1f4f9e" font-weight="600">状态</text><text x="240" y="231" font-size="10.5" fill="#1f4f9e" font-weight="600">下一步</text>
+<line x1="22" y1="238" x2="368" y2="238" stroke="#e0e0e0"/><text x="30" y="256" font-size="10.5" fill="#333">示例行 1</text>
+<text x="152" y="256" font-size="10.5" fill="#333">进行中</text><text x="240" y="256" font-size="10.5" fill="#333">等待确认</text><line x1="22" y1="266" x2="368" y2="266" stroke="#efefef"/>
+<text x="30" y="284" font-size="10.5" fill="#333">示例行 2</text><text x="152" y="284" font-size="10.5" fill="#333">待确认</text><text x="240" y="284" font-size="10.5" fill="#333">回复后继续</text>
+<line x1="22" y1="294" x2="368" y2="294" stroke="#efefef"/><text x="30" y="312" font-size="10.5" fill="#333">示例行 3</text>
+<text x="152" y="312" font-size="10.5" fill="#333">完成</text><text x="240" y="312" font-size="10.5" fill="#333">无</text><line x1="22" y1="322" x2="368" y2="322" stroke="#efefef"/>
+<text x="30" y="340" font-size="10.5" fill="#333">示例行 4 · 最后一行完整可见</text><text x="152" y="340" font-size="10.5" fill="#333">完成</text><text x="240" y="340" font-size="10.5" fill="#333">无</text>
+<line x1="22" y1="348" x2="368" y2="348" stroke="#e0e0e0"/>
+<text x="18" y="386" font-size="12" fill="#555">需要你确认第 2 行后，我再继续下一段。</text>
+<text x="18" y="412" font-size="11" fill="#8a8a8a">以上是全部常驻 chrome：一条 44px header</text>
+<rect x="0" y="690" width="390" height="154" fill="#f7f7f9"/><line x1="0" y1="690" x2="390" y2="690" stroke="#dedede"/>
+<rect x="12" y="704" width="366" height="82" rx="14" fill="#ffffff" stroke="#1f6feb"/><text x="28" y="730" font-size="11.5" fill="#999">接着问…</text>
+<rect x="326" y="736" width="44" height="44" rx="10" fill="#1f6feb"/><text x="348" y="763" font-size="11" fill="#ffffff" text-anchor="middle">发送</text>
+<rect x="12" y="786" width="66" height="44" rx="8" fill="#eef3ff"/><text x="20" y="804" font-size="10.5" fill="#1f6feb">用量 ▾</text>
+<text x="90" y="804" font-size="10.5" fill="#555">模型 · 权限</text>
+<text x="16" y="840" font-size="9.5" fill="#8a8a8a">开面板用 push 一条同对话记录，关闭回退到同一条；返回键第一下只关面板</text>
+<rect x="240" y="420" width="138" height="60" rx="10" fill="#ffffff" stroke="#93b8f5"/><text x="309" y="444" font-size="10.5" fill="#1f6feb" text-anchor="middle">文件 · diff · PR</text>
+<text x="309" y="462" font-size="9.5" fill="#6b6b6b" text-anchor="middle">同一路由内的面板</text>
+</g>
+</svg>
