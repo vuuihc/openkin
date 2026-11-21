@@ -23,6 +23,16 @@ The rule this enforces:
   earlier in the body cannot satisfy the check. `Claim check: none: <reason>`
   with at least 20 characters waives it; a bare `none` does not.
 
+A waiver is not a free pass. It says no command can prove the sentence, not
+that the branch's own citations are exempt: before the waiver is accepted,
+every `path:line` and `path:start-end` citation in the changed prose files is
+resolved against the worktree (the file exists, it has that many lines, and a
+range is ordered and fits). Measured 2026-11-21: #546 waived the check while
+its ADR cited `rsi/GOAL.md:434`, a line the branch's own GOAL.md did not have.
+A real `Claim check:` command is its own proof and is never second-guessed by
+the scan. A changed prose file that exists but cannot be read fails closed --
+a citation set that cannot be read is not proven.
+
 Usage: claim_check.py <worktree> <body-file> <changed-files-file>
 Exit:  0 = pass, not applicable, or waived; 1 = failed; 2 = usage.
 
@@ -34,6 +44,7 @@ pays for the reviewer.
 """
 
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -51,6 +62,16 @@ PROSE_PREFIXES = ("docs/adr/", "docs/plans/", "docs/product/")
 CHECK_PREFIX = "Claim check:"
 OUTPUT_PREFIX = "Claim output:"
 WAIVER_MIN_CHARS = 20
+# A citation is `path:line` or `path:start-end`. The extension list is deliberately narrow: only
+# files whose line numbers are meaningful are checked, so a version string or a timestamp is not
+# mistaken for a citation. The lookbehind keeps the match from starting inside a URL or a longer
+# path, and the lookahead keeps `:12` from being taken out of `:1234`.
+CITATION_EXTS = ("md", "tsx", "ts", "go", "sh", "py", "json", "mjs", "css", "yml", "yaml")
+CITATION_RE = re.compile(
+    r"(?<![\w./-])((?:[\w.-]+/)*[\w.-]+\.(?:%s)):(\d+)(?:-(\d+))?(?![\w-])"
+    % "|".join(CITATION_EXTS)
+)
+CITATION_MAX_REPORTED = 5
 TIMEOUT_SECS = 60
 # The command's stdout+stderr goes to a temp file, never a pipe, and only this
 # many trailing bytes are read back: a command that floods output cannot grow
@@ -77,6 +98,81 @@ def is_prose_path(path):
     """True when a changed path carries prose assertions the tree must agree with."""
     path = normalise_repo_path(path)
     return path in PROSE_EXACT or path.startswith(PROSE_PREFIXES)
+
+
+def citation_scan_applies(command):
+    """True when the body waives the check; a real command is its own proof."""
+    lowered = command.lower()
+    return lowered == "none" or lowered.startswith("none:")
+
+
+def contained(root, path):
+    """True when `path` resolves inside `root` (both passed as real paths)."""
+    return path == root or path.startswith(root + os.sep)
+
+
+def plural_lines(count):
+    return "%d line%s" % (count, "" if count == 1 else "s")
+
+
+def citation_problem(worktree, prose):
+    """The citations in the changed prose that the worktree cannot prove, or None.
+
+    Only `prose` -- the changed-file list filtered through is_prose_path() -- is read, so the
+    scan costs the PR's own prose and never walks the repo. A changed prose path missing from the
+    tree is a deletion in the diff and is skipped; one that is there but cannot be read fails
+    closed, because a citation set that cannot be read is not proven. A citation resolves when
+    its file exists under the worktree, holds at least `line` lines, and for a range
+    `start <= end <= lines`.
+    """
+    root = os.path.realpath(worktree)
+    problems = []
+    for rel in prose:
+        source = os.path.join(worktree, rel)
+        if not os.path.exists(source):
+            continue
+        if not contained(root, os.path.realpath(source)):
+            return "cannot read the changed prose file %s: it resolves outside the worktree" % rel
+        try:
+            text = read_text(source)
+        except OSError as exc:
+            return "cannot read the changed prose file %s: %s" % (rel, exc)
+        for line in text.splitlines():
+            # Backticks are markdown formatting around a citation, never part of its path.
+            for match in CITATION_RE.finditer(line.replace("`", "")):
+                cited, start = match.group(0), int(match.group(2))
+                end = int(match.group(3)) if match.group(3) else None
+                target = os.path.join(worktree, normalise_repo_path(match.group(1)))
+                if not contained(root, os.path.realpath(target)):
+                    problems.append("%s (outside the worktree)" % cited)
+                    continue
+                try:
+                    target_text = read_text(target)
+                except FileNotFoundError:
+                    problems.append("%s (no such file)" % cited)
+                    continue
+                except OSError as exc:
+                    problems.append("%s (cannot read: %s)" % (cited, exc))
+                    continue
+                lines = len(target_text.splitlines())
+                if end is None:
+                    if start > lines:
+                        problems.append(
+                            "%s (the file has %s)" % (cited, plural_lines(lines))
+                        )
+                elif start > end:
+                    problems.append("%s (the range starts after it ends)" % cited)
+                elif end > lines:
+                    problems.append(
+                        "%s (the range needs %s; the file has %s)"
+                        % (cited, plural_lines(end), plural_lines(lines))
+                    )
+    if not problems:
+        return None
+    detail = "; ".join(problems[:CITATION_MAX_REPORTED])
+    if len(problems) > CITATION_MAX_REPORTED:
+        detail += "; and %d more" % (len(problems) - CITATION_MAX_REPORTED)
+    return "a citation in the changed prose does not resolve to this tree: " + detail
 
 
 def collapse(text):
@@ -205,6 +301,13 @@ def main(argv):
         command = command[1:-1].strip()   # a command written as inline code
     if not command:
         return fail("the last 'Claim check:' line has no command")
+
+    # The waiver path's substitute for a command: the changed prose's own citations must resolve
+    # on this branch. A real command is never second-guessed by the scan.
+    if citation_scan_applies(command):
+        problem = citation_problem(worktree, prose)
+        if problem is not None:
+            return fail(problem)
 
     lowered = command.lower()
     if lowered == "none" or lowered.startswith("none:"):

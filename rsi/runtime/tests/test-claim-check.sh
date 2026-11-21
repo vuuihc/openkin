@@ -12,8 +12,15 @@
 # which is the whole point (a false claim costs no model call). A string test proves a string; the
 # rule itself is proven by the cases above it.
 #
+# Cases 9-15 prove the waiver is not a free pass: `Claim check: none: <reason>` used to return
+# before the changed prose was read, and #546 shipped an ADR citing `rsi/GOAL.md:434` while its
+# branch's GOAL.md was blank there. The scan reads only the changed prose files and resolves every
+# `path:line` / `path:start-end` against the worktree; a real `Claim check:` command still owns its
+# own proof and is never second-guessed.
+#
 # Hermetic: temp dirs, one throwaway `git init` tree, a stubbed PR state, no network, no gh, no
-# model. Set RSI_TEST_ONLY=<case name> to run one case (used to show a red run per case).
+# model. Set RSI_TEST_ONLY=<case name> to run one case (used to show a red run per case); both the
+# function name and the case name work, so `RSI_TEST_ONLY=citation-missing-line` is one case.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
@@ -53,6 +60,7 @@ SH
 # that read the script from anywhere else would go red.
 new_case() {
   CASE="$1"
+  WT="$T/wt"   # the shared worktree; a citation case opts into its own tree below
   RSI_CTRL="$T/ctrl-$CASE"
   rm -rf "$RSI_CTRL"
   mkdir -p "$RSI_CTRL/rsi/state/merge" "$RSI_CTRL/rsi/state/sendback" "$RSI_CTRL/rsi/runtime"
@@ -63,6 +71,17 @@ new_case() {
 
 body() { printf '%s\n' "$@" > "$BODY"; }
 paths() { printf '%s\n' "$@" > "$PATHS"; }
+
+# new_prose_case <name> — the usual fresh control tree plus a fresh worktree. A citation fixture
+# (a file with N lines, a path that must be absent) is only meaningful in the tree that declares
+# it, so the citation cases never share the original `$WT`.
+new_prose_case() {
+  new_case "$1"
+  WT="$T/wt-$CASE"
+  rm -rf "$WT"; mkdir -p "$WT"
+  printf '%s\n' "# Delivery notes" \
+    "Prose claim check: the KIN-CONTINUE-001 story is signed." > "$WT/NOTES.md"
+}
 
 # run_check — the script seam: no state write, exit code is the check's own.
 run_check() {
@@ -223,9 +242,128 @@ test_claim_check_runs_before_the_reviewer_is_launched() {
   pass "$name"
 }
 
-run() {
-  [ -n "${RSI_TEST_ONLY:-}" ] && [ "$1" != "$RSI_TEST_ONLY" ] && return 0
-  "$1" || exit 1
+# --- 9. a waiver does not exempt a citation the branch's own tree cannot resolve -----------------
+# #546's shape: the ADR cited rsi/GOAL.md:434 while the branch's GOAL.md had no line 434, and the
+# PR body waived the check. The waiver is accepted only after the changed prose's citations resolve.
+test_citation_missing_line() {
+  new_prose_case citation-missing-line
+  mkdir -p "$WT/rsi"
+  printf '%s\n' "# Goal" "" 'The walk at `rsi/GOAL.md:434` proves the sentence.' > "$WT/rsi/GOAL.md"
+  paths "rsi/GOAL.md"
+  body "Claim check: none: no citation changes in this PR"
+  run_check
+  [ "$RC" -eq 1 ] || fail "$CASE: exit $RC, want 1 ($OUT)"
+  case "$OUT" in CLAIM_FAIL:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_FAIL" ;; esac
+  case "$OUT" in *"rsi/GOAL.md:434"*) ;; *) fail "$CASE: does not name rsi/GOAL.md:434: $OUT" ;; esac
+  pass "$CASE"
+}
+
+# --- 10. a citation to a file that is not in the worktree is not proven --------------------------
+test_citation_missing_file() {
+  new_prose_case citation-missing-file
+  mkdir -p "$WT/docs/plans"
+  printf '%s\n' 'The rule lives at `docs/adr/9999-nope.md:3`.' > "$WT/docs/plans/patrol.md"
+  paths "docs/plans/patrol.md"
+  body "Claim check: none: the plan only quotes an ADR that already landed"
+  run_check
+  [ "$RC" -eq 1 ] || fail "$CASE: exit $RC, want 1 ($OUT)"
+  case "$OUT" in CLAIM_FAIL:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_FAIL" ;; esac
+  case "$OUT" in *"docs/adr/9999-nope.md"*) ;; *) fail "$CASE: does not name the path: $OUT" ;; esac
+  pass "$CASE"
+}
+
+# --- 11. a range must fit the file: 10-20 fails on 15 lines and resolves on 30 ------------------
+test_citation_range() {
+  new_prose_case citation-range
+  mkdir -p "$WT/docs/plans" "$WT/ui/src"
+  printf '%s\n' 'The card lives at `ui/src/x.tsx:10-20`.' > "$WT/docs/plans/patrol.md"
+  paths "docs/plans/patrol.md"
+  body "Claim check: none: the plan moves no citation target in this PR"
+  awk 'BEGIN { for (i = 1; i <= 15; i++) print "line " i }' > "$WT/ui/src/x.tsx"
+  run_check
+  [ "$RC" -eq 1 ] || fail "$CASE: 15 lines: exit $RC, want 1 ($OUT)"
+  case "$OUT" in CLAIM_FAIL:*) ;; *) fail "$CASE: 15 lines: output is '$OUT', want CLAIM_FAIL" ;; esac
+  case "$OUT" in *"ui/src/x.tsx:10-20"*) ;; *) fail "$CASE: does not name the range: $OUT" ;; esac
+
+  # The same citation against a 30-line file resolves, so the waiver is unchanged (exit 0).
+  awk 'BEGIN { for (i = 1; i <= 30; i++) print "line " i }' > "$WT/ui/src/x.tsx"
+  run_check
+  [ "$RC" -eq 0 ] || fail "$CASE: 30 lines: exit $RC, want 0 ($OUT)"
+  case "$OUT" in CLAIM_WAIVED:*) ;; *) fail "$CASE: 30 lines: output is '$OUT', want CLAIM_WAIVED" ;; esac
+  pass "$CASE"
+}
+
+# --- 12. when every citation resolves the waiver is printed exactly as before --------------------
+# The stale citations outside the changed list (rsi/GOAL.md, ui/src/App.tsx) are deliberate: the
+# scan reads only changed prose, so a repo walk or an unfiltered path list would turn this red.
+test_citation_resolves_waives() {
+  new_prose_case citation-resolves-waives
+  mkdir -p "$WT/docs/plans" "$WT/rsi" "$WT/ui/src"
+  printf '%s\n' 'The notes at `NOTES.md:2` and this line at `docs/plans/patrol.md:1` agree.' \
+    'A URL is not a citation: https://example.com/notes.md:12 is just a link.' \
+    > "$WT/docs/plans/patrol.md"
+  printf '%s\n' 'An unrelated stale citation `rsi/GOAL.md:434` is not in the changed list.' \
+    > "$WT/rsi/GOAL.md"
+  printf '%s\n' 'const x = 1; // ui/src/App.tsx:999 is a code file, not prose.' > "$WT/ui/src/App.tsx"
+  paths "docs/plans/patrol.md" "ui/src/App.tsx"
+  body "Claim check: none: every citation in the plan already resolves on this branch"
+  run_check
+  [ "$RC" -eq 0 ] || fail "$CASE: exit $RC, want 0 ($OUT)"
+  case "$OUT" in "CLAIM_WAIVED: every citation in the plan already resolves on this branch") ;;
+    *) fail "$CASE: output is '$OUT', want the unchanged CLAIM_WAIVED line" ;;
+  esac
+  pass "$CASE"
+}
+
+# --- 13. a code-only PR is still not applicable, waiver or not ----------------------------------
+test_citation_code_only_na() {
+  new_prose_case citation-code-only-na
+  paths "internal/runtime/foo.go" "ui/src/App.tsx" "rsi/runtime/merge.sh"
+  body "Claim check: none: this PR only touches the runtime and the console"
+  run_check
+  [ "$RC" -eq 0 ] || fail "$CASE: exit $RC, want 0 ($OUT)"
+  case "$OUT" in CLAIM_NA:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_NA" ;; esac
+  pass "$CASE"
+}
+
+# --- 14. a real Claim check: command is its own proof and is never second-guessed ---------------
+# The changed prose deliberately cites a line that does not exist: only the command's own output
+# decides here, so a scan that ran anyway would turn this CLAIM_OK red.
+test_citation_real_command_unchanged() {
+  new_prose_case citation-real-command-unchanged
+  mkdir -p "$WT/docs/plans"
+  printf '%s\n' 'A stale citation `rsi/GOAL.md:434` that the command does not claim.' \
+    > "$WT/docs/plans/patrol.md"
+  paths "docs/plans/patrol.md"
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" \
+       "Claim output:" \
+       "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  run_check
+  [ "$RC" -eq 0 ] || fail "$CASE: exit $RC, want 0 ($OUT)"
+  case "$OUT" in CLAIM_OK:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_OK" ;; esac
+  pass "$CASE"
+}
+
+# --- 15. a changed prose file that cannot be read fails closed ----------------------------------
+# A citation set that cannot be read is not proven. A directory at the prose path is the
+# deterministic unreadable case (it fails even for a user who could read a mode-000 file).
+test_citation_unreadable_fails() {
+  new_prose_case citation-unreadable-fails
+  mkdir -p "$WT/docs/plans/locked.md"
+  paths "docs/plans/locked.md"
+  body "Claim check: none: no citation changes in this PR"
+  run_check
+  [ "$RC" -eq 1 ] || fail "$CASE: exit $RC, want 1 ($OUT)"
+  case "$OUT" in CLAIM_FAIL:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_FAIL" ;; esac
+  case "$OUT" in *"docs/plans/locked.md"*) ;; *) fail "$CASE: does not name the path: $OUT" ;; esac
+  pass "$CASE"
+}
+
+run() { # <function> [<case name>] — RSI_TEST_ONLY accepts either spelling
+  local fn="$1" name="${2:-$1}"
+  [ -n "${RSI_TEST_ONLY:-}" ] && [ "$fn" != "$RSI_TEST_ONLY" ] && [ "$name" != "$RSI_TEST_ONLY" ] \
+    && return 0
+  "$fn" || exit 1
 }
 run test_prose_pr_without_claim_check_is_sent_back
 run test_claim_check_command_that_fails_is_sent_back
@@ -235,5 +373,12 @@ run test_claim_check_passes_when_the_command_output_matches
 run test_code_only_pr_is_not_applicable
 run test_waiver_with_a_reason_is_accepted_and_a_bare_none_is_not
 run test_last_claim_check_line_wins_over_a_quoted_one
+run test_citation_missing_line citation-missing-line
+run test_citation_missing_file citation-missing-file
+run test_citation_range citation-range
+run test_citation_resolves_waives citation-resolves-waives
+run test_citation_code_only_na citation-code-only-na
+run test_citation_real_command_unchanged citation-real-command-unchanged
+run test_citation_unreadable_fails citation-unreadable-fails
 run test_claim_check_runs_before_the_reviewer_is_launched
 echo "test-claim-check: ALL-PASS"
