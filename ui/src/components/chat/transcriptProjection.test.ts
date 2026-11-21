@@ -447,6 +447,53 @@ describe("transcriptProjection", () => {
     expect(items.some((item) => item.kind === "error")).toBe(false);
   });
 
+  it("keeps the running round when a queued follow-up sits above the interrupt", () => {
+    // The follow-up was queued while the round above it was still running and
+    // never started a round of its own, so the interrupt still cuts the round
+    // `task_started` opened. Its own bubble must not become the boundary that
+    // makes the mark disappear.
+    const items = buildChatItems(
+      [
+        ev(1, "message", { role: "user", content: [{ type: "text", text: "write the plan" }] }),
+        ev(2, "task_started", {}),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "kin",
+          partial: true,
+          message_id: "m1",
+          index: 0,
+          content: [{ type: "text", text: "here is the first half" }],
+        }),
+        ev(4, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "add a section" }],
+          source: "follow_up",
+        }),
+        ev(5, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "stop, go another way" }],
+          source: "interrupt",
+          interrupted: true,
+        }),
+      ],
+      "kin",
+    );
+
+    expect(
+      items.map((item) =>
+        item.kind === "meta" ? item.label : item.kind === "message" ? item.text : item.kind,
+      ),
+    ).toEqual([
+      "write the plan",
+      "here is the first half",
+      "add a section",
+      t("chat.interruptedNote"),
+      "stop, go another way",
+    ]);
+  });
+
   it("does not mark an interrupt with no round above it", () => {
     // A window that starts at the interrupt message (or a user message followed
     // straight by the interrupt) has no cut round in view. Claiming "the previous

@@ -34,6 +34,16 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
+- 2026-11-21 · 中 · 慢轮进行中先排队一条追问、再打断时，刷新后缺少「已打断上一轮」这一行 — 慢轮（`[seed] slow`）运行中先用「发送」把一条追问排队，再输入另一条点「打断本轮并立即发送」；重载 `/tasks/:id` 后，被打断的那轮与打断消息之间没有「已打断上一轮」，读起来像 agent 自己停了；同一会话里不排队、直接打断时该行正常出现（本轮 1100×760 实测两种序列）。
+  - **期望行为可写成测试**：给定事件序列「运行中的慢轮用户消息 → `task_started` → 一条排队中的追问 → `source:"interrupt"` / `interrupted:true` 的打断消息」，`buildChatItems` 必须在该打断消息之上输出一条 `kind:"meta"`、`label` 为 `chat.interruptedNote`（「已打断上一轮」）的行；把序列里排队的那条去掉，输出保持不变。在 `ui/src/components/chat/ChatStream.interrupt.dom.test.tsx` 增加 queue-then-interrupt 用例即可失败重现。
+  - **不要的做法**：不要在 projection 里按消息文本或 `source` 猜哪一条「还在排队」——排队中与已送达的追问在事件里同为 `source:"follow_up"`；不要把每一个用户气泡都当成「已经开始了新一轮」。
+  - **照抄的同类**：不排队时的路径已经做对：`ui/src/components/chat/transcriptProjection.ts:1001` 的 `roundWasStarted || hasRoundAbove()` 在慢轮直接被打断时输出该行（`ui/src/components/chat/ChatStream.interrupt.dom.test.tsx:46`）；但「排队中的追问不结束本轮」没有现成判据可抄——`ui/src/components/chat/transcriptProjection.ts:826` 目前对每条 user 消息都把 `roundStarted` 置 false。
+
+- 2026-11-21 · 低 · 一个项目有两个根目录时，对话列表出现两个同名项目标题，其中一个永远为空 — `/api/projects` 里 `[seed] Project Alpha` 同时拥有 `alpha` 与 `aaa-config` 两个根目录；390×844 与 1100×760 的对话列表都渲染两个「[seed] Project Alpha」标题，一个 2 条对话、一个 0 条，两个标题各自都带项目级动作（新建对话；1100 上还有项目封面 / 置顶项目 / 从侧栏移除），人分不清它们是不是同一个项目。
+  - **期望行为可写成测试**：`/api/projects` 中同一项目 id 的多个根目录下的对话，在对话列表中只出现一个项目标题，标题后的数量等于这些根目录下对话数之和；第二个根目录仍可从新建对话的目录选择器里选到。用带两个根的种子项目写一条列表测试（390 与 1100 各一次）即可失败重现。
+  - **不要的做法**：不要按 cwd 分桶、再把两个桶的标题都改成项目名（现在就是这样：两个根 = 两个同名标题）；不要用「隐藏空标题」掩盖重复——空的那个根上还挂着项目级动作，且根目录仍是新建对话的可选项；也不要把两个根目录的对话混进同一个目录。
+  - **照抄的同类**：没有同类可抄——标题已经按项目名（`ui/src/lib/phoneSessionBuckets.ts:314` 的 `headingFor` + `projectNameFor`），但分桶键仍是 cwd（`ui/src/lib/phoneSessionBuckets.ts:296` 的 `bucketKey`），仓库里没有按项目 id 合并多个根目录的实现。
+
 - 2026-11-21 · 中 · 新建对话点「开始」后输入框从页面中部跳到任务页底部：`/new` 的 composer 居中/顶部对齐，任务页把它停靠到底部，同一个 `[data-kin-bottom-chrome]` 带在 390 宽移动 451 px、1100 宽移动 244 px（首个可见帧→最后一个可见帧 507.6 px / 428 px）。期望行为：人正要用的那个 composer 留在任务页放它的位置——照抄任务页已经做对的停靠（`TaskComposerDock`），把 `/new` 的 composer 也钉到底部，跨路由没有半屏位移；验收沿用 J3 `steady` 的同一选择器与两个视口，修好后把步进上界收紧到接近 0，不要靠放宽上界变绿。已定的取舍：布局修复是后续项，J3 `steady` 暂以每个 16 ms 采样步进 ≤ 460 px（两个视口）+ 0 absent / 0 skeleton 作为过渡上界。
 
 ## 已修
