@@ -34,6 +34,11 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
+- 2026-11-21 · 高 · 点批准/提问通知后应用打开了，但没有落到那条对话里被点名的卡片上 — 真机验收（Ethan 的 iPhone，KIN-NOTIFY-001）：点系统通知能进应用，进不到对话内容。通知写的是 `/tasks/<id>?focus=<item>`（`internal/notify/notify.go` 的 `pendingLink`），而 `ui/src/lib/notificationRoute.ts` 的 `parseNotificationRoute` 只对 `/inbox` 保留 `?focus=`，到任务对话时把整个 query 丢掉，导航成 `/tasks/<id>`；`TaskDetailPage.tsx:1286` 正是靠这个参数把卡片滚进视野并聚焦，所以卡片永远不出现。测试一直绿，因为 `notificationRoute.test.ts` 只断言了不带 focus 的 `/tasks/<id>`。
+  - **期望行为可写成测试**：`parseNotificationRoute("/tasks/t1?focus=a1")` 得到 `/tasks/t1?focus=a1`，`/approvals?focus=q1` 同理，不认识的 query（`utm=`）仍被丢掉；真机上点批准/提问通知落到那张卡片（VoiceOver 焦点也在它上面），再点同一条不重复跳转，返回按手机栈回到列表。用现有的 `notificationRoute.test.ts` 与 `NotificationTaps.dom.test.tsx` 即可失败重现。
+  - **不要的做法**：不要改成先跳列表再让读者自己点第二下；不要把 `?focus=` 变成任意 query 透传（`utm=`、`javascript:` 这类必须仍被丢掉）；不要把通知 URL 改成 `/inbox?focus=` 绕过去——`/inbox` 是「需要你」列表，不是任务对话。
+  - **照抄的同类**：`/inbox?focus=` 与 `/routines?device=` 已经按「路由自己拥有的 query 才保留」处理；`areaNavigation.ts:232` 也已把 `focus` 解析到 `conversations.task` 上，缺的只是通知解析这一处放行。
+
 - 2026-11-21 · 高 · 阅读面被四条常驻 bar 和两条占位通知淹没：同一块 820×1180 上，T3 只有一条 44px 头部，Kin 把 tabs、header、用量、改动文件都钉在正文上方 — 820×1180 实机截图里，右栏约 520 CSS px，四条常驻 bar 约占 170 CSS px（tabs ~27 + header ~53 + 用量 ~43 + 改动文件 ~47），再叠通知与 daemon banner 时约 270 px；正文只剩半屏，表格被挤到逐字换行，还要和「有新进展」药丸、composer 抢位置。T3 在同样宽度只保留标题与输入框，过程收成一行 “Worked for …”，用量/改动按需出现。手机路径其实已经做了这个决定：`TaskDetailPage.tsx:2566-2570` 的注释写明手机上用量条整条消失、放到输入框的 popover 里，理由正是 “not a bar across the reading”；平板没有沿用。
   - **期望行为可写成测试**：820×1180、`hasTouch` 下，正文上方常驻 chrome ≤44 CSS px（只保留 header；会话 tabs 在平板宽度隐藏或收进 header；用量与改动文件收进 header 的一个入口/按需面板），长回答 + 4 行表格的最后一行完整可读；`document.elementFromPoint` 命中每个可见单元格中心都返回该单元格；用量与改动文件仍能在一个动作内打开（不是删除）。用同一条 J-tablet walk + 长表格 fixture 即可失败重现。
   - **不要的做法**：不要用新增 bar/badge/banner 去解决「状态看不见」（TASTE 7 先删后加）；不要只在 1100 看；不要把用量/改动文件整块删掉——它们要按需可达；不要把表格缩小字号或加 `overflow:hidden` 掩盖。
