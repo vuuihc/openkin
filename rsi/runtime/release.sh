@@ -15,6 +15,8 @@
 # node but failed on the Hub is retried by the next one instead of counted as shipped.
 # A marker write is read back and compared before the run calls that target shipped, and
 # when both targets run in one invocation the second refuses a stale first value.
+# One release runs at a time: state/.release.lock holds the pid of the live invocation, so
+# two patrol rounds that both passed the gate cannot restart the node twice.
 # Nothing here force-pushes, tags, publishes a dmg, or touches relay/Hub config.
 #
 # usage: release.sh [--repo DIR] [--node-only|--hub-only] [--dry-run]
@@ -67,6 +69,34 @@ with_timeout() { # secs cmd...   (macOS has no `timeout`; same helper as runtime
 
 git="$(command -v git)" || die "git not found"
 mkdir -p "$STATE"
+
+# 0. One release at a time. Two patrol rounds can pass the same gate seconds apart; without
+#    this lock the second restarts the node while the first is still building or rolling the
+#    Hub, and both write state/last_release (2026-11-21: overlapping CEO rounds, 18:10 and
+#    18:55). A held pid means a live release: refuse, change nothing, exit 0 so a patrol
+#    reports a skip rather than a failure. A pid that no longer exists is a crash leftover
+#    and is cleared. A dry run changes nothing and takes no lock.
+LOCK="$STATE/.release.lock"
+release_lock_release() {
+  [ -d "$LOCK" ] || return 0
+  [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"
+  return 0
+}
+if [ "$DRY" = 0 ]; then
+  if ! mkdir "$LOCK" 2>/dev/null; then
+    held="$(cat "$LOCK/pid" 2>/dev/null || true)"
+    if [ -n "$held" ] && kill -0 "$held" 2>/dev/null; then
+      say "release: another release is running (pid $held); nothing shipped"
+      log "SKIP another release is running (pid $held)"
+      exit 0
+    fi
+    say "release: clearing a stale release lock (pid ${held:-unknown})"
+    rm -rf "$LOCK"
+    mkdir "$LOCK" 2>/dev/null || die "cannot take $LOCK; nothing shipped"
+  fi
+  printf '%s\n' "$$" > "$LOCK/pid"
+  trap release_lock_release EXIT
+fi
 
 # 1. Gate. Never releasable on a red check: the whole point is that the loop, not a
 #    person, remembers the two conditions.
@@ -171,7 +201,7 @@ if [ "$HUB" = 1 ]; then
   command -v docker >/dev/null || die "hub: docker not available on this machine"
   docker info >/dev/null 2>&1 || die "hub: docker daemon is not running (start OrbStack, then release again)"
   STAGE="$(mktemp -d)"
-  trap 'rm -rf "$STAGE"' EXIT
+  trap 'release_lock_release; rm -rf "$STAGE"' EXIT
   ( set -o pipefail; $git -C "$REPO" archive "$SHA" | tar -x -C "$STAGE" ) || die "hub: could not stage $SHORT"
   say "hub: building $IMAGE for linux/amd64 from $SHORT (emulated, this takes a while)"
   start=$(date +%s)
