@@ -1,0 +1,31 @@
+{
+  "_doc": "Opt-in 820 reading diagnostic (R-tablet-reading-baseline). Not part of rsi/runtime/ux/journeys.json: its expected RED records the four Open gap-log findings of 2026-11-21, so it must not enter the default gate until the coherent reading fix makes it green. It boots the same throwaway daemon and fake agent through scripts/journeys-smoke.sh --spec. The answer is the fake's `[seed] reading` branch: a long prose answer with a 5-row markdown table. The new-activity state is produced by sending a `[seed] slow` follow-up, scrolling back to the top while it is held, and then letting the reply land out of sight. `reading` observes only: metrics go to <out>/*.reading.json and the shared verdict names each criterion separately. 390 is not a reference: its header is MobileHeader (a different control set), so the desktop action-cluster metric does not apply there; 1100 is walked as the same-metric reference.",
+  "viewports": {
+    "tablet": { "size": "820x1180", "hasTouch": true, "isMobile": false, "deviceScaleFactor": 2 },
+    "mac": "1100x760"
+  },
+  "journeys": {
+    "JT1": {
+      "title": "Tablet reading: a long answer with a table at 820x1180 touch, then an unseen reply while the reader is away",
+      "viewports": ["tablet", "mac"],
+      "steps": [
+        ["goto", "/new"],
+        ["fill", "textarea", "Draft the tablet reading review [seed] reading"],
+        ["place", "button[aria-label^='设备与项目'], button[aria-label*='Device & project'], button[aria-label*='Place'], button[aria-label*='Workspace'], button:has-text('更换'), button:has-text('Change')"],
+        ["send", "button[aria-label='开始'], button[aria-label='Start']"],
+        ["url", "^/tasks/"],
+        ["wait", "css=[role=region][tabindex=\"-1\"]:has-text(\"Tablet reading fixture\")"],
+        ["shot", "answer-top"],
+        ["scroll", "css=[role=region][tabindex=\"-1\"]", "bottom"],
+        ["reading", "table-bottom"],
+        ["shot", "answer-bottom"],
+        ["fill", "textarea", "Reading follow-up while the reader is away [seed] slow"],
+        ["send", "button[aria-label='发送'], button[aria-label='Send']"],
+        ["scroll", "css=[role=region][tabindex=\"-1\"]", "bottom-140"],
+        ["wait", "css=button:has-text('有新进展'), button:has-text('New activity')", "20000"],
+        ["shot", "incoming"],
+        ["reading", "incoming", "require-new-activity"]
+      ]
+    }
+  }
+}
