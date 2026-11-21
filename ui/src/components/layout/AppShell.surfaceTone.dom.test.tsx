@@ -74,11 +74,7 @@ vi.mock("../../hooks/useApprovalDecision", () => ({
 vi.mock("../../lib/desktop", () => ({ isKinDesktop: vi.fn(() => false) }));
 vi.mock("../terminal/TerminalPanel", () => ({ default: () => null }));
 
-const TONES = [
-  "bg-[var(--kin-page)]",
-  "bg-[var(--kin-bg)]",
-  "bg-[var(--kin-inspector)]",
-] as const;
+const TONES = ["bg-[var(--kin-page)]", "bg-[var(--kin-bg)]", "bg-[var(--kin-inspector)]"] as const;
 
 function shell(initialEntry: string) {
   const rendered = render(
