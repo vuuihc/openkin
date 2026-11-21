@@ -319,6 +319,15 @@ export default function TaskDetailPage({
     return handed ? [handed] : [];
   });
   /**
+   * This conversation was entered from the draft composer, which was raised
+   * while the person typed. Read once, at mount, before the effect below
+   * forgets the record, and keyed to this pane by the mount itself. On a Mac
+   * the composer starts in that same arrangement and takes the caret, so
+   * Start does not resize the box the J3 hand-off sampler watches; on a phone
+   * it stays compact and does not raise the keyboard.
+   */
+  const [enteredFromSend] = useState(() => peekPendingSend(id) !== null);
+  /**
    * A list row navigates in with the shell's data but not the conversation's:
    * no events, no handed-off send, no failure yet. Until the detail answers
    * there is nothing truthful to draw in the transcript, and the scroller is
@@ -2752,7 +2761,10 @@ export default function TaskDetailPage({
           stopping={stopping}
           initialValue={followUpDraft.prompt}
           initialAttachments={followUpDraft.attachments}
-          focusSignal={refill.taskID === task.id ? refill.n : 0}
+          // A refill asks for the caret; so does arriving from Start, where
+          // the draft composer was already raised. Only a Mac takes it
+          // (`focusSignal` on a phone would raise the keyboard unasked).
+          focusSignal={refill.taskID === task.id ? refill.n : wide && enteredFromSend ? 1 : 0}
           fileSearch={searchSourceFiles}
           onValueChange={(v) => persistFollowUpDraft(v)}
           onAttachmentsChange={(atts) => persistFollowUpDraft(draftPromptRef.current, atts)}

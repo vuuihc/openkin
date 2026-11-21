@@ -121,13 +121,16 @@ vi.mock("../components/chat/Composer", () => ({
   default: ({
     onSubmit,
     disabled,
+    focusSignal,
   }: {
     onSubmit: (text: string) => Promise<void> | void;
     disabled?: boolean;
+    focusSignal?: number;
   }) => (
     <button
       type="button"
       data-testid="send"
+      data-focus-signal={String(focusSignal ?? 0)}
       disabled={disabled}
       onClick={() => {
         void Promise.resolve(onSubmit("hello")).catch(() => {});
@@ -265,6 +268,21 @@ describe("a send handed over from the new-conversation route", () => {
     store.setDetail({ loaded: false });
     open();
     expect(screen.queryByTestId("pending-user")).toBeNull();
+  });
+
+  it("hands a conversation entered from Start the caret and the raised composer", () => {
+    // The draft composer was raised while the person typed, and step 5 puts
+    // the caret back in the conversation's composer. The signal is what gives
+    // Composer that arrangement from its first frame, before the detail loads.
+    handOffPendingSend("task-1", { id: "handoff-1", text: "hello", images: [], startSeq: 0 });
+    store.setDetail({ loaded: false });
+    open();
+    expect(screen.getByTestId("send").getAttribute("data-focus-signal")).toBe("1");
+  });
+
+  it("leaves a conversation opened from the list alone", () => {
+    open();
+    expect(screen.getByTestId("send").getAttribute("data-focus-signal")).toBe("0");
   });
 
   it("does not replay the handoff on a later visit to the same conversation", () => {
