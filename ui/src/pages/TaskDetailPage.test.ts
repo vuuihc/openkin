@@ -61,7 +61,9 @@ describe("TaskDetailPage session rail breakpoints", () => {
   });
 
   it("moves the caret into the composer a refill lands in", () => {
-    expect(source).toContain("focusSignal={refill.taskID === task.id ? refill.n : 0}");
+    expect(source).toContain(
+      "focusSignal={refill.taskID === task.id ? refill.n : wide && enteredFromSend ? 1 : 0}",
+    );
     expect(source).toContain("setRefill((prev) => ({ taskID: id, n: prev.n + 1 }))");
   });
 

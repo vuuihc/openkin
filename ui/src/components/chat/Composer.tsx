@@ -355,10 +355,15 @@ export default function Composer({
   // A focus signal asks for the caret to come here. The text that came with it
   // arrives through `initialValue`, and setting a textarea's value puts its
   // caret at the end by definition, so the focus is the whole job.
+  //
+  // A composer that is still disabled cannot take the caret. The signal stays
+  // set, so the effect runs again when it can: a conversation entered from
+  // Start mounts before its detail answers, and the caret belongs there once
+  // the textarea is live (KIN-START-001 step 5).
   useEffect(() => {
     if (!focusSignal) return;
     textareaRef.current?.focus({ preventScroll: true });
-  }, [focusSignal]);
+  }, [focusSignal, disabled]);
 
   /** Grow with content up to CSS max-height, then scroll. Shrinks when cleared. */
   function adjustTextareaHeight() {
@@ -869,7 +874,14 @@ export default function Composer({
     }
   }
 
-  const expanded = Boolean(value.trim()) || items.length > 0 || focused || uploading;
+  // A focus signal says the caret belongs here, and the raised arrangement is
+  // what a focused composer looks like. Draw it from the same render as the
+  // signal, not one focus event later: a conversation entered from Start
+  // mounts with the signal while its textarea is still disabled, and a compact
+  // first frame would resize the box under the person — the J3 hand-off
+  // `steady` check measures exactly that.
+  const expanded =
+    Boolean(value.trim()) || items.length > 0 || focused || uploading || focusSignal > 0;
   /**
    * There is something to send and the composer can send it now. The send
    * control carries the accent only then; an empty box shows the same control
