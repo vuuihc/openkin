@@ -5,7 +5,9 @@
 //   node walk.mjs --resolve-j5 DIR/seed.log [--spec path/to/journeys.json]   (print the resolved J5 row-menu step or skip; no browser)
 //   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
 //   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
-//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J1's phone search/approve/deny leg, J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J6's default-agent change/reload/restore, J7's landing contract, J9's Mac switch, J11's phone switch and J12's thumb gestures; no browser)
+//   node walk.mjs --resolve-j15 DIR/seed.log [--spec path/to/journeys.json]  (print the J15 URL or skip; no browser)
+//   node walk.mjs --resolve-j15-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J15 steps as JSON; no browser)
+//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J1's phone search/approve/deny leg, J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J6's default-agent change/reload/restore, J7's landing contract, J9's Mac switch, J11's phone switch, J12's thumb gestures and J15's question card; no browser)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
 // Ops are documented in journeys.json `_doc`. One op is not listed there
 // because it belongs to one story: `history-back` is the browser's own Back
@@ -2054,6 +2056,110 @@ function checkJ14Contract(spec) {
   }
   return errs;
 }
+// J15's contract: the agent's mid-run question must reach a card a person
+// reads, take BOTH answer paths (an option and the Other field), leave the
+// screen, and stay gone — with the request anchors still on screen — after a
+// reload. Until this journey, no walk touched the leg at all, so a card that
+// stopped drawing or an answer the daemon stopped persisting kept every gate
+// green. The deep link reasons about the seed's placeholders (`--resolve-j15`
+// fills them), never about an invented id.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ15Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J15) || {};
+  const steps = journey.steps;
+  // Registration is the point: deleting the one index line must be loud, or
+  // the question leg can be retired by an edit no gate notices.
+  if (!journey.title && !Array.isArray(steps)) return ['J15 is not in the spec'];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J15 has no steps'];
+  const errs = [];
+  const required = (v) => typeof v === 'string' && !v.startsWith('?');
+  const bare = (v) => String(v).replace(/^\?/, '');
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'mac') {
+    errs.push('J15 is the Mac conversation proof: its viewports must be exactly ["mac"]');
+  }
+
+  const CARD = '[data-testid="user-question-card"]';
+  const deepAt = idx((st) => st[0] === 'goto' && required(sel(st, 1))
+    && bare(sel(st, 1)).includes('{conversation}') && bare(sel(st, 1)).includes('{focus}'));
+  if (deepAt < 0) errs.push('J15 has no required deep-link goto carrying {conversation} and {focus}');
+
+  // The card is read the way a person reads it: the question and both option
+  // labels are visible text before the first press. A testid-only wait would
+  // pass a card that drew with no copy in it.
+  const firstClickAt = idx((st) => st[0] === 'click');
+  const textWaitSteps = steps.filter((st, i) => Array.isArray(st) && st[0] === 'wait'
+    && required(sel(st, 1)) && /^text=/.test(bare(sel(st, 1)))
+    && (firstClickAt < 0 || i < firstClickAt));
+  if (textWaitSteps.length < 3) {
+    errs.push('J15 waits for fewer than three visible strings before the first press (the question and its two options)');
+  }
+  // The first visible string is the question itself; the answered card's
+  // `gone` must name it, or a selector that can never match would let the
+  // walk pass without proving the card left.
+  const questionText = textWaitSteps.length ? bare(sel(textWaitSteps[0], 1)).replace(/^text=/, '') : '';
+
+  // Option path: press an option by its aria label inside the card, submit in
+  // either language, then prove that card left. The submit carries both the
+  // Chinese and English labels, so a one-locale key cannot pass.
+  const optionAt = idx((st) => st[0] === 'click' && required(sel(st, 1))
+    && bare(sel(st, 1)).includes(CARD) && /aria-label=/.test(bare(sel(st, 1))));
+  if (optionAt < 0) errs.push('J15 never presses an option by its aria label inside the question card');
+  const submitAt = after(optionAt, (st) => st[0] === 'click' && required(sel(st, 1))
+    && bare(sel(st, 1)).includes('提交') && bare(sel(st, 1)).includes('Submit'));
+  if (submitAt < 0) errs.push("J15 never presses the card's submit in both languages (提交 … Submit)");
+  const optionGoneAt = after(submitAt, (st) => st[0] === 'gone' && required(sel(st, 1))
+    && bare(sel(st, 1)).includes(CARD) && bare(sel(st, 1)).includes(questionText));
+  if (optionGoneAt < 0) errs.push("J15 never proves the answered card left the screen (gone … the question's own text inside " + CARD + ')');
+
+  // Other path: typing into the card's own text input and pressing Enter is
+  // the only way other_text is walked. Pressing an option twice would leave
+  // the free-text field dead and every gate green.
+  const fillAt = after(optionGoneAt, (st) => st[0] === 'fill' && required(sel(st, 1))
+    && bare(sel(st, 1)).includes(CARD) && /input\[type=text\]/.test(bare(sel(st, 1)))
+    && required(sel(st, 2)));
+  if (fillAt < 0) errs.push("J15 never types into the card's Other input (fill " + CARD + ' input[type=text])');
+  const enterAt = after(fillAt, (st) => st[0] === 'key' && required(sel(st, 1)) && bare(sel(st, 1)) === 'Enter');
+  if (enterAt < 0) errs.push('J15 never submits the Other answer with Enter');
+  const otherGoneAt = after(enterAt, (st) => st[0] === 'gone' && required(sel(st, 1))
+    && bare(sel(st, 1)).includes(CARD));
+  if (otherGoneAt < 0) errs.push('J15 never proves the Other-answered card left the screen');
+
+  // The reload is the persistence proof: a fresh goto of the same conversation
+  // with no focus query, the request anchor a person sees, and a zero count of
+  // the card. A card that only left the DOM would come back here.
+  const reloadAt = after(otherGoneAt, (st) => st[0] === 'goto' && required(sel(st, 1))
+    && bare(sel(st, 1)).includes('{conversation}') && !bare(sel(st, 1)).includes('?'));
+  if (reloadAt < 0) {
+    errs.push('J15 never reloads the conversation after the answers (goto /tasks/{conversation})');
+  } else {
+    const anchorAt = after(reloadAt, (st) => st[0] === 'wait' && required(sel(st, 1))
+      && /需要你的回答|Needs your answer/.test(bare(sel(st, 1))));
+    if (anchorAt < 0) errs.push('J15 never reads the request anchor after the reload (需要你的回答|Needs your answer)');
+    const zeroAt = after(reloadAt, (st) => st[0] === 'count' && required(sel(st, 1))
+      && bare(sel(st, 1)).includes(CARD) && sel(st, 2) === '0');
+    if (zeroAt < 0) errs.push('J15 never counts the card as 0 after the reload');
+  }
+
+  // The paths table selects the journeys `--files` walks, first match wins. A
+  // card or label diff that drops J15 would let the question leg rot without
+  // the gate ever walking it.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ15 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J15');
+  };
+  for (const file of ['ui/src/pages/TaskDetailPage.tsx', 'ui/src/components/cards/UserQuestionCard.tsx', 'ui/src/i18n/locales/zh.ts', 'ui/src/i18n/locales/en.ts']) {
+    if (!mapsToJ15(file)) {
+      errs.push(`the paths table does not map ${file} to J15; a diff there would not walk the agent's question`);
+    }
+  }
+  return errs;
+}
 // J1's contract: the phone leg must find last week's chat, search and filter
 // the list, and then decide two real cards — approve one, deny another —
 // reading each answer's control off the screen. Every one of those steps can
@@ -2390,7 +2496,8 @@ if (process.argv.includes('--check-spec')) {
   const j12 = checkJ12Contract(spec);
   const j13 = checkJ13Contract(spec);
   const j14 = checkJ14Contract(spec);
-  if (j1.length || j2.length || j3.length || j4.length || j5.length || j6.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length || j14.length) {
+  const j15 = checkJ15Contract(spec);
+  if (j1.length || j2.length || j3.length || j4.length || j5.length || j6.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length || j14.length || j15.length) {
     if (j1.length) { console.log('spec red: J1'); j1.forEach((e) => console.log(' - ' + e)); }
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
@@ -2405,6 +2512,7 @@ if (process.argv.includes('--check-spec')) {
     if (j12.length) { console.log('spec red: J12'); j12.forEach((e) => console.log(' - ' + e)); }
     if (j13.length) { console.log('spec red: J13'); j13.forEach((e) => console.log(' - ' + e)); }
     if (j14.length) { console.log('spec red: J14'); j14.forEach((e) => console.log(' - ' + e)); }
+    if (j15.length) { console.log('spec red: J15'); j15.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
   console.log('spec ok: J1 searches the list, filters it, and approves one card and denies another with both controls read gone');
@@ -2423,6 +2531,7 @@ if (process.argv.includes('--check-spec')) {
   if (spec.journeys && spec.journeys.J12) console.log('spec ok: J12 walks the phone\'s edge back, row reveal and hold-to-reorder as real touch and reads the consequences');
   if (spec.journeys && spec.journeys.J13) console.log('spec ok: J13 walks the phone file link through Back to the list and the conversation, the PR tab as an address (cold, refreshed, Forward, Back closes only the panel), the HTML preview/source switch without leaving the file address, and an undrawable PDF offering the desktop shell\'s Open in… menu, closed with Escape');
   if (spec.journeys && spec.journeys.J14) console.log('spec ok: J14 reopens the last conversation on the Mac, finds no conversation rows in ⌘K, and draws the phone home as one list at three levels');
+  if (spec.journeys && spec.journeys.J15) console.log('spec ok: J15 answers the agent\'s mid-run question by option and by Other, proves the card left, and finds it still gone after a reload');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
@@ -2499,6 +2608,32 @@ function applyJ7Fields(value, target) {
 }
 function applyJ7Step(step, target) {
   return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? applyJ7Fields(part, target) : part)) : step;
+}
+// J15 must open the conversation whose held turn asked a question, and the
+// card a notification would name. The seed prints one
+// `j15 target conversation=<task> focus=<question>` line only when the turn
+// really sits in `waiting_input` with both questions pending; without it J15
+// is a skip, never a walk against an invented id (the J7 rule). The spec
+// keeps `{conversation}` / `{focus}`, and the walker substitutes here.
+function readJ15Target(seedText) {
+  const J15_TARGET = /^j15 target conversation=(\S+) focus=(\S+)$/m;
+  const seed = typeof seedText === 'string' ? seedText : '';
+  if (/no scripts\/journeys_seed|seed failed|empty daemon/i.test(seed)) return { skip: 'seed failed or empty daemon' };
+  if (!seed.trim()) return { skip: 'no seeded question target' };
+  const match = J15_TARGET.exec(seed);
+  if (!match) return { skip: 'no seeded question target' };
+  return { conversation: match[1], focus: match[2] };
+}
+function applyJ15Target(value, target) {
+  return String(value)
+    .replace(/\{conversation\}/g, target.conversation)
+    .replace(/\{focus\}/g, target.focus);
+}
+// Every J15 step argument, not only `goto`: the reload goto names the same
+// conversation. Selectors without a placeholder (the card's testid, a shot
+// name) pass through unchanged.
+function applyJ15Step(step, target) {
+  return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? applyJ15Target(part, target) : part)) : step;
 }
 // J5 must open the row menu of the conversation the seed left running. The
 // seed prints one `j5 target conversation=<task> title=<title>` line when that
@@ -2607,6 +2742,26 @@ if (resolveJ7 || resolveJ7Plan) {
     const steps = (spec.journeys.J7.steps || []).map((st) => applyJ7Step(st, target));
     console.log(JSON.stringify({ journey: 'J7', steps, title: target.title }, null, 1));
   } else console.log('J7 ' + applyJ7Target(gotoStep[1], target));
+  process.exit(0);
+}
+// `--resolve-j15 <seed.log>` answers J15's question without a browser: the
+// conversation a held turn asked its question in, and the card, resolved from
+// the seed's `j15 target` line, or the skip. `--resolve-j15-plan` prints the
+// whole resolved step list, which is how the substitution and the reload proof
+// are tested without a browser — the same seam J7 has.
+const j15DeepLinkStep = () => (((spec.journeys.J15 || {}).steps || []).find((st) => st[0] === 'goto' && /\/tasks\//.test(String(st[1]))));
+const resolveJ15 = arg('resolve-j15');
+const resolveJ15Plan = arg('resolve-j15-plan');
+if (resolveJ15 || resolveJ15Plan) {
+  const seedPath = resolveJ15 || resolveJ15Plan;
+  const target = readJ15Target(fs.existsSync(seedPath) ? fs.readFileSync(seedPath, 'utf8') : '');
+  const gotoStep = j15DeepLinkStep();
+  if (target.skip) console.log('J15 skip: ' + target.skip);
+  else if (!gotoStep) console.log('J15 skip: the spec has no J15 goto step');
+  else if (resolveJ15Plan) {
+    const steps = (spec.journeys.J15.steps || []).map((st) => applyJ15Step(st, target));
+    console.log(JSON.stringify({ journey: 'J15', steps }, null, 1));
+  } else console.log('J15 ' + applyJ15Target(gotoStep[1], target));
   process.exit(0);
 }
 // `--resolve-j5 <seed.log>` answers J5's question without a browser: the
@@ -3041,7 +3196,7 @@ async function fakeAgentVerdict() {
   return '';
 }
 for (const j of want) {
-  const seed = (j === 'J1' || j === 'J4' || j === 'J5' || j === 'J7' || j === 'J10' || j === 'J13') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
+  const seed = (j === 'J1' || j === 'J4' || j === 'J5' || j === 'J7' || j === 'J10' || j === 'J13' || j === 'J15') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
   const j1 = j === 'J1' ? readJ1Target(seed) : null;
   const j5 = j === 'J5' ? readJ5Target(seed) : null;
   // Only a J4 spec that carries `{project}` needs the seed's id; an older spec
@@ -3054,10 +3209,14 @@ for (const j of want) {
   // deep link resolves to a real task with a real checkout (and the seeded
   // preview.html in it), never an invented id.
   const j7 = (j === 'J7' || j === 'J10' || j === 'J13') ? readJ7Target(seed) : null;
+  // J15's held turn asked a question; the seed names the conversation and the
+  // first card only when both pending questions really exist.
+  const j15 = j === 'J15' ? readJ15Target(seed) : null;
   if (j1 && j1.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J1-skipped-no-approval-target', url: '', lint: {}, notes: ['skipped J1: ' + j1.skip] }); continue; }
   if (j4 && j4.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J4-skipped-no-project-target', url: '', lint: {}, notes: ['skipped J4: ' + j4.skip] }); continue; }
   if (j5 && j5.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J5-skipped-no-running-conversation', url: '', lint: {}, notes: ['skipped J5: ' + j5.skip] }); continue; }
   if (j7 && j7.skip) { screens.push({ journey: j, viewport: 'n/a', name: j + '-skipped-no-fixtures', url: '', lint: {}, notes: ['skipped ' + j + ': no seeded notification target'] }); continue; }
+  if (j15 && j15.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J15-skipped-no-question-target', url: '', lint: {}, notes: ['skipped J15: ' + j15.skip] }); continue; }
   const J = spec.journeys[j];
   for (const vpName of J.viewports) {
     const [w, h] = spec.viewports[vpName].split('x').map(Number); const phone = w < 700;
@@ -3120,7 +3279,7 @@ for (const j of want) {
     // the second width ran it.
     let vpOnly = '';
     for (const rawStep of J.steps) {
-      const preStep = j === 'J5' && j5 ? applyJ5Step(rawStep, j5) : (j === 'J7' || j === 'J10' || j === 'J13') && j7 ? applyJ7Step(rawStep, j7) : j === 'J4' && j4 ? applyJ4Step(rawStep, j4) : rawStep;
+      const preStep = j === 'J5' && j5 ? applyJ5Step(rawStep, j5) : (j === 'J7' || j === 'J10' || j === 'J13') && j7 ? applyJ7Step(rawStep, j7) : j === 'J15' && j15 ? applyJ15Step(rawStep, j15) : j === 'J4' && j4 ? applyJ4Step(rawStep, j4) : rawStep;
       const st = applyVpStep(preStep, vpName);
       const [op, a, b] = st;
       if (op === 'vp') {
