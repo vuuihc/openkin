@@ -46,9 +46,10 @@ new_repo() {
   printf 'base\n' > "$R/README.md"
   # The real repo ignores built bundles; a lane that ran `npm run build` must still look clean.
   printf 'web/dist/assets/\n' > "$R/.gitignore"
-  mkdir -p "$R/rsi/runtime"
+  mkdir -p "$R/rsi/runtime" "$R/scripts"
   printf 'GUARD=enabled\n' > "$R/rsi/runtime/lane.sh"
   printf 'GUARD=other\n' > "$R/rsi/runtime/other.sh"
+  printf '#!/usr/bin/env python3\nTOOL=on\n' > "$R/scripts/loop_tool.py"
   if [ "$runner" != no-runner ]; then
     mkdir -p "$R/scripts"
     cp "$REPO/scripts/mutants.py" "$R/scripts/mutants.py" || fail "$name: cannot copy mutants.py"
@@ -173,17 +174,75 @@ case_worker_contract_names_the_rule() {
     || fail "contract: the worker contract does not name the OK verdict"
 }
 
-# The lane must run the check itself, after the format commit and before the push.
+# The lane must run the check itself under a guard that fails the lane, after the format commit and
+# before the push. A `|| true` (or a dropped exit) is the regression: the call still runs, the lane
+# still pushes, and the reviewer is the first reader again.
 case_lane_runs_check_before_push() {
-  local call='bash "$SELF" --mutant-evidence-check "$WT"' inv push
+  local call='if ! MUT_EV="$(bash "$SELF" --mutant-evidence-check "$WT" 2>&1)"; then' inv push fin
   [ -f "$LANE" ] || fail "wiring: $LANE missing"
   [ "$(grep -cF "$call" "$LANE")" -eq 1 ] \
-    || fail "wiring: lane.sh calls the check $(grep -cF "$call" "$LANE") time(s), want 1"
+    || fail "wiring: the guarded call occurs $(grep -cF "$call" "$LANE") time(s), want 1"
   inv="$(grep -nF "$call" "$LANE" | cut -d: -f1)"
   push="$(grep -n 'push -q -u' "$LANE" | head -1 | cut -d: -f1)"
   [ -n "$push" ] || fail "wiring: lane.sh has no 'push -q -u' line"
   [ "$inv" -lt "$push" ] \
     || fail "wiring: the check (line $inv) runs after the push (line $push)"
+  fin="$(grep -nF 'finish failed "" "mutant evidence:' "$LANE" | cut -d: -f1)"
+  [ -n "$fin" ] || fail "wiring: no failure branch records the mutant-evidence verdict"
+  [ "$fin" -gt "$inv" ] && [ "$fin" -lt "$push" ] \
+    || fail "wiring: the failure branch (line $fin) is not between the check and the push"
+  awk -v a="$inv" -v b="$push" 'NR > a && NR < b && /^[[:space:]]*exit 1[[:space:]]*$/ { found = 1 } END { exit !found }' "$LANE" \
+    || fail "wiring: no exit 1 between the check and the push"
+}
+
+# scripts/** is half the rule; a Python loop tool must not slip through a runtime-only half.
+case_scripts_change_is_in_scope() {
+  new_repo scripts
+  printf 'WORKER=done\n' >> "$R/scripts/loop_tool.py"
+  seam
+  [ "$RC" -ne 0 ] || fail "scripts: a scripts/** change without a manifest passed (output: $OUT)"
+  seam_output_has 'MUTANT_EVIDENCE_MISSING: scripts/loop_tool.py' \
+    || fail "scripts: expected MISSING for scripts/loop_tool.py, got: $OUT"
+}
+
+# A branch point that cannot be read would make a committed loop change invisible; fail closed.
+case_unresolvable_origin_main_fails_closed() {
+  new_repo nobase
+  edit_lane 'WORKER=done'
+  g add -A >/dev/null && g commit -q -m 'loop guard' || fail "nobase: commit failed"
+  g update-ref -d refs/remotes/origin/main || fail "nobase: cannot drop origin/main"
+  seam
+  [ "$RC" -ne 0 ] || fail "nobase: a missing origin/main was read as no loop change (output: $OUT)"
+  seam_output_has 'MUTANT_EVIDENCE_RED:' || fail "nobase: no RED verdict: $OUT"
+  seam_output_has 'origin/main' || fail "nobase: origin/main is not named: $OUT"
+}
+
+# Worktrees share refs, and merge.sh fetches origin/main continuously, so main moves while a worker
+# runs. Only our side of the merge base is our change; another lane's merge must not become this
+# lane's required evidence (2026-11-21 review blocker).
+case_origin_main_advance_does_not_add_files() {
+  new_repo advanced
+  g checkout -q -b other
+  printf 'GUARD=other2\n' >> "$R/rsi/runtime/other.sh"
+  g add -A >/dev/null && g commit -q -m 'other lane merge' || fail "advanced: other commit failed"
+  local other_head; other_head="$(g rev-parse HEAD)"
+  g checkout -q main
+  g update-ref refs/remotes/origin/main "$other_head"
+  edit_lane 'WORKER=done'
+  seam
+  [ "$RC" -ne 0 ] || fail "advanced: expected MISSING for our own change"
+  [ "$OUT" = "MUTANT_EVIDENCE_MISSING: rsi/runtime/lane.sh" ] \
+    || fail "advanced: another lane's merge was charged to this lane: $OUT"
+}
+
+# A removed loop file cannot be mutated; demanding an entry for it would make a cleanup unlandable.
+case_deleted_loop_file_needs_no_manifest() {
+  new_repo deleted
+  g rm -q rsi/runtime/other.sh || fail "deleted: cannot remove other.sh"
+  seam
+  [ "$RC" -eq 0 ] || fail "deleted: deleting a loop file demanded evidence (output: $OUT)"
+  [ "$OUT" = "MUTANT_EVIDENCE_SKIP: no loop-code change" ] \
+    || fail "deleted: unexpected output: $OUT"
 }
 
 # A standalone suite nothing runs is not a wiring (Watch 77).
@@ -215,5 +274,9 @@ run case_missing_runner_fails_closed
 run case_worker_contract_names_the_rule
 run case_lane_runs_check_before_push
 run case_check_sh_wires_the_suite
+run case_scripts_change_is_in_scope
+run case_unresolvable_origin_main_fails_closed
+run case_origin_main_advance_does_not_add_files
+run case_deleted_loop_file_needs_no_manifest
 [ -z "$ONLY" ] || [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS
