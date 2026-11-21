@@ -19,7 +19,7 @@ export PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/shim:$PATH"
 export RSI_HEAVY_SLOTS="${RSI_HEAVY_SLOTS:-1}" UV_THREADPOOL_SIZE="${UV_THREADPOOL_SIZE:-4}"
 
 CLAUDE="$HOME/.local/bin/claude"
-GIT=/usr/bin/git
+GIT="${GIT:-/usr/bin/git}"
 GH=/opt/homebrew/bin/gh
 KIN_BIN="$HOME/.kin/node/kin"
 
