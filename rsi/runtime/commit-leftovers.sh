@@ -8,9 +8,13 @@
 # branch and went red (2026-11-21, PR #511's new rsi/runtime/ux/journeys/J15.json). The same path
 # silently passes a *new test file* that no job then runs — a false green, worse than a red one.
 #
-# Nothing ignored or generated is ever committed: both the add and the post-commit check carry the
-# same web/dist/assets exclusion, and .gitignore covers the rest. The root .gitignore carries
-# .vitest/ for this sweep: a lane's untracked vitest cache would otherwise ride into every PR.
+# Nothing ignored or generated is ever committed, enforced in three places: `git add -A` respects
+# .gitignore, an explicit `reset` unstages web/dist/assets even when a fixture lacks that ignore
+# rule, and the post-add checks carry the same exclusion pathspec. Do not put the exclusion back on
+# `add`: naming an ignored path there makes git exit 1, and a UI lane that ran `npm run build`
+# (writing the gitignored web/dist/assets) then failed the handoff as "left 0 path(s)" after all of
+# its work was committed (2026-11-21, R-ios-bottom-band). The root .gitignore carries .vitest/ for
+# this sweep: a lane's untracked vitest cache would otherwise ride into every PR.
 #
 # Exit 0 — nothing to commit, or one commit holding every leftover with nothing left behind.
 # Exit 1 — leftovers remain (unmerged entries, add/commit failed, or files still uncommitted after
@@ -25,8 +29,8 @@ WT="${1:-}"; ITEM="${2:-}"
 [ -n "$WT" ] && [ -n "$ITEM" ] || { echo "usage: commit-leftovers.sh <worktree> <item>" >&2; exit 2; }
 [ -d "$WT" ] || { echo "commit-leftovers: no worktree at $WT" >&2; exit 2; }
 
-# One definition feeds the add, the staged diff and the post-commit check. A pathspec only some
-# of them honour is exactly how the generated bundles would slip into a PR.
+# One definition feeds the staged diff, the post-commit check and the printed path list. The add
+# cannot carry it (see the header): it relies on .gitignore plus the unstage below.
 EXCL=':!web/dist/assets'
 
 remaining() { # uncommitted paths this sweep is responsible for
@@ -52,7 +56,10 @@ if [ -n "$($GIT -C "$WT" ls-files -u -- . 2>/dev/null | head -1)" ]; then
   leftover_fail "unmerged index entries; sweeping them would commit conflict markers"
 fi
 
-$GIT -C "$WT" add -A -- . "$EXCL" || leftover_fail "git add failed"
+# No exclusion pathspec here: an ignored path named on `add` makes git exit 1. `add -A` skips
+# ignored paths by itself, and the reset removes the bundles in a tree without that ignore rule.
+$GIT -C "$WT" add -A -- . || leftover_fail "git add failed"
+$GIT -C "$WT" reset -q -- web/dist/assets 2>/dev/null || true
 
 # Nothing staged: the common case when the worker committed its own work. No commit, no output.
 if $GIT -C "$WT" diff --cached --quiet -- . "$EXCL"; then
