@@ -1176,6 +1176,24 @@ DOM 测试只覆盖 toast 出现，没有覆盖重载后的投影。
 
 证据：#503 `a96d8610`（走查记录）、#505 `4f8829ce`（修复）。
 
+## 2026-11-21 · 通知与深链要断言「目标内容出现并聚焦」，不是「路径对」
+seen: 1
+
+发生了什么：真机验收 KIN-NOTIFY-001，点批准通知能进应用，却进不到那条对话里被点名的卡片。
+通知写的是 `/tasks/<id>?focus=<item>`（`internal/notify/notify.go` 的 `pendingLink`），
+`parseNotificationRoute` 只对 `/inbox` 保留 `?focus=`，任务对话的 query 被整个丢掉，
+`TaskDetailPage.tsx:1286` 的揭示逻辑因此从不触发；`notificationRoute.test.ts` 只断言过不带
+focus 的 `/tasks/<id>`，所以一直绿。
+
+为什么没拦住：单测把「路径解析正确」当成了「点按到达」，没有一条用例从通知 URL 走到「卡片可见
+并获得焦点」；真机验收一直挂着未做，机制里也没有任何自动检查覆盖「点按后的落点内容」。
+
+规则：通知、深链、推送的验收，最低断言是「目标内容在视口内且焦点在它上面」，再补「不认识的
+query 仍被丢弃」「同一条再点不重复跳转」「返回回到列表」。只断言路径等于字符串的测试，不算
+这条链路的测试。
+
+证据：`rsi/notify-tap-focus`；`ui/src/lib/notificationRoute.ts`、`ui/src/pages/TaskDetailPage.tsx:1286`。
+
 ## 评审复盘与协议
 
 KIN-CONTINUE-001 审了五轮才过。事实：77 个文件、+5025/−1335（源码 +2836、测试 +2099），
