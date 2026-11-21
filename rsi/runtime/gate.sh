@@ -8,6 +8,7 @@ ONLY=""
 if [ "${1:-}" = "--only" ]; then ONLY="${2:?--only needs step[,step]}"; shift 2; fi
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
+source "$(cd "$(dirname "$0")" && pwd)/gate-env.sh"
 WT="${1:?worktree required}"; cd "$WT" || { echo "GATE_RESULT=FAIL no worktree"; exit 1; }
 ONLY_MODE=0; [ -n "$ONLY" ] && ONLY_MODE=1
 selected() { # <step-name> — 0 when this run should execute that step
@@ -24,6 +25,15 @@ step() { # name cmd...
   local n="$1"; shift
   echo "--- $n"
   if "$@" > "$RUNS/gate-$$-$n.log" 2>&1; then echo "ok: $n"; else
+    local envreason
+    # A step the machine could not run is not a red test. ENOSPC in the step's own log is the
+    # evidence (a df threshold is not: APFS counts purgeable space as free and cp still fails).
+    # Report no verdict; merge.sh retries the cycle instead of sending the branch back.
+    if envreason="$(gate_env_failure_in_log "$n" "$RUNS/gate-$$-$n.log")"; then
+      echo "env: $n could not run ($envreason)"
+      echo "GATE_RESULT=NO_VERDICT: $envreason"
+      exit 3
+    fi
     echo "FAIL: $n (see $RUNS/gate-$$-$n.log)"
     # Keep the failing-test identifiers in the gate log itself. merge.sh classifies
     # out-of-footprint / known-flaky failures from THIS file (outside-tests.py), and the
@@ -102,6 +112,14 @@ ui_vitest_gate() {
 }
 
 mkdir -p "$RUNS"
+# Before any step: can this machine write at all? Two 2026-11-22 sendbacks were a full disk
+# reported as a failed PR. The probe (write, read back, delete; bounded) is the precondition —
+# `df` is context only, because APFS reports free space it cannot hand out. No verdict, exit 3.
+probe_dir="${TMPDIR:-}"; [ -n "$probe_dir" ] || probe_dir="$RUNS"
+if ! gate_disk_probe "$probe_dir"; then
+  echo "GATE_RESULT=NO_VERDICT: $GATE_PROBE_REASON"
+  exit 3
+fi
 trap 'for kid in $(pgrep -P $$ 2>/dev/null || true); do rsi_kill_tree "$kid"; done' EXIT
 export GOMAXPROCS="${GOMAXPROCS:-2}" GO_TEST_P="${GO_TEST_P:-2}" VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}"
 # Repair ui/node_modules before the first console compile, not after it. A bare directory-existence
