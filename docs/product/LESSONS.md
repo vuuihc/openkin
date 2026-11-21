@@ -1227,3 +1227,50 @@ KIN-CONTINUE-001 审了五轮才过。事实：77 个文件、+5025/−1335（�
 
 > 审查这份 diff 与相关调用点。按风险面清单逐项过：<清单>。一次性列出全部发现，按
 > blocker/major/nit 分级，不改代码；指出哪些测试会在行为回退时变红。工作树只读。
+
+## 2026-11-22 · 跑不起来的闸门不是红闸门
+seen: 2
+
+发生了什么：01:21 与 02:12 的两份返工单（`sendback/done/contract-story-012159.md`、
+`approval-strip-reading-021235.md`）带着 20 多行 `cp: … No space left on device`，却被记成
+`GATE_RESULT=FAIL: check` 并按 PR 返工计数；`df` 当时显示约 18 GB 可用，失败的是闸门自己的
+一次拷贝。
+
+为什么没拦住：闸门只区分「通过 / 不通过」，不区分「没跑成」；`df` 阈值也不是证据，写满可以由
+一次大拷贝造成。
+
+规则：每一步先判断自己是否真的运行过；没运行就报 `GATE_RESULT=NO_VERDICT`，合并车道重试而
+不写返工单、不烧 attempt。磁盘余量用探针写判断，不看 `df`。
+
+证据：#559 `93afa039`（`rsi/runtime/gate.sh` 的 no-verdict 探针写 + 步骤日志 ENOSPC 扫描）。
+
+## 2026-11-22 · 门读的是远端正文，lane 证明的却是本地文件
+seen: 6
+
+发生了什么：24 小时内 6 轮 `mech-claim·rsi` 里有 5 轮是同一句话：lane 的 `*.pr-body.md` 有
+`Claim check:`，活的 PR 正文没有；`merge.sh` 读 `gh pr view --json body`，于是每次都在最后
+一步把一条已经做完的 PR 打回。
+
+为什么没拦住：lane 只校验自己写的文件（`lane.sh:482` 读 `$STATUS_NOTE_FILE`），门读的是另一
+个副本；「我写过了」与「门读到了」之间没有断言。
+
+规则：交付的证据必须是门实际读的那份产物。本地正文、截图清单、gate 日志在推送后要回读一次
+（`gh pr view --json body` / 远端 head），不一致就不算 handoff。
+
+证据：#554 `0b4ef3ce`（lane 在推送前回读活的 PR 正文）。
+
+## 2026-11-22 · 活动状态目录搬家后，名字仍是契约
+seen: 1
+
+发生了什么：2026-11-22 00:34 前后控制树被移到 `rsi-contract-story`，而 `RSI_STATE` 与五个
+launchd plist 仍指向 `rsi-ceo`；`launchd-merge.log` 报 `merge.sh: No such file or directory`，
+`slices.py` 读到 0/62、`facts` 看不到任何合并，循环看起来像「什么都没发生」。
+
+为什么没拦住：路径被当成实现细节，没有任何一处断言「状态目录存在且非空」；建出来的空骨架让
+每个工具都能启动。
+
+规则：活动状态目录是契约。搬树时先改指向（或留一个指向新树的 symlink），再跑一次
+`lanes.py facts` / `slices.py status` 证明读写落在同一棵树；空骨架比报错更危险，因为它让所有
+检查静默通过。
+
+证据：`rsi/state/decisions-pending.md` 2026-11-22 00:40；修复后 `62/62`、`merged_today=2`。
