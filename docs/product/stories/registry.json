@@ -695,7 +695,7 @@
     },
     {
       "id": "KIN-QUALITY-001",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J1",
