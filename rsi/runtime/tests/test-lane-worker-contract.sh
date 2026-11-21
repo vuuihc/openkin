@@ -127,6 +127,43 @@ test_prose_claim_check_rule() {
     || bad "prose-claim-check-rule: the contract does not say a missing claim is not delivery"
 }
 
+# A PR body that claims more than the diff does costs a whole rework round: the reviewer has to
+# re-derive every claim by hand. The contract therefore asks for a Claims block whose every line
+# names the test or mutant that would go red, and the reviewer card makes checking it the first
+# pass. This is a writing rule, not a second hard gate, so a testless claim is waived with a
+# reasoned `none:` line rather than refused.
+test_claims_block_rule() {
+  lane_record new
+  local text
+  text="$(contract_text new)" || bad "claims-block-rule: --worker-contract-check exited $?"
+  # Section order: the Claims block sits after Verification and before Screenshots.
+  python3 - "$text" <<'PY' || exit 1
+import sys
+text = sys.argv[1]
+def pos(needle):
+    i = text.find(needle)
+    if i < 0:
+        sys.exit("claims-block-rule: the contract never names %r" % needle)
+    return i
+v, c, s = pos("Verification"), pos("Claims"), pos("Screenshots")
+if not v < c < s:
+    sys.exit("claims-block-rule: Claims must sit after Verification and before Screenshots "
+             "(Verification@%d Claims@%d Screenshots@%d)" % (v, c, s))
+PY
+  # One line per claim, in field order: where it lives, the test, the mutant/check that goes red.
+  grep -Fq '<path:line> · <test name> · <mutant or the check that would go red without the line>' <<<"$text" \
+    || bad "claims-block-rule: the path:line · test · mutant field order is not stated"
+  # A claim with no test is waived with a reason, not silently dropped.
+  grep -Fq 'none: <reason of at least 20 characters>' <<<"$text" \
+    || bad "claims-block-rule: the none: waiver and its 20-character minimum are not stated"
+  # It is a writing rule the reviewer applies; it is not a second hard gate.
+  grep -Fq 'this is a writing rule, not a hard gate' <<<"$text" \
+    || bad "claims-block-rule: the contract does not say the Claims rule is not a hard gate"
+  if grep -F 'Claims' <<<"$text" | grep -Eq '\bmust\b|fails the lane'; then
+    bad "claims-block-rule: the Claims block introduces hard-gate wording"
+  fi
+}
+
 # The worker's copy of the full suite competes with the merge gate for the same machine: on
 # 2026-11-19 a worker's `check.sh` ran beside three queued gates (load 9–10.6 on 8 cores,
 # swap free 1.3 GB) and two concurrent UI builds sat behind that day's false reds. The merge
@@ -213,6 +250,7 @@ RAN=0
 run race-ordering-rule test_race_ordering_rule
 run race-flag-self-check test_race_flag_self_check
 run prose-claim-check-rule test_prose_claim_check_rule
+run claims-block-rule test_claims_block_rule
 run no-full-gate-instruction test_no_full_gate_instruction
 run cloud-brief-has-no-full-gate test_cloud_brief_has_no_full_gate
 run rework-keeps-rules test_rework_keeps_rules
