@@ -384,7 +384,11 @@
 
 /* Full-bleed overlay/root helper: the raw insets and nothing else. A box that
    also draws its own gutter should use `.px-safe` instead of pairing this with
-   `px-*` — the `px-*` would lose. */
+   `px-*` — the `px-*` would lose.
+
+   On the shell root this is the bottom band the app paints: the root's
+   background shows through the padding, so `AppShell` tones it to match the
+   frontmost surface. Keep the inset here rather than moving it onto pages. */
 .safe-pad {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
