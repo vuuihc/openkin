@@ -128,6 +128,28 @@ function taskIdFromPath(pathname: string): string | null {
 }
 
 /**
+ * The tone of the shell root, and with it the safe-area band under the content.
+ *
+ * `.safe-pad` spends the phone's bottom inset as `padding-bottom` on this root,
+ * so the root's own background — not any child surface, which stops at the
+ * content box — paints the strip below the page on a notched iPhone. A fixed
+ * `--kin-page` there left a grey band under a conversation (`--kin-bg`) and
+ * under a session panel (`--kin-inspector`). The tone follows the frontmost
+ * surface, derived from facts the shell already has; a second stored "which
+ * surface" fact could disagree with what is drawn (TASTE 15).
+ *
+ * The classes are literal, not a `bg-[var(--kin-${tone})]` template: Tailwind
+ * cannot see a composed class name and would generate no CSS for it.
+ */
+const ROOT_TONE = {
+  page: "bg-[var(--kin-page)]",
+  bg: "bg-[var(--kin-bg)]",
+  inspector: "bg-[var(--kin-inspector)]",
+} as const;
+
+type RootTone = keyof typeof ROOT_TONE;
+
+/**
  * Desktop: sidebar + main. Phone: four sibling roots share the footer and
  * content swipes; conversations and drafts push and come back in one step.
  * New chat goes to DRAFT_PATH (no modal). See KIN-CONTINUE-002.
@@ -533,6 +555,15 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
   // terminal opens over a conversation while `shownPanel` names the shell's
   // view, not the conversation's, and the rail must compact underneath it.
   const panelOpen = terminalPanel !== null || openTaskPanel !== null;
+  // The root paints the safe-area band below the content, so it takes the
+  // colour of whatever is in front: an open panel or the shell terminal is
+  // `--kin-inspector`, a conversation or the draft is `--kin-bg`, and every
+  // list/form page stays `--kin-page`. Derived, not stored.
+  const rootTone: RootTone = panelOpen
+    ? "inspector"
+    : selectedTaskId !== null || draftActive
+      ? "bg"
+      : "page";
   /**
    * One surface at a time: while a panel is open for the conversation in
    * front, the list column yields to it, at every width the shell is wide.
@@ -562,9 +593,13 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
       `touch-lg` belongs on this root, not on <main>: the edge-back strip (a
       fixed sibling of <main>) and the command palette below it sit outside
       <main>, and both are phone surfaces. See index.css.
+
+      The root also paints the safe-area band that `.safe-pad` reserves at the
+      bottom, so its tone follows the frontmost surface (see `ROOT_TONE`);
+      removing that padding would put the page under the home indicator.
     */
     <div
-      className={`touch-lg h-[100dvh] flex bg-[var(--kin-page)] text-kin-text overflow-hidden safe-pad md:pt-safe ${
+      className={`touch-lg h-[100dvh] flex ${ROOT_TONE[rootTone]} text-kin-text overflow-hidden safe-pad md:pt-safe ${
         zen ? "kin-zen" : ""
       }`}
     >
