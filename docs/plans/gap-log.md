@@ -34,6 +34,11 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
+- 2026-11-22 · 高 · 另一条对话有审批在等时，浮动的「等待处理」条和「需要权限」卡压住长回答的 markdown 表格：390×844 上 12 个可见单元格里有 4 个（New activity、Table measure、Acceptance、390 and 1100 only）中心点到的是浮层而不是单元格，1100×760 上 18 个可见单元格里有 1 个（390 and 1100 only）被「等待处理」条接住；同一张卡在 /new 的 1100 宽下还盖住项目摘要右半。
+  - **期望行为可写成测试**：当另一条对话有审批等待时，打开 `[seed] reading` 的长回答，在 390×844 与 1100×760 上对每个可见表格单元格中心调用 `document.elementFromPoint`，必须返回该单元格或其子节点；命中「等待处理」条或 `[data-kin-approval-card]` 的次数必须为 0。
+  - **不要的做法**：不要再加一条常驻 bar 把正文推下去（#542 刚删掉正文上的四条）；不要把表格缩窄、隐藏或强制横滚来给卡片让位；也不要让读者必须先关掉审批卡才能读正文。
+  - **照抄的同类**：`ui/src/components/task/TaskComposerDock.tsx:150-155`（「有新进展」是底部通道里的 `flex-none` 行，注释写明 never an overlay）；以及 `ui/src/components/cards/FloatingApproval.tsx:95-104` 已有的「卡片会压住可见文件行就只留 strip」相交判定——把同一判定扩到正文表格的可见单元格。
+
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
