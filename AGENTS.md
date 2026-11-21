@@ -72,6 +72,26 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
     generation, visit or flow id and are dropped or retargeted when the
     screen, machine or draft that asked is no longer current; test with two
     concurrent flows and one late answer.
+12. **New checks enter the gate in the same change.** Every new test suite,
+    guard, probe module or workspace package is named by an executing job in
+    `scripts/check.sh` (not only a change-detection glob) in the same commit,
+    and the gate's own output proves it ran; a suite nobody wires is a green
+    light for a regression.
+13. **Bound every external wait.** Each dispatched model call, shell command,
+    search or fetch runs under an explicit timeout shorter than the watchdog
+    that encloses it, kills its process tree on expiry, and reports "no
+    verdict" instead of a fabricated one; a path with no bound is a defect
+    even if it has never hung.
+14. **A delivered item is claimed once.** An item already present in the
+    durable delivery record cannot be claimed or re-delivered; the claim and
+    the delivery record are the same write, and a deliberate redo needs an
+    explicit flag and a note. Queue readers consult that record, never prose
+    status notes.
+15. **No disposition without reproduction.** A failing walk, gate or check is
+    replayed on the same tree with that tree's own tools before it costs an
+    attempt; confirmed-red blocks, confirmed-green clears, and a reviewer sees
+    per-journey evidence — the confirm walk for the journeys it re-walked and
+    the first walk for the ones it did not.
 
 ## Development workflow
 
