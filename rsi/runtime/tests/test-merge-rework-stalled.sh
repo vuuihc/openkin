@@ -117,7 +117,7 @@ case_new_sendback_escalates_again() {
   reset_ctrl; pr_json; sendback 30
   run_dispatch
   [ "$(stalled_lines)" = 1 ] || fail "new-sendback: first escalation missing ($(stalled_lines))"
-  sendback 30 p1 2     # a second rework round: same slug, different file mtime
+  sendback 29 p1       # a second rework round: same slug, ~60 s newer mtime, still ≥ 20 m old
   run_dispatch
   [ "$(stalled_lines)" = 2 ] || fail "new-sendback: a second sendback did not escalate ($(stalled_lines) lines)"
   [ "$(ceo_lines)" = 2 ] || fail "new-sendback: want 2 needs-ceo lines, got $(ceo_lines)"
