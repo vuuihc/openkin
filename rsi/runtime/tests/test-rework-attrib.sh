@@ -219,6 +219,8 @@ case_wired() {
     || fail "wired: fill.md does not read the ledger in its read list"
   grep -q 'A mechanism row is derived from the rework ledger' "$RSI/runtime/prompts/fill.md" \
     || fail "wired: fill.md has no rule tying a mechanism row to the ledger"
+  grep -q 'Mechanism work has its own budget' "$RSI/runtime/prompts/fill.md" \
+    || fail "wired: fill.md has no budget rule for a guardrail row"
   grep -q 'test-rework-attrib.sh' "$RSI/../scripts/check.sh" || fail "wired: scripts/check.sh does not run this suite"
   # And it actually renders: a throwaway control tree (its own runtime copy + state) prints the line.
   local ctrl="$T/ctrl"
