@@ -97,6 +97,7 @@ const CELL_CLEAR: Box = { top: 200, bottom: 232, left: 300, right: 600 };
 const geometry = {
   card: CARD,
   strip: STRIP,
+  collapsedStrip: null as Box | null,
   rows: [ROW_UNDER_CARD] as Box[],
   cells: [] as Box[],
 };
@@ -114,7 +115,12 @@ function stubGeometry(): void {
     this: HTMLElement,
   ) {
     if (this.tagName === "ASIDE" && this.hasAttribute("aria-label")) return domRect(geometry.card);
-    if (this.getAttribute("role") === "status") return domRect(geometry.strip);
+    if (this.getAttribute("role") === "status") {
+      const collapsed = !document.querySelector("[data-kin-approval-card]");
+      return domRect(
+        collapsed && geometry.collapsedStrip ? geometry.collapsedStrip : geometry.strip,
+      );
+    }
     if (this.hasAttribute("data-kin-hit-row")) {
       const rows = Array.from(document.querySelectorAll("[data-kin-hit-row]"));
       return domRect(geometry.rows[rows.indexOf(this)] ?? EMPTY);
@@ -165,6 +171,7 @@ beforeEach(() => {
   viewport(1100, 760);
   geometry.card = CARD;
   geometry.strip = STRIP;
+  geometry.collapsedStrip = null;
   geometry.rows = [ROW_UNDER_CARD];
   geometry.cells = [];
   stubGeometry();
@@ -358,7 +365,73 @@ describe("FloatingApproval over reading content", () => {
 
     expect(view.container.querySelector("aside")).toBeNull();
     expect(view.container.querySelector("[data-kin-approval-card]")).toBeNull();
-    expect(view.container.querySelector("[role='status']")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Fix the tests/ })).toBeNull();
+    // The visible surface is gone, but its live region is not: an approval
+    // arriving while the reader is on a table still has to be announced, and
+    // this status is the app's only arrival channel. It stays sr-only and
+    // outside the `aside`, so the strip measurement has no box to find.
+    const live = view.container.querySelector("[role='status']");
+    expect(live).not.toBeNull();
+    expect(live?.getAttribute("aria-live")).toBe("polite");
+    expect(live?.classList.contains("sr-only")).toBe(true);
+    expect(live?.textContent).toContain("Fix the tests");
+    expect(live?.closest("aside")).toBeNull();
+  });
+
+  it("settles a tablet strip that moves down when the card yields, then returns on scroll", async () => {
+    viewport(820, 1180);
+    geometry.rows = [];
+    geometry.card = { ...CARD, left: 412, right: 796 };
+    geometry.strip = { ...STRIP, left: 412, right: 620 };
+    // Removing the card moves the strip down to the composer's edge. Only
+    // that collapsed strip overlaps this cell; using the expanded top while
+    // hidden flips hidden on every layout effect until React throws #185.
+    geometry.collapsedStrip = { top: 660, bottom: 692, left: 412, right: 620 };
+    geometry.cells = [{ top: 650, bottom: 690, left: 500, right: 700 }];
+    const { props } = setupProps();
+    const view = render(
+      <>
+        {readingCell()}
+        <FloatingApproval {...props} />
+      </>,
+    );
+    expect(view.container.querySelector("aside")).toBeNull();
+    expect(screen.getByRole("status").classList.contains("sr-only")).toBe(true);
+
+    geometry.cells = [CELL_CLEAR];
+    fireEvent.scroll(document);
+    await waitFor(() => expect(denyButton()).toBeTruthy());
+  });
+
+  it("announces an approval that arrives while the surface is hidden", () => {
+    // The reported state: the reader is on a table cell when another
+    // conversation's approval lands. Nothing visible may mount, but the queue
+    // behind the pill must reach assistive tech — a silent arrival means the
+    // agent stays stopped until someone happens to look.
+    geometry.rows = [];
+    geometry.cells = [CELL_UNDER_STRIP];
+    const { props } = setupProps();
+    const view = render(
+      <>
+        {readingCell()}
+        <FloatingApproval {...props} />
+      </>,
+    );
+    const live = () => view.container.querySelector("[role='status']");
+    expect(live()?.textContent).not.toContain(t("approval.moreWaiting", { n: 1 }));
+
+    view.rerender(
+      <>
+        {readingCell()}
+        <FloatingApproval
+          {...props}
+          approvals={[approval("oldest", "task-1", 100), approval("second", "task-2", 200)]}
+        />
+      </>,
+    );
+
+    expect(view.container.querySelector("aside")).toBeNull();
+    expect(live()?.textContent).toContain(t("approval.moreWaiting", { n: 1 }));
   });
 
   it("brings the surface back when the reading cell scrolls clear", async () => {

@@ -82,7 +82,17 @@ describe("the floating approval's wiring", () => {
     // surface is unmounted (`hidden`), not `stripOnly`.
     expect(floating).toContain('"[data-kin-reading]"');
     expect(floating).toMatch(/if \(stripHit !== hidden\) setHidden\(stripHit\);/);
-    expect(floating).toMatch(/if \(hidden && !raised && !panelOpen\) return null;/);
+    // …but only the visible surface: the hidden branch still renders the
+    // arrival live region, sr-only and outside the `aside`, so an approval
+    // that lands while the reader is on a table is announced. The label it
+    // carries is computed before the guard.
+    expect(floating).toMatch(
+      /if \(hidden && !raised && !panelOpen\) \{[\s\S]*?<ApprovalStatus className="sr-only">[\s\S]*?\n  \}/,
+    );
+    const labelAt = floating.indexOf("const stripLabel = [");
+    const hiddenAt = floating.indexOf("if (hidden && !raised && !panelOpen)");
+    expect(labelAt).toBeGreaterThan(-1);
+    expect(labelAt).toBeLessThan(hiddenAt);
     // The card body is guarded by `!stripOnly`, and the strip is the branch
     // that renders instead.
     const cardGuard = floating.indexOf("{!stripOnly && (");

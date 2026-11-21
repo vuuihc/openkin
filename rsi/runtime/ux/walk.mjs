@@ -2930,11 +2930,14 @@ function checkJ16Contract(spec) {
   // rather than the product — but a walk that dismisses it before the table
   // verdict has stopped proving the overlay yields.
   const denyAts = steps.map((st, i) => i).filter((i) => Array.isArray(steps[i])
-    && steps[i][0] === 'click' && sel(steps[i], 1).startsWith('?[data-kin-approval-card]')
+    && steps[i][0] === 'click' && /^\??\[data-kin-approval-card\]/.test(sel(steps[i], 1))
     && /拒绝|Deny/.test(sel(steps[i], 1)));
-  const cardGoneAt = idx((st) => st[0] === 'gone' && sel(st, 1).startsWith('?[data-kin-approval-card]'));
+  const cardGoneAt = idx((st) => st[0] === 'gone' && /^\??\[data-kin-approval-card\]/.test(sel(st, 1)));
   if (denyAts.length < 3) {
-    errs.push('J16 must deny the seeded approvals (three optional [data-kin-approval-card] deny clicks) after it reads the table; the reading verdict runs while the approval waits');
+    errs.push('J16 must deny the seeded approvals (three [data-kin-approval-card] deny clicks) after it reads the table; the reading verdict runs while the approval waits');
+  }
+  if (!denyAts.some((at) => required(sel(steps[at], 1)))) {
+    errs.push('J16 needs a required [data-kin-approval-card] deny click; optional clicks can all skip while the surface is hidden');
   }
   if (cardGoneAt < 0) {
     errs.push('J16 never proves the approval card left the screen (gone ?[data-kin-approval-card]) after it reads the table');
@@ -3894,6 +3897,7 @@ for (const j of want) {
             await loc.focus({ timeout: 3000 }); await page.waitForTimeout(200); continue;
           }
           if (op === 'fill') await loc.fill(b, { timeout: 3000 }); else await (op === 'click' ? loc.click({ timeout: 3000 }) : loc.hover({ timeout: 3000 })); await page.waitForTimeout(400);
+          if (op === 'click') log.push('click ' + sel);
         } else if (op === 'gone') {
           // A decision landing must take its control off the screen: the
           // pending card unmounts its buttons when the answer arrives. Waiting

@@ -4879,18 +4879,37 @@ class WalkJ16ContractTest(unittest.TestCase):
         # photograph of an overlay. Dropping the deny clicks must be loud.
         steps = self.steps()
         deny = [i for i, step in enumerate(steps)
-                if step[0] == "click" and str(step[1]).startswith("?[data-kin-approval-card]")]
+                if step[0] == "click"
+                and str(step[1]).lstrip("?").startswith("[data-kin-approval-card]")]
         self.assertEqual(len(deny), 3, steps)
 
         def drop_denies(steps):
             steps[:] = [step for step in steps
                         if not (step[0] == "click"
-                                and str(step[1]).startswith("?[data-kin-approval-card]"))]
+                                and str(step[1]).lstrip("?").startswith("[data-kin-approval-card]"))]
 
         code, out = self.check(self.copy_with(drop_denies))
         self.assertEqual(code, 1, out)
         self.assertIn("spec red: J16", out)
         self.assertIn("deny the seeded approvals", out)
+
+        # Optional clicks all skipped on a hidden surface while `gone`
+        # passed vacuously. Require at least one real dismissal, and count
+        # both required and optional forms in a mixed cleanup sequence.
+        def optional_denies(steps):
+            for i in deny:
+                steps[i][1] = "?" + steps[i][1].lstrip("?")
+
+        code, out = self.check(self.copy_with(optional_denies))
+        self.assertEqual(code, 1, out)
+        self.assertIn("required [data-kin-approval-card] deny", out)
+
+        def mixed_denies(steps):
+            optional_denies(steps)
+            steps[deny[0]][1] = steps[deny[0]][1].lstrip("?")
+
+        code, out = self.check(self.copy_with(mixed_denies))
+        self.assertEqual(code, 0, out)
 
     def test_j16_scrolls_away_before_the_follow_up_bubble_is_red(self) -> None:
         # The send pins the pane to the bottom. Without the bubble wait the

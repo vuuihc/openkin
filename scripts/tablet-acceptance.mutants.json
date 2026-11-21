@@ -45,7 +45,7 @@
     "label": "the J16 contract stops requiring the approval-card deny/gone hygiene",
     "file": "rsi/runtime/ux/walk.mjs",
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_without_the_approval_card_hygiene_is_red",
-    "old": "  if (denyAts.length < 3) {\n    errs.push('J16 must deny the seeded approvals (three optional [data-kin-approval-card] deny clicks) after it reads the table; the reading verdict runs while the approval waits');\n  }",
+    "old": "  if (denyAts.length < 3) {\n    errs.push('J16 must deny the seeded approvals (three [data-kin-approval-card] deny clicks) after it reads the table; the reading verdict runs while the approval waits');\n  }",
     "new": ""
   },
   {
@@ -54,6 +54,34 @@
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_shipped_j16_spec_is_ok",
     "old": "  if (hygiene.some((at) => tableAt >= 0 && at < tableAt)) {",
     "new": "  if (hygiene.some((at) => tableAt >= 0 && at > tableAt)) {"
+  },
+  {
+    "label": "the J16 contract accepts an all-optional dismissal that can skip every deny",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_without_the_approval_card_hygiene_is_red",
+    "old": "  if (!denyAts.some((at) => required(sel(steps[at], 1)))) {",
+    "new": "  if (false) {"
+  },
+  {
+    "label": "the J16 regression no longer tests an all-optional dismissal",
+    "file": "scripts/journeys_walk_test.py",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_without_the_approval_card_hygiene_is_red",
+    "old": "                steps[i][1] = \"?\" + steps[i][1].lstrip(\"?\")",
+    "new": "                steps[i][1] = steps[i][1].lstrip(\"?\")"
+  },
+  {
+    "label": "the hidden approval drops its arrival live region",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "VITEST_MAX_WORKERS=2 ui/node_modules/.bin/vitest run --root ui src/components/cards/FloatingApproval.overlap.dom.test.tsx",
+    "old": "  if (hidden && !raised && !panelOpen) {\n    return <ApprovalStatus className=\"sr-only\">{stripLabel}</ApprovalStatus>;\n  }",
+    "new": "  if (hidden && !raised && !panelOpen) return null;"
+  },
+  {
+    "label": "the hidden strip forgets its actual offset after the decision card yields",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "VITEST_MAX_WORKERS=2 ui/node_modules/.bin/vitest run --root ui src/components/cards/FloatingApproval.overlap.dom.test.tsx",
+    "old": "        top: box.bottom - stripBox.current.bottomGap - stripBox.current.height,\n        bottom: box.bottom - stripBox.current.bottomGap,",
+    "new": "        top: box.top,\n        bottom: box.top + stripBox.current.height,"
   },
   {
     "label": "the J16 contract stops requiring the follow-up bubble wait before the scroll away",

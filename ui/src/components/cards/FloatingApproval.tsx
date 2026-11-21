@@ -46,6 +46,10 @@ type Props = {
   onOpenPath?: (path: string) => void;
 };
 
+function ApprovalStatus(props: React.HTMLAttributes<HTMLDivElement>) {
+  return <div {...props} role="status" aria-live="polite" />;
+}
+
 /**
  * The one pending approval that is not already on screen, floating.
  *
@@ -128,14 +132,15 @@ export default function FloatingApproval({
     rightGap: number;
     width: number;
   } | null>(null);
-  // The pill's own box, remembered for the render where the whole surface is
-  // hidden. Rebuilt from the expanded box's top: the strip is the first row of
-  // the same fixed column, so it sits at the top the card's height establishes.
+  // Remember the pill's actual offset: removing the card moves the strip down.
+  // Reconstructing it at the expanded top would alternate hidden and visible
+  // when only the collapsed strip overlaps a cell, until React throws #185.
   const stripBox = useRef<{
     id: string;
     height: number;
     rightGap: number;
     width: number;
+    bottomGap: number;
   } | null>(null);
 
   // The oldest by its own timestamp rather than by position: the resource
@@ -219,8 +224,7 @@ export default function FloatingApproval({
     if (hit !== covered) setCovered(hit);
 
     // The strip's own pill: measured directly whenever it is mounted, and
-    // rebuilt from the remembered width and the expanded box's top when this
-    // very measurement unmounted it.
+    // rebuilt at that same offset from the bottom when it is hidden.
     const strip = surfaceRef.current?.querySelector<HTMLElement>("[role='status']") ?? null;
     let stripRect: Rect | null = null;
     if (strip) {
@@ -232,14 +236,15 @@ export default function FloatingApproval({
           height: rect.height,
           rightGap: Math.max(0, viewportWidth - rect.right),
           width: rect.width,
+          bottomGap: box.bottom - rect.bottom,
         };
       }
     } else if (stripBox.current && stripBox.current.id === currentId) {
       const width = viewportWidth >= 768 ? stripBox.current.width : Math.max(0, viewportWidth - 24);
       const right = viewportWidth - stripBox.current.rightGap;
       stripRect = {
-        top: box.top,
-        bottom: box.top + stripBox.current.height,
+        top: box.bottom - stripBox.current.bottomGap - stripBox.current.height,
+        bottom: box.bottom - stripBox.current.bottomGap,
         left: right - width,
         right,
         width,
@@ -473,11 +478,6 @@ export default function FloatingApproval({
   }, [screenKey, expectsBottomChrome, hasAny, panelOpen, panelColumn]);
 
   if (!current) return null;
-  // The pill itself is on reading content: no part of the surface is mounted
-  // on this screen. `raised` and an open panel already answer the question
-  // their own way, and the next measurement brings the surface back as soon as
-  // the content scrolls clear.
-  if (hidden && !raised && !panelOpen) return null;
 
   const waiting = approvals.length - 1;
   // The strip is the whole surface in three places: a phone tab root (the card
@@ -514,6 +514,13 @@ export default function FloatingApproval({
     .filter(Boolean)
     .join(" · ");
 
+  // Keep the arrival announcement while the visible surface yields to reading
+  // content. Outside the aside/surfaceRef, it cannot enter strip measurements;
+  // the next measurement restores the surface when the content scrolls clear.
+  if (hidden && !raised && !panelOpen) {
+    return <ApprovalStatus className="sr-only">{stripLabel}</ApprovalStatus>;
+  }
+
   return (
     <aside
       ref={surfaceRef}
@@ -547,9 +554,7 @@ export default function FloatingApproval({
           means the agent stays stopped until someone happens to look. Opaque
           like the card under it: this pill floats over the list too, and the
           glass surface let the row text read through it. */}
-      <div
-        role="status"
-        aria-live="polite"
+      <ApprovalStatus
         // The card sits outside the pane that owns tab swiping, so this cannot
         // fire today; it keeps a gesture starting here from turning the page if
         // the card ever moves inside that pane.
@@ -618,7 +623,7 @@ export default function FloatingApproval({
             )}
           </>
         )}
-      </div>
+      </ApprovalStatus>
       {/* The decision card belongs to a conversation (and to Mac), never to a
           phone tab root or a screen with a panel open: there the strip above is
           the whole surface and the card would paint over the thing the reader
