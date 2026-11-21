@@ -45,8 +45,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 14:
-    raise SystemExit("manifest must be exactly fourteen entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 15:
+    raise SystemExit("manifest must be exactly fifteen entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -234,10 +234,25 @@ if "<UserQuestionCard" not in question_card["old"] or "(true as boolean) ? null 
     raise SystemExit("the J15 mutant does not stop the question card from rendering")
 if "data-testid" in question_card["new"]:
     raise SystemExit("the J15 mutant renames a testid instead of not rendering the card")
-print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
+# The hand-off composer mutant must withhold the dock itself until the held
+# detail GET answers: J3's `sample`/`steady` pair then sees absent frames
+# where the composer should be, and the red is the steady line. Breaking a
+# render detail inside the dock (a label, the disabled state) would leave the
+# band on screen and prove a different promise.
+dock = next((e for e in entries
+             if e["file"] == "ui/src/components/task/TaskComposerDock.tsx"), None)
+if dock is None:
+    raise SystemExit("no hand-off composer entry for ui/src/components/task/TaskComposerDock.tsx")
+if "if (!detailLoaded) return null;" not in dock["new"]:
+    raise SystemExit("the dock mutant does not withhold the composer until detailLoaded")
+if "R-f1-composer-handoff" not in dock["new"]:
+    raise SystemExit("the dock mutant does not name the item it breaks (no R-f1-composer-handoff marker)")
+if "--walk-once J3" not in dock["test"]:
+    raise SystemExit("the dock entry's `test` does not walk J3 (--walk-once J3)")
+print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
       % (j3["file"], j7["file"], j10["file"], follow["file"], review["file"],
          rerun["file"], stop["file"], shell["file"], pr["file"], rowmenu["file"],
-         phone["file"], panel_exit["file"], question_card["file"]))
+         phone["file"], panel_exit["file"], question_card["file"], dock["file"]))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"

@@ -681,4 +681,66 @@ PY
 [ $rc -eq 0 ] || fail "$case_name: $out"
 pass "$case_name"
 
-echo "ux-walker contract: 29/29 cases passed"
+# --- 30-31: J3's hand-off sampler is not optional -------------------------
+# The F1 sentence is about what the screen does *during* the route change, and
+# the only evidence is a frame sampler started before Start and read before the
+# `sent` shot. These cases pin the contract that refuses a J3 which never
+# starts it, and one whose assert sits after the shot the mutant runner cuts
+# at. Without them the sampler could be deleted and every gate would still
+# pass: the message, the waiting row and the reply would all be photographed.
+case_name="j3-contract-refuses-without-handoff-sampler"
+V5="$T/spec-no-handoff-sampler"; spec_fixture "$V5"
+python3 - "$V5/journeys/J3.json" <<'PY' || exit 1
+import json
+import sys
+
+path = sys.argv[1]
+journey = json.load(open(path, encoding="utf-8"))
+journey["steps"] = [st for st in journey["steps"]
+                    if not (isinstance(st, list) and st and st[0] in ("sample", "steady"))]
+json.dump(journey, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+[ $? -eq 0 ] || fail "$case_name: could not write the stripped fixture"
+out="$(check_spec "$V5/journeys.json")"; rc=$?
+[ $rc -ne 0 ] || fail "$case_name: --check-spec passed a J3 with its hand-off sampler stripped"
+case "$out" in
+  *sample*Start*) ;;
+  *) fail "$case_name: the refusal does not name the sampler started before Start: $out" ;;
+esac
+out="$(check_spec "$UX/journeys.json")"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: the tree's own spec fails --check-spec: $out"
+pass "$case_name"
+
+case_name="j3-contract-refuses-handoff-sampler-after-the-cut"
+V6="$T/spec-sampler-after-cut"; spec_fixture "$V6"
+python3 - "$V6/journeys/J3.json" <<'PY' || exit 1
+import json
+import sys
+
+path = sys.argv[1]
+journey = json.load(open(path, encoding="utf-8"))
+steps = journey["steps"]
+steady = next((i for i, st in enumerate(steps)
+               if isinstance(st, list) and st and st[0] == "steady"), None)
+if steady is None:
+    raise SystemExit("the tree's J3 has no steady step to move")
+step = steps.pop(steady)
+sent = next((i for i, st in enumerate(steps)
+             if isinstance(st, list) and st[:2] == ["shot", "sent"]), None)
+if sent is None:
+    raise SystemExit("the tree's J3 has no sent shot")
+steps.insert(sent + 1, step)
+json.dump(journey, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+[ $? -eq 0 ] || fail "$case_name: could not write the moved fixture"
+out="$(check_spec "$V6/journeys.json")"; rc=$?
+[ $rc -ne 0 ] || fail "$case_name: --check-spec passed a J3 whose steady step sits after the sent shot"
+case "$out" in
+  *steady*sent*) ;;
+  *) fail "$case_name: the refusal does not name the steady step and the sent shot: $out" ;;
+esac
+out="$(check_spec "$UX/journeys.json")"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: the tree's own spec fails --check-spec: $out"
+pass "$case_name"
+
+echo "ux-walker contract: 31/31 cases passed"
