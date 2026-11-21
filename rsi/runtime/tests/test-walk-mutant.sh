@@ -45,8 +45,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 15:
-    raise SystemExit("manifest must be exactly fifteen entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 16:
+    raise SystemExit("manifest must be exactly sixteen entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:

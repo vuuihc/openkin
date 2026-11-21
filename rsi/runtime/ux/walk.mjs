@@ -895,6 +895,108 @@ function checkJ11Contract(spec) {
     }
   }
 
+  // The footer's four signed facts (KIN-CONTINUE-005, P0, approved): four
+  // icon-only entries that keep their accessible names, exactly one entry
+  // marking the current area (and it follows the route), the waiting count
+  // inside the Chats link rather than a second control, and the last list row
+  // clear of the floating glass. jsdom proves the shapes; these steps prove
+  // the same facts on the real console at 390, so a bar that loses a name,
+  // paints the capsule on the wrong entry, drops the badge or covers the last
+  // row reddens the gate instead of needing someone to remember.
+  const footerCountAt = idx((st) => st[0] === 'count'
+    && sel(st, 1) === 'css=[data-phone-footer] a' && String(st[2]) === '4');
+  // The facts that describe the first screen at /sessions sit in the footer
+  // count block itself, before the walk leaves the list; the route-following
+  // half is read after each area change.
+  const footerBlockEnd = footerCountAt < 0 ? -1 : steps.findIndex((st, i) => i > footerCountAt
+    && !(Array.isArray(st) && st[0] === 'count' && sel(st, 1).includes('[data-phone-footer]')));
+  const hasCount = (needle, want, from, to) => from >= 0 && to > from && steps.some((st, i) => i > from && i < to
+    && Array.isArray(st) && st[0] === 'count' && sel(st, 1) === needle && String(st[2]) === String(want));
+  const needCount = (needle, want, why, from, to) => {
+    if (!hasCount(needle, want, from, to)) errs.push(why);
+  };
+  const firstWindowEnd = footerBlockEnd < 0 ? steps.length : footerBlockEnd;
+  const routinesWindowEnd = routinesAt < 0 ? steps.length : routinesAt;
+  const sessionsWindowEnd = sessionsAt < 0 ? steps.length : sessionsAt;
+  if (footerCountAt < 0) {
+    errs.push('J11 never counts the footer entries (count css=[data-phone-footer] a = 4)');
+  } else {
+    for (const label of ['对话', '例行任务', 'Agent 运维', '设置']) {
+      const needle = `css=[data-phone-footer] a:has-text("${label}")`;
+      needCount(needle, 1,
+        `J11 never reads the ${label} footer entry by its accessible name (count ${needle} = 1); an icon-only bar must keep all four names`,
+        footerCountAt, firstWindowEnd);
+    }
+    needCount('css=[data-phone-footer] a[aria-current="page"]', 1,
+      'J11 never proves exactly one footer entry marks the current area on /sessions (count css=[data-phone-footer] a[aria-current="page"] = 1)',
+      footerCountAt, firstWindowEnd);
+    needCount('css=[data-phone-footer] a[aria-current="page"][data-phone-return="sessions"]', 1,
+      'J11 never proves the current-area mark is on the Chats entry at /sessions (count css=[data-phone-footer] a[aria-current="page"][data-phone-return="sessions"] = 1)',
+      footerCountAt, firstWindowEnd);
+    needCount('css=[data-phone-footer] a[data-phone-return="sessions"]:has-text("项待你处理")', 1,
+      'J11 never reads the seeded waiting count inside the Chats link (count css=[data-phone-footer] a[data-phone-return="sessions"]:has-text("项待你处理") = 1)',
+      footerCountAt, firstWindowEnd);
+    needCount('css=[data-phone-footer] a[data-phone-return="sessions"] span[aria-hidden="true"]', 1,
+      'J11 never reads the visible waiting number inside the Chats link (count css=[data-phone-footer] a[data-phone-return="sessions"] span[aria-hidden="true"] = 1)',
+      footerCountAt, firstWindowEnd);
+    needCount('css=[data-phone-footer] a a', 0,
+      'J11 never proves the waiting badge is a mark and not a second control (count css=[data-phone-footer] a a = 0)',
+      footerCountAt, firstWindowEnd);
+  }
+  // The mark follows the route in both directions: a bar that keeps the
+  // capsule on Chats while the reader is in Routines, or paints two entries,
+  // is red. Two counts each way, so neither half can be dropped silently.
+  if (routinesAt >= 0) {
+    needCount('css=[data-phone-footer] a[aria-current="page"]', 1,
+      'J11 never proves exactly one footer entry marks the current area in Routines (count css=[data-phone-footer] a[aria-current="page"] = 1)',
+      routinesAt, sessionsWindowEnd);
+    needCount('css=[data-phone-footer] a[aria-current="page"][data-phone-return="routines"]', 1,
+      'J11 never proves the current-area mark followed the route into Routines (count css=[data-phone-footer] a[aria-current="page"][data-phone-return="routines"] = 1)',
+      routinesAt, sessionsWindowEnd);
+    needCount('css=[data-phone-footer] a[aria-current="page"][data-phone-return="sessions"]', 0,
+      'J11 never proves Chats lost the current-area mark while the reader is in Routines (count css=[data-phone-footer] a[aria-current="page"][data-phone-return="sessions"] = 0)',
+      routinesAt, sessionsWindowEnd);
+  }
+  if (sessionsAt >= 0) {
+    needCount('css=[data-phone-footer] a[aria-current="page"]', 1,
+      'J11 never proves exactly one footer entry marks the current area after returning to Chats (count css=[data-phone-footer] a[aria-current="page"] = 1)',
+      sessionsAt, steps.length);
+    needCount('css=[data-phone-footer] a[aria-current="page"][data-phone-return="sessions"]', 1,
+      'J11 never proves the current-area mark came back to Chats (count css=[data-phone-footer] a[aria-current="page"][data-phone-return="sessions"] = 1)',
+      sessionsAt, steps.length);
+    needCount('css=[data-phone-footer] a[aria-current="page"][data-phone-return="routines"]', 0,
+      'J11 never proves Routines lost the current-area mark after returning to Chats (count css=[data-phone-footer] a[aria-current="page"][data-phone-return="routines"] = 0)',
+      sessionsAt, steps.length);
+  }
+
+  // The last list row must clear the floating bar by the signed 12px. The bar
+  // is `position:absolute` in the shell, so the op measures viewport rects
+  // after scrolling the list to its bottom, not the scroller's padding.
+  const clearanceAt = idx((st) => st[0] === 'clearance');
+  if (clearanceAt < 0) {
+    errs.push('J11 never measures the last list row clear of the floating footer (clearance css=[data-phone-scroll] css=[data-session-row] css=[data-phone-footer] 12)');
+  } else {
+    const at = (i) => sel(steps[clearanceAt], i);
+    if (at(1) !== 'css=[data-phone-scroll]') {
+      errs.push('J11\'s clearance must scroll the list scroller (css=[data-phone-scroll])');
+    }
+    if (!/^css=\[data-session-row\]/.test(at(2))) {
+      errs.push('J11\'s clearance must name the list rows (css=[data-session-row]…)');
+    }
+    if (at(3) !== 'css=[data-phone-footer]') {
+      errs.push('J11\'s clearance must name the floating bar (css=[data-phone-footer])');
+    }
+    if (Number(at(4)) !== 12) {
+      errs.push('J11\'s clearance must require the signed 12px air gap, got ' + JSON.stringify(at(4)));
+    }
+    if (leaveAt >= 0 && clearanceAt < leaveAt) {
+      errs.push('the clearance measurement must follow the first Back to the list, where the list is on screen');
+    }
+    if (routinesAt >= 0 && clearanceAt > routinesAt) {
+      errs.push('the clearance measurement must happen before the routines tap');
+    }
+  }
+
   // The composer is part of the shell claim at 390 too (TASTE 15). #342 tags
   // the `form` by name before the first Back, on the other conversation, after
   // the return and after the footer round; the last one is the stronger
@@ -3749,6 +3851,59 @@ for (const j of want) {
           if (same) log.push('rows ' + value + ' = ' + wanted.join(' | '));
           else if (optional) log.push('skipped rows ' + value + ' (is ' + got.join(' | ') + ')');
           else hardFail.push(`${j}/${vpName}: rows ${value} are ${JSON.stringify(got)}, want ${JSON.stringify(wanted)}`);
+        } else if (op === 'clearance') {
+          // `["clearance", "css=<scroller>", "css=<rows>", "css=<bar>", "<px>"]`:
+          // scroll the list to its bottom, wait one painted frame, take the last
+          // VISIBLE matching row, and require the floating bar's top to clear
+          // that row's bottom by at least <px> (the signed air gap). The bar is
+          // `position:absolute` in the shell, so both numbers are viewport
+          // rects: the scroller's padding-bottom is the mechanism, not the
+          // claim. 0.5px of subpixel tolerance, no more.
+          const scroller = String(a ?? ''), rowNeedle = String(b ?? ''), barNeedle = String(st[3] ?? '');
+          const minGap = Number(st[4]);
+          if (!scroller.startsWith('css=') || !rowNeedle.startsWith('css=')
+            || !barNeedle.startsWith('css=') || !Number.isFinite(minGap) || minGap < 0) {
+            hardFail.push(`${j}/${vpName}: clearance needs css=<scroller>, css=<rows>, css=<bar> and a non-negative px, got ${JSON.stringify(a)}, ${JSON.stringify(b)}, ${JSON.stringify(st[3])}, ${JSON.stringify(st[4])}`);
+            continue;
+          }
+          const measured = await page.evaluate(async ({ scroller, rows, bar }) => {
+            const sc = document.querySelector(scroller);
+            const footer = document.querySelector(bar);
+            if (!sc) return { error: 'scroller ' + scroller + ' is not on screen' };
+            if (!footer) return { error: 'bar ' + bar + ' is not on screen' };
+            sc.scrollTo({ top: sc.scrollHeight, behavior: 'instant' });
+            await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+            const box = (el) => el.getBoundingClientRect();
+            const shown = (el) => {
+              const r = box(el);
+              return r.width > 0 && r.height > 0
+                && getComputedStyle(el).visibility !== 'hidden'
+                && r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight;
+            };
+            const visible = [...document.querySelectorAll(rows)].filter(shown);
+            if (!visible.length) return { error: 'no visible ' + rows + ' after scrolling to the bottom' };
+            const row = visible[visible.length - 1];
+            return {
+              gap: box(footer).top - box(row).bottom,
+              row: (row.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+            };
+          }, { scroller: scroller.slice('css='.length), rows: rowNeedle.slice('css='.length), bar: barNeedle.slice('css='.length) });
+          if (measured.error) {
+            hardFail.push(`${j}/${vpName}: clearance ${measured.error}`);
+            continue;
+          }
+          const gap = Math.round(measured.gap * 10) / 10;
+          log.push(`clearance: ${gap}px between the last row (${measured.row}) and the footer (min ${minGap}px)`);
+          const name = `${j}-${vpName}-${String(++n).padStart(2, '0')}-footer-clearance`;
+          await page.screenshot({ path: path.join(out, name + '.png') });
+          try { fs.writeFileSync(path.join(out, name + '.aria.txt'), await page.locator('body').ariaSnapshot({ timeout: 4000 })); } catch (_) {}
+          const l = await lint(page, phone);
+          screens.push({ journey: j, viewport: vpName, name, url: new URL(page.url()).pathname + new URL(page.url()).search.replace(/token=[^&]+/g, 'token=<redacted>'), lint: l });
+          if (l.bodyText < 20) hardFail.push(`${name}: blank page`);
+          if (l.overflowX) hardFail.push(`${name}: horizontal page overflow`);
+          if (gap + 0.5 < minGap) {
+            hardFail.push(`${j}/${vpName}: clearance ${gap}px from the last row to the footer is less than the signed ${minGap}px`);
+          }
         } else if (op === 'sample') {
           // `["sample", "css=<selector>", "<name>"]`: start a
           // requestAnimationFrame loop in the page. Each painted frame records
