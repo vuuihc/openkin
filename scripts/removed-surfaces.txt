@@ -1,0 +1,14 @@
+# Surfaces this repository deleted on purpose. `scripts/check-removed-surfaces.py`
+# fails when any path below exists again, as a file or a directory. The
+# 2026-11-10 audit removed `/inbox` and `/approvals` and the helpers behind
+# them; a later merge restored these files and every check stayed green.
+# Add a path here in the same change that deletes it, and remove one only in a
+# reviewed change that deliberately reverses the deletion.
+ui/src/pages/ApprovalsPage.tsx
+ui/src/components/cards/RunningTaskCard.tsx
+ui/src/components/cards/RunningTaskCard.rename.dom.test.tsx
+ui/src/lib/inboxFocus.ts
+ui/src/lib/inboxFocus.test.ts
+ui/src/lib/inboxKeyboard.ts
+ui/src/lib/inboxKeyboard.test.ts
+ui/src/pages/inboxFocusWiring.test.ts

@@ -297,6 +297,15 @@ job_ui_inventory() {
   python3 -B scripts/check-ui-inventory.py
 }
 
+# The deletions this repo made on purpose, and the tests that prove the
+# checker can fail. Always runs: a merge that restores a deleted surface must
+# turn this job red even when no Go, shell or console job looks at that path,
+# and a changed-file glob would miss exactly that merge.
+job_removed_surfaces() {
+  python3 -B scripts/check-removed-surfaces.test.py || return 1
+  python3 -B scripts/check-removed-surfaces.py
+}
+
 # The added-file bans and their own tests. Always runs: a disabled rule must
 # still turn this job red, even when `ui-test` sees nothing.
 job_ui_lint_guard() {
@@ -349,6 +358,7 @@ start shell-test job_shell_test
 start python-syntax job_python_syntax
 start stories job_stories
 start ui-inventory job_ui_inventory
+start removed-surfaces job_removed_surfaces
 start ui-lint-guard job_ui_lint_guard
 start walk-contract job_walk_contract
 start phone-baseline-contract job_phone_baseline_contract

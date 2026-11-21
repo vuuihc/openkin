@@ -14,6 +14,61 @@ check() { RSI_STATE="$T/st" RSI_AGY_ENABLED="${RSI_AGY_ENABLED:-0}" RSI_CARBON_E
 # --- self-test ---
 python3 "$PY" --self-test >/dev/null && ok self-test || bad self-test
 
+# --- no shipped loop settings file may resolve a model to Kimi (ROUTING.md, CEO 2026-11-17) ------
+# Each host hands a Claude Code run an "opus" pin: the Mac (runtime/common.sh), the box lane
+# (runtime/box/box-side/claude-env.sh) and the NAS (runtime/nas/compose/claude-settings.json in the
+# container, runtime/nas/nas-side/claude-env.sh sourced by nas-lane.sh, and
+# runtime/nas/nas-side/claude-settings.json copied over $HOME/.claude/settings.json by
+# nas-lane.sh). ROUTING.md says all of them resolve to DeepSeek; Kimi is the advisor, called with an
+# explicit `--model magpie/auto/kimi-k3.1-pro` flag, never inherited from settings. The NAS files
+# drifted to kimi-k3.1-pro and no test noticed (found 2026-11-21), so the pins and both files'
+# env/modelOverrides are compared here: a value that names Kimi, a host that disagrees with the
+# others, or a missing pin all go red.
+opush_pin_guard() { python3 - "$H" <<'PY'
+import json, re, sys
+h = sys.argv[1]
+
+NAS = ("nas/compose/claude-settings.json", "nas/nas-side/claude-settings.json")
+
+def from_sh(path):
+    m = re.search(r"ANTHROPIC_DEFAULT_OPUS_MODEL='([^']+)'", open(path).read())
+    return m.group(1) if m else None
+
+def from_json(rel):
+    return json.load(open(f"{h}/{rel}")).get("env", {}).get("ANTHROPIC_DEFAULT_OPUS_MODEL")
+
+pins = {
+    "runtime/common.sh": from_sh(f"{h}/common.sh"),
+    "runtime/nas/compose/claude-settings.json": from_json(NAS[0]),
+    "runtime/nas/nas-side/claude-settings.json": from_json(NAS[1]),
+    "runtime/nas/nas-side/claude-env.sh": from_sh(f"{h}/nas/nas-side/claude-env.sh"),
+    "runtime/box/box-side/claude-env.sh": from_sh(f"{h}/box/box-side/claude-env.sh"),
+}
+problems = []
+for path, value in pins.items():
+    if not value:
+        problems.append(f"{path}: no ANTHROPIC_DEFAULT_OPUS_MODEL pin")
+    elif "kimi" in value.lower():
+        problems.append(f"{path}: resolves opus to {value!r}; ROUTING.md keeps Kimi for the advisor only")
+if len({v for v in pins.values() if v}) > 1:
+    problems.append("the hosts disagree: " + ", ".join(f"{p} -> {v!r}" for p, v in pins.items()))
+
+for rel in NAS:
+    doc = json.load(open(f"{h}/{rel}"))
+    for key, value in doc.get("env", {}).items():
+        if key.endswith("MODEL") and "kimi" in str(value).lower():
+            problems.append(f"runtime/{rel}: {key} resolves to {value!r}")
+    for key, value in doc.get("modelOverrides", {}).items():
+        if "kimi" in str(value).lower():
+            problems.append(f"runtime/{rel}: modelOverrides {key} resolves to {value!r}")
+
+if problems:
+    print("\n".join(problems), file=sys.stderr)
+    sys.exit(1)
+PY
+}
+opush_pin_guard && ok opus-pin-is-deepseek-everywhere || bad opus-pin-is-deepseek-everywhere
+
 # --- gate-undiagnosed is not a trigger by itself ---
 echo 'item: T1
 GATE_RESULT=FAIL: typecheck

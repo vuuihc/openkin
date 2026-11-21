@@ -29,7 +29,7 @@
 |---|---|---|---|---|
 | `/` | 对话 | 启动路由 | 无（改写成区域根） | Mac 回到上次的对话，没有则 `/new`；手机 `replace` 到 `/sessions` |
 | `/sessions` | 对话 | 集合（手机上就是列表；Mac 主区显示新建页，列表在左栏） | 根 | `?search=`、`?status=`、`?scope=` 全部保留；`scope=archived` 是同一份列表的范围，不是入口 |
-| `/inbox` | 对话 | 旧通知落点 | 根（重定向） | `replace` 到 `/sessions`；点按携带的 `?focus=<item>` 由 `NotificationTaps` 原样导航到 `/inbox?focus=<item>`，重定向丢掉它，不会挂到错误 task（`resolveInboxFocus` 仍只在未接线的 `ApprovalsPage` 里） |
+| `/inbox` | 对话 | 旧通知落点 | 根（重定向） | `replace` 到 `/sessions`；点按携带的 `?focus=<item>` 由 `NotificationTaps` 原样导航到 `/inbox?focus=<item>`，重定向丢掉它，不会挂到错误 task（旧的 focus 助手已随死代码删除；通知点按现在走 `/tasks/:id?focus=`，KIN-CONTINUE-003） |
 | `/approvals` | 对话 | 旧通知落点 | 根（重定向） | `replace` 到 `/sessions`，理由同上 |
 | `/tasks/:id` | 对话 | 一段对话（`TaskSessionHost` 渲染，在 `<Routes>` 外） | `/sessions` | task id、`?focus=` 保留；列表的搜索 / 状态 / 范围跟着列表父级回来 |
 | `/new` | 对话 | 新建对话 | `/sessions` | `?cwd=` 和草稿保留；关闭回列表 |
