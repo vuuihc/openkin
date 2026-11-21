@@ -33,21 +33,22 @@ const tray = source("src/pages/TrayPage.tsx");
 describe("the floating approval's wiring", () => {
   it("asks for a measured offset only where a band exists", () => {
     expect(shell).toMatch(/expectsBottomChrome=\{measuredBottomBand\}/);
-    // The two screens that pin a composer: a conversation and an agent
-    // session's continue box. The draft's card sits in the page now
-    // (KIN-START-001), so there is no band there to clear. Bound to the
-    // assignment itself — a fourth clause (`|| detailRoute`) creeping back in
-    // is the regression this round fixed.
+    // The screens that pin a composer: a conversation, an agent session's
+    // continue box, and the draft. The draft is a band like the others
+    // (amended KIN-START-001, 2026-11-21), so its box is measured too. Bound
+    // to the assignment itself — a fourth clause (`|| detailRoute`) creeping
+    // back in is the regression this comparison exists to catch.
     const assignment = shell.match(/const measuredBottomBand =[\s\S]*?;\n/)?.[0] ?? "";
-    // Exactly the two known routes, no fourth clause: this comparison is the
-    // one thing a "just add /new back" edit cannot slip past.
+    // Exactly the known routes, no fourth clause: this comparison is the one
+    // thing a hand-edited condition cannot slip past.
     expect(assignment).toBe(
-      'const measuredBottomBand =\n    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");\n',
+      'const measuredBottomBand =\n    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/") || draftActive;\n',
     );
     expect(assignment).not.toBe("");
     expect(assignment).toMatch(/selectedTaskId !== null/);
     expect(assignment).toMatch(/startsWith\("\/agent-sessions\/"\)/);
-    expect(assignment).not.toMatch(/draftActive|artifacts|detailRoute/);
+    expect(assignment).toMatch(/draftActive/);
+    expect(assignment).not.toMatch(/artifacts|detailRoute/);
   });
 
   it("has no drawer left to paint over the card", () => {
