@@ -261,6 +261,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-switch-attribution.sh || return 1
   bash rsi/runtime/tests/test-lane-leftovers.sh || return 1
   bash rsi/runtime/tests/test-lane-mutants.sh || return 1
+  bash rsi/runtime/tests/test-lane-claim-check.sh || return 1
   bash rsi/runtime/tests/test-wiring.sh
 }
 

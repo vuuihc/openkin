@@ -96,6 +96,7 @@ You are the WORKER for RSI item $item in worktree \`$wt\` on branch \`$br\`. Mod
 - Before you finish write the PR body to \`$STATE/lanes/$slug.pr-body.md\` with sections: Symptom · Change · Verification (commands + results) · Screenshots (paths, or "none: not visible") · Risk · \`RSI item: $item\`.
 - A PR that changes a prose-assertion path (\`docs/product/**\`, \`docs/plans/**\`, \`docs/adr/**\`, \`rsi/GOAL.md\`, \`rsi/DECISIONS.md\`, \`rsi/ASTRYX-PLAN.md\`, \`AGENTS.md\`, \`PRINCIPLE.md\`, \`SYSTEM_DESIGN.md\`) carries one \`Claim check:\` line at column 0 — one command that proves the sentence on this branch — and its literal output under \`Claim output:\`, or waives it with \`Claim check: none: <reason of at least 20 characters>\`.
 - The merge gate RUNS that claim command and compares the pasted output against it; a sentence whose claim check is missing or false is not delivery.
+- Run \`bash rsi/runtime/lane.sh --claim-check-check "\$PWD" "$STATE/lanes/$slug.pr-body.md"\` before you finish: only \`CLAIM_LANE_OK\` (or \`CLAIM_LANE_NA\` for a code-only diff, \`CLAIM_LANE_WAIVED\` for a reasoned waiver) proves the hand-off; fix a \`CLAIM_LANE_FAIL\` in the body (or the sentence) before finishing. The lane runs the same seam before pushing, and a FAIL there fails the lane.
 - Final message: files changed, tests added (names), commands run with results, residual risk.
 HD
 }
@@ -220,6 +221,37 @@ print(f"MUTANT_EVIDENCE_OK: {len(changed)} file(s) covered by {len(run)} manifes
 PY
 }
 
+# --- claim check: the lane runs the merge gate's own prose rule before it pushes ------------------
+# The live `mech-claim·rsi` shape is six rounds in the 11-20→11-21 window, each the same finding:
+# a prose PR's `Claim check:` line was missing, its `Claim output:` block empty, or its output
+# invented, and the worker learned that only after a full gate and an independent review
+# (state/sendback/done/gap-log-close-20261121-090510, walk-continue-005-134144, phone-list-deliver-*).
+# rsi/runtime/claim_check.py is the single rule and merge.sh owns the call site; this seam only
+# runs that same rule in the lane, against the same changed-file list merge.sh computes, and fails
+# closed when it cannot. The worker runs it before finishing (worker_contract); the lane runs it
+# after the format commit and before the push, so the reviewer is no longer the first reader.
+# The verdict's leading CLAIM_ becomes CLAIM_LANE_ so a lane failure is distinguishable from the
+# merge lane's. The body is passed through as-is: claim_check.py returns NA for a code-only diff
+# without reading it, and names an unreadable body only when a prose path changed.
+claim_lane_check() { # <worktree> <body-file> — prints one CLAIM_LANE_* verdict; exits with the checker's code
+  local wt="$1" body="$2" changed out rc
+  [ -d "$wt" ] || { echo "CLAIM_LANE_FAIL: $wt · worktree not found"; return 1; }
+  # A seam that cannot read the branch point would see no prose change and wave the PR through.
+  "$GIT" -C "$wt" rev-parse --verify -q origin/main >/dev/null 2>&1 \
+    || { echo "CLAIM_LANE_FAIL: $wt · origin/main is not resolvable"; return 1; }
+  changed="$(mktemp "${TMPDIR:-/tmp}/claim-lane.XXXXXX")" \
+    || { echo "CLAIM_LANE_FAIL: cannot create a temp file for the changed-file list"; return 1; }
+  # The merge gate's own computation (merge.sh): renames off, a deletion counts, `origin/main...HEAD`
+  # is the PR's own diff. A seam that computed this differently could pass a PR the gate then sends
+  # back, which is the round this row removes.
+  "$GIT" -C "$wt" -c core.fileMode=false diff --no-renames --raw origin/main...HEAD 2>/dev/null \
+    | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}' > "$changed"
+  out="$(python3 "$RSI_DIR/runtime/claim_check.py" "$wt" "$body" "$changed" 2>&1)"; rc=$?
+  rm -f "$changed"
+  printf '%s\n' "$out" | sed 's/^CLAIM_/CLAIM_LANE_/'
+  return "$rc"
+}
+
 if [ "$CMD" = _sendback-order ]; then sendback_order; exit 0; fi
 
 # Seams. --worker-contract-check prints the contract and exits before PAUSE, locks, fetch,
@@ -229,6 +261,10 @@ if [ "$CMD" = _sendback-order ]; then sendback_order; exit 0; fi
 if [ "$CMD" = --mutant-evidence-check ]; then
   [ "$#" -eq 2 ] || { echo "usage: lane.sh --mutant-evidence-check <worktree>" >&2; exit 2; }
   mutant_evidence_check "$2"; exit $?
+fi
+if [ "$CMD" = --claim-check-check ]; then
+  [ "$#" -eq 3 ] || { echo "usage: lane.sh --claim-check-check <worktree> <body-file>" >&2; exit 2; }
+  claim_lane_check "$2" "$3"; exit $?
 fi
 if [ "$CMD" = --worker-contract-check ]; then
   [ "$#" -eq 5 ] || { echo "usage: lane.sh --worker-contract-check <item> <mode> <worktree> <branch>" >&2; exit 2; }
@@ -437,6 +473,18 @@ if ! MUT_EV="$(bash "$SELF" --mutant-evidence-check "$WT" 2>&1)"; then
   exit 1
 fi
 [ -n "$MUT_EV" ] && printf '%s\n' "$MUT_EV"
+
+# A prose delivery hands off only when its body's claim check runs and its output matches. The
+# worker runs this same seam first (worker_contract); this pass is authoritative, and
+# rsi/runtime/claim_check.py is the merge gate's own rule. On a FAIL the branch stays committed
+# and clean: no push, no PR, and the worker fixes the body in its own session.
+if ! CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; then
+  [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
+  CLAIM_NOTE="$(printf '%s' "$CLAIM_EV" | tr '\n' ' ' | sed 's/  */ /g')"
+  finish failed "" "claim check: ${CLAIM_NOTE:-check produced no output}"
+  exit 1
+fi
+[ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
 
 # push + PR (normal push only)
 if ! $GIT -C "$WT" push -q -u origin "$BR" 2>"$STATE/lanes/$N.push.err"; then
