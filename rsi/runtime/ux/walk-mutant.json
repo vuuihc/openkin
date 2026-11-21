@@ -103,5 +103,12 @@
     "old": "        ) : (\n          <UserQuestionCard",
     "new": "        ) : (true as boolean) ? null : ( // R-f2-question-leg: the question card not rendered on purpose.\n          <UserQuestionCard",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J15"
+  },
+  {
+    "label": "the phone footer paints no current area, so nobody can tell which area they are in",
+    "file": "ui/src/components/layout/PhoneFooter.tsx",
+    "old": "              aria-current={active ? \"page\" : undefined}",
+    "new": "              aria-current={undefined}",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J11"
   }
 ]

@@ -47,6 +47,51 @@
     ],
     [
       "count",
+      "css=[data-phone-footer] a:has-text(\"对话\")",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a:has-text(\"例行任务\")",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a:has-text(\"Agent 运维\")",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a:has-text(\"设置\")",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a[aria-current=\"page\"]",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a[aria-current=\"page\"][data-phone-return=\"sessions\"]",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a[data-phone-return=\"sessions\"]:has-text(\"项待你处理\")",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a[data-phone-return=\"sessions\"] span[aria-hidden=\"true\"]",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a a",
+      "0"
+    ],
+    [
+      "count",
       "css=[data-phone-scroll]",
       "1"
     ],
@@ -167,6 +212,13 @@
       "^/sessions"
     ],
     [
+      "clearance",
+      "css=[data-phone-scroll]",
+      "css=[data-session-row]",
+      "css=[data-phone-footer]",
+      "12"
+    ],
+    [
       "click",
       "[data-session-row]:has-text('[seed] Failed migration')"
     ],
@@ -251,6 +303,21 @@
       "^/routines"
     ],
     [
+      "count",
+      "css=[data-phone-footer] a[aria-current=\"page\"]",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a[aria-current=\"page\"][data-phone-return=\"routines\"]",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a[aria-current=\"page\"][data-phone-return=\"sessions\"]",
+      "0"
+    ],
+    [
       "node",
       "css=#root .touch-lg",
       "shell"
@@ -262,6 +329,21 @@
     [
       "url",
       "^/sessions"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a[aria-current=\"page\"]",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a[aria-current=\"page\"][data-phone-return=\"sessions\"]",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-phone-footer] a[aria-current=\"page\"][data-phone-return=\"routines\"]",
+      "0"
     ],
     [
       "node",

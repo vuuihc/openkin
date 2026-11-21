@@ -45,8 +45,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 15:
-    raise SystemExit("manifest must be exactly fifteen entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 16:
+    raise SystemExit("manifest must be exactly sixteen entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -1064,4 +1064,54 @@ print("J13 PR contract rejects all twelve deleted address or surface proofs")
 PYTEST
 pass "$case_name"
 
-echo "walk-mutant contract: 19/19 cases passed"
+# The four signed footer facts are only claims if the contract rejects a spec
+# that drops one. Each deletion below must redden --check-spec and name the
+# missing fact, not fail for another reason.
+case_name="test_j11_spec_rejects_a_footer_fact_without_its_assertion"
+python3 - "$SPEC_INDEX" "$SPECPY" "$WALKER" <<'PYTEST' || fail "$case_name: a missing footer fact was accepted"
+import copy
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+index, specpy, walker = sys.argv[1:]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", index]))
+steps = spec["journeys"]["J11"]["steps"]
+cases = {
+    "a footer entry's accessible name": ["count", 'css=[data-phone-footer] a:has-text("对话")', "1"],
+    "the mark following the route into Routines": [
+        "count", 'css=[data-phone-footer] a[aria-current="page"][data-phone-return="routines"]', "1"],
+    "the waiting badge as a mark, not a control": ["count", "css=[data-phone-footer] a a", "0"],
+}
+with tempfile.TemporaryDirectory(prefix="j11-footer-contract-") as tmp:
+    target = Path(tmp) / "spec.json"
+    for label, step in cases.items():
+        mutant = copy.deepcopy(spec)
+        mutant["journeys"]["J11"]["steps"].remove(step)
+        target.write_text(json.dumps(mutant))
+        result = subprocess.run(["node", walker, "--check-spec", "--spec", str(target)],
+                                capture_output=True, text=True)
+        assert result.returncode != 0, label + " deletion passed"
+        assert "J11" in result.stdout + result.stderr, label + " failed for another reason"
+    # The clearance is an op, not a count: the contract must name it when the
+    # step is gone, and refuse a floor other than the signed 12px.
+    for label, floor in (("the clearance measurement", None), ("the signed 12px floor", "13")):
+        mutant = copy.deepcopy(spec)
+        body = mutant["journeys"]["J11"]["steps"]
+        at = next(i for i, st in enumerate(body) if st[0] == "clearance")
+        if floor is None:
+            body.pop(at)
+        else:
+            body[at] = ["clearance", body[at][1], body[at][2], body[at][3], floor]
+        target.write_text(json.dumps(mutant))
+        result = subprocess.run(["node", walker, "--check-spec", "--spec", str(target)],
+                                capture_output=True, text=True)
+        assert result.returncode != 0, label + " amendment passed"
+        assert "clearance" in result.stdout + result.stderr, label + " failed for another reason"
+print("J11 footer contract rejects all five deleted or weakened facts")
+PYTEST
+pass "$case_name"
+
+echo "walk-mutant contract: 20/20 cases passed"
