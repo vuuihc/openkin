@@ -28,9 +28,12 @@ want() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
 
 reset() { rm -rf "$S"; mkdir -p "$S/sendback/done"; : > "$S/merged.log"; }
 
-# ago <file> <minutes> — backdate by minutes (utime, so no BSD/GNU `touch -d` split)
+# ago <file> <minutes> — backdate by minutes from the pinned clock (utime, so no BSD/GNU `touch -d` split)
 ago() {
-  python3 -c 'import os,sys,time; t=time.time()-float(sys.argv[2])*60; os.utime(sys.argv[1],(t,t))' "$1" "$2"
+  python3 -c 'import datetime,os,sys
+tz=datetime.timezone(datetime.timedelta(hours=8))
+t=datetime.datetime.fromisoformat(sys.argv[3]).replace(tzinfo=tz).timestamp()-float(sys.argv[2])*60
+os.utime(sys.argv[1],(t,t))' "$1" "$2" "$NOW"
 }
 
 # note <name> <minutes-ago> <item> <attempt> <source> [table rows...] — a note as merge.sh writes it
@@ -55,11 +58,11 @@ note() {
 merged() {
   local n="$1" age="$2" i
   for i in $(seq 1 "$n"); do
-    python3 - "$S/merged.log" "$((age + n - i))" "$i" <<'PY'
+    python3 - "$S/merged.log" "$((age + n - i))" "$i" "$NOW" <<'PY'
 import sys, datetime, pathlib
-p, minutes, n = sys.argv[1], int(sys.argv[2]), sys.argv[3]
-t = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=minutes))
-t = t.astimezone(datetime.timezone(datetime.timedelta(hours=8)))
+p, minutes, n, now = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+tz = datetime.timezone(datetime.timedelta(hours=8))
+t = datetime.datetime.fromisoformat(now).replace(tzinfo=tz) - datetime.timedelta(minutes=minutes)
 line = f"{t:%Y-%m-%d %H:%M} PR #{500 + int(n)} slug item merged {'a' * 8} https://example.invalid/pr\n"
 with open(p, "a", encoding="utf-8") as fh:
     fh.write(line)
@@ -223,7 +226,13 @@ case_wired() {
   mkdir -p "$ctrl/rsi/state/sendback/done"
   printf 'item: R-x\nattempt: 1\nkind: targeted\nsource: review\n\n| 1 | ui/src/a.tsx:1 | major | x | y |\n' \
     > "$ctrl/rsi/state/sendback/done/a.md"
-  printf '2026-11-21 08:00 PR #1 s i merged aaaaaaaa u\n' > "$ctrl/rsi/state/merged.log"
+  # run.sh --status reads the real clock, so this line must be recent in real +08 time.
+  python3 - "$ctrl/rsi/state/merged.log" <<'PY'
+import sys, datetime
+t = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8)))
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    fh.write(f"{t:%Y-%m-%d %H:%M} PR #1 s i merged aaaaaaaa u\n")
+PY
   out="$(RSI_CTRL="$ctrl" bash "$ctrl/rsi/runtime/run.sh" --status 2>/dev/null | grep '^rework ')"
   printf '%s' "$out" | grep -q '^rework 7d: 1 rounds / 1 merges (1.00)' || fail "wired: run.sh printed '$out'"
   pass wired
