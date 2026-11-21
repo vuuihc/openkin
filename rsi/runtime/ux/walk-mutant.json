@@ -89,5 +89,12 @@
     "old": "  if (value !== \"files\" && value !== \"pr\") return null;",
     "new": "  // R-panel-exit: the PR tab's address refused on purpose. The tab still opens,\n  // but `?panel=pr` parses as no link, so a cold arrival draws no PR surface,\n  // a refresh drops it and Back has no panel entry to close; J13's selected\n  // tab waits redden while the address itself stays put.\n  if (value !== \"files\") return null;",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J13"
+  },
+  {
+    "label": "the agent's question never draws its card",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "old": "        ) : (\n          <UserQuestionCard",
+    "new": "        ) : (true as boolean) ? null : ( // R-f2-question-leg: the question card not rendered on purpose.\n          <UserQuestionCard",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J15"
   }
 ]
