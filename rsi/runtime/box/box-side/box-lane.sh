@@ -60,7 +60,11 @@ st phase=worker
 run_worker "$J/worker-prompt.md" worker; WRC=$?
 echo "[$(date +%T)] worker rc=$WRC"
 cancelled && fail "cancelled"
-[ -n "$(git -C "$WT" status --porcelain --untracked-files=no)" ] && git -C "$WT" add -u -- . ':!web/dist/assets' && git -C "$WT" commit -q -m "chore(rsi): commit remaining tracked edits for $ITEM"
+if [ -f "$WT/rsi/runtime/commit-leftovers.sh" ]; then
+  bash "$WT/rsi/runtime/commit-leftovers.sh" "$WT" "$ITEM" || fail "leftovers remain uncommitted"
+else
+  [ -n "$(git -C "$WT" status --porcelain --untracked-files=no)" ] && git -C "$WT" add -u -- . ':!web/dist/assets' && git -C "$WT" commit -q -m "chore(rsi): commit remaining tracked edits for $ITEM"
+fi
 [ "$(git -C "$WT" rev-list --count origin/main..HEAD)" -gt 0 ] || fail "worker produced no commits (rc=$WRC)"
 
 # --- self-check with one fix round ---
@@ -77,7 +81,11 @@ if ! selfcheck; then
   { echo "# Fix round: your branch fails the self-check below. Fix exactly these failures (do not push; commit; keep PR body $PRB accurate). If a failure is clearly pre-existing on origin/main and unrelated to your change, say so in the PR body Risk section instead of touching it."
     echo '```'; grep -vE '^\s+at ' "$J/selfcheck.txt" | tail -c 9000; echo '```'; } > "$J/fix-prompt.md"
   st phase=fix; run_worker "$J/fix-prompt.md" fix
-  [ -n "$(git -C "$WT" status --porcelain --untracked-files=no)" ] && git -C "$WT" add -u -- . ':!web/dist/assets' && git -C "$WT" commit -q -m "chore(rsi): commit remaining tracked edits for $ITEM"
+  if [ -f "$WT/rsi/runtime/commit-leftovers.sh" ]; then
+    bash "$WT/rsi/runtime/commit-leftovers.sh" "$WT" "$ITEM" || fail "leftovers remain uncommitted"
+  else
+    [ -n "$(git -C "$WT" status --porcelain --untracked-files=no)" ] && git -C "$WT" add -u -- . ':!web/dist/assets' && git -C "$WT" commit -q -m "chore(rsi): commit remaining tracked edits for $ITEM"
+  fi
   selfcheck && echo "self-check green after fix" || echo "self-check still failing; handing over anyway (merge lane will send back)"
 fi
 SC="green"; grep -qE '^(TSC|INV|VITEST)-FAIL' "$J/selfcheck.txt" && SC="FAILING (see selfcheck.txt)"

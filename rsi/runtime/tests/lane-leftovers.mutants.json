@@ -1,0 +1,44 @@
+[
+  {
+    "label": "old defect restored: a tracked-only add leaves the worker's new file behind",
+    "file": "rsi/runtime/commit-leftovers.sh",
+    "test": "RSI_TEST_ONLY=test_new_file_is_committed_with_tracked_edits bash rsi/runtime/tests/test-lane-leftovers.sh",
+    "old": "$GIT -C \"$WT\" add -A -- . \"$EXCL\" || leftover_fail \"git add failed\"",
+    "new": "$GIT -C \"$WT\" add -u -- . \"$EXCL\" || leftover_fail \"git add failed\""
+  },
+  {
+    "label": "dist exclusion disabled: a generated bundle is swept into the commit",
+    "file": "rsi/runtime/commit-leftovers.sh",
+    "test": "RSI_TEST_ONLY=test_dist_assets_are_never_committed bash rsi/runtime/tests/test-lane-leftovers.sh",
+    "old": "EXCL=':!web/dist/assets'",
+    "new": "EXCL=':!web/dist/never-matches'"
+  },
+  {
+    "label": "the leftovers branch exits 0: a failed sweep looks clean",
+    "file": "rsi/runtime/commit-leftovers.sh",
+    "test": "RSI_TEST_ONLY=test_failed_sweep_is_loud bash rsi/runtime/tests/test-lane-leftovers.sh",
+    "old": "  echo \"commit-leftovers: $1 ($n path(s) uncommitted in $WT)\" >&2\n  exit 1",
+    "new": "  echo \"commit-leftovers: $1 ($n path(s) uncommitted in $WT)\" >&2\n  exit 0"
+  },
+  {
+    "label": "post-commit check dropped: a worktree left dirty after the commit reports clean",
+    "file": "rsi/runtime/commit-leftovers.sh",
+    "test": "RSI_TEST_ONLY=test_post_commit_leftover_is_loud bash rsi/runtime/tests/test-lane-leftovers.sh",
+    "old": "[ \"$(remaining)\" = 0 ] || leftover_fail \"the sweep did not take; files are still uncommitted\"",
+    "new": ":"
+  },
+  {
+    "label": "unmerged guard dropped: a conflicted rework commits its conflict markers",
+    "file": "rsi/runtime/commit-leftovers.sh",
+    "test": "RSI_TEST_ONLY=test_unmerged_entries_are_refused bash rsi/runtime/tests/test-lane-leftovers.sh",
+    "old": "if [ -n \"$($GIT -C \"$WT\" ls-files -u -- . 2>/dev/null | head -1)\" ]; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "vitest cache rule dropped: a lane's .vitest/ cache rides into every PR",
+    "file": ".gitignore",
+    "test": "RSI_TEST_ONLY=test_vitest_cache_is_never_committed bash rsi/runtime/tests/test-lane-leftovers.sh",
+    "old": ".nyc_output/\n.vitest/",
+    "new": ".nyc_output/"
+  }
+]
