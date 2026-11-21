@@ -34,10 +34,20 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
-- 2026-11-21 · 中 · 慢轮进行中先排队一条追问、再打断时，刷新后缺少「已打断上一轮」这一行 — 慢轮（`[seed] slow`）运行中先用「发送」把一条追问排队，再输入另一条点「打断本轮并立即发送」；重载 `/tasks/:id` 后，被打断的那轮与打断消息之间没有「已打断上一轮」，读起来像 agent 自己停了；同一会话里不排队、直接打断时该行正常出现（本轮 1100×760 实测两种序列）。
-  - **期望行为可写成测试**：给定事件序列「运行中的慢轮用户消息 → `task_started` → 一条排队中的追问 → `source:"interrupt"` / `interrupted:true` 的打断消息」，`buildChatItems` 必须在该打断消息之上输出一条 `kind:"meta"`、`label` 为 `chat.interruptedNote`（「已打断上一轮」）的行；把序列里排队的那条去掉，输出保持不变。在 `ui/src/components/chat/ChatStream.interrupt.dom.test.tsx` 增加 queue-then-interrupt 用例即可失败重现。
-  - **不要的做法**：不要在 projection 里按消息文本或 `source` 猜哪一条「还在排队」——排队中与已送达的追问在事件里同为 `source:"follow_up"`；不要把每一个用户气泡都当成「已经开始了新一轮」。
-  - **照抄的同类**：不排队时的路径已经做对：`ui/src/components/chat/transcriptProjection.ts:1001` 的 `roundWasStarted || hasRoundAbove()` 在慢轮直接被打断时输出该行（`ui/src/components/chat/ChatStream.interrupt.dom.test.tsx:46`）；但「排队中的追问不结束本轮」没有现成判据可抄——`ui/src/components/chat/transcriptProjection.ts:826` 目前对每条 user 消息都把 `roundStarted` 置 false。
+- 2026-11-21 · 高 · iPad 820×1180 分栏时，会话头的动作栏被压成一排单字碎片（`C [ 8 P… c τ l kin…`）— 820×1180（2× 截图，侧栏展开，会话列约 520 CSS px）里，`TaskHeader` 的桌面动作栏把宿主徽标、工作区、Pull Request、分享、归档、删除和项目名压成约 24–30 px 宽的竖条：`Pull Request` 的标签折到图标下面再截成「P…」，项目名只剩「kin…」，图标只剩半个字形；每个可点宽度都低于 44 px 触摸地板。桌面栏是 `hidden md:flex`，iPad 拿到的正是这一条，带 `⋯` 动作表的 `MobileHeader` 在 `md` 以上不显示；`TaskHeader.dom.test.tsx` 只断言 `min-w-cell` 和类名，量不到这件事。
+  - **期望行为可写成测试**：820×1180、`hasTouch`、侧栏展开、标题为长句时，动作区每个控件 ≥44×44 CSS px，可见图标与标签完整（允许只显示图标，但不允许只显示半个字形），`Pull Request` 标签不换行；空间不够时压缩的是动作区自身的可见宽度（`scrollWidth > clientWidth`，子项保持 `flex-none`），或把这一组动词收进已有的 `⋯` 动作表（`TaskDetailPage.tsx:2453` 的 `sessionActions`；注意动作表现在只在 `!wide`（<768）挂载，iPad 分栏要复用它得先改 `TaskDetailPage.tsx:2537` 的挂载条件），二者选一。项目名保持 `max-w-[10rem]` 的省略号截断，不参与挤压。真实浏览器在 820×1180 量每个按钮的 `getBoundingClientRect()`、标签行数与图标裁切即可失败重现；把这条走动接进 iPad 旅程与合并门（见本日最后一条）。
+  - **不要的做法**：不要只给动作区加 `overflow-x-auto` 就算修好——`ui/src/components/task/TaskHeader.tsx:235` 已经有了，flex 子项仍会先收缩，截图就是证据；不要把标签截成一个字后保留 24 px 的按钮；不要把「1100 截图全绿」当作平板验收（iPad 分栏后的会话列约 520 px，比 1100 窄一半）。
+  - **照抄的同类**：`ui/src/components/task/TaskComposerDock.tsx:167,175` 的按钮用 `flex-none` 占住宽度；`SessionTabs` 给每个标签 `max-w-[220px]` 并让 strip 自己滚动；手机路径的 `MobileHeader` + `sessionActions` 动作表已经做对（`ui/src/pages/TaskDetailPage.tsx:2453`，但动作表只在 `<768` 挂载），iPad 窄栏复用时要先把挂载条件从视口宽度改成会话列宽度；仓库对 iPad 触摸的既有答案是 `useCoarsePointer()`（LESSONS 2026-11-10 / 2026-11-17），这里没有用。
+
+- 2026-11-21 · 高 · 「有新进展」药丸浮在正文上，正好盖住 agent 回答表格的最后两行 — 820×1180 实机截图里，药丸固定在会话底部 `bottom-3`，压在状态表的「手机 Hub」第二行与「待发上游版」第一行上；读者要么点它跳走，要么滚到别处，眼前这两行读不到。代码注释写明这是有意的（「It floats over the last lines so the reading does not shift」），但代价是内容被遮挡，而这张表正是 RSI 进度表里「目前线上控制台健康」的那段话。
+  - **期望行为可写成测试**：当 `unseen > 0` 且最后可见内容是一张表格时，`document.elementFromPoint` 命中每个可见单元格中心必须返回该单元格，而不是药丸或 composer；药丸出现时滚动区为它预留一条非内容通道（与 composer 的待审批条同一做法），或只在正文右侧留白上浮动。已定取舍：不遮挡优先于「阅读不位移」——需要位移就位移。
+  - **不要的做法**：不要给药丸加半透明背景（仍然遮挡）；不要用「滚到底就消失」当解释（读者正是没滚到底才需要它）；不要把表格最后两行裁掉、或给滚动区加 `overflow:hidden` 掩盖。
+  - **照抄的同类**：`ui/src/components/task/TaskComposerDock.tsx:149-178` 的待审批条用 `flex-none` 在 composer 上方占一行，不压正文；同文件注释明确「a decision, within reach of the composer」是加一行而不是浮层。药丸外层就是 `ui/src/pages/TaskDetailPage.tsx:2716` 的 `absolute bottom-3`。
+
+- 2026-11-21 · 高 · RSI 的验收宽度里没有 iPad：820×1180 落在 390 与 1100 之间，RSI 用「线上控制台健康」结案，CEO 该为这个完成定义负责 — 这不是一条普通样式缺陷，是完成定义的问题。`rsi/runtime/ux/journeys.json:3` 的 viewport 只有 `phone: 390x844`、`mac: 1100x760`、`mac-wide: 1280x800`；`rsi/MANDATE.md:19` 的合并门第 5 条只要求 390/1100 截图。820（分栏后约 520）正好落在两个被验收宽度之间，于是两端都绿、中间是这张截图：动作栏压成单字，agent 表格被浮层盖住。截图里的 RSI 进度表写「目前线上控制台健康」，而同一屏上两处遮挡同时违反 LESSONS 2026-11-10「iPad 是桌面宽度、手指」和 44 px 触摸地板；同类问题已记到第三次。一个把「健康」建立在自己没有在设备上读完的界面上的 CEO，产出的就是这种界面——这不是能力正常，这是没有验收。
+  - **期望行为可写成测试**：在 `journeys.json` 增加 `tablet: 820x1180`（`hasTouch`），新增一条 820×1180 的 walk：侧栏展开、长标题、回答含 ≥4 行 markdown 表；动作区每个控件 ≥44×44 且无半个字形，表格每个可见单元格中心命中自身，药丸/浮层不盖正文；真浏览器截图存入 `rsi/state/shots/<slug>/` 并在 PR body 链接。把 `rsi/MANDATE.md:19` 的「390/1100」改为「390/820/1100」，820 的截图必须包含一条长表格回答，不接受空状态或假数据；`scripts/check.sh` 要执行这条 walk（或明确接线到 `rsi/runtime/ux/walk.mjs`）。
+  - **不要的做法**：不要再让 CEO 用「check.sh 全绿 / 390 与 1100 截图」证明平板健康；不要写没有截图链接的「线上控制台健康」；不要把这条降级成低优先级样式项——它记录的是验收缺口，修完上面两个症状也不会自动补上；不要用 `mac-wide: 1280` 冒充平板。
+  - **照抄的同类**：F1 已经用 16 ms 真实采样证明「不消失、不骨架」；2026-11-15 的触屏拖动验收已经跑过 820×1180 + `hasTouch`（`rsi/runtime/ux/touch-drag.mjs`）；`journeys.json` 已经把 viewport 参数化，机制都在，只是没有把 iPad 宽度接进合并门。
 
 - 2026-11-21 · 低 · 一个项目有两个根目录时，对话列表出现两个同名项目标题，其中一个永远为空 — `/api/projects` 里 `[seed] Project Alpha` 同时拥有 `alpha` 与 `aaa-config` 两个根目录；390×844 与 1100×760 的对话列表都渲染两个「[seed] Project Alpha」标题，一个 2 条对话、一个 0 条，两个标题各自都带项目级动作（新建对话；1100 上还有项目封面 / 置顶项目 / 从侧栏移除），人分不清它们是不是同一个项目。
   - **期望行为可写成测试**：`/api/projects` 中同一项目 id 的多个根目录下的对话，在对话列表中只出现一个项目标题，标题后的数量等于这些根目录下对话数之和；第二个根目录仍可从新建对话的目录选择器里选到。用带两个根的种子项目写一条列表测试（390 与 1100 各一次）即可失败重现。
@@ -50,6 +60,7 @@ person can see; the fix and its verification belong in the PR.
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-21 · 慢轮进行中先排队一条追问、再打断时，刷新后缺少「已打断上一轮」这一行 — `50d3ac96`（PR #526）：`transcriptProjection.ts` 的轮次生命周期由 `task_started` / `result` 掌管，排队中的追问不再清掉 `roundStarted`；测试 `ui/src/components/chat/ChatStream.interrupt.dom.test.tsx` 用例 `keeps the interrupt mark when a queued follow-up sits above it`
 - 2026-11-21 · 另一条对话在等审批时，浮动审批卡压住本对话「这一轮改了什么」的文件行，点行中心会落到审批卡上 — `3c328fa7`（PR #504）：卡片与任一可见文件行相交时只渲染 strip（仍可打开被堵的那条对话），收起证据卡或把该行滚走卡片即回来；新增 `FloatingApproval.overlap.dom.test.tsx`，接线 pin `floatingApprovalWiring.test.ts`，1100×760 / 390×844 真 daemon 实测行中心 `elementFromPoint` 命中该行而非 `aside[aria-label="等待处理"]`
 - 2026-11-21 · 打断后的记录里没有任何「已打断」痕迹，被切断的一轮看起来像 agent 没回 — `4f8829ce`（PR #505）：在被打断的那一轮末尾投影一条持久 `meta` 行「已打断」，位于打断它的消息之上，刷新 / 重进仍在；toast 保留；测试 `transcriptProjection.test.ts`、`ChatStream.interrupt.dom.test.tsx`
 - 2026-11-21 · 同一个对象在界面里同时叫「对话」「会话」「任务」 — `5700a080`（PR #506）：项目行菜单、用量摘要、对话不存在的文案在 zh / en 都统一为「对话」/ conversation，例行任务仍叫「任务」；测试 `locales.test.ts`、`TaskUsageSummary.dom.test.tsx`，三套按英文菜单字面量断言的 DOM 测试随值更新
