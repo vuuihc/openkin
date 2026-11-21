@@ -17,7 +17,8 @@ python3 "$PY" --self-test >/dev/null && ok self-test || bad self-test
 # --- no shipped loop settings file may resolve a model to Kimi (ROUTING.md, CEO 2026-11-17) ------
 # Each host hands a Claude Code run an "opus" pin: the Mac (runtime/common.sh), the box lane
 # (runtime/box/box-side/claude-env.sh) and the NAS (runtime/nas/compose/claude-settings.json in the
-# container, runtime/nas/nas-side/claude-settings.json copied over $HOME/.claude/settings.json by
+# container, runtime/nas/nas-side/claude-env.sh sourced by nas-lane.sh, and
+# runtime/nas/nas-side/claude-settings.json copied over $HOME/.claude/settings.json by
 # nas-lane.sh). ROUTING.md says all of them resolve to DeepSeek; Kimi is the advisor, called with an
 # explicit `--model magpie/auto/kimi-k3.1-pro` flag, never inherited from settings. The NAS files
 # drifted to kimi-k3.1-pro and no test noticed (found 2026-11-21), so the pins and both files'
@@ -40,6 +41,7 @@ pins = {
     "runtime/common.sh": from_sh(f"{h}/common.sh"),
     "runtime/nas/compose/claude-settings.json": from_json(NAS[0]),
     "runtime/nas/nas-side/claude-settings.json": from_json(NAS[1]),
+    "runtime/nas/nas-side/claude-env.sh": from_sh(f"{h}/nas/nas-side/claude-env.sh"),
     "runtime/box/box-side/claude-env.sh": from_sh(f"{h}/box/box-side/claude-env.sh"),
 }
 problems = []

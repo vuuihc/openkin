@@ -28,6 +28,13 @@
     "new": "\"ANTHROPIC_DEFAULT_OPUS_MODEL\": \"volcengine-gw/kimi-k3.1-pro[1m]\""
   },
   {
+    "label": "put the nas-side claude-env.sh (sourced by nas-lane.sh after the settings copy) back on Kimi; the guard must read it and go red",
+    "file": "rsi/runtime/nas/nas-side/claude-env.sh",
+    "test": "bash rsi/runtime/tests/test-escalate.sh",
+    "old": "export ANTHROPIC_DEFAULT_OPUS_MODEL='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'",
+    "new": "export ANTHROPIC_DEFAULT_OPUS_MODEL='volcengine-gw/kimi-k3.1-pro[1m]'"
+  },
+  {
     "label": "hide the drift in modelOverrides instead of env: the override scan must still resolve claude-opus-5-5 to Kimi and go red",
     "file": "rsi/runtime/nas/compose/claude-settings.json",
     "test": "bash rsi/runtime/tests/test-escalate.sh",
