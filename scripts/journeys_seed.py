@@ -22,7 +22,7 @@ file no other journey rewrites, so it quotes a line that still exists.
 Conversations are seedable because the harness (rsi/runtime/ux-walk.sh and
 scripts/journeys-smoke.sh) puts scripts/journeys_fake_agent first on the
 throwaway daemon's PATH: the seed creates four succeeded, one failed, one
-archived, one still-running and three held-open conversations, and refuses to
+archived, one still-running and four held-open conversations, and refuses to
 create any unless /api/agents names a `claude` inside that directory as the
 binary the daemon would launch. The still-running fixture is the one whose row
 menu J5 opens while the turn is still going: it asks for no approval card, so
@@ -43,6 +43,12 @@ notification would reveal, and the row title a reader clicks after Back:
 The still-running conversation J5 opens prints the row it must act on:
 
     j5 target conversation=<task-id> title=<title>
+
+J15's held turn asks two questions through the loopback-only
+`POST /internal/user-questions` bridge and sits in `waiting_input`; it prints
+the conversation and the first card, and only when both cards are pending:
+
+    j15 target conversation=<task-id> focus=<question-id>
 
 The One-Pager document J4 edits mid-walk is Alpha's, and its id is printed
 only when that document is really in place:
@@ -84,6 +90,30 @@ APPROVE_MARKER = "[seed] approve"
 # menu J5 opens carries the shipped 运行中 / Running status line. Distinct from
 # APPROVE_MARKER because `waiting_approval` reads as an approval, not a run.
 HOLD_MARKER = "[seed] hold"
+# J15's two questions, asked on one held turn through POST
+# /internal/user-questions. Two cards on one task is the fixture: answering
+# the first leaves the second on screen, so the walk can answer the option
+# path and the Other field path and then prove the transcript has no card left.
+# Questions move the task to `waiting_input`, a different state than the
+# approval cards J1/J7 answer, so this fixture never reuses theirs.
+J15_QUESTIONS = (
+    {
+        "header": "[seed] release",
+        "question": "How should the release go out?",
+        "options": (
+            {"label": "Ship it now", "description": "Push the build and announce it."},
+            {"label": "Wait for the review", "description": "Hold until the reviewer signs off."},
+        ),
+    },
+    {
+        "header": "[seed] notes",
+        "question": "What should the release notes say?",
+        "options": (
+            {"label": "Short note", "description": "One line in the changelog."},
+            {"label": "Long note", "description": "A section with the migration steps."},
+        ),
+    },
+)
 # The exact line the fake agent appends to notes.md. The shell fake carries the
 # same text; a re-run finds it and leaves the file alone.
 CHANGE_SENTINEL = "- [seed] change: the journey walk reads this line as a real diff."
@@ -322,6 +352,23 @@ CONVERSATIONS = (
         # Which pair this card fills in the `j7 target` line.
         "target": "j7",
         "project": "Project Beta",
+    },
+    {
+        # J15's own held turn: two pending questions through the loopback
+        # bridge, and a task in `waiting_input` until the walk answers both.
+        # RequestUserQuestion moves the task, so this card cannot share a
+        # conversation with the J1/J7 approval cards (those stay
+        # `waiting_approval`). Created after the J7 card and before the approve
+        # card, so the approve row J1 opens stays the newest one.
+        "slug": "waiting-question-j15",
+        "title": PREFIX + "Choose the release path",
+        "prompt": HOLD_MARKER + ": keep working until a person answers its questions.",
+        "expect": ("running", "waiting_input"),
+        "archive": False,
+        # Which card fills the `j15 target` line (its first question).
+        "target": "j15",
+        "project": "Project Beta",
+        "questions": J15_QUESTIONS,
     },
     {
         # Created last so it is the newest row in the session list, which is
@@ -785,6 +832,92 @@ def _pending_approval(api: Api, ident: str) -> str | None:
     return None
 
 
+def _pending_questions(api: Api, ident: str) -> list[tuple[str, str]] | None:
+    """(question id, question text) for the pending cards on one task.
+
+    A second seed run must still name the cards an earlier run created.
+    ``None`` means the list could not be read, which is not the same as an
+    empty list: an unreadable GET followed by a POST would duplicate both
+    cards, so the caller skips instead.
+    """
+    status, body = api.call("GET", "/api/user-questions?status=pending")
+    if status != 200 or not isinstance(body, list):
+        return None
+    out: list[tuple[str, str]] = []
+    for row in body:
+        if not isinstance(row, dict) or str(row.get("task_id") or "") != ident:
+            continue
+        qid = str(row.get("id") or "")
+        payload = row.get("payload")
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except ValueError:
+                payload = {}
+        question = str(payload.get("question") or "") if isinstance(payload, dict) else ""
+        if qid:
+            out.append((qid, question))
+    return out
+
+
+def _ensure_user_questions(
+    api: Api, report: Report, spec: dict, ident: str, timeout: float
+) -> list[str] | None:
+    """Ask the internal bridge for the seeded questions, then confirm the wait.
+
+    POST /internal/user-questions is what the agent's own client calls:
+    loopback only, operator token, and internal/task.RequestUserQuestion moves
+    the task to `waiting_input`. Both cards must be pending before the seed
+    names the target: the walk answers the first card with an option and the
+    Other field on the card the first answer leaves behind, so a one-question
+    fixture is a skip, never a journey that passes on half its proof.
+
+    Returns the question ids in ask order when the task is confirmed waiting on
+    them, else None. A card an earlier run already has pending is reused, so a
+    second seed run neither duplicates it nor forgets it.
+    """
+    slug = str(spec.get("slug") or "")
+    pending_rows = _pending_questions(api, ident)
+    if pending_rows is None:
+        report.skip(slug, "cannot read pending questions; not asking for duplicates")
+        return None
+    pending = {question: qid for qid, question in pending_rows}
+    ids: list[str] = []
+    for ask in spec["questions"]:
+        question = str(ask["question"])
+        qid = pending.get(question)
+        if qid:
+            report.existing("question", question, qid)
+            ids.append(qid)
+            continue
+        status, body = api.call(
+            "POST",
+            "/internal/user-questions",
+            {
+                "task_id": ident,
+                "question": question,
+                "header": str(ask.get("header") or ""),
+                "options": [dict(option) for option in ask["options"]],
+            },
+        )
+        if not (status in (200, 201) and isinstance(body, dict) and body.get("id")):
+            report.skip(slug, f"internal user question refused: {_reason(status, body)}")
+            return None
+        qid = str(body["id"])
+        report.create("question", question, qid)
+        ids.append(qid)
+    state_seen, last = _wait_status(api, ident, ("waiting_input",), timeout)
+    if state_seen is None:
+        report.skip(slug, f"task {ident} still {last} after {timeout:g}s of polling; no question card")
+        return None
+    pending_ids = {qid for qid, _question in (_pending_questions(api, ident) or [])}
+    missing = [qid for qid in ids if qid not in pending_ids]
+    if missing:
+        report.skip(slug, f"question(s) {', '.join(missing)} not pending after the bridge accepted them")
+        return None
+    return ids
+
+
 def _remember_target(
     targets: dict[str, tuple[str, str, str]], spec: dict, ident: str, approval: str | None
 ) -> None:
@@ -815,7 +948,7 @@ def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: boo
 
 
 def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> dict[str, tuple[str, str, str]]:
-    """Create two succeeded, one failed, one archived, one still-running and three held-open conversations.
+    """Create two succeeded, one failed, one archived, one still-running and four held-open conversations.
 
     The fake agent makes every turn but the held ones terminal; nothing here
     waits longer than KIN_SEED_TASK_TIMEOUT_SECS, and a turn that does not
@@ -826,10 +959,11 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
     it exists so J5 opens a row menu that carries the shipped 运行中 line, and
     it must not ask for an approval card.
 
-    Returns {role: (conversation id, approval id, title)} for each held
+    Returns {role: (conversation id, card id, title)} for each held
     conversation that really produced a card — the `j1 targets` / `j7 target`
-    pairs — plus `j5`, whose approval id is empty: it names the still-running
-    row J5 opens. Absent roles mean the walker skips that journey.
+    pairs, and `j15`, whose second field is its first question id — plus `j5`,
+    whose card id is empty: it names the still-running row J5 opens. Absent
+    roles mean the walker skips that journey.
     """
     agent, why = _fake_agent(api)
     if agent is None:
@@ -877,6 +1011,16 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
                 # The still-working row J5 acts on. A second run names it
                 # again and expects no card: this fixture never asks for one.
                 targets["j5"] = (ident, "", title)
+                continue
+            if spec.get("questions"):
+                # A second run finds the pending cards and names them again;
+                # an interrupted run may have only one, so create what is
+                # missing instead of walking a half fixture.
+                if report.dry_run:
+                    report.plan("question", title)
+                    continue
+                ids = _ensure_user_questions(api, report, spec, ident, timeout)
+                _remember_target(targets, spec, ident, ids[0] if ids else None)
                 continue
             if spec.get("hold"):
                 # An earlier run can leave the task running because its
@@ -946,6 +1090,18 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
                 report.skip(spec["slug"], f"task {ident} still {last} after {timeout:g}s of polling; not waiting forever")
             else:
                 targets["j5"] = (ident, "", title)
+            continue
+
+        if spec.get("questions"):
+            # The question bridge accepts a task in `running`/`waiting_input`;
+            # wait for the turn to start, then ask. No terminal wait: the
+            # questions are the state this fixture exists to hold.
+            state, last = _wait_status(api, ident, ("running",), timeout)
+            if state is None:
+                report.skip(spec["slug"], f"task {ident} still {last} after {timeout:g}s of polling; not waiting forever")
+                continue
+            ids = _ensure_user_questions(api, report, spec, ident, timeout)
+            _remember_target(targets, spec, ident, ids[0] if ids else None)
             continue
 
         if spec.get("hold"):
@@ -1033,6 +1189,12 @@ def main(argv: list[str] | None = None) -> int:
     j5 = targets.get("j5")
     if j5:
         print(f"j5 target conversation={j5[0]} title={j5[2]}")
+    # The conversation whose held turn asked J15's two questions, and the card
+    # a notification would name. Absent when the turn is not waiting on both
+    # cards, which keeps J15 a skip rather than a walk against a made-up id.
+    j15 = targets.get("j15")
+    if j15:
+        print(f"j15 target conversation={j15[0]} focus={j15[1]}")
     # J4's api step edits the seeded One-Pager mid-walk, and the story's
     # fixture is one file per project. The project id is named here, never
     # invented by the walker, and only when the document this seed writes is

@@ -51,6 +51,10 @@ HELD_CONVERSATION = "[seed] Approve the migration"
 DENY_CONVERSATION = "[seed] Deny the migration"
 J7_CONVERSATION = "[seed] Answer the deploy"
 HELD_CONVERSATIONS = [DENY_CONVERSATION, J7_CONVERSATION, HELD_CONVERSATION]
+# J15's held turn carries no approval card: two questions through the loopback
+# bridge move it to `waiting_input`. It sits between the J7 card and the
+# approve card, so the approve row J1 opens stays the newest one.
+J15_CONVERSATION = "[seed] Choose the release path"
 # The one conversation that is still working when J5 opens its row menu. It
 # carries the `[seed] hold` marker, asks for no approval card, and stays
 # `running` — the state the shipped 运行中 / Running line is drawn for.
@@ -69,7 +73,10 @@ CONVERSATIONS = [
     "[seed] Gamma planning",
     "[seed] Gamma review",
     RUNNING_CONVERSATION,
-    *HELD_CONVERSATIONS,
+    DENY_CONVERSATION,
+    J7_CONVERSATION,
+    J15_CONVERSATION,
+    HELD_CONVERSATION,
 ]
 # The one line the next slice targets both cards from.
 J1_TARGETS = re.compile(
@@ -95,6 +102,7 @@ class Stub:
         self.agents: list[dict] = []
         self.tasks: list[dict] = []
         self.approvals: list[dict] = []
+        self.questions: list[dict] = []
         self.task_events: dict[str, list[dict]] = {}
         # False keeps every created task in `running` forever, for the bounded-
         # wait case.
@@ -109,7 +117,9 @@ class Stub:
         # Task title -> HTTP status the approval bridge answers for that task.
         # Lets a test refuse one held card without touching the other.
         self.approval_refusals: dict[str, int] = {}
-        self.seq = {"prj": 0, "rtn": 0, "tsk": 0, "apr": 0}
+        # Task title -> HTTP status the user-question bridge answers.
+        self.question_refusals: dict[str, int] = {}
+        self.seq = {"prj": 0, "rtn": 0, "tsk": 0, "apr": 0, "qst": 0}
 
     def mutations(self) -> list[tuple[str, str]]:
         return [(m, p) for m, p, _ in self.requests if m != "GET"]
@@ -232,6 +242,35 @@ class _Handler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/api/approvals":
             want_status = query.get("status", [""])[0]
             rows = [a for a in stub.approvals if not want_status or a.get("decision") == want_status]
+            return self._json(200, rows)
+        if method == "POST" and path == "/internal/user-questions":
+            body = json.loads(raw or b"{}")
+            row = next((task for task in stub.tasks if task["id"] == body.get("task_id")), None)
+            if row is None:
+                return self._json(404, {"error": "task not found"})
+            refusal = stub.question_refusals.get(str(row.get("title") or ""))
+            if refusal:
+                return self._json(refusal, {"error": "stub refused this question"})
+            # Mirrors internal/task.RequestUserQuestion: only a live turn can ask.
+            if row["status"] not in ("running", "waiting_approval", "waiting_input"):
+                return self._json(409, {"error": f"task status {row['status']} cannot request a question"})
+            stub.seq["qst"] += 1
+            question = {
+                "id": f"qst-{stub.seq['qst']}",
+                "task_id": row["id"],
+                "payload": {
+                    "question": body.get("question"),
+                    "header": body.get("header"),
+                    "options": body.get("options") or [],
+                },
+                "status": "pending",
+            }
+            stub.questions.append(question)
+            row["status"] = "waiting_input"
+            return self._json(201, question)
+        if method == "GET" and path == "/api/user-questions":
+            want_status = query.get("status", [""])[0]
+            rows = [q for q in stub.questions if not want_status or q.get("status") == want_status]
             return self._json(200, rows)
         match = re.fullmatch(r"/api/tasks/([^/]+)/events", path)
         if match and method == "GET":
@@ -435,6 +474,8 @@ class SeedTest(unittest.TestCase):
                 self.stub.projects[2]["roots"][0],
                 self.stub.projects[1]["roots"][0],
                 self.stub.projects[1]["roots"][0],
+                # J15's question turn holds in Beta, before the approve card.
+                self.stub.projects[1]["roots"][0],
                 self.stub.projects[0]["roots"][0],
             ],
         )
@@ -522,6 +563,47 @@ class SeedTest(unittest.TestCase):
         self.assertNotIn("skip waiting-approval:", result.stdout)
         self.assertNotIn("skip waiting-approval-deny:", result.stdout)
         self.assertNotIn("skip waiting-approval-j7:", result.stdout)
+
+    def test_seeds_two_pending_questions_and_names_the_first(self) -> None:
+        # J15 answers one card by option and the Other field on the card left
+        # behind, so both questions must be pending on one waiting_input turn.
+        # The target line names the first id; the walker resolves it.
+        self.enable_fake_agent()
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        task = next(row for row in self.stub.tasks if row["title"] == J15_CONVERSATION)
+        self.assertEqual(task["status"], "waiting_input", self.stub.tasks)
+        pending = [q for q in self.stub.questions if q["status"] == "pending"]
+        self.assertEqual(len(pending), 2, self.stub.questions)
+        self.assertEqual(
+            [q["payload"]["question"] for q in pending],
+            [ask["question"] for ask in journeys_seed.J15_QUESTIONS],
+        )
+        match = re.search(r"^j15 target conversation=(\S+) focus=(\S+)$", result.stdout, re.M)
+        self.assertIsNotNone(match, result.stdout)
+        self.assertEqual(match.group(1), task["id"], result.stdout)
+        self.assertEqual(match.group(2), pending[0]["id"], result.stdout)
+        # A second run reuses both cards by their text: no duplicate POST.
+        self.stub.requests.clear()
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.stub.questions), 2, self.stub.questions)
+        self.assertEqual(
+            [m for m in self.stub.mutations() if m[1] == "/internal/user-questions"], []
+        )
+
+    def test_question_bridge_refusal_skips_and_names_no_target(self) -> None:
+        # A refused bridge must never print a j15 target: the walk would aim
+        # at a card that is not there. Fail closed with the skip instead.
+        self.enable_fake_agent()
+        self.stub.question_refusals[J15_CONVERSATION] = 503
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "skip waiting-question-j15: internal user question refused: HTTP 503", result.stdout
+        )
+        self.assertNotIn("j15 target", result.stdout)
+        self.assertEqual(self.stub.questions, [])
 
     def test_seeds_one_running_conversation_with_no_approval_card(self) -> None:
         # J5 opens this row's menu while the turn is still going. The row must
@@ -1061,7 +1143,7 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(
             [os.path.basename(body["cwd"]) for body in self.task_posts()],
-            ["alpha", "beta", "gamma", "beta", "gamma", "gamma", "gamma", "beta", "beta", "alpha"],
+            ["alpha", "beta", "gamma", "beta", "gamma", "gamma", "gamma", "beta", "beta", "beta", "alpha"],
         )
 
 
@@ -1263,9 +1345,16 @@ class HarnessContractTest(unittest.TestCase):
             # result line is ever printed, so waiting for one would only time out.
             self.assertNotIn("succeeded", spec["expect"])
         for spec in journeys_seed.CONVERSATIONS:
-            if spec not in marked:
-                self.assertNotIn(journeys_seed.APPROVE_MARKER, spec["prompt"])
-                self.assertFalse(spec.get("hold"), spec)
+            if spec in marked:
+                continue
+            self.assertNotIn(journeys_seed.APPROVE_MARKER, spec["prompt"])
+            self.assertFalse(spec.get("hold"), spec)
+            if spec.get("questions"):
+                # The question fixture names its own role (`j15`), but it is
+                # not an approval target and never asks the approval bridge.
+                self.assertEqual(spec.get("target"), "j15", spec)
+                self.assertEqual(spec.get("expect"), ("running", "waiting_input"), spec)
+            else:
                 self.assertNotIn("target", spec)
 
     def test_j2_opens_changes_before_leaving_the_conversation(self) -> None:
