@@ -361,6 +361,46 @@ describe("phoneProjectBuckets", () => {
       );
       expect(rows[0]!.label).toBe("Project Alpha");
     });
+
+    it("does not merge a record whose first root another record claimed", () => {
+      const lookup = namesFrom([
+        { name: "Project Alpha", roots: ["/work/alpha"] },
+        { name: "Alpha Archive", roots: ["/work/alpha", "/work/archive"] },
+      ]);
+      // The second record's first root is claimed by the first record, so it
+      // owns no heading there. Its own root must keep its own key, name and
+      // one root, rather than overwrite the other heading with whichever
+      // record's row happens to be processed last.
+      const headings = (feed: Task[]) =>
+        buckets(feed, [], "self", [], "active", lookup).map((bucket) => ({
+          key: bucket.key,
+          label: bucket.label,
+          cwd: bucket.cwd,
+          roots: bucket.roots,
+          rows: bucket.rows.map((row) => row.key),
+        }));
+      const alpha = task({ id: "a", cwd: "/work/alpha", created_at: 1 });
+      const archive = task({ id: "b", cwd: "/work/archive", created_at: 2 });
+      const expected = [
+        {
+          key: "/work/archive",
+          label: "Alpha Archive",
+          cwd: "/work/archive",
+          roots: ["/work/archive"],
+          rows: ["b"],
+        },
+        {
+          key: "/work/alpha",
+          label: "Project Alpha",
+          cwd: "/work/alpha",
+          roots: ["/work/alpha"],
+          rows: ["a"],
+        },
+      ];
+      // Feed order is not part of the answer.
+      expect(headings([alpha, archive])).toEqual(expected);
+      expect(headings([archive, alpha])).toEqual(expected);
+    });
   });
 
   // The task feed and the imported feed describe the same provider sessions

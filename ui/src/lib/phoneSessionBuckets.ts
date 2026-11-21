@@ -336,8 +336,14 @@ export function phoneProjectBuckets(
       rootKeys.add(rootKey);
       roots.push(root);
     }
-    const merged = localDevice(device) && roots.length > 0;
-    const primary = merged ? roots[0] : undefined;
+    // Only the record that owns the heading's key may merge. When an earlier
+    // record already claimed this record's first root, merging would let this
+    // record's rows overwrite that heading's name, cwd and archive roots in
+    // feed order; a non-owning record keeps its own cwd key and one root.
+    const first = roots[0];
+    const merged =
+      localDevice(device) && first !== undefined && projectFor(first)?.id === record?.id;
+    const primary = merged ? first : undefined;
     const key = primary !== undefined ? projectKeyOf(primary) : projectKeyOf(cwd);
     if (key === UNASSIGNED_PROJECT) {
       return { key, label: copy.noProject, cwd: "", roots: [], merged: false };
