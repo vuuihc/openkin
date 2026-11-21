@@ -225,6 +225,11 @@ if [ $CHECK -eq 1 ] || [ $STAT -eq 1 ]; then
   python3 "$RSI_DIR/runtime/volc-budget.py" --apply >/dev/null 2>&1 || true
   [ -s "$STATE/volc-budget.json" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print('volc list CNY today: ¥%.2f (%s); Kimi ¥%.2f / ¥%.0f'%(d['cny'],d['level'],d.get('kimi_cny') or 0,d.get('kimi_day_max') or 150))" "$STATE/volc-budget.json" 2>/dev/null
   echo "consec_fail=$(cat "$STATE/consec_fail" 2>/dev/null || echo 0) consec_timeout=$(cat "$STATE/consec_timeout" 2>/dev/null || echo 0)"
+  # Rework cost, read from the notes the merge lane already wrote (read-only: it prints, never writes).
+  # Without this line the only way to learn which guard to build next is to grep 300 sendback notes by
+  # hand, which is what the CEO did on 2026-11-21 09:00 with two clocks and got the rate wrong (0.26 vs 0.66).
+  [ -f "$RSI_DIR/runtime/rework-attrib.py" ] && [ -d "$STATE/sendback/done" ] && \
+    python3 "$RSI_DIR/runtime/rework-attrib.py" --status --state "$STATE" 2>/dev/null
   control_tree_line
   merge_lane_line
   BP_NOTE=""
