@@ -95,8 +95,12 @@
  * per run with the order alternating by run parity. Before a frame is
  * recorded every mounted row's computed `content-visibility` is read back: a
  * contain-arm row that is not `auto`, or an off-arm row that is, is a guard.
- * The paired per-run delta is contain − off (negative = containment reduced
- * the interval). `--glass=ab` and `--paint=ab` cannot be combined in one pass.
+ * The transcript is reset to its newest message before each arm (the console
+ * restores the previous position across a re-open) and a transcript arm with
+ * no mounted row is a guard, so both paired windows match and an empty proof
+ * is refused. The paired per-run delta is contain − off (negative =
+ * containment reduced the interval). `--glass=ab` and `--paint=ab` cannot be
+ * combined in one pass.
  *
  * Chrome runs headed by default: headless Chrome on this machine advances
  * requestAnimationFrame at 20 Hz, so its frame intervals describe the browser,
@@ -523,6 +527,8 @@ function selfCheckCase(kind) {
         contain: paintViolationFor("contain", visible),
         off: paintViolationFor("off", visible),
         containAuto: paintViolationFor("contain", [{ element: "div.message-row", value: "auto" }]),
+        emptyRequired: paintViolationFor("contain", [], { requireRows: true }),
+        emptyOptional: paintViolationFor("contain", []),
       })}\n`,
     );
     return;
@@ -781,17 +787,22 @@ function selfCheck() {
   } else if (
     !/content-visibility=visible/.test(paintArmLogic.contain || "") ||
     paintArmLogic.off !== null ||
-    paintArmLogic.containAuto !== null
+    paintArmLogic.containAuto !== null ||
+    !/no mounted .* row/.test(paintArmLogic.emptyRequired || "") ||
+    paintArmLogic.emptyOptional !== null
   ) {
     fail(
       "paint override arm logic did not separate the arms: " +
         `contain=${JSON.stringify(paintArmLogic.contain)} ` +
         `off=${JSON.stringify(paintArmLogic.off)} ` +
-        `containAuto=${JSON.stringify(paintArmLogic.containAuto)}`,
+        `containAuto=${JSON.stringify(paintArmLogic.containAuto)} ` +
+        `emptyRequired=${JSON.stringify(paintArmLogic.emptyRequired)} ` +
+        `emptyOptional=${JSON.stringify(paintArmLogic.emptyOptional)}`,
     );
   } else {
     process.stdout.write(
-      "ok paint override arm logic: contain+visible is a guard, off+visible and contain+auto are not\n",
+      "ok paint override arm logic: contain+visible and an empty required row set are guards, " +
+        "off+visible and an empty list leg are not\n",
     );
   }
 
@@ -1469,7 +1480,10 @@ async function applyGlass(page, arm) {
  * compute `content-visibility: auto`; in the off arm none may. A row that
  * disagrees is a guard, never a number.
  */
-function paintViolationFor(arm, rows) {
+function paintViolationFor(arm, rows, { requireRows = false } = {}) {
+  if (requireRows && rows.length === 0) {
+    return "no mounted [data-conversation-pane] [data-message-key] row, so the paint arm is unproven";
+  }
   const describe = (row) => `content-visibility=${row.value || "visible"} on ${row.element}`;
   if (arm === "contain") {
     const missed = rows.find((row) => row.value !== "auto");
@@ -1485,7 +1499,7 @@ function paintViolationFor(arm, rows) {
  * rows have mounted, so the contain arm proves the override on real elements
  * rather than on an empty selector.
  */
-async function applyPaint(page, arm) {
+async function applyPaint(page, arm, options = {}) {
   await page.addStyleTag({ content: arm === "contain" ? PAINT_CONTAIN_CSS : PAINT_OFF_CSS });
   const rows = await page.evaluate((selector) => {
     const describe = (el) => {
@@ -1497,7 +1511,7 @@ async function applyPaint(page, arm) {
       value: getComputedStyle(el).getPropertyValue("content-visibility").trim(),
     }));
   }, MESSAGE_ROW_SELECTOR);
-  return { rows: rows.length, violation: paintViolationFor(arm, rows) };
+  return { rows: rows.length, violation: paintViolationFor(arm, rows, options) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1516,6 +1530,25 @@ async function expandAllFolds(page) {
 
 async function rowCount(page) {
   return page.evaluate(() => document.querySelectorAll("[data-session-row]").length);
+}
+
+/**
+ * Put the transcript at its newest message before an arm's frame window. The
+ * console restores the previous position across a re-open, so without this the
+ * second arm would scroll a different window than the first (row 22 review).
+ */
+async function scrollToNewestMessage(page) {
+  return page.evaluate(() => {
+    const pane = document.querySelector("[data-conversation-pane]");
+    let el = pane;
+    while (el && el !== document.body) {
+      if (el.scrollHeight > el.clientHeight + 4) break;
+      el = el.parentElement;
+    }
+    if (!el || el === document.body) return null;
+    el.scrollTop = el.scrollHeight;
+    return el.scrollTop;
+  });
 }
 
 /** The list's scroller and where a finger can start inside it. */
@@ -1779,7 +1812,7 @@ async function measureComposer(page, cdp, daemon, taskId) {
   return { duration: r1(watched.duration) };
 }
 
-/** Scroll a long transcript from its bottom upward. */
+/** Scroll a long transcript from its newest message upward. */
 async function measureTranscript(page, cdp, taskId, idleP50, glassArm = "on", paintArm = "off") {
   await open(page, `${page.__base}/tasks/${taskId}`);
   const glass = await applyGlass(page, glassArm);
@@ -1794,8 +1827,15 @@ async function measureTranscript(page, cdp, taskId, idleP50, glassArm = "on", pa
     .waitFor({ state: "visible", timeout: CONTENT_DEADLINE_MS })
     .catch(() => guard("transcript-never-rendered", "the conversation showed no message within 30 s"));
   await page.waitForTimeout(600);
+  // The console restores the previous transcript position, so each arm starts
+  // from the newest message and scrolls the same window.
+  const resetScrollTop = await scrollToNewestMessage(page);
+  if (resetScrollTop === null) {
+    guard("scroll-did-not-move", "the transcript scroller disappeared before the arm could start");
+  }
+  await page.waitForTimeout(100);
   // Prove the arm on the rows that actually mounted, before the frame window.
-  const paint = await applyPaint(page, paintArm);
+  const paint = await applyPaint(page, paintArm, { requireRows: true });
   await page.waitForTimeout(100);
 
   const before = await scrollerInfo(page, "[data-conversation-pane]");
