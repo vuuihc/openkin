@@ -212,6 +212,24 @@ test_lane_calls_the_sweep_before_the_ahead_check() {
   return 0
 }
 
+# The bundle lanes hand the Mac a bundle of commits, so a file they leave untracked is simply not
+# in the hand-over. Both must call the shared sweep at every site that used to run the tracked-only
+# one, and a failing sweep must stop the lane rather than bundle a branch missing files.
+test_bundle_lanes_call_the_sweep() {
+  local f call='bash "$WT/rsi/runtime/commit-leftovers.sh" "$WT" "$ITEM" || fail "leftovers remain uncommitted"'
+  local guard='if [ -f "$WT/rsi/runtime/commit-leftovers.sh" ]; then'
+  for f in "$RUNTIME/nas/nas-side/nas-lane.sh" "$RUNTIME/box/box-side/box-lane.sh"; do
+    [ -f "$f" ] || fail "bundle wiring: $f missing"
+    [ "$(grep -cF "$call" "$f")" -eq "$(grep -cF -- '--untracked-files=no' "$f")" ] \
+      || fail "bundle wiring: $f calls the sweep at fewer sites than it keeps a tracked-only fallback"
+    [ "$(grep -cF "$guard" "$f")" -eq "$(grep -cF -- '--untracked-files=no' "$f")" ] \
+      || fail "bundle wiring: $f has a tracked-only sweep without the sweep guard"
+  done
+  [ "$(grep -cF "$call" "$RUNTIME/box/box-side/box-lane.sh")" -eq 2 ] \
+    || fail "bundle wiring: box-lane.sh must call the sweep after the worker and after the fix round"
+  return 0
+}
+
 run() {
   [ -z "$ONLY" ] || [ "$ONLY" = "$1" ] || return 0
   "$1" || exit 1
@@ -227,4 +245,5 @@ run test_failed_sweep_is_loud
 run test_post_commit_leftover_is_loud
 run test_unmerged_entries_are_refused
 run test_lane_calls_the_sweep_before_the_ahead_check
+run test_bundle_lanes_call_the_sweep
 echo ALL-PASS
