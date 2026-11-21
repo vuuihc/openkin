@@ -34,11 +34,6 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
-- 2026-11-21 · 高 · 点批准/提问通知后应用打开了，但没有落到那条对话里被点名的卡片上 — 真机验收（Ethan 的 iPhone，KIN-NOTIFY-001）：点系统通知能进应用，进不到对话内容。通知写的是 `/tasks/<id>?focus=<item>`（`internal/notify/notify.go` 的 `pendingLink`），而 `ui/src/lib/notificationRoute.ts` 的 `parseNotificationRoute` 只对 `/inbox` 保留 `?focus=`，到任务对话时把整个 query 丢掉，导航成 `/tasks/<id>`；`TaskDetailPage.tsx:1286` 正是靠这个参数把卡片滚进视野并聚焦，所以卡片永远不出现。测试一直绿，因为 `notificationRoute.test.ts` 只断言了不带 focus 的 `/tasks/<id>`。
-  - **期望行为可写成测试**：`parseNotificationRoute("/tasks/t1?focus=a1")` 得到 `/tasks/t1?focus=a1`，`/approvals?focus=q1` 同理，不认识的 query（`utm=`）仍被丢掉；真机上点批准/提问通知落到那张卡片（VoiceOver 焦点也在它上面），再点同一条不重复跳转，返回按手机栈回到列表。用现有的 `notificationRoute.test.ts` 与 `NotificationTaps.dom.test.tsx` 即可失败重现。
-  - **不要的做法**：不要改成先跳列表再让读者自己点第二下；不要把 `?focus=` 变成任意 query 透传（`utm=`、`javascript:` 这类必须仍被丢掉）；不要把通知 URL 改成 `/inbox?focus=` 绕过去——`/inbox` 是「需要你」列表，不是任务对话。
-  - **照抄的同类**：`/inbox?focus=` 与 `/routines?device=` 已经按「路由自己拥有的 query 才保留」处理；`areaNavigation.ts:232` 也已把 `focus` 解析到 `conversations.task` 上，缺的只是通知解析这一处放行。
-
 - 2026-11-21 · 高 · 阅读面被四条常驻 bar 和两条占位通知淹没：同一块 820×1180 上，T3 只有一条 44px 头部，Kin 把 tabs、header、用量、改动文件都钉在正文上方 — 820×1180 实机截图里，右栏约 520 CSS px，四条常驻 bar 约占 170 CSS px（tabs ~27 + header ~53 + 用量 ~43 + 改动文件 ~47），再叠通知与 daemon banner 时约 270 px；正文只剩半屏，表格被挤到逐字换行，还要和「有新进展」药丸、composer 抢位置。T3 在同样宽度只保留标题与输入框，过程收成一行 “Worked for …”，用量/改动按需出现。手机路径其实已经做了这个决定：`TaskDetailPage.tsx:2566-2570` 的注释写明手机上用量条整条消失、放到输入框的 popover 里，理由正是 “not a bar across the reading”；平板没有沿用。
   - **期望行为可写成测试**：820×1180、`hasTouch` 下，正文上方常驻 chrome ≤44 CSS px（只保留 header；会话 tabs 在平板宽度隐藏或收进 header；用量与改动文件收进 header 的一个入口/按需面板），长回答 + 4 行表格的最后一行完整可读；`document.elementFromPoint` 命中每个可见单元格中心都返回该单元格；用量与改动文件仍能在一个动作内打开（不是删除）。用同一条 J-tablet walk + 长表格 fixture 即可失败重现。
   - **不要的做法**：不要用新增 bar/badge/banner 去解决「状态看不见」（TASTE 7 先删后加）；不要只在 1100 看；不要把用量/改动文件整块删掉——它们要按需可达；不要把表格缩小字号或加 `overflow:hidden` 掩盖。
@@ -59,17 +54,13 @@ person can see; the fix and its verification belong in the PR.
   - **不要的做法**：不要再让 CEO 用「check.sh 全绿 / 390 与 1100 截图」证明平板健康；不要写没有截图链接的「线上控制台健康」；不要把这条降级成低优先级样式项——它记录的是验收缺口，修完上面两个症状也不会自动补上；不要用 `mac-wide: 1280` 冒充平板。
   - **照抄的同类**：F1 已经用 16 ms 真实采样证明「不消失、不骨架」；2026-11-15 的触屏拖动验收已经跑过 820×1180 + `hasTouch`（`rsi/runtime/ux/touch-drag.mjs`）；`journeys.json` 已经把 viewport 参数化，机制都在，只是没有把 iPad 宽度接进合并门。
 
-- 2026-11-21 · 低 · 一个项目有两个根目录时，对话列表出现两个同名项目标题，其中一个永远为空 — `/api/projects` 里 `[seed] Project Alpha` 同时拥有 `alpha` 与 `aaa-config` 两个根目录；390×844 与 1100×760 的对话列表都渲染两个「[seed] Project Alpha」标题，一个 2 条对话、一个 0 条，两个标题各自都带项目级动作（新建对话；1100 上还有项目封面 / 置顶项目 / 从侧栏移除），人分不清它们是不是同一个项目。
-  - **期望行为可写成测试**：`/api/projects` 中同一项目 id 的多个根目录下的对话，在对话列表中只出现一个项目标题，标题后的数量等于这些根目录下对话数之和；第二个根目录仍可从新建对话的目录选择器里选到。用带两个根的种子项目写一条列表测试（390 与 1100 各一次）即可失败重现。
-  - **不要的做法**：不要按 cwd 分桶、再把两个桶的标题都改成项目名（现在就是这样：两个根 = 两个同名标题）；不要用「隐藏空标题」掩盖重复——空的那个根上还挂着项目级动作，且根目录仍是新建对话的可选项；也不要把两个根目录的对话混进同一个目录。
-  - **照抄的同类**：没有同类可抄——标题已经按项目名（`ui/src/lib/phoneSessionBuckets.ts:314` 的 `headingFor` + `projectNameFor`），但分桶键仍是 cwd（`ui/src/lib/phoneSessionBuckets.ts:296` 的 `bucketKey`），仓库里没有按项目 id 合并多个根目录的实现。
-
-- 2026-11-21 · 中 · 新建对话点「开始」后输入框从页面中部跳到任务页底部：`/new` 的 composer 居中/顶部对齐，任务页把它停靠到底部，同一个 `[data-kin-bottom-chrome]` 带在 390 宽移动 451 px、1100 宽移动 244 px（首个可见帧→最后一个可见帧 507.6 px / 428 px）。期望行为：人正要用的那个 composer 留在任务页放它的位置——照抄任务页已经做对的停靠（`TaskComposerDock`），把 `/new` 的 composer 也钉到底部，跨路由没有半屏位移；验收沿用 J3 `steady` 的同一选择器与两个视口，修好后把步进上界收紧到接近 0，不要靠放宽上界变绿。已定的取舍：布局修复是后续项，J3 `steady` 暂以每个 16 ms 采样步进 ≤ 460 px（两个视口）+ 0 absent / 0 skeleton 作为过渡上界。
-
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-21 · 点批准/提问通知后应用打开了，但没有落到那条对话里被点名的卡片上 — `47f79432`（PR #536）：`parseNotificationRoute` 对 `/tasks/<id>` 与 `/approvals` 保留 `?focus=`（不认识的 query 仍被丢掉），`TaskDetailPage.tsx:1286` 的卡片揭示得以触发；测试 `ui/src/lib/notificationRoute.test.ts` 用例 `keeps the card a conversation link names`；真机复验仍待做：装上含 #536 的包后点一次批准/提问通知，确认卡片出现且 VoiceOver 焦点落在它上面（KIN-NOTIFY-001 的设备行仍开着）
+- 2026-11-21 · 新建对话点「开始」后输入框从页面中部跳到任务页底部 — `f985b9c3`（PR #532）：`/new` 的 composer 改为停靠在任务页同一个 `[data-kin-bottom-chrome]` 底部带，J3 `steady` 上界 460 → 24，实测 390 宽 2 px、1100 宽 4 px、0 hard failure；测试 `ui/src/pages/NewChatPage.dom.test.tsx` 用例 `pins the composer to the bottom band with the place row above it`、`ui/src/pages/TaskDetailPage.pendingSend.dom.test.tsx` 用例 `hands a conversation entered from Start the caret and the raised composer`
+- 2026-11-21 · 一个项目有两个根目录时，对话列表出现两个同名项目标题，其中一个永远为空 — `b770f741`（PR #528）：同一项目记录的多个根目录按记录的第一个根合并成一个桶与一个标题，归档 / 恢复覆盖全部根；测试 `ui/src/lib/phoneSessionBuckets.test.ts` 用例 `groups every cwd a project record claims under the record's first root`、`ui/src/components/sessions/SessionList.projectNames.dom.test.tsx` 用例 `draws one heading for a project with two roots`
 - 2026-11-21 · 慢轮进行中先排队一条追问、再打断时，刷新后缺少「已打断上一轮」这一行 — `50d3ac96`（PR #526）：`transcriptProjection.ts` 的轮次生命周期由 `task_started` / `result` 掌管，排队中的追问不再清掉 `roundStarted`；测试 `ui/src/components/chat/ChatStream.interrupt.dom.test.tsx` 用例 `keeps the interrupt mark when a queued follow-up sits above it`
 - 2026-11-21 · 另一条对话在等审批时，浮动审批卡压住本对话「这一轮改了什么」的文件行，点行中心会落到审批卡上 — `3c328fa7`（PR #504）：卡片与任一可见文件行相交时只渲染 strip（仍可打开被堵的那条对话），收起证据卡或把该行滚走卡片即回来；新增 `FloatingApproval.overlap.dom.test.tsx`，接线 pin `floatingApprovalWiring.test.ts`，1100×760 / 390×844 真 daemon 实测行中心 `elementFromPoint` 命中该行而非 `aside[aria-label="等待处理"]`
 - 2026-11-21 · 打断后的记录里没有任何「已打断」痕迹，被切断的一轮看起来像 agent 没回 — `4f8829ce`（PR #505）：在被打断的那一轮末尾投影一条持久 `meta` 行「已打断」，位于打断它的消息之上，刷新 / 重进仍在；toast 保留；测试 `transcriptProjection.test.ts`、`ChatStream.interrupt.dom.test.tsx`
