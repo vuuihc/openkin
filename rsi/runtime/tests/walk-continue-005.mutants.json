@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the J11 footer contract stops proving the current-area mark followed the route into Routines",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "old": "    needCount('css=[data-phone-footer] a[aria-current=\"page\"][data-phone-return=\"routines\"]', 1,\n      'J11 never proves the current-area mark followed the route into Routines (count css=[data-phone-footer] a[aria-current=\"page\"][data-phone-return=\"routines\"] = 1)',\n      routinesAt, sessionsWindowEnd);",
+    "new": "    // R-walk-continue-005 mutant: the route-following fact dropped on purpose.",
+    "test": "bash rsi/runtime/tests/test-walk-mutant.sh"
+  }
+]

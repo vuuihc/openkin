@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the contain arm's content-visibility declaration becomes a no-op",
+    "file": "scripts/phone-interaction.mjs",
+    "test": "node scripts/phone-interaction.mjs --self-check",
+    "old": "  content-visibility: auto !important;",
+    "new": "  content-visibility: visible !important;"
+  },
+  {
+    "label": "the paint override guard is removed, so a lying contain arm passes",
+    "file": "scripts/phone-interaction.mjs",
+    "test": "node scripts/phone-interaction.mjs --self-check",
+    "old": "  // The paint violation is decided by applyPaint (contain wants every mounted\n  // row auto; off wants none), so a sample that carries one is a guard.\n  if (sample.paintViolation) guard(\"paint-override-not-applied\", sample.paintViolation);\n",
+    "new": "  // The paint violation is decided by applyPaint (contain wants every mounted\n  // row auto; off wants none), so a sample that carries one is a guard.\n"
+  }
+]
