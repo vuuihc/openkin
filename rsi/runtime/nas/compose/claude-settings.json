@@ -5,7 +5,7 @@
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "volcengine-gw/volcengine/deepseek-v4.1-flash[1m]",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "volcengine-gw/volcengine/deepseek-v4.1-flash[1m]",
     "ANTHROPIC_SMALL_FAST_MODEL": "volcengine-gw/volcengine/deepseek-v4.1-flash[1m]",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "volcengine-gw/kimi-k3.1-pro[1m]",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "volcengine-gw/volcengine/deepseek-v4.1-flash[1m]",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "DISABLE_AUTOUPDATER": "1",
     "API_TIMEOUT_MS": "3000000"

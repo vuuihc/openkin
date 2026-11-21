@@ -14,6 +14,48 @@ check() { RSI_STATE="$T/st" RSI_AGY_ENABLED="${RSI_AGY_ENABLED:-0}" RSI_CARBON_E
 # --- self-test ---
 python3 "$PY" --self-test >/dev/null && ok self-test || bad self-test
 
+# --- no shipped loop settings file may resolve a model to Kimi (ROUTING.md, CEO 2026-11-17) ------
+# Each host hands a Claude Code run an "opus" pin: the Mac (runtime/common.sh), the box lane
+# (runtime/box/box-side/claude-env.sh) and the NAS container (runtime/nas/compose/claude-settings.json).
+# ROUTING.md says all three resolve to DeepSeek; Kimi is the advisor, called with an explicit
+# `--model magpie/auto/kimi-k3.1-pro` flag, never inherited from settings. The NAS file drifted to
+# kimi-k3.1-pro and no test noticed (found 2026-11-21), so the pins are compared here: a value that
+# names Kimi, a host that disagrees with the others, or a missing pin all go red.
+opush_pin_guard() { python3 - "$H" <<'PY'
+import json, re, sys
+h = sys.argv[1]
+
+def from_sh(path):
+    m = re.search(r"ANTHROPIC_DEFAULT_OPUS_MODEL='([^']+)'", open(path).read())
+    return m.group(1) if m else None
+
+pins = {
+    "runtime/common.sh": from_sh(f"{h}/common.sh"),
+    "runtime/nas/compose/claude-settings.json": json.load(
+        open(f"{h}/nas/compose/claude-settings.json")).get("env", {}).get("ANTHROPIC_DEFAULT_OPUS_MODEL"),
+    "runtime/box/box-side/claude-env.sh": from_sh(f"{h}/box/box-side/claude-env.sh"),
+}
+problems = []
+for path, value in pins.items():
+    if not value:
+        problems.append(f"{path}: no ANTHROPIC_DEFAULT_OPUS_MODEL pin")
+    elif "kimi" in value.lower():
+        problems.append(f"{path}: resolves opus to {value!r}; ROUTING.md keeps Kimi for the advisor only")
+if len({v for v in pins.values() if v}) > 1:
+    problems.append("the hosts disagree: " + ", ".join(f"{p} -> {v!r}" for p, v in pins.items()))
+
+env = json.load(open(f"{h}/nas/compose/claude-settings.json")).get("env", {})
+for key, value in env.items():
+    if key.endswith("MODEL") and "kimi" in str(value).lower():
+        problems.append(f"runtime/nas/compose/claude-settings.json: {key} resolves to {value!r}")
+
+if problems:
+    print("\n".join(problems), file=sys.stderr)
+    sys.exit(1)
+PY
+}
+opush_pin_guard && ok opus-pin-is-deepseek-everywhere || bad opus-pin-is-deepseek-everywhere
+
 # --- gate-undiagnosed is not a trigger by itself ---
 echo 'item: T1
 GATE_RESULT=FAIL: typecheck

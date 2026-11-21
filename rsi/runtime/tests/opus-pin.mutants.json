@@ -1,0 +1,23 @@
+[
+  {
+    "label": "put the NAS container back on Kimi: the drift this guard exists for, and the gate must go red",
+    "file": "rsi/runtime/nas/compose/claude-settings.json",
+    "test": "bash rsi/runtime/tests/test-escalate.sh",
+    "old": "\"ANTHROPIC_DEFAULT_OPUS_MODEL\": \"volcengine-gw/volcengine/deepseek-v4.1-flash[1m]\"",
+    "new": "\"ANTHROPIC_DEFAULT_OPUS_MODEL\": \"volcengine-gw/kimi-k3.1-pro[1m]\""
+  },
+  {
+    "label": "keep every host off Kimi but let the NAS disagree with the Mac: silent drift the guard must still catch",
+    "file": "rsi/runtime/nas/compose/claude-settings.json",
+    "test": "bash rsi/runtime/tests/test-escalate.sh",
+    "old": "\"ANTHROPIC_DEFAULT_OPUS_MODEL\": \"volcengine-gw/volcengine/deepseek-v4.1-flash[1m]\"",
+    "new": "\"ANTHROPIC_DEFAULT_OPUS_MODEL\": \"volcengine-gw/volcengine/deepseek-v4.1-max[1m]\""
+  },
+  {
+    "label": "drop the pin instead of moving it: no ANTHROPIC_DEFAULT_OPUS_MODEL means an inherited mapping decides",
+    "file": "rsi/runtime/nas/compose/claude-settings.json",
+    "test": "bash rsi/runtime/tests/test-escalate.sh",
+    "old": "\"ANTHROPIC_DEFAULT_OPUS_MODEL\": \"volcengine-gw/volcengine/deepseek-v4.1-flash[1m]\",",
+    "new": ""
+  }
+]
