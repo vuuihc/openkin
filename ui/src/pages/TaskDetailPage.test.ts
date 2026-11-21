@@ -3,25 +3,39 @@ import source from "./TaskDetailPage.tsx?raw";
 // The rail moved to `TaskPanels` in the T2 extraction; the guard follows the
 // markup it is about rather than the file it used to live in.
 import panelsSource from "../components/task/TaskPanels.tsx?raw";
+// Usage moved to the composer dock's footer below 1600, so the guard follows
+// it there rather than pinning the bar the story deleted.
+import dockSource from "../components/task/TaskComposerDock.tsx?raw";
 
 describe("TaskDetailPage session rail breakpoints", () => {
-  it("keeps compact usage visible until the side rail appears, and off the phone", () => {
-    const stripClasses = source.match(
-      /<div className="([^"]+)">\s*<div className="max-md:hidden">\s*<TaskUsageSummary/,
-    )?.[1];
-    const usageClasses = source.match(/<div className="([^"]+)">\s*<TaskUsageSummary/)?.[1];
+  it("keeps usage in the composer footer until the side rail appears, and off the transcript", () => {
     const railClasses = panelsSource.match(
       /<aside\s+className="([^"]+)"\s+aria-label=\{tr\("task\.sessionRail"\)\}/,
     )?.[1];
 
-    // The strip hides when the side rail takes over, and the usage bar is
-    // gone on a phone (its trigger lives in the composer footer there).
-    expect(stripClasses).toContain("min-[1600px]:hidden");
-    expect(stripClasses).not.toContain("xl:hidden");
-    expect(stripClasses?.split(/\s+/)).not.toContain("hidden");
-    expect(usageClasses).toContain("max-md:hidden");
+    // The rail is the only usage card at 1600+, and it does not exist below.
     expect(railClasses?.split(/\s+/)).toContain("hidden");
     expect(railClasses).toContain("min-[1600px]:flex");
+
+    // The bar that used to sit above the transcript was deleted, not hidden:
+    // the page renders no usage surface of its own.
+    expect(source).not.toContain("TaskUsageSummary");
+    expect(source).not.toContain("min-[1600px]:hidden");
+
+    // Below 1600 the dock's footer is the one usage entry. It asks the same
+    // question the rail does, and draws nothing while the rail is there.
+    expect(dockSource).toContain("const rail = useMinWidth(1600);");
+    const footerStart = dockSource.indexOf("{!rail && !usageLoading && usage ? (");
+    expect(footerStart).toBeGreaterThan(-1);
+    const footer = dockSource.slice(footerStart, dockSource.indexOf(") : null}", footerStart));
+    expect(footer).toContain("<TaskUsageSummary");
+    expect(footer).toContain('variant="phone"');
+
+    // The dock can only draw it because the page hands it the usage.
+    const dock = source.slice(source.indexOf("<TaskComposerDock"));
+    const dockProps = dock.slice(0, dock.indexOf("/>"));
+    expect(dockProps).toContain("usage={usage}");
+    expect(dockProps).toContain("usageLoading={usageLoading}");
   });
 
   it("keeps retry generations isolated when the response is uncertain", () => {

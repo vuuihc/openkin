@@ -772,6 +772,7 @@ const zh = {
     openFile: "在文件面板中打开",
     sidebarTabs: "工作区侧栏",
     tabChanges: "改动",
+    filesCount: "文件 · {count}",
     tabChangesCount: "改动 · {count}",
     tabFiles: "目录树",
     find: {

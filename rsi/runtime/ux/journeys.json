@@ -173,7 +173,7 @@
     "J8": { "title": "Phone: tap a changed line, comment it in the sheet, send the tray, and read the anchored follow-up", "viewports": ["phone"],
       "steps": [["goto", "/sessions"], ["shot", "list"],
         ["click", "?/Phone review/"], ["shot", "conversation"],
-        ["click", "?/变更|文件|Changes|Files/"], ["shot", "workspace-panel"],
+        ["click", "?css=button[aria-label='文件'], button[aria-label='Files']"], ["shot", "workspace-panel"],
         ["click", "?[data-workspace-row$=\"notes.md\"]"], ["shot", "workspace-diff"],
         ["wait", "css=.monaco-diff-editor"],
         ["scroll", "css=.monaco-diff-editor .monaco-scrollable-element", "bottom"],

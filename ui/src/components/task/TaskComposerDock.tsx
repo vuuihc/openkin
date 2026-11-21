@@ -10,7 +10,7 @@ import RepoChip from "../chat/RepoChip";
 import CwdPicker from "../chat/CwdPicker";
 import type PermissionModePicker from "../chat/PermissionModePicker";
 import type ModelPicker from "../chat/ModelPicker";
-import { IconAlert, IconMachine } from "../icons";
+import { IconAlert, IconChevronDown, IconMachine } from "../icons";
 import Button from "../ui/Button";
 import TaskUsageSummary from "../usage/TaskUsageSummary";
 
@@ -92,6 +92,10 @@ export type TaskComposerDockProps = {
   onRevealFirstPending: () => void;
   /** The page's one decision path, called with the oldest pending approval. */
   onApproveFirstPending?: () => void;
+  /** New output landed below the fold; the row above the bands offers it. */
+  unseen?: number;
+  /** Return the transcript to the newest output (the page's own handler). */
+  showNewest?: () => void;
 };
 
 export default function TaskComposerDock({
@@ -132,19 +136,36 @@ export default function TaskComposerDock({
   pendingApprovalBusy,
   onRevealFirstPending,
   onApproveFirstPending,
+  unseen = 0,
+  showNewest,
 }: TaskComposerDockProps) {
   const tr = useT();
-  // The phone usage trigger opens a bottom sheet, so it must not exist at all
-  // from `md` up: on a Mac the page's own usage bar already carries these
-  // numbers, and a `md:hidden` class only hides the trigger while its sheet
-  // stays in the tree. Unmount it instead.
-  const wide = useMinWidth(768);
+  // Usage rides the footer whenever the side rail is absent (<1600); the
+  // trigger must be mounted there, not merely unhidden below `md`.
+  const rail = useMinWidth(1600);
 
   return (
     <div
       data-kin-bottom-chrome={active ? "" : undefined}
       className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5"
     >
+      {/* New activity is a row in the bottom lane, never an overlay. The live
+          region stays mounted while empty so its arrival is announced. */}
+      <div aria-live="polite" className="max-w-conversation mx-auto flex flex-none justify-center">
+        {unseen > 0 && (
+          <Button
+            variant="secondary"
+            onClick={showNewest}
+            className="mb-1.5 rounded-full bg-kin-elevated px-3.5 shadow-e2"
+          >
+            {/* One nowrap row: preflight makes the icon's svg a block. */}
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <IconChevronDown className="w-4 h-4 flex-none" />
+              {tr("task.newActivity")}
+            </span>
+          </Button>
+        )}
+      </div>
       <div className="max-w-conversation mx-auto space-y-1.5">
         {waitingCount > 0 && pendingIsApproval ? (
           /*
@@ -292,15 +313,13 @@ export default function TaskComposerDock({
                     </>
                   }
                 />
-                {!wide && !usageLoading && usage ? (
-                  // The reference keeps usage at the input, and the phone has
-                  // no usage bar above the transcript to read it from. The Mac
-                  // reads the same numbers from the page's own usage bar.
+                {!rail && !usageLoading && usage ? (
+                  // The rail's own card carries usage above 1600.
                   <TaskUsageSummary
                     usage={usage}
                     loading={usageLoading}
                     variant="phone"
-                    className="flex-none md:hidden"
+                    className="flex-none"
                   />
                 ) : null}
               </div>

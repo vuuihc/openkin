@@ -29,6 +29,43 @@ the five flows below closer to "passes without a human noticing".
 - Prefer deleting/merging UI over adding it (TASTE 7). Prompt before product machinery (PRINCIPLE 5.5).
 - Escaped defects → `docs/product/LESSONS.md` (see `LESSONS-HOOK.md`).
 
+## Current phase (P16) — 820 阅读面，T3 的克制
+<!-- phase: P16-t3-reading target=2026-11-28T20:00 -->
+
+**一句话**：在 390 / 820 / 1100 三个宽度上，把「读一条真实回答并接着问」做到 T3 的清晰与克制；820 是 owner 的日常设备，先过。
+
+**为什么是这个。** owner 2026-11-21 的实机报告：820×1180 分栏后对话列约 520 CSS px，正文上方叠着 tabs、header、用量、改动文件四条常驻条（约 170 CSS px），header 的动作栏被压成 24–30 px 的单字碎片，长表格逐字换行，还要和「有新进展」药丸抢位置。同一天验收宽度只有 390 与 1100，820 落在两者之间，于是两端全绿、中间是被压碎的屏。完整对照见 `docs/plans/2026-11-21-t3-parity-quality-reset.md`。
+
+**Done means**（一条阅读交付，story `KIN-QUALITY-001`（draft；#542 合入后转 covered））：
+1. 820×1180 + `hasTouch` 下正文上方常驻 chrome ≤44 CSS px（只留一条 header），用量/改动文件/会话动作各自最多一个动作可达，不删除。
+2. 每个可见控件 ≥44×44 且没有半个字形；`document.elementFromPoint` 命中每个可见表格单元格中心都返回单元格；表格在自身容器内横向滚动。
+3. 新进展走一条非内容通道，不压正文；失败/断线一条 transient 说明且内容保留；回答末尾在同一个 composer 接着问——发送后消息入流、composer 清空并保持焦点、屏幕上只有一条输入路径（`KIN-QUALITY-001` 步骤 3）。
+4. 820 接进验收：`journeys.json` 的 `tablet: 820x1180`、J16 走查、`rsi/MANDATE.md` 的合并门写 390/820/1100；390/820/1100 三张截图在 PR body。
+5. 走查自己证明它真的在跑：J16 的 hardFail 为 `[]`，且一条变异体能把它打红。
+
+**Parked after this**：`R-list-scan`（820 列表一屏 ≥10 条、一行标题 + 一行元数据、设备/项目层级默认折叠）——保持停着，直到它自己的 story 存在；本相只把它列为 Out of scope，不进 P17 种子。
+
+**Out of scope** — 列表重排/折叠（`R-list-scan`）；把用量/改动文件整块删掉；用新增 bar/badge/banner 解决「状态看不见」；`mac-wide: 1280` 冒充平板。
+
+**Cut rule.** 11-28 20:00 落地已绿的，其余带度量记下，不延日期。若 820 的走查在 11-28 仍是红，就把「820 进不了验收」本身记为这一相的结论，不要用 390/1100 全绿宣布完成（这正是这一相存在的理由）。
+
+## Next phase (P17) — 表面收缩与 T3 split
+<!-- next-phase: P17-surface-reduction target=not-set -->
+
+**记录，不是许可。** 方向由 owner 2026-11-21 决定（`docs/adr/0035-mobile-rn-client-and-surface-reduction.md`、`docs/plans/2026-11-21-surface-reduction.md`）：先把 UI 面删到最小契约（5–6 个路由、2 个 Settings 面），再把手机端改成 Expo/RN + 本地 native modules；桌面保留 Electron + React/Vite，Go daemon 与共享 TS 不重写。它**顶着** 2026-11-20 23:47「不做第二客户端」的决定，且是 owner 覆议——那两个复活条件没有被满足，记录里不许写成「条件已满足」。
+
+**硬入口条件**（全部为真才把 `next-phase` 改成 `phase:`，缺一条就只记不启）：
+1. P16 全绿收口：J16 hardFail `[]`、820 进合并门、390/820/1100 截图在案（不是「大约好了」）。
+2. `#543` 的 820 验收注册已合入 main。
+3. 最小契约 story 写完、review page 读过并签字；`R-contract` 的路由清单测试在跑。
+4. `R-dead-paths` 已落地（1,090 行无引用死代码 + `removed-surfaces` 守卫在 `scripts/check.sh` 里被点名执行）。
+
+**Queue seeds（一次一行，按序）**：`R-dead-paths`（死代码 + 守卫，无产品决策）→ `R-contract`（最小契约 + 路由清单测试 + review page，owner 签）→ `R-routine-tool`（routine 工具 + `RoutineCard`，再隐藏 `/routines`）→ `R-provider-sheet`（`ProviderSheet`，Settings 只留 providers + general）→ `R-usage-surface`（`UsageCard`/`UsageSheet`，修 `/usage` 的 redirect）→ `R-delete-pages`（退役页面 + 守卫）→ `R-rn-spike`（独立 story/ADR：抽共享 TS + RN 壳）。
+
+**门要补的**：`removed-surfaces` 始终运行（计划说删掉的路径必须在 main 上不存在）；路由清单测试（只允许契约里的路由，新增路由必须有 story）；替换先行（被删页面的能力仍有 tool/card 测试且已绿）。
+
+**Cut rule.** 契约冻结前不许有任何 `mobile/` RN 代码；RN MVP 若在四固定面（配对/登录、列表、对话读发流、审批/提问）上做不到与 web 等价，就停下来在这里记原因，不要把 MVP 扩大。
+
 ## Closed phase (P3) — review → PR, proven
 <!-- closed-phase: P3-review-pr target=2026-11-20T20:00 -->
 
