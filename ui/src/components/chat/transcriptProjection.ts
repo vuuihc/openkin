@@ -814,17 +814,18 @@ export function buildChatItems(
         // speaker + task-only visibility — those must not be forced into the
         // main "user" column.
         const sp = speaker;
-        // Read before this prompt resets the round: an interrupt ends the round
+        // Read before this prompt changes anything: an interrupt ends the round
         // that was running when it arrived, and its line goes above this message.
         const interruptsRound =
           sp === "user" && (p.interrupted === true || p.source === "interrupt");
         const roundWasStarted = roundStarted;
-        if (sp === "user") {
-          canceledRound = interruptsRound;
-          // A prompt opens the next round; anything started before it belongs to
-          // the message above and must not be claimed by a later interrupt.
-          roundStarted = false;
-        }
+        if (sp === "user") canceledRound = interruptsRound;
+        // `task_started` and `result` own the round lifecycle. A prompt that
+        // lands while a round is running is a follow-up (queued or steering),
+        // not the start of the next one: clearing `roundStarted` here made a
+        // later interrupt forget the round it cut whenever a queued follow-up
+        // sat between the two, because that follow-up's own bubble also stops
+        // `hasRoundAbove` at the nearest user message.
         let text = extractText(p.content) || (typeof p.text === "string" ? p.text : "");
         // Never show local upload paths in the chat timeline. The same parse
         // keeps the pictures, which the normalised text names but cannot draw.
