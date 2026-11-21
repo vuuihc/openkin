@@ -1,0 +1,37 @@
+[
+  {
+    "label": "blanket opacity restored: the disabled row dims its own reason again",
+    "file": "ui/src/components/ui/ActionSheet.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/ActionSheet.dom.test.tsx -t \"a disabled row's reason is not dimmed with the row\"",
+    "old": "    row.disabled ? \"cursor-default\" : \"hover:bg-[var(--kin-fill)] active:bg-[var(--kin-fill)]\",",
+    "new": "    row.disabled ? \"cursor-default opacity-40\" : \"hover:bg-[var(--kin-fill)] active:bg-[var(--kin-fill)]\","
+  },
+  {
+    "label": "hint dimmed by a wrapper: the reason keeps its classes but still loses contrast",
+    "file": "ui/src/components/ui/ActionSheet.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/ActionSheet.dom.test.tsx -t \"a disabled row's reason is not dimmed with the row\"",
+    "old": "                  <span className=\"whitespace-normal text-caption text-kin-muted\">{row.hint}</span>",
+    "new": "                  <span className=\"opacity-60\"><span className=\"whitespace-normal text-caption text-kin-muted\">{row.hint}</span></span>"
+  },
+  {
+    "label": "disabled attribute dropped: a disabled row runs again",
+    "file": "ui/src/components/ui/ActionSheet.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/ActionSheet.dom.test.tsx -t \"a disabled row still reads as disabled\"",
+    "old": "              disabled={row.disabled}",
+    "new": "              disabled={false}"
+  },
+  {
+    "label": "label ink not muted: a disabled row looks enabled",
+    "file": "ui/src/components/ui/ActionSheet.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/ActionSheet.dom.test.tsx -t \"a disabled row still reads as disabled\"",
+    "old": "  return row.disabled ? \"w-full truncate text-kin-muted\" : \"w-full truncate\";",
+    "new": "  return \"w-full truncate\";"
+  },
+  {
+    "label": "enabled row loses its hover fill",
+    "file": "ui/src/components/ui/ActionSheet.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/ActionSheet.dom.test.tsx -t \"an enabled row keeps its hover and its ink\"",
+    "old": "    row.disabled ? \"cursor-default\" : \"hover:bg-[var(--kin-fill)] active:bg-[var(--kin-fill)]\",",
+    "new": "    row.disabled ? \"cursor-default\" : \"\","
+  }
+]
