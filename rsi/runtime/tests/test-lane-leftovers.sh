@@ -269,6 +269,10 @@ test_bundle_lanes_require_the_sweep() {
       || fail "bundle run: $f does not capture the swept names at every site"
     [ "$(grep -cF '>> "$J/swept.txt"' "$f")" -eq "$n" ] \
       || fail "bundle run: $f does not append the swept names to \$J/swept.txt at every site"
+    # A non-zero sweep stops the lane. Without this the capture line can stay and the guard go,
+    # and the lane ships a bundle missing whatever the sweep refused (2026-11-21 review).
+    [ "$(grep -cF '[ "$SRC" -eq 0 ] || fail "leftovers remain uncommitted"' "$f")" -eq "$n" ] \
+      || fail "bundle run: $f does not fail the lane when the sweep exits non-zero"
   done
   return 0
 }
