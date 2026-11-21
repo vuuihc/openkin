@@ -24,7 +24,7 @@ in **52/62 ms**. Startup is unchanged from its own baseline (warm 61 ms, cold
 | Tap → detail | green — 5/5; p50 **127 ms**, p90 **151 ms** |
 | Run-config sheet | green — 5/5; p50 **57 ms**, p90 **68 ms** |
 | Composer send → bubble | green — 5/5; p50 **52 ms**, p90 **62 ms** |
-| Guards | green — `--self-check` proves nearest-rank p50/p90, all **11** guards exit 2, short sets exit 2, JSON round-trips |
+| Guards | green — `--self-check` proves nearest-rank p50/p90, all **13** guards exit 2, short sets exit 2, JSON round-trips |
 | Not measured | Capacitor WKWebView on a real iPhone, the real Hub/tunnel, thermal/CPU state, native gesture comparison |
 
 The one-sentence user-visible statement this run supports:
@@ -133,7 +133,11 @@ decisions; this repository already deleted 15,364 lines of native iOS once
    `contain-intrinsic-size` on the message row) and re-run this script.
    Acceptance: transcript dropped frames fall into the list's band (≤ 9 %)
    with tap p90 no worse than 151 ms. No signed story exists yet; this memo
-   proposes one, and no `ui/` code was written in this row.
+   proposes one, and no `ui/` code was written in this row. **Row 22 ran that
+   control: the contain arm met the bar (3.3 % pooled dropped, tap p90
+   139.8 ms) but the off baseline met it too (4.3 %) and the paired delta was
+   0.0 pp — see `## Paint containment A/B (row 22)`; the baseline gap must
+   reproduce before a story is signed.**
 2. **Glass A/B before blaming the blur.** If containment alone does not close
    the gap, add a glass-off control to this script and re-measure; the p90
    signature points at blur over a tall scrolling layer but this run did not
@@ -232,3 +236,81 @@ removed the phone footer's blur on `/sessions` because the footer carries
 so the two rows' absolute numbers are not comparable; the paired delta inside
 this run is the evidence, and a longer transcript or a loaded device could
 still make the blur matter.
+
+## Paint containment A/B (row 22)
+
+**Status: measured — control clean, verdict `closes-gap` by the pre-declared
+bar, not attributable to the override.** Command:
+`node scripts/phone-interaction.mjs --runs 5 --paint=ab --json` on the product
+tree at `a430e521` (harness commit `bc24dc67`; this row touches no product
+file), exit 0, **no guard fired**. Chrome **157.0.8103.51 headed**, viewport
+**390×844** (`isMobile`, `hasTouch`), 8 CPUs, 1-minute load **7.6–9.6** across
+the five runs, idle-rAF p50 **8.3 ms** in every arm (120 Hz clock, not
+throttled). Seed: **30 rows**, **61 message events**, 19 follow-ups; the
+transcript drew **42→50** keyed message rows, one more composer send per run.
+
+Each run measured both scroll legs twice, re-opening the page per arm; arm
+order alternated by run parity (1 contain→off, 2 off→contain, …). The contain
+arm set `content-visibility: auto !important` and
+`contain-intrinsic-size: auto 120px !important` on
+`[data-conversation-pane] [data-message-key]`; the off arm injected an inert
+custom property through the same `<style>` element. The override was read back
+from every mounted row before the frame window: **42/44/46/48/50 transcript
+rows** per arm, **0 message rows on `/sessions`** (none mount there), every
+contain row computed `auto` and every off row computed `visible`. The
+`paint-override-not-applied` guard never fired.
+
+Pooled over five runs (frame intervals, same method as #522):
+
+| Leg | Arm | Frames | Frame p50 | Frame p90 | Dropped | Long tasks |
+|---|---|---:|---:|---:|---:|---:|
+| `/sessions` scroll | contain | 1,214 | 8.3 ms | 8.6 ms | 2.4 % | 0 |
+| `/sessions` scroll | off | 1,214 | 8.3 ms | 8.7 ms | 2.4 % | 0 |
+| `/tasks/:id` transcript scroll | contain | 1,214 | 8.3 ms | 8.5 ms | **3.3 %** | 0 |
+| `/tasks/:id` transcript scroll | off | 1,227 | 8.3 ms | 8.6 ms | **4.3 %** | 0 |
+
+Paired per run (contain − off; negative = containment reduced the interval;
+both arms' absolute transcript numbers shown so the pairing can be read):
+
+| Run | Order | Load (1m) | Contain dropped / p90 | Off dropped / p90 | Transcript Δ dropped / p90 | `/sessions` Δ dropped / p90 |
+|---:|---|---:|---:|---:|---:|---:|
+| 1 | contain→off | 8.80 | 3.3 % / 9.2 ms | 3.3 % / 9.0 ms | 0.0 pp / +0.2 ms | +0.9 pp / +0.4 ms |
+| 2 | off→contain | 8.38 | 2.0 % / 8.4 ms | 8.9 % / 10.5 ms | −6.9 pp / −2.1 ms | +0.5 pp / +0.1 ms |
+| 3 | contain→off | 7.64 | 2.5 % / 8.5 ms | 5.3 % / 8.7 ms | −2.8 pp / −0.2 ms | −0.9 pp / −0.7 ms |
+| 4 | off→contain | 8.63 | 4.9 % / 8.5 ms | 2.0 % / 8.4 ms | +2.9 pp / +0.1 ms | −1.3 pp / 0.0 ms |
+| 5 | contain→off | 9.55 | 3.7 % / 8.5 ms | 2.4 % / 8.4 ms | +1.3 pp / +0.1 ms | +0.8 pp / +0.2 ms |
+| **median** | | | **3.3 % / 8.5 ms** | **3.3 % / 8.7 ms** | **0.0 pp / +0.1 ms** | **+0.5 pp / +0.1 ms** |
+
+The verdict rule was fixed before this run (row brief): `closes-gap` when the
+contain arm's pooled transcript dropped% is ≤ 9 % and tap p90 is ≤ 151 ms;
+`partial` when the paired improvement exceeds the list leg's paired spread but
+the arm is still above 9 %; `not attributable` when the paired delta sits
+inside that spread. First match wins.
+
+**Verdict: `closes-gap` by the bar, not attributable to the override.** The
+contain arm's pooled transcript dropped **3.3 %** (≤ 9 %) and the post-run tap
+p90 was **139.8 ms** (≤ 151 ms; tap p50 131.8 ms, sheet 57.5/62.1 ms, composer
+53.6/54.1 ms), so the Decision memo's acceptance bar is met. But the off arm
+met it too — **4.3 %** pooled — and the paired contain − off delta's median is
+**0.0 pp** (range **−6.9 to +2.9 pp**, changing sign across runs) with a p90
+median of **+0.1 ms**, inside the `/sessions` leg's own paired spread (median
+**+0.5 pp**, range **−1.3 to +0.9 pp**). This session's *baseline* transcript
+already sat in the list's band, unlike #522's 18.0 % or row 19's 9.8/8.6 %; the
+contain arm therefore did not close a gap that this run reproduced. Next: if
+the baseline gap reproduces on the current product tree, the smallest signed
+story is the containment row; if it does not, the next candidate is a
+real-device WKWebView trace, because on this proxy the arms are
+indistinguishable. No product code was written and no story is signed by this
+row.
+
+**What this cannot prove.** Chrome headed is a proxy; WKWebView on a real
+iPhone is the fact. The machine was shared (load printed above), and the
+override is a simulation of containment, not a product change: it applies to
+every keyed row at once, uses a fixed 120 px intrinsic placeholder that only
+becomes exact after a row has rendered once, and does not exercise the app's
+own scroll anchoring or streaming updates. The absolute numbers are not
+comparable with #522 or row 19 — this run's off baseline was already at
+4.3 % — so the paired delta is the only evidence about containment here, and
+it is null. A longer transcript, a slower device, or WKWebView's own
+`content-visibility` implementation could still separate the arms; this Chrome
+number cannot.
