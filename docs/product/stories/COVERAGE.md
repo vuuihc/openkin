@@ -13,6 +13,7 @@
 | `KIN-CONTINUE-006` | blocked | P0 | J1 | 手机 | 手机开屏：先用自己的控制台打开，新版本在后台整套换 | 0 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
 | `KIN-PROJECT-002` | covered | P0 | J4 | Mac/手机 | 项目的工作目录：看清这几个目录为什么在一起，并能增删 | 5 |
+| `KIN-QUALITY-001` | draft | P0 | J1、J2 | Mac/手机 | 读完整条回答，再接着问（820 优先） | 0 |
 | `KIN-RESULT-002` | covered | P0 | J4 | Mac/手机 | 读懂文件、预览并返回原对话 | 10 |
 | `KIN-RESULT-003` | covered | P0 | J2、J1 | Mac/手机 | 对改动逐行评论并发回对话 | 5 |
 | `KIN-AGENTS-001` | covered | P1 | J6 | Mac/手机 | 机器上的 agent：装了什么、能不能用、用掉多少 | 7 |
@@ -27,4 +28,4 @@
 
 ## 汇总
 
-approved 3 · blocked 1 · covered 15
+approved 3 · blocked 1 · covered 15 · draft 1
