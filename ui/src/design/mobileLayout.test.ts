@@ -203,8 +203,46 @@ describe("compact controls", () => {
       return hits;
     };
 
+    // A backtick in a comment used to pair with the next one and swallow the
+    // code between them, so a file could go red for `!terminal` in a live
+    // expression (TaskHeader.tsx, 2026-11-21). Comments are removed before the
+    // literal scan. JSX prose makes an apostrophe look like a string opener, so
+    // a single- or double-quoted span ends at the line break, as in JavaScript.
+    const stripComments = (source: string): string => {
+      let out = "";
+      let i = 0;
+      let quote: '"' | "'" | "`" | null = null;
+      while (i < source.length) {
+        const c = source[i];
+        const next = source[i + 1] ?? "";
+        if (quote) {
+          if (c === "\\") { out += c + next; i += 2; continue; }
+          if (c === quote) { quote = null; out += c; i += 1; continue; }
+          if (c === "\n" && quote !== "`") { quote = null; out += c; i += 1; continue; }
+          out += c; i += 1; continue;
+        }
+        if (c === "/" && next === "/") { while (i < source.length && source[i] !== "\n") i += 1; continue; }
+        if (c === "/" && next === "*") {
+          i += 2;
+          while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i += 1;
+          i += 2;
+          continue;
+        }
+        if (c === '"' || c === "'" || c === "`") quote = c;
+        out += c; i += 1;
+      }
+      return out;
+    };
+
     // A guard is only worth its green if it can fail. These are the spellings
     // that got through before, and the shapes that must stay quiet.
+    expect(importantIn(stripComments('const c = "!hidden !-mt-4 ![min-height:0px] !min-h-0";'))).toEqual([
+      "!hidden",
+      "!-mt-4",
+      "![min-height:0px]",
+      "!min-h-0",
+    ]);
+    expect(importantIn(stripComments("// (`taskTitles.ts`) then\nconst live = task.cwd || !terminal ? a : b;"))).toEqual([]);
     expect(importantIn('"!hidden !-mt-4 ![min-height:0px] !min-h-0"')).toEqual([
       "!hidden",
       "!-mt-4",
@@ -225,7 +263,7 @@ describe("compact controls", () => {
         }
         if (!/\.(ts|tsx)$/.test(entry.name) || /\.test\./.test(entry.name)) continue;
         const source = readFileSync(path, "utf8");
-        for (const hit of importantIn(source)) {
+        for (const hit of importantIn(stripComments(source))) {
           offenders.push(`${path.replace(`${UI}/src/`, "")}: ${hit}`);
         }
       }

@@ -411,7 +411,7 @@ export default function TaskHeader({
                 aria-pressed={prOpen}
                 aria-label={tr("pr.title")}
                 className={[
-                  "flex-none h-11 gap-1.5 rounded-md px-2 text-body font-normal",
+                  "flex-none h-11 min-w-11 gap-1.5 rounded-md px-2 text-body font-normal",
                   prOpen
                     ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
                     : "text-kin-secondary hover:text-kin-text",
@@ -427,7 +427,7 @@ export default function TaskHeader({
                 variant="secondary"
                 onClick={onShare}
                 aria-label={tr("task.share")}
-                className="flex-none h-11 gap-1.5 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
+                className="flex-none h-11 min-w-11 gap-1.5 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
                 title={tr("task.shareTitle")}
               >
                 <VerbContent>
