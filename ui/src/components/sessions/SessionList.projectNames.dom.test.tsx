@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import SessionList from "./SessionList";
 import { setLocale } from "../../i18n";
@@ -86,7 +87,7 @@ function task(id: string, cwd: string, archivedAt?: number): Task {
   } as Task;
 }
 
-function project(id: string, name: string, root: string): Project {
+function project(id: string, name: string, root: string | string[]): Project {
   return {
     id,
     name,
@@ -95,13 +96,13 @@ function project(id: string, name: string, root: string): Project {
     created_at: 1,
     updated_at: 1,
     last_active_at: 1,
-    roots: [root],
+    roots: Array.isArray(root) ? root : [root],
   } as Project;
 }
 
-function list(shell: "page" | "sidebar") {
+function list(shell: "page" | "sidebar", path = "/sessions") {
   return render(
-    <MemoryRouter initialEntries={["/sessions"]}>
+    <MemoryRouter initialEntries={[path]}>
       <SessionList shell={shell} />
     </MemoryRouter>,
   );
@@ -163,5 +164,108 @@ describe("a project's heading in the conversation list", () => {
     expect(screen.queryByRole("button", { name: "alpha-work" })).toBeNull();
     expect(heading("Project Gamma")).toBeTruthy();
     expect(heading("alpha")).toBeNull();
+  });
+
+  /**
+   * One project record, two roots.
+   *
+   * `/api/projects` says `/work/alpha` and `/work/aaa-config` are one project;
+   * the person reads that as one heading. Drawing one heading per root left a
+   * permanently empty duplicate, and opening it found nothing. Both shells draw
+   * the same list, so both are checked.
+   */
+  it("draws one heading for a project with two roots", async () => {
+    fixtures.projects = [
+      project("p-alpha", "Project Alpha", ["/work/alpha", "/work/aaa-config"]),
+    ];
+    fixtures.tasks = [task("alpha-work", "/work/alpha")];
+
+    for (const shell of ["page", "sidebar"] as const) {
+      const view = list(shell);
+      await screen.findByRole("button", { name: "Project Alpha" });
+
+      const region = screen.getByRole("region", { name: /This machine/ });
+      expect(within(region).queryAllByRole("button", { name: "Project Alpha" })).toHaveLength(1);
+      // The second root is part of the same project, not a heading of its own.
+      expect(within(region).queryByRole("button", { name: "aaa-config" })).toBeNull();
+
+      view.unmount();
+    }
+  });
+
+  it("files conversations from both roots under that heading", async () => {
+    fixtures.projects = [
+      project("p-alpha", "Project Alpha", ["/work/alpha", "/work/aaa-config"]),
+    ];
+    fixtures.tasks = [task("alpha-work", "/work/alpha"), task("config-work", "/work/aaa-config")];
+
+    list("page");
+    const headingButton = await screen.findByRole("button", { name: "Project Alpha" });
+    const region = screen.getByRole("region", { name: /This machine/ });
+    expect(within(region).queryAllByRole("button", { name: "Project Alpha" })).toHaveLength(1);
+
+    // Both conversations live inside that one heading's section. The row's
+    // accessible name is a sentence (title · agent · time), hence the pattern.
+    const bucketSection = headingButton.closest("section")!;
+    expect(within(bucketSection).getByRole("button", { name: /alpha-work/ })).toBeTruthy();
+    expect(within(bucketSection).getByRole("button", { name: /config-work/ })).toBeTruthy();
+  });
+
+  it("archives every root of a merged heading and restores one heading", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fixtures.projects = [
+      project("p-alpha", "Project Alpha", ["/work/alpha", "/work/aaa-config"]),
+    ];
+    fixtures.tasks = [task("alpha-work", "/work/alpha"), task("config-work", "/work/aaa-config")];
+
+    const active = list("page");
+    await screen.findByRole("button", { name: "Project Alpha" });
+    const region = screen.getByRole("region", { name: /This machine/ });
+    await userEvent.click(within(region).getByRole("button", { name: "Remove from sidebar" }));
+
+    // Archive is one project decision: both roots go, so no root's rows keep
+    // the heading alive and the heading can actually be put away.
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem("kin_archived_projects") ?? "[]")).toEqual([
+        "/work/alpha",
+        "/work/aaa-config",
+      ]),
+    );
+    expect(confirm).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Project Alpha" })).toBeNull();
+    active.unmount();
+
+    // The archived scope draws the same one heading, with both roots' rows and
+    // one Restore.
+    const archived = list("page", "/sessions?scope=archived");
+    const archivedHeading = await screen.findByRole("button", { name: "Project Alpha" });
+    const archivedRegion = screen.getByRole("region", { name: /This machine/ });
+    expect(within(archivedRegion).queryAllByRole("button", { name: "Project Alpha" })).toHaveLength(
+      1,
+    );
+    const archivedSection = archivedHeading.closest("section")!;
+    expect(within(archivedSection).getByRole("button", { name: /alpha-work/ })).toBeTruthy();
+    expect(within(archivedSection).getByRole("button", { name: /config-work/ })).toBeTruthy();
+
+    await userEvent.click(
+      within(archivedRegion).getByRole("button", { name: "Restore Project Alpha" }),
+    );
+    // Restore is the same one decision in reverse: every root comes back, or
+    // the heading returns half hidden.
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem("kin_archived_projects") ?? "[]")).toEqual([]),
+    );
+    archived.unmount();
+
+    const restored = list("page");
+    const restoredHeading = await screen.findByRole("button", { name: "Project Alpha" });
+    const restoredRegion = screen.getByRole("region", { name: /This machine/ });
+    expect(
+      within(restoredRegion).queryAllByRole("button", { name: "Project Alpha" }),
+    ).toHaveLength(1);
+    const restoredSection = restoredHeading.closest("section")!;
+    expect(within(restoredSection).getByRole("button", { name: /alpha-work/ })).toBeTruthy();
+    expect(within(restoredSection).getByRole("button", { name: /config-work/ })).toBeTruthy();
+    restored.unmount();
   });
 });

@@ -13,6 +13,7 @@ import {
   withPinnedBucket,
   phoneProjectBuckets,
   type PhoneBucketScope,
+  type PhoneProjectRecord,
   UNASSIGNED_PROJECT,
 } from "./phoneSessionBuckets";
 import type { Machine } from "./devices";
@@ -52,9 +53,9 @@ function buckets(
   self = "self",
   archived: string[] = [],
   scope: PhoneBucketScope = "active",
-  projectNameFor: (cwd: string | undefined) => string | undefined = () => undefined,
+  projectFor: (cwd: string | undefined) => PhoneProjectRecord | undefined = () => undefined,
 ) {
-  return phoneProjectBuckets(tasks, sessions, self, COPY, archived, scope, projectNameFor);
+  return phoneProjectBuckets(tasks, sessions, self, COPY, archived, scope, projectFor);
 }
 
 describe("phoneProjectBuckets", () => {
@@ -263,12 +264,17 @@ describe("phoneProjectBuckets", () => {
      */
     const namesFrom = (
       records: readonly { name: string; roots: readonly string[] }[],
-    ): ((cwd: string | undefined) => string | undefined) => {
-      const byKey = new Map<string, string>();
+    ): ((cwd: string | undefined) => PhoneProjectRecord | undefined) => {
+      const byKey = new Map<string, PhoneProjectRecord>();
       for (const record of records) {
+        const made: PhoneProjectRecord = {
+          id: record.name,
+          name: record.name,
+          roots: record.roots,
+        };
         for (const root of record.roots) {
           const key = bucketKeyFor(root);
-          if (key !== UNASSIGNED_PROJECT && !byKey.has(key)) byKey.set(key, record.name);
+          if (key !== UNASSIGNED_PROJECT && !byKey.has(key)) byKey.set(key, made);
         }
       }
       return (cwd) => byKey.get(bucketKeyFor(cwd));
@@ -797,6 +803,89 @@ describe("a conversation archived on its own", () => {
     );
     expect(rows.map((bucket) => bucket.key)).toEqual([IMPORTED_BUCKET_PREFIX + "self"]);
     expect(rows[0]!.rows.map((row) => row.key)).toEqual(["s1"]);
+  });
+});
+
+describe("a project record with more than one root", () => {
+  /**
+   * The lookup the list builds from `/api/projects`. A record can name several
+   * roots; every one of them is the same project to the person reading it.
+   */
+  const recordsFrom = (
+    records: readonly { id: string; name: string; roots: readonly string[] }[],
+  ): ((cwd: string | undefined) => PhoneProjectRecord | undefined) => {
+    const byKey = new Map<string, PhoneProjectRecord>();
+    for (const record of records) {
+      for (const root of record.roots) {
+        const key = bucketKeyFor(root);
+        if (key !== UNASSIGNED_PROJECT && !byKey.has(key)) byKey.set(key, record);
+      }
+    }
+    return (cwd) => byKey.get(bucketKeyFor(cwd));
+  };
+
+  const alpha = recordsFrom([
+    { id: "p-alpha", name: "Project Alpha", roots: ["/work/alpha", "/work/aaa-config"] },
+  ]);
+
+  it("groups every cwd a project record claims under the record's first root", () => {
+    const rows = buckets(
+      [
+        task({ id: "alpha", cwd: "/work/alpha", created_at: 10 }),
+        task({ id: "config", cwd: "/work/aaa-config", created_at: 20 }),
+      ],
+      [],
+      "self",
+      [],
+      "active",
+      alpha,
+    );
+
+    // One heading, keyed the way a single-root project always was, so the
+    // stored order, pin and archive entries for the primary root keep working.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.key).toBe(bucketKeyFor("/work/alpha"));
+    expect(rows[0]!.cwd).toBe("/work/alpha");
+    expect(rows[0]!.roots).toEqual(["/work/alpha", "/work/aaa-config"]);
+    expect(rows[0]!.label).toBe("Project Alpha");
+    // Both roots' rows file under it, in the existing attention/recency order.
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["config", "alpha"]);
+  });
+
+  it("keeps the bucket key when the newest conversation moves to the second root", () => {
+    const firstRoot = buckets(
+      [task({ id: "alpha", cwd: "/work/alpha", created_at: 10 })],
+      [],
+      "self",
+      [],
+      "active",
+      alpha,
+    );
+    const secondRoot = buckets(
+      [task({ id: "config", cwd: "/work/aaa-config", created_at: 20 })],
+      [],
+      "self",
+      [],
+      "active",
+      alpha,
+    );
+    const both = buckets(
+      [
+        task({ id: "alpha", cwd: "/work/alpha", created_at: 10 }),
+        task({ id: "config", cwd: "/work/aaa-config", created_at: 20 }),
+      ],
+      [],
+      "self",
+      [],
+      "active",
+      alpha,
+    );
+
+    // The key is the record's first root, never "the root with the newest
+    // row": the heading must not jump or repaint as activity crosses roots.
+    expect(firstRoot.map((bucket) => bucket.key)).toEqual([bucketKeyFor("/work/alpha")]);
+    expect(secondRoot.map((bucket) => bucket.key)).toEqual([bucketKeyFor("/work/alpha")]);
+    expect(both.map((bucket) => bucket.key)).toEqual([bucketKeyFor("/work/alpha")]);
   });
 });
 
