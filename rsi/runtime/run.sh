@@ -230,6 +230,10 @@ if [ $CHECK -eq 1 ] || [ $STAT -eq 1 ]; then
   # hand, which is what the CEO did on 2026-11-21 09:00 with two clocks and got the rate wrong (0.26 vs 0.66).
   [ -f "$RSI_DIR/runtime/rework-attrib.py" ] && [ -d "$STATE/sendback/done" ] && \
     python3 "$RSI_DIR/runtime/rework-attrib.py" --status --state "$STATE" 2>/dev/null
+  # Which follow-ups cite a merged ref. Read-only, one line. A citation is a prompt to read
+  # that line, not proof it is done: the ref may be the trigger or the failure (2026-11-21).
+  [ -f "$RSI_DIR/runtime/followups-lint.py" ] && [ -f "$STATE/followups.md" ] && \
+    python3 "$RSI_DIR/runtime/followups-lint.py" --status --state "$STATE" --repo "$RSI_CTRL" 2>/dev/null
   control_tree_line
   merge_lane_line
   BP_NOTE=""

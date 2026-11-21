@@ -9,6 +9,7 @@ Cloud-ready slices still without a hand-off: see section 2b.
 
 ## 0. Read (in order, quickly)
 rsi/MANDATE.md (binding), rsi/GOAL.md, {{STATE}}/STATUS.md, last 5 rows of {{STATE}}/scorecard.md, {{STATE}}/merged.log (tail), {{STATE}}/needs-ceo.md and {{STATE}}/followups.md if present, ls {{STATE}}/sendback/ (reworks are handled automatically; do not claim them).
+Before reading that follow-up list, run `python3 {{CTRL}}/rsi/runtime/followups-lint.py --status --state {{STATE}} --repo {{CTRL}}`: it names the lines that cite an already-merged ref, and such a line must still be read, not skipped — the ref may be the trigger, the regression or the evidence rather than the fix.
 Then `{{STATE}}/rework-attrib.md` (top of it is enough): the ranked table of what this loop's own rework is made of — rounds per landed PR, who caught each round, which path family — generated from the notes `merge.sh` already writes. It is refreshed by DREAM daily; `run.sh --status` prints its one-line summary.
 Run `python3 {{CTRL}}/rsi/runtime/lanes.py status` (what is running and which paths they claim), `/usr/bin/git -C {{CTRL}} fetch origin main`, `/opt/homebrew/bin/gh pr list --repo {{GH_REPO}} --state open --json number,title,headRefName,url`.
 In the repo as needed: docs/plans/gap-log.md (## Open), docs/product/TASTE.md, IA.md, LESSONS.md, AGENTS.md, docs/plans/2026-11-14-ux-unification.md.
