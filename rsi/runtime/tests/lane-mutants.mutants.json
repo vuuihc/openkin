@@ -1,0 +1,44 @@
+[
+  {
+    "label": "a changed loop file is accepted with no manifest entry",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_changed_loop_file_without_manifest_fails bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "    print(\"MUTANT_EVIDENCE_MISSING: \" + \", \".join(missing))\n    sys.exit(1)",
+    "new": "    print(\"MUTANT_EVIDENCE_SKIP: no loop-code change\")\n    sys.exit(0)"
+  },
+  {
+    "label": "mutants.py's exit code is ignored, so a surviving mutant looks proven",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_surviving_mutant_fails_and_restores bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "    if proc.returncode == 0:\n        continue",
+    "new": "    if True:\n        continue"
+  },
+  {
+    "label": "any manifest entry counts, whatever file it names",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_manifest_entry_for_another_file_does_not_count bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "        by_file.setdefault(f[2:] if f.startswith(\"./\") else f, set()).add(m)",
+    "new": "        by_file.setdefault(changed[0], set()).add(m)"
+  },
+  {
+    "label": "a malformed manifest is skipped instead of failing closed",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_invalid_manifest_fails_closed bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "    except Exception:\n        broken.append(m)\n        continue",
+    "new": "    except Exception:\n        continue"
+  },
+  {
+    "label": "the lane never runs the check before pushing",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_lane_runs_check_before_push bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "if ! MUT_EV=\"$(bash \"$SELF\" --mutant-evidence-check \"$WT\" 2>&1)\"; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "the gate no longer runs the new suite",
+    "file": "scripts/check.sh",
+    "test": "RSI_TEST_ONLY=case_check_sh_wires_the_suite bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "  bash rsi/runtime/tests/test-lane-mutants.sh || return 1\n",
+    "new": ""
+  }
+]
