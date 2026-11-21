@@ -247,6 +247,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-claim-check.sh || return 1
   bash rsi/runtime/tests/test-reviewer-misses.sh || return 1
   bash rsi/runtime/tests/test-rework-attrib.sh || return 1
+  bash rsi/runtime/tests/test-followups-lint.sh || return 1
   bash rsi/runtime/tests/test-live-config-ignore.sh || return 1
   bash rsi/runtime/tests/test-lane-bash-timeout.sh || return 1
   bash rsi/runtime/tests/test-dispatch-codex-timeout.sh || return 1
