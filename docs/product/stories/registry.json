@@ -695,7 +695,7 @@
     },
     {
       "id": "KIN-QUALITY-001",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -708,8 +708,19 @@
       "title": "读完整条回答，再接着问（820 优先）",
       "file": "docs/product/stories/KIN-QUALITY-001.md",
       "surface": "Mac 上接着问 / 手机上接着问",
-      "ownerPaths": [],
-      "tests": [],
+      "ownerPaths": [
+        "ui/src/pages/TaskDetailPage.tsx",
+        "ui/src/pages/TaskSessionHost.tsx",
+        "ui/src/components/task/TaskHeader.tsx",
+        "ui/src/components/task/TaskComposerDock.tsx",
+        "ui/src/components/Markdown.tsx"
+      ],
+      "tests": [
+        "ui/src/components/task/TaskHeader.KIN-QUALITY-001.dom.test.tsx",
+        "ui/src/pages/TaskDetailPage.KIN-QUALITY-001.dom.test.tsx",
+        "ui/src/pages/TaskDetailPage.KIN-QUALITY-001.activity.dom.test.tsx",
+        "scripts/quality_001_reading_test.py"
+      ],
       "blockedReason": null
     }
   ]

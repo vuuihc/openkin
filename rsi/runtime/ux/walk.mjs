@@ -191,10 +191,14 @@ function measureReading() {
     const c = String(el.className || '');
     return c.includes('min-h-11') && c.includes('md:flex') && shown(el);
   }) || null;
-  const barRect = bar ? bar.getBoundingClientRect() : null;
-  const actions = bar ? [...bar.querySelectorAll('button, a[href]')].filter(shown).map((el) => {
+  // A phone has no desktop bar: measure its MobileHeader's controls by the
+  // same 44 px rule instead of returning "no actions" for that width.
+  const mobileBar = !bar ? ([...document.querySelectorAll('header')].find(shown) || null) : null;
+  const actionRoot = bar || mobileBar;
+  const actionRect = actionRoot ? actionRoot.getBoundingClientRect() : null;
+  const actions = actionRoot ? [...actionRoot.querySelectorAll('button, a[href]')].filter(shown).map((el) => {
     const b = el.getBoundingClientRect();
-    const inBar = !barRect || (b.right > barRect.left + 1 && b.left < barRect.right - 1);
+    const inBar = !actionRect || (b.right > actionRect.left + 1 && b.left < actionRect.right - 1);
     let clipped = el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
     if (!clipped) {
       clipped = [...el.querySelectorAll('*')].some((child) => {
@@ -212,6 +216,23 @@ function measureReading() {
   const tables = [...document.querySelectorAll('table')].filter((t) => t.querySelectorAll('tbody tr td').length > 0);
   const table = tables[tables.length - 1] || null;
   const bodyRows = table ? [...table.querySelectorAll('tbody tr')].filter((tr) => tr.querySelectorAll('td').length > 0) : [];
+  // Only the part of a cell inside the table's own scroll container is
+  // visible; pane-only clipping falsely called scrolled-out columns visible.
+  let tableClip = null;
+  if (table) {
+    for (let p = table.parentElement; p; p = p.parentElement) {
+      const overflowX = getComputedStyle(p).overflowX;
+      if (overflowX === 'auto' || overflowX === 'scroll') { tableClip = p; break; }
+    }
+  }
+  const clipRect = tableClip ? (() => {
+    const r = tableClip.getBoundingClientRect();
+    return {
+      left: r.left + tableClip.clientLeft, top: r.top + tableClip.clientTop,
+      right: r.left + tableClip.clientLeft + tableClip.clientWidth,
+      bottom: r.top + tableClip.clientTop + tableClip.clientHeight,
+    };
+  })() : null;
   const samples = [];
   const cells = table ? [...table.querySelectorAll('th, td')].map((cell) => {
     const tr = cell.closest('tr');
@@ -220,10 +241,10 @@ function measureReading() {
     const b = cell.getBoundingClientRect();
     let visible = false, relation = null, hitName = '', cellRect = null;
     if (paneRect) {
-      const left = Math.max(b.left, paneRect.left, 0);
-      const right = Math.min(b.right, paneRect.right, innerWidth);
-      const top = Math.max(b.top, paneRect.top, 0);
-      const bottom = Math.min(b.bottom, paneRect.bottom, innerHeight);
+      const left = Math.max(b.left, paneRect.left, clipRect ? clipRect.left : -Infinity, 0);
+      const right = Math.min(b.right, paneRect.right, clipRect ? clipRect.right : Infinity, innerWidth);
+      const top = Math.max(b.top, paneRect.top, clipRect ? clipRect.top : -Infinity, 0);
+      const bottom = Math.min(b.bottom, paneRect.bottom, clipRect ? clipRect.bottom : Infinity, innerHeight);
       if (right - left >= 2 && bottom - top >= 2) {
         visible = true;
         const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
@@ -251,8 +272,10 @@ function measureReading() {
     const left = Math.max(lb.left, paneRect.left, 0);
     const right = Math.min(lb.right, paneRect.right, innerWidth);
     lastRow.visible = bottom - top >= 2;
+    // Vertical only: a natural-width table scrolls inside its own container,
+    // so requiring the row's full width would make the fix permanently red.
     lastRow.verticalVisible = lb.top >= paneRect.top - 1 && lb.bottom <= paneRect.bottom + 1 && lb.bottom <= innerHeight + 1;
-    lastRow.fullyVisible = lastRow.verticalVisible && lb.left >= paneRect.left - 1 && lb.right <= paneRect.right + 1;
+    lastRow.fullyVisible = lastRow.verticalVisible;
     lastRow.rect = { top: round(lb.top), bottom: round(lb.bottom), left: round(lb.left), right: round(lb.right) };
   }
 

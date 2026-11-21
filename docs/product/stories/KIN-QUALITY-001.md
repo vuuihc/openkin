@@ -1,6 +1,6 @@
 # KIN-QUALITY-001 · 读完整条回答，再接着问（820 优先）
 
-状态：approved
+状态：covered
 优先级：P0
 旅程：J1、J2
 归属面：`IA.md`「Mac 上接着问 / 手机上接着问」
@@ -125,16 +125,16 @@
 
 ## 验收
 
-本行已签字，实现与签字同一次交付；以下验收描述本次交付必须满足的行为。测试在实现时新增，文件或测试名都含 `KIN-QUALITY-001`。jsdom 没有布局：组件行只证明结构与交互状态，任何像素几何只在真浏览器行证明；真浏览器几何由 `scripts/journeys-smoke.sh --spec rsi/runtime/ux/KIN-QUALITY-001-reading.json` 一条命令证明，`scripts/check.sh` 接入同一判定规则的 hermetic 合同，不新增无人执行的套件。`R-tablet-walk` 只提供公共 820 viewport；本条实现自带 fixture，不能把 820 验收留给后续 lane。
+本行已签字，实现与签字同一次交付；以下验收描述本次交付必须满足的行为。测试已随本次实现新增，文件或测试名都含 `KIN-QUALITY-001`。jsdom 没有布局：组件行只证明结构与交互状态，任何像素几何只在真浏览器行证明；真浏览器几何由 `scripts/journeys-smoke.sh --spec rsi/runtime/ux/KIN-QUALITY-001-reading.json` 一条命令证明，`scripts/check.sh` 接入同一判定规则的 hermetic 合同，不新增无人执行的套件。`R-tablet-walk` 只提供公共 820 viewport；本条实现自带 fixture，不能把 820 验收留给后续 lane。
 
 | 层级 | 位置 | Given / When / Then |
 |---|---|---|
-| 组件（jsdom） | `ui/src/components/task/TaskHeader.KIN-QUALITY-001.dom.test.tsx`（待实现时新增） | Given 820×1180、`hasTouch`、侧栏展开、长标题，When 渲染对话头，Then header 只含标题、省略号项目名（纯标签，不是动作）和既有入口；每个动作是可聚焦控件；像素尺寸由真浏览器行证明 |
-| 组件（jsdom） | `ui/src/pages/TaskDetailPage.KIN-QUALITY-001.dom.test.tsx`（待实现时新增） | Given 长回答 + ≥4 行表格，When 渲染，Then 表格在自身的横向滚动容器内，页面外壳声明不横滚，表头与单元格有语义关系；像素命中由真浏览器行证明 |
+| 组件（jsdom） | `ui/src/components/task/TaskHeader.KIN-QUALITY-001.dom.test.tsx`（已随本次实现新增） | Given 820×1180、`hasTouch`、侧栏展开、长标题，When 渲染对话头，Then header 只含标题、省略号项目名（纯标签，不是动作）和既有入口；每个动作是可聚焦控件；像素尺寸由真浏览器行证明 |
+| 组件（jsdom） | `ui/src/pages/TaskDetailPage.KIN-QUALITY-001.dom.test.tsx`（已随本次实现新增） | Given 长回答 + ≥4 行表格，When 渲染，Then 表格在自身的横向滚动容器内，页面外壳声明不横滚，表头与单元格有语义关系；像素命中由真浏览器行证明 |
 | 组件（jsdom） | 同上 | Given 表格行，Then 每行每列都是语义单元格，最后一行有可滚入的引用；几何清理由真浏览器行证明 |
 | 组件（jsdom） | 同上 | Given 阅读面，When 找用量/改动文件/会话动作，Then 三个既有入口各自存在，各自最多一个动作可达；被动打开不发起 GitHub 请求、不读 secure-store secret |
 | 组件（jsdom） | 同上 | Given 一段对话，Then 布局中只有一个 composer，没有第二条输入路径 |
-| 组件（jsdom） | `ui/src/pages/TaskDetailPage.KIN-QUALITY-001.activity.dom.test.tsx`（待实现时新增） | Given `unseen > 0`，When 新进展出现，Then 它是非内容通道中的具名按钮，键盘 Tab 可达，live region 礼貌播报；不覆盖单元格的几何由真浏览器行证明 |
+| 组件（jsdom） | `ui/src/pages/TaskDetailPage.KIN-QUALITY-001.activity.dom.test.tsx`（已随本次实现新增） | Given `unseen > 0`，When 新进展出现，Then 它是非内容通道中的具名按钮，键盘 Tab 可达，live region 礼貌播报；不覆盖单元格的几何由真浏览器行证明 |
 | 组件（jsdom） | 同上 | Given 加载失败/发送失败/断线，Then 只有一条 transient 诚实说明，正文与批准/回答 affordance 保留；恢复后说明自行消失 |
 | 组件（jsdom） | 同上 | Given 草稿、滚动位置与焦点，When 离开再回来，Then 状态按对话恢复；既有审批、运行控制与 F1 handoff 测试保持绿色 |
 | 真浏览器（像素几何只在这里证明） | `rsi/runtime/ux/KIN-QUALITY-001-reading.json`（本条 fixture，经 shipped `rsi/runtime/ux/walk.mjs` 的 `reading` op 执行；不另写 `.mjs`） | Given 长回答 + 4 行表格 fixture，When 在 820×1180（触摸）、390×844、1100×760 阅读并接着问，Then 常驻 chrome ≤44 CSS px（transient 失败 banner 除外），每个动作 ≥44×44，每个可见单元格中心 `document.elementFromPoint` 命中该单元格或后代，`scrollWidth ≤ innerWidth`，字号未缩小，最后一行完整位于 composer 上沿之上 |
@@ -149,6 +149,7 @@
 ## 变更记录
 
 - 2026-11-21 创建（draft，未实现、未签字；等 CEO 读完审阅页后签字）
+- 2026-11-21 交付：三宽度 reading 走查 + 四个 KIN-QUALITY-001 测试文件；实现把用量移入 composer footer、改动文件移入 header、表格改自然宽度、新进展改非内容行、会话 tabs 在 <1600 隐藏
 - 2026-11-21 17:43 CEO 代签（`approved`），D6 按推荐：平板的次要动作复用既有会话动作表，挂载条件按对话列宽度 + `useCoarsePointer()` 判断；实现与签字同一次交付
 - 2026-11-21 真浏览器行改为 `rsi/runtime/ux/KIN-QUALITY-001-reading.json` + shipped `walk.mjs` 的 `reading` op（不新建 `KIN-QUALITY-001-reading.mjs`）：一条几何规则，不 fork；走查经 `scripts/journeys-smoke.sh --spec` 执行
 - 2026-11-21 「接入 scripts/check.sh」指 hermetic 的 verdict/spec 合同（`scripts/quality_001_reading_test.py`）进 gate；会起 daemon 的真浏览器行作为一条命令的交付证据，输出进 PR，避免把约 20 分钟的浏览器构建塞进每次 gate

@@ -132,6 +132,12 @@ export type TaskHeaderProps = {
    * then, and a bar that spent it too would push the session down one inset.
    */
   topInset?: boolean;
+  /** Compact keeps the title, project label, files entry and the ⋯ sheet
+   *  trigger, chosen by measured column width plus coarse pointer, never the
+   *  viewport alone; every other verb lives in the page's action sheet. */
+  compact?: boolean;
+  /** Files this turn changed, shown beside the files entry's name. */
+  changedFileCount?: number;
 };
 
 export default function TaskHeader({
@@ -158,8 +164,14 @@ export default function TaskHeader({
   onOpenActions,
   onShowList,
   topInset = true,
+  compact = false,
+  changedFileCount = 0,
 }: TaskHeaderProps) {
   const tr = useT();
+  const filesLabel =
+    changedFileCount > 0
+      ? tr("workspace.filesCount", { count: changedFileCount })
+      : tr("workspace.title");
   // This browser's renames, the same map the list's row menu writes
   // (`taskTitles.ts`). The header is open when a rename happens in the sidebar
   // or another tab, so it subscribes and re-reads rather than trusting the
@@ -178,8 +190,11 @@ export default function TaskHeader({
         horizontal scroll, and the title above it was truncated to make room.
         The status survives as the subtitle; everything else is one tap away.
       */}
+      {/* 43 px + the hairline is the 44 px reading bar; `box-content` keeps a
+          notch's safe-area inset outside it. */}
       <MobileHeader
         topInset={topInset}
+        className="box-content h-[43px] [&>div]:h-full [&>div]:min-h-0"
         title={title}
         subtitle={
           // The project and branch are what the session belongs to; the round's
@@ -205,22 +220,79 @@ export default function TaskHeader({
           </MobileHeaderButton>
         }
         trailing={
-          <MobileHeaderButton
-            label={tr("task.sessionActions")}
-            onClick={onOpenActions}
-            tone="muted"
-          >
-            <IconMore size={19} />
-          </MobileHeaderButton>
+          <>
+            <MobileHeaderButton
+              label={filesLabel}
+              onClick={onToggleWorkspace}
+              tone="muted"
+            >
+              <span className="text-caption font-medium leading-flush">
+                {tr("workspace.title")}
+              </span>
+            </MobileHeaderButton>
+            <MobileHeaderButton
+              label={tr("task.sessionActions")}
+              onClick={onOpenActions}
+              tone="muted"
+            >
+              <IconMore size={19} />
+            </MobileHeaderButton>
+          </>
         }
       />
 
       {/* Desktop's bar. Same content as before; the phone branch above owns
           the small widths now, so the mobile-only controls are gone. */}
       <div
-        className="hidden md:flex min-h-11 flex-none items-center px-5 border-b border-[var(--kin-hairline)]"
+        /* `h-11` is the 44 px chrome (hairline included); `min-h-11` stays for the walk's selector. */
+        className="hidden md:flex min-h-11 h-11 flex-none items-center px-5 border-b border-[var(--kin-hairline)]"
         style={{ WebkitAppRegion: "drag" } as CSSProperties}
       >
+        {compact ? (
+          <>
+            <div
+              className="min-w-0 flex-1 truncate text-strong font-semibold text-kin-text"
+              title={title}
+            >
+              {title}
+            </div>
+            <div
+              className="ml-2 flex flex-none items-center gap-2 whitespace-nowrap text-body text-kin-muted"
+              style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+            >
+              {/* A label, not a third action. */}
+              <span className="max-w-[8rem] truncate text-kin-secondary" title={project}>
+                {project}
+              </span>
+              <Button
+                variant="secondary"
+                onClick={onToggleWorkspace}
+                aria-pressed={filesOpen}
+                aria-label={filesLabel}
+                className={[
+                  "h-11 min-w-11 gap-1.5 rounded-md px-2 text-body font-normal",
+                  filesOpen
+                    ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
+                    : "text-kin-secondary hover:text-kin-text",
+                ].join(" ")}
+                title={tr("workspace.toggle")}
+              >
+                <IconPanel size={16} />
+                <span className="whitespace-nowrap">{filesLabel}</span>
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={onOpenActions}
+                aria-label={tr("task.sessionActions")}
+                title={tr("task.sessionActions")}
+                className="h-11 min-w-11 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
+              >
+                <IconMore size={18} />
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
         {/* The title keeps a readable floor rather than yielding to the verbs:
             with a panel open at 1100px the row is ~700px wide, and a `flex-1`
             title with no floor collapsed to its first character. The action
@@ -256,7 +328,7 @@ export default function TaskHeader({
               variant="secondary"
               onClick={onShowList}
               aria-label={tr("nav.showList")}
-              className="gap-1.5 rounded-md px-2 py-1 text-body font-normal text-kin-secondary hover:text-kin-text"
+              className="h-11 gap-1.5 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
               title={tr("nav.showList")}
             >
               <IconSessions size={13} />
@@ -267,9 +339,9 @@ export default function TaskHeader({
             variant="secondary"
             onClick={onToggleWorkspace}
             aria-pressed={filesOpen}
-            aria-label={tr("workspace.title")}
+            aria-label={filesLabel}
             className={[
-              "gap-1.5 rounded-md px-2 py-1 text-body font-normal",
+              "h-11 min-w-11 gap-1.5 rounded-md px-2 text-body font-normal",
               filesOpen
                 ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
                 : "text-kin-secondary hover:text-kin-text",
@@ -278,9 +350,8 @@ export default function TaskHeader({
           >
             <IconPanel size={13} />
             {/* Below `xl` the verbs keep their icon, accessible name and
-                tooltip but give up the word, so the title and the primary
-                surfaces stay readable when a panel narrows the row. */}
-            <span className="hidden xl:inline">{tr("workspace.title")}</span>
+                tooltip but give up the word; the count stays in the name. */}
+            <span className="hidden xl:inline">{filesLabel}</span>
           </Button>
           {/* The pull request is a sibling surface to the workspace, in the
               same right-side container (TASTE 17), so its toggle is that
@@ -291,7 +362,7 @@ export default function TaskHeader({
             aria-pressed={prOpen}
             aria-label={tr("pr.title")}
             className={[
-              "gap-1.5 rounded-md px-2 py-1 text-body font-normal",
+              "h-11 gap-1.5 rounded-md px-2 text-body font-normal",
               prOpen
                 ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
                 : "text-kin-secondary hover:text-kin-text",
@@ -305,7 +376,7 @@ export default function TaskHeader({
             variant="secondary"
             onClick={onShare}
             aria-label={tr("task.share")}
-            className="gap-1.5 rounded-md px-2 py-1 text-body font-normal text-kin-secondary hover:text-kin-text"
+            className="h-11 gap-1.5 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
             title={tr("task.shareTitle")}
           >
             <IconShare size={13} />
@@ -315,7 +386,7 @@ export default function TaskHeader({
             variant="secondary"
             onClick={() => void onToggleArchive()}
             disabled={archiving}
-            className="gap-1 rounded-md px-2 py-1 text-body font-normal text-kin-secondary hover:text-kin-text disabled:opacity-40"
+            className="h-11 min-w-11 gap-1 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text disabled:opacity-40"
             title={archiveLabel}
             aria-label={archiveLabel}
           >
@@ -325,7 +396,7 @@ export default function TaskHeader({
             variant="secondary"
             onClick={() => void onDelete()}
             disabled={deleting}
-            className="gap-1 rounded-md px-2 py-1 text-body font-normal text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
+            className="h-11 min-w-11 gap-1 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
             title={tr("task.deleteSession")}
             aria-label={tr("task.deleteSession")}
           >
@@ -354,13 +425,15 @@ export default function TaskHeader({
                 variant="secondary"
                 onClick={() => void onStop()}
                 disabled={stopping}
-                className="text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-1.5 py-0.5 rounded-md border-kin-red/30 bg-kin-red/10"
+                className="h-11 text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-2 rounded-md border-kin-red/30 bg-kin-red/10"
               >
                 {stopping ? tr("task.stopping") : tr("composer.stop")}
               </Button>
             </>
           )}
         </div>
+          </>
+        )}
       </div>
     </>
   );

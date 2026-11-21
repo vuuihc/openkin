@@ -796,6 +796,7 @@ const en: MessageTree = {
     openFile: "Open in files panel",
     sidebarTabs: "Workspace sidebar",
     tabChanges: "Changes",
+    filesCount: "Files · {count}",
     tabChangesCount: "Changes · {count}",
     tabFiles: "Tree",
     find: {

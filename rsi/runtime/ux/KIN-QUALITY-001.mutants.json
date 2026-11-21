@@ -1,0 +1,5 @@
+[
+  { "label": "the phone reading walk loses its header fallback: 390 returns no actions instead of measuring the MobileHeader", "file": "rsi/runtime/ux/walk.mjs", "test": "python3 -B scripts/quality_001_reading_test.py", "old": "  const actionRoot = bar || mobileBar;", "new": "  const actionRoot = bar;" },
+  { "label": "the reading contract accepts a 45 px chrome bar as green", "file": "scripts/quality_001_reading_test.py", "test": "python3 -B scripts/quality_001_reading_test.py", "old": "        (\"chrome 45 is red\", variant(**{\"chrome.height\": 45}), 1),", "new": "        (\"chrome 45 is red\", variant(**{\"chrome.height\": 45}), 0)," },
+  { "label": "the reading contract job is defined but never started by check.sh", "file": "scripts/check.sh", "test": "python3 -B scripts/quality_001_reading_test.py", "old": "start quality-reading-contract job_quality_reading_contract", "new": ": quality-reading-contract job_quality_reading_contract" }
+]
