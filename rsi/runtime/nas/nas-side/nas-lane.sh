@@ -98,11 +98,19 @@ st phase=worker
 run_worker "$J/worker-prompt.md" worker; WRC=$?
 echo "[$(date +%T)] worker rc=$WRC"
 cancelled && fail "cancelled"
-if [ -f "$WT/rsi/runtime/commit-leftovers.sh" ]; then
-  bash "$WT/rsi/runtime/commit-leftovers.sh" "$WT" "$ITEM" || fail "leftovers remain uncommitted"
-else
-  [ -n "$(git -C "$WT" status --porcelain --untracked-files=no)" ] && git -C "$WT" add -u -- . ':!web/dist/assets' && git -C "$WT" commit -q -m "chore(rsi): commit remaining tracked edits for $ITEM"
+# Commit everything the worker left, including files it created. The shared sweep is a hard
+# requirement: the old tracked-only `else` quietly dropped a new file, and the bundle then reached
+# CI missing it while this disk looked clean (2026-11-21, PR #511). The names it prints go into the
+# job dir so a hand-over that swept files stays auditable.
+if [ ! -f "$WT/rsi/runtime/commit-leftovers.sh" ]; then
+  fail "missing $WT/rsi/runtime/commit-leftovers.sh; the lane cannot sweep created files"
 fi
+SWEPT="$(bash "$WT/rsi/runtime/commit-leftovers.sh" "$WT" "$ITEM")"; SRC=$?
+if [ -n "$SWEPT" ]; then
+  printf '%s\n' "$SWEPT" >> "$J/swept.txt"
+  echo "[$(date +%T)] swept $(printf '%s\n' "$SWEPT" | wc -l | tr -d ' ') file(s) -> $J/swept.txt"
+fi
+[ "$SRC" -eq 0 ] || fail "leftovers remain uncommitted"
 [ "$(git -C "$WT" rev-list --count "$BASE"..HEAD)" -gt 0 ] || fail "worker produced no commits (rc=$WRC)"
 
 # Light typecheck only if ui/node_modules already exists; never npm ci here.

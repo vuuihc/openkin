@@ -239,19 +239,41 @@ test_lane_calls_the_sweep_before_the_ahead_check() {
 
 # The bundle lanes hand the Mac a bundle of commits, so a file they leave untracked is simply not
 # in the hand-over. Both must call the shared sweep at every site that used to run the tracked-only
-# one, and a failing sweep must stop the lane rather than bundle a branch missing files.
-test_bundle_lanes_call_the_sweep() {
-  local f call='bash "$WT/rsi/runtime/commit-leftovers.sh" "$WT" "$ITEM" || fail "leftovers remain uncommitted"'
-  local guard='if [ -f "$WT/rsi/runtime/commit-leftovers.sh" ]; then'
-  for f in "$RUNTIME/nas/nas-side/nas-lane.sh" "$RUNTIME/box/box-side/box-lane.sh"; do
-    [ -f "$f" ] || fail "bundle wiring: $f missing"
-    [ "$(grep -cF "$call" "$f")" -eq "$(grep -cF -- '--untracked-files=no' "$f")" ] \
-      || fail "bundle wiring: $f calls the sweep at fewer sites than it keeps a tracked-only fallback"
-    [ "$(grep -cF "$guard" "$f")" -eq "$(grep -cF -- '--untracked-files=no' "$f")" ] \
-      || fail "bundle wiring: $f has a tracked-only sweep without the sweep guard"
+# one, must stop loudly when the script is missing, and must keep the swept names in the job dir so a
+# hand-over that swept files stays auditable. The old quiet `else` staged tracked edits only: exactly
+# how PR #511's brand-new J15.json reached CI but not the pushed branch (2026-11-21).
+test_bundle_lanes_require_the_sweep() {
+  local f n call='bash "$WT/rsi/runtime/commit-leftovers.sh" "$WT" "$ITEM"'
+  local capture='SWEPT="$(bash "$WT/rsi/runtime/commit-leftovers.sh" "$WT" "$ITEM")"'
+  for f in "$RUNTIME/box/box-side/box-lane.sh" "$RUNTIME/nas/nas-side/nas-lane.sh"; do
+    [ -f "$f" ] || fail "bundle run: $f missing"
+    case "$f" in
+      */box-lane.sh) n=2 ;;   # after the worker and after the fix round
+      *)             n=1 ;;   # after the worker
+    esac
+    [ "$(grep -cF "$call" "$f")" -eq "$n" ] \
+      || fail "bundle run: $f calls the sweep $(grep -cF "$call" "$f") time(s), want $n"
+    grep -qF -- '--untracked-files=no' "$f" \
+      && fail "bundle run: $f still carries the tracked-only status probe"
+    grep -qF 'add -u --' "$f" \
+      && fail "bundle run: $f still stages only tracked edits"
+    grep -qF 'commit remaining tracked edits' "$f" \
+      && fail "bundle run: $f still has the quiet tracked-only fallback commit"
+    # A missing sweep stops the lane: the path is checked and the failure names it.
+    grep -qE '\[ ! -f "\$WT/rsi/runtime/commit-leftovers\.sh" \]' "$f" \
+      || fail "bundle run: $f does not check that the sweep script exists"
+    grep -qE '(fail|exit 1) "[^"]*commit-leftovers\.sh' "$f" \
+      || fail "bundle run: $f does not fail loudly when the sweep script is missing"
+    # The names the sweep prints are captured and appended to the lane's job log.
+    [ "$(grep -cF "$capture" "$f")" -eq "$n" ] \
+      || fail "bundle run: $f does not capture the swept names at every site"
+    [ "$(grep -cF '>> "$J/swept.txt"' "$f")" -eq "$n" ] \
+      || fail "bundle run: $f does not append the swept names to \$J/swept.txt at every site"
+    # A non-zero sweep stops the lane. Without this the capture line can stay and the guard go,
+    # and the lane ships a bundle missing whatever the sweep refused (2026-11-21 review).
+    [ "$(grep -cF '[ "$SRC" -eq 0 ] || fail "leftovers remain uncommitted"' "$f")" -eq "$n" ] \
+      || fail "bundle run: $f does not fail the lane when the sweep exits non-zero"
   done
-  [ "$(grep -cF "$call" "$RUNTIME/box/box-side/box-lane.sh")" -eq 2 ] \
-    || fail "bundle wiring: box-lane.sh must call the sweep after the worker and after the fix round"
   return 0
 }
 
@@ -274,6 +296,6 @@ run test_failed_sweep_is_loud
 run test_post_commit_leftover_is_loud
 run test_unmerged_entries_are_refused
 run test_lane_calls_the_sweep_before_the_ahead_check
-run test_bundle_lanes_call_the_sweep
+run test_bundle_lanes_require_the_sweep
 [ -z "$ONLY" ] || [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS
