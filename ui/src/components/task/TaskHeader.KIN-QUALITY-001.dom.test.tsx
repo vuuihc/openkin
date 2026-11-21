@@ -2,7 +2,7 @@
 // KIN-QUALITY-001: the 820 header keeps title, project label, files count and
 // the existing ⋯. jsdom proves structure; the 44 px geometry is the walk.
 import type { ReactElement } from "react";
-import { fireEvent, render, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import type { Task } from "../../api/client";
@@ -113,5 +113,33 @@ describe("TaskHeader KIN-QUALITY-001", () => {
     expect(props.onOpenActions).toHaveBeenCalledTimes(1);
     // The header does not grow a sheet of its own; the page's ActionSheet opens.
     expect(utils.container.querySelector('[role="dialog"]')).toBeNull();
+  });
+  it("390 running: the phone bar is one row and the live state is not a second line", () => {
+    // The story's frame 01 draws one 44 px band: back · title · 文件 · ⋯. A
+    // second line holding the live pill and the project crammed the title
+    // against the top edge and the pill against the hairline (density 2).
+    const { utils } = setup({
+      phone: true,
+      task: { ...task, workspace_branch: "rsi/one-row" },
+    });
+    const banner = screen.getByRole("banner");
+
+    // No live-state pill and no project · branch subtitle: neither word is in
+    // the bar, so nothing can push the title onto a second line.
+    expect(banner.querySelector("[data-task-status]")).toBeNull();
+    expect(within(banner).queryByText(t("task.running"))).toBeNull();
+    expect(within(banner).queryByText(t("task.reconnect"))).toBeNull();
+    expect(banner.textContent).not.toContain("openkin");
+    expect(banner.textContent).not.toContain("rsi/one-row");
+    expect(banner.querySelectorAll("h1")).toHaveLength(1);
+
+    // Title and ⋯ share the bar's one grid row: the heading's own cell and the
+    // trailing trigger both descend from the same row element.
+    const title = banner.querySelector("h1") as HTMLElement;
+    const more = within(banner).getByRole("button", { name: t("task.sessionActions") });
+    const row = title.parentElement?.parentElement as HTMLElement;
+    expect(row.className.split(/\s+/)).toContain("grid");
+    expect(row.contains(more)).toBe(true);
+    expect(utils.container.querySelector('[data-task-header="desktop"]')).toBeNull();
   });
 });

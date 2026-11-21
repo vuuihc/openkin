@@ -81,6 +81,9 @@ describe("TaskDetailPage KIN-QUALITY-001", () => {
     // One sheet, not a fifth popover: the tablet reuses the phone's.
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     expect(dialog.closest("[data-kin-sheet]")?.className).not.toContain("md:hidden");
+    // The phone bar is one text line (D16), so the sheet is where the project
+    // the conversation belongs to is still named before a destructive row.
+    expect(dialog.textContent).toContain("alpha");
   });
   it("an 1100 Mac's column keeps the desktop verb row; only a sub-560 column compacts", () => {
     const { container } = renderPage();

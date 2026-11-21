@@ -21,11 +21,10 @@ import Button from "../ui/Button";
 /**
  * The session's live state, as one fixed-size pill.
  *
- * Both bars draw the same pill: on the phone it leads the subtitle row beside
- * the project and branch, and on the desktop it sits beside Stop. It never
- * wraps and never shrinks, so a long project or branch truncates instead of
- * pushing the state out of view — the state is the one thing on the row that
- * has to stay readable at every width.
+ * Only the desktop action bar draws it, beside Stop: the phone's one 44 px row
+ * has no second line for it, and a phone already reads "running" from the
+ * composer's Stop control and the transcript's activity line. It never wraps
+ * and never shrinks, so the row keeps its geometry while the session is live.
  */
 function StatusPill({ degraded }: { degraded: boolean }) {
   const tr = useT();
@@ -212,37 +211,28 @@ export default function TaskHeader({
     return (
       <>
         {/*
-          The phone's one bar: back, the session's title, and the ⋯ that opens
-          the same action sheet the chip row used to. The chip row was a second
-          44px line holding a host badge, a project link, a status word and the
-          overflow trigger — on a 390px screen it took two rows and its own
-          horizontal scroll, and the title above it was truncated to make room.
-          The status survives as the subtitle; everything else is one tap away.
+          The phone's one bar: back, the session's title, the 文件 entry and the
+          ⋯ that opens the same action sheet the chip row used to. The chip row
+          was a second 44px line holding a host badge, a project link, a status
+          word and the overflow trigger — on a 390px screen it took two rows and
+          its own horizontal scroll, and the title above it was truncated to
+          make room. Everything but the title is now one tap away.
         */}
         {/* 43 px + the hairline is the 44 px reading bar; `box-content` keeps a
           notch's safe-area inset outside it. */}
+        {/* One text line, not two — the story's frame 01 draws exactly this
+          band: back · title · 文件 · ⋯. A title plus the live pill, the
+          subagent count and the project needed ~37 of those 43 px, so the
+          title sat on the bar's top edge and the pill on its hairline; the
+          reading walk scored that density as crammed (KIN-QUALITY-001, D16).
+          The live run keeps its existing homes — the composer's Stop while a
+          turn runs and the transcript's activity line — and a degraded stream
+          keeps the shell's reconnect strip, so the bar adds no status, badge
+          or second line of its own. */}
         <MobileHeader
           topInset={topInset}
           className="box-content h-[43px] [&>div]:h-full [&>div]:min-h-0"
           title={title}
-          subtitle={
-            // The project and branch are what the session belongs to; the round's
-            // state is a pill that leads the row while it is live rather than
-            // replacing them, so the second line still answers "which session is
-            // this" when a run is in flight. The text truncates, the pill does
-            // not: a long project can no longer squeeze the state out of view.
-            task.cwd || !terminal ? (
-              <span className="flex min-w-0 items-center justify-center gap-1.5">
-                {!terminal && <StatusPill degraded={degraded} />}
-                {!terminal && subagentsRunning > 0 && <SubagentCount count={subagentsRunning} />}
-                {task.cwd && (
-                  <span className="min-w-0 truncate">
-                    {[project, task.workspace_branch].filter(Boolean).join(" · ")}
-                  </span>
-                )}
-              </span>
-            ) : undefined
-          }
           leading={
             <MobileHeaderButton label={tr("app.back")} onClick={onBack}>
               <IconBack size={20} strokeWidth={2} />
@@ -456,12 +446,17 @@ export default function TaskHeader({
                 <IconTrash size={13} />
               </Button>
               {task.project_id ? (
+                // Same 44x44 hit box as the verbs beside it: this link sat at
+                // 32.8x17.9 between 44x44 siblings, which the reading walk reads
+                // as an unstable row (and a mouse-only affordance on a touch
+                // tablet). The ellipsis lives on the inner span so the visible
+                // text truncates inside the box instead of stretching it.
                 <Link
                   to={`/projects/${encodeURIComponent(task.project_id)}`}
                   title={project}
-                  className="max-w-[10rem] md:max-w-none truncate text-kin-secondary hover:text-kin-text hover:underline"
+                  className="inline-flex min-h-11 min-w-11 max-w-[10rem] flex-none items-center justify-center rounded-md px-2 text-kin-secondary hover:text-kin-text hover:underline md:max-w-none"
                 >
-                  {project}
+                  <span className="min-w-0 truncate">{project}</span>
                 </Link>
               ) : (
                 <span className="max-w-[10rem] md:max-w-none truncate" title={project}>

@@ -153,3 +153,4 @@
 - 2026-11-21 17:43 CEO 代签（`approved`），D6 按推荐：平板的次要动作复用既有会话动作表，挂载条件按对话列宽度 + `useCoarsePointer()` 判断；实现与签字同一次交付
 - 2026-11-21 真浏览器行改为 `rsi/runtime/ux/KIN-QUALITY-001-reading.json` + shipped `walk.mjs` 的 `reading` op（不新建 `KIN-QUALITY-001-reading.mjs`）：一条几何规则，不 fork；走查经 `scripts/journeys-smoke.sh --spec` 执行
 - 2026-11-21 「接入 scripts/check.sh」指 hermetic 的 verdict/spec 合同（`scripts/quality_001_reading_test.py`）进 gate；会起 daemon 的真浏览器行作为一条命令的交付证据，输出进 PR，避免把约 20 分钟的浏览器构建塞进每次 gate
+- 2026-11-21 D16（CEO 裁决）：手机对话头只留**一行**——返回 · 标题（超长截断）· 文件 · 「⋯」；运行中/断线不在 header 另起一行，composer 的停止按钮、正文活动行与 shell 的重连条已经各自说明。项目 · 分支离开常驻头，移进「⋯」会话动作表的副标题（那里同时已有「运行于哪台机器」）。原因：两行栈要占 43px 里的约 37px，标题顶到头上沿、胶囊贴到分隔线，视觉走查判 density=2「没有呼吸感」；单行 20px 在 43px 内上下各约 11px。同轮把 Mac 头里 32.8×17.9 的项目链接补成 44×44 命中框（与同排动词一致，`JQ1` 自己就会因它变红）

@@ -2581,15 +2581,28 @@ export default function TaskDetailPage({
             onClose={() => setActionsOpen(false)}
             anyWidth={wide}
             title={tr("task.sessionActions")}
-            // Which machine is about to be acted on. The footer strip that named
-            // it is below `md` too, and "stop this session" on an unnamed remote
-            // machine is the decision this sheet exists for.
+            // Two facts this sheet has to answer before a destructive row: which
+            // machine the actions run on, and (on a phone) which project the
+            // conversation belongs to. The phone bar stopped carrying the second
+            // one when it became one text line (KIN-QUALITY-001, D16); the footer
+            // strip that used to name the machine is below `md` too.
             subtitle={
-              machine
-                ? machine.known
-                  ? tr("machine.runsOn", { name: machine.text })
-                  : tr("machine.runsOnUnknown", { name: machine.text })
-                : undefined
+              project || machine ? (
+                <span className="flex flex-col">
+                  {project ? (
+                    <span className="block truncate">
+                      {[project, task?.workspace_branch].filter(Boolean).join(" · ")}
+                    </span>
+                  ) : null}
+                  {machine ? (
+                    <span className="block truncate">
+                      {machine.known
+                        ? tr("machine.runsOn", { name: machine.text })
+                        : tr("machine.runsOnUnknown", { name: machine.text })}
+                    </span>
+                  ) : null}
+                </span>
+              ) : undefined
             }
             rows={sessionActions}
           />
