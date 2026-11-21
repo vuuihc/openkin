@@ -30,22 +30,6 @@
       "css=[role=region][tabindex=\"-1\"]:has-text(\"Tablet reading fixture\")"
     ],
     [
-      "click",
-      "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
-    ],
-    [
-      "click",
-      "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
-    ],
-    [
-      "click",
-      "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
-    ],
-    [
-      "gone",
-      "?[data-kin-approval-card]"
-    ],
-    [
       "shot",
       "answer-top"
     ],
@@ -61,6 +45,50 @@
     [
       "shot",
       "answer-bottom"
+    ],
+    [
+      "scroll",
+      "css=[role=region][tabindex=\"-1\"]",
+      "0"
+    ],
+    [
+      "goto",
+      "/projects"
+    ],
+    [
+      "wait",
+      "css=[data-kin-approval-card]"
+    ],
+    [
+      "click",
+      "[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
+    ],
+    [
+      "click",
+      "[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
+    ],
+    [
+      "click",
+      "[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
+    ],
+    [
+      "gone",
+      "[data-kin-approval-card]"
+    ],
+    [
+      "history-back"
+    ],
+    [
+      "wait",
+      "css=[data-session-row]:has-text(\"Draft the tablet reading review\")"
+    ],
+    [
+      "click",
+      "[data-session-row]:has-text('Draft the tablet reading review')"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex=\"-1\"]:has-text(\"Tablet reading fixture\")"
     ],
     [
       "fill",
