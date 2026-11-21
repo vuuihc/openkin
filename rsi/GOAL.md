@@ -29,8 +29,15 @@ the five flows below closer to "passes without a human noticing".
 - Prefer deleting/merging UI over adding it (TASTE 7). Prompt before product machinery (PRINCIPLE 5.5).
 - Escaped defects → `docs/product/LESSONS.md` (see `LESSONS-HOOK.md`).
 
-## Current phase (P16) — 820 阅读面，T3 的克制
-<!-- phase: P16-t3-reading target=2026-11-28T20:00 -->
+## Closed phase (P16) — 820 阅读面，T3 的克制
+<!-- closed-phase: P16-t3-reading target=2026-11-28T20:00 -->
+
+Closed 2026-11-22，五条 done-means 全绿收口：#542 `a007626f` 交付 820 阅读面；#543 `e8a9a834` 之后
+`journeys.json` 有 3 处 `820x1180`，`rsi/MANDATE.md:19` 的合并门写 390/820/1100；`KIN-QUALITY-001`
+在 `registry.json` 为 `covered`；#547 `b4bc72f7` 让 `removed-surfaces` 在 `scripts/check.sh` 里被点名执行。
+按本相 cut rule「落地已绿的」提前于 11-28 目标关闭。**不把 P17 提前打开**：它的硬入口第 3 条（最小契约
+story 签字）等 owner 的 D3–D6 回复，`KIN-CONTRACT-001` 仍是 `draft`，而本节自己写着四条「全部为真才把
+`next-phase` 改成 `phase:`」。
 
 **一句话**：在 390 / 820 / 1100 三个宽度上，把「读一条真实回答并接着问」做到 T3 的清晰与克制；820 是 owner 的日常设备，先过。
 
