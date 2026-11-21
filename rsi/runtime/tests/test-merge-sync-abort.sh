@@ -144,10 +144,17 @@ test_refused_generated_conflict_ends_aborted() {
   new_repo refused
   local before; before="$(g rev-parse HEAD)"
   rm -f "$T/ctrl/rsi/state/sendback/t.md" "$T/ctrl/rsi/state/merge/t.mech"
+  # The abort is the only rollback: it must restore the pre-merge tree and keep the lane's own
+  # uncommitted work. origin/main does not touch ui/App.tsx, so this unstaged line survives into
+  # the merge and can only be destroyed by a `reset --hard` (which abort_merge must never use).
+  printf 'lane-work-in-progress\n' >> "$R/ui/App.tsx"
   sync_seam env RSI_DIST_BUILD_CMD='false'
   [ "$RC" -ne 0 ] || fail "refused: the sync reported ok over a refused conflict"
   no_half_merge refused
-  clean_tree refused
+  grep -qx 'lane-work-in-progress' "$R/ui/App.tsx" \
+    || fail "refused: the abort destroyed the lane's uncommitted work"
+  [ "$(g status --porcelain)" = ' M ui/App.tsx' ] \
+    || fail "refused: the worktree is not the pre-sync tree: $(g status --porcelain | tr '\n' ' ')"
   [ "$(g rev-parse HEAD)" = "$before" ] || fail "refused: HEAD moved"
   [ -s "$T/ctrl/rsi/state/sendback/t.md" ] || fail "refused: no mechanical sendback was written"
   grep -q 'merge of origin/main conflicts in' "$T/ctrl/rsi/state/sendback/t.md" \
@@ -214,6 +221,28 @@ test_unabortable_merge_is_refused_and_surfaced() {
   rm -f "$R/.git/index.lock"
 }
 
+# The per-PR verifier's own recovery wiring is separate from the seam above: cleanup() aborts a
+# merge left behind by any exit path, and the TERM/HUP/INT traps route a killed verifier through
+# it. The termed case exercises the seam's copies, so on its own it stays green if the production
+# wiring is deleted — and the verifier's dirty-worktree skip means cleanup is what actually aborts
+# a killed verifier's leftover merge in production.
+test_verifier_exit_paths_abort_the_merge() {
+  local region cleanup_at trap_at
+  region="$(awk '/^# -+ per-PR verifier/{f=1} f' "$MERGE")"
+  [ -n "$region" ] || fail "wiring: no per-PR verifier section in $MERGE"
+  grep -qF 'abort_merge "${WT:-}"' <<<"$region" \
+    || fail "wiring: the verifier's cleanup does not abort an in-flight merge"
+  grep -qF "trap 'exit 143' TERM" <<<"$region" || fail "wiring: the verifier has no TERM trap"
+  grep -qF "trap 'exit 129' HUP" <<<"$region" || fail "wiring: the verifier has no HUP trap"
+  grep -qF "trap 'exit 130' INT" <<<"$region" || fail "wiring: the verifier has no INT trap"
+  # The signal traps exit into cleanup, so cleanup must already be installed when they fire.
+  cleanup_at="$(grep -nF 'trap cleanup EXIT' <<<"$region" | head -1 | cut -d: -f1)"
+  trap_at="$(grep -nF "trap 'exit 143' TERM" <<<"$region" | head -1 | cut -d: -f1)"
+  [ -n "$cleanup_at" ] || fail "wiring: the verifier has no EXIT cleanup trap"
+  [ -n "$trap_at" ] && [ "$cleanup_at" -lt "$trap_at" ] \
+    || fail "wiring: the EXIT cleanup ($cleanup_at) is not installed before the signal traps ($trap_at)"
+}
+
 run() {
   [ -z "$ONLY" ] || [ "$ONLY" = "$1" ] || return 0
   "$1" || exit 1
@@ -225,4 +254,5 @@ run test_refused_generated_conflict_ends_aborted
 run test_completed_generated_merge_ends_committed
 run test_sync_refuses_with_merge_head_present
 run test_unabortable_merge_is_refused_and_surfaced
+run test_verifier_exit_paths_abort_the_merge
 echo ALL-PASS
