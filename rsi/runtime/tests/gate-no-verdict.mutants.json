@@ -1,0 +1,44 @@
+[
+  {
+    "label": "a step that hit ENOSPC is printed as GATE_RESULT=FAIL, so the branch is billed for the machine",
+    "file": "rsi/runtime/gate.sh",
+    "test": "RSI_TEST_ONLY=test_gate_step_enospc_prints_no_verdict bash rsi/runtime/tests/test-gate-no-verdict.sh",
+    "old": "    if envreason=\"$(gate_env_failure_in_log \"$n\" \"$RUNS/gate-$$-$n.log\")\"; then\n      echo \"env: $n could not run ($envreason)\"\n      echo \"GATE_RESULT=NO_VERDICT: $envreason\"\n      exit 3\n    fi\n",
+    "new": ""
+  },
+  {
+    "label": "the step-log ENOSPC scan is removed, leaving only the probe",
+    "file": "rsi/runtime/gate-env.sh",
+    "test": "RSI_TEST_ONLY=test_gate_env_failure_detects_enospc_in_a_step_log bash rsi/runtime/tests/test-gate-no-verdict.sh",
+    "old": "  grep -aqE \"$GATE_ENV_LOG_RE\" \"$log\" 2>/dev/null || return 1\n",
+    "new": "  return 1\n"
+  },
+  {
+    "label": "the probe write is removed (a gate that trusts the filesystem unconditionally)",
+    "file": "rsi/runtime/gate-env.sh",
+    "test": "RSI_TEST_ONLY=test_gate_probe_write_fails_on_an_unwritable_target bash rsi/runtime/tests/test-gate-no-verdict.sh",
+    "old": "  f=\"$dir/.gate-probe-$$\"\n",
+    "new": "  return 0\n  f=\"$dir/.gate-probe-$$\"\n"
+  },
+  {
+    "label": "merge reads a NO_VERDICT gate log as a verdict, reaching GATE_OK=0 and the sendback",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_merge_no_verdict_path_writes_no_sendback bash rsi/runtime/tests/test-gate-no-verdict.sh",
+    "old": "  case \"$first\" in\n    'GATE_RESULT=NO_VERDICT'*) printf '%s\\n' \"${first#GATE_RESULT=NO_VERDICT}\" | sed 's/^:[[:space:]]*//'; return 0 ;;\n  esac\n  return 1\n",
+    "new": "  return 1\n"
+  },
+  {
+    "label": "a --union batch classifies a NO_VERDICT log as OTHER instead of its own arm",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_batch_gate_verdict_reads_no_verdict_not_fail bash rsi/runtime/tests/test-gate-no-verdict.sh",
+    "old": "  # The gate refused to judge (exit 3, ENOSPC or another environment failure). That is not a\n  # union failure to bisect and send back: its own arm, so a --union batch falls back to the\n  # per-PR path instead of billing a member for the machine.\n  if grep -q '^GATE_RESULT=NO_VERDICT' \"$1\" 2>/dev/null; then\n    echo \"NO_VERDICT:$(grep '^GATE_RESULT=NO_VERDICT' \"$1\" | head -1 | sed 's/^GATE_RESULT=NO_VERDICT:[[:space:]]*//')\"\n    return 0\n  fi\n",
+    "new": ""
+  },
+  {
+    "label": "the no-verdict suite is dropped from the gate wiring, so nobody runs it",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-gate-no-verdict.sh || return 1\n",
+    "new": ""
+  }
+]
