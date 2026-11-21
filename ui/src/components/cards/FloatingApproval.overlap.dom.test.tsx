@@ -5,6 +5,7 @@ import type { Approval, TaskEvent } from "../../api/client";
 import { t } from "../../i18n";
 import type { RoundEvidence } from "../../lib/roundEvidence";
 import RoundEvidenceCard from "../chat/RoundEvidenceCard";
+import Markdown from "../Markdown";
 import FloatingApproval, { rectsOverlap } from "./FloatingApproval";
 
 /**
@@ -84,25 +85,43 @@ function domRect(box: Box): DOMRect {
  * full-width transcript row, so its right half is under the card.
  */
 const CARD: Box = { top: 442, bottom: 692, left: 692, right: 1076 };
+const STRIP: Box = { top: 410, bottom: 442, left: 692, right: 900 };
 const ROW_UNDER_CARD: Box = { top: 600, bottom: 632, left: 300, right: 900 };
 const ROW_CLEAR_OF_CARD: Box = { top: 200, bottom: 232, left: 300, right: 900 };
+/** A visible markdown table cell in the transcript's right-hand column. */
+const CELL_UNDER_CARD: Box = { top: 600, bottom: 632, left: 700, right: 900 };
+/** Tall enough to be under the strip *and* the card, as the report measured. */
+const CELL_UNDER_STRIP: Box = { top: 400, bottom: 632, left: 700, right: 900 };
+const CELL_CLEAR: Box = { top: 200, bottom: 232, left: 300, right: 600 };
 
-const geometry = { card: CARD, rows: [ROW_UNDER_CARD] as Box[] };
+const geometry = {
+  card: CARD,
+  strip: STRIP,
+  rows: [ROW_UNDER_CARD] as Box[],
+  cells: [] as Box[],
+};
 
 /**
  * Geometry by attribute, installed before mount: the component measures in a
  * layout effect during `render`, which is earlier than a test can reach the
  * elements it created. The floating surface is the `aside` (the strip and the
- * card together — the card pushes the strip up into a row's centre too).
+ * card together — the card pushes the strip up into a row's centre too). The
+ * strip is its own box: the reader's complaint is that the pill itself landed
+ * on a cell centre when the card had already given way.
  */
 function stubGeometry(): void {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
     this: HTMLElement,
   ) {
     if (this.tagName === "ASIDE" && this.hasAttribute("aria-label")) return domRect(geometry.card);
+    if (this.getAttribute("role") === "status") return domRect(geometry.strip);
     if (this.hasAttribute("data-kin-hit-row")) {
       const rows = Array.from(document.querySelectorAll("[data-kin-hit-row]"));
       return domRect(geometry.rows[rows.indexOf(this)] ?? EMPTY);
+    }
+    if (this.hasAttribute("data-kin-reading")) {
+      const cells = Array.from(document.querySelectorAll("[data-kin-reading]"));
+      return domRect(geometry.cells[cells.indexOf(this)] ?? EMPTY);
     }
     if (this.hasAttribute("data-kin-bottom-chrome")) {
       return domRect({ top: 700, bottom: 760, left: 0, right: 1100 });
@@ -145,7 +164,9 @@ let band: HTMLDivElement;
 beforeEach(() => {
   viewport(1100, 760);
   geometry.card = CARD;
+  geometry.strip = STRIP;
   geometry.rows = [ROW_UNDER_CARD];
+  geometry.cells = [];
   stubGeometry();
   // The conversation's composer band, on screen: the card measures its offset
   // from it, and the strip-only render reconstructs the card's box from the
@@ -291,6 +312,113 @@ describe("FloatingApproval over a changed-file row", () => {
     fireEvent.click(header!);
     await waitFor(() => expect(approveButton()).toBeTruthy());
     expect(denyButton()).toBeTruthy();
+  });
+});
+
+describe("FloatingApproval over reading content", () => {
+  const readingCell = () => <div data-kin-reading="" />;
+
+  it("keeps the decision card off a reading table cell", () => {
+    // The reported state: an approval waits in another conversation while the
+    // reader is at a long answer's table. The card floats over the table's
+    // right-hand columns, so the cell centres under it answer the card.
+    geometry.rows = [];
+    geometry.cells = [CELL_UNDER_CARD];
+    const { props } = setupProps();
+    const view = render(
+      <>
+        {readingCell()}
+        <FloatingApproval {...props} />
+      </>,
+    );
+
+    // The decision surface gives way exactly as it does for a changed-file
+    // row…
+    expect(view.container.querySelector("[data-kin-approval-card]")).toBeNull();
+    expect(approveButton()).toBeNull();
+    expect(denyButton()).toBeNull();
+    // …and the strip is still the way into the waiting conversation.
+    expect(view.container.querySelector("aside > [role='status']")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Fix the tests/ })).toBeTruthy();
+  });
+
+  it("keeps the strip off a reading cell", () => {
+    // The pill is the top of the same floating column. When its own box — not
+    // only the card's — sits on a cell, no part of the surface may stay: a
+    // strip-only render still eats the cell centre.
+    geometry.rows = [];
+    geometry.cells = [CELL_UNDER_STRIP];
+    const { props } = setupProps();
+    const view = render(
+      <>
+        {readingCell()}
+        <FloatingApproval {...props} />
+      </>,
+    );
+
+    expect(view.container.querySelector("aside")).toBeNull();
+    expect(view.container.querySelector("[data-kin-approval-card]")).toBeNull();
+    expect(view.container.querySelector("[role='status']")).toBeNull();
+  });
+
+  it("brings the surface back when the reading cell scrolls clear", async () => {
+    // The measurement is not a latch: scroll the table away and the approval
+    // returns, because the reader is no longer reading under it.
+    geometry.rows = [];
+    geometry.cells = [CELL_UNDER_STRIP];
+    const { props } = setupProps();
+    const view = render(
+      <>
+        {readingCell()}
+        <FloatingApproval {...props} />
+      </>,
+    );
+    expect(view.container.querySelector("aside")).toBeNull();
+
+    geometry.cells = [CELL_CLEAR];
+    fireEvent(window, new Event("resize"));
+
+    await waitFor(() => expect(approveButton()).toBeTruthy());
+    expect(view.container.querySelector("[data-kin-approval-card]")).not.toBeNull();
+    expect(view.container.querySelector("[role='status']")).not.toBeNull();
+  });
+
+  it("still yields only the card to an evidence row", () => {
+    // The reading rule extends the changed-file rule; it must not replace it.
+    // A row under the card keeps the existing shape: strip stays, card goes.
+    geometry.rows = [ROW_UNDER_CARD];
+    geometry.cells = [CELL_CLEAR];
+    const { props } = setupProps();
+    const view = render(
+      <>
+        <div data-kin-hit-row="" />
+        {readingCell()}
+        <FloatingApproval {...props} />
+      </>,
+    );
+
+    expect(view.container.querySelector("[data-kin-approval-card]")).toBeNull();
+    expect(view.container.querySelector("aside > [role='status']")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Fix the tests/ })).toBeTruthy();
+  });
+
+  it("marks every markdown table cell as reading content", () => {
+    // The producer half: without the marker the overlap rule has nothing to
+    // find, and the review is a rule that can never fire.
+    const view = render(
+      <Markdown
+        text={[
+          "| New activity | Table measure |",
+          "| --- | --- |",
+          "| Acceptance | 390 and 1100 only |",
+        ].join("\n")}
+      />,
+    );
+    const cells = Array.from(view.container.querySelectorAll("th, td"));
+    expect(cells.length).toBe(4);
+    for (const cell of cells) {
+      expect(cell.hasAttribute("data-kin-reading")).toBe(true);
+    }
   });
 });
 

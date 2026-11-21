@@ -2921,26 +2921,27 @@ function checkJ16Contract(spec) {
   const tableAt = after(scrollAt, (st) => st[0] === 'reading' && sel(st, 1) === 'table-bottom');
   if (tableAt < 0) errs.push('J16 never records the table-bottom reading verdict');
 
-  // The seeded inbox's pending approvals float a card over the reading pane;
-  // #542 proved the table is only readable after they are denied. The clicks
-  // are optional (an empty inbox has no card) but the gone is the proof, and
-  // the overlay must be off the screen before the pane reaches the table.
+  // The seeded inbox's pending approvals float a card over the reading pane.
+  // The reading verdict must run while they are still waiting: the floating
+  // surface now gets out of the way by itself when it would cover a table cell
+  // (R-approval-strip-reading), so the deny clicks and the gone are cleanup
+  // *after* the table was read, not a precondition. They stay required — a
+  // walk that never proves the card can be dismissed photographs an overlay
+  // rather than the product — but a walk that dismisses it before the table
+  // verdict has stopped proving the overlay yields.
   const denyAts = steps.map((st, i) => i).filter((i) => Array.isArray(steps[i])
     && steps[i][0] === 'click' && sel(steps[i], 1).startsWith('?[data-kin-approval-card]')
     && /拒绝|Deny/.test(sel(steps[i], 1)));
   const cardGoneAt = idx((st) => st[0] === 'gone' && sel(st, 1).startsWith('?[data-kin-approval-card]'));
   if (denyAts.length < 3) {
-    errs.push('J16 must deny the seeded approvals (three optional [data-kin-approval-card] deny clicks) before it reads the table; the card covers the pane');
+    errs.push('J16 must deny the seeded approvals (three optional [data-kin-approval-card] deny clicks) after it reads the table; the reading verdict runs while the approval waits');
   }
   if (cardGoneAt < 0) {
-    errs.push('J16 never proves the approval card left the screen (gone ?[data-kin-approval-card]) before it reads the table');
+    errs.push('J16 never proves the approval card left the screen (gone ?[data-kin-approval-card]) after it reads the table');
   }
   const hygiene = [cardGoneAt, ...denyAts].filter((at) => at >= 0);
-  if (hygiene.some((at) => markerAt >= 0 && at < markerAt)) {
-    errs.push('J16 dismisses the approval card before the fixture answer is on screen; the deny/gone belong after the answer wait');
-  }
-  if (hygiene.some((at) => scrollAt >= 0 && at > scrollAt)) {
-    errs.push('J16 dismisses the approval card only after it scrolled to the table; the overlay must be gone before the reading position');
+  if (hygiene.some((at) => tableAt >= 0 && at < tableAt)) {
+    errs.push('J16 dismisses the approval card before it reads the table; the approval must still be waiting while the reading verdict runs, so the deny/gone belong after table-bottom');
   }
 
   // The incoming state: a held follow-up lands out of sight, and the verdict

@@ -73,10 +73,16 @@ describe("the floating approval's wiring", () => {
     // is pinned, not only the phone one.
     expect(floating).toMatch(/const stripOnly = raised \|\| panelOpen \|\| covered;/);
     // The third term is measured, not declared: `covered` comes from the
-    // overlap loop over the rows the transcript marks, so the card gives way
-    // only while a row is actually under it.
+    // overlap loop over the rows and reading content the page marks, so the
+    // card gives way only while something is actually under it.
     expect(floating).toMatch(/if \(hit !== covered\) setCovered\(hit\);/);
     expect(floating).toContain('"[data-kin-hit-row]"');
+    // Reading content is the same measured rule, and the pill itself is not a
+    // fallback that gets to stay: when its own box covers a cell the whole
+    // surface is unmounted (`hidden`), not `stripOnly`.
+    expect(floating).toContain('"[data-kin-reading]"');
+    expect(floating).toMatch(/if \(stripHit !== hidden\) setHidden\(stripHit\);/);
+    expect(floating).toMatch(/if \(hidden && !raised && !panelOpen\) return null;/);
     // The card body is guarded by `!stripOnly`, and the strip is the branch
     // that renders instead.
     const cardGuard = floating.indexOf("{!stripOnly && (");

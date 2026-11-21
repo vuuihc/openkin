@@ -101,7 +101,18 @@ export default function FloatingApproval({
   // whole surface — the same rule a phone tab root and an open panel already
   // follow. The evidence card collapsing, its rows scrolling out of the card's
   // box, or the conversation being hidden brings the card back.
+  //
+  // Reading content (`[data-kin-reading]`: markdown table cells, the draft's
+  // project summary) follows the same rule: the card is not mounted while it
+  // would cover something the reader is reading.
   const [covered, setCovered] = useState(false);
+  // Whether the *strip itself* would cover reading content. The strip is not a
+  // fallback that always gets to stay: its pill floats over the same column,
+  // and on a table it ate a cell centre the decision card had already yielded.
+  // When the pill is over reading content nothing of the surface is mounted on
+  // that screen. The approval is not lost — the task list row carries the
+  // count, and opening the conversation shows the inline card.
+  const [hidden, setHidden] = useState(false);
   // The whole floating surface's box — the strip *and* the card — remembered
   // across the strip-only render it causes: the card itself is gone while the
   // strip shows, and measuring the strip alone would find nothing under it,
@@ -112,6 +123,15 @@ export default function FloatingApproval({
   // render loses; the right-hand gap comes from the container's CSS and stays
   // valid across a resize.
   const expandedBox = useRef<{
+    id: string;
+    height: number;
+    rightGap: number;
+    width: number;
+  } | null>(null);
+  // The pill's own box, remembered for the render where the whole surface is
+  // hidden. Rebuilt from the expanded box's top: the strip is the first row of
+  // the same fixed column, so it sits at the top the card's height establishes.
+  const stripBox = useRef<{
     id: string;
     height: number;
     rightGap: number;
@@ -131,9 +151,9 @@ export default function FloatingApproval({
 
   /**
    * Decides whether the floating surface — the strip plus the decision card —
-   * would cover a changed-file row. Runs after every commit (the card's height
-   * changes with the approval it shows) and on scroll, resize and evidence
-   * mutations.
+   * would cover reading content or a changed-file row. Runs after every commit
+   * (the card's height changes with the approval it shows) and on scroll,
+   * resize and content mutations.
    */
   const measureOverlap = useCallback(() => {
     // Another reason already keeps the strip: a phone tab root or a visible
@@ -180,20 +200,55 @@ export default function FloatingApproval({
     }
     if (!box) return;
 
-    let hit = false;
-    for (const row of document.querySelectorAll<HTMLElement>("[data-kin-hit-row]")) {
-      const rect = row.getBoundingClientRect();
-      // A row in a hidden pane (`display:none`) has no box; nothing can be
-      // covered there, and counting it would keep the strip forever once a
-      // second conversation had been opened.
-      if (rect.width === 0 && rect.height === 0) continue;
-      if (rectsOverlap(box, rect)) {
-        hit = true;
-        break;
+    /**
+     * Whether `box` covers any laid-out element matching `selector`. A box in
+     * a hidden pane (`display:none`) has no area; nothing can be covered
+     * there, and counting it would keep the strip forever once a second
+     * conversation had been opened.
+     */
+    const covers = (rect: Rect, selector: string): boolean => {
+      for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+        const other = el.getBoundingClientRect();
+        if (other.width === 0 && other.height === 0) continue;
+        if (rectsOverlap(rect, other)) return true;
       }
-    }
+      return false;
+    };
+
+    const hit = covers(box, "[data-kin-hit-row]") || covers(box, "[data-kin-reading]");
     if (hit !== covered) setCovered(hit);
-  }, [currentId, raised, panelOpen, bottom, covered]);
+
+    // The strip's own pill: measured directly whenever it is mounted, and
+    // rebuilt from the remembered width and the expanded box's top when this
+    // very measurement unmounted it.
+    const strip = surfaceRef.current?.querySelector<HTMLElement>("[role='status']") ?? null;
+    let stripRect: Rect | null = null;
+    if (strip) {
+      const rect = strip.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        stripRect = rect;
+        stripBox.current = {
+          id: currentId,
+          height: rect.height,
+          rightGap: Math.max(0, viewportWidth - rect.right),
+          width: rect.width,
+        };
+      }
+    } else if (stripBox.current && stripBox.current.id === currentId) {
+      const width = viewportWidth >= 768 ? stripBox.current.width : Math.max(0, viewportWidth - 24);
+      const right = viewportWidth - stripBox.current.rightGap;
+      stripRect = {
+        top: box.top,
+        bottom: box.top + stripBox.current.height,
+        left: right - width,
+        right,
+        width,
+        height: stripBox.current.height,
+      };
+    }
+    const stripHit = stripRect !== null && covers(stripRect, "[data-kin-reading]");
+    if (stripHit !== hidden) setHidden(stripHit);
+  }, [currentId, raised, panelOpen, bottom, covered, hidden]);
 
   // A different approval is a different card, with its own height and its own
   // box: the one remembered for the approval before it says nothing about this
@@ -204,14 +259,16 @@ export default function FloatingApproval({
   // new card mounts and is measured afresh.
   useLayoutEffect(() => {
     expandedBox.current = null;
+    stripBox.current = null;
     setCovered(false);
+    setHidden(false);
   }, [currentId]);
 
   // Layout, not passive: the card would otherwise paint one frame over the
   // row before the strip replaces it.
   useLayoutEffect(() => {
     measureOverlap();
-  }, [measureOverlap]);
+  }, [measureOverlap, screenKey]);
 
   // Rows move without a React render: the transcript scrolls, the window is
   // resized, and the evidence card folds, unfolds or grows a diff preview.
@@ -233,8 +290,11 @@ export default function FloatingApproval({
       if (target instanceof Element && target.closest("[data-kin-evidence]")) return true;
       for (const node of [...record.addedNodes, ...record.removedNodes]) {
         if (!(node instanceof Element)) continue;
-        if (node.matches("[data-kin-evidence], [data-kin-hit-row]")) return true;
-        if (node.querySelector("[data-kin-evidence], [data-kin-hit-row]")) return true;
+        if (node.matches("[data-kin-evidence], [data-kin-hit-row], [data-kin-reading]"))
+          return true;
+        if (node.querySelector("[data-kin-evidence], [data-kin-hit-row], [data-kin-reading]")) {
+          return true;
+        }
       }
       return false;
     };
@@ -413,6 +473,11 @@ export default function FloatingApproval({
   }, [screenKey, expectsBottomChrome, hasAny, panelOpen, panelColumn]);
 
   if (!current) return null;
+  // The pill itself is on reading content: no part of the surface is mounted
+  // on this screen. `raised` and an open panel already answer the question
+  // their own way, and the next measurement brings the surface back as soon as
+  // the content scrolls clear.
+  if (hidden && !raised && !panelOpen) return null;
 
   const waiting = approvals.length - 1;
   // The strip is the whole surface in three places: a phone tab root (the card
