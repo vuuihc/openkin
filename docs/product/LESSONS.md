@@ -1251,8 +1251,8 @@ seen: 6
 `Claim check:`，活的 PR 正文没有；`merge.sh` 读 `gh pr view --json body`，于是每次都在最后
 一步把一条已经做完的 PR 打回。
 
-为什么没拦住：lane 只校验自己写的文件（`lane.sh:482` 读 `$STATUS_NOTE_FILE`），门读的是另一
-个副本；「我写过了」与「门读到了」之间没有断言。
+为什么没拦住：lane 只校验自己写的文件（`rsi/runtime/lane.sh:531` 把 `$STATUS_NOTE_FILE` 交给
+claim check），门读的是另一个副本；「我写过了」与「门读到了」之间没有断言。
 
 规则：交付的证据必须是门实际读的那份产物。本地正文、截图清单、gate 日志在推送后要回读一次
 （`gh pr view --json body` / 远端 head），不一致就不算 handoff。
