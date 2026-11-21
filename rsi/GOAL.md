@@ -30,24 +30,24 @@ the five flows below closer to "passes without a human noticing".
 - Escaped defects → `docs/product/LESSONS.md` (see `LESSONS-HOOK.md`).
 
 ## Current phase (P16) — 820 阅读面，T3 的克制
-<!-- phase: P16-t3-reading target=2026-11-23T20:00 -->
+<!-- phase: P16-t3-reading target=2026-11-28T20:00 -->
 
 **一句话**：在 390 / 820 / 1100 三个宽度上，把「读一条真实回答并接着问」做到 T3 的清晰与克制；820 是 owner 的日常设备，先过。
 
 **为什么是这个。** owner 2026-11-21 的实机报告：820×1180 分栏后对话列约 520 CSS px，正文上方叠着 tabs、header、用量、改动文件四条常驻条（约 170 CSS px），header 的动作栏被压成 24–30 px 的单字碎片，长表格逐字换行，还要和「有新进展」药丸抢位置。同一天验收宽度只有 390 与 1100，820 落在两者之间，于是两端全绿、中间是被压碎的屏。完整对照见 `docs/plans/2026-11-21-t3-parity-quality-reset.md`。
 
-**Done means**（一条阅读交付，已签 story `KIN-QUALITY-001`）：
+**Done means**（一条阅读交付，story `KIN-QUALITY-001`（draft；#542 合入后转 covered））：
 1. 820×1180 + `hasTouch` 下正文上方常驻 chrome ≤44 CSS px（只留一条 header），用量/改动文件/会话动作各自最多一个动作可达，不删除。
 2. 每个可见控件 ≥44×44 且没有半个字形；`document.elementFromPoint` 命中每个可见表格单元格中心都返回单元格；表格在自身容器内横向滚动。
-3. 新进展走一条非内容通道，不压正文；失败/断线一条 transient 说明且内容保留。
+3. 新进展走一条非内容通道，不压正文；失败/断线一条 transient 说明且内容保留；回答末尾在同一个 composer 接着问——发送后消息入流、composer 清空并保持焦点、屏幕上只有一条输入路径（`KIN-QUALITY-001` 步骤 3）。
 4. 820 接进验收：`journeys.json` 的 `tablet: 820x1180`、J16 走查、`rsi/MANDATE.md` 的合并门写 390/820/1100；390/820/1100 三张截图在 PR body。
 5. 走查自己证明它真的在跑：J16 的 hardFail 为 `[]`，且一条变异体能把它打红。
 
-**Queued after this**：`R-list-scan`（820 列表一屏 ≥10 条、一行标题 + 一行元数据、设备/项目层级默认折叠）——属 P17，见下。
+**Parked after this**：`R-list-scan`（820 列表一屏 ≥10 条、一行标题 + 一行元数据、设备/项目层级默认折叠）——保持停着，直到它自己的 story 存在；本相只把它列为 Out of scope，不进 P17 种子。
 
 **Out of scope** — 列表重排/折叠（`R-list-scan`）；把用量/改动文件整块删掉；用新增 bar/badge/banner 解决「状态看不见」；`mac-wide: 1280` 冒充平板。
 
-**Cut rule.** 11-23 20:00 落地已绿的，其余带度量记下，不延日期。若 820 的走查在 11-23 仍是红，就把「820 进不了验收」本身记为这一相的结论，不要用 390/1100 全绿宣布完成（这正是这一相存在的理由）。
+**Cut rule.** 11-28 20:00 落地已绿的，其余带度量记下，不延日期。若 820 的走查在 11-28 仍是红，就把「820 进不了验收」本身记为这一相的结论，不要用 390/1100 全绿宣布完成（这正是这一相存在的理由）。
 
 ## Next phase (P17) — 表面收缩与 T3 split
 <!-- next-phase: P17-surface-reduction target=not-set -->

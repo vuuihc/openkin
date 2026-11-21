@@ -3,8 +3,9 @@
 **Status:** Accepted as direction (owner, 2026-11-21). No product code ships in this PR; the contract that
 gates the rewrite is a separate story.
 **Date:** 2026-11-21
-**Supersedes:** the "no native/RN second client" half of DECISIONS 2026-11-20 23:47 (`rsi/GOAL.md:434`,
-`:473`; `docs/product/stories/*` P15 out-of-scope) — by **owner override**, not because its conditions were met.
+**Supersedes:** the "no native/RN second client" half of DECISIONS 2026-11-20 23:47 (the native/RN rewrite
+clauses in `rsi/GOAL.md`'s P14 and P15 **Out of scope** blocks; `docs/product/stories/*` P15 out-of-scope) —
+by **owner override**, not because its conditions were met.
 **Related:** `docs/plans/2026-11-21-surface-reduction.md` (the plan this records) ·
 `docs/plans/2026-11-21-phone-performance-baseline.md:105-152` (what today's measurement does and does not
 attribute) · `b5135739` (`feat(mobile): run the console in a Capacitor shell instead of SwiftUI`, −15,364 lines
