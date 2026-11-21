@@ -1061,6 +1061,7 @@ if hard:
     print("walk-mutant: J3 hand-off red: %d hard failure(s)" % len(hard))
     sys.exit(1)
 missing = []
+steady_missing = []
 for vp in ("phone", "mac"):
     mine = [s for s in screens if s["name"].startswith(f"J3-{vp}-")]
     sent = [s for s in mine if s["name"].endswith("-sent")]
@@ -1070,8 +1071,18 @@ for vp in ("phone", "mac"):
     notes = sent[-1].get("notes", [])
     if not any(str(n).startswith("waited for css=[role=region]") and "Draft: " in str(n) for n in notes):
         missing.append(vp)
+    # F1's own half (R-f1-composer-handoff): the screen *during* the route
+    # change, read from the frame sampler started before Start. Without this
+    # line the walk still photographs a correct end state, so a composer that
+    # blinks away or a skeleton that flashes would pass unseen. Kept separate
+    # from the prompt reason: one is a lost message, the other a lost surface.
+    if not any(str(n).startswith("composer steady:") for n in notes):
+        steady_missing.append(vp)
 if missing:
     print("walk-mutant: J3 hand-off red: no sent screen with the transcript prompt read before the held detail answer at " + ", ".join(missing))
     sys.exit(1)
-print("walk-mutant: J3 hand-off green: the prompt crossed the route with the detail GET held")
+if steady_missing:
+    print("walk-mutant: J3 hand-off red: no `composer steady` frame line on the sent screen at " + ", ".join(steady_missing))
+    sys.exit(1)
+print("walk-mutant: J3 hand-off green: the prompt crossed the route with the detail GET held, and the composer stayed on screen at every sampled frame")
 PY
