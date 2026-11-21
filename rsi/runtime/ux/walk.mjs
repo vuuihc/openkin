@@ -2846,6 +2846,90 @@ function checkJ6Contract(spec) {
   }
   return errs;
 }
+// J16's contract: 820x1180 touch is an acceptance width, not an opt-in
+// diagnostic. Before this journey every screenshot was 390 or 1100, and
+// #537's four high findings (stacked bars, clipped header verbs, a table
+// wrapping one character per line, a pill over the last rows) shipped through
+// a green gate. The walk must read a long table answer down to its last row,
+// then let a reply land while the reader is away and prove the new-activity
+// state covered no cell. The viewport object is part of the contract: a bare
+// "820x1180" string resolves to hasTouch false through the phoneLayout rule,
+// i.e. an iPad measured as a mouse.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ16Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J16) || {};
+  const steps = journey.steps;
+  // Registration is the point: deleting the one index line must be loud, or
+  // the reading width can be retired by an edit no gate notices.
+  if (!journey.title && !Array.isArray(steps)) return ['J16 is not in the spec'];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J16 has no steps'];
+  const errs = [];
+  const required = (v) => typeof v === 'string' && !v.startsWith('?');
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'tablet') {
+    errs.push('J16 is the 820 touch reading proof: its viewports must be exactly ["tablet"]');
+  }
+  const tablet = ((spec || {}).viewports || {}).tablet;
+  if (!tablet || typeof tablet !== 'object' || tablet.size !== '820x1180'
+    || tablet.hasTouch !== true || tablet.isMobile !== false) {
+    errs.push('the tablet viewport must be the object {size: "820x1180", hasTouch: true, isMobile: false}; '
+      + 'a bare "820x1180" string resolves to hasTouch false, an iPad measured as a mouse');
+  }
+
+  // The answer is what a person reads: the fake's `[seed] reading` branch
+  // (long prose plus a five-row markdown table). Its visible marker must be
+  // on screen before any verdict, or `reading` measures an empty page.
+  const seedAt = idx((st) => st[0] === 'fill' && required(sel(st, 1))
+    && required(sel(st, 2)) && sel(st, 2).includes('[seed] reading'));
+  if (seedAt < 0) errs.push('J16 never sends the [seed] reading answer (fill textarea … [seed] reading)');
+  const sendAt = after(seedAt, (st) => st[0] === 'send' && required(sel(st, 1)));
+  if (sendAt < 0) errs.push('J16 never presses send after the reading prompt');
+  const markerAt = after(sendAt, (st) => st[0] === 'wait' && required(sel(st, 1))
+    && sel(st, 1).includes('Tablet reading fixture'));
+  if (markerAt < 0) errs.push('J16 never waits for the fixture answer marker (Tablet reading fixture) before measuring');
+
+  // The table bottom is read at the reading position, not at the top.
+  const scrollAt = after(markerAt, (st) => st[0] === 'scroll' && required(sel(st, 1)) && sel(st, 2) === 'bottom');
+  if (scrollAt < 0) errs.push('J16 never scrolls the reading pane to the bottom before measuring');
+  const tableAt = after(scrollAt, (st) => st[0] === 'reading' && sel(st, 1) === 'table-bottom');
+  if (tableAt < 0) errs.push('J16 never records the table-bottom reading verdict');
+
+  // The incoming state: a held follow-up lands out of sight, and the verdict
+  // that requires the new-activity row must find it off every visible cell.
+  const slowAt = after(tableAt, (st) => st[0] === 'fill' && required(sel(st, 1))
+    && required(sel(st, 2)) && sel(st, 2).includes('[seed] slow'));
+  if (slowAt < 0) errs.push('J16 never sends the held [seed] slow follow-up');
+  const incomingAt = after(slowAt, (st) => st[0] === 'reading' && sel(st, 1) === 'incoming'
+    && sel(st, 2) === 'require-new-activity');
+  if (incomingAt < 0) errs.push('J16 never records the incoming verdict with require-new-activity');
+  if (incomingAt >= 0 && incomingAt !== steps.length - 1) {
+    errs.push('J16 must end on the incoming reading verdict; a later step could hide the state it proved');
+  }
+
+  // The paths table selects the journeys --files walks, first match wins. A
+  // conversation reading-surface diff must walk J16; a settings diff must not
+  // inherit it through a broad row.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const selected = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return row && Array.isArray(row[1]) ? row[1] : null;
+  };
+  for (const file of ['ui/src/pages/TaskDetailPage.tsx', 'ui/src/components/chat/ChatStream.tsx', 'ui/src/components/cards/']) {
+    const row = selected(file);
+    if (!row || !row.includes('J16')) {
+      errs.push(`the paths table does not map ${file} to J16; a diff there would not walk the 820 reading surface`);
+    }
+  }
+  const settings = selected('ui/src/pages/SettingsPage.tsx');
+  if (settings && settings.includes('J16')) {
+    errs.push('the paths table maps a settings diff to J16; the tablet reading walk is not a settings walk');
+  }
+  return errs;
+}
 if (process.argv.includes('--check-spec')) {
   const j1 = checkJ1Contract(spec);
   const j2 = checkJ2Contract(spec);
@@ -2862,7 +2946,8 @@ if (process.argv.includes('--check-spec')) {
   const j13 = checkJ13Contract(spec);
   const j14 = checkJ14Contract(spec);
   const j15 = checkJ15Contract(spec);
-  if (j1.length || j2.length || j3.length || j4.length || j5.length || j6.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length || j14.length || j15.length) {
+  const j16 = checkJ16Contract(spec);
+  if (j1.length || j2.length || j3.length || j4.length || j5.length || j6.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length || j14.length || j15.length || j16.length) {
     if (j1.length) { console.log('spec red: J1'); j1.forEach((e) => console.log(' - ' + e)); }
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
@@ -2878,6 +2963,7 @@ if (process.argv.includes('--check-spec')) {
     if (j13.length) { console.log('spec red: J13'); j13.forEach((e) => console.log(' - ' + e)); }
     if (j14.length) { console.log('spec red: J14'); j14.forEach((e) => console.log(' - ' + e)); }
     if (j15.length) { console.log('spec red: J15'); j15.forEach((e) => console.log(' - ' + e)); }
+    if (j16.length) { console.log('spec red: J16'); j16.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
   console.log('spec ok: J1 searches the list, filters it, and approves one card and denies another with both controls read gone');
@@ -2897,6 +2983,7 @@ if (process.argv.includes('--check-spec')) {
   if (spec.journeys && spec.journeys.J13) console.log('spec ok: J13 walks the phone file link through Back to the list and the conversation, the PR tab as an address (cold, refreshed, Forward, Back closes only the panel), the HTML preview/source switch without leaving the file address, and an undrawable PDF offering the desktop shell\'s Open in… menu, closed with Escape');
   if (spec.journeys && spec.journeys.J14) console.log('spec ok: J14 reopens the last conversation on the Mac, finds no conversation rows in ⌘K, and draws the phone home as one list at three levels');
   if (spec.journeys && spec.journeys.J15) console.log('spec ok: J15 answers the agent\'s mid-run question by option and by Other, proves the card left, and finds it still gone after a reload');
+  if (spec.journeys && spec.journeys.J16) console.log('spec ok: J16 reads a long table answer at 820 touch down to its last row, then proves a reply that landed while away covered no cell');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
