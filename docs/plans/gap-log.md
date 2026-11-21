@@ -34,6 +34,11 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
+- 2026-11-21 · 高 · 阅读面被四条常驻 bar 和两条占位通知淹没：同一块 820×1180 上，T3 只有一条 44px 头部，Kin 把 tabs、header、用量、改动文件都钉在正文上方 — 820×1180 实机截图里，右栏约 520 CSS px，四条常驻 bar 约占 170 CSS px（tabs ~27 + header ~53 + 用量 ~43 + 改动文件 ~47），再叠通知与 daemon banner 时约 270 px；正文只剩半屏，表格被挤到逐字换行，还要和「有新进展」药丸、composer 抢位置。T3 在同样宽度只保留标题与输入框，过程收成一行 “Worked for …”，用量/改动按需出现。手机路径其实已经做了这个决定：`TaskDetailPage.tsx:2566-2570` 的注释写明手机上用量条整条消失、放到输入框的 popover 里，理由正是 “not a bar across the reading”；平板没有沿用。
+  - **期望行为可写成测试**：820×1180、`hasTouch` 下，正文上方常驻 chrome ≤44 CSS px（只保留 header；会话 tabs 在平板宽度隐藏或收进 header；用量与改动文件收进 header 的一个入口/按需面板），长回答 + 4 行表格的最后一行完整可读；`document.elementFromPoint` 命中每个可见单元格中心都返回该单元格；用量与改动文件仍能在一个动作内打开（不是删除）。用同一条 J-tablet walk + 长表格 fixture 即可失败重现。
+  - **不要的做法**：不要用新增 bar/badge/banner 去解决「状态看不见」（TASTE 7 先删后加）；不要只在 1100 看；不要把用量/改动文件整块删掉——它们要按需可达；不要把表格缩小字号或加 `overflow:hidden` 掩盖。
+  - **照抄的同类**：手机路径的用量 popover（`ui/src/pages/TaskDetailPage.tsx:2566-2570`，`TaskComposerDock` 的 footer 触发器）；`TaskComposerDock.tsx:149-178` 的审批条是「需要时才占一行」，不是常驻；外部基准是 T3 的阅读面（header + 正文 + composer，过程折叠成一行）。完整对照与五个场景见 `docs/plans/2026-11-21-t3-parity-quality-reset.md`。
+
 - 2026-11-21 · 高 · iPad 820×1180 分栏时，会话头的动作栏被压成一排单字碎片（`C [ 8 P… c τ l kin…`）— 820×1180（2× 截图，侧栏展开，会话列约 520 CSS px）里，`TaskHeader` 的桌面动作栏把宿主徽标、工作区、Pull Request、分享、归档、删除和项目名压成约 24–30 px 宽的竖条：`Pull Request` 的标签折到图标下面再截成「P…」，项目名只剩「kin…」，图标只剩半个字形；每个可点宽度都低于 44 px 触摸地板。桌面栏是 `hidden md:flex`，iPad 拿到的正是这一条，带 `⋯` 动作表的 `MobileHeader` 在 `md` 以上不显示；`TaskHeader.dom.test.tsx` 只断言 `min-w-cell` 和类名，量不到这件事。
   - **期望行为可写成测试**：820×1180、`hasTouch`、侧栏展开、标题为长句时，动作区每个控件 ≥44×44 CSS px，可见图标与标签完整（允许只显示图标，但不允许只显示半个字形），`Pull Request` 标签不换行；空间不够时压缩的是动作区自身的可见宽度（`scrollWidth > clientWidth`，子项保持 `flex-none`），或把这一组动词收进已有的 `⋯` 动作表（`TaskDetailPage.tsx:2453` 的 `sessionActions`；注意动作表现在只在 `!wide`（<768）挂载，iPad 分栏要复用它得先改 `TaskDetailPage.tsx:2537` 的挂载条件），二者选一。项目名保持 `max-w-[10rem]` 的省略号截断，不参与挤压。真实浏览器在 820×1180 量每个按钮的 `getBoundingClientRect()`、标签行数与图标裁切即可失败重现；把这条走动接进 iPad 旅程与合并门（见本日最后一条）。
   - **不要的做法**：不要只给动作区加 `overflow-x-auto` 就算修好——`ui/src/components/task/TaskHeader.tsx:235` 已经有了，flex 子项仍会先收缩，截图就是证据；不要把标签截成一个字后保留 24 px 的按钮；不要把「1100 截图全绿」当作平板验收（iPad 分栏后的会话列约 520 px，比 1100 窄一半）。
