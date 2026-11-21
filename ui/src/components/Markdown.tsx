@@ -88,6 +88,7 @@ function MarkdownImpl({ text, className = "" }: { text: string; className?: stri
                     {b.header.map((cell, j) => (
                       <th
                         key={j}
+                        data-kin-reading=""
                         className="border-b border-[var(--kin-hairline)] px-3 py-2 font-semibold text-kin-text align-top"
                       >
                         {inline(cell)}
@@ -101,6 +102,7 @@ function MarkdownImpl({ text, className = "" }: { text: string; className?: stri
                       {row.map((cell, ci) => (
                         <td
                           key={ci}
+                          data-kin-reading=""
                           className="border-b border-[var(--kin-hairline)] px-3 py-2 text-kin-secondary align-top"
                         >
                           {inline(cell)}

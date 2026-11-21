@@ -30,22 +30,6 @@
       "css=[role=region][tabindex=\"-1\"]:has-text(\"Tablet reading fixture\")"
     ],
     [
-      "click",
-      "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
-    ],
-    [
-      "click",
-      "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
-    ],
-    [
-      "click",
-      "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
-    ],
-    [
-      "gone",
-      "?[data-kin-approval-card]"
-    ],
-    [
       "shot",
       "answer-top"
     ],
@@ -61,6 +45,22 @@
     [
       "shot",
       "answer-bottom"
+    ],
+    [
+      "click",
+      "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
+    ],
+    [
+      "click",
+      "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
+    ],
+    [
+      "click",
+      "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
+    ],
+    [
+      "gone",
+      "?[data-kin-approval-card]"
     ],
     [
       "fill",

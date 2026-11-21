@@ -45,8 +45,15 @@
     "label": "the J16 contract stops requiring the approval-card deny/gone hygiene",
     "file": "rsi/runtime/ux/walk.mjs",
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_without_the_approval_card_hygiene_is_red",
-    "old": "  if (denyAts.length < 3) {\n    errs.push('J16 must deny the seeded approvals (three optional [data-kin-approval-card] deny clicks) before it reads the table; the card covers the pane');\n  }",
+    "old": "  if (denyAts.length < 3) {\n    errs.push('J16 must deny the seeded approvals (three optional [data-kin-approval-card] deny clicks) after it reads the table; the reading verdict runs while the approval waits');\n  }",
     "new": ""
+  },
+  {
+    "label": "the J16 contract accepts an approval dismissed before the reading verdict",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_shipped_j16_spec_is_ok",
+    "old": "  if (hygiene.some((at) => tableAt >= 0 && at < tableAt)) {",
+    "new": "  if (hygiene.some((at) => tableAt >= 0 && at > tableAt)) {"
   },
   {
     "label": "the J16 contract stops requiring the follow-up bubble wait before the scroll away",
