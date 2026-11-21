@@ -1,0 +1,58 @@
+[
+  {
+    "label": "count every note as a round (a copied/reconciled note inflates the rate)",
+    "file": "rsi/runtime/rework-attrib.py",
+    "test": "bash rsi/runtime/tests/test-rework-attrib.sh",
+    "old": "        key = (item, attempt) if item and attempt else (note[\"file\"], \"\")",
+    "new": "        key = (note[\"file\"], \"\")  # mutant: every file is its own round"
+  },
+  {
+    "label": "count a withheld (stale) sendback as a round",
+    "file": "rsi/runtime/rework-attrib.py",
+    "test": "bash rsi/runtime/tests/test-rework-attrib.sh",
+    "old": "            if \".stale-\" in p.name:\n                stale += 1\n                continue",
+    "new": "            if False:  # mutant: stale notes are rounds\n                stale += 1\n                continue"
+  },
+  {
+    "label": "ignore the source: header and always guess from the title line",
+    "file": "rsi/runtime/rework-attrib.py",
+    "test": "bash rsi/runtime/tests/test-rework-attrib.sh",
+    "old": "    src = head.get(\"source\", \"\").strip().lower()\n    if src and src != \"unknown\":\n        return src",
+    "new": "    src = \"\"  # mutant: never trust the field the merge lane wrote\n    if src and src != \"unknown\":\n        return src"
+  },
+  {
+    "label": "never fall back to paths named in the prose",
+    "file": "rsi/runtime/rework-attrib.py",
+    "test": "bash rsi/runtime/tests/test-rework-attrib.sh",
+    "old": "    fams.pop(\"other\", None)\n    return fams.most_common(1)[0][0] if fams else \"unknown\"",
+    "new": "    fams.pop(\"other\", None)\n    return \"unknown\"  # mutant: no prose fallback"
+  },
+  {
+    "label": "drop the 24h direction line from the report",
+    "file": "rsi/runtime/rework-attrib.py",
+    "test": "bash rsi/runtime/tests/test-rework-attrib.sh",
+    "old": "        f\"last 24h: {summary['recent24']['rounds']} rounds / {summary['recent24']['merges']} merges\"",
+    "new": "        f\"last 24h: -\""
+  },
+  {
+    "label": "stop printing the ledger from patrol status",
+    "file": "rsi/runtime/run.sh",
+    "test": "bash rsi/runtime/tests/test-rework-attrib.sh",
+    "old": "  [ -f \"$RSI_DIR/runtime/rework-attrib.py\" ] && [ -d \"$STATE/sendback/done\" ] && \\\n    python3 \"$RSI_DIR/runtime/rework-attrib.py\" --status --state \"$STATE\" 2>/dev/null",
+    "new": "  : # mutant: patrol says nothing about rework"
+  },
+  {
+    "label": "stop naming the ledger in the fill read list",
+    "file": "rsi/runtime/prompts/fill.md",
+    "test": "bash rsi/runtime/tests/test-rework-attrib.sh",
+    "old": "Then `{{STATE}}/rework-attrib.md` (top of it is enough)",
+    "new": "Then a file you never need (top of it is enough)"
+  },
+  {
+    "label": "drop the rule that a mechanism row comes from the ledger",
+    "file": "rsi/runtime/prompts/fill.md",
+    "test": "bash rsi/runtime/tests/test-rework-attrib.sh",
+    "old": "**A mechanism row is derived from the rework ledger, never from memory.**",
+    "new": "**Pick a mechanism row however you like.**"
+  }
+]
