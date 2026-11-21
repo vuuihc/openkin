@@ -178,6 +178,16 @@ describe("TaskUsageSummary context meter", () => {
   });
 });
 
+describe("TaskUsageSummary vocabulary", () => {
+  it("titles the conversation's usage bar 对话用量摘要", () => {
+    // The default locale is zh, so this is the literal a Chinese reader sees.
+    // Every other assertion in this file asks `t()` for the title, which stays
+    // green whichever word the catalogue uses; this one pins the word itself.
+    render(<TaskUsageSummary usage={usage()} loading={false} variant="strip" />);
+    expect(screen.getByText("对话用量摘要")).toBeTruthy();
+  });
+});
+
 /** A control the shared facade owns: a real <button> carrying the facade surface. */
 function expectFacade(el: HTMLElement) {
   expect(el.tagName).toBe("BUTTON");

@@ -137,7 +137,7 @@ describe("a project menu on a path two machines share", () => {
     const remote = section(/Studio/);
     await openMenu(remote);
     expect(screen.queryByRole("button", { name: "Pin project" })).toBeNull();
-    expect(screen.getByRole("button", { name: "New session in shared" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New conversation in shared" })).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     const local = section(/This machine/);
@@ -177,10 +177,10 @@ describe("a project menu on a path two machines share", () => {
 
     const remote = section(/Studio/);
     await openMenu(remote);
-    // A new session belongs to the NAS and keeps its machine. The cover and
+    // A new conversation belongs to the NAS and keeps its machine. The cover and
     // the archive entry are this machine's project record; a row that would
     // return early is a row that silently did nothing.
-    expect(screen.getByRole("button", { name: "New session in shared" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New conversation in shared" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Open cover" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove from sidebar" })).toBeNull();
   });
@@ -216,12 +216,12 @@ describe("a project menu on a path two machines share", () => {
 
     const remote = section(/nas-1/);
     await openMenu(remote);
-    expect(screen.getByRole("button", { name: "New session in shared" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New conversation in shared" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Pin project" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Open cover" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove from sidebar" })).toBeNull();
 
-    await userEvent.click(screen.getByRole("button", { name: "New session in shared" }));
+    await userEvent.click(screen.getByRole("button", { name: "New conversation in shared" }));
     // The draft still remembers which machine the path belongs to.
     await waitFor(() => expect(localStorage.getItem("kin_draft_machine")).toBe("nas-1"));
   });

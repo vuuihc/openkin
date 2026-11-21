@@ -318,6 +318,198 @@ describe("transcriptProjection", () => {
     }
   });
 
+  // An interrupt cuts the running round short: the answer just stops. The toast
+  // says so once, but a reader who reloads only sees a bubble with no reply and
+  // concludes the agent never answered. The mark has to live in the transcript
+  // itself, at the end of the round it cut.
+  const interruptEvents = (): TaskEvent[] => [
+    ev(1, "message", {
+      role: "user",
+      speaker: "user",
+      content: [{ type: "text", text: "write the plan" }],
+    }),
+    ev(2, "message", {
+      role: "assistant",
+      speaker: "kin",
+      partial: true,
+      message_id: "m1",
+      index: 0,
+      content: [{ type: "text", text: "here is the first half" }],
+    }),
+    ev(3, "message", {
+      role: "user",
+      speaker: "user",
+      content: [{ type: "text", text: "stop, go another way" }],
+      source: "interrupt",
+      interrupted: true,
+    }),
+  ];
+
+  it("marks the round an interrupt cut", () => {
+    const items = buildChatItems(interruptEvents(), "kin");
+    const marks = items.filter((item) => item.kind === "meta");
+
+    expect(marks).toMatchObject([{ kind: "meta", label: t("chat.interruptedNote") }]);
+    // The cut half of the answer stays; the mark closes that round rather than
+    // replacing anything.
+    expect(
+      items.some((item) => item.kind === "message" && item.text === "here is the first half"),
+    ).toBe(true);
+    // It sits at the end of the cut round, directly above the message that cut it.
+    const markIndex = items.findIndex((item) => item.kind === "meta");
+    const interruptIndex = items.findIndex(
+      (item) => item.kind === "message" && item.text === "stop, go another way",
+    );
+    expect(interruptIndex).toBe(markIndex + 1);
+
+    const before = getLocale();
+    setLocale("zh");
+    try {
+      const zhMark = buildChatItems(interruptEvents(), "kin").find((item) => item.kind === "meta");
+      expect(zhMark?.label).toContain("已打断");
+    } finally {
+      setLocale(before);
+    }
+  });
+
+  it("keeps the interrupt mark when the same events are projected again", () => {
+    // Reloading re-reads the same events into a fresh projection; the mark is
+    // derived from them, not from the one-off toast, so it must come back — once.
+    const first = buildChatItems(interruptEvents(), "kin");
+    const again = buildChatItems(interruptEvents(), "kin");
+
+    for (const items of [first, again]) {
+      expect(items.filter((item) => item.kind === "meta")).toHaveLength(1);
+    }
+  });
+
+  it("marks only the message that interrupted", () => {
+    const followUp = buildChatItems(
+      [
+        ev(1, "message", { role: "user", content: [{ type: "text", text: "go" }] }),
+        ev(2, "message", {
+          role: "assistant",
+          speaker: "kin",
+          content: [{ type: "text", text: "ok" }],
+        }),
+        ev(3, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "and then" }],
+          source: "follow_up",
+        }),
+      ],
+      "kin",
+    );
+    expect(followUp.filter((item) => item.kind === "meta")).toHaveLength(0);
+
+    const twice = buildChatItems(
+      [
+        ev(1, "message", { role: "user", content: [{ type: "text", text: "one" }] }),
+        ev(2, "message", {
+          role: "assistant",
+          speaker: "kin",
+          content: [{ type: "text", text: "a" }],
+        }),
+        ev(3, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "two" }],
+          source: "interrupt",
+          interrupted: true,
+        }),
+        ev(4, "message", {
+          role: "assistant",
+          speaker: "kin",
+          content: [{ type: "text", text: "b" }],
+        }),
+        ev(5, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "three" }],
+          source: "interrupt",
+          interrupted: true,
+        }),
+      ],
+      "kin",
+    );
+    expect(twice.filter((item) => item.kind === "meta")).toHaveLength(2);
+  });
+
+  it("does not double-mark when the canceled error follows the interrupt", () => {
+    // The adapter reports the cancel it caused as an error; it is noise, not a
+    // second interruption, and it must not add a second line.
+    const items = buildChatItems(
+      [...interruptEvents(), ev(4, "error", { message: "canceled" })],
+      "kin",
+    );
+    expect(items.filter((item) => item.kind === "meta")).toHaveLength(1);
+    expect(items.some((item) => item.kind === "error")).toBe(false);
+  });
+
+  it("does not mark an interrupt with no round above it", () => {
+    // A window that starts at the interrupt message (or a user message followed
+    // straight by the interrupt) has no cut round in view. Claiming "the previous
+    // round was interrupted" there would point at a round the reader cannot see.
+    const windowStart = buildChatItems(
+      [
+        ev(7, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "stop, go another way" }],
+          source: "interrupt",
+          interrupted: true,
+        }),
+      ],
+      "kin",
+    );
+    expect(windowStart.filter((item) => item.kind === "meta")).toHaveLength(0);
+    expect(windowStart).toMatchObject([
+      { kind: "message", speaker: "user", text: "stop, go another way" },
+    ]);
+
+    const noAnswerYet = buildChatItems(
+      [
+        ev(1, "message", { role: "user", content: [{ type: "text", text: "go" }] }),
+        ev(2, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "actually stop" }],
+          source: "interrupt",
+          interrupted: true,
+        }),
+      ],
+      "kin",
+    );
+    expect(noAnswerYet.filter((item) => item.kind === "meta")).toHaveLength(0);
+  });
+
+  it("marks a round that started before it was cut, even with no answer yet", () => {
+    // The interrupt can land before the first token. The executor has started,
+    // so there is a round to close even though no agent item is in the window —
+    // without the line the reader sees a prompt, an interrupt, and no reason
+    // the first one never answered.
+    const items = buildChatItems(
+      [
+        ev(1, "message", { role: "user", content: [{ type: "text", text: "go" }] }),
+        ev(2, "task_started", { speaker: "kin" }),
+        ev(3, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "actually stop" }],
+          source: "interrupt",
+          interrupted: true,
+        }),
+      ],
+      "kin",
+    );
+    expect(items).toMatchObject([
+      { kind: "message", speaker: "user", text: "go" },
+      { kind: "meta", label: t("chat.interruptedNote") },
+      { kind: "message", speaker: "user", text: "actually stop" },
+    ]);
+  });
+
   it("keeps the plan line when streamed progress text is interleaved with it", () => {
     // A prompt echo is streamed as partial progress text, and a plan update can
     // land in the middle of it. Both are notes in the same box, so a plan line
@@ -1338,6 +1530,8 @@ describe("transcriptProjection", () => {
         kind: "progress",
         steps: [{ kind: "tool", status: "done" }],
       },
+      // The interrupt also closes the round it cut, above the message that cut it.
+      { kind: "meta", label: t("chat.interruptedNote") },
       { kind: "message", speaker: "user", text: "Use a different approach" },
     ]);
   });

@@ -46,7 +46,10 @@ export default function RoundEvidenceCard({
   const hiddenFiles = Math.max(0, evidence.totalFiles - evidence.files.length);
 
   return (
-    <div className="rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] overflow-hidden">
+    <div
+      data-kin-evidence=""
+      className="rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] overflow-hidden"
+    >
       {/* The whole header is the disclosure on the console's facade; the row's
           own geometry stays on the content span, where Astryx puts the button's
           children, so the facade's focus ring and phone floor surround it. */}
@@ -94,6 +97,10 @@ export default function RoundEvidenceCard({
                   onClick={() => setOpenPath(expanded ? null : file.path)}
                   aria-expanded={expanded}
                   title={file.path}
+                  // The row a floating surface must not cover: it is a tap
+                  // target ("open the diff"), and `FloatingApproval` measures
+                  // its box before drawing the decision card over it.
+                  data-kin-hit-row=""
                   className="flex w-full justify-start rounded-sm p-0 text-left font-normal hover:bg-transparent"
                 >
                   <span className="flex w-full items-center gap-2 px-3 py-1.5 transition-colors hover:bg-kin-elevated/30">
