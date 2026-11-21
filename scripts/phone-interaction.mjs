@@ -49,6 +49,14 @@
  *                              computes a backdrop-filter
  *   glass-ab-needs-two-runs    --glass=ab with --runs 1 cannot pair
  *   glass-unknown-value        --glass is not one of on|off|ab
+ *   paint-override-not-applied --paint=contain was injected, but a mounted
+ *                              [data-conversation-pane] [data-message-key] row
+ *                              still computes content-visibility: visible, or
+ *                              the off arm contains a row that computes auto
+ *   paint-ab-needs-two-runs    --paint=ab with --runs 1 cannot pair
+ *   paint-ab-with-glass-ab     both A/B dimensions in one pass would confound
+ *                              their arms
+ *   paint-unknown-value        --paint is not one of contain|off|ab
  *   list-never-rendered        no [data-session-row] appeared
  *   scroll-did-not-move        scrollTop did not change, so the swipe proved
  *                              nothing
@@ -66,7 +74,7 @@
  * isolated honestly the leg prints `unmeasured: <reason>` instead of a number.
  *
  * Usage:
- *   node scripts/phone-interaction.mjs [--runs N] [--glass=on|off|ab] [--json] [--headless]
+ *   node scripts/phone-interaction.mjs [--runs N] [--glass=on|off|ab] [--paint=contain|off|ab] [--json] [--headless]
  *   node scripts/phone-interaction.mjs --self-check
  *
  * `--glass` is a measurement-only control for the four backdrop-blur carriers
@@ -78,6 +86,17 @@
  * by run parity (run 1 on→off, run 2 off→on) so load drift cannot masquerade
  * as the variable. Each arm's idle-p50 is recorded with its numbers, and the
  * printed and JSON summaries add the paired per-run delta (off − on).
+ *
+ * `--paint` is the same measurement-only control for the transcript's message
+ * rows: `off` (the default) injects an inert custom property through one
+ * `<style>` element, `contain` injects `content-visibility: auto !important`
+ * and `contain-intrinsic-size: auto 120px !important` on
+ * `[data-conversation-pane] [data-message-key]`, and `ab` measures both arms
+ * per run with the order alternating by run parity. Before a frame is
+ * recorded every mounted row's computed `content-visibility` is read back: a
+ * contain-arm row that is not `auto`, or an off-arm row that is, is a guard.
+ * The paired per-run delta is contain − off (negative = containment reduced
+ * the interval). `--glass=ab` and `--paint=ab` cannot be combined in one pass.
  *
  * Chrome runs headed by default: headless Chrome on this machine advances
  * requestAnimationFrame at 20 Hz, so its frame intervals describe the browser,
@@ -128,12 +147,31 @@ const GLASS_CARRIER_SELECTOR = ".kin-glass, .kin-glass-float, .kin-sheet-surface
 const GLASS_OFF_CSS = `${GLASS_CARRIER_SELECTOR} {\n  backdrop-filter: none !important;\n  -webkit-backdrop-filter: none !important;\n}\n`;
 const GLASS_ON_CSS = `${GLASS_CARRIER_SELECTOR} {\n  --kin-perf-glass-arm: on;\n}\n`;
 
+/**
+ * The transcript's message row (`ChatStream.tsx` maps every item into a
+ * `[data-message-key]` element inside `[data-conversation-pane]`). The paint
+ * A/B overrides exactly that selector: the contain arm lets Chrome skip paint
+ * and layout for rows outside the viewport, the off arm injects an inert
+ * custom property through the same `<style>` element so neither arm gets a
+ * different amount of style work or a different injection moment.
+ *
+ * `contain-intrinsic-size: auto 120px` is the placeholder an unrendered row
+ * occupies; `auto` makes Chrome remember a row's last rendered height instead
+ * of keeping 120px forever, so the scroll height stays stable after the first
+ * pass. 120px is a little above a one-line message row on this 390px viewport.
+ */
+const MESSAGE_ROW_SELECTOR = "[data-conversation-pane] [data-message-key]";
+const PAINT_INTRINSIC_SIZE = "auto 120px";
+const PAINT_CONTAIN_CSS = `${MESSAGE_ROW_SELECTOR} {\n  content-visibility: auto !important;\n  contain-intrinsic-size: ${PAINT_INTRINSIC_SIZE} !important;\n}\n`;
+const PAINT_OFF_CSS = `${MESSAGE_ROW_SELECTOR} {\n  --kin-perf-paint-arm: off;\n}\n`;
+
 const GUARD_NAMES = [
   "daemon-never-healthy",
   "console-never-usable",
   "console-error-surface",
   "stale-dist",
   "glass-override-not-applied",
+  "paint-override-not-applied",
   "list-never-rendered",
   "scroll-did-not-move",
   "too-few-frames",
@@ -257,6 +295,9 @@ function runGuards(sample) {
   if (sample.glassArm === "off" && sample.glassViolation) {
     guard("glass-override-not-applied", sample.glassViolation);
   }
+  // The paint violation is decided by applyPaint (contain wants every mounted
+  // row auto; off wants none), so a sample that carries one is a guard.
+  if (sample.paintViolation) guard("paint-override-not-applied", sample.paintViolation);
   if (sample.leg === "sessions" && !sample.listRendered) {
     guard("list-never-rendered", sample.listDetail || "no [data-session-row] appeared");
   }
@@ -312,6 +353,8 @@ function sampleFor(kind) {
     staleDist: null,
     glassArm: "on",
     glassViolation: null,
+    paintArm: "off",
+    paintViolation: null,
     leg: "sessions",
     listRendered: true,
     listDetail: "",
@@ -343,6 +386,13 @@ function sampleFor(kind) {
         glassArm: "off",
         glassViolation:
           "backdrop-filter=saturate(1.9) blur(24px) on header.kin-glass (the override did not apply)",
+      };
+    case "paint-override-not-applied":
+      return {
+        ...good,
+        paintArm: "contain",
+        paintViolation:
+          "content-visibility=visible on div.message-row (the contain override did not apply)",
       };
     case "list-never-rendered":
       return { ...good, listRendered: false };
@@ -423,6 +473,58 @@ function selfCheckCase(kind) {
       guards: [],
     };
     process.stdout.write(`${JSON.stringify(doc)}\n`);
+    return;
+  }
+  if (kind === "paint-plan-alternates-by-run-parity") {
+    const list = (plan) => plan.map((arms, index) => `${index + 1}=${arms.join(",")}`).join(" ");
+    process.stdout.write(
+      `ab ${list(paintPlan(4, "ab"))}; single contain ${list(paintPlan(2, "contain"))}; ` +
+        `single off ${list(paintPlan(2, "off"))}\n`,
+    );
+    return;
+  }
+  if (kind === "paint-contain-css-targets-message-rows") {
+    process.stdout.write(`${JSON.stringify({ contain: PAINT_CONTAIN_CSS, off: PAINT_OFF_CSS })}\n`);
+    return;
+  }
+  if (kind === "paint-json-carries-arm") {
+    // Two synthetic A/B runs pinned to the numbers the row's verdict bar uses:
+    // the contain arm is 16 ms with two 33 ms outliers (p90 20, dropped 4 %),
+    // the off arm is 22 ms with nine 40 ms outliers (p90 33, dropped 9 %). The
+    // paired delta must be contain − off, so p90 is negative.
+    const repeat = (value, count) => Array.from({ length: count }, () => value);
+    const containMetrics = frameMetrics([...repeat(16, 25), ...repeat(20, 23), ...repeat(33, 2)], []);
+    const offMetrics = frameMetrics(
+      [...repeat(16, 49), ...repeat(22, 40), ...repeat(33, 2), ...repeat(40, 9)],
+      [],
+    );
+    const runsDetail = [1, 2].map((run) => ({
+      run,
+      paintOrder: run % 2 === 1 ? ["contain", "off"] : ["off", "contain"],
+      paintArms: [
+        { paint: "contain", sessions: { paint: "contain", metrics: containMetrics } },
+        { paint: "off", sessions: { paint: "off", metrics: offMetrics } },
+      ],
+    }));
+    const doc = {
+      schema: "phone-interaction/1",
+      paint: "ab",
+      runsDetail,
+      legs: { sessions: summarizePaintAb(runsDetail, "sessions") },
+      guards: [],
+    };
+    process.stdout.write(`${JSON.stringify(doc)}\n`);
+    return;
+  }
+  if (kind === "paint-override-arm-logic") {
+    const visible = [{ element: "div.message-row", value: "visible" }];
+    process.stdout.write(
+      `${JSON.stringify({
+        contain: paintViolationFor("contain", visible),
+        off: paintViolationFor("off", visible),
+        containAuto: paintViolationFor("contain", [{ element: "div.message-row", value: "auto" }]),
+      })}\n`,
+    );
     return;
   }
   const sample = sampleFor(kind);
@@ -603,13 +705,177 @@ function selfCheck() {
     }
   }
 
+  const paintPlanRun = run("paint-plan-alternates-by-run-parity");
+  const paintPlanText = (paintPlanRun.stdout || "").trim();
+  const paintPlanChecks = [
+    "ab 1=contain,off 2=off,contain 3=contain,off 4=off,contain",
+    "single contain 1=contain 2=contain",
+    "single off 1=off 2=off",
+  ];
+  const paintPlanMissing = paintPlanChecks.filter((want) => !paintPlanText.includes(want));
+  if (paintPlanRun.status !== 0 || paintPlanMissing.length > 0) {
+    fail(
+      `paint plan exited ${paintPlanRun.status} printed '${paintPlanText}', ` +
+        `missing: ${paintPlanMissing.join("; ")}`,
+    );
+  } else {
+    process.stdout.write(`ok paint plan alternates by run parity: ${paintPlanText}\n`);
+  }
+
+  const paintCssRun = run("paint-contain-css-targets-message-rows");
+  let paintCss = null;
+  try {
+    paintCss = JSON.parse(paintCssRun.stdout || "");
+  } catch {
+    paintCss = null;
+  }
+  // Spelled out here on purpose, like the glass selector list: the
+  // implementation must match the brief, not its own constant.
+  const wantedPaintSelector = "[data-conversation-pane] [data-message-key]";
+  if (paintCssRun.status !== 0 || !paintCss || typeof paintCss.contain !== "string") {
+    fail(`paint CSS case exited ${paintCssRun.status} without a CSS string`);
+  } else {
+    const contain = paintCss.contain;
+    const open = contain.indexOf("{");
+    const close = contain.lastIndexOf("}");
+    const selector = (open >= 0 ? contain.slice(0, open) : contain).trim();
+    const declarations = (
+      open >= 0 && close > open ? contain.slice(open + 1, close) : ""
+    )
+      .split(";")
+      .map((declaration) => declaration.trim())
+      .filter(Boolean);
+    const problems = [];
+    if (selector !== wantedPaintSelector) problems.push(`selector '${selector}'`);
+    if (!/(^|\n)\s*content-visibility:\s*auto\s*!important/.test(contain)) {
+      problems.push("no content-visibility: auto !important");
+    }
+    if (!/(^|\n)\s*contain-intrinsic-size:\s*auto\s+120px\s*!important/.test(contain)) {
+      problems.push("no contain-intrinsic-size: auto 120px !important");
+    }
+    if (declarations.length === 0 || !declarations.every((declaration) => declaration.endsWith("!important"))) {
+      problems.push("a declaration is not !important");
+    }
+    if (/content-visibility|contain-intrinsic-size/.test(paintCss.off || "")) {
+      problems.push("the off CSS carries a containment declaration");
+    }
+    if (problems.length > 0) {
+      fail(`paint contain CSS is wrong: ${problems.join("; ")}`);
+    } else {
+      process.stdout.write(
+        `ok paint contain CSS: ${wantedPaintSelector} -> content-visibility auto, ` +
+          "contain-intrinsic-size auto 120px, every declaration !important\n",
+      );
+    }
+  }
+
+  const paintArmRun = run("paint-override-arm-logic");
+  let paintArmLogic = null;
+  try {
+    paintArmLogic = JSON.parse(paintArmRun.stdout || "");
+  } catch {
+    paintArmLogic = null;
+  }
+  if (paintArmRun.status !== 0 || !paintArmLogic) {
+    fail(`paint override arm logic exited ${paintArmRun.status} without parseable JSON`);
+  } else if (
+    !/content-visibility=visible/.test(paintArmLogic.contain || "") ||
+    paintArmLogic.off !== null ||
+    paintArmLogic.containAuto !== null
+  ) {
+    fail(
+      "paint override arm logic did not separate the arms: " +
+        `contain=${JSON.stringify(paintArmLogic.contain)} ` +
+        `off=${JSON.stringify(paintArmLogic.off)} ` +
+        `containAuto=${JSON.stringify(paintArmLogic.containAuto)}`,
+    );
+  } else {
+    process.stdout.write(
+      "ok paint override arm logic: contain+visible is a guard, off+visible and contain+auto are not\n",
+    );
+  }
+
+  const paintAbRun = run("paint-json-carries-arm");
+  let paintAbDoc = null;
+  try {
+    paintAbDoc = JSON.parse(paintAbRun.stdout || "");
+  } catch {
+    paintAbDoc = null;
+  }
+  const paintAbLeg = paintAbDoc?.legs?.sessions;
+  if (paintAbRun.status !== 0 || !paintAbDoc) {
+    fail(`paint-json-carries-arm exited ${paintAbRun.status} without parseable JSON`);
+  } else if (
+    paintAbLeg?.arms?.contain?.paint !== "contain" ||
+    paintAbLeg?.arms?.off?.paint !== "off" ||
+    paintAbLeg?.arms?.contain?.summary?.p90?.p90 !== 20 ||
+    paintAbLeg?.arms?.contain?.summary?.droppedPct?.p50 !== 4 ||
+    paintAbLeg?.arms?.off?.summary?.p90?.p90 !== 33 ||
+    paintAbLeg?.arms?.off?.summary?.droppedPct?.p50 !== 9 ||
+    paintAbLeg?.paired?.summary?.p90?.p50 !== -13 ||
+    paintAbLeg?.paired?.summary?.droppedPct?.p50 !== -5 ||
+    paintAbLeg?.paired?.runs?.length !== 2
+  ) {
+    fail(`paint JSON did not carry both arms and the contain − off delta: ${JSON.stringify(paintAbLeg)}`);
+  } else {
+    const orders = (paintAbDoc.runsDetail || []).map((row) => (row.paintOrder || []).join("->")).join(",");
+    if (!/contain->off/.test(orders) || !/off->contain/.test(orders)) {
+      fail(`paint JSON did not carry both arm orders per run: '${orders}'`);
+    } else {
+      process.stdout.write(
+        `ok paint JSON carries the arm: contain p90 20/dropped 4% -> off p90 33/dropped 9%, ` +
+          `paired −13 ms/−5 pp, orders ${orders}\n`,
+      );
+    }
+  }
+
+  const paintBogus = runArgs(["--paint=bogus", "--self-check-case", "stats-nearest-rank"]);
+  const paintBogusLine = (paintBogus.stderr || "").trim().split("\n")[0] || "";
+  if (paintBogus.status !== 2 || !paintBogusLine.startsWith("GUARD paint-unknown-value: ")) {
+    fail(
+      `--paint=bogus exited ${paintBogus.status} with '${paintBogusLine || "(empty)"}', ` +
+        "want exit 2 and 'GUARD paint-unknown-value: ...'",
+    );
+  } else {
+    process.stdout.write(`ok paint-unknown-value exits 2: ${paintBogusLine}\n`);
+  }
+
+  const paintAbOnce = runArgs(["--paint=ab", "--runs", "1", "--self-check-case", "stats-nearest-rank"]);
+  const paintAbOnceLine = (paintAbOnce.stderr || "").trim().split("\n")[0] || "";
+  if (paintAbOnce.status !== 2 || !paintAbOnceLine.startsWith("GUARD paint-ab-needs-two-runs: ")) {
+    fail(
+      `--paint=ab --runs 1 exited ${paintAbOnce.status} with '${paintAbOnceLine || "(empty)"}', ` +
+        "want exit 2 and 'GUARD paint-ab-needs-two-runs: ...'",
+    );
+  } else {
+    process.stdout.write(`ok paint-ab-needs-two-runs exits 2: ${paintAbOnceLine}\n`);
+  }
+
+  const bothAb = runArgs([
+    "--glass=ab",
+    "--paint=ab",
+    "--runs",
+    "2",
+    "--self-check-case",
+    "stats-nearest-rank",
+  ]);
+  const bothAbLine = (bothAb.stderr || "").trim().split("\n")[0] || "";
+  if (bothAb.status !== 2 || !bothAbLine.startsWith("GUARD paint-ab-with-glass-ab: ")) {
+    fail(
+      `--glass=ab --paint=ab exited ${bothAb.status} with '${bothAbLine || "(empty)"}', ` +
+        "want exit 2 and 'GUARD paint-ab-with-glass-ab: ...'",
+    );
+  } else {
+    process.stdout.write(`ok paint-ab-with-glass-ab exits 2: ${bothAbLine}\n`);
+  }
+
   if (failures > 0) {
     process.stderr.write(`FAIL phone-interaction --self-check: ${failures} case(s) failed\n`);
     process.exit(1);
   }
   process.stdout.write(
     `ok phone-interaction --self-check: nearest-rank pinned, ${GUARD_NAMES.length} guards exit 2, ` +
-      "short sets refused, JSON round-trips, glass plan/CSS/arm JSON pinned\n",
+      "short sets refused, JSON round-trips, glass plan/CSS/arm JSON pinned, paint plan/CSS/arm JSON pinned\n",
   );
   process.exit(0);
 }
@@ -626,6 +892,7 @@ function parseArgs(argv) {
     selfCheckCase: null,
     headless: false,
     glass: "on",
+    paint: "off",
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -642,6 +909,12 @@ function parseArgs(argv) {
         guard("glass-unknown-value", `--glass must be on, off or ab, got '${value ?? ""}'`);
       }
       opts.glass = value;
+    } else if (arg === "--paint" || arg.startsWith("--paint=")) {
+      const value = arg === "--paint" ? argv[++i] : arg.slice("--paint=".length);
+      if (!["contain", "off", "ab"].includes(value)) {
+        guard("paint-unknown-value", `--paint must be contain, off or ab, got '${value ?? ""}'`);
+      }
+      opts.paint = value;
     } else if (arg === "--json") {
       opts.json = true;
     } else if (arg === "--headless") {
@@ -668,6 +941,17 @@ function parseArgs(argv) {
 function glassPlan(runs, mode) {
   return Array.from({ length: runs }, (_, index) =>
     mode === "ab" ? (index % 2 === 0 ? ["on", "off"] : ["off", "on"]) : [mode],
+  );
+}
+
+/**
+ * The paint A/B's arm order per run, alternating by parity for the same reason
+ * as the glass plan. Single modes return one arm, so an absent `--paint` keeps
+ * the pre-existing single-arm shape.
+ */
+function paintPlan(runs, mode) {
+  return Array.from({ length: runs }, (_, index) =>
+    mode === "ab" ? (index % 2 === 0 ? ["contain", "off"] : ["off", "contain"]) : [mode],
   );
 }
 
@@ -1179,6 +1463,43 @@ async function applyGlass(page, arm) {
   return { carriers: checked.carriers, violation: checked.violations[0] ?? null };
 }
 
+/**
+ * The paint arm's expectation, pure so the self-check can prove both cells
+ * without a browser. In the contain arm every mounted message row must
+ * compute `content-visibility: auto`; in the off arm none may. A row that
+ * disagrees is a guard, never a number.
+ */
+function paintViolationFor(arm, rows) {
+  const describe = (row) => `content-visibility=${row.value || "visible"} on ${row.element}`;
+  if (arm === "contain") {
+    const missed = rows.find((row) => row.value !== "auto");
+    return missed ? `${describe(missed)} (the contain override did not apply)` : null;
+  }
+  const contained = rows.find((row) => row.value !== "visible");
+  return contained ? `${describe(contained)} (the off arm still contains a row)` : null;
+}
+
+/**
+ * Inject this arm's stylesheet, then read back every mounted message row's
+ * computed `content-visibility` before a frame is recorded. Called after the
+ * rows have mounted, so the contain arm proves the override on real elements
+ * rather than on an empty selector.
+ */
+async function applyPaint(page, arm) {
+  await page.addStyleTag({ content: arm === "contain" ? PAINT_CONTAIN_CSS : PAINT_OFF_CSS });
+  const rows = await page.evaluate((selector) => {
+    const describe = (el) => {
+      const classes = String(el.className || "").trim().split(/\s+/).filter(Boolean).join(".");
+      return `${el.tagName.toLowerCase()}${classes ? `.${classes}` : ""}`;
+    };
+    return [...document.querySelectorAll(selector)].map((el) => ({
+      element: describe(el),
+      value: getComputedStyle(el).getPropertyValue("content-visibility").trim(),
+    }));
+  }, MESSAGE_ROW_SELECTOR);
+  return { rows: rows.length, violation: paintViolationFor(arm, rows) };
+}
+
 /* ------------------------------------------------------------------ */
 /* Page helpers                                                       */
 /* ------------------------------------------------------------------ */
@@ -1299,7 +1620,7 @@ async function open(page, url) {
   await waitUsable(page);
 }
 
-async function measureSessions(page, cdp, expectedEntry, glassArm = "on") {
+async function measureSessions(page, cdp, expectedEntry, glassArm = "on", paintArm = "off") {
   await open(page, `${page.__base}/sessions`);
   const staleDist = checkServed(await servedEntry(page), expectedEntry);
   if (staleDist) guard("stale-dist", staleDist);
@@ -1313,6 +1634,10 @@ async function measureSessions(page, cdp, expectedEntry, glassArm = "on") {
   await page.locator("[data-phone-scroll]").first().waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
   const folds = await expandAllFolds(page);
   if (folds > 0) await page.waitForTimeout(400);
+  // The list mounts no message rows, so the paint proof is vacuous here; the
+  // stylesheet still goes in at the same moment as the transcript leg.
+  const paint = await applyPaint(page, paintArm);
+  await page.waitForTimeout(100);
 
   const before = await scrollerInfo(page, "[data-phone-scroll]");
   if (!before) guard("scroll-did-not-move", "no scrollable [data-phone-scroll] on /sessions");
@@ -1342,6 +1667,8 @@ async function measureSessions(page, cdp, expectedEntry, glassArm = "on") {
     idleP50: idle.p50,
     glassArm,
     glassViolation: glass.violation,
+    paintArm,
+    paintViolation: paint.violation,
   };
   const metrics = runGuards(sample);
   return {
@@ -1349,6 +1676,8 @@ async function measureSessions(page, cdp, expectedEntry, glassArm = "on") {
     idle,
     glass: glassArm,
     glassCarriers: glass.carriers,
+    paint: paintArm,
+    paintRows: paint.rows,
     rows: await rowCount(page),
     folds,
     intervals: sample.intervals,
@@ -1451,7 +1780,7 @@ async function measureComposer(page, cdp, daemon, taskId) {
 }
 
 /** Scroll a long transcript from its bottom upward. */
-async function measureTranscript(page, cdp, taskId, idleP50, glassArm = "on") {
+async function measureTranscript(page, cdp, taskId, idleP50, glassArm = "on", paintArm = "off") {
   await open(page, `${page.__base}/tasks/${taskId}`);
   const glass = await applyGlass(page, glassArm);
   await page
@@ -1465,6 +1794,9 @@ async function measureTranscript(page, cdp, taskId, idleP50, glassArm = "on") {
     .waitFor({ state: "visible", timeout: CONTENT_DEADLINE_MS })
     .catch(() => guard("transcript-never-rendered", "the conversation showed no message within 30 s"));
   await page.waitForTimeout(600);
+  // Prove the arm on the rows that actually mounted, before the frame window.
+  const paint = await applyPaint(page, paintArm);
+  await page.waitForTimeout(100);
 
   const before = await scrollerInfo(page, "[data-conversation-pane]");
   if (!before) {
@@ -1503,6 +1835,8 @@ async function measureTranscript(page, cdp, taskId, idleP50, glassArm = "on") {
     idleP50,
     glassArm,
     glassViolation: glass.violation,
+    paintArm,
+    paintViolation: paint.violation,
   };
   const metrics = runGuards(sample);
   return {
@@ -1510,6 +1844,8 @@ async function measureTranscript(page, cdp, taskId, idleP50, glassArm = "on") {
     messages,
     glass: glassArm,
     glassCarriers: glass.carriers,
+    paint: paintArm,
+    paintRows: paint.rows,
     idleP50,
     intervals: sample.intervals,
     longtasks: sample.longtasks,
@@ -1526,7 +1862,7 @@ function printReport(doc) {
     `machine: ${doc.machine.platform} ${doc.machine.release} ${doc.machine.arch}, ` +
       `${doc.machine.cpus} cpus; load average ${doc.machine.loadavg.map((v) => v.toFixed(2)).join(" ")}`,
   );
-  say(`browser: ${doc.chrome} (${doc.browserMode}); glass=${doc.glass}`);
+  say(`browser: ${doc.chrome} (${doc.browserMode}); glass=${doc.glass} paint=${doc.paint}`);
   say(`viewport: ${doc.viewport.width}x${doc.viewport.height} (Chrome, isMobile, hasTouch)`);
   say(`commit: ${doc.commit}`);
   say(`entry chunk: ${doc.entry.path} (${doc.entry.bytes} bytes)`);
@@ -1538,6 +1874,23 @@ function printReport(doc) {
   say("");
   for (const run of doc.runsDetail) {
     const tapText = Number.isFinite(run.tap?.duration) ? `${run.tap.duration}ms` : "unmeasured";
+    if (run.paintArms) {
+      say(`run ${run.run}  paint order ${run.paintOrder.join(" -> ")}  tap=${tapText}`);
+      for (const arm of run.paintArms) {
+        const s = arm.sessions.metrics;
+        const t = arm.transcript.metrics;
+        say(
+          `  paint=${arm.paint.padEnd(7)} rows=${arm.sessions.paintRows}/${arm.transcript.paintRows}  ` +
+            `sessions rows=${arm.sessions.rows} frames=${s.frames} ` +
+            `p50=${s.p50}ms p90=${s.p90}ms dropped=${s.droppedPct}% ` +
+            `longtasks=${s.longTasks}/${s.blockingMs}ms idle-p50=${arm.sessions.idle.p50}ms  ` +
+            `transcript frames=${t.frames} p50=${t.p50}ms p90=${t.p90}ms ` +
+            `dropped=${t.droppedPct}% longtasks=${t.longTasks}/${t.blockingMs}ms ` +
+            `idle-p50=${arm.transcript.idleP50}ms`,
+        );
+      }
+      continue;
+    }
     if (run.glassArms) {
       say(`run ${run.run}  glass order ${run.glassOrder.join(" -> ")}  tap=${tapText}`);
       for (const arm of run.glassArms) {
@@ -1582,6 +1935,15 @@ function printReport(doc) {
       armLegs.flatMap((entry) => entry.longtasks || []),
     );
   };
+  const pooledPaintArm = (leg, arm) => {
+    const armLegs = doc.runsDetail.flatMap((run) =>
+      (run.paintArms || []).filter((entry) => entry.paint === arm).map((entry) => entry[leg]),
+    );
+    return frameMetrics(
+      armLegs.flatMap((entry) => entry.intervals || []),
+      armLegs.flatMap((entry) => entry.longtasks || []),
+    );
+  };
   const signed = (value, unit = "") =>
     Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value}${unit}` : "n/a";
   // The per-run metrics are what the JSON carries; the printed headline pools
@@ -1591,6 +1953,28 @@ function printReport(doc) {
     ["sessions", "/sessions scroll"],
     ["transcript", "/tasks/:id transcript scroll"],
   ]) {
+    if (doc.paint === "ab") {
+      say(`${label} — paint A/B, ${doc.runs} runs (contain − off per run):`);
+      for (const arm of ["contain", "off"]) {
+        const metric = pooledPaintArm(leg, arm);
+        say(
+          `  paint=${arm.padEnd(7)} frame interval p50 ${metric.p50}ms p90 ${metric.p90}ms · ` +
+            `dropped ${metric.droppedPct}% · long tasks ${metric.longTasks} (${metric.blockingMs} ms blocking)`,
+        );
+      }
+      const paired = doc.legs[leg].paired;
+      const perRun = paired.runs
+        .map(
+          (pair) =>
+            `run ${pair.run} ${pair.order} p90 ${signed(pair.p90, "ms")} dropped ${signed(pair.droppedPct, "pp")}`,
+        )
+        .join(" · ");
+      say(
+        `  paired p50 ${signed(paired.summary.p50.p50, "ms")} p90 ${signed(paired.summary.p90.p50, "ms")} ` +
+          `dropped ${signed(paired.summary.droppedPct.p50, "pp")} · ${perRun}`,
+      );
+      continue;
+    }
     if (doc.glass === "ab") {
       say(`${label} — glass A/B, ${doc.runs} runs (off − on per run):`);
       for (const arm of ["on", "off"]) {
@@ -1700,6 +2084,55 @@ function summarizeGlassAb(runsDetail, leg) {
   };
 }
 
+/**
+ * Per-leg paint A/B summary, the glass shape with the arm names changed: each
+ * arm keeps the single-arm shape, and the paired per-run delta is contain − off
+ * (negative = containment reduced the interval). The paired summary is
+ * nearest-rank over the per-run deltas, not a difference of pooled medians.
+ */
+function summarizePaintAb(runsDetail, leg) {
+  const contain = [];
+  const off = [];
+  const pairs = [];
+  for (const run of runsDetail) {
+    const arms = run.paintArms || [];
+    const containArm = arms.find((arm) => arm.paint === "contain");
+    const offArm = arms.find((arm) => arm.paint === "off");
+    if (!containArm?.[leg] || !offArm?.[leg]) continue;
+    contain.push(containArm[leg]);
+    off.push(offArm[leg]);
+    const containMetrics = containArm[leg].metrics || {};
+    const offMetrics = offArm[leg].metrics || {};
+    pairs.push({
+      run: run.run,
+      order: arms.map((arm) => arm.paint).join("->"),
+      p50: delta(containMetrics.p50, offMetrics.p50),
+      p90: delta(containMetrics.p90, offMetrics.p90),
+      droppedPct: delta(containMetrics.droppedPct, offMetrics.droppedPct),
+      longTasks:
+        Number.isFinite(containMetrics.longTasks) && Number.isFinite(offMetrics.longTasks)
+          ? containMetrics.longTasks - offMetrics.longTasks
+          : null,
+    });
+  }
+  return {
+    paint: "ab",
+    arms: {
+      contain: { paint: "contain", ...summarizeLeg(contain) },
+      off: { paint: "off", ...summarizeLeg(off) },
+    },
+    paired: {
+      runs: pairs,
+      summary: {
+        p50: stats(pairs.map((pair) => pair.p50)),
+        p90: stats(pairs.map((pair) => pair.p90)),
+        droppedPct: stats(pairs.map((pair) => pair.droppedPct)),
+        longTasks: stats(pairs.map((pair) => pair.longTasks)),
+      },
+    },
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* Main                                                               */
 /* ------------------------------------------------------------------ */
@@ -1710,7 +2143,7 @@ async function main() {
 
   if (opts.help) {
     process.stdout.write(
-      "usage: node scripts/phone-interaction.mjs [--runs N] [--glass=on|off|ab] [--json] [--headless] [--self-check]\n",
+      "usage: node scripts/phone-interaction.mjs [--runs N] [--glass=on|off|ab] [--paint=contain|off|ab] [--json] [--headless] [--self-check]\n",
     );
     return;
   }
@@ -1718,6 +2151,18 @@ async function main() {
     guard(
       "glass-ab-needs-two-runs",
       `--glass=ab pairs the two arms inside each run, so it needs --runs 2 or more (got ${opts.runs})`,
+    );
+  }
+  if (opts.paint === "ab" && opts.runs < 2) {
+    guard(
+      "paint-ab-needs-two-runs",
+      `--paint=ab pairs the two arms inside each run, so it needs --runs 2 or more (got ${opts.runs})`,
+    );
+  }
+  if (opts.paint === "ab" && opts.glass === "ab") {
+    guard(
+      "paint-ab-with-glass-ab",
+      "two A/B dimensions in one pass would confound each other's arms; run one --glass=ab or --paint=ab per pass",
     );
   }
   if (opts.selfCheckCase) {
@@ -1778,9 +2223,16 @@ async function main() {
         `follow-ups=${transcript.sent}`,
     );
 
-    const plans = glassPlan(opts.runs, opts.glass);
+    const glassArmsByRun = glassPlan(opts.runs, opts.glass);
+    const paintArmsByRun = paintPlan(opts.runs, opts.paint);
     for (let run = 1; run <= opts.runs; run++) {
-      const arms = plans[run - 1];
+      const glassArms = glassArmsByRun[run - 1];
+      const paintArms = paintArmsByRun[run - 1];
+      // One A/B per pass (guarded above), so the cross product is at most two
+      // page visits and every visit carries exactly one changed variable.
+      const arms = glassArms.flatMap((glassArm) =>
+        paintArms.map((paintArm) => ({ glassArm, paintArm })),
+      );
       const context = await browser.newContext({
         viewport: VIEWPORT,
         deviceScaleFactor: 1,
@@ -1820,18 +2272,32 @@ async function main() {
           sheet = await measureSheet(page, cdp);
           composer = await measureComposer(page, cdp, daemon, morning.id);
           for (const arm of arms) {
-            const sessions = await measureSessions(page, cdp, entryFile.name, arm);
-            const transcriptRun = await measureTranscript(page, cdp, morning.id, sessions.idle.p50, arm);
-            armResults.push({ glass: arm, sessions, transcript: transcriptRun });
+            const sessions = await measureSessions(page, cdp, entryFile.name, arm.glassArm, arm.paintArm);
+            const transcriptRun = await measureTranscript(
+              page,
+              cdp,
+              morning.id,
+              sessions.idle.p50,
+              arm.glassArm,
+              arm.paintArm,
+            );
+            armResults.push({ ...arm, sessions, transcript: transcriptRun });
           }
         } else {
           const arm = arms[0];
-          const sessions = await measureSessions(page, cdp, entryFile.name, arm);
+          const sessions = await measureSessions(page, cdp, entryFile.name, arm.glassArm, arm.paintArm);
           tapped = await measureTap(page, cdp);
           sheet = await measureSheet(page, cdp);
           composer = await measureComposer(page, cdp, daemon, morning.id);
-          const transcriptRun = await measureTranscript(page, cdp, morning.id, sessions.idle.p50, arm);
-          armResults.push({ glass: arm, sessions, transcript: transcriptRun });
+          const transcriptRun = await measureTranscript(
+            page,
+            cdp,
+            morning.id,
+            sessions.idle.p50,
+            arm.glassArm,
+            arm.paintArm,
+          );
+          armResults.push({ ...arm, sessions, transcript: transcriptRun });
         }
         const detail = {
           run,
@@ -1841,30 +2307,46 @@ async function main() {
           composer: { ...composer, run },
           pageErrors: errors.slice(0, 10),
         };
+        detail.paintOrder = paintArms;
         if (arms.length > 1) {
-          detail.glassOrder = arms;
-          detail.glassArms = armResults.map((result) => ({
-            glass: result.glass,
-            sessions: { ...result.sessions, run },
-            transcript: { ...result.transcript, run },
-          }));
+          if (glassArms.length > 1) {
+            detail.glassOrder = glassArms;
+            detail.glassArms = armResults.map((result) => ({
+              glass: result.glassArm,
+              sessions: { ...result.sessions, run },
+              transcript: { ...result.transcript, run },
+            }));
+          }
+          if (paintArms.length > 1) {
+            detail.paintOrder = paintArms;
+            detail.paintArms = armResults.map((result) => ({
+              paint: result.paintArm,
+              sessions: { ...result.sessions, run },
+              transcript: { ...result.transcript, run },
+            }));
+          }
         } else {
           detail.sessions = { ...armResults[0].sessions, run };
           detail.transcript = { ...armResults[0].transcript, run };
         }
         runsDetail.push(detail);
         if (arms.length > 1) {
-          say(`run ${run}/${opts.runs}: glass order ${arms.join(" -> ")}`);
+          const orders = [];
+          if (glassArms.length > 1) orders.push(`glass ${glassArms.join(" -> ")}`);
+          if (paintArms.length > 1) orders.push(`paint ${paintArms.join(" -> ")}`);
+          say(`run ${run}/${opts.runs}: ${orders.join(", ")}`);
           for (const result of armResults) {
             say(
-              `  glass=${result.glass}: sessions p50 ${result.sessions.metrics.p50}ms ` +
-                `dropped ${result.sessions.metrics.droppedPct}% · transcript p50 ` +
-                `${result.transcript.metrics.p50}ms dropped ${result.transcript.metrics.droppedPct}%`,
+              `  glass=${result.glassArm} paint=${result.paintArm}: sessions p50 ` +
+                `${result.sessions.metrics.p50}ms dropped ${result.sessions.metrics.droppedPct}% · ` +
+                `transcript p50 ${result.transcript.metrics.p50}ms ` +
+                `dropped ${result.transcript.metrics.droppedPct}%`,
             );
           }
         } else {
           say(
-            `run ${run}/${opts.runs}: sessions p50 ${armResults[0].sessions.metrics.p50}ms ` +
+            `run ${run}/${opts.runs}: glass=${armResults[0].glassArm} paint=${armResults[0].paintArm} ` +
+              `sessions p50 ${armResults[0].sessions.metrics.p50}ms ` +
               `dropped ${armResults[0].sessions.metrics.droppedPct}% · transcript p50 ` +
               `${armResults[0].transcript.metrics.p50}ms dropped ${armResults[0].transcript.metrics.droppedPct}% · ` +
               `tap ${tapped.duration}ms`,
@@ -1893,6 +2375,7 @@ async function main() {
     chrome: chromeVersion,
     browserMode,
     glass: opts.glass,
+    paint: opts.paint,
     viewport: VIEWPORT,
     entry: entryFile,
     seed: seedCounts,
@@ -1901,13 +2384,25 @@ async function main() {
     guards: [],
     legs: {
       sessions:
-        opts.glass === "ab"
-          ? summarizeGlassAb(runsDetail, "sessions")
-          : { glass: opts.glass, ...summarizeLeg(runsDetail.map((run) => run.sessions)) },
+        opts.paint === "ab"
+          ? summarizePaintAb(runsDetail, "sessions")
+          : opts.glass === "ab"
+            ? summarizeGlassAb(runsDetail, "sessions")
+            : {
+                glass: opts.glass,
+                paint: opts.paint,
+                ...summarizeLeg(runsDetail.map((run) => run.sessions)),
+              },
       transcript:
-        opts.glass === "ab"
-          ? summarizeGlassAb(runsDetail, "transcript")
-          : { glass: opts.glass, ...summarizeLeg(runsDetail.map((run) => run.transcript)) },
+        opts.paint === "ab"
+          ? summarizePaintAb(runsDetail, "transcript")
+          : opts.glass === "ab"
+            ? summarizeGlassAb(runsDetail, "transcript")
+            : {
+                glass: opts.glass,
+                paint: opts.paint,
+                ...summarizeLeg(runsDetail.map((run) => run.transcript)),
+              },
     },
     tap: stats(runsDetail.map((run) => run.tap?.duration).filter(Number.isFinite)),
     sheet: stats(runsDetail.map((run) => run.sheet?.duration).filter(Number.isFinite)),
