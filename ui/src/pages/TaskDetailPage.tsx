@@ -559,6 +559,16 @@ export default function TaskDetailPage({
    * as soon as its event arrives (or the task changes).
    */
   const programmaticScrollTopRef = useRef<number | null>(null);
+  /**
+   * The task this instance opened with.
+   *
+   * `id` can change under an instance the router reuses, and then everything
+   * below has to reset. The *first* run is this pane's mount, though, and there
+   * the opening restore owns `stickToBottomRef`: a restored middle place sets
+   * it to false, and resetting it here a moment later would let the next event
+   * pin the reader to the bottom they just left.
+   */
+  const mountedTaskIdRef = useRef(id);
   const markScrollReady = useCallback(() => {
     setScrollReady((prev) => (prev ? prev : true));
   }, []);
@@ -606,6 +616,8 @@ export default function TaskDetailPage({
   }, [id]);
 
   useEffect(() => {
+    const switched = mountedTaskIdRef.current !== id;
+    mountedTaskIdRef.current = id;
     taskIdRef.current = id;
     lastObservedEventSeq.current = 0;
     setUsage(null);
@@ -618,7 +630,9 @@ export default function TaskDetailPage({
     setWorkspaceOpenNonce(0);
     setWorkspaceShowListNonce(0);
     setSelectedWorkspaceId(undefined);
-    stickToBottomRef.current = true;
+    // On mount the opening restore decides whether the transcript follows the
+    // end; only a conversation swapped into an existing instance resets it.
+    if (switched) stickToBottomRef.current = true;
     pendingRestoreRef.current = null;
     programmaticScrollTopRef.current = null;
     panelBaseIdx.current = null;
@@ -905,18 +919,22 @@ export default function TaskDetailPage({
     const programmatic = programmaticScrollTopRef.current;
     programmaticScrollTopRef.current = null;
     if (programmatic != null && el.scrollTop === programmatic) return;
+    // A hidden pane (display:none) reports 0 for scrollTop, scrollHeight and
+    // clientHeight. The reset that clears the scroller — or a flick's last
+    // event, delivered after the keep-alive host hid the pane — is not the
+    // reader moving, and `isNearBottom` over zeros reads as "at the end".
+    // Leave the intent alone: flipping it to "follow" here makes the next
+    // show pin the reader to the bottom of the conversation they were reading.
+    if (!active || el.clientHeight <= 0) return;
     stickToBottomRef.current = isNearBottom(el);
     // Reading at the end is what "caught up" means: drop the offer to go
     // there, whether the reader scrolled down or the content shrank to fit.
     if (stickToBottomRef.current) setUnseen(0);
-    // Only record while laid out — hidden (display:none) panes report 0.
-    if (active && el.clientHeight > 0) {
-      // The reader has taken the scroller somewhere themselves; a restore
-      // still waiting for layout must not overrule them later.
-      pendingRestoreRef.current = null;
-      savedScrollTopRef.current = el.scrollTop;
-      if (id) setSessionScroll(id, el.scrollTop);
-    }
+    // The reader has taken the scroller somewhere themselves; a restore
+    // still waiting for layout must not overrule them later.
+    pendingRestoreRef.current = null;
+    savedScrollTopRef.current = el.scrollTop;
+    if (id) setSessionScroll(id, el.scrollTop);
   }, [isNearBottom, active, id]);
 
   // First paint of this mounted instance: restore saved scroll, else jump to bottom.
