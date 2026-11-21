@@ -90,6 +90,7 @@ You are the WORKER for RSI item $item in worktree \`$wt\` on branch \`$br\`. Mod
 - Concurrency test ordering: set the shared state (the flag, channel or map the goroutine reads) before you start the goroutine. Never start the goroutine and then write the flag it reads — that order is the race the gate and the reviewer are looking for.
 - A new or changed Go test self-checks with \`go test -count=5 -race ./internal/<touched-package>/...\` on the touched package(s) before you finish. One green run of a concurrency test is not evidence; five runs under \`-race\` are what make it trustworthy.
 - If \`ui/\` changed: \`cd ui && npm run build\`, commit \`web/dist/index.html\` only (never \`web/dist/assets/\`). For visible UI also save 390×844 and 1100×760 before/after screenshots under \`$STATE/shots/$slug/\`.
+- Loop code (\`rsi/runtime/**\` or \`scripts/**\` ending \`.sh\`, \`.bash\`, \`.py\`, \`.mjs\`, \`.js\` or \`.ts\`; not \`rsi/runtime/{tests,runs,prompts}/**\`, \`rsi/runtime/ux/journeys/**\`, \`rsi/state/**\` or a deleted file): add or update an entry in a \`*.mutants.json\` manifest this branch adds or modifies for every changed file, with \`file\` set to that path, and that entry's test must fail while its mutant is applied. A manifest already on main does not cover your edit, so an already-covered file still needs a new entry. Make the mutant break the behaviour you changed, not an unrelated line. Run \`bash rsi/runtime/lane.sh --mutant-evidence-check "\$PWD"\` from your worktree before you finish: only \`MUTANT_EVIDENCE_OK\` (or \`MUTANT_EVIDENCE_SKIP\` when no loop code changed) proves the hand-off; a missing entry prints \`MUTANT_EVIDENCE_MISSING\` and a surviving mutant prints \`MUTANT_EVIDENCE_RED\`. The lane runs the same seam before pushing, and either verdict there fails the lane.
 - UI ratchet: \`python3 scripts/check-ui-inventory.py\` must not grow. If your change IS the sanctioned primitive/facade (its own raw \`<button>\`, \`createPortal\`, \`role="dialog"\`, \`useAnchoredPanel\` use is the point), run \`python3 scripts/check-ui-inventory.py --update\`, commit the baseline, and say so in the PR body (Risk section). Also run the focused UI suites your change touches plus the design-token test: \`cd ui && npx vitest run <the suites you touched> src/design/tokens.test.ts\` (e.g. focus ring must use \`outline-kin-focus-ring\`). The merge gate owns the full suite; a worker does not run it.
 - Commit everything with Conventional Commits and explicit paths. Do NOT push, do NOT open the PR, do NOT touch other worktrees.
 - Before you finish write the PR body to \`$STATE/lanes/$slug.pr-body.md\` with sections: Symptom · Change · Verification (commands + results) · Screenshots (paths, or "none: not visible") · Risk · \`RSI item: $item\`.
@@ -111,11 +112,124 @@ write_worker_brief() { # prints the header dispatch.sh receives; reads ITEM MODE
   fi
 }
 
+# --- mutant evidence: a loop guard is only proven when its own test fails without it -----------
+# The live `gate+review·rsi` shape is mostly one finding: the changed guard's own test does not go
+# red when the guard breaks (state/sendback/done/merge-sync-abort-090823, lane-leftovers-095231,
+# walk-select-guard-071822, phone-console-baseline-b-045503). `scripts/mutants.py` already owns the
+# mutate → require red → restore proof; this seam only decides which changed loop files need one,
+# runs every covering manifest, and fails closed when the proof is absent or cannot run. The worker
+# runs it before finishing (worker_contract) and the lane runs it again after the format commit and
+# before the push, so the reviewer is no longer the first reader.
+# Changed set = our side of the merge base plus untracked files, so an uncommitted last edit still
+# counts, while a merge lane's fetch of origin/main during the worker's run does not turn other
+# lanes' loop files into this lane's required evidence (worktrees share refs). Deletions are out:
+# a removed file cannot be mutated, and demanding an entry for it would make a cleanup unlandable.
+# In scope: code under rsi/runtime/** or scripts/**. Out: rsi/runtime/tests/**, runs/**, prompts/**,
+# ux/journeys/**, rsi/state/** and the manifests themselves — adding proof must not require
+# proving the manifest. Coverage is per branch, not per file: a manifest already on main proves the
+# code as it stood there, so an edit to an already-covered file (lane.sh, merge.sh, ux/walk.mjs)
+# would otherwise hand off with no mutant for its new guard. Only manifests this branch adds or
+# modifies count and run (2026-11-21 review, major).
+mutant_evidence_check() { # <worktree> — prints one verdict line; 0 = ok/skip, 1 = red/missing
+  local wt="$1" base changed manifests
+  [ -d "$wt" ] || { echo "MUTANT_EVIDENCE_RED: $wt · worktree not found"; return 1; }
+  # A guard that cannot read the branch point would silently see no changes; fail closed instead.
+  "$GIT" -C "$wt" rev-parse --verify -q origin/main >/dev/null 2>&1 \
+    || { echo "MUTANT_EVIDENCE_RED: $wt · origin/main is not resolvable"; return 1; }
+  base="$("$GIT" -C "$wt" merge-base origin/main HEAD 2>/dev/null)" \
+    || { echo "MUTANT_EVIDENCE_RED: $wt · origin/main and HEAD have no merge base"; return 1; }
+  # grep, not a `case` in the substitution: macOS /bin/bash 3.2 mis-parses a case pattern list
+  # that starts with `*` inside $( ) (reproduced 2026-11-21 while writing this seam).
+  changed="$(
+    { "$GIT" -C "$wt" diff --name-only --diff-filter=d "$base" 2>/dev/null
+      "$GIT" -C "$wt" ls-files --others --exclude-standard 2>/dev/null
+    } | LC_ALL=C sort -u \
+      | grep -E '^(rsi/runtime|scripts)/.*\.(sh|bash|py|mjs|js|ts)$' \
+      | grep -vE '^rsi/runtime/(tests|runs|prompts)/|^rsi/runtime/ux/journeys/|^rsi/state/' \
+      | grep -v '\.mutants\.json$' || true
+  )"
+  if [ -z "$changed" ]; then
+    echo "MUTANT_EVIDENCE_SKIP: no loop-code change"
+    return 0
+  fi
+  # Only manifests this branch added or modified: a pre-existing one proves main's code, not the
+  # worker's new guard. Tracked changes come from the same branch point as the changed set;
+  # untracked ones are files the worker has not committed yet.
+  manifests="$(
+    { "$GIT" -C "$wt" diff --name-only --diff-filter=d "$base" -- '*.mutants.json' 2>/dev/null
+      "$GIT" -C "$wt" ls-files --others --exclude-standard -- '*.mutants.json' 2>/dev/null
+    } | LC_ALL=C sort -u
+  )"
+  MUTANT_CHANGED="$changed" MUTANT_MANIFESTS="$manifests" python3 - "$wt" <<'PY'
+import json, os, re, subprocess, sys
+
+wt = sys.argv[1]
+changed = [line for line in os.environ.get("MUTANT_CHANGED", "").splitlines() if line]
+manifests = [line for line in os.environ.get("MUTANT_MANIFESTS", "").splitlines() if line]
+
+# An entry covers the file its `file` field names, normalized for a leading "./".
+by_file = {}
+broken = []
+for m in manifests:
+    try:
+        data = json.loads(open(os.path.join(wt, m), encoding="utf-8").read())
+        if not isinstance(data, list):
+            raise ValueError("manifest is not a JSON array")
+        files = [e["file"] for e in data]
+        if not all(isinstance(f, str) for f in files):
+            raise ValueError("manifest entry has no string file")
+    except Exception:
+        broken.append(m)
+        continue
+    for f in files:
+        by_file.setdefault(f[2:] if f.startswith("./") else f, set()).add(m)
+
+if broken:
+    for m in dict.fromkeys(broken):
+        print(f"MUTANT_EVIDENCE_RED: {m} · manifest cannot be parsed")
+    sys.exit(1)
+
+missing = [p for p in changed if p not in by_file]
+if missing:
+    print("MUTANT_EVIDENCE_MISSING: " + ", ".join(missing))
+    sys.exit(1)
+
+run = sorted({m for p in changed for m in by_file[p]})
+if not os.path.isfile(os.path.join(wt, "scripts", "mutants.py")):
+    print(f"MUTANT_EVIDENCE_RED: {run[0]} · scripts/mutants.py is missing")
+    sys.exit(1)
+
+marker = re.compile(r"^(SURVIVED|ERROR|TIMEOUT|BASELINE|RESTORE)\s+(.*?):")
+for m in run:
+    proc = subprocess.run(
+        ["python3", "scripts/mutants.py", m, "--timeout", "180"],
+        cwd=wt, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if proc.returncode == 0:
+        continue
+    lines = [line for line in proc.stdout.splitlines() if line.strip()]
+    evidence = next((line for line in lines if marker.match(line)), "")
+    hit = marker.match(evidence) if evidence else None
+    label = hit.group(2).strip() if hit else (lines[-1].strip() if lines else "")
+    label = label or f"scripts/mutants.py exited {proc.returncode}"
+    print(f"MUTANT_EVIDENCE_RED: {m} · {label}")
+    if evidence:
+        print(evidence)
+    sys.exit(1)
+
+print(f"MUTANT_EVIDENCE_OK: {len(changed)} file(s) covered by {len(run)} manifest(s)")
+PY
+}
+
 if [ "$CMD" = _sendback-order ]; then sendback_order; exit 0; fi
 
 # Seams. --worker-contract-check prints the contract and exits before PAUSE, locks, fetch,
 # dispatch or any lane bookkeeping; _worker-brief writes the production header through the same
 # composition the run path uses, so the suite can diff the seam text against a generated brief.
+# --mutant-evidence-check is the same shape: a hermetic proof check the worker and the lane run.
+if [ "$CMD" = --mutant-evidence-check ]; then
+  [ "$#" -eq 2 ] || { echo "usage: lane.sh --mutant-evidence-check <worktree>" >&2; exit 2; }
+  mutant_evidence_check "$2"; exit $?
+fi
 if [ "$CMD" = --worker-contract-check ]; then
   [ "$#" -eq 5 ] || { echo "usage: lane.sh --worker-contract-check <item> <mode> <worktree> <branch>" >&2; exit 2; }
   worker_contract "$2" "$3" "$4" "$5"
@@ -312,6 +426,17 @@ if ! bash "$RSI_DIR/runtime/format-changed.sh" --write --commit --check "$WT" >"
 fi
 echo 0 > "$STATE/consec_format"
 [ -s "$FMT_ERR" ] && tail -3 "$FMT_ERR"
+
+# A loop-code change hands off only with a mutant that proves its own test notices the guard being
+# broken. The worker runs this same seam first (worker_contract); this pass is authoritative. On a
+# hole the branch stays committed and clean: no push, no PR.
+if ! MUT_EV="$(bash "$SELF" --mutant-evidence-check "$WT" 2>&1)"; then
+  [ -n "$MUT_EV" ] && printf '%s\n' "$MUT_EV"
+  MUT_NOTE="$(printf '%s' "$MUT_EV" | tr '\n' ' ' | sed 's/  */ /g')"
+  finish failed "" "mutant evidence: ${MUT_NOTE:-check produced no output}"
+  exit 1
+fi
+[ -n "$MUT_EV" ] && printf '%s\n' "$MUT_EV"
 
 # push + PR (normal push only)
 if ! $GIT -C "$WT" push -q -u origin "$BR" 2>"$STATE/lanes/$N.push.err"; then
