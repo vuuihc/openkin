@@ -30,6 +30,22 @@
       "css=[role=region][tabindex=\"-1\"]:has-text(\"Tablet reading fixture\")"
     ],
     [
+      "click",
+      "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
+    ],
+    [
+      "click",
+      "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
+    ],
+    [
+      "click",
+      "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"
+    ],
+    [
+      "gone",
+      "?[data-kin-approval-card]"
+    ],
+    [
       "shot",
       "answer-top"
     ],
@@ -56,6 +72,10 @@
       "button[aria-label='发送'], button[aria-label='Send']"
     ],
     [
+      "wait",
+      "css=[role=region][tabindex=\"-1\"]:has-text(\"Reading follow-up while the reader is away\")"
+    ],
+    [
       "scroll",
       "css=[role=region][tabindex=\"-1\"]",
       "bottom-140"
@@ -63,7 +83,12 @@
     [
       "wait",
       "css=button:has-text('有新进展'), button:has-text('New activity')",
-      "20000"
+      "45000"
+    ],
+    [
+      "scroll",
+      "css=[role=region][tabindex=\"-1\"]",
+      "bottom-140"
     ],
     [
       "shot",

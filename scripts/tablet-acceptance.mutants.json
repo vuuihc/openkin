@@ -42,6 +42,41 @@
     "new": "    if (false) {"
   },
   {
+    "label": "the J16 contract stops requiring the approval-card deny/gone hygiene",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_without_the_approval_card_hygiene_is_red",
+    "old": "  if (denyAts.length < 3) {\n    errs.push('J16 must deny the seeded approvals (three optional [data-kin-approval-card] deny clicks) before it reads the table; the card covers the pane');\n  }",
+    "new": ""
+  },
+  {
+    "label": "the J16 contract stops requiring the follow-up bubble wait before the scroll away",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_scrolls_away_before_the_follow_up_bubble_is_red",
+    "old": "  if (bubbleAt < 0) {\n    errs.push('J16 never waits for the follow-up bubble before scrolling away; the send pins the pane to the bottom, so the reply would land in view');\n  }",
+    "new": ""
+  },
+  {
+    "label": "a layout-chrome diff stops selecting the tablet reading walk",
+    "file": "rsi/runtime/ux/journeys.json",
+    "test": "python3 -B scripts/journeys_smoke_test.py TabletAcceptanceTest.test_tablet_reading_journey_is_wired_and_selected",
+    "old": "    [\"ui/src/components/layout/\", [\"J1\", \"J2\", \"J3\", \"J4\", \"J5\", \"J6\", \"J7\", \"J8\", \"J9\", \"J10\", \"J11\", \"J12\", \"J16\"]],",
+    "new": "    [\"ui/src/components/layout/\", [\"J1\", \"J2\", \"J3\", \"J4\", \"J5\", \"J6\", \"J7\", \"J8\", \"J9\", \"J10\", \"J11\", \"J12\"]],"
+  },
+  {
+    "label": "a design-token/CSS diff stops selecting the tablet reading walk",
+    "file": "rsi/runtime/ux/journeys.json",
+    "test": "python3 -B scripts/journeys_smoke_test.py TabletAcceptanceTest.test_tablet_reading_journey_is_wired_and_selected",
+    "old": "    [\"ui/src/components/ui/|ui/src/design/|ui/src/index.css|ui/package.json|ui/tailwind|ui/postcss\", [\"J1\", \"J2\", \"J3\", \"J4\", \"J5\", \"J6\", \"J7\", \"J8\", \"J16\"]],",
+    "new": "    [\"ui/src/components/ui/|ui/src/design/|ui/src/index.css|ui/package.json|ui/tailwind|ui/postcss\", [\"J1\", \"J2\", \"J3\", \"J4\", \"J5\", \"J6\", \"J7\", \"J8\"]],"
+  },
+  {
+    "label": "an i18n label diff stops selecting the tablet reading walk",
+    "file": "rsi/runtime/ux/journeys.json",
+    "test": "python3 -B scripts/journeys_smoke_test.py TabletAcceptanceTest.test_tablet_reading_journey_is_wired_and_selected",
+    "old": "    [\"ui/src/i18n/locales/\", [\"J1\", \"J2\", \"J3\", \"J4\", \"J5\", \"J6\", \"J7\", \"J8\", \"J9\", \"J10\", \"J11\", \"J12\", \"J13\", \"J14\", \"J15\", \"J16\"]]",
+    "new": "    [\"ui/src/i18n/locales/\", [\"J1\", \"J2\", \"J3\", \"J4\", \"J5\", \"J6\", \"J7\", \"J8\", \"J9\", \"J10\", \"J11\", \"J12\", \"J13\", \"J14\", \"J15\"]]"
+  },
+  {
     "label": "the J16 contract test stops expecting the touch input shape to be stated",
     "file": "scripts/journeys_walk_test.py",
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_tablet_viewport_without_touch_is_red",

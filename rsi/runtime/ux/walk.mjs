@@ -2898,11 +2898,49 @@ function checkJ16Contract(spec) {
   const tableAt = after(scrollAt, (st) => st[0] === 'reading' && sel(st, 1) === 'table-bottom');
   if (tableAt < 0) errs.push('J16 never records the table-bottom reading verdict');
 
+  // The seeded inbox's pending approvals float a card over the reading pane;
+  // #542 proved the table is only readable after they are denied. The clicks
+  // are optional (an empty inbox has no card) but the gone is the proof, and
+  // the overlay must be off the screen before the pane reaches the table.
+  const denyAts = steps.map((st, i) => i).filter((i) => Array.isArray(steps[i])
+    && steps[i][0] === 'click' && sel(steps[i], 1).startsWith('?[data-kin-approval-card]')
+    && /拒绝|Deny/.test(sel(steps[i], 1)));
+  const cardGoneAt = idx((st) => st[0] === 'gone' && sel(st, 1).startsWith('?[data-kin-approval-card]'));
+  if (denyAts.length < 3) {
+    errs.push('J16 must deny the seeded approvals (three optional [data-kin-approval-card] deny clicks) before it reads the table; the card covers the pane');
+  }
+  if (cardGoneAt < 0) {
+    errs.push('J16 never proves the approval card left the screen (gone ?[data-kin-approval-card]) before it reads the table');
+  }
+  const hygiene = [cardGoneAt, ...denyAts].filter((at) => at >= 0);
+  if (hygiene.some((at) => markerAt >= 0 && at < markerAt)) {
+    errs.push('J16 dismisses the approval card before the fixture answer is on screen; the deny/gone belong after the answer wait');
+  }
+  if (hygiene.some((at) => scrollAt >= 0 && at > scrollAt)) {
+    errs.push('J16 dismisses the approval card only after it scrolled to the table; the overlay must be gone before the reading position');
+  }
+
   // The incoming state: a held follow-up lands out of sight, and the verdict
   // that requires the new-activity row must find it off every visible cell.
   const slowAt = after(tableAt, (st) => st[0] === 'fill' && required(sel(st, 1))
     && required(sel(st, 2)) && sel(st, 2).includes('[seed] slow'));
   if (slowAt < 0) errs.push('J16 never sends the held [seed] slow follow-up');
+
+  // The follow-up send pins the pane to the bottom; #542 proved the scroll
+  // away must wait for the optimistic bubble first, or the pin beats it and
+  // the reply lands while the reader is still at the bottom.
+  const followSendAt = after(slowAt, (st) => st[0] === 'send' && required(sel(st, 1)));
+  const bubbleAt = after(followSendAt, (st) => st[0] === 'wait' && required(sel(st, 1))
+    && sel(st, 1).includes('Reading follow-up while the reader is away'));
+  const awayAt = after(followSendAt, (st) => st[0] === 'scroll' && required(sel(st, 2)) && sel(st, 2) === 'bottom-140');
+  if (bubbleAt < 0) {
+    errs.push('J16 never waits for the follow-up bubble before scrolling away; the send pins the pane to the bottom, so the reply would land in view');
+  }
+  if (awayAt < 0) {
+    errs.push('J16 never scrolls away from the bottom after the follow-up send (scroll … bottom-140)');
+  } else if (bubbleAt >= 0 && bubbleAt > awayAt) {
+    errs.push("J16 scrolls away before the follow-up bubble is on screen; the send's pin-to-bottom wins and the reader never leaves");
+  }
   const incomingAt = after(slowAt, (st) => st[0] === 'reading' && sel(st, 1) === 'incoming'
     && sel(st, 2) === 'require-new-activity');
   if (incomingAt < 0) errs.push('J16 never records the incoming verdict with require-new-activity');
@@ -2918,7 +2956,8 @@ function checkJ16Contract(spec) {
     const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
     return row && Array.isArray(row[1]) ? row[1] : null;
   };
-  for (const file of ['ui/src/pages/TaskDetailPage.tsx', 'ui/src/components/chat/ChatStream.tsx', 'ui/src/components/cards/']) {
+  for (const file of ['ui/src/pages/TaskDetailPage.tsx', 'ui/src/components/chat/ChatStream.tsx', 'ui/src/components/cards/',
+    'ui/src/components/layout/SessionTabs.tsx', 'ui/src/index.css', 'ui/src/i18n/locales/en.ts']) {
     const row = selected(file);
     if (!row || !row.includes('J16')) {
       errs.push(`the paths table does not map ${file} to J16; a diff there would not walk the 820 reading surface`);

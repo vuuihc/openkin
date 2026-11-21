@@ -428,6 +428,12 @@ class TabletAcceptanceTest(unittest.TestCase):
 
         self.assertIn("J16", selected("ui/src/pages/TaskDetailPage.tsx") or [])
         self.assertNotIn("J16", selected("ui/src/pages/SettingsPage.tsx") or [])
+        # The layout chrome, the design tokens/CSS and the i18n labels each
+        # have their own first-match row; omitting J16 there skips the 820
+        # walk for exactly the changes #537's findings came from.
+        self.assertIn("J16", selected("ui/src/components/layout/SessionTabs.tsx") or [])
+        self.assertIn("J16", selected("ui/src/index.css") or [])
+        self.assertIn("J16", selected("ui/src/i18n/locales/en.ts") or [])
 
     def test_mandate_acceptance_asks_for_the_tablet_width(self) -> None:
         # A contract pin, not the behaviour proof: the merge gate's item 5 must

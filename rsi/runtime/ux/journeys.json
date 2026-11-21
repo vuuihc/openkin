@@ -205,7 +205,7 @@
     "J16": "journeys/J16.json"
   },
   "paths": [
-    ["ui/src/components/layout/", ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8", "J9", "J10", "J11", "J12"]],
+    ["ui/src/components/layout/", ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8", "J9", "J10", "J11", "J12", "J16"]],
     ["ui/src/lib/phoneNavigation|ui/src/lib/placeReturn", ["J10", "J11"]],
     ["ui/src/components/CommandPalette", ["J1", "J14"]],
     ["ui/src/pages/NewChat|ui/src/pages/StartRoute", ["J3", "J14"]],
@@ -214,8 +214,8 @@
     ["ui/src/pages/Project|ui/src/lib/project", ["J4"]],
     ["ui/src/pages/Routine|ui/src/pages/MachineTask|ui/src/components/routine/", ["J4"]],
     ["ui/src/pages/Settings|ui/src/pages/Agents|ui/src/components/settings/", ["J6"]],
-    ["ui/src/components/ui/|ui/src/design/|ui/src/index.css|ui/package.json|ui/tailwind|ui/postcss", ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8"]],
+    ["ui/src/components/ui/|ui/src/design/|ui/src/index.css|ui/package.json|ui/tailwind|ui/postcss", ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8", "J16"]],
     ["internal/store/projects.go", ["J3", "J4"]],
-    ["ui/src/i18n/locales/", ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8", "J9", "J10", "J11", "J12", "J13", "J14", "J15"]]
+    ["ui/src/i18n/locales/", ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8", "J9", "J10", "J11", "J12", "J13", "J14", "J15", "J16"]]
   ]
 }

@@ -4873,6 +4873,55 @@ class WalkJ16ContractTest(unittest.TestCase):
         self.assertIn("spec red: J16", out)
         self.assertIn("[seed] slow", out)
 
+    def test_j16_without_the_approval_card_hygiene_is_red(self) -> None:
+        # #542 proved the seeded inbox's approval card covers the table; the
+        # deny/gone fixture hygiene is the difference between a reading and a
+        # photograph of an overlay. Dropping the deny clicks must be loud.
+        steps = self.steps()
+        deny = [i for i, step in enumerate(steps)
+                if step[0] == "click" and str(step[1]).startswith("?[data-kin-approval-card]")]
+        self.assertEqual(len(deny), 3, steps)
+
+        def drop_denies(steps):
+            steps[:] = [step for step in steps
+                        if not (step[0] == "click"
+                                and str(step[1]).startswith("?[data-kin-approval-card]"))]
+
+        code, out = self.check(self.copy_with(drop_denies))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("deny the seeded approvals", out)
+
+    def test_j16_scrolls_away_before_the_follow_up_bubble_is_red(self) -> None:
+        # The send pins the pane to the bottom. Without the bubble wait the
+        # scroll-away races that pin and the reply lands in view, so the
+        # incoming verdict measures the wrong state.
+        def drop_bubble_wait(steps):
+            steps[:] = [step for step in steps
+                        if not (step[0] == "wait"
+                                and "Reading follow-up while the reader is away" in str(step[1]))]
+
+        code, out = self.check(self.copy_with(drop_bubble_wait))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("follow-up bubble", out)
+
+    def test_j16_paths_rows_cover_layout_design_and_locales(self) -> None:
+        # First match wins: a tabs/chrome diff, a CSS/token diff and a label
+        # diff each stop at their own row, so J16 must be on all three or the
+        # 820 width is skipped for exactly the changes #537 found.
+        def drop(spec):
+            for row in spec["paths"]:
+                if row[0].startswith(("ui/src/components/layout/", "ui/src/components/ui/",
+                                      "ui/src/i18n/locales/")):
+                    row[1] = [journey for journey in row[1] if journey != "J16"]
+
+        code, out = self.check(self.copy_spec_with(drop))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        for needle in ("SessionTabs.tsx", "ui/src/index.css", "ui/src/i18n/locales/en.ts"):
+            self.assertIn(needle, out)
+
     def test_j16_tablet_viewport_without_touch_is_red(self) -> None:
         # A bare "820x1180" string is the regression this journey exists to
         # keep out: it resolves to hasTouch false and measures a mouse.
