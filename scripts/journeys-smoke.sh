@@ -2,8 +2,8 @@
 # One command that proves the console still works as the seven product
 # journeys at phone, Mac and wide-Mac widths, against real seeded content.
 #
-#   scripts/journeys-smoke.sh [--out DIR] [--journeys J1,J2] [--no-build]
-#                             [--no-seed] [--dry-run]
+#   scripts/journeys-smoke.sh [--out DIR] [--journeys J1,J2] [--spec PATH]
+#                             [--no-build] [--no-seed] [--dry-run]
 #
 # It builds the console when web/dist/assets is stale (so the screens describe
 # this tree), boots the real daemon on a free port with a throwaway state dir
@@ -11,6 +11,10 @@
 # rsi/runtime/ux/journeys.json with rsi/runtime/ux/walk.mjs, and summarizes the
 # walk as one row per declared journey x viewport. PNGs, walk.json and seed.log
 # stay in DIR; the path is the last line of a run.
+#
+# --spec PATH is the opt-in diagnostic seam: the same spec goes to the walker
+# and the summarizer, so the table describes the matrix the browser walked.
+# Without it the default journeys.json invocation is byte-identical.
 #
 # Exit: 0 clean, 1 walked with hard failures, 2 could not run
 # (reason printed and written to DIR/UNAVAILABLE).
@@ -32,6 +36,7 @@ FAKE_AGENT_DIR="$ROOT/scripts/journeys_fake_agent"
 
 OUT=""
 JOURNEYS=""
+SPEC_ARG=""
 DO_BUILD=1
 DO_SEED=1
 DRY=0
@@ -40,10 +45,13 @@ PID=""
 
 usage() {
   cat <<'EOF'
-usage: scripts/journeys-smoke.sh [--out DIR] [--journeys J1,J2] [--no-build] [--no-seed] [--dry-run]
+usage: scripts/journeys-smoke.sh [--out DIR] [--journeys J1,J2] [--spec PATH] [--no-build] [--no-seed] [--dry-run]
 
-  --out DIR        where the PNGs, walk.json and seed.log go (default: mktemp -d under /tmp)
+  --out DIR        where the PNGs, walk.json, reading metrics and seed.log go
+                   (default: mktemp -d under /tmp)
   --journeys LIST  walk only these journey ids
+  --spec PATH      walk and summarize this spec instead of
+                   rsi/runtime/ux/journeys.json (the 820 reading diagnostic)
   --no-build       do not rebuild the console even when web/dist/assets is stale;
                    refuses a dist whose index.html names assets that are not on disk
   --no-seed        walk an empty daemon
@@ -77,6 +85,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --out) [ $# -ge 2 ] || unavail "--out needs a directory"; OUT="$2"; shift 2 ;;
     --journeys) [ $# -ge 2 ] || unavail "--journeys needs a comma-separated list"; JOURNEYS="$2"; shift 2 ;;
+    --spec) [ $# -ge 2 ] || unavail "--spec needs a path"; SPEC="$2"; SPEC_ARG=1; shift 2 ;;
     --no-build) DO_BUILD=0; shift ;;
     --no-seed) DO_SEED=0; shift ;;
     --dry-run) DRY=1; shift ;;
@@ -179,7 +188,10 @@ if unknown:
 viewports = spec.get("viewports") or {}
 for journey in selected:
     for viewport in spec["journeys"][journey].get("viewports") or []:
-        print(f"{journey} {viewport} {viewports.get(viewport, '?')}")
+        raw = viewports.get(viewport, "?")
+        # A viewport is either "WxH" or an object carrying size + input shape.
+        size = raw if isinstance(raw, str) else (raw or {}).get("size", "?")
+        print(f"{journey} {viewport} {size}")
 PY
 )"
 MATRIX_RC=$?
@@ -246,13 +258,16 @@ if [ "$DRY" = 1 ]; then
     echo "daemon: go build ./cmd/kin -> <tmp>/kin"
   fi
   echo "seed: $([ "$DO_SEED" = 1 ] && echo yes || echo no)"
+  if [ -n "$SPEC_ARG" ]; then echo "spec: $SPEC"; else echo "spec: $SPEC (default)"; fi
   echo "out: ${OUT:-<mktemp -d under /tmp>}"
   echo "matrix:"
   printf '%s\n' "$MATRIX" | sed 's/^/  /'
   WALK_CMD="node rsi/runtime/ux/walk.mjs --base http://127.0.0.1:<port> --token <token> --out <out>"
+  [ -n "$SPEC_ARG" ] && WALK_CMD="$WALK_CMD --spec $SPEC"
   [ -n "$JOURNEYS" ] && WALK_CMD="$WALK_CMD --journeys $JOURNEYS"
   echo "walk: $WALK_CMD"
   SUM_CMD="python3 scripts/journeys_smoke.py --walk-json <out>/walk.json"
+  [ -n "$SPEC_ARG" ] && SUM_CMD="$SUM_CMD --spec $SPEC"
   [ -n "$JOURNEYS" ] && SUM_CMD="$SUM_CMD --journeys $JOURNEYS"
   echo "summarize: $SUM_CMD"
   exit 0
@@ -268,7 +283,16 @@ command -v curl >/dev/null 2>&1 || unavail "curl not found"
 if [ -x "$FAKE_AGENT_DIR/claude" ]; then
   PATH="$FAKE_AGENT_DIR:$PATH"
   export PATH
-  unset KIN_CLAUDE_BIN
+  # The daemon resolves `claude` through toolpath.Resolve, whose known install
+  # locations win over PATH by design; on a machine with a real ~/.local/bin
+  # claude the PATH prefix alone never selects the fake. The opt-in diagnostic
+  # spec uses the explicit override so its turn is answered by the fake and no
+  # real model can run. The default invocation keeps the old unset byte for byte.
+  if [ -n "$SPEC_ARG" ]; then
+    export KIN_CLAUDE_BIN="$FAKE_AGENT_DIR/claude"
+  else
+    unset KIN_CLAUDE_BIN
+  fi
   # J3 types a second message while the first round is open, so the fake's
   # default 3s hold ends before the follow-up steps. Mirror ux-walk.sh: hold
   # 10s unless the caller (the mutant runner) already chose a value.
@@ -333,6 +357,7 @@ else
 fi
 
 WALK_ARGS=(--base "http://127.0.0.1:$PORT" --token "$TOKEN" --out "$OUT")
+[ -n "$SPEC_ARG" ] && WALK_ARGS+=(--spec "$SPEC")
 [ -n "$JOURNEYS" ] && WALK_ARGS+=(--journeys "$JOURNEYS")
 node "$WALK" "${WALK_ARGS[@]}" >"$OUT/walk.log" 2>&1
 WALK_RC=$?
@@ -345,6 +370,7 @@ esac
 [ -f "$OUT/walk.json" ] || unavail "walker wrote no walk.json (see $OUT/walk.log)"
 
 SUMMARY_ARGS=(--walk-json "$OUT/walk.json")
+[ -n "$SPEC_ARG" ] && SUMMARY_ARGS+=(--spec "$SPEC")
 [ -n "$JOURNEYS" ] && SUMMARY_ARGS+=(--journeys "$JOURNEYS")
 SUMMARY_OUT="$(python3 "$SUMMARY" "${SUMMARY_ARGS[@]}" 2>&1)"
 SUMMARY_RC=$?
