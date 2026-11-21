@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
-"""Mark which open follow-ups already look landed, so a planner stops starting dead lanes.
+"""Mark which open follow-ups cite an already-merged ref, so a planner reads those first.
 
 The loop's process defects are written into ``state/followups.md``, one ``- [ ]`` line each,
-usually naming the PR (``#480``) or commit (``a81cbaa1``) that should fix it. Nothing ever
+usually naming the PR (``#480``) or commit (``a81cbaa1``) it is about. Nothing ever
 checks that list, so it passed 1,600 lines and on 2026-11-21 a planner reading it nearly
 started three lanes for work already on ``main``. This tool is the read-only answer:
 
     followups-lint.py [--state DIR] [--status] [--json] [--repo DIR] [--base REF]
 
 Reads ``<state>/followups.md`` and ``<state>/merged.log`` and reports, per unchecked line,
-whether any of its references looks landed:
+whether any of its references is a citation of something already merged. A citation is a
+**hint to read that line, not a verdict that it is done**: live lines cite a merged ref as
+the trigger, the regression, or the evidence, so the work they ask for can still be open.
 
-* a PR number counts as landed when ``#<n>`` appears in ``merged.log`` (the merge lane's
+* a PR number is cited when ``#<n>`` appears in ``merged.log`` (the merge lane's
   ``<date> <time> PR #<n> … merged <sha> <url>`` line). A bare ``/pull/42`` URL is not the
   marker — only the ``#<n>`` token is;
-* a hex id counts as landed only when ``git cat-file -e`` resolves it *and*
+* a hex id is cited only when ``git cat-file -e`` resolves it *and*
   ``git merge-base --is-ancestor <sha> <base>`` exits 0 (``--base``, default
   ``origin/main``). An id that does not resolve locally is **open**: a shallow or stale
   clone must never produce a false "done".
 
 It is a report, never an editor — no file is written, so ``followups.md``'s hash is identical
-after any run. Exit 0 for every successful read (stale findings are not an error), exit 2 for
+after any run. Exit 0 for every successful read (citations are not an error), exit 2 for
 a usage error. Seams: ``--state`` then ``$RSI_STATE`` then ``$STATE`` then ``rsi/state``
 under the repo; ``--repo`` then ``$RSI_CTRL`` then the repository this script lives in.
 """
@@ -41,7 +43,7 @@ PR_RE = re.compile(r"#(\d+)")
 MERGED_PR_RE = re.compile(r"(?<!\w)#(\d+)\b")
 SHA_RE = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 
-STALE, OPEN = "stale", "open"
+CITED, OPEN = "cited", "open"
 
 
 def repo_dir(arg: str | None) -> Path:
@@ -120,24 +122,24 @@ def classify(items: list[tuple[int, str]], prs: set[str], repo: Path, base: str)
     rows = []
     for line, text in items:
         refs = refs_of(text)
-        landed = None
+        cited = None
         for ref in refs:
             if ref.startswith("#"):
                 if ref[1:] in prs:
-                    landed = ref
+                    cited = ref
                     break
             elif sha_landed(ref, repo, base, cache):
-                landed = ref
+                cited = ref
                 break
-        rows.append({"line": line, "text": text, "refs": refs, "landed": landed})
+        rows.append({"line": line, "text": text, "refs": refs, "cited": cited})
     return rows
 
 
 def status_line(rows: list[dict]) -> str:
-    landed = [r["landed"] for r in rows if r["landed"]]
-    line = f"followups: {len(rows)} open, {len(landed)} look landed"
-    if landed:
-        line += f" ({', '.join(landed[:5])})"
+    cited = [r["cited"] for r in rows if r["cited"]]
+    line = f"followups: {len(rows)} open, {len(cited)} cite a merged ref"
+    if cited:
+        line += f" ({', '.join(cited[:5])})"
     return line
 
 
@@ -155,7 +157,7 @@ def read(path: Path, label: str) -> str | None:
 
 
 def main(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(description="mark open follow-ups that already look landed")
+    ap = argparse.ArgumentParser(description="mark open follow-ups that cite a merged ref")
     ap.add_argument("--state", help="state dir (default $RSI_STATE, $STATE, repo/rsi/state)")
     ap.add_argument("--status", action="store_true", help="one deterministic summary line")
     ap.add_argument("--json", action="store_true", help="machine-readable report")
@@ -172,20 +174,20 @@ def main(argv: list[str]) -> int:
     else:
         rows = classify(open_lines(followups), merged_prs(merged or ""), repo, a.base)
 
-    stale = sum(1 for r in rows if r["landed"])
+    cited = sum(1 for r in rows if r["cited"])
     if a.status:
         print(status_line(rows))
         return 0
     if a.json:
         print(json.dumps({
             "open": len(rows),
-            "stale": stale,
-            "items": [{"line": r["line"], "refs": r["refs"], "landed": r["landed"]}
+            "cited": cited,
+            "items": [{"line": r["line"], "refs": r["refs"], "cited": r["cited"]}
                       for r in rows],
         }, indent=2))
         return 0
     for r in rows:
-        print(f"{STALE if r['landed'] else OPEN} {r['line']} {r['text'][:80]}")
+        print(f"{CITED if r['cited'] else OPEN} {r['line']} {r['text'][:80]}")
     return 0
 
 

@@ -2,11 +2,12 @@
 # test-followups-lint.sh — a follow-up that already landed must not read as still open.
 #
 # The loop's process defects are written into `state/followups.md`, one `- [ ]` line each, usually
-# naming the PR or commit that should fix it. Nothing ever marks those lines done, so the file grew
+# naming the PR or commit it is about. Nothing ever marks those lines done, so the file grew
 # past 1,600 lines; on 2026-11-21 a planner reading it nearly started three lanes for work already on
 # `main`. followups-lint.py is a read-only report: it checks each open line's refs against
-# `merged.log` (PR numbers) and `git merge-base --is-ancestor` (commit ids) and says which look
-# landed. It never edits the list and a ref it cannot resolve is open, never done.
+# `merged.log` (PR numbers) and `git merge-base --is-ancestor` (commit ids) and says which cite a
+# merged ref — a hint to read that line, never a claim that it is done. It never edits the list and
+# a ref it cannot resolve is open.
 #
 # Hermetic: mktemp state, fixture followups/merged.log, a throwaway git repo for the SHA cases, no
 # network, no writes outside the temp dirs. Prints "PASS <case>" per case and exits non-zero on the
@@ -51,29 +52,30 @@ sha256() {
 command -v shasum >/dev/null 2>&1 || command -v sha256sum >/dev/null 2>&1 \
   || fail "neither shasum nor sha256sum is available"
 
-# --- 1. a follow-up naming a merged PR is stale -------------------------------------------------
-case_merged_pr_is_stale() {
-  want merged-pr-is-stale || return 0
+# --- 1. a follow-up citing a merged PR is cited -------------------------------------------------
+case_merged_pr_is_cited() {
+  want merged-pr-is-cited || return 0
   reset
   printf '\xef\xbb\xbf' >> "$S/followups.md"    # a BOM must not swallow the first line
   fu '- [ ] fix the thing from #42 in internal/api' '- [ ] unrelated follow-up'
   merged 42
   run --status
   [ "$rc" -eq 0 ] || fail "merged-pr: rc=$rc ($out; $(cat "$T/err.txt"))"
-  [ "$out" = 'followups: 2 open, 1 look landed (#42)' ] || fail "merged-pr: status '$out'"
+  [ "$out" = 'followups: 2 open, 1 cite a merged ref (#42)' ] || fail "merged-pr: status '$out'"
   run --json
   python3 - "$T/out.txt" <<'PY' || exit 1
 import json, sys
 d = json.load(open(sys.argv[1]))
-assert d["open"] == 2 and d["stale"] == 1, d
-assert d["items"][0]["landed"] == "#42", d["items"][0]
+assert d["open"] == 2 and d["cited"] == 1, d
+assert "stale" not in d and "landed" not in d, d
+assert d["items"][0]["cited"] == "#42", d["items"][0]
 assert d["items"][0]["line"] == 1, d["items"][0]
-assert d["items"][1]["landed"] is None, d["items"][1]
+assert d["items"][1]["cited"] is None, d["items"][1]
 PY
   run
-  printf '%s\n' "$out" | grep -q '^stale 1 fix the thing from #42 in internal/api$' \
+  printf '%s\n' "$out" | grep -q '^cited 1 fix the thing from #42 in internal/api$' \
     || fail "merged-pr: default table ($out)"
-  pass merged-pr-is-stale
+  pass merged-pr-is-cited
 }
 
 # --- 2. a PR that is not in merged.log is open, and the URL path is not the marker ---------------
@@ -88,13 +90,13 @@ case_unmerged_pr_is_open() {
     >> "$S/merged.log"
   run --status
   [ "$rc" -eq 0 ] || fail "unmerged-pr: rc=$rc"
-  [ "$out" = 'followups: 2 open, 0 look landed' ] || fail "unmerged-pr: status '$out'"
+  [ "$out" = 'followups: 2 open, 0 cite a merged ref' ] || fail "unmerged-pr: status '$out'"
   pass unmerged-pr-is-open
 }
 
-# --- 3. a commit that is an ancestor of the base branch is stale --------------------------------
-case_ancestor_sha_is_stale() {
-  want ancestor-sha-is-stale || return 0
+# --- 3. a commit that is an ancestor of the base branch is cited -------------------------------
+case_ancestor_sha_is_cited() {
+  want ancestor-sha-is-cited || return 0
   local R="$T/repo" BASE SHA UP
   git init -q "$R" || fail "ancestor: git init"
   git -C "$R" config user.email owner@example.com
@@ -108,8 +110,8 @@ case_ancestor_sha_is_stale() {
   fu "- [ ] landed in $UP"      # uppercase input, lowercase compare and output
   run --repo "$R" --base "$BASE" --status
   [ "$rc" -eq 0 ] || fail "ancestor: rc=$rc ($out)"
-  [ "$out" = "followups: 1 open, 1 look landed ($SHA)" ] || fail "ancestor: status '$out'"
-  pass ancestor-sha-is-stale
+  [ "$out" = "followups: 1 open, 1 cite a merged ref ($SHA)" ] || fail "ancestor: status '$out'"
+  pass ancestor-sha-is-cited
 }
 
 # --- 4. a commit on a side branch that never merged is open -------------------------------------
@@ -133,7 +135,7 @@ case_non_ancestor_sha_is_open() {
   fu "- [ ] not merged yet $SHA"
   run --repo "$R" --base "$BASE" --status
   [ "$rc" -eq 0 ] || fail "non-ancestor: rc=$rc ($out)"
-  [ "$out" = 'followups: 1 open, 0 look landed' ] || fail "non-ancestor: status '$out'"
+  [ "$out" = 'followups: 1 open, 0 cite a merged ref' ] || fail "non-ancestor: status '$out'"
   pass non-ancestor-sha-is-open
 }
 
@@ -153,7 +155,7 @@ case_unknown_sha_is_open() {
   fu '- [ ] a shallow clone must not call this done deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
   run --repo "$R" --base "$BASE" --status
   [ "$rc" -eq 0 ] || fail "unknown: rc=$rc ($out)"
-  [ "$out" = 'followups: 1 open, 0 look landed' ] || fail "unknown: status '$out'"
+  [ "$out" = 'followups: 1 open, 0 cite a merged ref' ] || fail "unknown: status '$out'"
   pass unknown-sha-is-open
 }
 
@@ -165,12 +167,12 @@ case_checked_and_refless_lines_are_ignored() {
   merged 42
   run --status
   [ "$rc" -eq 0 ] || fail "ignore: rc=$rc"
-  [ "$out" = 'followups: 1 open, 0 look landed' ] || fail "ignore: status '$out'"
+  [ "$out" = 'followups: 1 open, 0 cite a merged ref' ] || fail "ignore: status '$out'"
   run --json
   python3 - "$T/out.txt" <<'PY' || exit 1
 import json, sys
 d = json.load(open(sys.argv[1]))
-assert d["open"] == 1 and d["stale"] == 0, d
+assert d["open"] == 1 and d["cited"] == 0, d
 assert d["items"][0]["line"] == 4, d["items"][0]
 PY
   pass checked-and-refless-lines-are-ignored
@@ -199,9 +201,9 @@ case_status_is_one_line() {
   fu '- [ ] one' '- [ ] two'
   run --status
   [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1 ] || fail "status-line: not one line ($out)"
-  printf '%s\n' "$out" | grep -Eq '^followups: [0-9]+ open, [0-9]+ look landed' \
+  printf '%s\n' "$out" | grep -Eq '^followups: [0-9]+ open, [0-9]+ cite a merged ref' \
     || fail "status-line: wrong shape ($out)"
-  [ "$out" = 'followups: 2 open, 0 look landed' ] || fail "status-line: '$out'"
+  [ "$out" = 'followups: 2 open, 0 cite a merged ref' ] || fail "status-line: '$out'"
   pass status-is-one-line
 }
 
@@ -211,7 +213,7 @@ case_missing_files_are_not_a_crash() {
   rm -rf "$S"; mkdir -p "$S"
   run --status
   [ "$rc" -eq 0 ] || fail "missing: rc=$rc"
-  [ "$out" = 'followups: 0 open, 0 look landed' ] || fail "missing: status '$out'"
+  [ "$out" = 'followups: 0 open, 0 cite a merged ref' ] || fail "missing: status '$out'"
   [ -s "$T/err.txt" ] || fail "missing: no message on stderr"
   pass missing-files-are-not-a-crash
 }
@@ -229,13 +231,45 @@ case_wiring_runs_the_suite() {
   want wiring-runs-the-suite || return 0
   bash "$RSI/runtime/tests/test-wiring.sh" >/dev/null 2>&1 \
     || fail "wiring: test-wiring.sh fails (name this suite in scripts/check.sh job_shell_test)"
+  grep -q 'followups-lint.py --status --state {{STATE}} --repo {{CTRL}}' "$RSI/runtime/prompts/fill.md" \
+    || fail "wiring: fill.md never names followups-lint.py to the planner"
+  grep -q 'must still be read, not skipped' "$RSI/runtime/prompts/fill.md" \
+    || fail "wiring: fill.md does not say a cited line must be read"
   pass wiring-runs-the-suite
 }
 
-for c in merged-pr-is-stale unmerged-pr-is-open ancestor-sha-is-stale non-ancestor-sha-is-open \
+# --- 12. a line citing a merged ref as its trigger/failure is a citation, never "done" ----------
+case_cited_ref_is_not_done() {
+  want cited-ref-is-not-done || return 0
+  reset
+  # The live 2026-11-21 shape (followups.md line 680): #161 is the trigger the follow-up reacts
+  # to ("after the lint ban lands, tighten again"), not the work it asks for; #506 is cited as
+  # the cause of a failure. Both are citations a planner must still read, never a landed verdict.
+  fu '- [ ] G1 #161 落地 lint ban 后应再收紧一次' '- [ ] #506 改了 schema 于是 build 红，需要修'
+  merged 161
+  merged 506
+  run --status
+  [ "$rc" -eq 0 ] || fail "cited-ref: rc=$rc ($out)"
+  [ "$out" = 'followups: 2 open, 2 cite a merged ref (#161, #506)' ] || fail "cited-ref: status '$out'"
+  run --json
+  python3 - "$T/out.txt" <<'PY' || exit 1
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["open"] == 2 and d["cited"] == 2, d
+assert "stale" not in d and "landed" not in d, d      # the verdict is a citation, not "done"
+assert d["items"][0]["cited"] == "#161", d["items"][0]
+assert "stale" not in d["items"][0] and "landed" not in d["items"][0], d["items"][0]
+PY
+  run
+  printf '%s\n' "$out" | grep -q '^cited 1 G1 #161 ' || fail "cited-ref: default table ($out)"
+  printf '%s\n' "$out" | grep -Eqi 'landed|stale' && fail "cited-ref: output still claims done ($out)"
+  pass cited-ref-is-not-done
+}
+
+for c in merged-pr-is-cited unmerged-pr-is-open ancestor-sha-is-cited non-ancestor-sha-is-open \
          unknown-sha-is-open checked-and-refless-lines-are-ignored file-is-not-modified \
          status-is-one-line missing-files-are-not-a-crash usage-error-exits-two \
-         wiring-runs-the-suite; do
+         wiring-runs-the-suite cited-ref-is-not-done; do
   "case_${c//-/_}"
 done
 echo "PASS all"
