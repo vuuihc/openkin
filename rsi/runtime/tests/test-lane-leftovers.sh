@@ -124,6 +124,31 @@ test_dist_assets_are_never_committed() {
   [ "$(needs_ceo_lines R-test-distassets)" = 0 ] || fail "distassets: the excluded bundle raised the leftovers warning"
 }
 
+# The measured defect (2026-11-21, R-ios-bottom-band): a UI lane runs `npm run build`, which writes
+# web/dist/assets. That directory is gitignored, and naming it in the *add* pathspec made git exit 1
+# ("paths are ignored by one of your .gitignore files"), so a worker that had committed everything
+# still failed the handoff sweep — reported as "left 0 path(s) uncommitted". The sweep must respect
+# .gitignore on add instead: a built bundle is not an error and not a committed path.
+test_ignored_dist_assets_do_not_fail_the_sweep() {
+  new_repo ignoreddist
+  printf 'web/dist/assets/\n' > "$R/.gitignore"
+  g add .gitignore >/dev/null && g commit -q -m 'ignore built bundles' || fail "ignoreddist: gitignore commit failed"
+  local base; base="$(g rev-parse HEAD)"
+  printf 'tracked-edit\n' >> "$R/README.md"
+  mkdir -p "$R/web/dist/assets"
+  printf 'bundle\n' > "$R/web/dist/assets/index-abc.js"
+  sweep R-test-ignoreddist
+  [ "$RC" -eq 0 ] || fail "ignoreddist: sweep exited $RC with an ignored dist bundle present ($(cat "$T/sweep.err"))"
+  [ "$(needs_ceo_lines R-test-ignoreddist)" = 0 ] \
+    || fail "ignoreddist: an ignored bundle raised the leftovers warning"
+  one_commit ignoreddist "$base"
+  local files; files="$(committed)"
+  grep -qx 'README.md' <<<"$files" || fail "ignoreddist: the tracked edit is not in the commit: $files"
+  grep -q '^web/dist/assets/' <<<"$files" && fail "ignoreddist: a generated bundle was committed: $files"
+  grep -q 'web/dist/assets/' <<<"$OUT" && fail "ignoreddist: the ignored bundle was printed on stdout: $OUT"
+  return 0
+}
+
 # The sweep depends on the root .gitignore naming the vitest cache: a lane that ran vitest leaves
 # .vitest/json/, and without the rule `git add -A` would commit that cache into every lane's PR.
 test_vitest_cache_is_never_committed() {
@@ -230,8 +255,11 @@ test_bundle_lanes_call_the_sweep() {
   return 0
 }
 
-run() {
-  [ -z "$ONLY" ] || [ "$ONLY" = "$1" ] || return 0
+RAN=0
+run() { # a case is named either test_new_file_... or its short form, new-file-...
+  local short="${1#test_}"; short="${short//_/-}"
+  [ -z "$ONLY" ] || [ "$ONLY" = "$1" ] || [ "$ONLY" = "$short" ] || return 0
+  RAN=$((RAN + 1))
   "$1" || exit 1
   pass "$1"
 }
@@ -240,10 +268,12 @@ run test_new_file_is_committed_with_tracked_edits
 run test_clean_worktree_makes_no_empty_commit
 run test_ignored_file_is_not_committed
 run test_dist_assets_are_never_committed
+run test_ignored_dist_assets_do_not_fail_the_sweep
 run test_vitest_cache_is_never_committed
 run test_failed_sweep_is_loud
 run test_post_commit_leftover_is_loud
 run test_unmerged_entries_are_refused
 run test_lane_calls_the_sweep_before_the_ahead_check
 run test_bundle_lanes_call_the_sweep
+[ -z "$ONLY" ] || [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS
