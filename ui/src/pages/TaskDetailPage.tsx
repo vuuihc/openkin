@@ -181,7 +181,8 @@ function routeHistoryIndex(pathname: string): number | null {
 }
 
 /** The conversation column's measured width (0 before its first report), so
- *  compact follows the column, not the window; 760 is where the row clipped. */
+ *  compact follows the column, not the window; 560 is the icon-only verb
+ *  row's floor (title floor, five verbs, project, Stop). */
 function useColumnWidth(ref: RefObject<HTMLElement | null>): number {
   const [width, setWidth] = useState(0);
   useEffect(() => {
@@ -219,11 +220,13 @@ export default function TaskDetailPage({
   // sheet's Escape/Back handlers behind its chip row.
   const wide = useMinWidth(768);
   // Compact by column width OR a finger (an iPad is desktop-wide with touch),
-  // never the viewport alone.
+  // never the viewport alone. The row itself gives up its words (container
+  // query) before this fires, so 560 only compacts when even the icon row no
+  // longer fits; at 760 it compacted an 1100 Mac that had room for the verbs.
   const columnRef = useRef<HTMLDivElement>(null);
   const columnWidth = useColumnWidth(columnRef);
   const coarsePointer = useCoarsePointer();
-  const compact = !wide || coarsePointer || (columnWidth > 0 && columnWidth < 760);
+  const compact = !wide || coarsePointer || (columnWidth > 0 && columnWidth < 560);
   const { machines } = useMachines();
   const detail = useTaskResource(id);
   const pending = usePendingResources();

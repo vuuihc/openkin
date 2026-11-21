@@ -52,10 +52,12 @@ describe("TaskDetailPage KIN-QUALITY-001", () => {
         within(dock).getByRole("button", { name: new RegExp(t("usage.taskSummary")) }),
       ).toBeTruthy();
     });
+    // Stable name; the count is visible text beside it, not part of the name.
     const files = within(desktopBar(container)).getByRole("button", {
-      name: t("workspace.filesCount", { count: 2 }),
+      name: t("workspace.title"),
     });
     expect(files.textContent).toContain("2");
+    expect(files.getAttribute("aria-label")).toBe(t("workspace.title"));
   });
   it("the compact header's actions trigger opens the existing session action sheet with the verbs intact", async () => {
     const { container } = renderPage();
@@ -79,6 +81,21 @@ describe("TaskDetailPage KIN-QUALITY-001", () => {
     // One sheet, not a fifth popover: the tablet reuses the phone's.
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     expect(dialog.closest("[data-kin-sheet]")?.className).not.toContain("md:hidden");
+  });
+  it("an 1100 Mac's column keeps the desktop verb row; only a sub-560 column compacts", () => {
+    const { container } = renderPage();
+    // 1100 minus the list column: wide enough for the icon-only row, which is
+    // why 760 compacted a Mac that had room for Pull Request, Share and Stop.
+    reportColumnWidth(727);
+    const bar = within(desktopBar(container));
+    expect(bar.getByRole("button", { name: t("pr.title") })).toBeTruthy();
+    expect(bar.getByRole("button", { name: t("composer.stop") })).toBeTruthy();
+    expect(bar.queryByRole("button", { name: t("task.sessionActions") })).toBeNull();
+
+    reportColumnWidth(520);
+    expect(
+      within(desktopBar(container)).getByRole("button", { name: t("task.sessionActions") }),
+    ).toBeTruthy();
   });
   it("a passive open makes no GitHub request and reads no secure-store secret", () => {
     const fetchSpy = vi.fn();

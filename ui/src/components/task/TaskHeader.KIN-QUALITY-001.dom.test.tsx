@@ -65,9 +65,12 @@ describe("TaskHeader KIN-QUALITY-001", () => {
     // The project answers "which session is this" and is not a third action.
     expect(view.getByText("openkin")).toBeTruthy();
     expect(bar.querySelectorAll("a")).toHaveLength(0);
-    expect(
-      view.getByRole("button", { name: t("workspace.filesCount", { count: 2 }) }).textContent,
-    ).toContain("2");
+    // The accessible name is the control's own word; the count is visible
+    // text beside it, never part of the name (label-in-name and the walk's
+    // `button[aria-label='文件']` both need the stable name).
+    const files = view.getByRole("button", { name: t("workspace.title") });
+    expect(files.textContent).toContain("2");
+    expect(files.getAttribute("aria-label")).toBe(t("workspace.title"));
     expect(view.getByRole("button", { name: t("task.sessionActions") })).toBeTruthy();
     // Only those two controls; every other verb comes from the page's sheet.
     expect(view.getAllByRole("button")).toHaveLength(2);

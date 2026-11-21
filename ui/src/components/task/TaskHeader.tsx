@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Task } from "../../api/client";
 import { taskDisplayTitle } from "../../lib/taskTitle";
@@ -59,6 +59,19 @@ function SubagentCount({ count }: { count: number }) {
       {tr("task.subagentCount", { count })}
     </span>
   );
+}
+
+/**
+ * One verb's icon and word, held on a single line.
+ *
+ * Astryx renders a button's children inside one inline label span, and
+ * Tailwind's preflight makes every `<svg>` a block box; side by side in that
+ * inline context the icon took a line of its own and the word was clipped to
+ * an ellipsis underneath it. This flex row is the one thing the call site has
+ * to add — the button facade above still owns the behaviour.
+ */
+function VerbContent({ children }: { children: ReactNode }) {
+  return <span className="inline-flex items-center gap-1.5 whitespace-nowrap">{children}</span>;
 }
 
 /*
@@ -178,10 +191,17 @@ export default function TaskHeader({
   changedFileCount = 0,
 }: TaskHeaderProps) {
   const tr = useT();
+  /*
+   * Two names for one control. The count is a visible label, never part of the
+   * accessible name: `文件 · 1` in `aria-label` stopped matching the control's
+   * own visible word and the journey walk's `button[aria-label='文件']`. The
+   * button is called what it is called; the turn's count rides beside it.
+   */
+  const filesName = tr("workspace.title");
   const filesLabel =
     changedFileCount > 0
       ? tr("workspace.filesCount", { count: changedFileCount })
-      : tr("workspace.title");
+      : filesName;
   // This browser's renames, the same map the list's row menu writes
   // (`taskTitles.ts`). The header is open when a rename happens in the sidebar
   // or another tab, so it subscribes and re-reads rather than trusting the
@@ -232,10 +252,16 @@ export default function TaskHeader({
           }
           trailing={
             <>
-              <MobileHeaderButton label={filesLabel} onClick={onToggleWorkspace} tone="muted">
-                <span className="text-caption font-medium leading-flush">
-                  {tr("workspace.title")}
-                </span>
+              {/*
+                The files entry is a glyph, not a second "文件" word. The
+                action sheet below already has a row whose text is exactly
+                that word; two controls with the same visible name made the
+                sheet's row unreachable by name (the walk pressed the covered
+                header one and timed out), and a phone has no hover to tell
+                them apart. The accessible name stays the same word.
+              */}
+              <MobileHeaderButton label={filesName} onClick={onToggleWorkspace} tone="muted">
+                <IconPanel size={19} />
               </MobileHeaderButton>
               <MobileHeaderButton
                 label={tr("task.sessionActions")}
@@ -257,8 +283,12 @@ export default function TaskHeader({
           the small widths now, so the mobile-only controls are gone. */}
       <div
         data-task-header="desktop"
+        /* `@container`: the verbs' words are measured against this bar, not
+           the viewport. An open panel narrows the bar long before the window
+           does, and a viewport-based `xl:` kept drawing words into a column
+           that had none of the room. */
         /* `h-11` is the 44 px chrome (hairline included); `min-h-11` stays for the walk's selector. */
-        className="hidden md:flex min-h-11 h-11 flex-none items-center px-5 border-b border-[var(--kin-hairline)]"
+        className="@container hidden md:flex min-h-11 h-11 flex-none items-center px-5 border-b border-[var(--kin-hairline)]"
         style={{ WebkitAppRegion: "drag" } as CSSProperties}
       >
         {compact ? (
@@ -281,24 +311,26 @@ export default function TaskHeader({
                 variant="secondary"
                 onClick={onToggleWorkspace}
                 aria-pressed={filesOpen}
-                aria-label={filesLabel}
+                aria-label={filesName}
                 className={[
-                  "h-11 min-w-11 gap-1.5 rounded-md px-2 text-body font-normal",
+                  "flex-none h-11 min-w-11 gap-1.5 rounded-md px-2 text-body font-normal",
                   filesOpen
                     ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
                     : "text-kin-secondary hover:text-kin-text",
                 ].join(" ")}
                 title={tr("workspace.toggle")}
               >
-                <IconPanel size={16} />
-                <span className="whitespace-nowrap">{filesLabel}</span>
+                <VerbContent>
+                  <IconPanel size={16} />
+                  <span>{filesLabel}</span>
+                </VerbContent>
               </Button>
               <Button
                 variant="secondary"
                 onClick={onOpenActions}
                 aria-label={tr("task.sessionActions")}
                 title={tr("task.sessionActions")}
-                className="h-11 min-w-11 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
+                className="flex-none h-11 min-w-11 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
               >
                 <IconMore size={18} />
               </Button>
@@ -329,7 +361,7 @@ export default function TaskHeader({
                 >
                   {hostAgentAvatar.initials}
                 </span>
-                <span className="hidden xl:inline">
+                <span className="hidden @min-[1140px]:inline">
                   {tr("newChat.hostAgent", { name: hostAgentName })}
                 </span>
               </span>
@@ -341,30 +373,36 @@ export default function TaskHeader({
                   variant="secondary"
                   onClick={onShowList}
                   aria-label={tr("nav.showList")}
-                  className="h-11 gap-1.5 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
+                  className="flex-none h-11 gap-1.5 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
                   title={tr("nav.showList")}
                 >
-                  <IconSessions size={13} />
-                  <span>{tr("nav.showList")}</span>
+                  <VerbContent>
+                    <IconSessions size={13} />
+                    <span>{tr("nav.showList")}</span>
+                  </VerbContent>
                 </Button>
               )}
               <Button
                 variant="secondary"
                 onClick={onToggleWorkspace}
                 aria-pressed={filesOpen}
-                aria-label={filesLabel}
+                aria-label={filesName}
                 className={[
-                  "h-11 min-w-11 gap-1.5 rounded-md px-2 text-body font-normal",
+                  "flex-none h-11 min-w-11 gap-1.5 rounded-md px-2 text-body font-normal",
                   filesOpen
                     ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
                     : "text-kin-secondary hover:text-kin-text",
                 ].join(" ")}
                 title={tr("workspace.toggle")}
               >
-                <IconPanel size={13} />
-                {/* Below `xl` the verbs keep their icon, accessible name and
-                tooltip but give up the word; the count stays in the name. */}
-                <span className="hidden xl:inline">{filesLabel}</span>
+                <VerbContent>
+                  <IconPanel size={13} />
+                  {/* Below the container's verb floor the verbs keep their
+                  icon, accessible name and tooltip but give up the word, so
+                  the row narrows with the column instead of clipping. The
+                  count stays in the visible label when both fit. */}
+                  <span className="hidden @min-[1140px]:inline">{filesLabel}</span>
+                </VerbContent>
               </Button>
               {/* The pull request is a sibling surface to the workspace, in the
               same right-side container (TASTE 17), so its toggle is that
@@ -375,31 +413,35 @@ export default function TaskHeader({
                 aria-pressed={prOpen}
                 aria-label={tr("pr.title")}
                 className={[
-                  "h-11 gap-1.5 rounded-md px-2 text-body font-normal",
+                  "flex-none h-11 gap-1.5 rounded-md px-2 text-body font-normal",
                   prOpen
                     ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
                     : "text-kin-secondary hover:text-kin-text",
                 ].join(" ")}
                 title={tr("pr.title")}
               >
-                <IconPullRequest size={13} />
-                <span>{tr("pr.title")}</span>
+                <VerbContent>
+                  <IconPullRequest size={13} />
+                  <span className="hidden @min-[1140px]:inline">{tr("pr.title")}</span>
+                </VerbContent>
               </Button>
               <Button
                 variant="secondary"
                 onClick={onShare}
                 aria-label={tr("task.share")}
-                className="h-11 gap-1.5 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
+                className="flex-none h-11 gap-1.5 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text"
                 title={tr("task.shareTitle")}
               >
-                <IconShare size={13} />
-                <span className="hidden xl:inline">{tr("task.share")}</span>
+                <VerbContent>
+                  <IconShare size={13} />
+                  <span className="hidden @min-[1140px]:inline">{tr("task.share")}</span>
+                </VerbContent>
               </Button>
               <Button
                 variant="secondary"
                 onClick={() => void onToggleArchive()}
                 disabled={archiving}
-                className="h-11 min-w-11 gap-1 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text disabled:opacity-40"
+                className="flex-none h-11 min-w-11 gap-1 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-text disabled:opacity-40"
                 title={archiveLabel}
                 aria-label={archiveLabel}
               >
@@ -409,7 +451,7 @@ export default function TaskHeader({
                 variant="secondary"
                 onClick={() => void onDelete()}
                 disabled={deleting}
-                className="h-11 min-w-11 gap-1 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
+                className="flex-none h-11 min-w-11 gap-1 rounded-md px-2 text-body font-normal text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
                 title={tr("task.deleteSession")}
                 aria-label={tr("task.deleteSession")}
               >
@@ -438,7 +480,7 @@ export default function TaskHeader({
                     variant="secondary"
                     onClick={() => void onStop()}
                     disabled={stopping}
-                    className="h-11 text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-2 rounded-md border-kin-red/30 bg-kin-red/10"
+                    className="flex-none h-11 text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-2 rounded-md border-kin-red/30 bg-kin-red/10"
                   >
                     {stopping ? tr("task.stopping") : tr("composer.stop")}
                   </Button>

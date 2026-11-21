@@ -144,7 +144,8 @@ describe("TaskHeader", () => {
     expect(titleBlock.className.split(/\s+/)).toContain("min-w-cell");
 
     // Secondary verbs keep their icon, name and tooltip but lose the word
-    // below `xl`, which is what makes room for the title at 1100px.
+    // below the bar's own verb floor (a container query, not the viewport:
+    // an open panel narrows the bar long before the window narrows).
     const compacted = [
       within(desktop.getByRole("button", { name: t("workspace.title") })).getByText(
         t("workspace.title"),
@@ -155,7 +156,37 @@ describe("TaskHeader", () => {
     for (const label of compacted) {
       const classes = label.className.split(/\s+/);
       expect(classes).toContain("hidden");
-      expect(classes).toContain("xl:inline");
+      expect(classes).toContain("@min-[1140px]:inline");
+    }
+  });
+
+  it("desktop: every icon+word verb holds its icon and word on one line", () => {
+    const { utils } = setup();
+    const desktop = within(desktopBar(utils));
+
+    // Astryx wraps children in one inline span and preflight makes an `<svg>`
+    // a block box: without the flex row the icon took its own line and the
+    // word was clipped underneath it.
+    for (const label of [t("workspace.title"), t("pr.title"), t("task.share")]) {
+      const content = desktop.getByText(label).parentElement as HTMLElement;
+      const classes = content.className.split(/\s+/);
+      expect(classes, label).toContain("inline-flex");
+      expect(classes, label).toContain("items-center");
+      expect(classes, label).toContain("whitespace-nowrap");
+    }
+    // A shrinking verb truncated its label to "文件 ..."; the verbs are now
+    // fixed and the cluster scrolls instead.
+    for (const label of [
+      t("workspace.title"),
+      t("pr.title"),
+      t("task.share"),
+      t("task.archiveSession"),
+      t("task.deleteSession"),
+    ]) {
+      expect(
+        desktop.getByRole("button", { name: label }).className.split(/\s+/),
+        label,
+      ).toContain("flex-none");
     }
   });
 
