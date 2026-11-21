@@ -216,12 +216,31 @@ describe("compact controls", () => {
         const c = source[i];
         const next = source[i + 1] ?? "";
         if (quote) {
-          if (c === "\\") { out += c + next; i += 2; continue; }
-          if (c === quote) { quote = null; out += c; i += 1; continue; }
-          if (c === "\n" && quote !== "`") { quote = null; out += c; i += 1; continue; }
-          out += c; i += 1; continue;
+          if (c === "\\") {
+            out += c + next;
+            i += 2;
+            continue;
+          }
+          if (c === quote) {
+            quote = null;
+            out += c;
+            i += 1;
+            continue;
+          }
+          if (c === "\n" && quote !== "`") {
+            quote = null;
+            out += c;
+            i += 1;
+            continue;
+          }
+          out += c;
+          i += 1;
+          continue;
         }
-        if (c === "/" && next === "/") { while (i < source.length && source[i] !== "\n") i += 1; continue; }
+        if (c === "/" && next === "/") {
+          while (i < source.length && source[i] !== "\n") i += 1;
+          continue;
+        }
         if (c === "/" && next === "*") {
           i += 2;
           while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i += 1;
@@ -229,20 +248,22 @@ describe("compact controls", () => {
           continue;
         }
         if (c === '"' || c === "'" || c === "`") quote = c;
-        out += c; i += 1;
+        out += c;
+        i += 1;
       }
       return out;
     };
 
     // A guard is only worth its green if it can fail. These are the spellings
     // that got through before, and the shapes that must stay quiet.
-    expect(importantIn(stripComments('const c = "!hidden !-mt-4 ![min-height:0px] !min-h-0";'))).toEqual([
-      "!hidden",
-      "!-mt-4",
-      "![min-height:0px]",
-      "!min-h-0",
-    ]);
-    expect(importantIn(stripComments("// (`taskTitles.ts`) then\nconst live = task.cwd || !terminal ? a : b;"))).toEqual([]);
+    expect(
+      importantIn(stripComments('const c = "!hidden !-mt-4 ![min-height:0px] !min-h-0";')),
+    ).toEqual(["!hidden", "!-mt-4", "![min-height:0px]", "!min-h-0"]);
+    expect(
+      importantIn(
+        stripComments("// (`taskTitles.ts`) then\nconst live = task.cwd || !terminal ? a : b;"),
+      ),
+    ).toEqual([]);
     expect(importantIn('"!hidden !-mt-4 ![min-height:0px] !min-h-0"')).toEqual([
       "!hidden",
       "!-mt-4",
