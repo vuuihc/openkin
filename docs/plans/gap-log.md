@@ -34,11 +34,6 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
-- 2026-11-21 · 中 · 慢轮进行中先排队一条追问、再打断时，刷新后缺少「已打断上一轮」这一行 — 慢轮（`[seed] slow`）运行中先用「发送」把一条追问排队，再输入另一条点「打断本轮并立即发送」；重载 `/tasks/:id` 后，被打断的那轮与打断消息之间没有「已打断上一轮」，读起来像 agent 自己停了；同一会话里不排队、直接打断时该行正常出现（本轮 1100×760 实测两种序列）。
-  - **期望行为可写成测试**：给定事件序列「运行中的慢轮用户消息 → `task_started` → 一条排队中的追问 → `source:"interrupt"` / `interrupted:true` 的打断消息」，`buildChatItems` 必须在该打断消息之上输出一条 `kind:"meta"`、`label` 为 `chat.interruptedNote`（「已打断上一轮」）的行；把序列里排队的那条去掉，输出保持不变。在 `ui/src/components/chat/ChatStream.interrupt.dom.test.tsx` 增加 queue-then-interrupt 用例即可失败重现。
-  - **不要的做法**：不要在 projection 里按消息文本或 `source` 猜哪一条「还在排队」——排队中与已送达的追问在事件里同为 `source:"follow_up"`；不要把每一个用户气泡都当成「已经开始了新一轮」。
-  - **照抄的同类**：不排队时的路径已经做对：`ui/src/components/chat/transcriptProjection.ts:1001` 的 `roundWasStarted || hasRoundAbove()` 在慢轮直接被打断时输出该行（`ui/src/components/chat/ChatStream.interrupt.dom.test.tsx:46`）；但「排队中的追问不结束本轮」没有现成判据可抄——`ui/src/components/chat/transcriptProjection.ts:826` 目前对每条 user 消息都把 `roundStarted` 置 false。
-
 - 2026-11-21 · 低 · 一个项目有两个根目录时，对话列表出现两个同名项目标题，其中一个永远为空 — `/api/projects` 里 `[seed] Project Alpha` 同时拥有 `alpha` 与 `aaa-config` 两个根目录；390×844 与 1100×760 的对话列表都渲染两个「[seed] Project Alpha」标题，一个 2 条对话、一个 0 条，两个标题各自都带项目级动作（新建对话；1100 上还有项目封面 / 置顶项目 / 从侧栏移除），人分不清它们是不是同一个项目。
   - **期望行为可写成测试**：`/api/projects` 中同一项目 id 的多个根目录下的对话，在对话列表中只出现一个项目标题，标题后的数量等于这些根目录下对话数之和；第二个根目录仍可从新建对话的目录选择器里选到。用带两个根的种子项目写一条列表测试（390 与 1100 各一次）即可失败重现。
   - **不要的做法**：不要按 cwd 分桶、再把两个桶的标题都改成项目名（现在就是这样：两个根 = 两个同名标题）；不要用「隐藏空标题」掩盖重复——空的那个根上还挂着项目级动作，且根目录仍是新建对话的可选项；也不要把两个根目录的对话混进同一个目录。
@@ -50,6 +45,7 @@ person can see; the fix and its verification belong in the PR.
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-21 · 慢轮进行中先排队一条追问、再打断时，刷新后缺少「已打断上一轮」这一行 — `50d3ac96`（PR #526）：`transcriptProjection.ts` 的轮次生命周期由 `task_started` / `result` 掌管，排队中的追问不再清掉 `roundStarted`；测试 `ui/src/components/chat/ChatStream.interrupt.dom.test.tsx` 用例 `keeps the interrupt mark when a queued follow-up sits above it`
 - 2026-11-21 · 另一条对话在等审批时，浮动审批卡压住本对话「这一轮改了什么」的文件行，点行中心会落到审批卡上 — `3c328fa7`（PR #504）：卡片与任一可见文件行相交时只渲染 strip（仍可打开被堵的那条对话），收起证据卡或把该行滚走卡片即回来；新增 `FloatingApproval.overlap.dom.test.tsx`，接线 pin `floatingApprovalWiring.test.ts`，1100×760 / 390×844 真 daemon 实测行中心 `elementFromPoint` 命中该行而非 `aside[aria-label="等待处理"]`
 - 2026-11-21 · 打断后的记录里没有任何「已打断」痕迹，被切断的一轮看起来像 agent 没回 — `4f8829ce`（PR #505）：在被打断的那一轮末尾投影一条持久 `meta` 行「已打断」，位于打断它的消息之上，刷新 / 重进仍在；toast 保留；测试 `transcriptProjection.test.ts`、`ChatStream.interrupt.dom.test.tsx`
 - 2026-11-21 · 同一个对象在界面里同时叫「对话」「会话」「任务」 — `5700a080`（PR #506）：项目行菜单、用量摘要、对话不存在的文案在 zh / en 都统一为「对话」/ conversation，例行任务仍叫「任务」；测试 `locales.test.ts`、`TaskUsageSummary.dom.test.tsx`，三套按英文菜单字面量断言的 DOM 测试随值更新
