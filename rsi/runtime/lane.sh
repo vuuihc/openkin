@@ -266,8 +266,21 @@ COST="$(tail -c 400 "$STATE/lanes/$N.worker.txt" | sed -n 's/.*cost_usd=\([0-9.]
 TIMEDOUT=0; [ $WRC -eq 143 ] && TIMEDOUT=1
 echo "[$(date +%T)] worker rc=$WRC min=$W_MIN cost=${COST:-?} log=${LASTLOG##*/}"
 
-# Track modified files the worker forgot to commit (untracked files are left for the gate to flag).
-[ -n "$($GIT -C "$WT" status --porcelain --untracked-files=no)" ] && $GIT -C "$WT" add -u -- . ':!web/dist/assets' && $GIT -C "$WT" commit -q -m "chore(rsi): commit remaining tracked edits for $ITEM" || true
+# Commit everything the worker left, including files it created: the gate judges this worktree,
+# CI judges the pushed branch, and a new file that stayed untracked made PR #511's journeys check
+# red while the lane was green (2026-11-21). The sweep runs before AHEAD so its commit counts, and
+# a sweep that could not take fails the lane instead of shipping a branch the local disk lied about.
+if ! SWEPT="$(bash "$RSI_DIR/runtime/commit-leftovers.sh" "$WT" "$ITEM")"; then
+  [ -n "$SWEPT" ] && printf '%s\n' "$SWEPT" > "$STATE/lanes/$N.leftovers.log"
+  finish failed "" "leftovers: uncommitted files remain for $ITEM; see needs-ceo.md"
+  exit 1
+fi
+SWEPT_N=0
+if [ -n "$SWEPT" ]; then
+  SWEPT_N="$(printf '%s\n' "$SWEPT" | wc -l | tr -d ' ')"
+  printf '%s\n' "$SWEPT" > "$STATE/lanes/$N.leftovers.log"
+  echo "[$(date +%T)] swept: $SWEPT_N file(s) -> lanes/$N.leftovers.log"
+fi
 AHEAD="$($GIT -C "$WT" rev-list --count origin/main..HEAD 2>/dev/null || echo 0)"
 if [ "$MODE" != rework ] && [ "$AHEAD" -eq 0 ]; then
   [ $TIMEDOUT -eq 1 ] && count_timeout "lane $N ($SLUG)" "no commits; log ${LASTLOG##*/}" || count_fail "lane $N ($SLUG)" "no commits; ${LASTLOG##*/}"
@@ -280,7 +293,7 @@ fi
 # moves the tip, or every lane that needed formatting lands as "style: format
 # changed UI and Go files". Skip the loop's own housekeeping commits.
 WORKER_TITLE="$($GIT -C "$WT" log --format=%s origin/main..HEAD 2>/dev/null \
-  | awk '!/^style: format changed UI and Go files$/ && !/^chore\(rsi\): commit remaining tracked edits/ { print; exit }')"
+  | awk '!/^style: format changed UI and Go files$/ && !/^chore\(rsi\): commit remaining (tracked )?edits/ { print; exit }')"
 
 count_format_fail() { # not a runner failure: after --write this is a parse/env problem (missing ui/node_modules, npx/gofmt), so count it apart
   local n=$(( $(cat "$STATE/consec_format" 2>/dev/null || echo 0) + 1 )); echo $n > "$STATE/consec_format"
@@ -329,7 +342,7 @@ fi
 
 if [ $TIMEDOUT -eq 1 ]; then count_timeout "lane $N ($SLUG)" "partial work pushed as PR #$PRN"; else count_ok; fi
 scorecard_row "$ITEM $SLUG (lane $N, $MODE)" "$M_WORKER" "pending (merge lane)" "PR opened (${W_MIN}m, \$${COST:-?})$([ $TIMEDOUT -eq 1 ] && echo ', worker hit watchdog')" "[#$PRN]($PRURL)" "pending" "-"
-finish done "$PRN" "PR #$PRN ${W_MIN}m \$${COST:-?}"
+finish done "$PRN" "PR #$PRN ${W_MIN}m \$${COST:-?} swept=$SWEPT_N"
 echo "[$(date +%T)] lane $N done PR #$PRN"
 rm -rf "$LK"; trap - EXIT
 

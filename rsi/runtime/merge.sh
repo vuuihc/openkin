@@ -14,9 +14,38 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 MERGE_WORKERS="${RSI_MERGE_WORKERS:-2}"          # verifier slots for any PR
 SMALL_SLOTS="${RSI_MERGE_SMALL_SLOTS:-1}"        # extra slot only small-safe PRs may use: a 3-line refactor never queues behind two big reviews
+REWORK_STALL_MIN="${RSI_REWORK_STALL_MIN:-20}"   # a sendback no lane picks up for this long is escalated, not waited on
 unset SB_FIXLIST SB_GATEFAILS
 say() { echo "[$(date +%T)] $*"; }
 attempts() { cat "$STATE/merge/$1.attempts" 2>/dev/null || echo 0; }
+# A sendback that no lane picks up must not be waited on forever. 2026-11-21: #506's rework lane
+# died with `push failed` at 07:59 and the sendback stayed put, so a PR whose gate, review and CI
+# were all green sat OPEN for ~50 minutes (open_to_merge=59m) until a person reconciled it by hand.
+# The branch below runs AFTER the active-lane check, so "no lane holds this slug" is already proven;
+# the only missing bound is AGE. After REWORK_STALL_MIN minutes: say the age, write one
+# `rework_stalled` line to cycles.log, and leave one needs-ceo line per (slug, sendback file) — a
+# fresh sendback on the same slug escalates again, the same one never repeats. A sendback whose
+# age cannot be read keeps the old wording and never escalates (fail closed: a phantom stall
+# message is worse than a quiet wait).
+rework_wait() { # <pr-number> <slug> <state-dir>: prints, and bounds the wait; never a verdict
+  local n="$1" slug="$2" state="$3" sb info mtime age marker
+  sb="$state/sendback/$slug.md"
+  info="$(python3 -c 'import os,sys,time
+st=os.stat(sys.argv[1]); print(int(st.st_mtime), int((time.time()-st.st_mtime)//60))' "$sb" 2>/dev/null)"
+  # An unreadable or malformed age keeps the old wording: a phantom stall line is worse than a wait.
+  [ -n "$info" ] && [ "${info#* }" != "$info" ] || { say "#$n $slug: waiting for rework"; return 0; }
+  mtime="${info%% *}"; age="${info##* }"
+  case "$mtime$age" in ''|*[!0-9]*) say "#$n $slug: waiting for rework"; return 0 ;; esac
+  say "#$n $slug: waiting for rework (${age}m, no lane)"
+  [ "$age" -ge "$REWORK_STALL_MIN" ] || return 0
+  marker="$state/merge/$slug.rework-stalled"
+  [ "$(cat "$marker" 2>/dev/null)" = "$mtime" ] && return 0
+  echo "$mtime" > "$marker"
+  printf '%s #%s %s rework_stalled age=%sm sendback=%s\n' "$(date '+%F %H:%M')" "$n" "$slug" "$age" "$sb" >> "$state/merge/cycles.log"
+  printf -- '- %s [merge lane · auto] PR #%s rsi/%s: the rework note %s has had no lane for %s minutes; the PR stays OPEN and nothing in the loop will pick it up. Dispatch a rework lane for it, or move the note into sendback/done with a reason. reverse: delete this line and %s.\n' \
+    "$(date '+%F %H:%M')" "$n" "$slug" "$sb" "$age" "$marker" >> "$state/needs-ceo.md"
+  return 0
+}
 # The machine-wide gate lock: claim by mkdir, reclaim a lock whose pid is dead, otherwise poll
 # until max seconds have passed. RSI_GATE_LOCK_POLL shortens only the poll cadence, for the
 # hermetic seam (tests/test-gate-lock-timeout.sh); production keeps 15 s and the same max in
@@ -355,6 +384,93 @@ gen_resolve() { # worktree -> 0 resolved and committed; 1 anything else (caller 
     $GIT -C "$wt" add -- "$p" || return 1
   done <<< "$un"
   $GIT -C "$wt" commit -q --no-edit || return 1
+}
+
+# ------------------------------------------------- a sync ends merged or aborted, never half-merged
+# A verifier killed between `git merge origin/main` and its commit leaves MERGE_HEAD plus unmerged
+# paths behind while HEAD is still the pre-merge head. The next gate/review then judges an old head
+# over a dirty index, and a later commit from that worktree can sweep another PR's staged files in
+# (2026-11-21: PR #506's worktree had `UU web/dist/index.html`, MERGE_HEAD=3c328fa7 and 9 staged
+# files byte-identical to #504's head, while the verifier gated the old head 1849750d). So every
+# return path of sync_main either commits the merge or aborts it. Abort is the only rollback:
+# `git merge --abort` restores the pre-merge tree and keeps the lane's uncommitted work, where
+# `reset --hard` would destroy it.
+merge_in_progress() { # <worktree> -> 0 when a merge is mid-flight or the index has unmerged entries
+  local wt="${1:-}" u
+  [ -n "$wt" ] && [ -d "$wt" ] || return 1
+  $GIT -C "$wt" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && return 0
+  u="$($GIT -C "$wt" ls-files -u 2>/dev/null)" && [ -n "$u" ]
+}
+
+abort_merge() { # <worktree> -> 0 when no merge is in progress afterwards; retried once, never `reset --hard`
+  local wt="${1:-}" try
+  merge_in_progress "$wt" || return 0
+  for try in 1 2; do
+    $GIT -C "$wt" merge --abort >/dev/null 2>&1
+    merge_in_progress "$wt" || return 0
+    [ "$try" -eq 1 ] && sleep 1   # an index.lock held by a just-killed child can clear a moment later
+  done
+  return 1
+}
+
+# Surface a worktree this cycle must not report as usable: the detail file carries the raw reason,
+# the needs-ceo line makes it visible without opening the log, and the caller returns 2 (skip).
+sync_refuse_half() { # <reason>
+  printf '%s\n' "$1" > "$STATE/merge/$SLUG.err"
+  printf -- '- %s PR rsi/%s: %s (see %s)\n' \
+    "$(date '+%F %H:%M')" "$SLUG" "$1" "$STATE/merge/$SLUG.err" >> "$STATE/needs-ceo.md"
+  say "#$N $SLUG: $1"
+}
+
+sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 transient failure; never leaves a half-merge
+  # Any sync ends a CI-first hold: the head this marker bounded is gone, so a later pending CI
+  # starts its own fresh window instead of inheriting an expired one.
+  rm -f "$STATE/merge/$SLUG.ci-hold"
+  # A merge already in flight is a state this cycle did not verify and must not build on: abort it
+  # first (the lane's own work survives), then refuse the cycle instead of reporting over it.
+  if merge_in_progress "$WT"; then
+    if abort_merge "$WT"; then
+      say "#$N $SLUG: a half-finished merge was present; aborted it before syncing"
+      printf -- '- %s PR rsi/%s: a merge of origin/main was left half-applied in %s; aborted before sync, cycle skipped\n' \
+        "$(date '+%F %H:%M')" "$SLUG" "$WT" >> "$STATE/needs-ceo.md"
+    else
+      sync_refuse_half "a merge of origin/main is in progress in $WT and git merge --abort failed"
+    fi
+    return 2
+  fi
+  if $GIT -C "$WT" merge-base --is-ancestor origin/main HEAD; then
+    if [ "$($GIT -C "$WT" rev-parse HEAD)" != "$($GIT -C "$WT" rev-parse "origin/$BR" 2>/dev/null)" ]; then
+      with_timeout 120 "$GIT" -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push of prior local merge failed"; return 2; }
+    fi
+    return 0
+  fi
+  say "#$N $SLUG: merging origin/main"
+  if ! $GIT -C "$WT" merge -q --no-edit origin/main >/dev/null 2>&1; then
+    if gen_resolve "$WT"; then say "#$N: conflict(s) in generated files resolved by regeneration"
+    else
+      CF="$($GIT -C "$WT" diff --name-only --diff-filter=U)"
+      if abort_merge "$WT"; then
+        printf 'merge of origin/main conflicts in:\n%s\n' "$CF" > "$STATE/merge/$SLUG.err"
+        sendback_mech "$SLUG" "$ITEM" "merge conflict with main" "$STATE/merge/$SLUG.err" "mech" - "$GIT -C $WT merge -q --no-edit origin/main"; return 1
+      fi
+      # The abort itself could not run: do not promise a usable worktree or queue rework on it.
+      sync_refuse_half "merge of origin/main conflicts in: ${CF:-?}; git merge --abort failed, worktree NOT usable"
+      return 2
+    fi
+  fi
+  # Post-condition: the merge is committed or aborted before anything calls this worktree usable.
+  # A `git merge` that reports success but leaves MERGE_HEAD (or a resolver that returned early on
+  # an unmerged index) is aborted here rather than pushed and gated on a stale head.
+  if merge_in_progress "$WT"; then
+    if abort_merge "$WT"; then
+      sync_refuse_half "a merge of origin/main was still in progress after the sync; aborted it, cycle skipped"
+    else
+      sync_refuse_half "a merge of origin/main is still in progress in $WT and git merge --abort failed"
+    fi
+    return 2
+  fi
+  with_timeout 120 "$GIT" -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push after merge-main failed"; return 2; }
+  return 0
 }
 
 main_move_verdict() { # <incoming-paths> <pr-changed-paths> — sets MOVE_TAG (CARRY|CARRY-UI|REGATE)
@@ -1396,6 +1512,19 @@ PY
 # ------------------------------------------------------------------ dispatcher
 if [ "${1:-}" != "--one" ]; then
   [ "${1:-}" = "--resolve-generated" ] && { gen_resolve "${2:?worktree required}"; exit $?; }
+  # Hermetic seam for rsi/runtime/tests/test-merge-sync-abort.sh: run exactly the sync_main() the
+  # per-PR verifier runs, with the same TERM/HUP/INT handling. No lock, fetch, gh, gate, review or
+  # dispatch; the worktree and its origin are temp repos and the dist build is stubbed.
+  if [ "${1:-}" = "--sync-main" ]; then
+    [ $# -ge 2 ] || { echo "usage: merge.sh --sync-main <worktree> [slug] [pr-number] [item]" >&2; exit 2; }
+    WT="$2"; SLUG="${3:-test}"; N="${4:-0}"; ITEM="${5:-R-$SLUG}"; BR="rsi/$SLUG"
+    trap 'abort_merge "${WT:-}" >/dev/null 2>&1 || true' EXIT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    sync_main
+    exit $?
+  fi
   # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: the dispatcher's row filter on PR JSON
   # on stdin, so a needs-ceo/hold row is proven to reach the loop with its labels for ceo_hold_skip().
   if [ "${1:-}" = "--dispatch-rows-check" ]; then dispatch_rows; exit $?; fi
@@ -1639,7 +1768,7 @@ if [ "${1:-}" != "--one" ]; then
     [ -z "$N" ] && continue
     if [ -n "$BATCH_SLUGS" ] && printf ' %s ' "$BATCH_SLUGS" | grep -q " $SLUG "; then say "#$N $SLUG: in batch $BATCH_ID, skip"; continue; fi
     echo "$ACTIVE" | grep -qx "$SLUG" && { say "#$N $SLUG: lane active, skip"; continue; }
-    [ -e "$STATE/sendback/$SLUG.md" ] && { say "#$N $SLUG: waiting for rework"; continue; }
+    [ -e "$STATE/sendback/$SLUG.md" ] && { rework_wait "$N" "$SLUG" "$STATE"; continue; }
     if r="$(ceo_hold_skip "$SLUG" "$LABELS" "$N")"; then say "#$N $SLUG: $r"; continue; fi
     L="$STATE/merge/$SLUG.lock"
     if [ -d "$L" ]; then if kill -0 "$(cat "$L/pid" 2>/dev/null || echo 0)" 2>/dev/null; then continue; fi; rm -rf "$L"; fi
@@ -1671,13 +1800,26 @@ fi
 N="$2"; SLUG="$3"; TITLE="${4:-}"
 L="$STATE/merge/$SLUG.lock"; echo $$ > "$L/pid"; T0=$(date +%s)
 CHILD=""; KICK=""
-cleanup() { [ -n "$CHILD" ] && kill $CHILD 2>/dev/null; rm -rf "$L"
+cleanup() { [ -n "$CHILD" ] && kill $CHILD 2>/dev/null
+  # A verifier that exits — the TERM/HUP/INT traps below, or any other path — must not leave the
+  # worktree mid-merge: abort before the lock is released, so the next gate/review never reads an
+  # old HEAD over a dirty index. Abort only (never reset --hard): the lane's uncommitted work stays.
+  if ! abort_merge "${WT:-}"; then
+    printf -- '- %s PR rsi/%s: verifier exited with a merge still in progress in %s and git merge --abort failed\n' \
+      "$(date '+%F %H:%M')" "$SLUG" "${WT:-?}" >> "$STATE/needs-ceo.md" 2>/dev/null || true
+  fi
+  rm -rf "$L"
   # a sendback or a merge changes what the lanes should do (fill pulse) and what the next PR needs (re-sync): kick both
   if [ -n "$KICK" ]; then
     nohup /bin/bash "$RSI_DIR/runtime/run.sh" pulse >> "$RUNS/launchd-pulse.log" 2>&1 < /dev/null &
     nohup /bin/bash "$SELF" >> "$RUNS/launchd-merge.log" 2>&1 < /dev/null &
   fi; }
 trap cleanup EXIT
+# A signal mid-sync exits through the EXIT trap, which aborts the in-flight merge before the lock
+# is released. Without this a killed verifier left MERGE_HEAD and the sync's staged files behind.
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+trap 'exit 130' INT
 [ -e "$STATE/PAUSE" ] && exit 0
 BR="rsi/$SLUG"; WT="$WT_ROOT/rsi-$SLUG"; PRURL="https://github.com/$GH_REPO/pull/$N"
 BODY="$($GH pr view "$N" --repo "$GH_REPO" --json body --jq .body 2>/dev/null)"; BODY_RC=$?
@@ -1686,26 +1828,6 @@ V="$STATE/merge/$SLUG.verified"; RV="$STATE/merge/$SLUG.reviewed"; PREV="$STATE/
 QW=""; if [ -s "$STATE/merge/$SLUG.queued_at" ]; then QW=" queue_wait=$(( (T0 - $(cat "$STATE/merge/$SLUG.queued_at")) / 60 ))m"; rm -f "$STATE/merge/$SLUG.queued_at"; fi
 say "#$N $SLUG ($ITEM) verifier start$QW"; [ -n "$QW" ] && echo "$(date '+%F %H:%M') #$N $SLUG verifier_started$QW tier=$(cat "$STATE/merge/$SLUG.tier" 2>/dev/null || echo ?)" >> "$STATE/merge/cycles.log"
 
-sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 transient failure
-  # Any sync ends a CI-first hold: the head this marker bounded is gone, so a later pending CI
-  # starts its own fresh window instead of inheriting an expired one.
-  rm -f "$STATE/merge/$SLUG.ci-hold"
-  if $GIT -C "$WT" merge-base --is-ancestor origin/main HEAD; then
-    if [ "$($GIT -C "$WT" rev-parse HEAD)" != "$($GIT -C "$WT" rev-parse "origin/$BR" 2>/dev/null)" ]; then
-      with_timeout 120 "$GIT" -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push of prior local merge failed"; return 2; }
-    fi
-    return 0
-  fi
-  say "#$N $SLUG: merging origin/main"
-  if ! $GIT -C "$WT" merge -q --no-edit origin/main >/dev/null 2>&1; then
-    if gen_resolve "$WT"; then say "#$N: conflict(s) in generated files resolved by regeneration"
-    else CF="$($GIT -C "$WT" diff --name-only --diff-filter=U)"; $GIT -C "$WT" merge --abort >/dev/null 2>&1
-      printf 'merge of origin/main conflicts in:\n%s\n' "$CF" > "$STATE/merge/$SLUG.err"
-      sendback_mech "$SLUG" "$ITEM" "merge conflict with main" "$STATE/merge/$SLUG.err" "mech" - "$GIT -C $WT merge -q --no-edit origin/main"; return 1; fi
-  fi
-  with_timeout 120 "$GIT" -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push after merge-main failed"; return 2; }
-  return 0
-}
 check_buckets() { # gh's `pr checks --json name,bucket,link` on stdin -> space-separated buckets
   python3 -c 'import json,sys
 try: print(" ".join(c.get("bucket","") for c in json.load(sys.stdin)))
