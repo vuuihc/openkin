@@ -29,6 +29,47 @@ the five flows below closer to "passes without a human noticing".
 - Prefer deleting/merging UI over adding it (TASTE 7). Prompt before product machinery (PRINCIPLE 5.5).
 - Escaped defects → `docs/product/LESSONS.md` (see `LESSONS-HOOK.md`).
 
+## Current phase (P16) — 一块 820 屏的阅读面，做到 T3 的清晰与克制
+<!-- phase: P16-t3-reading target=2026-11-28T20:00 -->
+
+**Why this and not features.** The north star is "at least as good as T3 Code", yet on 2026-11-21 the
+owner's daily device — an iPad at 820×1180, split view leaving ~520 CSS px for the conversation — was in no
+journey, no merge-gate screenshot rule and no UX-gate width
+(`docs/plans/2026-11-21-t3-parity-quality-reset.md`, evidence A). Two screenshots of the same 820 screen show
+the gap in product terms: four persistent bars (~170 CSS px, ~270 with banners) above the body; header verbs
+crushed to 24–30 px half-glyphs; a table wrapping one character per line with its last rows under a floating
+「有新进展」 pill. The same day's ledger shows what the loop rewarded instead: on 2026-11-21 afternoon 27 of
+48 merges were loop guards and bookkeeping, and `pace.py` read NO-PHASE while every phase marker was closed
+and P15 was parked (evidence B). The reading surface is where T3 is strongest and where the owner spends his
+day, so it is the phase.
+
+**Done means** (each item names what proves it; a green check alone is not proof)
+1. The 820 width is inside the acceptance gate: `rsi/runtime/ux/journeys.json` carries a
+   `tablet: {"size": "820x1180", "hasTouch": true}` viewport, a tablet reading journey (J16) runs the
+   long-answer + 4-row-table fixture, `rsi/MANDATE.md`'s merge-gate screenshot rule asks for 390/**820**/1100,
+   and a hermetic contract in `scripts/journeys_smoke_test.py` keeps J16 from being weakened without a
+   browser (row 33, PR #543).
+2. The reading surface keeps one column at 820: persistent chrome above the body ≤44 CSS px (the header;
+   usage/billing, changed files, daemon state and subagent counts reachable in one action from it, never
+   deleted), every visible control ≥44×44 CSS px with whole glyphs, the table's first column not wrapping one
+   character per line, every visible cell's centre hit-testing to that cell, and the last row fully readable
+   with no floating surface over it (row 32, PR #542, and the rows it unblocks).
+3. The reading state is reproducible by one command and a screenshot set: the tablet journey at 390/820/1100,
+   shots under `rsi/state/shots/<slug>/`, and one "what the user sees now" sentence in the PR body.
+4. STATUS leads with the product delta: the Current position's first evidence line is one user-visible change
+   with its shots; merge counts are a cost line, not the headline.
+
+**Out of scope** — the flat thread list and the three-level device → project → conversation tree
+(`R-list-scan` stays parked: it needs its own story, not a slice); the native/RN rewrite (DECISIONS
+2026-11-20 23:47); P15's bundled console (parked 2026-11-21, option ③) and any auth/CORS change; in-app PR
+writes and the browser panel (ADR 0034); fades, ellipses or `overflow: hidden` used to hide a defect a
+screenshot can show.
+
+**Cut rule.** At 11-28 20:00 land what is green and queue the rest with its reason; do not extend the date.
+If item 2 is not green, land the width (item 1) plus what is measured and record the remaining mechanism with
+its number — a phase that explains itself is what the next fix is judged against. While #542/#543 are
+unmerged, at most one lane runs P16 product work at a time; the phase does not license stacking loop guards.
+
 ## Closed phase (P3) — review → PR, proven
 <!-- closed-phase: P3-review-pr target=2026-11-20T20:00 -->
 
