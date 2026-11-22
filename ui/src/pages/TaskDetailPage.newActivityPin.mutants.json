@@ -7,6 +7,20 @@
     "new": "    if (isNearBottom(el) || sending) return;\n"
   },
   {
+    "label": "the pre-fix send window consumes a reply the pending restore held the pin for",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.newActivityPin.dom.test.tsx -t \"a reply that lands when a restore still owes the pin raises the pill at the restored place\"",
+    "old": "    if (isNearBottom(el)) return;\n",
+    "new": "    if (isNearBottom(el) || (sending && pinAfterSendRef.current)) return;\n"
+  },
+  {
+    "label": "an owed send pin drags a reader who scrolled away from a pending restore back to the end",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.newActivityPin.dom.test.tsx -t \"a reader who scrolls away from a pending restore keeps their place when the reply lands\"",
+    "old": "    if (!stickToBottomRef.current) pinAfterSendRef.current = false;\n",
+    "new": ""
+  },
+  {
     "label": "a send no longer owns a pin, so its bubble sent from away never comes into view",
     "file": "ui/src/pages/TaskDetailPage.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.newActivityPin.dom.test.tsx -t \"the send's own bubble still pins to the end once\"",

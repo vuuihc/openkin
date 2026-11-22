@@ -57,6 +57,16 @@ const store = vi.hoisted(() => {
   };
 });
 
+// One object across renders, like the query's cached data: a fresh array per
+// render would re-run the transcript's pin effect after unrelated state
+// changes and spend a pin this suite is holding open on purpose.
+const pendingResources = vi.hoisted(() => ({
+  loaded: true,
+  error: null,
+  loading: false,
+  data: { approvals: [] as unknown[], questions: [] as unknown[] },
+}));
+
 vi.mock("../api/useLiveResources", () => ({
   useTaskResource: (id: string) => {
     useSyncExternalStore(store.subscribe, store.version, store.version);
@@ -71,12 +81,7 @@ vi.mock("../api/useLiveResources", () => ({
       id,
     };
   },
-  usePendingResources: () => ({
-    loaded: true,
-    error: null,
-    loading: false,
-    data: { approvals: [], questions: [] },
-  }),
+  usePendingResources: () => pendingResources,
 }));
 
 // The send has to be controllable: the race is about what a commit does while
@@ -244,6 +249,15 @@ async function sendFromComposer() {
   });
 }
 
+/** The keep-alive host hiding and showing the same mounted pane. */
+function renderWithActive(active: boolean) {
+  return (
+    <MemoryRouter initialEntries={["/tasks/task-1"]}>
+      <TaskDetailPage taskId="task-1" fallbackTask={task} active={active} />
+    </MemoryRouter>
+  );
+}
+
 /** The reader moves themselves to an older line. */
 function scrollAway(scroller: HTMLElement, top = 100) {
   scrollTop = top;
@@ -335,5 +349,58 @@ describe("a follow-up's reply while the send pin is owed", () => {
     appendReply();
     expect(scroller.scrollTop).toBe(bottom());
     expect(newActivityButton()).toBeNull();
+  });
+
+  // The place a restore still owes the reader outranks the send's pin: the
+  // layout effect returns from the restore branch without spending it. The
+  // growth that finally reaches the saved line therefore lands with the pin
+  // still owed — and the pre-fix growth effect suppressed that reply because
+  // `sending` was true, so a reader parked at their restored line was never
+  // told it arrived.
+  it("a reply that lands when a restore still owes the pin raises the pill at the restored place", async () => {
+    const { view, scroller } = open();
+    // The reader's place is a middle line of a longer transcript...
+    contentHeight = 1400;
+    scrollAway(scroller, 700);
+    // ...unreachable for a frame while the pane is hidden and the transcript
+    // has not laid its rows out again: showing it leaves the restore pending.
+    contentHeight = 800;
+    view.rerender(renderWithActive(false));
+    view.rerender(renderWithActive(true));
+    expect(scroller.scrollTop).toBe(bottom());
+
+    // Send with the POST in flight. This commit cannot reach the saved line
+    // either, so the pin stays owed behind the restore.
+    await sendFromComposer();
+    expect(scroller.scrollTop).toBe(bottom());
+
+    // The transcript grows enough to hold the saved line and the reply.
+    contentHeight = 1400;
+    appendReply();
+
+    expect(scroller.scrollTop).toBe(700);
+    expect(newActivityButton()).not.toBeNull();
+  });
+
+  // Line 953's refund: the reader moved after sending, while a restore still
+  // held the pin open. Their new place must win over both the restore they
+  // overrode and the send's pin.
+  it("a reader who scrolls away from a pending restore keeps their place when the reply lands", async () => {
+    const { view, scroller } = open();
+    contentHeight = 1400;
+    scrollAway(scroller, 700);
+    contentHeight = 800;
+    view.rerender(renderWithActive(false));
+    view.rerender(renderWithActive(true));
+    await sendFromComposer();
+
+    // The reader chooses another line while the POST is still in flight.
+    scrollAway(scroller, 100);
+
+    contentHeight = 1400;
+    appendReply();
+
+    expect(scroller.scrollTop).toBe(100);
+    expect(newActivityButton()).not.toBeNull();
   });
 });
