@@ -4,7 +4,7 @@
 // KIN-NOTIFY-001: a notification on an already-open routines page changes the
 // machine, and a manual switch writes the same URL, so a second tap of the same
 // notification is a real navigation again.
-import { within, act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import RoutinesPage from "./RoutinesPage";
@@ -201,9 +201,14 @@ vi.mock("../components/ui/SheetSelect", () => ({
 }));
 
 function renderApp(initial: string) {
-  const router = createMemoryRouter([{ path: "/routines", element: <RoutinesPage /> }], {
-    initialEntries: [initial],
-  });
+  const router = createMemoryRouter(
+    [
+      { path: "/routines", element: <RoutinesPage /> },
+      // The one list a routine's runs live in; the page only links to it.
+      { path: "/sessions", element: <div>sessions</div> },
+    ],
+    { initialEntries: [initial] },
+  );
   const view = render(<RouterProvider router={router} />);
   return { router, ...view };
 }
@@ -389,6 +394,76 @@ describe("RoutinesPage machine selection from the URL", () => {
   });
 });
 
+describe("KIN-CONTRACT-001: /routines points at the one run list", () => {
+  it("offers 看运行 on the opened routine and lands on the one list", async () => {
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "Morning review")],
+      has_more: false,
+    });
+    const { router } = renderApp("/routines?device=dev-a");
+    fireEvent.click(await screen.findByRole("button", { name: "routines.openRoutine" }));
+    const links = await screen.findAllByRole("link", { name: "routines.viewRunsFor" });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link.getAttribute("href")).toBe("/sessions?routine=r1");
+    }
+    await userEvent.click(links[0]);
+    await waitFor(() => expect(locationOf(router)).toBe("/sessions?routine=r1"));
+  });
+
+  it("stops reading a routine's own run history on /routines", async () => {
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "No own history")],
+      has_more: false,
+    });
+    renderApp("/routines?device=dev-a");
+    fireEvent.click(await screen.findByRole("button", { name: "routines.openRoutine" }));
+    await screen.findAllByRole("link", { name: "routines.viewRunsFor" });
+    expect(listRoutineRuns).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      "r1",
+    );
+    expect(screen.queryByText("routines.runsPanelTitle")).toBeNull();
+  });
+
+  it("names the row press as opening the routine, not its runs", async () => {
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "Open me")],
+      has_more: false,
+    });
+    renderApp("/routines?device=dev-a");
+    expect(await screen.findByRole("button", { name: "routines.openRoutine" })).toBeTruthy();
+  });
+
+  it("keeps the runs link under the row until the two-column width", async () => {
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "Morning review")],
+      has_more: false,
+    });
+    renderApp("/routines?device=dev-a");
+    fireEvent.click(await screen.findByRole("button", { name: "routines.openRoutine" }));
+    const links = await screen.findAllByRole("link", { name: "routines.viewRunsFor" });
+    const inline = links.filter((link) => link.closest("aside") === null);
+    const inAside = links.filter((link) => link.closest("aside") !== null);
+    expect(inline).toHaveLength(1);
+    expect(inAside).toHaveLength(1);
+    // 820px is a tablet, not a desktop. The two-column layout used to start at
+    // md (768px), squeezing the routine row beside a nearly empty aside until
+    // the title truncated to two or three characters. It starts at lg, and the
+    // inline link takes over below it with the same 44px tap target as a phone.
+    expect(inline[0].parentElement?.className).toContain("lg:hidden");
+    expect(inline[0].parentElement?.className).not.toContain("md:hidden");
+    expect(inline[0].className).toContain("lg:min-h-0");
+    const aside = inAside[0].closest("aside");
+    expect(aside?.className).toContain("lg:block");
+    expect(aside?.className).not.toContain("md:block");
+    expect(aside?.parentElement?.className).toContain("lg:grid");
+    expect(aside?.parentElement?.className).not.toContain("md:grid");
+  });
+});
+
 describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
   it("clips the vertical root scroller so the browser leaves a horizontal tab gesture to the shell", () => {
     const { container } = renderApp("/routines?device=dev-a");
@@ -413,9 +488,8 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
     fireEvent.click(screen.getByRole("button", { name: /routines.editRoutine/ }));
     expect(await screen.findByDisplayValue("Do not truncate this prompt")).toBeTruthy();
     expect(getRoutine).toHaveBeenCalledWith("r1", "dev-a");
-    // A full definition and its bounded run history are separate reads. Editing
-    // must not mistake the summary-only selection for an already loaded history.
-    await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "dev-a", "", "r1"));
+    // Editing reads the definition only; the runs stay in the one list.
+    expect(listRoutineRuns).not.toHaveBeenCalledWith(10, "dev-a", "", "r1");
     await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: "routines.save" }));
     await waitFor(() =>
@@ -971,117 +1045,6 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
     );
   });
 
-  it("keeps an older routine history rejection and cursor behind a reopened first page", async () => {
-    const older = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
-    const firstPages: Array<
-      ReturnType<typeof deferred<Awaited<ReturnType<typeof listRoutineRuns>>>>
-    > = [];
-    vi.mocked(listRoutines).mockResolvedValue({
-      routines: [routine("r1", "History")],
-      has_more: false,
-    });
-    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "", id = "") => {
-      if (id !== "r1") return { routines: [], runs: [], has_more: false };
-      if (cursor === "old") return older.promise;
-      if (cursor === "") {
-        const page = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
-        firstPages.push(page);
-        return page.promise;
-      }
-      return {
-        routines: [],
-        runs: [],
-        has_more: false,
-        runs_next_cursor: "",
-        runs_has_more: false,
-      };
-    });
-    renderApp("/routines?device=dev-a");
-    fireEvent.click(await screen.findByRole("button", { name: "routines.showRuns" }));
-    await act(async () => {
-      firstPages[0].resolve({
-        routines: [],
-        runs: [run("010", "r1", "Original history")],
-        has_more: false,
-        runs_next_cursor: "old",
-        runs_has_more: true,
-      });
-      await firstPages[0].promise;
-    });
-    const panel = (await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ })).find(
-      (region) => region.parentElement?.className.includes("md:hidden"),
-    )!;
-    await within(panel).findByRole("link", { name: "Original history" });
-    fireEvent.click(within(panel).getByRole("button", { name: "routines.historyLoadOlder" }));
-    fireEvent.click(screen.getByRole("button", { name: /routines.editRoutine/ }));
-    await screen.findByDisplayValue("The whole stored prompt");
-    await waitFor(() => expect(firstPages).toHaveLength(2));
-    await act(async () => {
-      firstPages[1].resolve({
-        routines: [],
-        runs: [run("020", "r1", "Refreshed history")],
-        has_more: false,
-        runs_next_cursor: "new",
-        runs_has_more: true,
-      });
-      await firstPages[1].promise;
-    });
-    await within(panel).findByRole("link", { name: "Refreshed history" });
-    await act(async () => {
-      older.reject(new Error("stale history failure"));
-      await expect(older.promise).rejects.toThrow("stale history failure");
-    });
-    expect(mocks.pushToast).not.toHaveBeenCalledWith("stale history failure", "error");
-    await waitFor(() =>
-      expect(within(panel).getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
-    );
-    fireEvent.click(within(panel).getByRole("button", { name: "routines.historyLoadOlder" }));
-    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "new", "r1"));
-  });
-
-  it("pages one remote routine's own history below the global feed", async () => {
-    vi.mocked(listRoutines).mockResolvedValue({
-      routines: [routine("r1", "Own records")],
-      has_more: false,
-    });
-    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "", id = "") => {
-      if (id !== "r1")
-        return {
-          routines: [],
-          runs: [run("009", "other", "Unrelated run")],
-          has_more: false,
-          runs_next_cursor: "009",
-          runs_has_more: true,
-        };
-      if (cursor === "001")
-        return {
-          routines: [],
-          runs: [run("000", "r1", "Older own run")],
-          has_more: false,
-          runs_next_cursor: "000",
-          runs_has_more: false,
-        };
-      return {
-        routines: [],
-        runs: [run("001", "r1", "Old own run")],
-        has_more: false,
-        runs_next_cursor: "001",
-        runs_has_more: true,
-      };
-    });
-    renderApp("/routines?device=dev-a");
-    fireEvent.click(await screen.findByRole("button", { name: "routines.showRuns" }));
-    const panel = (await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ })).find(
-      (region) => region.parentElement?.className.includes("md:hidden"),
-    )!;
-    await within(panel).findByRole("link", { name: "Old own run" });
-    expect(listRoutineRuns).toHaveBeenCalledWith(10, "dev-a", "", "r1");
-    fireEvent.click(within(panel).getByRole("button", { name: "routines.historyLoadOlder" }));
-    await within(panel).findByRole("link", { name: "Older own run" });
-    expect(within(panel).getByRole("link", { name: "Old own run" })).toBeTruthy();
-    expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "001", "r1");
-  });
-
   it("a late detail never replaces a newer create draft", async () => {
     const detail = deferred<Routine>();
     vi.mocked(getRoutine).mockReturnValue(detail.promise);
@@ -1111,65 +1074,6 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
     await waitFor(() => expect(getRoutine).toHaveBeenCalledWith("r1", "dev-a"));
     expect(screen.queryByLabelText("routines.promptLabel")).toBeNull();
     expect(screen.getByText("Original")).toBeTruthy();
-  });
-
-  it("reads local run histories as bounded summaries with the same independent cursor", async () => {
-    mocks.machines = [{ isSelf: true, id: "self-1", label: "Local node", online: true, roots: [] }];
-    vi.mocked(listRoutines).mockResolvedValue({
-      routines: [routine("r1", "Original")],
-      has_more: false,
-    });
-    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "", id = "") => {
-      if (id !== "r1") return { routines: [], runs: [], has_more: false };
-      if (cursor === "003")
-        return {
-          routines: [],
-          runs: [run("002", "r1", "Older local summary")],
-          runs_has_more: false,
-          runs_next_cursor: "",
-          has_more: false,
-        };
-      return {
-        routines: [],
-        runs: [run("003", "r1", "Local summary")],
-        runs_has_more: true,
-        runs_next_cursor: "003",
-        has_more: false,
-      };
-    });
-    renderApp("/routines");
-    await screen.findByText("Original");
-    await waitFor(() => expect(machineValue()).toBe("self"));
-    await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, ""));
-    await userEvent.click(screen.getByRole("button", { name: "routines.showRuns" }));
-    await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "", "", "r1"));
-    const panel = (await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ })).find(
-      (region) => region.parentElement?.className.includes("md:hidden"),
-    )!;
-    await within(panel).findByRole("link", { name: "Local summary" });
-    await userEvent.click(within(panel).getByRole("button", { name: "routines.historyLoadOlder" }));
-    await within(panel).findByRole("link", { name: "Older local summary" });
-    expect(within(panel).getByRole("link", { name: "Local summary" })).toBeTruthy();
-    expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "", "003", "r1");
-  });
-
-  it("a failed new remote history read is visible and retryable", async () => {
-    vi.mocked(listRoutines).mockResolvedValue({
-      routines: [routine("r1", "Failure history")],
-      has_more: false,
-    });
-    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, _cursor = "", id = "") =>
-      id === "r1"
-        ? Promise.reject(new Error("history unavailable"))
-        : Promise.resolve({ routines: [], runs: [], has_more: false }),
-    );
-    renderApp("/routines?device=dev-a");
-    fireEvent.click(await screen.findByRole("button", { name: "routines.showRuns" }));
-    const panels = (
-      await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ })
-    ).filter((region) => region.parentElement?.className.includes("md:hidden"));
-    await within(panels[0]).findByText("history unavailable");
-    expect(within(panels[0]).getByRole("button", { name: "routines.retry" })).toBeTruthy();
   });
 
   it("does not let an old A create land after A → B → A", async () => {
@@ -1518,7 +1422,7 @@ describe("RoutinesPage actions on the shared facade", () => {
     expect(await screen.findByRole("button", { name: "routines.createAndOpen" })).toBeTruthy();
   });
 
-  it("keeps mark-all-read, page retry, silent toggle and history pagination on the facade", async () => {
+  it("keeps mark-all-read, page retry and the silent toggle on the facade", async () => {
     // Mark all read.
     vi.mocked(listRoutineRuns).mockResolvedValue({
       routines: [],
@@ -1598,49 +1502,5 @@ describe("RoutinesPage actions on the shared facade", () => {
       expect(screen.queryByRole("button", { name: "routines.retry" })).toBeNull(),
     );
     cleanup();
-
-    // One routine's own load older still asks with that routine's cursor.
-    vi.mocked(listRoutines).mockResolvedValue({
-      routines: [routine("r1", "Selected routine")],
-      next_cursor: "",
-      has_more: false,
-    });
-    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, before = "", id = "") => {
-      if (id !== "r1")
-        return {
-          routines: [],
-          runs: [],
-          has_more: false,
-          runs_next_cursor: "",
-          runs_has_more: false,
-        };
-      return before
-        ? {
-            routines: [],
-            runs: [run("h0", "r1", "Older history")],
-            has_more: false,
-            runs_next_cursor: "",
-            runs_has_more: false,
-          }
-        : {
-            routines: [],
-            runs: [run("h1", "r1", "First history")],
-            has_more: false,
-            runs_next_cursor: "history-1",
-            runs_has_more: true,
-          };
-    });
-    renderApp("/routines?device=dev-a");
-    await screen.findByText("Selected routine");
-    fireEvent.click(await screen.findByRole("button", { name: "routines.showRuns" }));
-    const panel = (await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ })).find(
-      (region) => region.parentElement?.className.includes("md:hidden"),
-    )!;
-    await within(panel).findByRole("link", { name: "First history" });
-    const panelOlder = within(panel).getByRole("button", { name: "routines.historyLoadOlder" });
-    expect(panelOlder.classList.contains("kin-btn")).toBe(true);
-    fireEvent.click(panelOlder);
-    await within(panel).findByRole("link", { name: "Older history" });
-    expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "history-1", "r1");
   });
 });
