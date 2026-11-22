@@ -3,8 +3,8 @@
     "label": "the expanded project row drops the work-instructions block",
     "file": "ui/src/components/sessions/SessionList.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectFace.dom.test.tsx",
-    "old": "          {instructionsProjectId ? (\n            <div className=\"pb-2\">\n              <ProjectInstructionsBlock",
-    "new": "          {false ? (\n            <div className=\"pb-2\">\n              <ProjectInstructionsBlock"
+    "old": "          {instructionsProjectId ? (\n            <div className=\"pb-2\">\n              <ProjectInstructionsRow",
+    "new": "          {false ? (\n            <div className=\"pb-2\">\n              <ProjectInstructionsRow"
   },
   {
     "label": "every project's one-pager is read at mount, collapsed or not",
@@ -26,5 +26,19 @@
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectFace.dom.test.tsx",
     "old": "    const instructionsHref = instructionsProject\n      ? `${DRAFT_PATH}${draftQuery}${draftQuery.includes(\"?\") ? \"&\" : \"?\"}q=${encodeURIComponent(tr(\"projects.instructionsPrompt\"))}`\n      : null;",
     "new": "    const instructionsHref = instructionsProject ? `${DRAFT_PATH}${draftQuery}` : null;"
+  },
+  {
+    "label": "the list's work-instructions region stops naming its project",
+    "file": "ui/src/components/sessions/SessionList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectFace.dom.test.tsx",
+    "old": "      aria-label={`${tr(\"projects.instructionsTitle\")} · ${projectName}`}",
+    "new": "      aria-label={tr(\"projects.instructionsTitle\")}"
+  },
+  {
+    "label": "the list's instructions preview is no longer clamped",
+    "file": "ui/src/components/sessions/SessionList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectFace.dom.test.tsx",
+    "old": "                expanded ? \"\" : \"line-clamp-2\",",
+    "new": "                expanded ? \"\" : \"\","
   }
 ]

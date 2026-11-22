@@ -183,7 +183,37 @@ function bucketSection(heading: string, scope: HTMLElement | null = null): HTMLE
 }
 
 function instructionsRegion(scope: HTMLElement = document.body): HTMLElement | null {
-  return within(scope).queryByRole("region", { name: "How to work here" });
+  return within(scope).queryByRole("region", { name: /^How to work here/ });
+}
+
+/**
+ * Make the list's clamped preview measure as overflowing. jsdom lays nothing
+ * out, so without this the two-line clamp is 0px tall and the disclosure is
+ * (correctly) never offered. Only the clamped paragraph answers; every other
+ * element keeps jsdom's own zero.
+ */
+function stubPreviewOverflow(): () => void {
+  const scroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+  const client = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+  const overflowing = function (this: HTMLElement): number {
+    return this.classList?.contains("line-clamp-2") ? 100 : 0;
+  };
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get: overflowing,
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList?.contains("line-clamp-2") ? 40 : 0;
+    },
+  });
+  return () => {
+    if (scroll) Object.defineProperty(HTMLElement.prototype, "scrollHeight", scroll);
+    else delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
+    if (client) Object.defineProperty(HTMLElement.prototype, "clientHeight", client);
+    else delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+  };
 }
 
 const INSTRUCTIONS =
@@ -351,11 +381,58 @@ describe("a project's work instructions in the conversation list", () => {
   it("the expanded block has no editable control", async () => {
     list();
 
-    const block = await screen.findByRole("region", { name: "How to work here" });
+    const block = await screen.findByRole("region", { name: /^How to work here/ });
     await within(block).findByText(/run make check first/);
     // Reading the text is the promise; changing it happens in a chat.
     expect(within(block).queryByRole("textbox")).toBeNull();
     expect(block.querySelector("textarea")).toBeNull();
     expect(block.querySelector('[contenteditable]:not([contenteditable="false"])')).toBeNull();
+  });
+
+  it("keeps the list compact: one caption, a clamped preview and the project in the region name", async () => {
+    list();
+
+    const block = await screen.findByRole("region", {
+      name: "How to work here · Project Alpha",
+    });
+    // The cover's lead and footnote are page copy: in the list they only
+    // repeated each other and pushed the conversations down.
+    expect(within(block).queryByText("Kin receives this when a new chat starts")).toBeNull();
+    expect(within(block).queryByText("New chats receive this text as written")).toBeNull();
+    const body = await within(block).findByText(/run make check first/);
+    expect(body.className).toContain("line-clamp-2");
+    // Two lines of body, one launcher, one title row — no third meta line.
+    expect(Array.from(block.querySelectorAll("p")).map((p) => p.textContent)).toEqual([
+      "- run make check first\n- keep commits small",
+    ]);
+  });
+
+  it("collapses the empty state to one line, without the not-sent footnote", async () => {
+    readOnePager.mockResolvedValue(onePager("# Project Alpha\n\n## 摘要\n\nA summary only.\n"));
+    list();
+
+    expect(await screen.findByText("No working instructions yet")).toBeTruthy();
+    expect(screen.queryByText("New chats will not receive this section")).toBeNull();
+    expect(screen.queryByText("Kin receives this when a new chat starts")).toBeNull();
+    expect(screen.getByRole("link", { name: /Ask Kin to write…/ })).toBeTruthy();
+  });
+
+  it("the title discloses the clamped body once it is measured to overflow", async () => {
+    const restore = stubPreviewOverflow();
+    try {
+      list();
+
+      const toggle = await screen.findByRole("button", { name: "How to work here" });
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      const body = await screen.findByText(/run make check first/);
+      expect(body.className).toContain("line-clamp-2");
+
+      await userEvent.click(toggle);
+
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      expect(body.className).not.toContain("line-clamp-2");
+    } finally {
+      restore();
+    }
   });
 });

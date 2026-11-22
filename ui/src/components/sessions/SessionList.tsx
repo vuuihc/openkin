@@ -46,6 +46,7 @@ import {
 } from "../../lib/draftChat";
 import { isImeKeyEvent } from "../../lib/ime";
 import { pendingCountsByTask } from "../../lib/pendingCounts";
+import { projectInstructions } from "../../lib/projectInstructions";
 import {
   archivedCwdFor,
   bucketKeyFor,
@@ -98,8 +99,8 @@ import {
 import { mergeTaskTail } from "../../lib/taskTail";
 import ActionSheet from "../ui/ActionSheet";
 import Button from "../ui/Button";
-import ProjectInstructionsBlock from "../project/ProjectInstructionsBlock";
-import { SessionListSkeleton } from "../Skeleton";
+import InlineAlert from "../ui/InlineAlert";
+import { SessionListSkeleton, SkeletonLine } from "../Skeleton";
 import HighlightedText from "../HighlightedText";
 import {
   IconAlert,
@@ -1927,6 +1928,147 @@ function DraftRow({
   );
 }
 
+/**
+ * The project cover's "工作方式", compressed for the conversation list
+ * (KIN-PROJECT-003).
+ *
+ * The cover's block is a page card: a lead line, the body and a footnote. At
+ * the cover's width that is fine; in a 240px sidebar or on a 390px phone it
+ * spent the whole fold, and three expanded projects hid every conversation
+ * below them. Inside the list the lead and the footnote are therefore gone —
+ * the footnote stays only where it says something the body does not (the text
+ * was cut at the 400-code-point bound, or this is the cached copy offline) —
+ * the empty state is one line, and the body is clamped to two lines with the
+ * title as its disclosure. The region's name carries the project's name: a
+ * screen reader's landmark list otherwise shows several identical "工作方式"
+ * regions with no way to tell which project each belongs to.
+ */
+function ProjectInstructionsRow({
+  projectName,
+  loaded,
+  loading,
+  loadError,
+  markdown,
+  offline,
+  launcherHref,
+  onLauncherClick,
+  onRetry,
+}: {
+  projectName: string;
+  loaded: boolean;
+  loading: boolean;
+  loadError: string | null;
+  markdown: string;
+  offline: boolean;
+  launcherHref: string | null;
+  onLauncherClick: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
+  onRetry: () => void;
+}) {
+  const tr = useT();
+  const bodyId = useId();
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  const bodyRef = useRef<HTMLParagraphElement | null>(null);
+  const { text, truncated } = projectInstructions(markdown);
+  const disabled = offline || launcherHref === null;
+  const launcherLabel = text ? tr("projects.instructionsAsk") : tr("projects.instructionsWrite");
+  // Only offer the disclosure when the preview actually overflows. Measured on
+  // the closed clamp and kept once seen, so the control does not vanish when
+  // opening removes the clamp. A resize re-measures; a browser without
+  // ResizeObserver keeps the initial reading.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || expanded) return;
+    const measure = () => setClipped(body.scrollHeight > body.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [expanded, text]);
+  const caption = [
+    offline && text ? tr("projects.instructionsOffline") : "",
+    truncated ? tr("projects.instructionsTruncated") : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <section
+      aria-label={`${tr("projects.instructionsTitle")} · ${projectName}`}
+      className="rounded-lg bg-kin-panel px-3 py-1.5"
+    >
+      <div className="flex min-h-11 items-center justify-between gap-2">
+        <h3 className="min-w-0 text-caption font-medium uppercase tracking-label text-kin-secondary">
+          {text && !loadError && (clipped || expanded) ? (
+            <Button
+              variant="quiet"
+              aria-expanded={expanded}
+              aria-controls={bodyId}
+              onClick={() => setExpanded((open) => !open)}
+              className="-my-1 min-h-9 gap-1 px-0 text-caption font-medium uppercase tracking-label text-kin-secondary! hover:bg-transparent!"
+            >
+              {tr("projects.instructionsTitle")}
+              <IconChevronDown
+                size={12}
+                strokeWidth={2.25}
+                className={expanded ? "rotate-180 transition-transform" : "transition-transform"}
+              />
+            </Button>
+          ) : (
+            tr("projects.instructionsTitle")
+          )}
+        </h3>
+        {loaded && !loadError ? (
+          disabled ? (
+            <span className="flex-none text-caption text-kin-muted">{launcherLabel}</span>
+          ) : (
+            <a
+              href={launcherHref}
+              onClick={onLauncherClick}
+              className="inline-flex min-h-11 flex-none items-center gap-1 text-caption text-kin-secondary hover:text-kin-text"
+            >
+              {launcherLabel}
+              <span aria-hidden>→</span>
+            </a>
+          )
+        ) : null}
+      </div>
+
+      {loadError ? (
+        <InlineAlert>
+          <p>{loadError}</p>
+          <Button variant="secondary" onClick={onRetry} className="mt-2 text-strong">
+            {tr("common.retry")}
+          </Button>
+        </InlineAlert>
+      ) : !loaded ? (
+        loading ? (
+          <SkeletonLine />
+        ) : null
+      ) : (
+        <>
+          {text ? (
+            <p
+              id={bodyId}
+              ref={bodyRef}
+              className={[
+                "whitespace-pre-wrap text-caption leading-prose text-kin-text",
+                expanded ? "" : "line-clamp-2",
+              ].join(" ")}
+            >
+              {text}
+            </p>
+          ) : (
+            <p className="text-caption text-kin-muted">{tr("projects.instructionsEmpty")}</p>
+          )}
+          {caption ? <p className="mt-1 text-caption text-kin-muted">{caption}</p> : null}
+        </>
+      )}
+    </section>
+  );
+}
+
 function ProjectBucket({
   bucket,
   machines,
@@ -2068,7 +2210,6 @@ function ProjectBucket({
   // header gap, a finger keeps the roomier one it has always had.
   const dense = shell === "sidebar" && !coarse;
   const pinnedProject = pinnedProjects.some((cwd) => bucketKeyFor(cwd) === bucket.key);
-  const instructionsTitleId = useId();
   // Reading is lazy: a collapsed bucket issues no one-pager read. Re-expanding
   // paints the cached answer while this refresh is out.
   useEffect(() => {
@@ -2266,16 +2407,14 @@ function ProjectBucket({
         >
           {instructionsProjectId ? (
             <div className="pb-2">
-              <ProjectInstructionsBlock
-                titleId={instructionsTitleId}
+              <ProjectInstructionsRow
+                projectName={bucket.label}
                 loaded={instructions?.loaded ?? false}
                 loading={instructions?.loading ?? true}
                 loadError={instructions?.failed ? tr("projects.summaryLoadFailed") : null}
                 markdown={instructions?.markdown ?? ""}
                 offline={offline}
                 launcherHref={instructionsHref}
-                launcherLabel={tr("projects.instructionsAsk")}
-                launcherReason=""
                 onLauncherClick={onEditInstructions}
                 onRetry={() => onReadInstructions(instructionsProjectId)}
               />
