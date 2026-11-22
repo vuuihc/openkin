@@ -14,7 +14,7 @@
 |---|---|---|---|---|---|
 | `conversations` | `/sessions` | `sessions` / `nav.sessions` | 对话集合（设备 → 项目 → 对话）、搜索 / 状态 / 归档范围、对话详情、新建、导入会话详情 | 区域栏「对话」⌘1；回到 `lastListUrl()`（带搜索 / 状态 / 范围） | 底部「对话列表」 |
 | `projects` | `/projects` | `projects` / `nav.projects` | 项目集合、项目封面（摘要、活动、只读例程） | 区域栏「项目」⌘2 | 无独立入口；`/projects` 是 Mac 区域根，手机从项目标题推入 |
-| `routines` | `/routines` | `routines` / `nav.routines` | 机器选择、例行任务、最近运行、远程运行详情 | 区域栏「例行任务」⌘3，带未读结果角标 | 底部「例行任务」 |
+| `routines` | `/routines` | `routines` / `nav.routines` | 机器选择、例行任务、最近运行（运行详情是共享的 `/tasks/:id?device=`） | 区域栏「例行任务」⌘3，带未读结果角标 | 底部「例行任务」 |
 | `settings` | `/settings` | `settings` / `nav.settings` | 通用、本地 Agent 与角色、模型提供方、额度与路由、高级、Agent 运维 | 区域栏「设置」⌘4 | 底部「设置」和「Agent 运维」（Agent Ops，`?tab=operations`） |
 
 - 每个区域有且只有一个根 URL 和一个 `nav.*` 文案键；角标：待批准挂在对话上，未读例程结果挂在例行任务上。
@@ -37,7 +37,7 @@
 | `/projects` | 项目 | 项目集合 | 根 | 无参数；集合每次重新读取，不保留搜索 / 选中 / 滚动 |
 | `/projects/:id` | 项目 | 项目封面 | `/sessions` | 项目 id 保留；封面拥有摘要编辑、活动、只读例程，不复制第二份对话列表 |
 | `/routines` | 例行任务 | 机器内的例程列表 | 根 | 显式 `?device=` 优先于记忆值，缺失机器按既有 fallback 修正 |
-| `/machines/:device/tasks/:id` | 例行任务 | 远程运行详情（只读） | `/sessions` | 原 URL 与设备段不变；批准、回复、停跑仍在机器自己的 console |
+| `/tasks/:id?device=<device>` | 对话（同一份任务详情） | 远程运行详情（只读）：任务行与 transcript 向 `?device=` 指定的机器要 | `/sessions` | task id 与 `?device=` 保留；旧的 `/machines/:device/tasks/:id` 以 `replace` 到这里（原 query 保留）；批准、回复、停跑仍在机器自己的 console |
 | `/agents` | 设置 | Agent 运维（旧 URL） | 根（`agents` 是手机入口 id，无合成父级） | `replace` 到 `/settings?tab=operations`（#141 `71402048`）；不再有独立的 `AgentsPage` |
 | `/usage` | 设置 | 用量（旧 URL） | 根（重定向；不是入口，手机冷启动先合成 `/sessions`） | `replace` 到 `/settings?tab=operations`（#141 `71402048`） |
 | `/settings` | 设置 | 设置根（= `?tab=general`） | 根 | 分区 ID 见下；手机是设置根里的分区切换（原地），Mac 是左内栏 |
@@ -75,7 +75,7 @@ R2 的实现：路由已经进 history；页头返回、对话页自己的返回
 | `swap` | 同深度的详情 → 详情（对话 → 导入会话） | 不动 |
 | `none` | 原地改内容（`?tab=`、`?search=`、`?focus=`、重定向）或未知路由 | 不动 |
 
-- 深度是表（`ROUTE_DEPTH`），不是从 URL 段数猜的：`/tasks/:id`、`/agent-sessions/:id`、`/projects/:id`、`/machines/:device/tasks/:id` 是 1，其余是 0。
+- 深度是表（`ROUTE_DEPTH`），不是从 URL 段数猜的：`/tasks/:id`（含 `?device=` 的远程运行）、`/agent-sessions/:id`、`/projects/:id` 是 1，其余是 0；旧 `/machines/:device/tasks/:id` 在它 `replace` 出去之前仍按 1 计。
 - 每次到达都保留 140ms 的透明度淡入；`area` / `push` / `pop` 在这之上加几像素位移。
 - **减少动态只保留淡入**：`prefers-reduced-motion: reduce` 时所有位移去掉，只剩 140ms 透明度淡入；`swap` 和原地改动对任何人都不动（TASTE 20）。
 - 只有 `.kin-route` 的包裹层可以动。`.kin-main`、keep-alive 宿主和任何被 portal 的浮层的祖先都不许有 `transform`——它会让 `position: fixed` 改以页面为包含块。

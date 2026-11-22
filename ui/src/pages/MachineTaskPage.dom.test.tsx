@@ -54,10 +54,12 @@ vi.mock("../lib/attachments", () => ({ displayUserPrompt: (value: string) => val
 vi.mock("../lib/phoneNavigation", () => ({ onGuardedLinkClick: () => false }));
 
 function renderPage() {
+  // The run lives on the task detail page now; the device says where. The old
+  // `/machines/:device/tasks/:id` path redirects here.
   return render(
-    <MemoryRouter initialEntries={["/machines/dev-a/tasks/run-1"]}>
+    <MemoryRouter initialEntries={["/tasks/run-1?device=dev-a"]}>
       <Routes>
-        <Route path="/machines/:device/tasks/:id" element={<MachineTaskPage />} />
+        <Route path="/tasks/:id" element={<MachineTaskPage />} />
       </Routes>
     </MemoryRouter>,
   );
