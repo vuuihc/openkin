@@ -3186,6 +3186,32 @@ function checkJ17Contract(spec) {
     errs.push('J17 never measures the typed draft (restingComposer <name> typed); the two-line check is the readability claim');
   }
 
+  // Every painted, hittable control in the composer card and the bottom chrome
+  // is measured against the 44px thumb floor. J17's viewports are
+  // `isMobile: false`, so lint()'s phone-only smallTapTargets count is 0 there:
+  // the textarea measurement alone would leave the send, attach and chip
+  // controls unread (Watch 53). Two readings are required because the resting
+  // send is `disabled` while the draft is empty and the enabled filter skips
+  // it: at rest the textarea, attach and chips are read; after the 40-character
+  // fill arms the send, the now-enabled send is read too. The resting reading
+  // must precede the card press — the press focuses the box and raises the
+  // composer, so a reading after it measures the wrong arrangement.
+  const controlsAt = idx((st) => st[0] === 'composerControls' && sel(st, 1).trim() !== '');
+  if (controlsAt < 0) {
+    errs.push('J17 never measures every composer control (composerControls <name>); '
+      + 'the textarea alone leaves the send, attach and chip controls unread at 768/820');
+  } else if (pressAt >= 0 && controlsAt > pressAt) {
+    errs.push('J17 measures the composer controls only after the card press; '
+      + 'the resting reading must come first, while the composer is still collapsed');
+  }
+  const armedControlsAt = draftAt < 0 ? -1 : idx((st) => st[0] === 'composerControls'
+    && sel(st, 1).trim() !== '', draftAt + 1);
+  if (draftAt >= 0 && armedControlsAt < 0) {
+    errs.push('J17 never measures the composer controls while the draft arms the send '
+      + '(composerControls <name> after the 40-character fill); the resting send is disabled, '
+      + 'so a 40px send walks green at 768/820');
+  }
+
   // The queued follow-up must be confirmed by a row that leaves the box
   // hittable. The wait proves the guide is on screen; the hit-test is the
   // measurement, and it must run after that wait.
@@ -4979,6 +5005,91 @@ for (const j of want) {
           log.push(line);
           if (!focused.ok) {
             hardFail.push(`${j}/${vpName}: ${line} — a press on the card surface left no caret in the textarea`);
+          }
+        }
+        else if (op === 'composerControls') {
+          // `["composerControls", "<name>"]` measures EVERY control a thumb can
+          // hit inside `[data-kin-composer-card]` and `[data-kin-bottom-chrome]`
+          // — the send, attach and slash controls, the model/permission chips
+          // and the dock's buttons, not only the textarea. J17's tablet
+          // viewports are `hasTouch: true, isMobile: false`, so lint()'s
+          // phone-only smallTapTargets count is 0 there and nothing else would
+          // read these boxes (Watch 53). Candidates are painted, visible,
+          // enabled, not `pointer-events: none`, and hit-testable: the point
+          // at their centre must return the element or a descendant, i.e. what
+          // a thumb would actually press. Each measured control gets one log
+          // line with its box; a miss pushes a hardFail naming it.
+          const name = String(a ?? '').trim();
+          if (!name) { hardFail.push(`${j}/${vpName}: composerControls needs a name`); continue; }
+          const roots = ['[data-kin-composer-card]', '[data-kin-bottom-chrome]'];
+          const floor = 44;
+          try {
+            await page.locator(roots.join(', ')).first().waitFor({ state: 'visible', timeout: 15000 });
+          } catch (_) {
+            hardFail.push(`${j}/${vpName}: composerControls ${name}: neither the composer card nor the bottom chrome is visible`);
+            continue;
+          }
+          const measured = await page.evaluate(({ roots, floor, touch }) => {
+            const round = (v) => Math.round(v * 10) / 10;
+            const label = (node) => {
+              const named = node.getAttribute('aria-label') || node.getAttribute('title') || '';
+              const cls = typeof node.className === 'string' && node.className.trim()
+                ? '.' + node.className.trim().split(/\s+/)[0]
+                : '';
+              return node.tagName.toLowerCase() + cls + (named ? ' "' + named + '"' : '');
+            };
+            const painted = (node) => {
+              const r = node.getBoundingClientRect();
+              const cs = getComputedStyle(node);
+              return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.pointerEvents !== 'none';
+            };
+            const rootNodes = roots.flatMap((selector) => [...document.querySelectorAll(selector)])
+              .filter((node) => {
+                const r = node.getBoundingClientRect();
+                return r.width > 0 && r.height > 0 && getComputedStyle(node).visibility !== 'hidden';
+              });
+            if (rootNodes.length === 0) {
+              return { error: 'neither ' + roots.join(' nor ') + ' has a painted box' };
+            }
+            const candidates = new Set();
+            for (const root of rootNodes) {
+              const found = root.querySelectorAll('button, a[href], input, select, textarea, summary, [role="button"], [role="tab"], [role="switch"]');
+              for (const node of found) {
+                if (painted(node) && !node.disabled && node.getAttribute('aria-disabled') !== 'true') candidates.add(node);
+              }
+            }
+            const controls = [];
+            for (const node of candidates) {
+              const r = node.getBoundingClientRect();
+              const x = r.left + r.width / 2;
+              const y = r.top + r.height / 2;
+              const hit = x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight
+                ? document.elementFromPoint(x, y)
+                : null;
+              if (!hit || !(hit === node || node.contains(hit))) continue;
+              controls.push({
+                label: label(node),
+                width: round(r.width), height: round(r.height),
+                x: round(x), y: round(y),
+                small: touch && (r.width < floor || r.height < floor),
+              });
+            }
+            return { candidates: candidates.size, controls };
+          }, { roots, floor, touch });
+          if (measured.error) {
+            hardFail.push(`${j}/${vpName}: composerControls ${name}: ${measured.error}`);
+            continue;
+          }
+          for (const c of measured.controls) {
+            log.push(`composer control ${name}: ${c.label} ${c.width}×${c.height}px at (${c.x}, ${c.y})`);
+            if (c.small) {
+              hardFail.push(`${j}/${vpName}: composer control ${name}: ${c.label} is ${c.width}×${c.height}px at (${c.x}, ${c.y}), under the ${floor}×${floor} thumb floor`);
+            }
+          }
+          log.push(`composer controls ${name}: ${measured.controls.length} measured of ${measured.candidates} candidate(s) in the composer card and bottom chrome`
+            + (touch ? `, floor ${floor}×${floor}` : ' (no thumb floor: this context has no touch)'));
+          if (measured.controls.length === 0) {
+            hardFail.push(`${j}/${vpName}: composerControls ${name}: no hittable control inside the composer card or bottom chrome; a measurement of nothing is not evidence`);
           }
         }
         else { hardFail.push(`${j}/${vpName}: unknown step op ${JSON.stringify(op)}`); }
