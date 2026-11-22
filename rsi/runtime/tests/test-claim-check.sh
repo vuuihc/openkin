@@ -27,6 +27,9 @@ CASE=""; RC=0; OUT=""; RSI_CTRL=""
 pass() { echo "PASS $*"; }
 fail() { echo "FAIL $*" >&2; exit 1; }
 
+# runs <counter-file> — how many times a claim command ran (0 when it never wrote the file).
+runs() { if [ -e "$1" ]; then grep -c '' "$1"; else echo 0; fi; }
+
 st() { echo "$RSI_CTRL/rsi/state"; }
 sb() { echo "$(st)/sendback/$SLUG.md"; }
 claimtxt() { echo "$(st)/merge/$SLUG.claim.txt"; }
@@ -135,10 +138,12 @@ test_claim_check_without_claim_output_is_sent_back() {
 }
 
 # --- 4. real output may carry noise around the claimed line, and a fenced block is formatting ---
+# A green claim must not pay twice: the run counter below proves the single-run path stayed single.
 test_claim_check_passes_when_the_command_output_matches() {
   new_case matching-output
+  local cnt="$T/matching-output.count"
   paths "docs/plans/claim-check.md"
-  body "Claim check: grep -n 'Prose claim check' NOTES.md; printf 'noise before and after\\n'" \
+  body "Claim check: grep -n 'Prose claim check' NOTES.md; echo x >> '$cnt'; printf 'noise before and after\\n'" \
        "Claim output:" \
        '```text' \
        "2:Prose claim check: the KIN-CONTINUE-001 story is signed." \
@@ -146,7 +151,61 @@ test_claim_check_passes_when_the_command_output_matches() {
   run_check
   [ "$RC" -eq 0 ] || fail "$CASE: exit $RC, want 0 ($OUT)"
   case "$OUT" in CLAIM_OK:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_OK" ;; esac
+  [ "$(runs "$cnt")" -eq 1 ] \
+    || fail "$CASE: the command ran $(runs "$cnt") times, want exactly 1"
   [ ! -e "$(sb)" ] || fail "$CASE: a passing check must not write a sendback"
+  pass "$CASE"
+}
+
+# --- 4a. a silent non-zero run is not a verdict: it is retried, and the retry can pass ----------
+# An OOM kill or a signal prints nothing and exits non-zero. Reporting that as a red claim cost a
+# full rework round on a branch with nothing to fix, so the first silent result buys one retry.
+test_claim_check_retries_a_command_that_prints_nothing() {
+  new_case claim-check-retries-silence
+  local cnt="$T/claim-check-retries-silence.count"
+  paths "docs/plans/claim-check.md"
+  body "Claim check: if [ -e '$cnt' ]; then echo CLAIM_CHECK_SECOND_RUN; else : > '$cnt'; exit 1; fi" \
+       "Claim output:" \
+       "CLAIM_CHECK_SECOND_RUN"
+  run_check
+  [ "$RC" -eq 0 ] || fail "$CASE: exit $RC, want the retried command to pass ($OUT)"
+  case "$OUT" in CLAIM_OK:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_OK" ;; esac
+  [ -e "$cnt" ] || fail "$CASE: the command ran only once; a silent failure must be retried"
+  pass "$CASE"
+}
+
+# --- 4b. only a SECOND silent run is a failure, and it must say the command never answered ------
+test_claim_check_fails_when_the_retry_also_prints_nothing() {
+  new_case claim-check-retry-also-silent
+  local cnt="$T/claim-check-retry-also-silent.count"
+  paths "docs/plans/claim-check.md"
+  body "Claim check: echo x >> '$cnt'; exit 1" \
+       "Claim output:" \
+       "CLAIM_CHECK_SECOND_RUN"
+  run_check
+  [ "$RC" -eq 1 ] || fail "$CASE: exit $RC, want 1 after two silent runs ($OUT)"
+  case "$OUT" in CLAIM_FAIL:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_FAIL" ;; esac
+  case "$OUT" in *"no output on two runs"*) ;; *) fail "$CASE: detail lacks 'no output on two runs': $OUT" ;; esac
+  case "$OUT" in *"did not reach a verdict"*) ;; *) fail "$CASE: detail lacks 'did not reach a verdict': $OUT" ;; esac
+  case "$OUT" in *"want 0"*) fail "$CASE: the old ambiguous text survived: $OUT" ;; esac
+  [ "$(runs "$cnt")" -eq 2 ] \
+    || fail "$CASE: the command ran $(runs "$cnt") times, want exactly 2"
+  pass "$CASE"
+}
+
+# --- 4c. a command that printed anything keeps today's single run, so a red claim is never retried
+test_claim_check_does_not_retry_a_command_with_output() {
+  new_case claim-check-no-retry-with-output
+  local cnt="$T/claim-check-no-retry-with-output.count"
+  paths "docs/plans/claim-check.md"
+  body "Claim check: echo x >> '$cnt'; echo CLAIM_CHECK_RAN; exit 7" \
+       "Claim output:" \
+       "CLAIM_CHECK_RAN"
+  run_check
+  [ "$RC" -eq 1 ] || fail "$CASE: exit $RC, want 1 ($OUT)"
+  case "$OUT" in *"exited 7"*) ;; *) fail "$CASE: detail lacks 'exited 7': $OUT" ;; esac
+  [ "$(runs "$cnt")" -eq 1 ] \
+    || fail "$CASE: the command ran $(runs "$cnt") times; output must not be retried"
   pass "$CASE"
 }
 
@@ -223,8 +282,24 @@ test_claim_check_runs_before_the_reviewer_is_launched() {
   pass "$name"
 }
 
+# case_name_for <function> — the `new_case` name a function uses, so RSI_TEST_ONLY accepts either.
+case_name_for() {
+  case "$1" in
+    test_claim_check_passes_when_the_command_output_matches) echo matching-output ;;
+    test_claim_check_retries_a_command_that_prints_nothing) echo claim-check-retries-silence ;;
+    test_claim_check_fails_when_the_retry_also_prints_nothing) echo claim-check-retry-also-silent ;;
+    test_claim_check_does_not_retry_a_command_with_output) echo claim-check-no-retry-with-output ;;
+    *) echo "" ;;
+  esac
+}
+
 run() {
-  [ -n "${RSI_TEST_ONLY:-}" ] && [ "$1" != "$RSI_TEST_ONLY" ] && return 0
+  if [ -n "${RSI_TEST_ONLY:-}" ]; then
+    local match=0
+    [ "$1" = "$RSI_TEST_ONLY" ] && match=1
+    [ "$(case_name_for "$1")" = "$RSI_TEST_ONLY" ] && match=1
+    [ "$match" -eq 1 ] || return 0
+  fi
   "$1" || exit 1
 }
 run test_prose_pr_without_claim_check_is_sent_back
@@ -232,6 +307,9 @@ run test_claim_check_command_that_fails_is_sent_back
 run test_claim_check_output_absent_from_real_output_is_sent_back
 run test_claim_check_without_claim_output_is_sent_back
 run test_claim_check_passes_when_the_command_output_matches
+run test_claim_check_retries_a_command_that_prints_nothing
+run test_claim_check_fails_when_the_retry_also_prints_nothing
+run test_claim_check_does_not_retry_a_command_with_output
 run test_code_only_pr_is_not_applicable
 run test_waiver_with_a_reason_is_accepted_and_a_bare_none_is_not
 run test_last_claim_check_line_wins_over_a_quoted_one
