@@ -117,5 +117,12 @@
     "old": "  if ((window.history.state?.idx ?? 0) > 0) navigate(-1);\n  else navigate(\"/sessions\", { replace: true });",
     "new": "  // R-phone-back-walk: the history pop removed on purpose — Back lands on the\n  // bare list, so the search text and the filtered list it left are gone even\n  // though the address still matches /sessions. `navigate` stays used so tsc's\n  // noUnusedLocals accepts the mutant build.\n  navigate(\"/sessions\", { replace: true });",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J1"
+  },
+  {
+    "label": "the interrupt action queues the message instead of cutting the round",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "old": "      if (opts?.interrupt) send.interrupt = true;",
+    "new": "      // R-interrupt-walk: the interrupt flag dropped on purpose. The click\n      // still sends, but as an ordinary queue: the held round keeps running,\n      // no 已打断上一轮 mark is drawn, and the walk's note wait goes red.\n      // `opts?.interrupt && false` keeps the flag referenced so tsc accepts\n      // the mutant build; esbuild drops the dead branch.\n      if (opts?.interrupt && false) send.interrupt = true;",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J3"
   }
 ]

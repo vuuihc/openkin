@@ -291,6 +291,72 @@
       "value",
       "textarea",
       ""
+    ],
+    [
+      "gone",
+      "css=[role=status]:has-text(\"已停止当前轮次\"), [role=status]:has-text(\"Stopped current round\")"
+    ],
+    [
+      "fill",
+      "textarea",
+      "Interrupt proof: hold this round open [seed] slow"
+    ],
+    [
+      "send",
+      "button[aria-label='发送'], button[aria-label='Send']"
+    ],
+    [
+      "wait",
+      "css=button[aria-label='停止'], button[aria-label='Stop']",
+      "8000"
+    ],
+    [
+      "wait",
+      "css=[role=status][aria-label*='思考'], [role=status][aria-label*='thinking']"
+    ],
+    [
+      "fill",
+      "textarea",
+      "Interrupt proof: cut this round and answer this message now"
+    ],
+    [
+      "wait",
+      "css=button[aria-label='打断本轮并立即发送'], button[aria-label='Interrupt this round & send now']"
+    ],
+    [
+      "click",
+      "button[aria-label='打断本轮并立即发送'], button[aria-label='Interrupt this round & send now']"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex=\"-1\"]:has-text(\"已打断上一轮\"), [role=region][tabindex=\"-1\"]:has-text(\"Interrupted the previous round\")"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex=\"-1\"]:has-text(\"Interrupt proof: cut this round and answer this message now\")"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex=\"-1\"] p:has-text(\"Fake reply from the journey fake agent.\") >> nth=2",
+      "20000"
+    ],
+    [
+      "gone",
+      "button[aria-label='停止'], button[aria-label='Stop']"
+    ],
+    [
+      "scroll",
+      "css=[role=region][tabindex=\"-1\"]",
+      "bottom"
+    ],
+    [
+      "shot",
+      "interrupted"
+    ],
+    [
+      "value",
+      "textarea",
+      ""
     ]
   ]
 }
