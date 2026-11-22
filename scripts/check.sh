@@ -316,6 +316,16 @@ job_removed_surfaces() {
   python3 -B scripts/check-removed-surfaces.py
 }
 
+# The journey spec's refs against the live console facts: an area, a route or a
+# `data-kin-*` hook a journey still names after its surface retired. Always
+# runs: #584's sendback was one stale `[data-area="projects"]` selector, and
+# only the ~20-minute browser walk noticed. The suite runs first, so a broken
+# guard is reported as the guard. `-B` avoids __pycache__ in the tree.
+job_ux_spec_refs() {
+  python3 -B scripts/ux_spec_refs_test.py || return 1
+  python3 -B scripts/ux_spec_refs.py
+}
+
 # The added-file bans and their own tests. Always runs: a disabled rule must
 # still turn this job red, even when `ui-test` sees nothing.
 job_ui_lint_guard() {
@@ -369,6 +379,7 @@ start python-syntax job_python_syntax
 start stories job_stories
 start ui-inventory job_ui_inventory
 start removed-surfaces job_removed_surfaces
+start ux-spec-refs job_ux_spec_refs
 start ui-lint-guard job_ui_lint_guard
 start walk-contract job_walk_contract
 start phone-baseline-contract job_phone_baseline_contract
