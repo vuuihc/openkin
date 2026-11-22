@@ -484,11 +484,7 @@ describe("transcriptProjection", () => {
     // after the process box the running step left behind.
     expect(
       items.map((item) =>
-        item.kind === "meta"
-          ? item.label
-          : item.kind === "message"
-            ? item.text
-            : item.kind,
+        item.kind === "meta" ? item.label : item.kind === "message" ? item.text : item.kind,
       ),
     ).toEqual(["write the plan", "here is the first half", "progress", t("chat.stoppedNote")]);
     // A Stop is not a failure: no error line and the step settles done.
@@ -604,7 +600,11 @@ describe("transcriptProjection", () => {
       [
         ev(1, "message", { role: "user", content: [{ type: "text", text: "go" }] }),
         ev(2, "task_started", {}),
-        ev(3, "message", { role: "assistant", speaker: "kin", content: [{ type: "text", text: "ok" }] }),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "kin",
+          content: [{ type: "text", text: "ok" }],
+        }),
         ev(4, "error", { message: "canceled" }),
         ev(5, "result", { is_error: false }),
       ],
