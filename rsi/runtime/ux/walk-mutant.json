@@ -110,5 +110,12 @@
     "old": "              aria-current={active ? \"page\" : undefined}",
     "new": "              aria-current={undefined}",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J11"
+  },
+  {
+    "label": "the phone's Back drops the search and lands on the bare list (R-phone-back-walk)",
+    "file": "ui/src/lib/phoneBack.ts",
+    "old": "  if ((window.history.state?.idx ?? 0) > 0) navigate(-1);\n  else navigate(\"/sessions\", { replace: true });",
+    "new": "  // R-phone-back-walk: the history pop removed on purpose — Back lands on the\n  // bare list, so the search text and the filtered list it left are gone even\n  // though the address still matches /sessions. `navigate` stays used so tsc's\n  // noUnusedLocals accepts the mutant build.\n  navigate(\"/sessions\", { replace: true });",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J1"
   }
 ]

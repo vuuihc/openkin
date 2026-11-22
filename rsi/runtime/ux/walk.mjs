@@ -2568,6 +2568,7 @@ function checkJ1Contract(spec) {
   const bare = (v) => String(v).replace(/^\?/, '');
   const sel = (st, i) => String((st || [])[i] ?? '');
   const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st, i));
+  const after = (from, pred) => (from < 0 ? -1 : idx(pred, from + 1));
 
   // Phone only: the search field, the filter sheet and the approval card are
   // the 390px surfaces; a Mac width would walk a layout this leg never claims.
@@ -2659,6 +2660,83 @@ function checkJ1Contract(spec) {
       errs.push('J1 points both decisions at the same conversation: the approve and deny deep links must name different placeholders');
     }
     if (denyAt < approveAt) errs.push('J1 denies before it approves: the approve conversation must be decided first');
+  }
+
+  // The list leg ends the way a thumb uses it: search, open the row the search
+  // found, press the in-app Back, and find the search text and the filtered
+  // list still there. J1 used to jump from the filter straight to the approve
+  // deep link, so a Back that landed on a bare /sessions kept every gate green:
+  // no journey ever read the search after the pop (R-phone-back-walk). The
+  // shape is J12's edge-back proof — fill → wait the named row → click it →
+  // url ^/tasks/ → back → url ^/sessions → value input[type=search] <the same
+  // term> → search search=<term> — plus J12's rule that a `goto` between the
+  // Back and the value read is refused, because a fresh load would restore the
+  // query from the URL rather than from the pop. The row the leg opens must be
+  // one the search term names, and the value read must be the exact term that
+  // was typed, or the proof would be about some other row and some other
+  // search.
+  const searchFill = (st) => st[0] === 'fill'
+    && /input\[type=search\]/.test(bare(sel(st, 1))) && sel(st, 2).trim() !== '';
+  const fillAt = idx(searchFill);
+  const anyBackAt = idx((st) => st[0] === 'back');
+  if (fillAt < 0) {
+    errs.push('J1 never fills a non-empty search term before it opens the found row');
+  }
+  if (anyBackAt < 0) {
+    errs.push('J1 never presses the in-app Back; the search-survives-Back proof needs the reader\'s own Back, not a deep link');
+  }
+  if (fillAt >= 0) {
+    const term = sel(steps[fillAt], 2);
+    const namesRow = (st) => (st[0] === 'wait' || st[0] === 'click')
+      && /data-session-row/.test(bare(sel(st, 1))) && bare(sel(st, 1)).includes(term);
+    const rowWaitAt = after(fillAt, (st) => st[0] === 'wait' && namesRow(st));
+    const rowOpenAt = after(fillAt, (st) => st[0] === 'click' && namesRow(st));
+    if (rowWaitAt < 0) {
+      errs.push(`J1 never waits for the row the search found (wait css=[data-session-row] … ${term})`);
+    }
+    if (rowOpenAt < 0) {
+      errs.push(`J1 never opens the found row (click [data-session-row] … ${term})`);
+    } else {
+      if (rowWaitAt >= 0 && rowWaitAt > rowOpenAt) {
+        errs.push('J1 opens the found row before it waits for the row to be drawn; the wait proves the search filtered the list');
+      }
+      const rowTaskAt = after(rowOpenAt, (st) => st[0] === 'url' && /^\^?\/tasks\//.test(bare(sel(st, 1))));
+      if (rowTaskAt < 0) {
+        errs.push('J1 never proves the found row opened a conversation (url ^/tasks/)');
+      } else {
+        const rowBackAt = after(rowTaskAt, (st) => st[0] === 'back');
+        if (rowBackAt < 0) {
+          errs.push('J1 never presses the in-app Back after opening the found row (back)');
+        } else {
+          const rowListAt = after(rowBackAt, (st) => st[0] === 'url' && /^\^?\/sessions/.test(bare(sel(st, 1))));
+          if (rowListAt < 0) errs.push('J1 never proves Back returned to the list (url ^/sessions after back)');
+          const rowValueAt = after(rowBackAt, (st) => st[0] === 'value' && /input\[type=search\]/.test(bare(sel(st, 1))));
+          if (rowValueAt < 0) {
+            errs.push('J1 never reads the search text back after Back (value input[type=search] …)');
+          } else if (sel(steps[rowValueAt], 2) !== term) {
+            errs.push('J1 reads a different search text after Back than it typed before opening the row');
+          }
+          const rowSearchAt = after(rowValueAt, (st) => {
+            if (st[0] !== 'search') return false;
+            try { return new RegExp(bare(sel(st, 1))).test('?search=' + term); } catch (_) { return false; }
+          });
+          if (rowSearchAt < 0) {
+            errs.push(`J1 never proves the list URL still carries the search after Back (search search=${term})`);
+          }
+          const gotoBetween = rowValueAt < 0 ? -1
+            : steps.findIndex((st, i) => i > rowBackAt && i < rowValueAt && Array.isArray(st) && st[0] === 'goto');
+          if (gotoBetween >= 0) {
+            errs.push('J1 reloads the document between Back and the search read; the search must come back from the pop, not a fresh load');
+          }
+          if (escapeAt >= 0 && rowWaitAt >= 0 && rowWaitAt < escapeAt) {
+            errs.push('J1 waits for the found row before it closes the filter with Escape; the search/Back leg follows the search leg');
+          }
+          if (approveAt >= 0 && rowOpenAt > approveAt) {
+            errs.push('J1 opens the found row only after the approve deep link; the search/Back leg must come before the decisions');
+          }
+        }
+      }
+    }
   }
 
   // No Mac-only input: a hover is a mouse a phone does not have, a platform
