@@ -3094,6 +3094,132 @@ function checkJ16Contract(spec) {
   }
   return errs;
 }
+// J17's contract: the resting composer at iPad portrait widths is a measured
+// box, not a class string (Watch 53/90). #580 fixed the 0px textarea at 768 and
+// the 33px one at 820, but its proof was a number in a PR body; a DOM test can
+// see the arrangement classes and cannot see the rendered width. The walk must
+// measure the UNFOCUSED textarea before anything focuses or fills it, press the
+// card and read the caret, type a 40-character draft and bound it to two lines,
+// carry the composer across the route with `sample`/`steady`, and hit-test the
+// textarea while the queued guide is on screen. The viewport objects are part
+// of the contract for J16's reason: a bare "768x1024" string resolves to
+// hasTouch false, i.e. an iPad measured as a mouse.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ17Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J17) || {};
+  const steps = journey.steps;
+  if (!journey.title && !Array.isArray(steps)) return ['J17 is not in the spec'];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J17 has no steps'];
+  const errs = [];
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const namesTextarea = (st) => /textarea/i.test(sel(st, 1));
+
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 2
+    || viewports[0] !== 'tablet' || viewports[1] !== 'tablet-portrait') {
+    errs.push('J17 is the iPad portrait resting-composer proof: its viewports must be exactly ["tablet", "tablet-portrait"]');
+  }
+  for (const [name, size] of [['tablet', '820x1180'], ['tablet-portrait', '768x1024']]) {
+    const vp = ((spec || {}).viewports || {})[name];
+    if (!vp || typeof vp !== 'object' || vp.size !== size
+      || vp.hasTouch !== true || vp.isMobile !== false) {
+      errs.push(`the ${name} viewport must be the object {size: "${size}", hasTouch: true, isMobile: false}; `
+        + `a bare "${size}" string resolves to hasTouch false, an iPad measured as a mouse`);
+    }
+  }
+
+  // The resting measurement is the whole point: it must be the first thing
+  // done to the textarea. A fill or focus first is the walk Watch 90 exists to
+  // refuse — the raised arrangement is `w-full`, so the collapse hides.
+  const restingAt = idx((st) => st[0] === 'restingComposer'
+    && (sel(st, 2) === '' || sel(st, 2) === 'resting'));
+  if (restingAt < 0) {
+    errs.push('J17 never measures the resting composer (restingComposer)');
+  } else {
+    const early = steps.findIndex((st, i) => i < restingAt && Array.isArray(st)
+      && (st[0] === 'fill' || st[0] === 'focus') && namesTextarea(st));
+    if (early >= 0) {
+      errs.push(`J17 ${steps[early][0]}s the textarea at step ${early + 1}, before the resting measurement; `
+        + 'measure the resting composer before anything focuses or fills it');
+    }
+  }
+
+  // The card press is the reachability half: a press on the card's own padding
+  // must leave the caret in the textarea. It focuses the box, so it belongs
+  // after the resting measurement; the typed measurement of the 40-character
+  // draft belongs after the press.
+  const pressAt = idx((st) => st[0] === 'pressComposerCard' && sel(st, 1).trim() !== '');
+  if (pressAt < 0) {
+    errs.push('J17 never presses the composer card (pressComposerCard); a click on the box surface is the reachability proof');
+  } else if (restingAt >= 0 && pressAt < restingAt) {
+    errs.push('J17 presses the composer card before the resting measurement; '
+      + 'measure the resting composer before anything focuses or fills it');
+  }
+  const draftAt = pressAt < 0 ? -1 : idx((st) => st[0] === 'fill' && namesTextarea(st)
+    && String(sel(st, 2)).length === 40, pressAt + 1);
+  if (pressAt >= 0 && draftAt < 0) {
+    errs.push('J17 never types the 40-character draft after the card press (fill textarea <40 chars>)');
+  }
+  const typedAt = draftAt < 0 ? -1 : idx((st) => st[0] === 'restingComposer'
+    && sel(st, 2) === 'typed', draftAt + 1);
+  if (draftAt >= 0 && typedAt < 0) {
+    errs.push('J17 never measures the typed draft (restingComposer <name> typed); the two-line check is the readability claim');
+  }
+
+  // The queued follow-up must be confirmed by a row that leaves the box
+  // hittable. The wait proves the guide is on screen; the hit-test is the
+  // measurement, and it must run after that wait.
+  const guideAt = idx((st) => st[0] === 'wait'
+    && /已排队|Queued — answered when the current round ends/.test(sel(st, 1)));
+  if (guideAt < 0) {
+    errs.push('J17 never waits for the queued guide ([role=status] 已排队：本轮结束后回答) before hit-testing the composer');
+  }
+  const hitAt = idx((st) => st[0] === 'restingComposer' && sel(st, 2) === 'hit-test', guideAt + 1);
+  if (hitAt < 0) {
+    errs.push('J17 never hit-tests the textarea while the queued guide is visible (restingComposer <name> hit-test after the guide wait)');
+  }
+
+  // The hand-off proof is J3's: the sampler starts on /new before Start, and
+  // `steady` reads it back after the URL change, before the `sent` shot. The
+  // 24px bound is GOAL F1; a larger number would let the box jump.
+  const startAt = idx((st) => st[0] === 'send' && /开始|Start/.test(sel(st, 1)));
+  const sampleAt = idx((st) => st[0] === 'sample' && /\[data-kin-bottom-chrome\]/.test(sel(st, 1)));
+  if (startAt < 0) errs.push('J17 never presses Start');
+  if (sampleAt < 0) {
+    errs.push('J17 never samples the composer before Send (sample css=[data-kin-bottom-chrome])');
+  } else if (startAt >= 0 && sampleAt > startAt) {
+    errs.push('J17 starts the composer sample after Start; the sample must begin before Send or the hand-off has no frames');
+  }
+  const urlAt = after(startAt, (st) => st[0] === 'url' && /tasks/.test(sel(st, 1)));
+  if (urlAt < 0) errs.push('J17 never waits for the /tasks/ route after Start');
+  const steadyAt = after(urlAt, (st) => st[0] === 'steady' && sel(st, 1) === 'composer'
+    && Number.isFinite(Number(sel(st, 2))) && Number(sel(st, 2)) <= 24);
+  if (steadyAt < 0) {
+    errs.push('J17 never steadies the composer after the URL change (steady composer <maxJump <= 24>); GOAL F1 allows 24px');
+  }
+  const sentAt = after(steadyAt, (st) => st[0] === 'shot' && sel(st, 1) === 'sent');
+  if (sentAt < 0) {
+    errs.push('J17 never takes the `sent` shot after steady; the shot is the hand-off evidence');
+  }
+
+  // The paths table selects the journeys --files walks, first match wins. A
+  // composer or dock diff must walk J17; a new row above the conversation row
+  // would steal J1-J16's selection, so the mapping belongs on that row.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const selected = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return row && Array.isArray(row[1]) ? row[1] : null;
+  };
+  for (const file of ['ui/src/components/chat/Composer.tsx', 'ui/src/components/task/TaskComposerDock.tsx']) {
+    const row = selected(file);
+    if (!row || !row.includes('J17')) {
+      errs.push(`the paths table does not map ${file} to J17; a composer diff would not walk the resting box at 768/820`);
+    }
+  }
+  return errs;
+}
 if (process.argv.includes('--check-spec')) {
   const j1 = checkJ1Contract(spec);
   const j2 = checkJ2Contract(spec);
@@ -3111,7 +3237,8 @@ if (process.argv.includes('--check-spec')) {
   const j14 = checkJ14Contract(spec);
   const j15 = checkJ15Contract(spec);
   const j16 = checkJ16Contract(spec);
-  if (j1.length || j2.length || j3.length || j4.length || j5.length || j6.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length || j14.length || j15.length || j16.length) {
+  const j17 = checkJ17Contract(spec);
+  if (j1.length || j2.length || j3.length || j4.length || j5.length || j6.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length || j14.length || j15.length || j16.length || j17.length) {
     if (j1.length) { console.log('spec red: J1'); j1.forEach((e) => console.log(' - ' + e)); }
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
@@ -3128,6 +3255,7 @@ if (process.argv.includes('--check-spec')) {
     if (j14.length) { console.log('spec red: J14'); j14.forEach((e) => console.log(' - ' + e)); }
     if (j15.length) { console.log('spec red: J15'); j15.forEach((e) => console.log(' - ' + e)); }
     if (j16.length) { console.log('spec red: J16'); j16.forEach((e) => console.log(' - ' + e)); }
+    if (j17.length) { console.log('spec red: J17'); j17.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
   console.log('spec ok: J1 searches the list, filters it, and approves one card and denies another with both controls read gone');
@@ -3149,6 +3277,7 @@ if (process.argv.includes('--check-spec')) {
   if (spec.journeys && spec.journeys.J14) console.log('spec ok: J14 reopens the last conversation on the Mac, finds no conversation rows in ⌘K, and draws the phone home as one list at three levels');
   if (spec.journeys && spec.journeys.J15) console.log('spec ok: J15 answers the agent\'s mid-run question by option and by Other, proves the card left, and finds it still gone after a reload');
   if (spec.journeys && spec.journeys.J16) console.log('spec ok: J16 reads a long table answer at 820 touch down to its last row, then proves a reply that landed while away covered no cell');
+  if (spec.journeys && spec.journeys.J17) console.log('spec ok: J17 measures the resting composer at 768 and 820 before focus, then proves a queued follow-up leaves the box hittable');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
@@ -4550,6 +4679,180 @@ for (const j of want) {
           } else {
             log.push(`reading ${name}: ${verdict.ok ? 'green' : 'RED'} (${verdict.failures.length} failure(s), ${verdict.criteria.cells.checked} visible cells)`);
             for (const f of verdict.failures) hardFail.push(`${j}/${vpName}: reading ${name}: ${f}`);
+          }
+        }
+        else if (op === 'restingComposer') {
+          // `["restingComposer", "<name>"]` measures the composer box as it
+          // rests, before anything focuses or fills it (Watch 90). A walk that
+          // focuses first never sees the collapse: the raised arrangement is
+          // `w-full` at every width, so the 0px resting box photographs as a
+          // healthy one. Modes:
+          //   (default)   the unfocused box: width >= 240, height >= 44, and
+          //               document.activeElement is not the textarea;
+          //   `typed`     a >= 40-character draft is readable in <= 2 lines
+          //               (scrollHeight within two line boxes plus padding);
+          //   `hit-test`  with the queued guide on screen, elementFromPoint at
+          //               the textarea's centre is the textarea (or a
+          //               descendant) and the guide's rect does not intersect
+          //               the textarea's rect.
+          // Each mode prints one log line with the measured numbers and pushes
+          // a hardFail on a miss, prefixed with the journey and viewport.
+          const name = String(a ?? '').trim();
+          const mode = String(b ?? '').trim() || 'resting';
+          const taSelector = '[data-kin-composer-card] textarea';
+          if (!name || !['resting', 'typed', 'hit-test'].includes(mode)) {
+            hardFail.push(`${j}/${vpName}: restingComposer needs a name and one of resting, typed, hit-test; got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          try {
+            await page.locator(taSelector).first().waitFor({ state: 'visible', timeout: 15000 });
+          } catch (_) {
+            hardFail.push(`${j}/${vpName}: restingComposer ${name}: no visible composer textarea (${taSelector})`);
+            continue;
+          }
+          if (mode === 'hit-test') {
+            const hit = await page.evaluate(() => {
+              const round = (v) => Math.round(v * 10) / 10;
+              const card = document.querySelector('[data-kin-composer-card]');
+              const ta = card ? card.querySelector('textarea') : null;
+              const guide = document.querySelector('[data-kin-queued-guide]');
+              if (!ta) return { error: 'the composer textarea is not on screen' };
+              if (!guide) return { error: 'the queued guide ([data-kin-queued-guide]) is not on screen' };
+              const tr = ta.getBoundingClientRect();
+              const gr = guide.getBoundingClientRect();
+              if (!(gr.width > 0 && gr.height > 0)) return { error: 'the queued guide has no painted box' };
+              const x = tr.left + tr.width / 2;
+              const y = tr.top + tr.height / 2;
+              const el = document.elementFromPoint(x, y);
+              const label = (node) => (node
+                ? node.tagName.toLowerCase()
+                  + (typeof node.className === 'string' && node.className.trim()
+                    ? '.' + node.className.trim().split(/\s+/)[0]
+                    : '')
+                : 'none');
+              return {
+                x: round(x), y: round(y),
+                hit: label(el),
+                owns: el === ta || ta.contains(el),
+                overlap: !(gr.right <= tr.left || gr.left >= tr.right || gr.bottom <= tr.top || gr.top >= tr.bottom),
+                ta: { width: round(tr.width), height: round(tr.height), y: round(tr.top) },
+                guide: { width: round(gr.width), height: round(gr.height), y: round(gr.top) },
+              };
+            });
+            if (hit.error) {
+              hardFail.push(`${j}/${vpName}: restingComposer ${name}: ${hit.error}`);
+              continue;
+            }
+            const line = `hit-test ${name}: point (${hit.x}, ${hit.y}) hit ${hit.hit}; `
+              + `textarea ${hit.ta.width}×${hit.ta.height}px at y=${hit.ta.y}; `
+              + `guide ${hit.guide.width}×${hit.guide.height}px at y=${hit.guide.y}; `
+              + (hit.overlap ? 'OVERLAP' : 'no overlap');
+            log.push(line);
+            if (!hit.owns) {
+              hardFail.push(`${j}/${vpName}: ${line} — elementFromPoint returns ${hit.hit}, not the textarea`);
+            }
+            if (hit.overlap) {
+              hardFail.push(`${j}/${vpName}: ${line} — the queued guide intersects the textarea`);
+            }
+            continue;
+          }
+          const measured = await page.evaluate(() => {
+            const round = (v) => Math.round(v * 10) / 10;
+            const card = document.querySelector('[data-kin-composer-card]');
+            const el = card ? card.querySelector('textarea') : null;
+            if (!el) return { error: 'the composer textarea is not on screen' };
+            const r = el.getBoundingClientRect();
+            const cs = getComputedStyle(el);
+            const lh = parseFloat(cs.lineHeight);
+            const pt = parseFloat(cs.paddingTop) || 0;
+            const pb = parseFloat(cs.paddingBottom) || 0;
+            return {
+              width: round(r.width), height: round(r.height),
+              cardWidth: card ? round(card.getBoundingClientRect().width) : null,
+              value: (el.value || '').length,
+              active: document.activeElement === el,
+              activeTag: document.activeElement ? document.activeElement.tagName.toLowerCase() : 'none',
+              lineHeight: Number.isFinite(lh) ? round(lh) : null,
+              paddingTop: round(pt), paddingBottom: round(pb),
+              scrollHeight: el.scrollHeight,
+            };
+          });
+          if (measured.error) {
+            hardFail.push(`${j}/${vpName}: restingComposer ${name}: ${measured.error}`);
+            continue;
+          }
+          if (mode === 'resting') {
+            const line = `resting composer ${name}: ${measured.width}×${measured.height}px `
+              + `(card ${measured.cardWidth}px), activeElement=${measured.activeTag}`;
+            log.push(line);
+            if (measured.width < 240) {
+              hardFail.push(`${j}/${vpName}: ${line} — the textarea width is under the 240px floor`);
+            }
+            if (measured.height < 44) {
+              hardFail.push(`${j}/${vpName}: ${line} — the textarea height is under the 44px floor`);
+            }
+            if (measured.active) {
+              hardFail.push(`${j}/${vpName}: ${line} — the textarea already has focus; measure the resting composer before anything focuses or fills it`);
+            }
+          } else {
+            const lines = measured.lineHeight
+              ? Math.max(1, Math.ceil((measured.scrollHeight - measured.paddingTop - measured.paddingBottom) / measured.lineHeight))
+              : null;
+            const maxHeight = measured.lineHeight
+              ? 2 * measured.lineHeight + measured.paddingTop + measured.paddingBottom + 1
+              : null;
+            const line = `typed composer ${name}: ${measured.width}×${measured.height}px, `
+              + `${measured.value} chars, ${lines === null ? 'unmeasured' : lines + ' line(s)'} `
+              + `(scrollHeight ${measured.scrollHeight}px, 2-line budget ${maxHeight === null ? 'n/a' : maxHeight + 'px'})`;
+            log.push(line);
+            if (measured.width < 240) {
+              hardFail.push(`${j}/${vpName}: ${line} — the textarea width is under the 240px floor`);
+            }
+            if (measured.height < 44) {
+              hardFail.push(`${j}/${vpName}: ${line} — the textarea height is under the 44px floor`);
+            }
+            if (measured.value < 40) {
+              hardFail.push(`${j}/${vpName}: ${line} — the draft is shorter than the 40-character proof`);
+            }
+            if (lines === null) {
+              hardFail.push(`${j}/${vpName}: ${line} — the textarea has no usable line-height to bound the draft`);
+            } else if (measured.scrollHeight > maxHeight) {
+              hardFail.push(`${j}/${vpName}: ${line} — the draft needs more than two lines`);
+            }
+          }
+        }
+        else if (op === 'pressComposerCard') {
+          // `["pressComposerCard", "<name>"]`: press the card's own surface, not
+          // the textarea. +4/+4 lands inside the card's padding and (at the
+          // 12px desktop radius) inside the rounded corner, so the pointer
+          // targets the card. The assertion is the caret: the card's
+          // pointerdown handler focuses the textarea, and a press that leaves
+          // no caret is the dead surface #580 fixed.
+          const name = String(a ?? '').trim();
+          if (!name) { hardFail.push(`${j}/${vpName}: pressComposerCard needs a name`); continue; }
+          const card = page.locator('[data-kin-composer-card]').first();
+          try {
+            await card.waitFor({ state: 'visible', timeout: 15000 });
+          } catch (_) {
+            hardFail.push(`${j}/${vpName}: pressComposerCard ${name}: no visible [data-kin-composer-card]`);
+            continue;
+          }
+          const box = await card.boundingBox();
+          if (!box) {
+            hardFail.push(`${j}/${vpName}: pressComposerCard ${name}: the composer card has no box`);
+            continue;
+          }
+          await page.mouse.click(box.x + 4, box.y + 4);
+          const focused = await page.evaluate(() => {
+            const card = document.querySelector('[data-kin-composer-card]');
+            const ta = card ? card.querySelector('textarea') : null;
+            return { ok: !!ta && document.activeElement === ta, active: document.activeElement ? document.activeElement.tagName.toLowerCase() : 'none' };
+          });
+          const line = `press composer card ${name}: pressed (${Math.round(box.x) + 4}, ${Math.round(box.y) + 4}); `
+            + `textarea focused=${focused.ok} (activeElement=${focused.active})`;
+          log.push(line);
+          if (!focused.ok) {
+            hardFail.push(`${j}/${vpName}: ${line} — a press on the card surface left no caret in the textarea`);
           }
         }
         else { hardFail.push(`${j}/${vpName}: unknown step op ${JSON.stringify(op)}`); }
