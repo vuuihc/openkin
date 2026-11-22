@@ -67,7 +67,7 @@ story 签字）等 owner 的 D3–D6 回复，`KIN-CONTRACT-001` 仍是 `draft`�
 3. 最小契约 story（`KIN-CONTRACT-001`）按 owner 2026-11-22 原话写完、交付时转 `approved`；`R-contract` 的路由清单测试在跑。
 4. `R-dead-paths` 已落地（1,090 行无引用死代码 + `removed-surfaces` 守卫在 `scripts/check.sh` 里被点名执行）。
 
-**Queue seeds（一次一行，按序）**：`R-dead-paths`（死代码 + 守卫，已落地 #547）→ `R-contract`（四个页面 + 运行搬进列表 + 删 settings 的 agents tab + 退场表 + 路由清单测试）→ `R-delete-pages`（`/projects`、`/projects/:id`、`/agent-sessions/:id`、`/machines/:device/tasks/:id` 退役；工作说明先搬进列表项目行）→ `R-rn-spike`（独立 story/ADR：抽共享 TS + RN 壳）。**不做**：隐藏 `/routines`、把 routine 改成卡片、Settings 收缩到 2 个 tab、搬走 provider 凭据。
+**Queue seeds（一次一行，按序）**：`R-dead-paths`（死代码 + 守卫，已落地 #547）→ `R-contract`（四个页面 + 运行搬进列表 + 退场表 + 路由清单测试；设置六个 tab 全留、agents 安装检测保持现状，重做归 `R-agents-detect`）→ `R-delete-pages`（`/projects`、`/projects/:id`、`/agent-sessions/:id`、`/machines/:device/tasks/:id` 退役；工作说明先搬进列表项目行）→ `R-rn-spike`（独立 story/ADR：抽共享 TS + RN 壳）。**不做**：隐藏 `/routines`、把 routine 改成卡片、Settings 收缩到 2 个 tab、搬走 provider 凭据。
 
 **门要补的**：`removed-surfaces` 始终运行（计划说删掉的路径必须在 main 上不存在）；路由清单测试（只允许契约里的路由，新增路由必须有 story）；替换先行（被删页面的能力仍有 tool/card 测试且已绿）。
 
