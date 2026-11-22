@@ -95,8 +95,8 @@
 **怎么查：** `ui/src/lib/areaTransition.test.ts`、`ui/src/components/layout/AreaRoute.dom.test.tsx`，以及 UX 走查的减少动态一遍；在系统里打开“减少动态”后逐种到达看一遍，仍出现位移就失败。
 
 ### 21. 820 宽按平板办，不按缩小版的桌面办
-768–1023 这一段既是 iPad 竖屏，也是 Mac 窗口拖窄后最常见的样子：它没有桌面那点宽度余量，却常常继承桌面规则。两栏布局在这里把左栏压成 `Nig…` 这样的 2–3 字截断、右栏却几乎空着（2026-11-22 `/routines` 在 820 实测）；44px 点按地板停在 767.98px 之前，控件只剩 36–40px。规则：**两栏只在 ≥1024px 出现；768–1023 一律单列、点按 ≥44px、列表里的名字不截到 3 个字以内**。1100 的 Mac 默认窗口不受影响。
-**怎么查：** 在 820×1180、`hasTouch` 下走一遍这块面；`walk.json` 里 `smallTapTargets` 为 0、名字没被截到 2–3 个字符、右栏不是「几乎空白」。三次实例：`#580`（820 静止输入框 33×58，768 量到 0×135）、`R-touch-floor-768`（768/820 控件 36–40px）、`#585`（`/routines` 820 两栏压成 2–3 字）。
+768–1023 这一段既是 iPad 竖屏，也是 Mac 窗口拖窄后最常见的样子：它没有桌面那点宽度余量，却常常继承桌面规则。内容级的两栏（一个页面内部并排的两个内容区，如 `/routines` 的列表 + 说明）在这里把左栏压成 `Nig…` 这样的 2–3 字截断、右栏却几乎空着（`#585` 的 `/routines` 在 820 实测）；44px 点按地板止于 767.98px（`ui/src/index.css:278`），触屏上的控件因此仍是桌面密度，低至 24px（`ui/src/components/sessions/SessionRow.tsx:637` 24px、`ui/src/components/chat/Composer.tsx:1286` 24–28px、`Composer.tsx:1355` 与 `Composer.tsx:1406` 28px、`ui/src/components/sessions/SessionToolbar.tsx:107` 36px，桌面密度下 24–40px）。规则：**内容级的两栏只在 ≥1024px 出现；768–1023 的内容级分区一律单列、列表里的名字不截到 3 个字以内；触屏/粗指针下每个能点的控件 ≥44px（达标方式见下）**。两条限定：常驻的对话列表 + 详情外壳（TASTE 15）不算内容级两栏，它从 ≥768 起保留 248px 列表（`ui/src/components/layout/Sidebar.tsx:247`，J16/J17 的 820 截图为证），要折叠这个外壳得另开故事改 J16/J17；这个外壳的 44px 也不能靠给 248px 列的行内按钮统一加地板达成——实测会把项目名压到 0px（`ui/src/index.css:263-268`），要像手机那样把 hover-only 动作移进展开体。1100 的 Mac 默认窗口不受影响。
+**怎么查：** 在 820×1180 和 768×1024（`hasTouch: true`、`isMobile: false`）各走一遍这块面，再在 1023 宽确认仍按这段、1100 回到桌面规则。820 能机检的是阅读面的两条 44px：阅读裁决的 `actionMin: 44`（`rsi/runtime/ux/walk.mjs:88`，断言在 `rsi/runtime/ux/walk.mjs:118`）和 J17 的静止输入框 44px 地板（`rsi/runtime/ux/walk.mjs:4791`）；`walk.json` 的 `smallTapTargets` 只在 `isMobile` 视口计数（`rsi/runtime/ux/walk.mjs:3574`、`rsi/runtime/ux/walk.mjs:3972`），平板是 `isMobile: false`（`rsi/runtime/ux/journeys.json:5-6`），所以它在 820 恒为 0，不能当作证明。触屏平板的逐控件 44px 目前靠手工量（这条是返工目标，尚未量完），另看 820 截图里名字没被截到 2–3 个字符、右栏不是「几乎空白」。三次实例：`#580`（820 静止输入框 33×58，768 量到 0×135）、`#585`（`/routines` 820 内容两栏压成 2–3 字）。
 
 ## 怎么执行
 
@@ -117,3 +117,4 @@
 | 14 | 手机运行设置点模型，整张面板被撑高；Mac 上出现原生 select |
 | 15 | 打开或切换对话时整页变骨架屏、白屏 |
 | 16 | 缓存的对话抢走 ⌘F；菜单盖住对话后 j/k 还在滚背后的列表 |
+| 21 | 触屏 768–1023 的控件仍是桌面密度（低至 24px）；`/routines` 在 820 还是内容两栏（#585 返工在飞） |
