@@ -30,6 +30,7 @@ import {
   toggleMobileMessageActions,
   useMobileMessageActionsRevealed,
 } from "../../lib/mobileMessageActions";
+import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useAppStore } from "../../store/appStore";
 import { IconChevron, IconCopy, IconDownload, IconSearch, IconShare, IconX } from "../icons";
 import Button from "../ui/Button";
@@ -930,6 +931,14 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
   // message: several sessions stay mounted (tab host), and their seqs collide.
   const storeKey = messageScope ? `${messageScope}:${item.key}` : item.key;
   const revealed = useMobileMessageActionsRevealed(storeKey);
+  // A finger has no hover at any width. The old reveal was scoped to the phone
+  // breakpoint, so an iPad at 768/820 drew the desktop layout with the row at
+  // `opacity: 0` and no `pointer-events` rule: invisible, still hit-testable,
+  // and a tap meant to read the answer could press 重试. With a coarse pointer
+  // the hidden row is inert everywhere, and the tap that reveals it is the only
+  // way in; a mouse keeps today's hover/focus reveal (TASTE 21).
+  const coarsePointer = useCoarsePointer();
+  const actionsInert = coarsePointer && !revealed;
   return (
     <div
       data-message-key={item.key}
@@ -944,13 +953,15 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
             // Touch has no hover, so the actions rest hidden and a tap on the
             // body reveals them (one message at a time). A tap on a control
             // or a link inside the body does that control's job instead, and
-            // a tap that ends a text selection leaves the actions alone.
+            // a tap that ends a text selection leaves the actions alone. The
+            // coarse arm is the iPad: same gesture, at a width where the
+            // desktop layout draws the row.
             onClick: (event: ReactMouseEvent) => {
-              // The tap-to-reveal is the touch answer to hover; with a
+              // The tap-to-reveal is the touch answer to hover; with a fine
               // pointer, hover owns the row (the same `sm` cut the classes
               // use), and a click that stuck an action row on screen would
               // be a second behaviour for the same gesture.
-              if (!window.matchMedia("(max-width: 639px)").matches) return;
+              if (!coarsePointer && !window.matchMedia("(max-width: 639px)").matches) return;
               if (!isMessageActionsToggleTap(event.target)) return;
               toggleMobileMessageActions(storeKey);
             },
@@ -971,12 +982,22 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
             // `sm:` is the desktop cut: hover exists there, so the row hides
             // until the pointer is on the message. Below it the row hides
             // until the message is tapped, and a revealed row stays visible
-            // — there is no hover to lose it.
+            // — there is no hover to lose it. A coarse pointer skips the
+            // `sm:` cut entirely: an iPad has no hover to reveal the row, and
+            // an opacity-0 row that still takes pointer events is a tap target
+            // nobody can see. Focus stays a reveal so Tab reaches the buttons.
             "flex items-center gap-1 transition-opacity",
-            revealed
-              ? "max-sm:opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100"
-              : "max-sm:opacity-0 max-sm:pointer-events-none sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100",
+            coarsePointer
+              ? revealed
+                ? "opacity-100"
+                : "opacity-0 pointer-events-none focus-within:opacity-100 focus-within:pointer-events-auto"
+              : revealed
+                ? "max-sm:opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100"
+                : "max-sm:opacity-0 max-sm:pointer-events-none sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100",
           ].join(" ")}
+          data-message-actions=""
+          data-actions-state={revealed ? "revealed" : "hidden"}
+          data-actions-inert={actionsInert ? "true" : undefined}
           role="group"
           aria-label={tr("task.actions")}
         >
