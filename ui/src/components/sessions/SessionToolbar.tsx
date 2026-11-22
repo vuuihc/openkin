@@ -3,6 +3,7 @@
    control. Every button in this file is the shared `Button`. */
 import { useEffect, useRef } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
+import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useT } from "../../i18n/react";
 import type { ProjectSortMode } from "../../lib/projectSidebar";
 import { IconArchive, IconPin, IconRestore, IconSearch, IconTrash, IconX } from "../icons";
@@ -56,6 +57,10 @@ export default function SessionToolbar({
   onClearRoutine,
 }: SessionToolbarProps) {
   const tr = useT();
+  // The 820px iPad draws this desktop toolbar with a thumb. The search field
+  // and the routine chip's clear control take the finger floor from the
+  // pointer, the same rule the list's rows already follow.
+  const coarse = useCoarsePointer();
   return (
     <>
       {search ? (
@@ -74,7 +79,10 @@ export default function SessionToolbar({
               onKeyDown={onSearchKeyDown}
               placeholder={tr("nav.searchSessions")}
               aria-label={tr("nav.searchSessions")}
-              className="h-8 w-full rounded-lg border border-transparent bg-[var(--kin-fill)] pl-8 pr-2 text-body text-kin-text outline-none transition-colors placeholder:text-kin-muted focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)]"
+              className={[
+                "w-full rounded-lg border border-transparent bg-[var(--kin-fill)] pl-8 pr-2 text-body text-kin-text outline-none transition-colors placeholder:text-kin-muted focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)]",
+                coarse ? "h-11" : "h-8",
+              ].join(" ")}
             />
           </label>
           {query.trim() ? (
@@ -104,7 +112,10 @@ export default function SessionToolbar({
               onClick={onClearRoutine}
               aria-label={tr("sessions.clearRoutineFilter")}
               title={tr("sessions.clearRoutineFilter")}
-              className="h-9 w-9 flex-none items-center justify-center rounded-full p-0"
+              className={[
+                "flex-none items-center justify-center rounded-full p-0",
+                coarse ? "h-11 w-11" : "h-9 w-9",
+              ].join(" ")}
             >
               <IconX size={13} />
             </Button>

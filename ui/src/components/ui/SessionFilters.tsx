@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from "react";
+import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useT } from "../../i18n/react";
 import type { ProjectSortMode } from "../../lib/projectSidebar";
 import { IconCheck, IconChevronDown, IconFilter } from "../icons";
@@ -78,6 +79,9 @@ export default function SessionFilters({
   onSortChange?: (mode: ProjectSortMode) => void;
 }) {
   const tr = useT();
+  // This panel's desktop shape is what the 820px iPad gets, and its chips are
+  // 36px there. A finger gets the 44px floor; a mouse keeps the density.
+  const coarse = useCoarsePointer();
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const statusLabelId = useId();
@@ -115,7 +119,8 @@ export default function SessionFilters({
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         className={[
-          "inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-body font-medium",
+          "inline-flex items-center gap-1.5 rounded-lg px-2.5 text-body font-medium",
+          coarse ? "min-h-11 min-w-11" : "min-h-9",
           activeCount > 0
             ? "bg-kin-blue/10 text-kin-blue-ink"
             : "text-kin-muted hover:bg-[var(--kin-fill)]",
@@ -167,6 +172,7 @@ export default function SessionFilters({
             <Option
               label={tr("sessions.statusAll")}
               selected={!status}
+              coarse={coarse}
               onClick={() => onChange({ status: "", scope })}
             />
             {SESSION_STATUS_FILTERS.map((value) => (
@@ -174,6 +180,7 @@ export default function SessionFilters({
                 key={value}
                 label={tr(STATUS_LABEL_KEY[value])}
                 selected={status === value}
+                coarse={coarse}
                 onClick={() =>
                   onChange({ status: status === value ? "" : value, scope })
                 }
@@ -192,11 +199,13 @@ export default function SessionFilters({
             <Option
               label={tr("sessions.scopeActive")}
               selected={scope === "active"}
+              coarse={coarse}
               onClick={() => onChange({ status, scope: "active" })}
             />
             <Option
               label={tr("sessions.scopeArchived")}
               selected={scope === "archived"}
+              coarse={coarse}
               onClick={() => onChange({ status, scope: "archived" })}
             />
           </div>
@@ -214,11 +223,13 @@ export default function SessionFilters({
                 <Option
                   label={tr("nav.sortByActive")}
                   selected={sortMode === "active"}
+                  coarse={coarse}
                   onClick={() => onSortChange("active")}
                 />
                 <Option
                   label={tr("nav.sortByCreated")}
                   selected={sortMode === "created"}
+                  coarse={coarse}
                   onClick={() => onSortChange("created")}
                 />
               </div>
@@ -229,7 +240,10 @@ export default function SessionFilters({
             <button
               type="button"
               onClick={() => onChange({ status: "", scope: "active" })}
-              className="mt-3 min-h-9 text-body font-medium text-kin-muted underline-offset-2 hover:text-kin-text hover:underline"
+              className={[
+                "mt-3 text-body font-medium text-kin-muted underline-offset-2 hover:text-kin-text hover:underline",
+                coarse ? "min-h-11 min-w-11" : "min-h-9",
+              ].join(" ")}
             >
               {tr("sessions.filterClear")}
             </button>
@@ -243,10 +257,13 @@ export default function SessionFilters({
 function Option({
   label,
   selected,
+  coarse,
   onClick,
 }: {
   label: string;
   selected: boolean;
+  /** Resolved once by the panel: a finger gets a 44px chip. */
+  coarse: boolean;
   onClick: () => void;
 }) {
   return (
@@ -255,7 +272,8 @@ function Option({
       onClick={onClick}
       aria-pressed={selected}
       className={[
-        "inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-body font-medium",
+        "inline-flex items-center gap-1.5 rounded-full px-3 text-body font-medium",
+        coarse ? "min-h-11 min-w-11" : "min-h-9",
         selected
           ? "bg-kin-blue text-kin-on-brand"
           : "bg-[var(--kin-fill-strong)] text-kin-text",
