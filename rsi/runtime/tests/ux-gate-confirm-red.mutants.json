@@ -47,5 +47,33 @@
     "test": "RSI_TEST_ONLY=test_prompt_requires_a_measurement_for_a_size_claim bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
     "old": "  echo \"A claim about a control's size or tap target must quote a MEASUREMENT that is in the evidence: a walk.json lint reading (e.g. smallTapTargets), or a measured box the PR records. A Tailwind/CSS class name is NOT a measurement — a class is overridden by min-width/min-height rules and media queries, so it does not tell you what was rendered. If a class name is the only support for a size claim, write 'not measurable from the evidence' and do not score that axis below 3 for it.\"",
     "new": "  echo \"\""
+  },
+  {
+    "label": "the copy-only locales row attributes every journey again, so a PR like #585 is convicted on the whole product its locale edit walked",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_outside_surface_red_does_not_convict bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "    if hit[0] == \"ui/src/i18n/locales/\":\n        continue",
+    "new": "    if hit[0] == \"ui/src/i18n/locales/\":\n        pass"
+  },
+  {
+    "label": "an empty attributed union no longer fails closed, so a copy-only diff frees every reproduced red",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_copy_only_diff_keeps_todays_strictness bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "if not union:\n    closed(\"empty union (copy-only or non-UI diff)\")",
+    "new": "if not union:\n    pass"
+  },
+  {
+    "label": "an unmapped rendered ui/ path no longer fails closed, so the rows that did match free a red on the rest of the product",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_unmapped_ui_source_path_keeps_todays_strictness bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "        if path.startswith(\"ui/\"):\n            closed(\"unmapped ui path: \" + path)",
+    "new": "        if False:\n            closed(\"unmapped ui path: \" + path)"
+  },
+  {
+    "label": "outside lines go back into final, so a reproduced red on a journey the diff cannot reach bills the rework round again (#585's shape)",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_outside_surface_red_does_not_convict bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "final = [l for l in conf if in_scope(l) or not journey(l)] + unattributed",
+    "new": "final = conf + unattributed"
   }
 ]
