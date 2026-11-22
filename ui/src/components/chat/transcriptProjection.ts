@@ -355,6 +355,7 @@ export function buildChatItems(
   hostSpeaker = "",
   hostModel?: string | null,
   finalized = false,
+  taskStatus?: string | null,
 ): ChatItem[] {
   const items: ChatItem[] = [];
   let streamBuf = "";
@@ -1406,6 +1407,25 @@ export function buildChatItems(
     // a compaction saying it is still compacting.
     for (const item of items) {
       if (item.kind === "compaction" && item.partial) item.partial = false;
+    }
+  }
+  // Not every adapter records the cancel a Stop caused: the default
+  // claude-code agent and the fake CLI persist neither the cancel error nor an
+  // is_error result, because the engine drops events once cancelTask deletes
+  // the run. The task's own terminal status is the durable fact, so when it
+  // says canceled and nothing else closed the round this window watched start,
+  // the transcript closes it. An interrupt already put its own line above the
+  // message that cut the round, and a worker's cancel leaves `roundStarted`
+  // false, so neither is claimed twice.
+  if (finalized && taskStatus === "canceled" && roundStarted && !canceledByInterrupt) {
+    // The events stop mid-round because the adapter never wrote its ending:
+    // settle what the cut left open so nothing still reads as streaming.
+    settlePartialMessages();
+    settleRunningSteps("done");
+    const lastSeq = events.length > 0 ? events[events.length - 1].seq : 0;
+    const stopKey = `stopped-${lastSeq}`;
+    if (!items.some((item) => item.kind === "meta" && item.key === stopKey)) {
+      items.push({ kind: "meta", key: stopKey, label: t("chat.stoppedNote") });
     }
   }
   return items;
