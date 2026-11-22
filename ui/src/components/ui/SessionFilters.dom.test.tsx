@@ -27,8 +27,23 @@ function setup(status: SessionStatusFilter = "", scope: SessionScopeFilter = "ac
   return { onChange };
 }
 
+/** jsdom has no matchMedia; the pointer is a render-time branch here. */
+function pointer(kind: "fine" | "coarse") {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(pointer: coarse)" ? kind === "coarse" : false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 beforeEach(() => {
   setLocale("en");
+  pointer("fine");
 });
 
 describe("SessionFilters", () => {
@@ -95,6 +110,47 @@ describe("SessionFilters", () => {
     setup();
     fireEvent.click(trigger());
     expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+  });
+
+  it("a coarse pointer gives every filter chip a 44px target", () => {
+    // An iPad at 820px gets this panel in its desktop shape, where the chips
+    // are 36px tall. The pointer, not the width, decides the floor.
+    pointer("coarse");
+    setup("failed", "archived");
+    const closedTrigger = trigger();
+    expect(closedTrigger.className).toContain("min-h-11");
+    expect(closedTrigger.className).toContain("min-w-11");
+
+    fireEvent.click(closedTrigger);
+    for (const name of [
+      "All",
+      "Running",
+      "Awaiting approval",
+      "Active",
+      "Archived",
+      "Clear filters",
+    ]) {
+      const chip = screen.getByRole("button", { name });
+      expect(chip.className).toContain("min-h-11");
+      expect(chip.className).toContain("min-w-11");
+      // One size or the other, never two competing floors settled by
+      // stylesheet order.
+      expect(chip.className).not.toContain("min-h-9");
+    }
+  });
+
+  it("keeps the chips at desktop density for a mouse", () => {
+    setup("failed", "archived");
+    const closedTrigger = trigger();
+    expect(closedTrigger.className).toContain("min-h-9");
+    expect(closedTrigger.className).not.toContain("min-h-11");
+
+    fireEvent.click(closedTrigger);
+    for (const name of ["All", "Running", "Active", "Archived", "Clear filters"]) {
+      const chip = screen.getByRole("button", { name });
+      expect(chip.className).toContain("min-h-9");
+      expect(chip.className).not.toContain("min-h-11");
+    }
   });
 
   it("says how many filters are applied instead of a bare number", () => {

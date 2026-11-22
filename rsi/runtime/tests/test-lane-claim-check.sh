@@ -253,6 +253,129 @@ case_clean_tree_with_built_assets_is_na() {
   seam_output_has 'CLAIM_LANE_NA:' || fail "clean: want NA, got: $OUT"
 }
 
+# claim_fail_handoff — run lane.sh's pre-push hand-off verbatim: the prose-delivery claim seam (the
+# guarded --claim-check-check call plus its evidence write) and then the push + PR tail. awk lifts
+# that span out of lane.sh so the case drives the production lines, not a copy. Only the variables
+# the block reads before its own exit are supplied: a stubbed `finish` records the note, a stubbed
+# `gh` keeps the PR path offline, and the worktree's own bare origin accepts the green re-run's
+# push. Sets PH_RC (the exact status the lane's `exit 1` / `exit 0` produced).
+# Named apart from the live-body pr_handoff() fixture below: both branches added a helper under
+# that name, and the two drive different tails of lane.sh.
+claim_fail_handoff() { # <body-file>
+  local body="$1" tail_file="$T/push-tail.sh"
+  # Stop before the live-body check main added: it is driven by pr_handoff() and bounded_run,
+  # neither of which belongs to the claim seam these cases assert.
+  awk '/^# A prose delivery hands off only when/ { on = 1 } \
+       on && /^# Only the body the merge lane will read/ { exit } on { print }' "$LANE" > "$tail_file"
+  [ -s "$tail_file" ] || fail "handoff: cannot extract the claim/push tail from lane.sh"
+  ! grep -q -- '--pr-body-check' "$tail_file" \
+    || fail "handoff: the claim tail runs into the live-body check; adjust the extraction boundary"
+  printf '#!/bin/bash\nexit 0\n' > "$T/gh"; chmod +x "$T/gh"
+  mkdir -p "$CTRL/rsi/state/lanes" "$T/home" "$T/runs"
+  cp "$body" "$CTRL/rsi/state/lanes/1.pr-body.md"
+  : > "$T/ph-finish.log"
+  (
+    RSI_CTRL="$CTRL"; HOME="$T/home"; export RSI_CTRL HOME
+    N=1
+    SELF="$LANE"
+    WT="$R"
+    BR="rsi/handoff"
+    ITEM="R-claim-fail-output"
+    SLUG="handoff"
+    STATE="$CTRL/rsi/state"
+    RSI_DIR="$CTRL/rsi"
+    RUNS="$T/runs"
+    STATUS_NOTE_FILE="$STATE/lanes/1.pr-body.md"
+    GIT="$(command -v git)"
+    GH="$T/gh"
+    GH_REPO="vuuihc/openkin"
+    MODE=new; TIMEDOUT=0; W_MIN=1; COST=0; SWEPT_N=0; M_WORKER=worker
+    WORKER_TITLE=""; HDR="$T/hdr"; LK="$T/lk"; PRN=""; PRURL=""
+    finish() { printf 'FINISH %s|%s|%s\n' "$1" "${2:-}" "${3:-}" >> "$T/ph-finish.log"; }
+    count_fail() { :; }; count_ok() { :; }; count_timeout() { :; }; scorecard_row() { :; }
+    gh_pr_create() { printf 'https://github.com/%s/pull/77\n' "$GH_REPO"; }
+    . "$tail_file"
+  )
+  PH_RC=$?
+}
+
+# R-claim-fail-output: a red claim verdict used to survive only as a flattened one-line note, so
+# the reader could not tell a genuine red from a slow or truncated run. The lane must keep the
+# verdict plus the command's own tail — including its exit code — on disk, next to the other lane
+# artefacts, exactly as merge.sh already does for its claim gate.
+case_claim_fail_keeps_real_output() {
+  local claim="$CTRL/rsi/state/lanes/1.claim.txt"
+  new_repo claimfail
+  change docs/plans/gap-log.md '- a sentence the claim cannot prove'
+  body "Claim check: printf 'REAL-OUTPUT-42\n'" \
+       "Claim output:" \
+       "a line the command never prints"
+  rm -f "$claim"
+  claim_fail_handoff "$BODY"
+  [ "$PH_RC" -eq 1 ] || fail "claimfail: claim_fail_handoff exit $PH_RC, want 1"
+  [ -f "$claim" ] || fail "claimfail: $claim was not written"
+  grep -qF "claimed output is not in the command's real output" "$claim" \
+    || fail "claimfail: the verdict is not in the evidence: $(cat "$claim")"
+  grep -qF 'REAL-OUTPUT-42' "$claim" \
+    || fail "claimfail: the command's real output is not in the evidence: $(cat "$claim")"
+  grep -qF 'exit 0' "$claim" \
+    || fail "claimfail: the command's exit code is not in the evidence: $(cat "$claim")"
+  grep -qF "$claim" "$T/ph-finish.log" \
+    || fail "claimfail: the failure note does not point at the evidence: $(cat "$T/ph-finish.log")"
+}
+
+# The evidence is the bounded tail (tail(actual)), never a dump: a command that floods output must
+# still leave a small, readable file.
+case_claim_fail_real_output_is_bounded() {
+  local claim="$CTRL/rsi/state/lanes/1.claim.txt" size
+  new_repo bounded
+  change docs/plans/gap-log.md '- a command with a long output'
+  body "Claim check: seq 1 5000" "Claim output:" "999999"
+  rm -f "$claim"
+  claim_fail_handoff "$BODY"
+  [ "$PH_RC" -eq 1 ] || fail "bounded: claim_fail_handoff exit $PH_RC, want 1"
+  [ -f "$claim" ] || fail "bounded: $claim was not written"
+  size="$(wc -c < "$claim")"
+  [ "$size" -lt 16384 ] || fail "bounded: evidence is $size bytes, want < 16384"
+  grep -qF '5000' "$claim" || fail "bounded: the tail of the real output is missing"
+}
+
+# A green hand-off for the same lane must not rewrite or delete the first run's evidence: the red
+# is the durable record a person reads after the fact.
+case_claim_fail_evidence_keeps_the_first_run() {
+  local claim="$CTRL/rsi/state/lanes/1.claim.txt"
+  new_repo evidence
+  change docs/plans/gap-log.md '- one sentence'
+  g checkout -q -b rsi/handoff || fail "evidence: cannot create the branch"
+  body "Claim check: printf 'REAL-OUTPUT-42\n'" "Claim output:" "never printed"
+  rm -f "$claim"
+  claim_fail_handoff "$BODY"
+  [ "$PH_RC" -eq 1 ] || fail "evidence: first run exit $PH_RC, want 1"
+  [ -f "$claim" ] || fail "evidence: the first run wrote no evidence"
+  cp "$claim" "$T/claim.first"
+  body "Claim check: printf 'REAL-OUTPUT-42\n'" "Claim output:" "REAL-OUTPUT-42"
+  claim_fail_handoff "$BODY"
+  [ "$PH_RC" -eq 0 ] || fail "evidence: green re-run exit $PH_RC, want 0 ($(cat "$T/ph-finish.log"))"
+  cmp -s "$T/claim.first" "$claim" \
+    || fail "evidence: the green run rewrote or deleted the first run's evidence"
+}
+
+# Source pin, the same shape as case_lane_runs_seam_before_push: the pre-push claim seam must write
+# the evidence file before it calls finish failed, so deleting the write is a red.
+case_claim_fail_evidence_wiring() {
+  local inv claim fin
+  inv="$(grep -nF 'if ! CLAIM_EV="$(bash "$SELF" --claim-check-check' "$LANE" | head -1 | cut -d: -f1)"
+  [ -n "$inv" ] || fail "wiring: lane.sh has no guarded claim check"
+  claim="$(grep -nF '$STATE/lanes/$N.claim.txt' "$LANE" | head -1 | cut -d: -f1)"
+  [ -n "$claim" ] || fail "wiring: lane.sh never writes the claim evidence file"
+  fin="$(grep -nF 'finish failed "" "claim check:' "$LANE" | cut -d: -f1)"
+  [ -n "$fin" ] || fail "wiring: no claim-check failure branch"
+  [ "$claim" -gt "$inv" ] \
+    || fail "wiring: the evidence write (line $claim) does not follow the check (line $inv)"
+  [ "$claim" -lt "$fin" ] \
+    || fail "wiring: the evidence write (line $claim) does not precede finish failed (line $fin)"
+}
+
 # A fake GitHub retains its old body even when edit reports success: only a read-back can prove
 # what the merge lane will read. All commands are logged, so code-only can prove zero reads.
 live_fixture() {
@@ -454,6 +577,10 @@ run case_worker_contract_names_the_seam
 run case_lane_runs_seam_before_push
 run case_check_sh_wires_the_suite
 run case_clean_tree_with_built_assets_is_na
+run case_claim_fail_keeps_real_output
+run case_claim_fail_real_output_is_bounded
+run case_claim_fail_evidence_keeps_the_first_run
+run case_claim_fail_evidence_wiring
 run case_live_body_missing_claim_fails
 run case_live_body_matching_passes
 run case_failed_body_edit_is_not_swallowed

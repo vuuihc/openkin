@@ -12,7 +12,7 @@
 // and measures three legs separately:
 //
 //   mac-chat-to-chat  (1100x760)  [seed] Morning planning → [seed] Failed migration
-//   mac-area-to-area  (1100x760)  conversations → projects
+//   mac-area-to-area  (1100x760)  conversations → routines
 //   phone-list-to-chat (390x844)  /sessions → [seed] Morning planning
 //
 // Timing never includes Playwright's round trip: a capture-phase click
@@ -304,11 +304,13 @@ const LEGS = [
     name: 'mac-area-to-area',
     viewport: '1100x760',
     width: 1100, height: 760, phone: false,
-    click: '[data-area="projects"]',
-    destination: ['[data-projects-list]', '[data-area="projects"][aria-current="page"]'],
-    // The collection page reads listProjects("active") on every mount, and the
-    // row list cannot appear before that answer, so this leg owns one read.
-    dataPath: '/api/projects',
+    click: '[data-area="routines"]',
+    // The area nav's own state first; the seeded row last — that row is the
+    // routines page's content and cannot appear before its /api/routines answer.
+    destination: ['[data-area="routines"][aria-current="page"]', "ul li:has-text('[seed] Morning check-in')"],
+    // The page reads listRoutines({limit: 100}) on every mount, and the routine
+    // row cannot appear before that answer, so this leg owns one read.
+    dataPath: '/api/routines',
     async prepare(page, base) {
       await page.goto(base + '/sessions');
       await waitVisible(page, '[data-session-row]');
@@ -340,12 +342,15 @@ async function openMorning(page) {
   await row.click();
   await waitVisible(page, MORNING);
 }
+// Put the shell back on Conversations before every measured press. The reset is
+// not measured; it only has to end with the area current and the list's own
+// content on screen (the seeded rows), never with a half-rendered page.
 async function toConversations(page) {
-  if (await visibleNow(page, '[data-projects-list]')) {
+  if (!(await visibleNow(page, '[data-area="conversations"][aria-current="page"]'))) {
     await page.locator('[data-area="conversations"]').first().click();
-    await page.locator('[data-projects-list]').first().waitFor({ state: 'hidden', timeout: WAIT_MS });
   }
   await waitVisible(page, '[data-area="conversations"][aria-current="page"]');
+  await waitVisible(page, '[data-session-row]');
 }
 // J11's rule: on a phone the seeded row can sit past the five a project bucket
 // draws, so press the bucket's own fold when it is on screen. Setup, not the
