@@ -108,10 +108,10 @@ export const EXIT_ROWS: readonly ExitRow[] = [
     owner: "本条",
   },
   {
-    from: "Settings 的 agents tab",
-    to: "/settings",
-    ability: "安装检测重做前不展示半成品；重做由后续 story 负责",
-    owner: "本条",
+    from: "Settings 的 agents 安装检测（探测状态与能力徽标）",
+    to: "/settings?tab=agents",
+    ability: "导入会话与角色默认保留；探测重做后再决定展示什么",
+    owner: "R-agents-detect（独立 story）",
   },
   {
     from: "design-system",

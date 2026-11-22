@@ -65,7 +65,7 @@ Closed 2026-11-22，五条 done-means 全绿收口：#542 `a007626f` 交付 820 
 3. 最小契约 story（`KIN-CONTRACT-001`）按 owner 2026-11-22 原话写完并**受托签字**（`DECISIONS.md` 同日两条）；机器规则要求 `approved` 至少一条点名 story id 的测试，所以签字这一条同时落了退场表数据与逐行一致测试；**路由清单测试随 `R-delete-pages` 落地**，那是它第一次能诚实地绿的时候。
 4. `R-dead-paths` 已落地（1,090 行无引用死代码 + `removed-surfaces` 守卫在 `scripts/check.sh` 里被点名执行）——`b4bc72f7`。
 
-**Queue seeds（一次一行，按序）**：`R-dead-paths`（死代码 + 守卫，已落地 #547）→ `R-contract`（按面切，每条约 ≤ 800 行：① 运行搬进列表、`/routines` 不再拉运行；② 设置删 `agents` tab；③ 路由清单测试 + `/projects`、`/projects/:id`、`/agent-sessions/:id`、`/machines/:device/tasks/:id` 退役，并按退役后的面改 `NAVIGATION.md`/`IA.md` 与 `navigationContract.test.ts`）→ `R-rn-spike`（独立 story/ADR：抽共享 TS + RN 壳）。**不做**：隐藏 `/routines`、把 routine 改成卡片、Settings 收缩到 2 个 tab、搬走 provider 凭据。
+**Queue seeds（一次一行，按序）**：`R-dead-paths`（死代码 + 守卫，已落地 #547）→ `R-contract`（按面切，每条约 ≤ 800 行：① 运行搬进列表、`/routines` 不再拉运行；② 路由清单测试 + `/projects`、`/projects/:id`、`/agent-sessions/:id`、`/machines/:device/tasks/:id` 退役，并按退役后的面改 `NAVIGATION.md`/`IA.md` 与 `navigationContract.test.ts`）→ `R-agents-detect`（独立 story：看着屏分清探测与导入/角色的边界，再删半成品）→ `R-rn-spike`（独立 story/ADR：抽共享 TS + RN 壳）。**不做**：隐藏 `/routines`、把 routine 改成卡片、删 `agents` tab 或把导入/角色搬走、Settings 收缩到 2 个 tab、搬走 provider 凭据。
 
 **门要补的**：`removed-surfaces` 始终运行（计划说删掉的路径必须在 main 上不存在）；路由清单测试（只允许契约里的路由，新增路由必须有 story）；替换先行（被删页面的能力仍有 tool/card 测试且已绿）。
 
