@@ -4,13 +4,7 @@ import { useT } from "../../i18n/react";
 import { AREAS, type AreaId } from "../../lib/areas";
 import { resolveArea } from "../../lib/areaNavigation";
 import { lastListUrl, onGuardedLinkClick } from "../../lib/phoneNavigation";
-import {
-  IconRoutines,
-  IconSessions,
-  IconSettings,
-  IconSearch,
-  type IconProps,
-} from "../icons";
+import { IconRoutines, IconSessions, IconSettings, IconSearch, type IconProps } from "../icons";
 import Button from "../ui/Button";
 
 /**
