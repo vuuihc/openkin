@@ -436,6 +436,38 @@ class WalkJ2ContractTest(unittest.TestCase):
             waits,
         )
 
+    def test_j2_list_leg_presses_the_fold_before_the_seeded_row(self) -> None:
+        # Conversations other journeys create land in the seed's own bucket, so
+        # past five rows the seeded row sits behind 展开全部; a loose optional
+        # text click then logs `skipped` and the rest of the journey runs on
+        # /sessions (2026-11-22: PR #585, 52 hard failures, four hours).
+        steps = load_spec()["journeys"]["J2"]["steps"]
+        fold = self.at(steps, lambda s: s[0] == "click"
+                       and ("展开全部" in str(s[1]) or "Show all" in str(s[1])))
+        row = self.at(steps, lambda s: s[0] == "click" and "[data-session-row]" in str(s[1])
+                      and "Morning planning" in str(s[1]))
+        self.assertLess(fold, row)
+        self.assertFalse(str(steps[row][1]).startswith("?"), steps[row])
+
+    def test_j2_contract_rejects_a_seeded_row_without_the_fold(self) -> None:
+        def drop_the_fold(steps: list) -> None:
+            hit = self.at(steps, lambda s: s[0] == "click"
+                          and ("展开全部" in str(s[1]) or "Show all" in str(s[1])))
+            steps.pop(hit)
+
+        code, out = self.check(self.copy_with(drop_the_fold))
+        self.assertEqual(code, 1, out)
+        self.assertIn("never presses the project fold", out)
+
+    def test_j2_contract_rejects_an_optional_seeded_row_click(self) -> None:
+        def make_it_optional(steps: list) -> None:
+            hit = self.at(steps, lambda s: s[0] == "click" and "[data-session-row]" in str(s[1]))
+            steps[hit][1] = "?" + str(steps[hit][1])
+
+        code, out = self.check(self.copy_with(make_it_optional))
+        self.assertEqual(code, 1, out)
+        self.assertIn("must be mandatory", out)
+
     def test_j2_contract_rejects_a_comment_before_the_diff_is_open(self) -> None:
         # Today's shape: the workspace section ends at the diff screenshot, so
         # moving the review block above the file click still reads plausibly.
