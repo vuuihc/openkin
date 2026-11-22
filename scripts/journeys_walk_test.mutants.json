@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the J4 contract again demands the retired /projects reload, so the shipped /sessions load is invisible (R-delete-pagesb)",
+    "file": "scripts/journeys_walk_test.py",
+    "old": "J4_LIST_PATHS = (\"/projects\", \"/sessions\")",
+    "new": "J4_LIST_PATHS = (\"/projects\",)",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_roots_editor_and_reloads"
+  },
+  {
+    "label": "J9's contract again demands the retired projects area, so the shipped routines visit is invisible (R-delete-pagesb)",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "old": "const areas = ['routines', 'settings'].map((area) => ({",
+    "new": "const areas = ['projects', 'settings'].map((area) => ({ // R-delete-pagesb: the retired area demanded again",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ9ContractTest.test_j9_walks_the_switch"
+  }
+]

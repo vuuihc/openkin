@@ -469,7 +469,7 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
         e.stopPropagation();
         toggleTerminal();
       }
-      // ⌘1–⌘4 are the four areas. Same guards as ⌘F: a held key, an IME
+      // ⌘1–⌘3 are the three areas. Same guards as ⌘F: a held key, an IME
       // composition, a chord with another modifier, a floating layer, the
       // palette, or a page that already answered the key is not this shortcut.
       // The departure runs through the leave guard like every other one.

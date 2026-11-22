@@ -3,9 +3,9 @@
  *
  * `NAVIGATION.md` is the document a person reads before adding a surface, and
  * it went stale once already: it kept describing the 2026-11-12 phone-only
- * model after the console had shipped four areas, a Mac rail and per-area
- * stacks. Wrong contract docs are why a slice can rebuild navigation that was
- * deliberately deleted.
+ * model after the console had shipped the area rail and per-area stacks. Wrong
+ * contract docs are why a slice can rebuild navigation that was deliberately
+ * deleted.
  *
  * So the parts of the document that are *contract* — every area, every route,
  * the arrival kinds, the phone entries — are asserted here instead of trusted
@@ -57,7 +57,7 @@ describe("navigation contract", () => {
   it("the superseded one-list-page phone model is gone", () => {
     expect(navigation).not.toContain("手机只有一个导航面");
     expect(navigation).not.toContain("没有 tab");
-    expect(navigation).toContain("四个区域");
+    expect(navigation).toContain("三个区域");
     expect(navigation).toContain("Agent Ops");
   });
 
@@ -73,9 +73,20 @@ describe("navigation contract", () => {
     expect(navigation).toMatch(/减少动态[^。\n]*淡入/);
   });
 
-  it("IA.md keeps D8's four phone entries and the projects area root", () => {
-    for (const phrase of ["对话列表", "例行任务", "Agent 运维", "设置", "D8", "/projects"]) {
+  it("IA.md keeps D8's four phone entries, the /projects redirect and the cover's list parent", () => {
+    for (const phrase of [
+      "对话列表",
+      "例行任务",
+      "Agent 运维",
+      "设置",
+      "D8",
+      "/projects",
+      "/projects/:id",
+      "项目封面的父级是对话列表",
+    ]) {
       expect(ia).toContain(phrase);
     }
+    // The retired collection may survive only as the redirect it now is.
+    expect(ia).toContain("重定向");
   });
 });
