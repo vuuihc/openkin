@@ -7,6 +7,7 @@ import {
 } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { type AgentInfo } from "../../api/client";
+import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useT } from "../../i18n/react";
 import { onGuardedLinkClick } from "../../lib/phoneNavigation";
 import { IconArchive, IconDownload, IconInbox, IconPlus } from "../icons";
@@ -53,6 +54,10 @@ export default function Sidebar({
 }: Props) {
   const tr = useT();
   const location = useLocation();
+  // An iPad in portrait draws this desktop column, but its pointer is a thumb.
+  // The column's own controls take the finger floor from the pointer, not from
+  // the 820px width that also looks like a Mac.
+  const coarse = useCoarsePointer();
   const [importMenuOpen, setImportMenuOpen] = useState(false);
   const importMenuRef = useRef<HTMLDivElement>(null);
   const sessionProviders = agentCatalog.filter((agent) =>
@@ -150,7 +155,8 @@ export default function Sidebar({
         }
         onClick={() => setImportMenuOpen((open) => !open)}
         className={[
-          "flex h-8 w-full items-center justify-center gap-1.5 rounded-lg px-2 text-caption font-medium transition-colors",
+          "flex w-full items-center justify-center gap-1.5 rounded-lg px-2 text-caption font-medium transition-colors",
+          coarse ? "h-11 min-h-11" : "h-8",
           importMenuOpen
             ? "bg-[var(--kin-fill-strong)] text-kin-text"
             : "text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text",
@@ -192,7 +198,8 @@ export default function Sidebar({
         // argument as "already asked", and a click event would pass as truthy.
         onClick={() => onNewChat()}
         className={[
-          "flex h-8 flex-none items-center gap-1.5 rounded-lg border px-2.5 text-caption font-medium transition-colors",
+          "flex flex-none items-center gap-1.5 rounded-lg border px-2.5 text-caption font-medium transition-colors",
+          coarse ? "h-11 min-h-11" : "h-8",
           draftActive
             ? "border-kin-blue/40 bg-kin-blue/15 text-kin-text"
             : "border-[var(--kin-hairline-strong)] bg-kin-fill text-kin-text hover:bg-[var(--kin-fill-strong)]",
@@ -225,6 +232,7 @@ export default function Sidebar({
           label={tr("nav.inbox")}
           icon={<IconInbox size={15} />}
           active={location.pathname === "/inbox"}
+          coarse={coarse}
           badge={pendingCount > 0 ? (pendingCount > 99 ? "99+" : String(pendingCount)) : undefined}
         />
         <FooterIcon
@@ -232,6 +240,7 @@ export default function Sidebar({
           label={tr("nav.archivedProjects")}
           icon={<IconArchive size={15} />}
           active={archivedScope}
+          coarse={coarse}
         />
       </div>
       {importIcon ? <div className="mt-1">{importIcon}</div> : null}
@@ -260,6 +269,7 @@ function FooterIcon({
   icon,
   badge,
   active = false,
+  coarse = false,
 }: {
   to: string;
   label: string;
@@ -268,6 +278,8 @@ function FooterIcon({
   /** A filter of this list (`?scope=archived`) is not a path `NavLink` can
    *  tell apart, so the current view is passed in rather than inferred. */
   active?: boolean;
+  /** The pointer, resolved once by the column: a finger gets 44px links. */
+  coarse?: boolean;
 }) {
   const tr = useT();
   const navigate = useNavigate();
@@ -282,7 +294,8 @@ function FooterIcon({
       aria-current={active ? "page" : undefined}
       title={label}
       className={[
-        "flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-caption font-medium transition-colors",
+        "flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-caption font-medium transition-colors",
+        coarse ? "h-11 min-h-11" : "h-8",
         active
           ? "bg-[var(--kin-fill-strong)] text-kin-text"
           : "text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text",

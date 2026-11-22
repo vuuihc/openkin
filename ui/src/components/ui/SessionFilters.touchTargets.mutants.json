@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the filter trigger drops back to 36px on a finger",
+    "file": "ui/src/components/ui/SessionFilters.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/SessionFilters.dom.test.tsx",
+    "old": "          coarse ? \"min-h-11 min-w-11\" : \"min-h-9\",\n          activeCount > 0",
+    "new": "          \"min-h-9\",\n          activeCount > 0"
+  },
+  {
+    "label": "the clear-filters control drops back to 36px on a finger",
+    "file": "ui/src/components/ui/SessionFilters.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/SessionFilters.dom.test.tsx",
+    "old": "                coarse ? \"min-h-11 min-w-11\" : \"min-h-9\",\n              ].join(\" \")}",
+    "new": "                \"min-h-9\",\n              ].join(\" \")}"
+  },
+  {
+    "label": "the status and scope chips drop back to 36px on a finger",
+    "file": "ui/src/components/ui/SessionFilters.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/SessionFilters.dom.test.tsx",
+    "old": "        coarse ? \"min-h-11 min-w-11\" : \"min-h-9\",\n        selected",
+    "new": "        \"min-h-9\",\n        selected"
+  }
+]
