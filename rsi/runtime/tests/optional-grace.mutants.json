@@ -1,0 +1,58 @@
+[
+  {
+    "label": "the optional grace has no budget, so the first empty paint is final",
+    "file": "rsi/runtime/ux/optional-grace.mjs",
+    "test": "node rsi/runtime/ux/optional-grace.test.mjs",
+    "old": "export const OPTIONAL_GRACE_MS = 1500;",
+    "new": "export const OPTIONAL_GRACE_MS = 0;"
+  },
+  {
+    "label": "the grace probes once and returns instead of polling out the budget",
+    "file": "rsi/runtime/ux/optional-grace.mjs",
+    "test": "node rsi/runtime/ux/optional-grace.test.mjs",
+    "old": "    const remaining = deadline - now();\n    if (remaining <= 0) {\n      return { state: count > 0 ? 'hidden' : 'absent', waitedMs: Math.max(0, now() - started) };\n    }\n    await sleep(Math.min(step, remaining));",
+    "new": "    return { state: count > 0 ? 'hidden' : 'absent', waitedMs: Math.max(0, now() - started) };"
+  },
+  {
+    "label": "a matched but unpainted control is treated as visible",
+    "file": "rsi/runtime/ux/optional-grace.mjs",
+    "test": "node rsi/runtime/ux/optional-grace.test.mjs",
+    "old": "    if (count > 0 && await paintedNow()) {",
+    "new": "    if (count > 0) {"
+  },
+  {
+    "label": "a detached locator throws out of the grace instead of counting as not-yet",
+    "file": "rsi/runtime/ux/optional-grace.mjs",
+    "test": "node rsi/runtime/ux/optional-grace.test.mjs",
+    "old": "  const countNow = async () => { try { return await loc.count(); } catch (_) { return 0; } };\n  const paintedNow = async () => { try { return await loc.first().isVisible(); } catch (_) { return false; } };",
+    "new": "  const countNow = async () => loc.count();\n  const paintedNow = async () => loc.first().isVisible();"
+  },
+  {
+    "label": "the walker still skips an empty optional click without waiting out the page",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "node rsi/runtime/ux/optional-grace.fixture.mjs",
+    "old": "          if (await loc.count() === 0) {\n            if (!optional) { hardFail.push(`${j}/${vpName}: missing required ${op} ${sel}`); continue; }\n            // An optional control the page draws late is not missing. Give the\n            // first paint a bounded chance before recording \"not on this page\";\n            // without it J14 logged 展开全部 as skipped while the list was\n            // still rendering, and the journey under-ran green (Watch 62).\n            const grace = await awaitOptionalVisible(loc);\n            if (grace.state === 'visible') log.push(`${op} ${sel} after ${grace.waitedMs}ms optional grace`);\n            else { log.push(`skipped ${op} ${sel} (${grace.state} after ${grace.waitedMs}ms grace)`); continue; }\n          }",
+    "new": "          if (await loc.count() === 0) { log.push('skipped ' + op + ' ' + sel); continue; }"
+  },
+  {
+    "label": "the full-grace case would accept a fabricated visible verdict",
+    "file": "rsi/runtime/ux/optional-grace.test.mjs",
+    "test": "node rsi/runtime/ux/optional-grace.test.mjs",
+    "old": "  assert.equal(grace.state, 'absent');",
+    "new": "  assert.equal(grace.state, 'visible');"
+  },
+  {
+    "label": "the fixture's fold arrives long after the grace, so the walk must skip it",
+    "file": "rsi/runtime/ux/optional-grace.fixture.mjs",
+    "test": "node rsi/runtime/ux/optional-grace.fixture.mjs",
+    "old": "  }, 1200);",
+    "new": "  }, 12000);"
+  },
+  {
+    "label": "the optional-grace suite is missing from the gate wiring",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-optional-grace.sh || return 1\n",
+    "new": ""
+  }
+]
