@@ -122,7 +122,14 @@ describe("SessionFilters", () => {
     expect(closedTrigger.className).toContain("min-w-11");
 
     fireEvent.click(closedTrigger);
-    for (const name of ["All", "Running", "Awaiting approval", "Active", "Archived", "Clear filters"]) {
+    for (const name of [
+      "All",
+      "Running",
+      "Awaiting approval",
+      "Active",
+      "Archived",
+      "Clear filters",
+    ]) {
       const chip = screen.getByRole("button", { name });
       expect(chip.className).toContain("min-h-11");
       expect(chip.className).toContain("min-w-11");

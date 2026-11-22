@@ -149,10 +149,9 @@ export default function SessionFilters({
         <IconChevronDown
           size={14}
           strokeWidth={2.25}
-          className={[
-            "flex-none transition-transform duration-150",
-            open ? "rotate-180" : "",
-          ].join(" ")}
+          className={["flex-none transition-transform duration-150", open ? "rotate-180" : ""].join(
+            " ",
+          )}
         />
       </button>
 
@@ -181,9 +180,7 @@ export default function SessionFilters({
                 label={tr(STATUS_LABEL_KEY[value])}
                 selected={status === value}
                 coarse={coarse}
-                onClick={() =>
-                  onChange({ status: status === value ? "" : value, scope })
-                }
+                onClick={() => onChange({ status: status === value ? "" : value, scope })}
               />
             ))}
           </div>
@@ -274,9 +271,7 @@ function Option({
       className={[
         "inline-flex items-center gap-1.5 rounded-full px-3 text-body font-medium",
         coarse ? "min-h-11 min-w-11" : "min-h-9",
-        selected
-          ? "bg-kin-blue text-kin-on-brand"
-          : "bg-[var(--kin-fill-strong)] text-kin-text",
+        selected ? "bg-kin-blue text-kin-on-brand" : "bg-[var(--kin-fill-strong)] text-kin-text",
       ].join(" ")}
     >
       {selected && <IconCheck size={13} strokeWidth={2.5} />}
