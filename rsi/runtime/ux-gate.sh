@@ -19,6 +19,14 @@
 #                            (a non-zero exit without UX_SCORES counts as unavailable, same as a failed dispatch)
 #   RSI_UX_STATE=<dir>       state root override for tests; defaults to the worktree's rsi/state. Not RSI_STATE: the loop
 #                            already exports that as the controller state, so it cannot serve as a test-local override.
+# A reproduced walk red (1b) convicts only when its journey is attributable to this PR's own diff
+# (1b0, R-ux-outside-reds 2026-11-22): journeys.json `paths`, first match wins, with test files,
+# web/dist/ and the copy-only locales catch-all excluded. Unattributable reproductions are printed,
+# saved to state/ux/<slug>/outside.txt and counted in confirm.summary as evidence, not blocked,
+# and the reviewer prompt names them as evidence about the product rather than about this PR. An
+# unreadable spec, an unmatched path that is not documentation or loop plumbing (docs/, rsi/,
+# scripts/, web/, *.md) or an empty union fails closed: every reproduced red convicts, exactly as
+# before this rule.
 set -u
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 if [ -n "${RSI_UX_STATE:-}" ]; then STATE="$RSI_UX_STATE"; export RSI_STATE="$STATE"; fi
@@ -116,7 +124,8 @@ NSHOT="$(ls "$SHOTS"/*.png 2>/dev/null | wc -l | tr -d ' ')"
 # count false reds by source. A green run walks once and never creates $UXD/confirm. A confirm
 # that cannot run keeps the first-walk failures: fail closed, never turn a red into "unavailable".
 CONF_JSON="$UXD/confirm.json"; CONF_SUMMARY=""
-rm -f "$CONF_JSON" "$UXD/confirm.txt" "$UXD/confirm.summary" "$UXD/confirm.hard" "$UXD/green.txt"   # this attempt's evidence only
+rm -f "$CONF_JSON" "$UXD/confirm.txt" "$UXD/confirm.summary" "$UXD/confirm.hard" "$UXD/green.txt" \
+      "$UXD/outside.txt" "$UXD/attributed.txt"   # this attempt's evidence only
 # This run's own evidence only: a stale UNAVAILABLE or walk.json from an earlier attempt on the
 # same slug must not decide the confirmation.
 rm -rf "$UXD/confirm"
@@ -129,6 +138,79 @@ if [ -n "$HARD" ]; then
   # the confirm: re-walking everything would double the cost for a failure we cannot target.
   JOURNEYS="$(printf '%s\n' "$HARD" | sed -n -e 's#^\([A-Za-z0-9_]*\)/.*#\1#p' -e 's#^\(J[0-9][0-9]*\)-.*#\1#p' | sort -u | paste -sd, -)"
   if [ -n "$JOURNEYS" ]; then
+    # 1b0. Attribution (R-ux-outside-reds, 2026-11-22): a reproduced red convicts only when its
+    # journey is one this PR's own changed paths can reach. AGENTS.md requires every user-visible
+    # change to touch both locale files, and journeys.json maps that catch-all to every journey, so
+    # almost every UI PR walked the whole product and a pre-existing red anywhere was billed to it:
+    # #585 scored 4/4/4/4/4 PASS with every reported hard-fail outside /routines and was still sent
+    # back. Same rule as the walker (first paths row whose `|`-separated alternative is a prefix
+    # wins), read from the branch's own journeys.json. Test files, manifests and web/dist/ are not
+    # rendered surfaces; the copy-only locales row selects journeys for walking, not conviction.
+    # Any unreadable spec, unmatched path outside documentation/loop plumbing, or empty union
+    # fails closed to today's rule: every reproduced red convicts. Unattributable reproductions
+    # are still printed, saved and counted, never silently dropped.
+    python3 - "$WT/rsi/runtime/ux/journeys.json" "$UXD/changed.txt" > "$UXD/attributed.txt" <<'PY'
+import json, re, sys
+
+spec, changed = sys.argv[1], sys.argv[2]
+def closed(why):
+    print("ATTRCLOSED " + why)
+    sys.exit(0)
+try:
+    with open(spec, encoding="utf-8") as f:
+        doc = json.load(f)
+    rows = doc.get("paths") if isinstance(doc, dict) else None
+    if not isinstance(rows, list):
+        closed("journeys.json has no paths list")
+    with open(changed, encoding="utf-8", errors="replace") as f:
+        files = [line.strip() for line in f if line.strip()]
+except Exception as exc:
+    closed("read error: " + " ".join(str(exc).split()))
+parsed = []
+for row in rows:
+    if not (isinstance(row, list) and len(row) >= 2
+            and isinstance(row[0], str) and isinstance(row[1], list)):
+        closed("malformed paths row")
+    parsed.append((row[0], [j for j in row[1] if isinstance(j, str)]))
+def skipped(path):
+    if path.startswith("web/dist/") or "__tests__/" in path:
+        return True
+    # *.test.ts(x), *.dom.test.tsx, *.test.py, *.spec.*, *.mutants.json
+    return bool(re.search(r"\.(test\.[A-Za-z0-9]+|test\.py|spec\.[A-Za-z0-9]+|mutants\.json)$", path))
+# Documentation and loop plumbing are not rendered surfaces and cannot reach a journey. Every
+# other path with no row falls back to journeys.json's own "no match = all journeys", so it can:
+# an `internal/api/...` change beside a routines page may have caused the red the walk filed
+# as outside, and freeing it would merge a real regression.
+def not_surface(path):
+    return path.startswith(("docs/", "rsi/", "scripts/", "web/")) or path.endswith(".md")
+union = set()
+for path in files:
+    if skipped(path):
+        continue
+    hit = next(((pat, js) for pat, js in parsed
+                if any(path.startswith(p) for p in pat.split("|"))), None)
+    if hit is None:
+        if not_surface(path):
+            continue
+        if path.startswith("ui/"):
+            closed("unmapped ui path: " + path)
+        closed("unmapped path: " + path)
+    if hit[0] == "ui/src/i18n/locales/":
+        continue
+    union.update(hit[1])
+if not union:
+    closed("empty union (copy-only or non-UI diff)")
+print("ATTRJ=" + ",".join(sorted(union, key=lambda j: (len(j), j))))
+PY
+    ATTR_OUT="$(cat "$UXD/attributed.txt" 2>/dev/null || true)"
+    case "$ATTR_OUT" in
+      ATTRJ=*) ;;
+      *) # A helper that could not decide must not free a red: keep today's rule.
+         ATTR_OUT="${ATTR_OUT#ATTRCLOSED }"
+         [ -n "$ATTR_OUT" ] || ATTR_OUT="helper produced no verdict"
+         ATTR_OUT="ATTRCLOSED $ATTR_OUT"
+         echo "ux-gate: journey attribution failed closed (${ATTR_OUT#ATTRCLOSED }); every reproduced red still convicts" ;;
+    esac
     mkdir -p "$UXD/confirm"
     if [ -n "${RSI_UX_WALK_CMD:-}" ]; then
       bash -c "$RSI_UX_WALK_CMD" _ "$UXD/confirm" "$JOURNEYS" > "$UXD/confirm/walk.out" 2>&1; CRC=$?
@@ -152,31 +234,55 @@ if [ -n "$HARD" ]; then
       # Written to a file rather than captured: macOS bash 3.2 lexes quotes inside a heredoc
       # nested in $( ), so a body comment with an apostrophe breaks the parse. A standalone
       # heredoc is literal and keeps the python readable.
-      python3 - "$HARD" "$CHARD" "$JOURNEYS" "$UXD/confirm.txt" "$CONF_JSON" "$UXD/confirm.summary" "$UXD/confirm.hard" "$SHOTS/walk.json" "$SHOTS" "$UXD/green.txt" <<'PY'
+      python3 - "$HARD" "$CHARD" "$JOURNEYS" "$UXD/confirm.txt" "$CONF_JSON" "$UXD/confirm.summary" "$UXD/confirm.hard" "$SHOTS/walk.json" "$SHOTS" "$UXD/green.txt" "$ATTR_OUT" "$UXD/outside.txt" <<'PY'
 import json, os, re, sys
 orig = [l for l in sys.argv[1].splitlines() if l]
 conf = [l for l in sys.argv[2].splitlines() if l]
 journeys = sys.argv[3]
+# Which journeys this PR's diff can reach (1b0). Anything but a parsed set — including a helper
+# that could not read the spec — keeps every reproduced red: fail closed, never free a red.
+attr_raw = sys.argv[11].strip()
+attr = None
+if attr_raw.startswith("ATTRJ="):
+    attr = set(j for j in attr_raw[len("ATTRJ="):].split(",") if j)
+# The fail-closed reason travels into the summary so a reader can tell a copy-only diff from an
+# unmapped page without opening the log.
+if attr is None:
+    attr_label = "fail-closed (%s)" % attr_raw[len("ATTRCLOSED "):] if attr_raw.startswith("ATTRCLOSED ") else "fail-closed"
+else:
+    attr_label = ",".join(sorted(attr, key=lambda j: (len(j), j)))
 def journey(line):
     m = re.match(r"^([A-Za-z0-9_]+)/", line) or re.match(r"^(J[0-9]+)-", line)
     return m.group(1) if m else ""
+def in_scope(line):
+    return attr is None or journey(line) in attr
 conf_set = set(conf)
 reproduced = [l for l in orig if journey(l) and l in conf_set]
 flaked = [l for l in orig if journey(l) and l not in conf_set]
 unattributed = [l for l in orig if not journey(l)]
+# A reproduced (or new) confirm failure on a journey this diff cannot reach is evidence, not a
+# blocking reason: printed, saved to outside.txt and counted, exactly like the flaked list. A line
+# that names no journey can never be attributed, so it stays in final.
+outside = [l for l in conf if journey(l) and not in_scope(l)]
 # The confirm walk's filtered lines are the surviving hard failures. A NEW line survives too:
 # a flaky first red must not hide a real second one. Unattributable first-walk lines stay.
-final = conf + unattributed
+final = [l for l in conf if in_scope(l) or not journey(l)] + unattributed
 with open(sys.argv[4], "w") as f:
-    f.write("journeys=%s reproduced=%d flaked=%d\n" % (journeys, len(reproduced), len(flaked)))
+    f.write("journeys=%s reproduced=%d flaked=%d outside=%d attributed=%s\n"
+            % (journeys, len(reproduced), len(flaked), len(outside), attr_label))
     for l in flaked:
         f.write(l + "\n")
-summary = "walk confirm: re-walked %s once → reproduced=%d flaked=%d" % (journeys, len(reproduced), len(flaked))
+summary = ("walk confirm: re-walked %s once → reproduced=%d flaked=%d outside=%d attributed=%s"
+           % (journeys, len(reproduced), len(flaked), len(outside), attr_label))
 if flaked:
     summary += "\nflaked (failed the first walk, not reproduced; not blocking):\n" + "\n".join(flaked)
+if outside:
+    summary += "\noutside this PR's surfaces (evidence, not blocking):\n" + "\n".join(outside)
 open(sys.argv[6], "w").write(summary + "\n")
-json.dump({"journeys": journeys, "reproduced": len(reproduced), "flaked": len(flaked)}, open(sys.argv[5], "w"))
+json.dump({"journeys": journeys, "reproduced": len(reproduced), "flaked": len(flaked),
+           "outside": len(outside), "attributed": attr_label}, open(sys.argv[5], "w"))
 open(sys.argv[7], "w").write("\n".join(final) + ("\n" if final else ""))
+open(sys.argv[12], "w").write("\n".join(outside) + ("\n" if outside else ""))
 # R-ux-confirm-evidence: the confirm walk only re-walks the journeys its red named, so the
 # reviewer also needs the first walk's screens for the journeys that stayed green. Same journey()
 # regex as the decision above, so both agree on what "this journey was named" means. Written only
@@ -213,6 +319,8 @@ PY
     if [ -z "$CRSN" ]; then
       HARD="$(cat "$UXD/confirm.hard")"
       CONF_SUMMARY="$(cat "$UXD/confirm.summary")"
+      # The summary already carries the outside lines; printing them again here duplicated the
+      # block on stdout (the `ux-gate:` line below prints it once).
     else
       # Never unavailable() from here: the first walk already produced a verdict, and an infra
       # hiccup on the second must not turn a red into "not merged / needs-ceo".
@@ -372,6 +480,14 @@ fi
   echo "Look at the attached diff only to explain what you see (do not run git/shell; the diff is provided). What the PR claims: $BODY"
   [ -n "$HARD" ] && { echo; echo "Walk hard failures (each is an automatic reject unless you can show it is a walker artefact):"; echo "$HARD"; }
   [ -n "$UX_IGNORED" ] && { echo; echo "Known walk artefacts ignored for this run (pre-existing fixture gap, not a defect of this PR; still report it as 'not verifiable: needs seed data'):"; echo "$UX_IGNORED"; }
+  # Outside lines stay in $EVID/walk.json (hardFail) and $SHOTS, so the reviewer can still see
+  # them; without this block it could ground a below-3 axis on a red the gate already ruled out
+  # of this PR's scope and send the PR back anyway (the #389 / R-ux-gate-confirm-carry class).
+  if [ -s "$UXD/outside.txt" ]; then
+    echo
+    echo "These reproduced failures are on journeys outside this PR's surfaces: evidence about the product, not about this PR. Do not score an axis below 3 on them, do not treat them as hard failures, and do not ground a finding in their screenshots or walk.json lines:"
+    sed 's/^/  - /' "$UXD/outside.txt"
+  fi
   if [ "$CONFIRM_ONLY" = 1 ]; then
     echo
     echo "A second walk on the same tree did not reproduce these first-walk failures, so they are not evidence about this PR — do not score or ground an axis on them:"
