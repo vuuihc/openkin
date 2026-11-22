@@ -14,10 +14,10 @@
  *   `to` lands on a page the contract keeps (or explicitly outside production);
  * - the story names all four pages and `/new` as the draft route.
  *
- * The routing assertion (`App.tsx` ⊆ contract) lands with `R-delete-pages`,
- * the delivery that actually removes `/projects`, `/agent-sessions/:id` and
- * `/machines/:device/tasks/:id`. Asserting it earlier would only describe
- * today's tree and would have to be written to pass on fifteen routes.
+ * The routing assertion (`App.tsx` ⊆ contract ∪ retirement rows) lives in
+ * `routes.contract.test.ts`. It lands first in `R-delete-pages`; every later
+ * deletion of `/projects`, `/agent-sessions/:id` or
+ * `/machines/:device/tasks/:id` is checked against it.
  *
  * DOM-free: the tables import without React, and a docs check has no reason to
  * pay for a document. `node:fs` + `import.meta.url` resolves the story from
