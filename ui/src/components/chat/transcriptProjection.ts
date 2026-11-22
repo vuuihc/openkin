@@ -378,6 +378,11 @@ export function buildChatItems(
   // text, which no longer names them, so they travel beside it until flush.
   let streamImages: UserImage[] | undefined;
   let canceledRound = false;
+  // Which path canceled the round: the composer interrupt already closed it
+  // with a line above the message that cut it, while a bare Stop sends no
+  // message and leaves the transcript to say so at the result. The cancel
+  // error itself cannot tell the two apart.
+  let canceledByInterrupt = false;
   // A turn the executor has started in the loaded window. Its events may not
   // have produced a visible item yet — an interrupt can land before the first
   // token — but the round exists, and an interrupt that cuts it should say so.
@@ -819,7 +824,13 @@ export function buildChatItems(
         const interruptsRound =
           sp === "user" && (p.interrupted === true || p.source === "interrupt");
         const roundWasStarted = roundStarted;
-        if (sp === "user") canceledRound = interruptsRound;
+        if (sp === "user") {
+          canceledRound = interruptsRound;
+          // Only the interrupt's own line closes this round. A plain follow-up
+          // resets nothing here: the cancel error still belongs to the round the
+          // interrupt cut, and must not be mistaken for a bare Stop at result.
+          if (interruptsRound) canceledByInterrupt = true;
+        }
         // `task_started` and `result` own the round lifecycle. A prompt that
         // lands while a round is running is a follow-up (queued or steering),
         // not the start of the next one: clearing `roundStarted` here made a
@@ -1262,6 +1273,9 @@ export function buildChatItems(
       }
       case "task_started":
         roundStarted = true;
+        // A new round has its own cancel story; an earlier interrupt no longer
+        // owns the cancel error this one may end with.
+        canceledByInterrupt = false;
         break;
       case "result": {
         // Orchestrator / adapter result closes the turn: finalize any trailing
@@ -1274,7 +1288,21 @@ export function buildChatItems(
         // projected process group rather than only the currently open one.
         settleRunningSteps(terminalStatus);
         progressRef.current = null;
+        // A bare Stop ends the round here with no reply and no message of its
+        // own: the toast said so once, and a reload left an answer that simply
+        // stops. Close the round in the transcript, after the text the stop cut,
+        // keyed so a repeated copy of the result adds no second line. Only a
+        // round this window saw start is claimed: a mid-round window has
+        // process rows above the result but no evidence of a round to close,
+        // and a Stop there is not ours to annotate.
+        if (canceledRound && !canceledByInterrupt && roundStarted) {
+          const stopKey = `stopped-${ev.seq}`;
+          if (!items.some((item) => item.kind === "meta" && item.key === stopKey)) {
+            items.push({ kind: "meta", key: stopKey, label: t("chat.stoppedNote") });
+          }
+        }
         canceledRound = false;
+        canceledByInterrupt = false;
         roundStarted = false;
         break;
       }
