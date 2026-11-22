@@ -1,0 +1,9 @@
+[
+  {
+    "label": "a run-feed read returns to page load, so /routines duplicates the one run list",
+    "file": "ui/src/pages/RoutinesPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/RoutinesPage.dom.test.tsx -t 'never asks for a run feed'",
+    "old": "      const [rs, all] = await Promise.all([\n",
+    "new": "      void import(\"../api/client\").then((m) => m.listRoutineRuns(10, deviceId));\n      const [rs, all] = await Promise.all([\n"
+  }
+]
