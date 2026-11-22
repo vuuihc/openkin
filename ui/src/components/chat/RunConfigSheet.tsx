@@ -185,18 +185,21 @@ export default function RunConfigControl({
           </span>
           {/* One line, always: the face rides the composer's control row, whose
               height and the send control's place must not move with a model id.
-              On a phone the row has room for one name, and the model is the one
-              that changes — the agent is the avatar here and a full row in the
-              sheet. From `sm` up there is room for both. The model ellipsizes;
-              every full value stays in this button's accessible name and in the
-              sheet or panel behind it. (The earlier two-line face wrapped to
-              four lines inside a phone composer, making the settings taller
-              than the message it configures.) */}
+              On a narrow card the row has room for one name, and the model is
+              the one that changes — the agent is the avatar here and a full row
+              in the sheet. The cut is the composer card's own `@xl` width, not
+              the viewport: an iPad in portrait draws a 344–396px card inside
+              the desktop shell at 768–820, and the `sm` gate spent that card on
+              "Claude Code" until the model and permission mode were clipped.
+              The model ellipsizes; every full value stays in this button's
+              accessible name and in the sheet or panel behind it. (The earlier
+              two-line face wrapped to four lines inside a phone composer,
+              making the settings taller than the message it configures.) */}
           <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-            <span className="hidden min-w-0 max-w-[10rem] flex-none truncate text-caption font-semibold text-kin-secondary sm:block">
+            <span className="hidden min-w-0 max-w-[10rem] flex-none truncate text-caption font-semibold text-kin-secondary @xl:block">
               {agentName}
             </span>
-            <span aria-hidden className="hidden flex-none select-none text-kin-muted/60 sm:block">
+            <span aria-hidden className="hidden flex-none select-none text-kin-muted/60 @xl:block">
               ·
             </span>
             <span className="min-w-0 flex-1 truncate text-strong text-kin-text">{modelLabel}</span>

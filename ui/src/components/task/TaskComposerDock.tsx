@@ -10,7 +10,7 @@ import RepoChip from "../chat/RepoChip";
 import CwdPicker from "../chat/CwdPicker";
 import type PermissionModePicker from "../chat/PermissionModePicker";
 import type ModelPicker from "../chat/ModelPicker";
-import { IconAlert, IconMachine } from "../icons";
+import { IconAlert, IconChevronDown, IconMachine } from "../icons";
 import Button from "../ui/Button";
 import TaskUsageSummary from "../usage/TaskUsageSummary";
 
@@ -92,6 +92,16 @@ export type TaskComposerDockProps = {
   onRevealFirstPending: () => void;
   /** The page's one decision path, called with the oldest pending approval. */
   onApproveFirstPending?: () => void;
+  /** New output landed below the fold; the row above the bands offers it. */
+  unseen?: number;
+  /** Return the transcript to the newest output (the page's own handler). */
+  showNewest?: () => void;
+  /**
+   * A follow-up this page queued behind the running round is still waiting.
+   * It is a row in the bottom lane, above the composer — never a toast over
+   * the box the person is about to use again.
+   */
+  queuedGuide?: boolean;
 };
 
 export default function TaskComposerDock({
@@ -132,19 +142,52 @@ export default function TaskComposerDock({
   pendingApprovalBusy,
   onRevealFirstPending,
   onApproveFirstPending,
+  unseen = 0,
+  showNewest,
+  queuedGuide = false,
 }: TaskComposerDockProps) {
   const tr = useT();
-  // The phone usage trigger opens a bottom sheet, so it must not exist at all
-  // from `md` up: on a Mac the page's own usage bar already carries these
-  // numbers, and a `md:hidden` class only hides the trigger while its sheet
-  // stays in the tree. Unmount it instead.
-  const wide = useMinWidth(768);
+  // Usage rides the footer whenever the side rail is absent (<1600); the
+  // trigger must be mounted there, not merely unhidden below `md`.
+  const rail = useMinWidth(1600);
 
   return (
     <div
       data-kin-bottom-chrome={active ? "" : undefined}
       className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5"
     >
+      {/* New activity is a row in the bottom lane, never an overlay. The live
+          region stays mounted while empty so its arrival is announced. The
+          queued confirmation is a second row in the same lane, for the same
+          reason: it used to be a toast that covered the composer. */}
+      <div
+        aria-live="polite"
+        className="max-w-conversation mx-auto flex flex-none flex-col items-center"
+      >
+        {queuedGuide && (
+          <div
+            data-kin-queued-guide
+            data-testid="queued-guide"
+            role="status"
+            className="mb-1.5 rounded-full bg-kin-elevated px-3.5 py-1 text-caption text-kin-secondary shadow-e2"
+          >
+            {tr("task.queuedGuide")}
+          </div>
+        )}
+        {unseen > 0 && (
+          <Button
+            variant="secondary"
+            onClick={showNewest}
+            className="mb-1.5 rounded-full bg-kin-elevated px-3.5 shadow-e2"
+          >
+            {/* One nowrap row: preflight makes the icon's svg a block. */}
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <IconChevronDown className="w-4 h-4 flex-none" />
+              {tr("task.newActivity")}
+            </span>
+          </Button>
+        )}
+      </div>
       <div className="max-w-conversation mx-auto space-y-1.5">
         {waitingCount > 0 && pendingIsApproval ? (
           /*
@@ -222,7 +265,15 @@ export default function TaskComposerDock({
           footerWide
           footer={
             active ? (
-              <div className="flex min-w-0 flex-1 items-center gap-1">
+              // The face and the usage chip are buttons on the composer's
+              // control row, and the row is allowed to shrink around them. At
+              // 768 the 44px attach/send targets leave this strip ~100px, and
+              // an unfloored `min-w-0` face truncated to 26.6px wide (measured
+              // by J17) — a miss for a thumb even though its height stayed 44.
+              // Floor the width; the face's label ellipsizes and the full value
+              // stays in its accessible name. At 1100 the strip has room and
+              // nothing moves.
+              <div className="flex min-w-0 flex-1 items-center gap-1 [&>button]:min-w-11">
                 <RunConfigControl
                   agentName={hostAgentName}
                   agentId={task.agent || ""}
@@ -292,15 +343,13 @@ export default function TaskComposerDock({
                     </>
                   }
                 />
-                {!wide && !usageLoading && usage ? (
-                  // The reference keeps usage at the input, and the phone has
-                  // no usage bar above the transcript to read it from. The Mac
-                  // reads the same numbers from the page's own usage bar.
+                {!rail && !usageLoading && usage ? (
+                  // The rail's own card carries usage above 1600.
                   <TaskUsageSummary
                     usage={usage}
                     loading={usageLoading}
                     variant="phone"
-                    className="flex-none md:hidden"
+                    className="flex-none"
                   />
                 ) : null}
               </div>

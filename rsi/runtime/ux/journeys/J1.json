@@ -19,7 +19,7 @@
     [
       "fill",
       "?input[type=search]",
-      "week"
+      "Morning"
     ],
     [
       "shot",
@@ -36,6 +36,50 @@
     [
       "key",
       "Escape"
+    ],
+    [
+      "wait",
+      "css=[data-session-row]:has-text(\"[seed] Morning planning\")"
+    ],
+    [
+      "shot",
+      "search-open"
+    ],
+    [
+      "click",
+      "css=[data-session-row]:has-text('[seed] Morning planning')"
+    ],
+    [
+      "url",
+      "^/tasks/"
+    ],
+    [
+      "shot",
+      "search-open-card"
+    ],
+    [
+      "back"
+    ],
+    [
+      "url",
+      "^/sessions"
+    ],
+    [
+      "value",
+      "input[type=search]",
+      "Morning"
+    ],
+    [
+      "search",
+      "search=Morning"
+    ],
+    [
+      "wait",
+      "css=[data-session-row]:has-text(\"[seed] Morning planning\")"
+    ],
+    [
+      "shot",
+      "search-back"
     ],
     [
       "goto",

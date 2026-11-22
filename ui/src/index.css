@@ -271,7 +271,8 @@
      (`opacity-0 group-hover:…`), so a touch screen has no way to reach them at
      all; `.touch-hide` drops them from the cramped row and `.touch-only` puts
      the same actions back in the row's expanded body, where 44pt controls fit
-     without squeezing the name. Keep this query in step with the floor. */
+     without squeezing the name. Its query is deliberately wider than the
+     floor's — see the block below. */
   .touch-only {
     display: none;
   }
@@ -288,10 +289,17 @@
     .touch-lg label:has(input[type="checkbox"]) {
       min-height: 44px;
     }
-    /* A control revealed by `:hover` does not exist on a touch screen — the
-       first tap fires the hover *and* whatever sits under the finger. Drop
-       those rather than floor them, which also returns their width to the
-       label beside them. Keep this media query in step with the floor above. */
+  }
+  /* A control revealed by `:hover` does not exist on a touch screen — the
+     first tap fires the hover *and* whatever sits under the finger. Drop
+     those rather than floor them, which also returns their width to the label
+     beside them. This arm runs wider than the floor above, to the iPad's
+     portrait widths: the console draws its desktop two-column shell at ≥768,
+     so a hover-only 24px row icon would otherwise be drawn on a touch screen
+     that has no hover and no 44px floor. Hiding it costs no width, and the
+     action lives in the row/project menu; flooring the row instead is what
+     `:263-268` records as the crush. */
+  @media (max-width: 639.98px), ((pointer: coarse) and (max-width: 1023.98px)) {
     .touch-hide {
       display: none;
     }

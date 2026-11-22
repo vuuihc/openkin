@@ -193,7 +193,7 @@ describe("RoutineList", () => {
       creating: true,
       machineOffline: true,
     });
-    const name = t("routines.showRuns", { title: morning.title });
+    const name = t("routines.openRoutine", { title: morning.title });
     const select = screen.getByRole("button", { name }) as HTMLButtonElement;
     expect(select.getAttribute("aria-pressed")).toBe("true");
     expect(select.getAttribute("aria-label")).toBe(name);

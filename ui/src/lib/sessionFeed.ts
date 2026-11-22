@@ -14,10 +14,11 @@
  *   chats are not archived rows.
  * - Rows are deduped by id: a conversation can arrive through both feeds, and
  *   a flatMap would show it twice under one heading.
- * - The status filter runs here as well as on the server. A filter change is a
- *   new list key, and the hook hands back an unloaded resource until the server
- *   answers; without local narrowing the previous filter's rows would sit under
- *   the new chip for a whole round trip.
+ * - The status and routine filters run here as well as on the server. A filter
+ *   change is a new list key, and the hook hands back an unloaded resource until
+ *   the server answers; without local narrowing the previous filter's rows would
+ *   sit under the new chip for a whole round trip. A routine filter also drops
+ *   every chat: a run carries `routine_id`, an ordinary conversation does not.
  */
 import type { Task } from "../api/client";
 
@@ -30,9 +31,13 @@ export function sessionFeedTasks(
   archivedFeed: readonly Task[],
   scope: SessionFeedScope,
   status?: string,
+  /** One routine's runs; a chat (`routine_id` absent) never matches. */
+  routineId?: string,
 ): readonly Task[] {
   const matchesStatus = (task: Task) => !status || task.status === status;
-  const narrowed = status ? live.filter(matchesStatus) : live;
+  const matchesRoutine = (task: Task) => !routineId || task.routine_id === routineId;
+  const matches = (task: Task) => matchesStatus(task) && matchesRoutine(task);
+  const narrowed = status || routineId ? live.filter(matches) : live;
   if (scope !== "archived") {
     return narrowed.filter((task) => !task.archived_at);
   }
@@ -44,7 +49,7 @@ export function sessionFeedTasks(
       // the store prunes it through `taskSnapshot` alone — and that cannot
       // know about a flag. A row restored from this screen must leave with
       // everything else, so the side is checked from the row itself.
-      (task) => Boolean(task.archived_at) && !seen.has(task.id) && matchesStatus(task),
+      (task) => Boolean(task.archived_at) && !seen.has(task.id) && matches(task),
     ),
   ];
 }

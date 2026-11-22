@@ -25,7 +25,7 @@ import { resolveAreaRoute } from "./areaNavigation";
 export type NotificationRoute = {
   /** A same-origin console path, always known. */
   path: string;
-  /** The inbox item named by `?focus=`, when there is one. */
+  /** A pending item named by `?focus=`, on a route that owns the parameter. */
   focus: string | null;
   /** True when the original link was rejected and the inbox was substituted. */
   fallback: boolean;
@@ -71,15 +71,30 @@ export function parseNotificationRoute(
   // the area table, but they still render the Agents page until N4 hosts that
   // tab, and a tap must land on the page the reader would have reached by
   // typing the URL.
-  const focus = resolved.name === "conversations.inbox" ? resolved.focus : null;
-  let query = "";
-  if (focus) {
-    query = `?focus=${encodeURIComponent(focus)}`;
+  //
+  // `?focus=` belongs to the three destinations that name a pending item: the
+  // inbox, the approvals list, and a conversation. An approval or question
+  // notification links to `/tasks/<id>?focus=<item>`, and the conversation is
+  // the page that reveals that card (TaskDetailPage.tsx:1286); dropping the
+  // parameter here lands on the conversation and never on the work that
+  // stopped the agent.
+  const ownsFocus =
+    resolved.name === "conversations.inbox" ||
+    resolved.name === "conversations.approvals" ||
+    resolved.name === "conversations.task";
+  const focus = ownsFocus ? resolved.focus : null;
+  const parts: string[] = [];
+  if (focus) parts.push(`focus=${encodeURIComponent(focus)}`);
+  if (resolved.name === "conversations.task" && resolved.device) {
+    // A run in another machine's store is the same task detail page; the
+    // device is what makes it ask that machine. Dropping it here sent the tap
+    // to this Hub's task table, which never held the run (KIN-CONTRACT-001).
+    parts.push(`device=${encodeURIComponent(resolved.device)}`);
   } else if (resolved.name === "routines.root" && resolved.device) {
     // A disabled-routine alert names which machine owns the routine, so the
     // Routines page opens on it. Any other query is dropped, exactly as an
     // unrecognized query on any other route is.
-    query = `?device=${encodeURIComponent(resolved.device)}`;
+    parts.push(`device=${encodeURIComponent(resolved.device)}`);
   } else if (
     (resolved.name === "settings.root" || resolved.name === "settings.section") &&
     resolved.tab &&
@@ -87,8 +102,9 @@ export function parseNotificationRoute(
   ) {
     // A section link keeps its normalized tab; retired ids have already become
     // general, which is the settings root.
-    query = `?tab=${encodeURIComponent(resolved.tab)}`;
+    parts.push(`tab=${encodeURIComponent(resolved.tab)}`);
   }
+  const query = parts.length ? `?${parts.join("&")}` : "";
   return { path: url.pathname + query, focus, fallback: false };
 }
 

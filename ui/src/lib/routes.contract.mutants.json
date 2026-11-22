@@ -1,0 +1,23 @@
+[
+  {
+    "label": "rogue route",
+    "file": "ui/src/App.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/routes.contract.test.ts",
+    "old": "              <Route path=\"/new\" element={<NewChatPage />} />",
+    "new": "              <Route path=\"/new\" element={<NewChatPage />} />\n              <Route path=\"/rogue\" element={null} />"
+  },
+  {
+    "label": "contract page deleted",
+    "file": "ui/src/App.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/routes.contract.test.ts",
+    "old": "              <Route path=\"/settings\" element={<SettingsPage />} />\n",
+    "new": ""
+  },
+  {
+    "label": "dev-only rule broken",
+    "file": "ui/src/pages/DesignSystemPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/routes.contract.test.ts",
+    "old": "export function designSystemRoute(dev: boolean = import.meta.env.DEV) {",
+    "new": "export function designSystemRoute(dev: boolean = true) {"
+  }
+]

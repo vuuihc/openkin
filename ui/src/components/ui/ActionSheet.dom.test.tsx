@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
-import ActionSheet from "./ActionSheet";
+import ActionSheet, { actionSheetLabelClass, actionSheetRowClass } from "./ActionSheet";
 
 /**
  * KIN-CONTINUE-001: the shared action list behind the phone's project menu,
@@ -149,6 +149,63 @@ describe("the shared action sheet", () => {
     await userEvent.click(row);
     expect(onSelect).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("a disabled row's reason is not dimmed with the row", () => {
+    const reason = "The default agent stays in the catalog. Set another agent as default first.";
+    setup([
+      {
+        id: "remove",
+        label: "Remove from catalog",
+        hint: reason,
+        disabled: true,
+        onSelect: () => undefined,
+      },
+    ]);
+
+    const row = screen.getByRole("button", { name: /^Remove from catalog/ });
+    const rowClass = actionSheetRowClass({ disabled: true });
+    // The row itself recedes; the reason does not ride that dimming down with it.
+    expect(rowClass).not.toMatch(/\bopacity-/);
+    expect(row.className).not.toMatch(/\bopacity-/);
+
+    const hint = within(row).getByText(reason);
+    expect(hint.className).toBe("whitespace-normal text-caption text-kin-muted");
+    // Nothing between the reason and the button may dim it either: a wrapper
+    // with `opacity-60` would leave the span's own classes untouched.
+    for (let node = hint.parentElement; node && node !== row; node = node.parentElement) {
+      expect(node.className).not.toMatch(/\bopacity-/);
+    }
+  });
+
+  it("a disabled row still reads as disabled", async () => {
+    const onSelect = vi.fn();
+    setup([{ id: "recheck", label: "Recheck", disabled: true, onSelect }]);
+
+    const row = screen.getByRole("button", { name: "Recheck" });
+    expect(row.hasAttribute("disabled")).toBe(true);
+    expect(row.className).toContain("cursor-default");
+    expect(row.className).not.toMatch(/hover:bg-/);
+    expect(actionSheetRowClass({ disabled: true })).toContain("cursor-default");
+    // The label is what recedes, so the row still says "not now" without
+    // touching the contrast of anything under it.
+    expect(within(row).getByText("Recheck").className).toContain("text-kin-muted");
+    expect(actionSheetLabelClass({ disabled: true })).toContain("text-kin-muted");
+
+    await userEvent.click(row);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("an enabled row keeps its hover and its ink", () => {
+    setup([{ id: "share", label: "Share", onSelect: () => undefined }]);
+
+    const row = screen.getByRole("button", { name: "Share" });
+    const rowClass = actionSheetRowClass({});
+    expect(rowClass).toContain("hover:bg-[var(--kin-fill)]");
+    expect(rowClass).not.toContain("text-kin-muted");
+    expect(rowClass).not.toMatch(/\bopacity-/);
+    expect(row.className).toContain("hover:bg-[var(--kin-fill)]");
+    expect(within(row).getByText("Share").className).not.toContain("text-kin-muted");
   });
 
   it("draws one line for a row without a hint", () => {

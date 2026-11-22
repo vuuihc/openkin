@@ -82,7 +82,7 @@ describe("the phone list's delete wiring", () => {
     // Select all, then search, then Delete would remove rows invisible under
     // the new question; the filter change has to disarm the selection, and
     // switching sides of the archive is the same kind of change.
-    expect(SOURCE).toContain("}, [query, status, scope]);");
+    expect(SOURCE).toContain("}, [query, status, scope, routineId]);");
   });
 
   it("drops a selected id whose row has left the list", () => {

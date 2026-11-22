@@ -4,19 +4,23 @@
 # The proof itself needs a browser and two UI builds, so it is not part of the
 # gate. What the gate *can* check without one is that the committed mutants still
 # point at the real hand-off pair, the row tap, the mid-run follow-up
-# dispatch, the Stop that must cancel the round, the J2 review anchor, the
+# dispatch, the Stop that must cancel the round, the interrupt that must cut the
+# round instead of queueing behind it, the J2 review anchor, the
 # rerun that must keep a comment (re-anchored, then 该行已变化), the shell
 # that must not remount on a route change, the phone footer that must reopen the
 # URL the reader left in each area, the phone's Back that must not reload the
-# document, the unchecked PR branch that must not read as still checking, and
-# the row menu that must keep its disabled 运行中 line; that the runner prints
+# document, the phone's Back that must keep the search it left, the unchecked
+# PR branch that must not read as still checking, and the row menu that must
+# keep its disabled 运行中 line; that the runner prints
 # that same manifest; that a walk killed by the watchdog (TERM), a closed
 # terminal (HUP) or Ctrl-C (INT) puts the tracked web/dist/index.html back and
 # leaves no temp OUT behind; and that the J3 spec carries the mid-run ordering proof
 # (the follow-up on screen before the first answer) and the Stop proof (a held
 # round stopped, its control gone, and the queued message accounted for by the
-# daemon's discard report) and still satisfies the contract the walk depends
-# on. A manifest whose `old` no longer occurs exactly once would make mutants.py
+# daemon's discard report) and the interrupt proof (the explicit action pressed,
+# 已打断上一轮 read above the message that cut the round) and still satisfies the
+# contract the walk depends on. A manifest whose `old` no longer occurs exactly
+# once would make mutants.py
 # stop before it ever ran a mutant, silently retiring the proof.
 #
 # No browser, no npm, no daemon: python3 stdlib and node only.
@@ -45,8 +49,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 16:
-    raise SystemExit("manifest must be exactly sixteen entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 19:
+    raise SystemExit("manifest must be exactly nineteen entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -209,6 +213,24 @@ if 'window.location.assign("/sessions")' not in phone["new"] or "navigate(-1)" i
     raise SystemExit("the J11 mutant does not turn the phone's Back into a document load")
 if "R-f4-switch-phone" not in phone["new"]:
     raise SystemExit("the J11 mutant does not name the item it breaks (no R-f4-switch-phone marker)")
+# The J1 mutant must make Back land on the bare list instead of popping the
+# entry the reader left: J1's walk then returns to /sessions with an empty
+# search field and reddens on the `value`/`search` reads, not merely on the
+# address. Both lines of goBackToList's body are replaced, so navigate(-1) must
+# be gone from `new`; leaving it reachable would let J1 stay green.
+# `--walk-once J1` is a prefix of `--walk-once J11`, so select on the suffix.
+back_search = next((e for e in entries if e["file"].endswith("ui/src/lib/phoneBack.ts")
+                    and e["test"].rstrip().endswith("--walk-once J1")), None)
+if back_search is None:
+    raise SystemExit("no J1 entry for ui/src/lib/phoneBack.ts")
+if "navigate(-1)" not in back_search["old"]:
+    raise SystemExit("the J1 Back mutant does not replace the history pop")
+if "navigate(-1)" in back_search["new"]:
+    raise SystemExit("the J1 Back mutant leaves navigate(-1) reachable; the search could still come back")
+if 'navigate("/sessions", { replace: true })' not in back_search["new"]:
+    raise SystemExit("the J1 Back mutant does not land on the bare list")
+if "R-phone-back-walk" not in back_search["new"]:
+    raise SystemExit("the J1 Back mutant does not name the item it breaks (no R-phone-back-walk marker)")
 # The J13 mutant must refuse the PR tab's address in the parser: the tab still
 # opens, but `?panel=pr` names no place, so a cold arrival draws no PR surface
 # and the walk's selected-tab waits redden while the query bytes stay put.
@@ -249,10 +271,32 @@ if "R-f1-composer-handoff" not in dock["new"]:
     raise SystemExit("the dock mutant does not name the item it breaks (no R-f1-composer-handoff marker)")
 if "--walk-once J3" not in dock["test"]:
     raise SystemExit("the dock entry's `test` does not walk J3 (--walk-once J3)")
-print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
+# The interrupt mutant must drop the explicit flag itself, not a render detail:
+# the walk clicks composer.interruptSend and then requires 已打断上一轮 after
+# that click. With the flag never set the POST queues, the held round keeps
+# running and no mark is drawn, so the note wait times out. A mutant that hid
+# the control would redden the click, which is a different promise, so the
+# reachable assignment must be gone from `new` while the dead branch keeps
+# `opts?.interrupt` referenced for noUnusedLocals.
+interrupt = next((e for e in entries if e["file"] == "ui/src/pages/TaskDetailPage.tsx"
+                  and "if (opts?.interrupt) send.interrupt = true;" in e["old"]), None)
+if interrupt is None:
+    raise SystemExit("no interrupt entry for ui/src/pages/TaskDetailPage.tsx")
+if "if (opts?.interrupt) send.interrupt = true;" in interrupt["new"]:
+    raise SystemExit("the interrupt mutant leaves the explicit flag reachable; "
+                     "the round would still be cut")
+if "opts?.interrupt && false" not in interrupt["new"]:
+    raise SystemExit("the interrupt mutant does not make the flag unreachable "
+                     "behind an always-false condition")
+if "R-interrupt-walk" not in interrupt["new"]:
+    raise SystemExit("the interrupt mutant does not name the item it breaks "
+                     "(no R-interrupt-walk marker)")
+if "--walk-once J3" not in interrupt["test"]:
+    raise SystemExit("the interrupt entry's `test` does not walk J3 (--walk-once J3)")
+print("manifest ok: %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
       % (j3["file"], j7["file"], j10["file"], follow["file"], review["file"],
-         rerun["file"], stop["file"], shell["file"], pr["file"], rowmenu["file"],
-         phone["file"], panel_exit["file"], question_card["file"], dock["file"]))
+         rerun["file"], stop["file"], interrupt["file"], shell["file"], pr["file"],
+         rowmenu["file"], phone["file"], panel_exit["file"], question_card["file"], dock["file"]))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
@@ -647,11 +691,15 @@ def stop_control(sel):
 click = next((i for i, st in enumerate(steps) if st[0] == "click" and stop_control(st[1])), -1)
 if click < 0:
     raise SystemExit("J3 has no Stop click to break")
-gone = next((i for i in range(click + 1, len(steps))
-             if steps[i][0] == "gone" and stop_control(steps[i][1])), -1)
-if gone < 0:
+# Every gone on the Stop control after that click, not only the first: the
+# interrupt leg later proves its own Stop control left, and leaving that one
+# would satisfy the contract's search while the stopped round's proof is gone.
+gone = [i for i in range(click + 1, len(steps))
+        if steps[i][0] == "gone" and stop_control(steps[i][1])]
+if not gone:
     raise SystemExit("no gone on the Stop control after the click")
-del steps[gone]
+for i in reversed(gone):
+    del steps[i]
 json.dump(spec, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 PY
 ( cd "$WT" && node rsi/runtime/ux/walk.mjs --check-spec --spec "$spec_tmp" ) >"$log" 2>&1
@@ -662,6 +710,63 @@ if [ "$rc" -ne 1 ] || ! grep -q "never proves the Stop control left the screen" 
   fail "$case_name: --check-spec exited $rc without rejecting a Stop that never leaves the screen"
 fi
 rm -f "$log" "$spec_tmp"
+pass "$case_name"
+
+# The interrupt half is a press before it is a mark: a spec that only waits for
+# the control and then sends as an ordinary queue must be rejected before a
+# browser starts. Removing the click leaves the note and message waits in
+# place, so this pins the press clause itself.
+case_name="test_j3_spec_rejects_an_interrupt_that_never_presses"
+command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
+spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
+log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" "$WT/rsi/runtime/ux/spec.py" <<'PY' || exit 1
+import json
+import subprocess
+import sys
+
+src, dst, specpy = sys.argv[1], sys.argv[2], sys.argv[3]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", src]))
+steps = spec["journeys"]["J3"]["steps"]
+
+def interrupt_control(sel):
+    return "aria-label" in str(sel) and ("打断" in str(sel) or "nterrupt" in str(sel))
+
+click = next((i for i, st in enumerate(steps) if st[0] == "click" and interrupt_control(st[1])), -1)
+if click < 0:
+    raise SystemExit("J3 has no interrupt click to break")
+del steps[click]
+json.dump(spec, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+( cd "$WT" && node rsi/runtime/ux/walk.mjs --check-spec --spec "$spec_tmp" ) >"$log" 2>&1
+rc=$?
+if [ "$rc" -ne 1 ] || ! grep -q "J3 never presses the interrupt-send control (click composer.interruptSend)" "$log"; then
+  cat "$log" >&2
+  rm -f "$log" "$spec_tmp"
+  fail "$case_name: --check-spec exited $rc without rejecting an interrupt the walk never presses"
+fi
+rm -f "$log" "$spec_tmp"
+pass "$case_name"
+
+# --walk-once J3 is the interrupt mutant's whole test command, and its verdict
+# is only the proof if the runner reads the mark, the message and the reply
+# from the interrupted screen after the stopped proof. Text-level on purpose:
+# the alternative is a browser walk, and the J1 dispatch case below reads the
+# runner the same way.
+case_name="test_walk_once_j3_keeps_the_interrupt_evidence"
+python3 - "$RUNNER" <<'PY' || fail "$case_name: --walk-once J3 lost the interrupt evidence reads"
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+for needle in ('interrupted = [i for i, shot in seq if shot == "interrupted"]',
+               'min(stopped) < min(interrupted)',
+               '("已打断上一轮" in n or "Interrupted the previous round" in n)',
+               '"Interrupt proof: cut this round and answer this message now" in n',
+               '"Fake reply from the journey fake agent." in n and "nth=2" in n'):
+    if needle not in text:
+        raise SystemExit("the J3 --walk-once evidence is missing " + repr(needle))
+print("J3 walk-once ok: the interrupted shot must follow stopped and carry the mark, the message and its reply")
+PY
 pass "$case_name"
 
 # Waiting for the diff editor is not waiting for its gutter: Monaco paints
@@ -1114,4 +1219,124 @@ print("J11 footer contract rejects all five deleted or weakened facts")
 PYTEST
 pass "$case_name"
 
-echo "walk-mutant contract: 20/20 cases passed"
+# The search → open → Back leg is only a claim if the contract rejects a spec
+# that drops one of its reads. Each deletion below must redden --check-spec and
+# name the missing read, not fail for another reason: a value that comes back
+# empty and a list address that no longer carries ?search= are the two ways
+# the search can be lost while `url ^/sessions` stays green.
+case_name="test_j1_spec_rejects_a_back_without_the_search_reads"
+python3 - "$SPEC_INDEX" "$SPECPY" "$WALKER" <<'PYTEST' || fail "$case_name: a missing search-after-Back read was accepted"
+import copy
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+index, specpy, walker = sys.argv[1:]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", index]))
+steps = spec["journeys"]["J1"]["steps"]
+
+value_at = next((i for i, st in enumerate(steps)
+                 if st[0] == "value" and "input[type=search]" in str(st[1])
+                 and str(st[2]) == "Morning"), -1)
+search_at = next((i for i, st in enumerate(steps)
+                  if st[0] == "search" and "search=Morning" in str(st[1])), -1)
+assert value_at >= 0 and search_at >= 0, "J1 carries no value/search after Back to guard"
+
+def run(mutant):
+    with tempfile.TemporaryDirectory(prefix="j1-back-") as tmp:
+        target = Path(tmp) / "spec.json"
+        target.write_text(json.dumps(mutant))
+        result = subprocess.run(["node", walker, "--check-spec", "--spec", str(target)],
+                                capture_output=True, text=True)
+    return result.returncode, result.stdout + result.stderr
+
+rc, out = run(copy.deepcopy(spec))
+assert rc == 0, "the good J1 spec was rejected:\n" + out
+
+cases = {
+    "missing value read": (value_at, "never reads the search text back after Back"),
+    "missing search read": (search_at, "never proves the list URL still carries the search"),
+}
+for label, (pos, needle) in cases.items():
+    mutant = copy.deepcopy(spec)
+    del mutant["journeys"]["J1"]["steps"][pos]
+    rc, out = run(mutant)
+    assert rc != 0, label + " deletion still passed --check-spec"
+    assert needle in out, label + " was rejected for another reason:\n" + out
+
+mutant = copy.deepcopy(spec)
+mutant["journeys"]["J1"]["steps"][value_at] = ["value", "input[type=search]", "seed"]
+rc, out = run(mutant)
+assert rc != 0, "a different search text still passed --check-spec"
+assert "reads a different search text" in out, \
+    "the different term was rejected for another reason:\n" + out
+print("J1 back leg ok: both reads and the same-term value are required")
+PYTEST
+pass "$case_name"
+
+# --walk-once J1 is the R-phone-back-walk mutant's whole test command. A runner
+# that no longer accepts J1 exits "unknown journey" before any walk, so
+# mutants.py would see a red for a reason that is not the product. The J1
+# branch must also keep the two search-back reads, or a walk that returns to an
+# empty field could print green. Text-level on purpose: the alternative is a
+# 20-minute browser walk, and the --walk-once build-path case above already
+# reads the runner this way.
+case_name="test_walk_once_accepts_j1_and_keeps_the_search_back_evidence"
+python3 - "$RUNNER" <<'PY' || fail "$case_name: --walk-once has no J1 dispatch"
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+if "      J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15|J17) ;;" not in text:
+    raise SystemExit("--walk-once no longer accepts J1 (the case list lost J1)")
+start = text.index('if [ "$JOURNEY" = "J1" ]; then')
+end = text.index('if [ "$JOURNEY" = "J2" ]', start)
+branch = text[start:end]
+for needle in ('ux-walk.sh "$WT" "$OUT" J1',
+               'value input[type=search] is ', 'search=Morning'):
+    if needle not in branch:
+        raise SystemExit("the J1 walk-once branch is missing " + repr(needle))
+print("J1 walk-once dispatch ok: J1 accepted with the search-back evidence reads")
+PY
+pass "$case_name"
+
+# The resting-composer measurement is only a proof if the contract refuses a
+# walk that focuses or fills the box first (Watch 90). Moving the resting step
+# after the 40-character draft is what a walk that measures the expanded box
+# looks like; --check-spec must name the order, not accept the photograph.
+case_name="test_j17_spec_rejects_a_resting_measurement_after_a_fill"
+command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
+spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
+log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
+python3 - "$SPEC_INDEX" "$spec_tmp" "$SPECPY" <<'PY' || exit 1
+import json
+import subprocess
+import sys
+
+src, dst, specpy = sys.argv[1], sys.argv[2], sys.argv[3]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", src]))
+steps = spec["journeys"]["J17"]["steps"]
+resting = next(i for i, st in enumerate(steps)
+               if st[0] == "restingComposer"
+               and (len(st) < 3 or st[2] in ("", "resting")))
+fill = next(i for i, st in enumerate(steps)
+            if st[0] == "fill" and "textarea" in str(st[1]))
+assert resting < fill, "J17 does not start with the resting measurement"
+# A copy of the draft fill before the resting measurement: the measurement now
+# comes after a fill while the card press stays after it, so only the ordering
+# rule can reject the walk (the press-order rule cannot stand in for it).
+steps.insert(resting, list(steps[fill]))
+json.dump(spec, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+( cd "$WT" && node rsi/runtime/ux/walk.mjs --check-spec --spec "$spec_tmp" ) >"$log" 2>&1
+rc=$?
+if [ "$rc" -ne 1 ] || ! grep -q "measure the resting composer before anything focuses or fills it" "$log"; then
+  cat "$log" >&2
+  rm -f "$log" "$spec_tmp"
+  fail "$case_name: --check-spec exited $rc without rejecting a resting measurement after a fill"
+fi
+rm -f "$log" "$spec_tmp"
+pass "$case_name"
+
+echo "walk-mutant contract: 25/25 cases passed"

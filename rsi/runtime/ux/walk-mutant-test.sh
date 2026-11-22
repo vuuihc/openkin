@@ -2,7 +2,7 @@
 # walk-mutant-test.sh — the one-command red proof for the walk contracts (R-walk-mutant, R-walk-tap-j7).
 #
 #   bash rsi/runtime/ux/walk-mutant-test.sh                    # apply every committed mutant, require red, restore
-#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
+#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15|J17] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
 #   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest
 #
 # J3 has two contracts. One: pressing Start on /new must keep the typed message
@@ -24,6 +24,12 @@
 # daemon's own discard report ("1 queued prompt(s) discarded with the canceled
 # task"). A Stop that does nothing leaves the control up and the report absent,
 # so the walk reddens on the gone, not on a screenshot.
+#
+# Four: a held round must be interruptible with the message already typed. The
+# manifest's last entry never sets send.interrupt, so the click queues instead
+# of cutting: the round keeps running, the transcript draws no 已打断上一轮
+# mark above the new message, and the walk's note wait goes red on the proof,
+# not on a screenshot.
 #
 # J3 therefore runs as two walks, because the two proofs pull apart: holding
 # the detail GET is what proves the hand-off (walk 2), but it also keeps
@@ -163,8 +169,8 @@ case "${1:-}" in
   --walk-once)
     JOURNEY="${2:-J3}"
     case "$JOURNEY" in
-      J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15) ;;
-      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J5, J7, J2, J8, J9, J10, J11, J12, J13 or J15" ;;
+      J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15|J17) ;;
+      *) unavailable "unknown journey $JOURNEY; --walk-once takes J1, J3 (default), J5, J7, J2, J8, J9, J10, J11, J12, J13, J15 or J17" ;;
     esac
     ;;
   --trap-check)
@@ -865,6 +871,142 @@ PY
   exit $?
 fi
 
+# J1's search → open → Back leg (R-phone-back-walk). The manifest removes
+# goBackToList's history pop, so the phone's Back lands on a bare /sessions.
+# The walk must redden on the search reads after the Back — the value the
+# reader typed and the ?search= the list URL carried — not merely on the list
+# arriving, which the bare address still satisfies. The search-back shot is
+# the evidence: its notes must carry both reads.
+if [ "$JOURNEY" = "J1" ]; then
+  bash rsi/runtime/ux-walk.sh "$WT" "$OUT" J1 >"$OUT/ux-walk.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    unavailable "$(cat "$OUT/UNAVAILABLE" 2>/dev/null || tail -c 300 "$OUT/ux-walk.log")"
+  fi
+  [ "$rc" -eq 0 ] || unavailable "ux-walk.sh exited $rc: $(tail -c 300 "$OUT/ux-walk.log")"
+  [ -s "$OUT/walk.json" ] || unavailable "the walker wrote no walk.json"
+
+  python3 - "$OUT/walk.json" <<'PY'
+import json
+import sys
+
+walk = json.load(open(sys.argv[1], encoding="utf-8"))
+screens = [s for s in walk.get("screens", []) if s.get("journey") == "J1"]
+names = [str(s.get("name", "")) for s in screens]
+skips = [n for n in names if "-skipped-" in n]
+if skips:
+    # No seeded list to search: a row wait on an empty list proves nothing.
+    # Fail closed as "could not run", not red.
+    print("UNAVAILABLE: J1 was skipped (" + ", ".join(skips[:2]) + ")")
+    sys.exit(2)
+
+# Step failures are `J1/…`; screenshot lint is `J1-<vp>-…`. Both are J1's.
+hard = [f for f in walk.get("hardFail", [])
+        if str(f).startswith("J1/") or str(f).startswith("J1-")]
+print("J1 screens: " + (", ".join(names) or "none"))
+for f in hard:
+    print("J1 hardFail: " + str(f))
+
+# The three shots are the leg's evidence and must run in the order a thumb
+# uses them: the filtered list after the search, the conversation the found
+# row opened, and the list Back came back to. The search-back notes are the
+# proof that the search text and the ?search= address were read on the list
+# the pop returned to; the mutant keeps the address green and empties both.
+required = ["search-open", "search-open-card", "search-back"]
+found, missing, order = {}, [], []
+for name in required:
+    at = [i for i, n in enumerate(names) if n.endswith("-" + name)]
+    if not at:
+        missing.append(name)
+        continue
+    found[name] = screens[at[-1]]
+    order.append(at[-1])
+if order != sorted(order):
+    missing.append("the three shots in walk order (got " + ", ".join(names) + ")")
+if "search-back" in found:
+    notes = [str(n) for n in found["search-back"].get("notes", [])]
+    if not any(n.startswith("value input[type=search] is ") and "Morning" in n for n in notes):
+        missing.append("the search text on search-back")
+    if not any(n.startswith("search ") and "search=Morning" in n for n in notes):
+        missing.append("the ?search= URL on search-back")
+if hard or missing:
+    if hard:
+        print("walk-mutant: J1 red: %d hard failure(s)" % len(hard))
+    if missing:
+        print("walk-mutant: J1 red: the walk never read " + ", ".join(missing))
+    sys.exit(1)
+print("walk-mutant: J1 green: the search text and the filtered list came back from the in-app Back")
+PY
+  exit $?
+fi
+
+# J17: the resting composer at 768/820. The manifest gives the resting
+# textarea zero width, the symptom #580 fixed. The walk measures the
+# un-focused box before anything focuses it (Watch 90), so the raised
+# arrangement cannot hide the collapse; --walk-once J17 prints red on the
+# resting width line. The runner also requires the four numbers the row
+# exists for — resting width/height, the hand-off jump and the hit-test —
+# so a walk that never measured cannot pass as green.
+if [ "$JOURNEY" = "J17" ]; then
+  bash rsi/runtime/ux-walk.sh "$WT" "$OUT" J17 >"$OUT/ux-walk.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    unavailable "$(cat "$OUT/UNAVAILABLE" 2>/dev/null || tail -c 300 "$OUT/ux-walk.log")"
+  fi
+  [ "$rc" -eq 0 ] || unavailable "ux-walk.sh exited $rc: $(tail -c 300 "$OUT/ux-walk.log")"
+  [ -s "$OUT/walk.json" ] || unavailable "the walker wrote no walk.json"
+
+  python3 - "$OUT/walk.json" <<'PY'
+import json
+import re
+import sys
+
+walk = json.load(open(sys.argv[1], encoding="utf-8"))
+screens = [s for s in walk.get("screens", []) if s.get("journey") == "J17"]
+names = [str(s.get("name", "")) for s in screens]
+skips = [n for n in names if "-skipped-" in n]
+if skips:
+    # The fake agent or a workdir is missing: the queued guide cannot appear,
+    # so the hit-test would measure nothing. Fail closed as "could not run".
+    print("UNAVAILABLE: J17 was skipped (" + ", ".join(skips[:2]) + ")")
+    sys.exit(2)
+
+# Step failures are `J17/…`; screenshot lint is `J17-<vp>-…`. Both are J17's.
+hard = [f for f in walk.get("hardFail", [])
+        if str(f).startswith("J17/") or str(f).startswith("J17-")]
+print("J17 screens: " + (", ".join(names) or "none"))
+for f in hard:
+    print("J17 hardFail: " + str(f))
+
+missing = []
+for vp in ("tablet", "tablet-portrait"):
+    mine = [s for s in screens if str(s.get("name", "")).startswith("J17-%s-" % vp)]
+    if not mine:
+        missing.append(vp + " (no screens)")
+        continue
+    notes = [str(n) for n in mine[-1].get("notes", [])]
+    resting = next((n for n in notes if n.startswith("resting composer ")), "")
+    measured = re.search(r"resting composer [^:]+: (\d+(?:\.\d+)?)×(\d+(?:\.\d+)?)px", resting)
+    if not measured:
+        missing.append(vp + " (no resting width/height line)")
+    elif float(measured.group(1)) < 240 or float(measured.group(2)) < 44:
+        missing.append(vp + " (resting box %s×%s below the 240×44 floor)" % measured.groups())
+    if not any("composer steady:" in n and "max jump" in n for n in notes):
+        missing.append(vp + " (no hand-off jump line)")
+    if not any(n.startswith("hit-test ") and "no overlap" in n for n in notes):
+        missing.append(vp + " (no queued-guide hit-test line)")
+if hard or missing:
+    if hard:
+        print("walk-mutant: J17 red: %d hard failure(s)" % len(hard))
+    if missing:
+        print("walk-mutant: J17 red: the walk never read " + ", ".join(missing))
+    sys.exit(1)
+print("walk-mutant: J17 green: the resting composer is a measured 240×44+ box at 768 and 820, "
+      "the hand-off jump is bounded, and the queued guide leaves the box hittable")
+PY
+  exit $?
+fi
+
 if [ "$JOURNEY" = "J2" ] || [ "$JOURNEY" = "J8" ]; then
   bash rsi/runtime/ux-walk.sh "$WT" "$OUT" "$JOURNEY" >"$OUT/ux-walk.log" 2>&1
   rc=$?
@@ -952,7 +1094,8 @@ if hard:
 # transcript) -> midrun-queued (the second one was queued and read while the
 # round was still open) -> replied (the first answer finally landed) ->
 # stopped (a later held round was stopped and the screen says what became of
-# the message queued behind it).
+# the message queued behind it) -> interrupted (another held round was cut by
+# the explicit action and the transcript says so above the message that did it).
 shots = {}
 for i, name in enumerate(names):
     m = re.match(r"^J3-([^-]+)-\d+-(.+)$", name)
@@ -965,10 +1108,11 @@ for vp in ("phone", "mac"):
     queued = [i for i, shot in seq if shot == "midrun-queued"]
     replied = [i for i, shot in seq if shot == "replied"]
     stopped = [i for i, shot in seq if shot == "stopped"]
-    if not sent or not queued or not replied or not stopped or not (min(sent) < min(queued) < min(replied) < min(stopped)):
+    interrupted = [i for i, shot in seq if shot == "interrupted"]
+    if not sent or not queued or not replied or not stopped or not interrupted or not (min(sent) < min(queued) < min(replied) < min(stopped) < min(interrupted)):
         missing.append(vp)
 if missing:
-    print("walk-mutant: J3 red: no sent -> midrun-queued -> replied -> stopped order at " + ", ".join(missing))
+    print("walk-mutant: J3 red: no sent -> midrun-queued -> replied -> stopped -> interrupted order at " + ", ".join(missing))
     sys.exit(1)
 
 # The mid-run screen is only evidence if the walk actually saw the composer's
@@ -1001,8 +1145,27 @@ for vp in ("phone", "mac"):
 if unread:
     print("walk-mutant: J3 red: the stopped screen never read the " + ", ".join(unread))
     sys.exit(1)
-print("walk-mutant: J3 mid-run green: sent -> midrun-queued -> replied -> stopped at both viewports, "
-      "queued guide read, Stop gone, stopped toast and discard report read")
+
+# The interrupted screen is only evidence if the walk read, from the page it
+# photographed, the mark above the message that cut the round and the reply
+# that message earned. A mutant that quietly queues leaves the round running
+# and draws no mark, so the note read is the proof that the round was cut
+# rather than merely sent behind.
+unread = []
+for vp in ("phone", "mac"):
+    mine = [s for s in screens if s["name"].startswith(f"J3-{vp}-") and s["name"].endswith("-interrupted")]
+    notes = [str(n) for n in (mine[-1].get("notes", []) if mine else [])]
+    if not any(n.startswith("waited for css=") and ("已打断上一轮" in n or "Interrupted the previous round" in n) for n in notes):
+        unread.append(vp + " (interrupt mark)")
+    if not any(n.startswith("waited for css=[role=region]") and "Interrupt proof: cut this round and answer this message now" in n for n in notes):
+        unread.append(vp + " (the message that cut the round)")
+    if not any(n.startswith("waited for css=[role=region]") and "Fake reply from the journey fake agent." in n and "nth=2" in n for n in notes):
+        unread.append(vp + " (the reply that message earned)")
+if unread:
+    print("walk-mutant: J3 red: the interrupted screen never read the " + ", ".join(unread))
+    sys.exit(1)
+print("walk-mutant: J3 mid-run green: sent -> midrun-queued -> replied -> stopped -> interrupted at both viewports, "
+      "queued guide read, Stop gone, stopped toast and discard report read, interrupt mark read above the message that cut the round")
 PY
 midrun_rc=$?
 # A red mid-run verdict is the verdict: without this the script would run the

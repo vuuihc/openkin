@@ -32,6 +32,7 @@ export default function ProjectSummaryCard({
 
   return (
     <div
+      data-kin-reading=""
       className={[
         "w-full max-w-xl rounded-2xl bg-kin-panel/80 px-4 py-3 text-left shadow-e1",
         className,

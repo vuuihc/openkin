@@ -4,18 +4,11 @@ import { useT } from "../../i18n/react";
 import { AREAS, type AreaId } from "../../lib/areas";
 import { resolveArea } from "../../lib/areaNavigation";
 import { lastListUrl, onGuardedLinkClick } from "../../lib/phoneNavigation";
-import {
-  IconFolder,
-  IconRoutines,
-  IconSessions,
-  IconSettings,
-  IconSearch,
-  type IconProps,
-} from "../icons";
+import { IconRoutines, IconSessions, IconSettings, IconSearch, type IconProps } from "../icons";
 import Button from "../ui/Button";
 
 /**
- * The Mac console's left edge: the four areas, as a rail.
+ * The Mac console's left edge: the three areas, as a rail.
  *
  * It renders `AREAS` and nothing else, so "where can I go" has one answer for
  * the rail, the palette and the router. The order, the locale key and the root
@@ -52,7 +45,6 @@ export function railCompact(panelOpen: boolean, wide1280: boolean): boolean {
  */
 const AREA_ICONS: Record<AreaId, (p: IconProps) => ReactNode> = {
   conversations: IconSessions,
-  projects: IconFolder,
   routines: IconRoutines,
   settings: IconSettings,
 };

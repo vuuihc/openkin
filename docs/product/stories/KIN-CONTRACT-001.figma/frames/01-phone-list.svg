@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff"/><text x="12" y="16" font-size="11" fill="#555">KIN-CONTRACT-001 · 手机 390×844 · 页面 1/4 列表</text>
+<text x="378" y="16" font-size="10" fill="#8a8a8a" text-anchor="end">设备 → 项目 → 任务（运行也是任务）</text><line x1="0" y1="24" x2="390" y2="24" stroke="#e6e6e6"/>
+<text x="18" y="56" font-size="17" fill="#1a1a1a" font-weight="600">对话</text>
+<rect x="268" y="32" width="104" height="44" rx="10" fill="#1f6feb"/><text x="320" y="59" font-size="12" fill="#ffffff" text-anchor="middle">＋ 新对话</text>
+<rect x="12" y="88" width="366" height="44" rx="10" fill="#f7f7f9" stroke="#dcdcdc"/><text x="28" y="116" font-size="11.5" fill="#8a8a8a">搜索任务、项目或设备</text>
+<line x1="0" y1="148" x2="390" y2="148" stroke="#efefef"/>
+<text x="14" y="174" font-size="10.5" fill="#8a8a8a">设备 · 本机</text><text x="378" y="174" font-size="10" fill="#1f6feb" text-anchor="end">仅本机</text>
+<line x1="14" y1="184" x2="376" y2="184" stroke="#efefef"/>
+<text x="14" y="210" font-size="12" fill="#333" font-weight="600">项目 · alpha</text><text x="378" y="210" font-size="10" fill="#8a8a8a" text-anchor="end">4 条</text>
+<rect x="14" y="220" width="362" height="44" rx="8" fill="#eef3ff"/><text x="28" y="247" font-size="12" fill="#1f4f9e">这段对话的标题，长到截断…</text>
+<text x="300" y="247" font-size="10" fill="#b42318">等你处理</text>
+<text x="28" y="278" font-size="10" fill="#6b6b6b">本机 · 12 分钟前 · 正在运行</text>
+<rect x="14" y="286" width="362" height="44" rx="8" fill="#ffffff"/><text x="28" y="313" font-size="12" fill="#333">例行 · 每日整理 · 07:00 那次</text>
+<text x="300" y="313" font-size="10" fill="#1f6feb">已完成 ›</text>
+<text x="28" y="334" font-size="9.5" fill="#8a8a8a">运行就是任务行：点开就是那次的详情，不换页面</text>
+<rect x="14" y="344" width="362" height="44" rx="8" fill="#ffffff"/><text x="28" y="371" font-size="12" fill="#333">另一段对话</text>
+<text x="28" y="392" font-size="9.5" fill="#8a8a8a">昨天 · 已完成</text>
+<rect x="14" y="402" width="362" height="44" rx="8" fill="#ffffff"/><text x="28" y="429" font-size="12" fill="#333">例行 · 每周复盘 · 周一那次</text>
+<text x="300" y="429" font-size="10" fill="#b42318">失败</text>
+<text x="14" y="470" font-size="11" fill="#333" font-weight="600">项目 · beta</text><text x="378" y="470" font-size="10" fill="#8a8a8a" text-anchor="end">折叠</text>
+<line x1="14" y1="480" x2="376" y2="480" stroke="#efefef"/>
+<rect x="12" y="500" width="366" height="86" rx="12" fill="#fbfbfd" stroke="#d8d8d8"/>
+<text x="26" y="522" font-size="10" fill="#6b6b6b">点项目行展开：工作说明（只读）</text>
+<text x="26" y="542" font-size="10.5" fill="#333">这个项目怎么干活 · 目标、边界、先读哪些文件。</text>
+<text x="26" y="560" font-size="10.5" fill="#333">新对话一开就带上它，不需要每次复述。</text>
+<text x="26" y="578" font-size="9" fill="#8a8a8a">编辑走项目行的「⋯」；/projects/:id 退场后能力仍在这里</text>
+<text x="14" y="616" font-size="10.5" fill="#8a8a8a">设备 · 远端节点（未连接）</text><text x="378" y="616" font-size="10" fill="#b42318" text-anchor="end">离线</text>
+<line x1="14" y1="626" x2="376" y2="626" stroke="#efefef"/>
+<rect x="12" y="716" width="366" height="56" rx="16" fill="#ffffff" stroke="#d8d8d8"/>
+<rect x="16" y="720" width="86" height="48" rx="12" fill="#eef3ff"/><text x="59" y="749" font-size="10.5" fill="#1f6feb" text-anchor="middle">对话 · 2</text>
+<text x="150" y="749" font-size="10.5" fill="#444" text-anchor="middle">Agents</text>
+<text x="238" y="749" font-size="10.5" fill="#444" text-anchor="middle">例行</text>
+<text x="324" y="749" font-size="10.5" fill="#444" text-anchor="middle">设置</text>
+<text x="16" y="800" font-size="9.5" fill="#8a8a8a">底栏四个入口都落在保留的页面上：Agents 落到设置的 operations tab</text>
+<text x="16" y="818" font-size="9.5" fill="#8a8a8a">改动只在列表内容与项目行，底栏数量与顺序不改（已签故事继续有效）</text>
+<text x="16" y="836" font-size="9.5" fill="#8a8a8a">行高 ≥44；整行是命中区，计数与状态是行内标记</text>
+</g>
+</svg>

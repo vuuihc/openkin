@@ -82,6 +82,9 @@ vi.mock("../api/client", async (importOriginal) => {
 vi.mock("../hooks/useMachines", () => ({
   useMachines: () => ({ machines: [], loading: false, failed: false }),
 }));
+// The page renders exactly one bar, chosen by this hook. These suites walk
+// the phone bar, which is the header their `MobileHeader` mock stands in for.
+vi.mock("../hooks/useMinWidth", () => ({ useMinWidth: () => false }));
 // The slow hint is a 10s timer; the test is about what is on screen when it
 // turns on, not about waiting for it.
 const slow = vi.hoisted(() => ({ value: false }));
