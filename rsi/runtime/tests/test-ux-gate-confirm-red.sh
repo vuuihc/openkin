@@ -23,6 +23,14 @@
 # the re-walked journeys, the first walk's screens for the journeys its red did not name. The
 # flaked journey's first-walk screens and every first-walk hard-fail line stay non-evidence.
 #
+# 2026-11-22 (R-ux-outside-reds): a reproduced red convicts only on a journey the PR's own diff
+# can reach. The locale catch-all in journeys.json maps to every journey, so almost every UI PR
+# was judged on the whole product: #585 passed the rubric 4/4/4/4/4 with every reported red
+# outside /routines and was still sent back. Outside lines are printed, saved to outside.txt,
+# counted in confirm.summary and named to the reviewer as not this PR's evidence; an unreadable
+# spec, any unmatched path that is not documentation/loop plumbing (docs/, rsi/, scripts/, web/,
+# *.md) or an empty union fails closed to the old rule. §R-ux-outside-reds below pins both halves.
+#
 # Hermetic: a temp control tree (common.sh + ux-gate.sh, so RSI_DIR and STATE resolve there),
 # a throwaway git repo with an origin/main ref, and stubs for the walk, the reviewer and gh.
 # npm/go/node/gh/curl are booby traps (exit 97), so a seam that reached a build, a daemon or
@@ -74,6 +82,35 @@ G add -A; G commit -qm seed
 G update-ref refs/remotes/origin/main HEAD
 G checkout -q -b rsi/test
 printf 'change\n' >> "$WT/README"; G add -A; G commit -qm change
+
+# The gate attributes a reproduced red from the branch's own journeys.json (R-ux-outside-reds).
+# A small spec keeps these cases independent of the product's real journey table; what matters is
+# the same first-match rule: the first row with a `|` alternative that prefixes the path wins.
+write_spec() {
+  mkdir -p "$WT/rsi/runtime/ux"
+  cat > "$WT/rsi/runtime/ux/journeys.json" <<'JSON'
+{"paths":[
+ ["ui/src/pages/Routine|ui/src/components/routine/", ["J4"]],
+ ["ui/src/pages/Sessions|ui/src/components/sessions/", ["J1", "J2"]],
+ ["ui/src/i18n/locales/", ["J1", "J2", "J3", "J4"]]
+]}
+JSON
+}
+write_spec
+# set_diff <path>... — HEAD becomes origin/main plus exactly these changed paths, so
+# `git diff --name-only origin/main...HEAD` is the case's changed.txt. The spec stays untracked
+# (never in the diff), the way the real worktree carries it.
+set_diff() {
+  G checkout -q -B rsi/test origin/main
+  G clean -fdq
+  write_spec
+  for p in "$@"; do
+    mkdir -p "$WT/$(dirname "$p")"
+    printf 'changed\n' >> "$WT/$p"
+  done
+  G add -- "$@"
+  G commit -qm "case diff"
+}
 
 # Walker stub. $1 is the output dir, $2 the optional journey selector. Each call is one line
 # in WALKS_LOG; call N reads fixtures from $FIX/N.json, N.unavailable or N.missing. No fixture
@@ -494,6 +531,187 @@ UX_VERDICT: FAIL"
   prompt_has 1 "are not evidence about this PR" || fail "confirm-only-new-hard: the run was not in the confirm-only state"
 }
 
+# 2026-11-22: #574's strong UX review scored consistency=2 because the 例行运行 clear chip's
+# Tailwind class is `h-9 w-9` (36px). The rendered box is 44x44 at 390 — index.css floors
+# `.touch-lg button:not([data-touch-mini])` at min-width/height 44px under (max-width: 639.98px) —
+# so the axis rested on a class name, not on anything measured, and the gate then had no verdict:
+# three P17 rows stayed blocked behind a claim nobody could check. The prompt now says a size or
+# tap-target claim must quote a measurement from the evidence and that a class name is not one.
+test_prompt_requires_a_measurement_for_a_size_claim() {
+  new_case size_rule
+  run_gate
+  [ "$RC" -eq 0 ] || fail "size-rule: exit $RC, want 0 ($(tail -3 "$T/$CASE.out" | tr '\n' ' '))"
+  prompt_has 1 "A Tailwind/CSS class name is NOT a measurement" || fail "size-rule: the prompt lets a class name stand in for a measurement"
+  prompt_has 1 "not measurable from the evidence" || fail "size-rule: the prompt has no wording for an unmeasurable size claim"
+}
+
+# The rule has to survive into the flaked-only (confirm) state too: that is where #574 died, and
+# the re-ask prompt is the original prompt plus a suffix, so a plain-run assertion is not enough.
+test_confirm_only_prompt_keeps_the_measurement_rule() {
+  new_case size_rule_confirm
+  fixture 1 "$(flake_json)"
+  run_gate
+  [ "$RC" -eq 0 ] || fail "size-rule-confirm: exit $RC, want 0 ($(tail -3 "$T/$CASE.out" | tr '\n' ' '))"
+  [ "$(walks)" = 2 ] || fail "size-rule-confirm: $(walks) walks, want 2 (the case must be the CONFIRM_ONLY one)"
+  prompt_has 1 "A Tailwind/CSS class name is NOT a measurement" || fail "size-rule-confirm: the CONFIRM_ONLY prompt drops the measurement rule"
+}
+
+# --- R-ux-outside-reds: a reproduced red convicts only on the journeys this PR's diff reaches ---
+# #585 scored 4/4/4/4/4 PASS with every reported hard fail on a surface outside /routines and was
+# still sent back: the gate composed `final = conf + unattributed` and never asked whether the
+# journey was attributable to the diff. journeys.json maps ui/src/i18n/locales/ (touched by almost
+# every UI PR) to every journey, so the whole product was in scope for every PR. The six cases
+# below pin both halves: an outside red stays evidence (printed, saved, counted), and every way the
+# spec can fail to attribute keeps today's strictness.
+
+OUT_J2="J2/mac: the wait box never appears after send"
+IN_J4="J4/mac: the routine list loses its run link"
+red_json() { printf '{"hardFail":["%s"],"screens":[]}\n' "$1"; }
+
+# Case 1: a routines-page diff (plus the locale file every UI PR must touch) walks a J2 red on
+# both passes. J2 is not a journey the diff reaches, so the red is recorded, printed and counted —
+# not billed. RED on origin/main, which sends the PR back for it.
+test_outside_surface_red_does_not_convict() {
+  new_case outside_surface
+  set_diff ui/src/pages/Routine/RoutinesPage.tsx ui/src/i18n/locales/en.ts
+  fixture 1 "$(red_json "$OUT_J2")"
+  fixture 2 "$(red_json "$OUT_J2")"
+  run_gate
+  [ "$RC" -eq 0 ] || fail "outside-surface: exit $RC, want 0 (a J2 red outside the diff must not convict): $(tail -3 "$T/$CASE.out" | tr '\n' ' ')"
+  grep -Fqx "$OUT_J2" "$UXD/outside.txt" \
+    || fail "outside-surface: outside.txt does not name the J2 line: $(tr '\n' ' ' < "$UXD/outside.txt" 2>/dev/null)"
+  [ ! -s "$UXD/confirm.hard" ] || fail "outside-surface: confirm.hard still bills: $(tr '\n' ' ' < "$UXD/confirm.hard")"
+  [ ! -s "$BODY" ] || fail "outside-surface: a sendback body was written: $(head -3 "$BODY" | tr '\n' ' ')"
+  grep -Fq 'reproduced=1 flaked=0 outside=1' "$UXD/confirm.summary" \
+    || fail "outside-surface: the summary does not count reproduced=1 outside=1: $(head -1 "$UXD/confirm.summary")"
+  grep -Fq 'attributed=J4' "$UXD/confirm.summary" \
+    || fail "outside-surface: the summary does not attribute J4 (the routines row)"
+  grep -Fq 're-walked J2 once' "$UXD/confirm.summary" || fail "outside-surface: the confirm did not re-walk J2"
+  [ "$(score_field outside)" = 1 ] || fail "outside-surface: scores.json walk_confirm.outside is not 1"
+  grep -Fq "outside this PR's surfaces (evidence, not blocking):" "$T/$CASE.out" \
+    || fail "outside-surface: the gate did not print the outside block"
+  grep -Fq 'outside this PR' "$UXD/confirm.summary" \
+    || fail "outside-surface: the outside lines are not carried in the summary as evidence"
+  # The reviewer can still open walk.json and $SHOTS, where the outside red and its screenshots
+  # remain; without the prompt block it can ground a below-3 axis on them and convict anyway.
+  prompt_has 1 "$OUT_J2" || fail "outside-surface: the prompt does not name the outside line"
+  prompt_has 1 "Do not score an axis below 3 on them" \
+    || fail "outside-surface: the prompt does not tell the reviewer not to ground an axis on outside reds"
+}
+
+# Case 2 (fail-closed): the same red on J4 — the routines row the diff does map — still bills a
+# rework round. RED on origin/main only for the new attributed= field: the point here is that the
+# rule did not loosen the journeys the PR actually owns.
+test_inside_surface_red_still_convicts() {
+  new_case inside_surface
+  set_diff ui/src/pages/Routine/RoutinesPage.tsx
+  fixture 1 "$(red_json "$IN_J4")"
+  fixture 2 "$(red_json "$IN_J4")"
+  run_gate
+  [ "$RC" -eq 1 ] || fail "inside-surface: exit $RC, want 1 (a J4 red is this PR's own surface): $(tail -3 "$T/$CASE.out" | tr '\n' ' ')"
+  hard_section | grep -Fqx "$IN_J4" || fail "inside-surface: the J4 line is not billed: $(hard_section | tr '\n' ' ')"
+  [ ! -s "$UXD/outside.txt" ] || fail "inside-surface: an inside red was filed as outside: $(tr '\n' ' ' < "$UXD/outside.txt")"
+  grep -Fq 'outside=0' "$UXD/confirm.summary" || fail "inside-surface: the summary does not count outside=0"
+  grep -Fq 'attributed=J4' "$UXD/confirm.summary" || fail "inside-surface: the summary does not attribute J4"
+  if prompt_has 1 "outside this PR's surfaces"; then
+    fail "inside-surface: the outside block leaked into a run with no outside red"
+  fi
+}
+
+# Case 3 (fail-closed): a copy-only diff maps only through the locale catch-all, which selects
+# journeys for walking, not for conviction. The union is empty, so every reproduced red convicts
+# exactly as today. RED on origin/main, whose summary has no outside= counter.
+test_copy_only_diff_keeps_todays_strictness() {
+  new_case copy_only
+  set_diff ui/src/i18n/locales/en.ts
+  fixture 1 "$(red_json "$OUT_J2")"
+  fixture 2 "$(red_json "$OUT_J2")"
+  run_gate
+  [ "$RC" -eq 1 ] || fail "copy-only: exit $RC, want 1 (a copy-only diff must keep every reproduced red)"
+  hard_section | grep -Fqx "$OUT_J2" || fail "copy-only: the J2 line is not billed"
+  grep -Fq 'outside=0' "$UXD/confirm.summary" || fail "copy-only: the summary does not count outside=0"
+}
+
+# Case 4 (fail-closed): a changed ui/ source path that no paths row matches is a rendered surface
+# the spec cannot attribute. The gate must not free a red the walk found elsewhere on the strength
+# of the rows it did match, so the whole diff falls back to today's rule.
+test_unmapped_ui_source_path_keeps_todays_strictness() {
+  new_case unmapped_ui
+  set_diff ui/src/pages/NewPage/NewPage.tsx ui/src/pages/Routine/RoutinesPage.tsx
+  fixture 1 "$(red_json "$OUT_J2")"
+  fixture 2 "$(red_json "$OUT_J2")"
+  run_gate
+  [ "$RC" -eq 1 ] || fail "unmapped-ui: exit $RC, want 1 (an unmapped rendered ui/ path must not free a red)"
+  hard_section | grep -Fqx "$OUT_J2" || fail "unmapped-ui: the J2 line is not billed"
+  grep -Fq 'attributed=fail-closed' "$UXD/confirm.summary" \
+    || fail "unmapped-ui: the summary does not say attribution failed closed"
+  grep -Fq 'unmapped ui path: ui/src/pages/NewPage/NewPage.tsx' "$UXD/confirm.summary" \
+    || fail "unmapped-ui: the summary does not name the path it could not map"
+}
+
+# Case 5 (fail-closed): a hard-fail line that names no journey can never be attributed. Beside an
+# attributable line it stays in final while that line is filed as outside, so the sendback still
+# names it. The confirm walk's OWN no-journey line is the one that proves the `or not journey(l)`
+# clause: the first-walk line would reach final through `unattributed` regardless. (A lone
+# unattributable line never reaches the confirm at all — that is
+# test_unattributable_failure_skips_confirm.) RED on origin/main, which bills the J2 line too.
+test_unattributed_line_still_convicts() {
+  new_case unattributed_line
+  set_diff ui/src/pages/Routine/RoutinesPage.tsx
+  UNATTR='confirm: count css=3 is 0, want 1'
+  UNATTR2='confirm: count css=5 is 1, want 0'
+  fixture 1 "$(printf '{"hardFail":["%s","%s"],"screens":[]}\n' "$OUT_J2" "$UNATTR")"
+  fixture 2 "$(printf '{"hardFail":["%s","%s"],"screens":[]}\n' "$OUT_J2" "$UNATTR2")"
+  run_gate
+  [ "$RC" -eq 1 ] || fail "unattributed-line: exit $RC, want 1 (a line with no journey can never be attributed)"
+  hard_section | grep -Fqx "$UNATTR" || fail "unattributed-line: the unattributed line is not billed: $(hard_section | tr '\n' ' ')"
+  hard_section | grep -Fqx "$UNATTR2" \
+    || fail "unattributed-line: the confirm's no-journey line is not billed: $(hard_section | tr '\n' ' ')"
+  hard_section | grep -Fqx "$OUT_J2" && fail "unattributed-line: the outside J2 line is still billed"
+  grep -Fqx "$OUT_J2" "$UXD/outside.txt" \
+    || fail "unattributed-line: the outside line was not recorded as evidence"
+  if grep -Fqx "$UNATTR" "$UXD/outside.txt"; then
+    fail "unattributed-line: the unattributed line was filed as outside"
+  fi
+}
+
+# Case 6: test files, build output, documentation and loop plumbing are not rendered surfaces.
+# They neither attribute a journey nor force the gate to fail closed; the only source path left is
+# the routines page, so the J2 red stays outside and the PR merges. RED on origin/main, which
+# sends it back.
+test_tests_and_build_output_do_not_force_fail_closed() {
+  new_case skip_tests_dist
+  set_diff ui/src/components/routine/RoutineList.dom.test.tsx web/dist/index.html \
+    docs/product/IA.md rsi/GOAL.md scripts/check.sh AGENTS.md \
+    ui/src/pages/Routine/RoutinesPage.tsx
+  fixture 1 "$(red_json "$OUT_J2")"
+  fixture 2 "$(red_json "$OUT_J2")"
+  run_gate
+  [ "$RC" -eq 0 ] || fail "skip-tests-dist: exit $RC, want 0 (test files and web/dist/ must not fail closed): $(tail -3 "$T/$CASE.out" | tr '\n' ' ')"
+  grep -Fqx "$OUT_J2" "$UXD/outside.txt" || fail "skip-tests-dist: the J2 line is not filed as outside"
+  grep -Fq 'attributed=J4' "$UXD/confirm.summary" \
+    || fail "skip-tests-dist: the summary does not attribute J4: $(head -1 "$UXD/confirm.summary")"
+  [ ! -s "$BODY" ] || fail "skip-tests-dist: a sendback body was written"
+}
+
+# Case 7 (fail-closed): a changed executable path outside ui/ that no paths row matches can still
+# have caused the walk's red — journeys.json maps "no match" to all journeys, and most UI commits
+# here also touch non-ui/ paths. The gate must not file that red as outside on the strength of the
+# one row it did match.
+test_unmapped_non_ui_path_fails_closed() {
+  new_case unmapped_non_ui
+  set_diff internal/api/x.go ui/src/pages/Routine/RoutinesPage.tsx
+  fixture 1 "$(red_json "$OUT_J2")"
+  fixture 2 "$(red_json "$OUT_J2")"
+  run_gate
+  [ "$RC" -eq 1 ] || fail "unmapped-non-ui: exit $RC, want 1 (an unmatched executable path must not free a red): $(tail -3 "$T/$CASE.out" | tr '\n' ' ')"
+  hard_section | grep -Fqx "$OUT_J2" || fail "unmapped-non-ui: the J2 line is not billed"
+  grep -Fq 'attributed=fail-closed' "$UXD/confirm.summary" \
+    || fail "unmapped-non-ui: the summary does not say attribution failed closed"
+  grep -Fq 'unmapped path: internal/api/x.go' "$UXD/confirm.summary" \
+    || fail "unmapped-non-ui: the summary does not name the path it could not map"
+}
+
 # The manifest must keep pointing at this gate and this suite: a rotted `old` would retire
 # the red proof silently.
 test_mutant_manifest_points_at_this_gate() {
@@ -504,8 +722,8 @@ import sys
 
 manifest, gate = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 6:
-    raise SystemExit("manifest must be exactly six entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 14:
+    raise SystemExit("manifest must be exactly fourteen entries, got %r" % (entries,))
 text = open(gate, encoding="utf-8").read()
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
@@ -520,7 +738,7 @@ for entry in entries:
         raise SystemExit("`old` occurs %d times in ux-gate.sh, not once: %r" % (count, entry["label"]))
     if "test-ux-gate-confirm-red.sh" not in entry["test"]:
         raise SystemExit("`test` does not run this suite: %r" % entry["label"])
-print("manifest ok: 6 mutants, each anchored once in ux-gate.sh")
+print("manifest ok: 14 mutants, each anchored once in ux-gate.sh")
 PY
   [ $? -eq 0 ] || fail "manifest: the mutants no longer point at the confirm block"
 }
@@ -549,8 +767,17 @@ run test_green_journey_screen_grounds_a_below_three_axis
 run test_flaked_journey_screen_does_not_ground
 run test_flaked_only_red_below_three_is_unavailable
 run test_reproduced_red_still_reviews_first_walk
+run test_prompt_requires_a_measurement_for_a_size_claim
+run test_confirm_only_prompt_keeps_the_measurement_rule
 run test_flaked_only_grounded_below_three_is_a_red
 run test_confirm_only_new_hard_failure_is_grounded
+run test_outside_surface_red_does_not_convict
+run test_inside_surface_red_still_convicts
+run test_copy_only_diff_keeps_todays_strictness
+run test_unmapped_ui_source_path_keeps_todays_strictness
+run test_unattributed_line_still_convicts
+run test_tests_and_build_output_do_not_force_fail_closed
+run test_unmapped_non_ui_path_fails_closed
 run test_mutant_manifest_points_at_this_gate
 [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo "ux-gate confirm-red contract: $RAN/$RAN cases passed"

@@ -12,10 +12,11 @@ import { useAppStore } from "../store/appStore";
 /**
  * KIN-START-001: the draft is one card and one place.
  *
- * The greeting, the card that writes the run, and the place row under it are
- * the whole screen. Start is blocked — visibly, with a reason — when there is
- * no agent, no place, nowhere online to run, or no connection; the draft itself
- * is never cleared by any of those states.
+ * The greeting, the place row, and the card that writes the run are the whole
+ * screen; the card is the same bottom band the conversation page pins, so
+ * Start does not move the box being typed into. Start is blocked — visibly,
+ * with a reason — when there is no agent, no place, nowhere online to run, or
+ * no connection; the draft itself is never cleared by any of those states.
  */
 
 const client = vi.hoisted(() => ({
@@ -197,7 +198,7 @@ afterEach(() => {
 });
 
 describe("the draft (KIN-START-001)", () => {
-  it("opens on one card with the place row under it", async () => {
+  it("opens on one card with the place row above it", async () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "What should Kin do?" })).toBeTruthy();
@@ -207,6 +208,34 @@ describe("the draft (KIN-START-001)", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Run settings/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Run settings/ }).textContent).toContain("Default");
+  });
+
+  it("pins the composer to the bottom band with the place row above it", async () => {
+    const { container } = renderPage();
+    const heading = await screen.findByRole("heading", { name: "What should Kin do?" });
+
+    // The band is the shell's own contract: the floating approval measures
+    // `data-kin-bottom-chrome` so it can never cover the box being typed in.
+    const band = container.querySelector<HTMLElement>('[data-kin-bottom-chrome=""]');
+    expect(band).not.toBeNull();
+
+    // Pinned, not scrolled: the band is a sibling after the page's one
+    // scrolling region, and it is the last thing on the page. A band inside
+    // the scroll column is the pre-amendment card, which jumped by half a
+    // screen when Start replaced the page with the conversation.
+    const scroll = heading.closest(".overflow-y-auto");
+    expect(scroll).not.toBeNull();
+    expect(scroll!.contains(band!)).toBe(false);
+    expect(band!.parentElement).toBe(scroll!.parentElement);
+    expect(scroll!.nextElementSibling).toBe(band);
+    expect(band!.parentElement!.lastElementChild).toBe(band);
+
+    // The composer lives in the band; the place row is its own row above it,
+    // not a row inside the composer card or the run-settings sheet.
+    expect(band!.contains(promptBox())).toBe(true);
+    const place = placeRow();
+    expect(band!.contains(place)).toBe(false);
+    expect(place.compareDocumentPosition(band!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("keeps Start disabled on an empty prompt and enables it when there is text", async () => {

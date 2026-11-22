@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { getToken, getRoutineUnreadCount } from "./api/client";
 import { liveResources } from "./api/liveResources";
 import { SessionSync } from "./api/sessionSync";
@@ -10,7 +10,6 @@ import AppShell from "./components/layout/AppShell";
 import AreaRoute from "./components/layout/AreaRoute";
 import ToastHost from "./components/ToastHost";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
-import ProjectsCollectionPage from "./pages/ProjectsCollectionPage";
 import { designSystemRoute } from "./pages/DesignSystemPage";
 import NewChatPage from "./pages/NewChatPage";
 import SessionsRoute from "./pages/SessionsRoute";
@@ -19,7 +18,6 @@ import SettingsPage from "./pages/SettingsPage";
 import TaskSessionHost from "./pages/TaskSessionHost";
 import TrayPage from "./pages/TrayPage";
 import RoutinesPage from "./pages/RoutinesPage";
-import MachineTaskPage from "./pages/MachineTaskPage";
 import AgentSessionDetailPage from "./pages/AgentSessionDetailPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AccountScreen from "./components/AccountScreen";
@@ -35,6 +33,28 @@ function AuthGate({ auth }: { auth: Exclude<AuthState, { status: "ok" }> }) {
     return <AccountScreen mode={auth.mode} />;
   }
   return <ConnectScreen reason={auth.reason} />;
+}
+
+/**
+ * The retired remote-run URL (KIN-CONTRACT-001).
+ *
+ * A run on another machine now opens on the one task detail page, with
+ * `?device=` saying where its transcript lives. The old path survives as a
+ * replace-only redirect so a bookmark, a banner or a phone notification written
+ * before the move still lands; `replace` keeps Back from returning to a URL
+ * that immediately leaves again. The device in the path wins over one already
+ * in the query, and the rest of the query (`?focus=` and friends) rides along.
+ */
+function MachineTaskRedirect() {
+  const { device = "", id = "" } = useParams();
+  const { search } = useLocation();
+  const params = new URLSearchParams();
+  params.set("device", device);
+  for (const [key, value] of new URLSearchParams(search.split("#", 1)[0])) {
+    if (key === "device") continue;
+    params.append(key, value);
+  }
+  return <Navigate to={`/tasks/${encodeURIComponent(id)}?${params.toString()}`} replace />;
 }
 
 export default function App() {
@@ -201,16 +221,22 @@ export default function App() {
               <Route path="/approvals" element={<Navigate to="/sessions" replace />} />
               {/* Task detail UI is rendered by TaskSessionHost above. */}
               <Route path="/tasks/:id" element={null} />
-              {/* The Projects area root. Agent operations live in Settings →
-                  Operations, so the old full-page destinations redirect there:
-                  a bookmark, banner or notification from before E4a still lands
-                  on the panel. `App.areaRoutes.test.ts` pins the target. */}
-              <Route path="/projects" element={<ProjectsCollectionPage />} />
+              {/* KIN-CONTRACT-001 retired the Projects area and its
+                  collection: the project level is the conversation list's own
+                  headings. A bookmark or notification that names `/projects`
+                  lands on that list, the same way `/inbox` and `/approvals`
+                  do. The project cover at `/projects/:id` stays as the list's
+                  detail. `App.areaRoutes.test.ts` pins both. */}
+              <Route path="/projects" element={<Navigate to="/sessions" replace />} />
               <Route path="/projects/:id" element={<ProjectDetailPage />} />
+              {/* Agent operations live in Settings → Operations, so the old
+                  full-page destinations redirect there: a bookmark, banner or
+                  notification from before E4a still lands on the panel. */}
               <Route path="/agents" element={<Navigate to="/settings?tab=operations" replace />} />
               <Route path="/routines" element={<RoutinesPage />} />
-              {/* A remote run lives in that machine's task store. */}
-              <Route path="/machines/:device/tasks/:id" element={<MachineTaskPage />} />
+              {/* A remote run is the task detail with `?device=`; the old
+                  machine path is a replace-only redirect kept for old links. */}
+              <Route path="/machines/:device/tasks/:id" element={<MachineTaskRedirect />} />
               <Route path="/usage" element={<Navigate to="/settings?tab=operations" replace />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />

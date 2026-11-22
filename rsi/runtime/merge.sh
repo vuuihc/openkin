@@ -519,10 +519,12 @@ GATE_SCRIPTS = {
     "scripts/check.sh", "scripts/check-openapi.sh", "scripts/check-api-coverage.sh",
     "scripts/install-hub.sh", "scripts/install-hub.test.sh", "scripts/stories.py",
     "scripts/check-ui-inventory.py", "scripts/check-ui-inventory.test.py",
+    "scripts/check-removed-surfaces.py", "scripts/check-removed-surfaces.test.py",
+    "scripts/ux_spec_refs.py", "scripts/ux_spec_refs_test.py",
     "scripts/ui_inventory.py", "scripts/ui_lint_guard.py", "scripts/ui_lint_guard_test.py",
     "scripts/ui-lint-guard.sh", "scripts/journeys_seed.py", "scripts/journeys_smoke.py",
     "scripts/journeys-smoke.sh", "scripts/journeys_walk_test.py", "scripts/journeys_smoke_test.py",
-    "scripts/phone-console-startup.mjs",
+    "scripts/quality_001_reading_test.py", "scripts/phone-console-startup.mjs",
 }
 # A PR's Go package is internal/<pkg>/: a sibling file in it can change the package's behaviour.
 pr_pkgs = {"/".join(p.split("/")[:2]) + "/" for p in pr_files
@@ -868,6 +870,14 @@ batch_bisect_list() {
   if batch_union "$repo" "$base" "$rec" "${heads[@]}"; then
     ( cd "$repo" && bash "$RSI_DIR/runtime/gate.sh" --only "$step" "$repo" ) > "$rec.log" 2>&1; rc=$?
     if [ $rc -eq 0 ] && grep -q '^GATE_RESULT=PARTIAL$' "$rec.log"; then rm -f "$rec" "$rec.log"; return 0; fi
+    # A filtered run that could not judge (exit 3, ^GATE_RESULT=NO_VERDICT) failed on the machine,
+    # not on these members: attribute nobody, and stop this branch instead of recursing into a
+    # singleton CULPRIT that batch_run would send back to a worker.
+    if grep -q '^GATE_RESULT=NO_VERDICT' "$rec.log" 2>/dev/null; then
+      rm -f "$rec" "$rec.log"
+      echo "NO_VERDICT $step"
+      return 0
+    fi
   fi
   rm -f "$rec" "$rec.log"
   if [ $n -eq 1 ]; then echo "CULPRIT ${heads[0]}"; return 0; fi
@@ -922,14 +932,39 @@ batch_members_read() { # <members-file> -> fills BM_*; non-zero when malformed
   [ -n "$BM_BASE" ] || BM_BASE="$($GIT -C "$BATCH_REPO" rev-parse origin/main 2>/dev/null)"
   [ -n "$BM_BASE" ]
 }
-batch_gate_verdict() { # <log> <rc> -> PASS | FAIL:<steps> | PARTIAL | OTHER
+batch_gate_verdict() { # <log> <rc> -> PASS | NO_VERDICT:<reason> | FAIL:<steps> | PARTIAL | OTHER
   if [ "$2" -eq 0 ] && grep -qx 'GATE_RESULT=PASS' "$1" 2>/dev/null; then echo PASS; return 0; fi
+  # The gate refused to judge (exit 3, ENOSPC or another environment failure). That is not a
+  # union failure to bisect and send back: its own arm, so a --union batch falls back to the
+  # per-PR path instead of billing a member for the machine.
+  if grep -q '^GATE_RESULT=NO_VERDICT' "$1" 2>/dev/null; then
+    echo "NO_VERDICT:$(grep '^GATE_RESULT=NO_VERDICT' "$1" | head -1 | sed 's/^GATE_RESULT=NO_VERDICT:[[:space:]]*//')"
+    return 0
+  fi
   if grep -q '^GATE_RESULT=FAIL:' "$1" 2>/dev/null; then
     echo "FAIL:$(grep '^GATE_RESULT=FAIL:' "$1" | head -1 | sed 's/^GATE_RESULT=FAIL:[[:space:]]*//')"
     return 0
   fi
   grep -q '^GATE_RESULT=PARTIAL' "$1" 2>/dev/null && { echo PARTIAL; return 0; }
   echo OTHER
+}
+# A gate log whose first GATE_RESULT is NO_VERDICT is the machine refusing to judge (gate.sh
+# exit 3: a failed probe write, or ENOSPC in a step's own log). The verifier skips the cycle —
+# no sendback, no rework attempt — the way gate_lock_decision() skips contention. Prints the
+# one-line reason; 0 only for a no-verdict log, so a red test still takes the FAIL path.
+gate_no_verdict_reason() { # <log>
+  local first
+  [ -r "$1" ] || return 1
+  first="$(grep '^GATE_RESULT' "$1" 2>/dev/null | head -1)"
+  case "$first" in
+    'GATE_RESULT=NO_VERDICT'*) printf '%s\n' "${first#GATE_RESULT=NO_VERDICT}" | sed 's/^:[[:space:]]*//'; return 0 ;;
+  esac
+  return 1
+}
+# Leave the cycle the way gate_lock_decision() does: say why, write nothing, spend nothing.
+gate_no_verdict_skip() { # <pr> <slug> <reason>
+  say "#$1 $2: gate could not judge ($3) — retry next cycle, no attempt burned"
+  exit 0
 }
 batch_tree_equal() { # <repo> <tree-a> <tree-b> — the prefix proof's equality (dist is regenerated)
   [ "$2" = "$3" ] && return 0
@@ -968,6 +1003,9 @@ batch_run_gate() { # <id> <worktree> <log> -> prints the verdict; one flake re-r
   rm -rf "$STATE/.gate.lock"
   v="$(batch_gate_verdict "$gl" "$rc")"
   [ "$v" = PASS ] && { echo PASS; return 0; }
+  # A gate that could not judge is not a union failure: no retry, no bisect. Hand it back and
+  # let batch_run's fallback re-enter each member, where the per-PR verifier skips the cycle.
+  case "$v" in NO_VERDICT*) echo "$v"; return 0 ;; esac
   # The verifier's existing flake rule, once per batch: only failing tests outside the union's own
   # footprint (or known-flaky). A second failure is a real failure.
   if [ ! -e "$STATE/merge/$id.outside-retry" ] && outside_tests_only "$wt" "$gl" "" "$STATE/merge/$id.outside-reason.txt"; then
@@ -1097,6 +1135,13 @@ batch_run() { # <id> <members-file>
       [ -n "$step" ] || step=check
       say "batch $id: union gate failed at step '$step'; bisecting"
       bout="$(batch_bisect "$BATCH_WT" "$BM_BASE" "$step" ${BM_HEAD[@]+"${BM_HEAD[@]}"})"
+      # A bisect run that could not judge names no member: the machine failed, so no worker is
+      # billed for it. Fall back to single verification, where each member's own cycle skips.
+      if printf '%s\n' "$bout" | grep -q '^NO_VERDICT'; then
+        batch_needs_ceo "$id" "union gate failed at '$step' and a bisect run could not judge (the machine, not a member); all members fall back to single verification"
+        batch_fall_back "$id" "no-verdict bisect"
+        return 1
+      fi
       ncul="$(printf '%s\n' "$bout" | grep -c '^CULPRIT' || true)"
       if [ "${ncul:-0}" -ne 1 ]; then
         batch_needs_ceo "$id" "union gate failed at '$step' but no single member is attributable; all members fall back to single verification"
@@ -1606,6 +1651,16 @@ if [ "${1:-}" != "--one" ]; then
     [ $GLRC -eq 0 ] && { echo "SKIP $GATE_LOCK_REASON"; exit 0; }
     echo "GATE $GATE_LOCK_REASON"; exit 1
   fi
+  # Hermetic seam for rsi/runtime/tests/test-gate-no-verdict.sh: the same skip decision the
+  # verifier applies to a gate log the gate refused to judge. No lock, fetch, gate, gh or review.
+  if [ "${1:-}" = "--no-verdict-check" ]; then
+    [ $# -ge 4 ] || { echo "usage: merge.sh --no-verdict-check <pr> <slug> <gate-log>" >&2; exit 2; }
+    if NVR="$(gate_no_verdict_reason "$4")"; then
+      echo "SKIP $NVR"
+      gate_no_verdict_skip "$2" "$3" "$NVR"
+    fi
+    echo "JUDGE"; exit 1
+  fi
   # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: run the same ceo_ok_verdict() the hold
   # block calls, against a marker file, a changed-path list and a PR number. No lock, fetch, gh.
   if [ "${1:-}" = "--ceo-ok-check" ]; then
@@ -1695,6 +1750,12 @@ if [ "${1:-}" != "--one" ]; then
     archive_sendback "${2:?slug required}" merged "${3:?sha8 required}"
     exit 0
   fi
+  # Hermetic seam for rsi/runtime/tests/test-gate-no-verdict.sh: the one classifier a gate log
+  # goes through in a --union batch, so a NO_VERDICT log is never read as FAIL. No gate, gh or lock.
+  if [ "${1:-}" = "--batch-verdict-check" ]; then
+    [ $# -ge 3 ] || { echo "usage: merge.sh --batch-verdict-check <log> <rc>" >&2; exit 2; }
+    batch_gate_verdict "$2" "$3"; exit 0
+  fi
   # Hermetic seams for rsi/runtime/tests/test-merge-batch.sh: the batch planner, union builder,
   # marker validity, prefix-tree proof and bisect, each callable alone. No gh, lock or dispatch.
   if [ "${1:-}" = "--batch-plan-check" ]; then
@@ -1754,6 +1815,8 @@ if [ "${1:-}" != "--one" ]; then
     echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,body 2>/dev/null)"
   fi
   PRS="$(printf '%s' "$PRJ" | dispatch_rows)"
+  UNSEEN="$(printf '%s' "$PRJ" | python3 "$RSI_DIR/runtime/unseen-pr.py" --rows "$PRS" --state "$STATE" 2>/dev/null || true)"
+  [ -n "$UNSEEN" ] && while IFS= read -r l; do [ -n "$l" ] && say "$l"; done <<< "$UNSEEN"
   [ -z "$PRS" ] && { say "no open rsi PRs"; exit 0; }
   ACTIVE="$(python3 "$LANES_PY" slugs)"
   # One gate for ready disjoint PRs (RSI_BATCH_VERIFY=1): form and start the batch runner before
@@ -2022,7 +2085,7 @@ fi
 # 3. MANDATE 5 screenshots (cheap, before spending a gate/review): local shots dir, local PR body file, or the PR body itself (cloud PRs)
 if echo "$CH" | grep -qE '^ui/src/.*\.tsx$' && ! echo "$CH" | grep -qE '^ui/src/.*\.(test|spec)\.' ; then
   if [ -z "$(ls "$STATE/shots/$SLUG" 2>/dev/null)" ] && ! echo "$BODY" | grep -qiE 'screenshots?:.*(none|not visible|https?://|!\[)' ; then
-    echo "UI .tsx changed but no screenshots in $STATE/shots/$SLUG/ and no 'Screenshots:' line with a link/image or 'none: <reason>' in the PR body (MANDATE 5). Capture 390x844 and 1100x760 before/after, or state why nothing is visible." > "$STATE/merge/$SLUG.err"
+    echo "UI .tsx changed but no screenshots in $STATE/shots/$SLUG/ and no 'Screenshots:' line with a link/image or 'none: <reason>' in the PR body (MANDATE 5). Capture 390x844, 820x1180 and 1100x760 before/after, or state why nothing is visible." > "$STATE/merge/$SLUG.err"
     sendback "$SLUG" "$ITEM" "missing screenshots" "$STATE/merge/$SLUG.err" "hold-screenshots" - -; exit 0
   fi
 fi
@@ -2167,6 +2230,11 @@ if [ $NEED_GATE -eq 1 ]; then
       fi
     fi
     if [ $GRC -ne 0 ] || ! grep -q '^GATE_RESULT=PASS' "$GL"; then
+      # The machine could not run the gate (exit 3: failed probe write / ENOSPC in a step log).
+      # Not a verdict on the branch: retry next cycle, no sendback, no rework attempt burned.
+      if NVR="$(gate_no_verdict_reason "$GL")"; then
+        gate_no_verdict_skip "$N" "$SLUG" "$NVR"
+      fi
       GATE_OK=0; GATE_NOTE="$(grep '^GATE_RESULT' "$GL" | head -1)"
       outside_tests_only "$WT" "$GL" && GATE_OUTSIDE=1
       say "#$N $SLUG: gate FAIL: $GATE_NOTE$([ $GATE_OUTSIDE -eq 1 ] && echo ' (outside-footprint or known-flaky tests)')"

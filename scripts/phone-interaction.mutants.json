@@ -12,5 +12,12 @@
     "test": "node scripts/phone-interaction.mjs --self-check",
     "old": "  // The paint violation is decided by applyPaint (contain wants every mounted\n  // row auto; off wants none), so a sample that carries one is a guard.\n  if (sample.paintViolation) guard(\"paint-override-not-applied\", sample.paintViolation);\n",
     "new": "  // The paint violation is decided by applyPaint (contain wants every mounted\n  // row auto; off wants none), so a sample that carries one is a guard.\n"
+  },
+  {
+    "label": "the gap verdict's inclusive 9 % bar becomes exclusive, so a transcript at the bar reports a gap",
+    "file": "scripts/phone-interaction.mjs",
+    "test": "node scripts/phone-interaction.mjs --self-check",
+    "old": "  const verdict = transcript.droppedPct > GAP_BAR_PCT ? \"gap-reproduces\" : \"no-gap\";",
+    "new": "  const verdict = transcript.droppedPct >= GAP_BAR_PCT ? \"gap-reproduces\" : \"no-gap\";"
   }
 ]

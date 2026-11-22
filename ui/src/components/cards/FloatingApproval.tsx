@@ -46,6 +46,10 @@ type Props = {
   onOpenPath?: (path: string) => void;
 };
 
+function ApprovalStatus(props: React.HTMLAttributes<HTMLDivElement>) {
+  return <div {...props} role="status" aria-live="polite" />;
+}
+
 /**
  * The one pending approval that is not already on screen, floating.
  *
@@ -101,7 +105,18 @@ export default function FloatingApproval({
   // whole surface — the same rule a phone tab root and an open panel already
   // follow. The evidence card collapsing, its rows scrolling out of the card's
   // box, or the conversation being hidden brings the card back.
+  //
+  // Reading content (`[data-kin-reading]`: markdown table cells, the draft's
+  // project summary) follows the same rule: the card is not mounted while it
+  // would cover something the reader is reading.
   const [covered, setCovered] = useState(false);
+  // Whether the *strip itself* would cover reading content. The strip is not a
+  // fallback that always gets to stay: its pill floats over the same column,
+  // and on a table it ate a cell centre the decision card had already yielded.
+  // When the pill is over reading content nothing of the surface is mounted on
+  // that screen. The approval is not lost — the task list row carries the
+  // count, and opening the conversation shows the inline card.
+  const [hidden, setHidden] = useState(false);
   // The whole floating surface's box — the strip *and* the card — remembered
   // across the strip-only render it causes: the card itself is gone while the
   // strip shows, and measuring the strip alone would find nothing under it,
@@ -117,6 +132,16 @@ export default function FloatingApproval({
     rightGap: number;
     width: number;
   } | null>(null);
+  // Remember the pill's actual offset: removing the card moves the strip down.
+  // Reconstructing it at the expanded top would alternate hidden and visible
+  // when only the collapsed strip overlaps a cell, until React throws #185.
+  const stripBox = useRef<{
+    id: string;
+    height: number;
+    rightGap: number;
+    width: number;
+    bottomGap: number;
+  } | null>(null);
 
   // The oldest by its own timestamp rather than by position: the resource
   // happens to publish newest-first, and a card whose queue order depends on
@@ -131,9 +156,9 @@ export default function FloatingApproval({
 
   /**
    * Decides whether the floating surface — the strip plus the decision card —
-   * would cover a changed-file row. Runs after every commit (the card's height
-   * changes with the approval it shows) and on scroll, resize and evidence
-   * mutations.
+   * would cover reading content or a changed-file row. Runs after every commit
+   * (the card's height changes with the approval it shows) and on scroll,
+   * resize and content mutations.
    */
   const measureOverlap = useCallback(() => {
     // Another reason already keeps the strip: a phone tab root or a visible
@@ -180,20 +205,55 @@ export default function FloatingApproval({
     }
     if (!box) return;
 
-    let hit = false;
-    for (const row of document.querySelectorAll<HTMLElement>("[data-kin-hit-row]")) {
-      const rect = row.getBoundingClientRect();
-      // A row in a hidden pane (`display:none`) has no box; nothing can be
-      // covered there, and counting it would keep the strip forever once a
-      // second conversation had been opened.
-      if (rect.width === 0 && rect.height === 0) continue;
-      if (rectsOverlap(box, rect)) {
-        hit = true;
-        break;
+    /**
+     * Whether `box` covers any laid-out element matching `selector`. A box in
+     * a hidden pane (`display:none`) has no area; nothing can be covered
+     * there, and counting it would keep the strip forever once a second
+     * conversation had been opened.
+     */
+    const covers = (rect: Rect, selector: string): boolean => {
+      for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+        const other = el.getBoundingClientRect();
+        if (other.width === 0 && other.height === 0) continue;
+        if (rectsOverlap(rect, other)) return true;
       }
-    }
+      return false;
+    };
+
+    const hit = covers(box, "[data-kin-hit-row]") || covers(box, "[data-kin-reading]");
     if (hit !== covered) setCovered(hit);
-  }, [currentId, raised, panelOpen, bottom, covered]);
+
+    // The strip's own pill: measured directly whenever it is mounted, and
+    // rebuilt at that same offset from the bottom when it is hidden.
+    const strip = surfaceRef.current?.querySelector<HTMLElement>("[role='status']") ?? null;
+    let stripRect: Rect | null = null;
+    if (strip) {
+      const rect = strip.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        stripRect = rect;
+        stripBox.current = {
+          id: currentId,
+          height: rect.height,
+          rightGap: Math.max(0, viewportWidth - rect.right),
+          width: rect.width,
+          bottomGap: box.bottom - rect.bottom,
+        };
+      }
+    } else if (stripBox.current && stripBox.current.id === currentId) {
+      const width = viewportWidth >= 768 ? stripBox.current.width : Math.max(0, viewportWidth - 24);
+      const right = viewportWidth - stripBox.current.rightGap;
+      stripRect = {
+        top: box.bottom - stripBox.current.bottomGap - stripBox.current.height,
+        bottom: box.bottom - stripBox.current.bottomGap,
+        left: right - width,
+        right,
+        width,
+        height: stripBox.current.height,
+      };
+    }
+    const stripHit = stripRect !== null && covers(stripRect, "[data-kin-reading]");
+    if (stripHit !== hidden) setHidden(stripHit);
+  }, [currentId, raised, panelOpen, bottom, covered, hidden]);
 
   // A different approval is a different card, with its own height and its own
   // box: the one remembered for the approval before it says nothing about this
@@ -204,14 +264,16 @@ export default function FloatingApproval({
   // new card mounts and is measured afresh.
   useLayoutEffect(() => {
     expandedBox.current = null;
+    stripBox.current = null;
     setCovered(false);
+    setHidden(false);
   }, [currentId]);
 
   // Layout, not passive: the card would otherwise paint one frame over the
   // row before the strip replaces it.
   useLayoutEffect(() => {
     measureOverlap();
-  }, [measureOverlap]);
+  }, [measureOverlap, screenKey]);
 
   // Rows move without a React render: the transcript scrolls, the window is
   // resized, and the evidence card folds, unfolds or grows a diff preview.
@@ -233,8 +295,11 @@ export default function FloatingApproval({
       if (target instanceof Element && target.closest("[data-kin-evidence]")) return true;
       for (const node of [...record.addedNodes, ...record.removedNodes]) {
         if (!(node instanceof Element)) continue;
-        if (node.matches("[data-kin-evidence], [data-kin-hit-row]")) return true;
-        if (node.querySelector("[data-kin-evidence], [data-kin-hit-row]")) return true;
+        if (node.matches("[data-kin-evidence], [data-kin-hit-row], [data-kin-reading]"))
+          return true;
+        if (node.querySelector("[data-kin-evidence], [data-kin-hit-row], [data-kin-reading]")) {
+          return true;
+        }
       }
       return false;
     };
@@ -449,6 +514,13 @@ export default function FloatingApproval({
     .filter(Boolean)
     .join(" · ");
 
+  // Keep the arrival announcement while the visible surface yields to reading
+  // content. Outside the aside/surfaceRef, it cannot enter strip measurements;
+  // the next measurement restores the surface when the content scrolls clear.
+  if (hidden && !raised && !panelOpen) {
+    return <ApprovalStatus className="sr-only">{stripLabel}</ApprovalStatus>;
+  }
+
   return (
     <aside
       ref={surfaceRef}
@@ -482,9 +554,7 @@ export default function FloatingApproval({
           means the agent stays stopped until someone happens to look. Opaque
           like the card under it: this pill floats over the list too, and the
           glass surface let the row text read through it. */}
-      <div
-        role="status"
-        aria-live="polite"
+      <ApprovalStatus
         // The card sits outside the pane that owns tab swiping, so this cannot
         // fire today; it keeps a gesture starting here from turning the page if
         // the card ever moves inside that pane.
@@ -553,7 +623,7 @@ export default function FloatingApproval({
             )}
           </>
         )}
-      </div>
+      </ApprovalStatus>
       {/* The decision card belongs to a conversation (and to Mac), never to a
           phone tab root or a screen with a panel open: there the strip above is
           the whole surface and the card would paint over the thing the reader

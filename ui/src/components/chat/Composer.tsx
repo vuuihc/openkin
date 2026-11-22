@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import type { AgentInfo, Upload } from "../../api/client";
@@ -355,10 +356,15 @@ export default function Composer({
   // A focus signal asks for the caret to come here. The text that came with it
   // arrives through `initialValue`, and setting a textarea's value puts its
   // caret at the end by definition, so the focus is the whole job.
+  //
+  // A composer that is still disabled cannot take the caret. The signal stays
+  // set, so the effect runs again when it can: a conversation entered from
+  // Start mounts before its detail answers, and the caret belongs there once
+  // the textarea is live (KIN-START-001 step 5).
   useEffect(() => {
     if (!focusSignal) return;
     textareaRef.current?.focus({ preventScroll: true });
-  }, [focusSignal]);
+  }, [focusSignal, disabled]);
 
   /** Grow with content up to CSS max-height, then scroll. Shrinks when cleared. */
   function adjustTextareaHeight() {
@@ -869,7 +875,40 @@ export default function Composer({
     }
   }
 
-  const expanded = Boolean(value.trim()) || items.length > 0 || focused || uploading;
+  // A focus signal says the caret belongs here, and the raised arrangement is
+  // what a focused composer looks like. Draw it from the same render as the
+  // signal, not one focus event later: a conversation entered from Start
+  // mounts with the signal while its textarea is still disabled, and a compact
+  // first frame would resize the box under the person — the J3 hand-off
+  // `steady` check measures exactly that.
+  const expanded =
+    Boolean(value.trim()) || items.length > 0 || focused || uploading || focusSignal > 0;
+  /**
+   * A press on the card's own surface belongs to the message box.
+   *
+   * The card is what looks like the input: its padding, the gap between the
+   * text and the control row, and the bare corners are the natural aim point,
+   * and they used to be dead — a pointer user clicked the box and no caret
+   * appeared. Anything interactive inside the card keeps its own press, so this
+   * only fills the holes; it never takes focus from a control or a menu row.
+   *
+   * The default is prevented before focusing: the browser runs its own
+   * mousedown focus change after this handler, and on a bare card surface that
+   * change targets the body — it would undo the caret this line just placed.
+   */
+  function focusFromCardSurface(event: ReactPointerEvent<HTMLDivElement>) {
+    const target = event.target;
+    if (
+      target instanceof Element &&
+      target.closest(
+        "button, a, input, textarea, select, [contenteditable='true'], [role='listbox'], [role='menu']",
+      )
+    ) {
+      return;
+    }
+    event.preventDefault();
+    textareaRef.current?.focus();
+  }
   /**
    * There is something to send and the composer can send it now. The send
    * control carries the accent only then; an empty box shows the same control
@@ -1038,7 +1077,15 @@ export default function Composer({
       )}
 
       <div
+        data-kin-composer-card
+        onPointerDown={focusFromCardSurface}
         className={[
+          // `@container`: the resting arrangement is chosen by the width the
+          // card actually has, not the window's. A side rail or a panel can
+          // leave the card ~374 px wide in a 768–900 px window, and a
+          // viewport `sm:` kept the row horizontal there until the 300 px of
+          // controls squeezed the textarea to nothing.
+          "@container",
           // Phone: the elevated card the reference composer uses — its own
           // surface, a 2xl radius and a drop, so the input reads as a thing you
           // hold rather than a hole cut in the transcript. Desktop keeps the
@@ -1151,7 +1198,11 @@ export default function Composer({
         />
         <div
           className={
-            expanded ? "flex flex-col" : "flex flex-col sm:flex-row sm:items-center sm:gap-1.5"
+            // Resting, the row is a column until the card can hold the ~300 px
+            // of controls and a readable textarea (≥240 px) beside them; `@xl`
+            // (36 rem) is comfortably above that sum. The raised arrangement is
+            // a column at every width, as it has always been.
+            expanded ? "flex flex-col" : "flex flex-col @xl:flex-row @xl:items-center @xl:gap-1.5"
           }
         >
           <textarea
@@ -1203,10 +1254,10 @@ export default function Composer({
               // beside it are already that tall, and a 28px textarea inside a
               // 44px row clipped the second line of its own placeholder. The
               // `kin-composer-input` half covers the coarse-pointer widths the
-              // `sm` breakpoint would otherwise drop back to 28px.
+              // `@xl` container breakpoint would otherwise drop back to 28px.
               expanded
                 ? "w-full min-h-11 leading-ui"
-                : "kin-composer-input w-full min-w-0 min-h-11 flex-none py-[11px] leading-ui sm:flex-1 sm:min-h-7 sm:py-0",
+                : "kin-composer-input w-full min-w-0 min-h-11 flex-none py-[11px] leading-ui @xl:flex-1 @xl:min-h-7 @xl:py-0",
             ].join(" ")}
           />
           {/* One row, and it never wraps: the card keeps one height whether a
@@ -1217,8 +1268,13 @@ export default function Composer({
           <div
             data-kin-composer-row
             className={[
-              "flex min-w-0 flex-nowrap items-center gap-1.5",
-              expanded ? "mt-2" : "mt-1.5 sm:mt-0",
+              // The controls on this row keep their target: a flex item's
+              // default `shrink: 1` shaved every 44px button to 43.9px when
+              // the 768 row was a fraction over its width (measured by J17's
+              // running-draft pass). The slot that is allowed to give way is
+              // the scrolling footer, not the thumb target.
+              "flex min-w-0 flex-nowrap items-center gap-1.5 [&>button]:shrink-0",
+              expanded ? "mt-2" : "mt-1.5 @xl:mt-0",
             ].join(" ")}
           >
             <Button
@@ -1227,12 +1283,16 @@ export default function Composer({
               onClick={() => fileRef.current?.click()}
               disabled={disabled || busy || stopping || uploading}
               className={[
-                // 44pt while the phone shell is in charge, desktop size from `md`
-                // up. A 24px target is not hittable with a thumb. (`sm:w-6` alone
-                // would not restore the desktop size: the floor is a two-class
+                // 44pt until the card itself is wide enough to hold the dense
+                // row: the viewport is not the ruler here, because an iPad in
+                // portrait draws the desktop two-column shell around a 344–396px
+                // card. `@xl` is the same 36rem cut the textarea uses, so a Mac
+                // (card ~650px) keeps the 24px control and the iPad keeps a
+                // target a thumb can hit. (`@xl:w-6` alone would not restore the
+                // desktop size under the phone floor: the floor is a two-class
                 // selector and outranks it.)
                 "rounded-lg p-0 text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] flex items-center justify-center",
-                expanded ? "w-11 h-11 sm:w-7 sm:h-7 sm:-ml-1" : "w-11 h-11 sm:w-6 sm:h-6",
+                expanded ? "w-11 h-11 @xl:w-7 @xl:h-7 @xl:-ml-1" : "w-11 h-11 @xl:w-6 @xl:h-6",
               ].join(" ")}
               aria-label={tr("composer.attachFile")}
               title={tr("composer.attachFile")}
@@ -1273,10 +1333,16 @@ export default function Composer({
                 // wrapper. A shrinkable hint would collapse and let the slot,
                 // settings and send paint past the card's edge instead.
                 "flex-none text-caption text-kin-muted items-center gap-1",
-                // `@` is not a desktop key: a phone keyboard has one, and this
-                // is the only place the delegation feature is named. The ⌘↵
-                // legend below it is the one that gets the `sm` gate.
-                expanded ? "inline-flex" : "hidden",
+                // Both legends are desktop hints, and the card's own width —
+                // not the viewport — decides whether there is room for them.
+                // An iPad in portrait draws the desktop two-column shell at
+                // 768–820 around a 344–396px card; there the legends took the
+                // row the run-config face needed, and the gate measured the
+                // face at 44px wide (`C C`) with the usage chip clipped. The
+                // phone never showed them at rest, and the placeholder's
+                // `@ 委派 / 引用文件` still names delegation when the card is
+                // narrow.
+                expanded ? "hidden @xl:inline-flex" : "hidden",
               ].join(" ")}
             >
               <kbd className="rounded border border-[var(--kin-hairline-strong)] px-1 font-semibold">
@@ -1287,7 +1353,7 @@ export default function Composer({
             <span
               className={[
                 "flex-none text-caption text-kin-muted items-center gap-1",
-                expanded ? "hidden sm:inline-flex" : "hidden",
+                expanded ? "hidden @xl:inline-flex" : "hidden",
               ].join(" ")}
             >
               <kbd className="rounded border border-[var(--kin-hairline-strong)] px-1 font-semibold">
@@ -1301,7 +1367,7 @@ export default function Composer({
                 variant="secondary"
                 onClick={() => void onStop()}
                 disabled={stopping || busy}
-                className="ml-auto h-11 w-11 rounded-full border-kin-red/35 bg-kin-red/15 p-0 text-kin-red-ink sm:h-7 sm:w-7 sm:rounded-lg"
+                className="ml-auto h-11 w-11 rounded-full border-kin-red/35 bg-kin-red/15 p-0 text-kin-red-ink @xl:h-7 @xl:w-7 @xl:rounded-lg"
                 aria-label={tr("composer.stop")}
                 title={tr("composer.stop")}
               >
@@ -1323,8 +1389,8 @@ export default function Composer({
                   "ml-auto flex items-center justify-center",
                   canSend ? "bg-kin-text text-kin-bg sm:bg-kin-blue sm:text-kin-on-brand" : "",
                   sendLabel
-                    ? "h-11 rounded-full px-4 text-body font-semibold sm:h-8"
-                    : "h-11 w-11 rounded-full p-0 sm:h-7 sm:w-7 sm:rounded-lg",
+                    ? "h-11 rounded-full px-4 text-body font-semibold @xl:h-8"
+                    : "h-11 w-11 rounded-full p-0 @xl:h-7 @xl:w-7 @xl:rounded-lg",
                 ].join(" ")}
                 aria-label={busy ? tr("composer.sending") : (sendLabel ?? tr("composer.send"))}
               >
@@ -1352,7 +1418,7 @@ export default function Composer({
                   // above: a send that cannot happen yet must not be armable, or the
                   // intent outlives the click that set it.
                   disabled={disabled || blockSend || busy || stopping || uploading}
-                  className="h-11 w-11 rounded-full border-kin-orange/40 bg-kin-orange/15 p-0 text-kin-orange-ink sm:h-7 sm:w-7 sm:rounded-lg"
+                  className="h-11 w-11 rounded-full border-kin-orange/40 bg-kin-orange/15 p-0 text-kin-orange-ink @xl:h-7 @xl:w-7 @xl:rounded-lg"
                   aria-label={tr("composer.interruptSend")}
                   title={tr("composer.interruptSend")}
                 >
@@ -1368,7 +1434,7 @@ export default function Composer({
                   // above: a send that cannot happen yet must not be armable.
                   disabled={disabled || blockSend || busy || stopping || uploading}
                   className={[
-                    "h-11 w-11 rounded-full p-0 flex items-center justify-center sm:h-7 sm:w-7 sm:rounded-lg",
+                    "h-11 w-11 rounded-full p-0 flex items-center justify-center @xl:h-7 @xl:w-7 @xl:rounded-lg",
                     canSend ? "bg-kin-text text-kin-bg sm:bg-kin-blue sm:text-kin-on-brand" : "",
                   ].join(" ")}
                   aria-label={tr("composer.send")}

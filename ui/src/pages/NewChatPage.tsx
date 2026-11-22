@@ -779,208 +779,218 @@ export default function NewChatPage() {
         ) : null}
       </div>
 
-      {/* One centered column: the greeting, the card that writes the run, and
-          the place row under it. The card is the only thing on the screen with
-          a border, so the eye lands on the prompt — the folder and the machine
-          are one row beneath it, not four controls beside it. */}
+      {/* Two regions: the greeting and everything that describes the run
+          scroll; the composer is the conversation page's bottom band. Start
+          swaps this page for the conversation, so the box being typed into
+          keeps its place and its width instead of jumping half a screen. */}
       <div className="flex-1 overflow-y-auto kin-scroll">
-        <div className="flex min-h-full items-center justify-center px-6 py-10 max-md:items-start max-md:px-5 max-md:pb-8 max-md:pt-8">
-          <div className="w-full max-w-page-narrow">
-            {pendingSend ? (
-              <div className="pb-5">
-                <ChatStream
-                  events={NO_EVENTS}
-                  fallbackUserPrompt={pendingSend.text}
-                  fallbackUserPromptImages={pendingSend.images}
-                  loading
-                  loadingSpeaker={mainAgentId}
-                  hostSpeaker={mainAgentId}
-                  hostModel={selectedModel || null}
-                  messageScope="new-chat"
-                />
-              </div>
-            ) : (
-              <>
-                <div className="text-center">
-                  <h1 className="text-hero max-md:text-display font-semibold tracking-tight text-kin-text">
-                    {tr("newChat.heroTitle")}
-                  </h1>
-                  {/* The phone's empty state is one line, not an essay: the card
+        <div className="flex min-h-full flex-col px-4 sm:px-7 pt-10 pb-4 max-md:pt-8">
+          {/* The greeting keeps the centre of the space above the rows; the
+              place row stays next to the card it decides for, not half a
+              screen away from it. */}
+          <div className="flex flex-1 items-center justify-center max-md:items-start">
+            <div className="w-full max-w-conversation">
+              {pendingSend ? (
+                <div className="pb-5">
+                  <ChatStream
+                    events={NO_EVENTS}
+                    fallbackUserPrompt={pendingSend.text}
+                    fallbackUserPromptImages={pendingSend.images}
+                    loading
+                    loadingSpeaker={mainAgentId}
+                    hostSpeaker={mainAgentId}
+                    hostModel={selectedModel || null}
+                    messageScope="new-chat"
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="text-center">
+                    <h1 className="text-hero max-md:text-display font-semibold tracking-tight text-kin-text">
+                      {tr("newChat.heroTitle")}
+                    </h1>
+                    {/* The phone's empty state is one line, not an essay: the card
                       below says who runs and how, and the frame keeps the input
                       visually central. The longer guidance is desktop reference
                       material, where the column has room for it. */}
-                  <p className="mt-2 text-strong text-kin-secondary">
-                    {tr("newChat.heroSubtitleHost")}
-                  </p>
-                  {available.length > 1 && (
-                    <p className="hidden md:block mt-2 text-caption text-kin-muted">
-                      {tr("newChat.hostPickerHint")}
+                    <p className="mt-2 text-strong text-kin-secondary">
+                      {tr("newChat.heroSubtitleHost")}
                     </p>
-                  )}
-                  {(agents.some((a) => !a.available) || available.length === 0) && !remote && (
-                    <div className="mt-2 flex justify-center">
-                      <Button
-                        variant="quiet"
-                        className="px-3 py-0 text-body font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline sm:px-0"
-                        onClick={() => navigate("/agents", { replace: !wide })}
-                      >
-                        {tr("agents.manageLink")}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-
-                {hints.length > 0 && (
-                  // Desktop only: a line of @-mention hints is reference material,
-                  // and on the phone it was the widest thing on the screen.
-                  <div className="mt-6 hidden px-0.5 text-caption text-kin-muted sm:block">
-                    {tr("newChat.tip", { hints: hints.join(" · ") })}
-                  </div>
-                )}
-              </>
-            )}
-
-            <div data-kin-bottom-chrome="" className={hints.length > 0 ? "mt-2" : "mt-8"}>
-              <Composer
-                agents={agents}
-                roles={agentRoles}
-                hostAgentId={mainAgentId}
-                busy={sending}
-                disabled={sending}
-                focusSignal={wide ? 1 : 0}
-                blockSend={Boolean(sendBlockReason)}
-                sendLabel={tr("newChat.start")}
-                initialValue={draftValue}
-                initialAttachments={initialAttachments}
-                placeholder={
-                  asRoutine
-                    ? tr("routines.promptPlaceholder")
-                    : tr("newChat.placeholder", { name: mainAgentName })
-                }
-                onAttachmentsChange={setDraftAttachments}
-                onValueChange={(value) => {
-                  setDraftValue(value);
-                  setDraftPrompt(value);
-                  setPreviewPrompt(value);
-                }}
-                onSubmit={onSubmit}
-                footer={
-                  // The page's only run control, at every width. The bottom row
-                  // used to split into a phone face and a desktop strip of eight
-                  // chips; on an iPad that strip was a sideways scroller and the
-                  // same settings read as a different product from the phone's
-                  // sheet. One face, one settings surface, and the strip is gone.
-                  <RunConfigControl
-                    agentName={mainAgentName}
-                    agentId={mainAgentId}
-                    agentAvatar={mainAgentAvatar}
-                    model={selectedModel}
-                    models={modelsForAgent(available, mainAgentId)}
-                    onModelChange={setSelectedModel}
-                    permission={permissionMode}
-                    permissionModes={allowedPermissionModes}
-                    onPermissionChange={(m) => {
-                      setPermissionMode(m);
-                      setDraftPermissionMode(m);
-                    }}
-                    disabled={sending}
-                    agents={available}
-                    onAgentChange={(id) => {
-                      setSelectedHost(id);
-                      setSelectedModel("");
-                    }}
-                    extraRows={
-                      <>
-                        {visibleSheetExtraRows.map((control) => (
-                          <RunConfigSheetRow
-                            key={control}
-                            label={tr(CONTROL_LABEL_KEY[control])}
-                            control={renderControl(control)}
-                          />
-                        ))}
-                      </>
-                    }
-                  />
-                }
-                footerWide
-              />
-            </div>
-
-            {!pendingSend && (
-              <>
-                {sendBlockReason ? (
-                  <p role="status" className="mt-2 px-1 text-caption text-kin-secondary">
-                    {sendBlockReason}
-                  </p>
-                ) : null}
-
-                <div className="mt-3">
-                  <PlacePicker
-                    machines={machines}
-                    value={{ machineId, cwd }}
-                    dirs={dirs}
-                    loading={machinesLoading}
-                    failed={machinesFailed}
-                    disabled={sending}
-                    onRefresh={refreshMachines}
-                    onChange={choosePlace}
-                  />
-                </div>
-                {placeNotice ? (
-                  <p className="mt-1.5 px-1 text-caption text-kin-orange-ink">{placeNotice}</p>
-                ) : null}
-
-                {asRoutine && (
-                  <div className="mt-3 rounded-xl border border-kin-blue/25 bg-kin-blue/5 px-3 py-2.5">
-                    <div className="mb-2 text-caption font-medium text-kin-blue-ink">
-                      {tr("routines.routineModeOn")}
-                    </div>
-                    <RoutineScheduleFields
-                      compact
-                      disabled={sending}
-                      intervalSecs={routineInterval}
-                      onIntervalChange={setRoutineInterval}
-                      nextRunLocal={routineNextLocal}
-                      onNextRunLocalChange={setRoutineNextLocal}
-                      rule={routineRule}
-                      onRuleChange={setRoutineRule}
-                    />
-                  </div>
-                )}
-
-                {!remote && cwd.trim() ? (
-                  <div className="mt-6">
-                    {projectLookupState === "loading" ? (
-                      <div className="rounded-xl border border-[var(--kin-hairline)] bg-kin-panel/60 px-4 py-5 text-center text-strong text-kin-muted">
-                        {tr("newChat.projectSummaryLoading")}
-                      </div>
-                    ) : projectLookupState === "error" ? (
-                      <div className="w-full rounded-2xl border border-kin-red/30 bg-kin-panel px-4 py-3 text-left">
-                        <p className="text-body text-kin-red-ink">
-                          {projectLookupError || tr("newChat.projectSummaryError")}
-                        </p>
+                    {available.length > 1 && (
+                      <p className="hidden md:block mt-2 text-caption text-kin-muted">
+                        {tr("newChat.hostPickerHint")}
+                      </p>
+                    )}
+                    {(agents.some((a) => !a.available) || available.length === 0) && !remote && (
+                      <div className="mt-2 flex justify-center">
                         <Button
                           variant="quiet"
-                          className="mt-2 px-0 py-0 text-body font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline"
-                          onClick={() => setProjectLookupKey((k) => k + 1)}
+                          className="px-3 py-0 text-body font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline sm:px-0"
+                          onClick={() => navigate("/agents", { replace: !wide })}
                         >
-                          {tr("common.retry")}
+                          {tr("agents.manageLink")}
                         </Button>
-                      </div>
-                    ) : project ? (
-                      <ProjectSummaryCard project={project} summary={projectSummary} />
-                    ) : (
-                      <div className="hidden rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary md:block">
-                        {tr("newChat.onePagerNoProject", {
-                          project: projectLabel(cwd),
-                        })}
                       </div>
                     )}
                   </div>
-                ) : null}
-              </>
-            )}
+
+                  {hints.length > 0 && (
+                    // Desktop only: a line of @-mention hints is reference material,
+                    // and on the phone it was the widest thing on the screen.
+                    <div className="mt-6 hidden px-0.5 text-caption text-kin-muted sm:block">
+                      {tr("newChat.tip", { hints: hints.join(" · ") })}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
+
+          {!pendingSend && (
+            <div className="mx-auto w-full max-w-conversation">
+              <div className="mt-3">
+                <PlacePicker
+                  machines={machines}
+                  value={{ machineId, cwd }}
+                  dirs={dirs}
+                  loading={machinesLoading}
+                  failed={machinesFailed}
+                  disabled={sending}
+                  onRefresh={refreshMachines}
+                  onChange={choosePlace}
+                />
+              </div>
+              {placeNotice ? (
+                <p className="mt-1.5 px-1 text-caption text-kin-orange-ink">{placeNotice}</p>
+              ) : null}
+
+              {asRoutine && (
+                <div className="mt-3 rounded-xl border border-kin-blue/25 bg-kin-blue/5 px-3 py-2.5">
+                  <div className="mb-2 text-caption font-medium text-kin-blue-ink">
+                    {tr("routines.routineModeOn")}
+                  </div>
+                  <RoutineScheduleFields
+                    compact
+                    disabled={sending}
+                    intervalSecs={routineInterval}
+                    onIntervalChange={setRoutineInterval}
+                    nextRunLocal={routineNextLocal}
+                    onNextRunLocalChange={setRoutineNextLocal}
+                    rule={routineRule}
+                    onRuleChange={setRoutineRule}
+                  />
+                </div>
+              )}
+
+              {!remote && cwd.trim() ? (
+                <div className="mt-6">
+                  {projectLookupState === "loading" ? (
+                    <div className="rounded-xl border border-[var(--kin-hairline)] bg-kin-panel/60 px-4 py-5 text-center text-strong text-kin-muted">
+                      {tr("newChat.projectSummaryLoading")}
+                    </div>
+                  ) : projectLookupState === "error" ? (
+                    <div className="w-full rounded-2xl border border-kin-red/30 bg-kin-panel px-4 py-3 text-left">
+                      <p className="text-body text-kin-red-ink">
+                        {projectLookupError || tr("newChat.projectSummaryError")}
+                      </p>
+                      <Button
+                        variant="quiet"
+                        className="mt-2 px-0 py-0 text-body font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline"
+                        onClick={() => setProjectLookupKey((k) => k + 1)}
+                      >
+                        {tr("common.retry")}
+                      </Button>
+                    </div>
+                  ) : project ? (
+                    <ProjectSummaryCard project={project} summary={projectSummary} />
+                  ) : (
+                    <div className="hidden rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary md:block">
+                      {tr("newChat.onePagerNoProject", {
+                        project: projectLabel(cwd),
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* The band the conversation page also pins: same outer padding, same
+          inner column, so the composer keeps its place and width when Start
+          replaces this page with the conversation. The block reason rides
+          above the card, where the conversation puts its own notices. */}
+      <div data-kin-bottom-chrome="" className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
+        <div className="max-w-conversation mx-auto space-y-1.5">
+          {!pendingSend && sendBlockReason ? (
+            <p role="status" className="px-1 text-caption text-kin-secondary">
+              {sendBlockReason}
+            </p>
+          ) : null}
+          <Composer
+            agents={agents}
+            roles={agentRoles}
+            hostAgentId={mainAgentId}
+            busy={sending}
+            disabled={sending}
+            focusSignal={wide ? 1 : 0}
+            blockSend={Boolean(sendBlockReason)}
+            sendLabel={tr("newChat.start")}
+            initialValue={draftValue}
+            initialAttachments={initialAttachments}
+            placeholder={
+              asRoutine
+                ? tr("routines.promptPlaceholder")
+                : tr("newChat.placeholder", { name: mainAgentName })
+            }
+            onAttachmentsChange={setDraftAttachments}
+            onValueChange={(value) => {
+              setDraftValue(value);
+              setDraftPrompt(value);
+              setPreviewPrompt(value);
+            }}
+            onSubmit={onSubmit}
+            footer={
+              // The page's only run control, at every width. The bottom row
+              // used to split into a phone face and a desktop strip of eight
+              // chips; on an iPad that strip was a sideways scroller and the
+              // same settings read as a different product from the phone's
+              // sheet. One face, one settings surface, and the strip is gone.
+              <RunConfigControl
+                agentName={mainAgentName}
+                agentId={mainAgentId}
+                agentAvatar={mainAgentAvatar}
+                model={selectedModel}
+                models={modelsForAgent(available, mainAgentId)}
+                onModelChange={setSelectedModel}
+                permission={permissionMode}
+                permissionModes={allowedPermissionModes}
+                onPermissionChange={(m) => {
+                  setPermissionMode(m);
+                  setDraftPermissionMode(m);
+                }}
+                disabled={sending}
+                agents={available}
+                onAgentChange={(id) => {
+                  setSelectedHost(id);
+                  setSelectedModel("");
+                }}
+                extraRows={
+                  <>
+                    {visibleSheetExtraRows.map((control) => (
+                      <RunConfigSheetRow
+                        key={control}
+                        label={tr(CONTROL_LABEL_KEY[control])}
+                        control={renderControl(control)}
+                      />
+                    ))}
+                  </>
+                }
+              />
+            }
+            footerWide
+          />
         </div>
       </div>
     </div>

@@ -19,6 +19,8 @@ export type SessionListParams = {
   status?: string;
   /** The archived view: the other side of the archive, not a narrowing. */
   archived?: boolean;
+  /** One routine's runs: the daemon's `routine_id` filter, like `status`. */
+  routineId?: string;
 };
 
 /**
@@ -31,6 +33,7 @@ export function sessionListParams(
   term: string,
   status?: string,
   archived?: boolean,
+  routineId?: string,
 ): SessionListParams {
   const q = term.trim();
   const params: SessionListParams = q ? { limit: SEARCH_LIMIT, q } : { limit: LIST_LIMIT };
@@ -38,5 +41,8 @@ export function sessionListParams(
   // Only Kin's own tasks have an archive; imported agent sessions are filed
   // by project and never carry this flag.
   if (archived) params.archived = true;
+  // The routine filter stays the fourth parameter so every existing call site
+  // keeps its meaning; an empty value is "every row", not a routine called "".
+  if (routineId) params.routineId = routineId;
   return params;
 }

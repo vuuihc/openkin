@@ -30,8 +30,8 @@ export type TransitionMotion = "none" | "fade" | "area" | "push" | "pop";
  *
  * 0 is a surface drawn in place — the collection, the draft, a redirect, a
  * settings section. 1 is the one level a detail opens: a task, an agent
- * session, a project. Anything between two depth-1 routes is a swap, never a
- * push or a pop, because neither direction is true.
+ * session, a project cover. Anything between two depth-1 routes is a swap,
+ * never a push or a pop, because neither direction is true.
  */
 export const ROUTE_DEPTH: Record<AreaRouteName, 0 | 1> = {
   "conversations.collection": 0,
@@ -40,8 +40,7 @@ export const ROUTE_DEPTH: Record<AreaRouteName, 0 | 1> = {
   "conversations.approvals": 0,
   "conversations.task": 1,
   "conversations.agentSession": 1,
-  "projects.collection": 0,
-  "projects.detail": 1,
+  "conversations.projectCover": 1,
   "routines.root": 0,
   "routines.machineTask": 1,
   "settings.root": 0,

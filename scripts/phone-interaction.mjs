@@ -69,6 +69,17 @@
  *   transcript-never-rendered  no [data-conversation-pane] / message appeared
  *   tap-never-arrived          no touchstart, or the detail content never
  *                              became visible, within 15 s
+ *   gap-verdict-missing-leg    a plain run produced no pooled dropped% for
+ *                              one of the two scroll legs
+ *   gap-verdict-short-run      a plain run had fewer than 3 runs, too few to
+ *                              separate the transcript from the machine
+ *
+ * A plain run (no --glass=ab / --paint=ab) ends with one line,
+ * `phone gap: list <x>% / transcript <y>% -> gap-reproduces|no-gap`, comparing
+ * the transcript leg's pooled dropped % with the memo's 9 % closing bar. The
+ * same verdict is carried in the JSON document as `gapVerdict` / `gapLine`.
+ * The bar is quoted at GAP_BAR_PCT below; it is the memo's number, not a new
+ * one.
  *
  * The sheet and composer legs are reported separately; if either cannot be
  * isolated honestly the leg prints `unmeasured: <reason>` instead of a number.
@@ -183,6 +194,8 @@ const GUARD_NAMES = [
   "frame-clock-throttled",
   "transcript-never-rendered",
   "tap-never-arrived",
+  "gap-verdict-missing-leg",
+  "gap-verdict-short-run",
 ];
 
 class GuardFailure extends Error {
@@ -275,6 +288,55 @@ function frameMetrics(intervals, longtasks) {
     droppedPct: r1((dropped / sorted.length) * 100),
     longTasks: tasks.length,
     blockingMs: Math.round(blocking),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Gap verdict                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The memo's own closing bar, not a new number:
+ * docs/plans/2026-11-21-phone-performance-baseline.md:135 — "Acceptance:
+ * transcript dropped frames fall into the list's band (≤ 9 %)" (Decision
+ * memo, step 1; the paint A/B row restates it as `closes-gap` when the
+ * transcript's pooled dropped % is ≤ 9). The bar is inclusive, matching the
+ * memo's ≤: a transcript at exactly 9 % is inside the list's band.
+ */
+const GAP_BAR_PCT = 9;
+
+/**
+ * One verdict from one plain run's pooled stats. Pure: the caller passes the
+ * pooled frameMetrics() of both scroll legs and the run count, and gets back
+ * the one line the next row acts on.
+ *
+ * A missing leg or fewer than three runs is refused rather than guessed: a
+ * missing leg has nothing to compare against, and one sample cannot separate
+ * the transcript from whatever else the machine was doing.
+ */
+function gapVerdict({ sessions, transcript, runs }) {
+  const missing = [];
+  if (!Number.isFinite(sessions?.droppedPct)) missing.push("list");
+  if (!Number.isFinite(transcript?.droppedPct)) missing.push("transcript");
+  if (missing.length > 0) {
+    guard(
+      "gap-verdict-missing-leg",
+      `no pooled dropped% for the ${missing.join(" and ")} leg; a verdict needs both scroll legs measured`,
+    );
+  }
+  if (!Number.isInteger(runs) || runs < 3) {
+    guard(
+      "gap-verdict-short-run",
+      `--runs ${runs} is too short for a gap verdict; one sample cannot separate the transcript from the machine (need 3 or more)`,
+    );
+  }
+  const verdict = transcript.droppedPct > GAP_BAR_PCT ? "gap-reproduces" : "no-gap";
+  return {
+    verdict,
+    barPct: GAP_BAR_PCT,
+    listDroppedPct: sessions.droppedPct,
+    transcriptDroppedPct: transcript.droppedPct,
+    line: `phone gap: list ${sessions.droppedPct}% / transcript ${transcript.droppedPct}% -> ${verdict}`,
   };
 }
 
@@ -531,6 +593,32 @@ function selfCheckCase(kind) {
         emptyOptional: paintViolationFor("contain", []),
       })}\n`,
     );
+    return;
+  }
+  if (kind === "gap-verdict-reproduces" || kind === "gap-verdict-null" || kind === "gap-verdict-at-bar") {
+    // The pooled stats are built from real intervals so the case exercises
+    // frameMetrics' dropped rule, not a hand-set number: 33 ms against a 16 ms
+    // median is a dropped frame. Each case pins the exact pooled percentage
+    // the memo's 9 % bar reads.
+    const leg = (frames, wide) =>
+      frameMetrics([...Array(frames).fill(16), ...Array(wide).fill(33)], []);
+    const arms = {
+      "gap-verdict-reproduces": [leg(25, 2), leg(41, 9)], // 7.4 % list / 18.0 % transcript
+      "gap-verdict-null": [leg(38, 1), leg(29, 2)], // 2.6 % list / 6.5 % transcript
+      "gap-verdict-at-bar": [leg(25, 2), leg(91, 9)], // 7.4 % list / 9.0 % transcript
+    };
+    const [sessions, transcript] = arms[kind];
+    process.stdout.write(`${gapVerdict({ sessions, transcript, runs: 5 }).line}\n`);
+    return;
+  }
+  if (kind === "gap-verdict-missing-leg") {
+    const measured = frameMetrics([...Array(39).fill(16), 33], []);
+    gapVerdict({ sessions: measured, transcript: null, runs: 5 });
+    return;
+  }
+  if (kind === "gap-verdict-short-run") {
+    const measured = frameMetrics([...Array(39).fill(16), 33], []);
+    gapVerdict({ sessions: measured, transcript: measured, runs: 1 });
     return;
   }
   const sample = sampleFor(kind);
@@ -880,13 +968,41 @@ function selfCheck() {
     process.stdout.write(`ok paint-ab-with-glass-ab exits 2: ${bothAbLine}\n`);
   }
 
+  const verdictCases = [
+    [
+      "gap-verdict-reproduces",
+      /^phone gap: list 7\.4% \/ transcript 18% -> gap-reproduces$/m,
+      "list 7.4 % / transcript 18.0 % -> gap-reproduces",
+    ],
+    [
+      "gap-verdict-null",
+      /^phone gap: list 2\.6% \/ transcript 6\.5% -> no-gap$/m,
+      "list 2.6 % / transcript 6.5 % -> no-gap",
+    ],
+    [
+      "gap-verdict-at-bar",
+      /^phone gap: list 7\.4% \/ transcript 9% -> no-gap$/m,
+      "transcript 9.0 % at the bar -> no-gap",
+    ],
+  ];
+  for (const [kind, pattern, want] of verdictCases) {
+    const result = run(kind);
+    const text = (result.stdout || "").trim();
+    if (result.status !== 0 || !pattern.test(text)) {
+      fail(`${kind} exited ${result.status} printed '${text || "(empty)"}', want ${want}`);
+    } else {
+      process.stdout.write(`ok ${kind}: ${text}\n`);
+    }
+  }
+
   if (failures > 0) {
     process.stderr.write(`FAIL phone-interaction --self-check: ${failures} case(s) failed\n`);
     process.exit(1);
   }
   process.stdout.write(
     `ok phone-interaction --self-check: nearest-rank pinned, ${GUARD_NAMES.length} guards exit 2, ` +
-      "short sets refused, JSON round-trips, glass plan/CSS/arm JSON pinned, paint plan/CSS/arm JSON pinned\n",
+      "short sets refused, JSON round-trips, glass plan/CSS/arm JSON pinned, paint plan/CSS/arm JSON pinned, " +
+      `gap verdict pinned at the ${GAP_BAR_PCT} % bar\n`,
   );
   process.exit(0);
 }
@@ -1897,6 +2013,13 @@ async function measureTranscript(page, cdp, taskId, idleP50, glassArm = "on", pa
 /* Reporting                                                          */
 /* ------------------------------------------------------------------ */
 
+/** Pool every frame interval and long task of one leg across the runs. */
+function pooledLeg(runsDetail, leg) {
+  const intervals = runsDetail.flatMap((run) => run[leg]?.intervals || []);
+  const tasks = runsDetail.flatMap((run) => run[leg]?.longtasks || []);
+  return frameMetrics(intervals, tasks);
+}
+
 function printReport(doc) {
   say(
     `machine: ${doc.machine.platform} ${doc.machine.release} ${doc.machine.arch}, ` +
@@ -1961,11 +2084,6 @@ function printReport(doc) {
     );
   }
   say("");
-  const pooled = (leg) => {
-    const all = doc.runsDetail.flatMap((run) => run[leg].intervals || []);
-    const tasks = doc.runsDetail.flatMap((run) => run[leg].longtasks || []);
-    return frameMetrics(all, tasks);
-  };
   const pooledArm = (leg, arm) => {
     const armLegs = doc.runsDetail.flatMap((run) =>
       (run.glassArms || []).filter((entry) => entry.glass === arm).map((entry) => entry[leg]),
@@ -2037,12 +2155,15 @@ function printReport(doc) {
       );
       continue;
     }
-    const metric = pooled(leg);
+    const metric = pooledLeg(doc.runsDetail, leg);
     say(
       `${label}: frame interval p50 ${metric.p50}ms p90 ${metric.p90}ms · ` +
         `dropped ${metric.droppedPct}% · long tasks ${metric.longTasks} (${metric.blockingMs} ms blocking)`,
     );
   }
+  // The plain run's one-line verdict. It is computed once in main and carried
+  // in the document, so this print and the JSON field cannot disagree.
+  if (doc.gapLine) say(doc.gapLine);
   const tapStats = stats(doc.runsDetail.map((run) => run.tap?.duration).filter(Number.isFinite));
   say(
     `tap -> detail: p50 ${tapStats.p50}ms p90 ${tapStats.p90}ms over ${tapStats.n}/${doc.runsDetail.length} runs`,
@@ -2402,6 +2523,18 @@ async function main() {
     await browser.close().catch(() => {});
   }
 
+  // The plain run's verdict, computed once from the pooled legs. The A/B
+  // passes measure two arms per leg, so they have no single pooled number to
+  // compare with the bar and carry no verdict; they still run as before.
+  const gap =
+    opts.glass === "ab" || opts.paint === "ab"
+      ? null
+      : gapVerdict({
+          sessions: pooledLeg(runsDetail, "sessions"),
+          transcript: pooledLeg(runsDetail, "transcript"),
+          runs: opts.runs,
+        });
+
   const doc = {
     generatedAt: new Date().toISOString(),
     commit: spawnSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).stdout.trim(),
@@ -2420,6 +2553,15 @@ async function main() {
     entry: entryFile,
     seed: seedCounts,
     runs: opts.runs,
+    ...(gap
+      ? {
+          gapVerdict: gap.verdict,
+          gapLine: gap.line,
+          gapBarPct: gap.barPct,
+          gapListDroppedPct: gap.listDroppedPct,
+          gapTranscriptDroppedPct: gap.transcriptDroppedPct,
+        }
+      : {}),
     runsDetail,
     guards: [],
     legs: {
@@ -2450,6 +2592,9 @@ async function main() {
   };
 
   if (opts.json) {
+    // say() already routes to stderr in JSON mode, so the table does not
+    // corrupt the document: one run yields both the JSON and the table.
+    printReport(doc);
     process.stdout.write(`${JSON.stringify(doc, null, 2)}\n`);
     return;
   }
