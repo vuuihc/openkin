@@ -1,0 +1,16 @@
+[
+  {
+    "label": "count merge commits too",
+    "file": "rsi/runtime/release-check.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "LOCAL_MAIN_ONLY=\"$($git -C \"$REPO\" rev-list --count --no-merges origin/main..main 2>/dev/null)\"",
+    "new": "LOCAL_MAIN_ONLY=\"$($git -C \"$REPO\" rev-list --count origin/main..main 2>/dev/null)\""
+  },
+  {
+    "label": "drop local_main_only from the RELEASED record",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "unshipped_before=$(printf '%s' \"$CHK\" | sed -n 's/^unshipped=\\([0-9]*\\).*/\\1/p') local_main_only=$LOCAL_MAIN_ONLY\"",
+    "new": "unshipped_before=$(printf '%s' \"$CHK\" | sed -n 's/^unshipped=\\([0-9]*\\).*/\\1/p')\""
+  }
+]
