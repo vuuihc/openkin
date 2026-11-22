@@ -47,7 +47,7 @@ describe("the phone list's archive wiring", () => {
     // The feed is a second request; every other screen would pay for rows it
     // never reads. The scope is the enable flag, and the params carry the
     // archive side of the list.
-    expect(SOURCE).toContain("sessionListParams(searchTerm, status, true)");
+    expect(SOURCE).toContain("sessionListParams(searchTerm, status, true, routineId)");
     expect(SOURCE).toContain('scope === "archived",');
   });
 
@@ -90,7 +90,7 @@ describe("the phone list's archive wiring", () => {
     // all, or its second page cannot be reached from the phone.
     expect(SOURCE).toContain("const oldest = liveRows[liveRows.length - 1]?.id;");
     expect(SOURCE).toContain("const oldest = archivedRows[archivedRows.length - 1]?.id;");
-    expect(SOURCE).toContain("...sessionListParams(searchTerm, status, true),");
+    expect(SOURCE).toContain("...sessionListParams(searchTerm, status, true, routineId),");
   });
 
   it("waits for the archive feed before calling it empty, and says when it failed", () => {
