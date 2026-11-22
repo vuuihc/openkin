@@ -5,5 +5,33 @@
     "test": "VITEST_MAX_WORKERS=2 ui/node_modules/.bin/vitest run --root ui src/components/chat/ChatStream.actions.dom.test.tsx",
     "old": "if (!coarsePointer && !window.matchMedia(\"(max-width: 639px)\").matches) return;",
     "new": "if (!window.matchMedia(\"(max-width: 639px)\").matches) return;"
+  },
+  {
+    "label": "重试 loses its coarse-pointer 44px width floor, so an iPad thumb misses it",
+    "file": "ui/src/components/chat/ChatStream.tsx",
+    "test": "VITEST_MAX_WORKERS=2 ui/node_modules/.bin/vitest run --root ui src/components/chat/ChatStream.actions.dom.test.tsx",
+    "old": "                title={tr(\"task.retryTitle\")}\n                onClick={() => onRetry?.(item.seq!)}\n                className={`group rounded-md px-2 py-0.5 text-caption font-medium ${coarsePointer ? \"min-w-11\" : \"\"}`}",
+    "new": "                title={tr(\"task.retryTitle\")}\n                onClick={() => onRetry?.(item.seq!)}\n                className=\"group rounded-md px-2 py-0.5 text-caption font-medium\""
+  },
+  {
+    "label": "分叉 loses its coarse-pointer 44px width floor",
+    "file": "ui/src/components/chat/ChatStream.tsx",
+    "test": "VITEST_MAX_WORKERS=2 ui/node_modules/.bin/vitest run --root ui src/components/chat/ChatStream.actions.dom.test.tsx",
+    "old": "                title={tr(\"task.forkTitle\")}\n                onClick={() => onFork?.(item.seq!)}\n                className={`group rounded-md px-2 py-0.5 text-caption font-medium ${coarsePointer ? \"min-w-11\" : \"\"}`}",
+    "new": "                title={tr(\"task.forkTitle\")}\n                onClick={() => onFork?.(item.seq!)}\n                className=\"group rounded-md px-2 py-0.5 text-caption font-medium\""
+  },
+  {
+    "label": "复制 loses its coarse-pointer 44px width floor",
+    "file": "ui/src/components/chat/ChatStream.tsx",
+    "test": "VITEST_MAX_WORKERS=2 ui/node_modules/.bin/vitest run --root ui src/components/chat/ChatStream.actions.dom.test.tsx",
+    "old": "                aria-label={tr(\"chat.message.copyTitle\")}\n                onClick={() => onCopyMessage(item.text)}\n                className={`group rounded-md px-2 py-0.5 text-caption font-medium ${coarsePointer ? \"min-w-11\" : \"\"}`}",
+    "new": "                aria-label={tr(\"chat.message.copyTitle\")}\n                onClick={() => onCopyMessage(item.text)}\n                className=\"group rounded-md px-2 py-0.5 text-caption font-medium\""
+  },
+  {
+    "label": "分享 loses its coarse-pointer 44px width floor",
+    "file": "ui/src/components/chat/ChatStream.tsx",
+    "test": "VITEST_MAX_WORKERS=2 ui/node_modules/.bin/vitest run --root ui src/components/chat/ChatStream.actions.dom.test.tsx",
+    "old": "                aria-label={tr(\"chat.message.shareTitle\")}\n                onClick={() => onShareMessage(item.key)}\n                className={`group rounded-md px-2 py-0.5 text-caption font-medium ${coarsePointer ? \"min-w-11\" : \"\"}`}",
+    "new": "                aria-label={tr(\"chat.message.shareTitle\")}\n                onClick={() => onShareMessage(item.key)}\n                className=\"group rounded-md px-2 py-0.5 text-caption font-medium\""
   }
 ]

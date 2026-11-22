@@ -986,6 +986,11 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
             // `sm:` cut entirely: an iPad has no hover to reveal the row, and
             // an opacity-0 row that still takes pointer events is a tap target
             // nobody can see. Focus stays a reveal so Tab reaches the buttons.
+            // A coarse pointer also floors each action's own width at 44px
+            // (`min-w-11`): at 820 the desktop density draws 重试/分叉 at
+            // 40.5px, and the global touch floor stops at 768. Height already
+            // reaches 44 through the Button facade at this width; the width is
+            // the part nothing floored.
             "flex items-center gap-1 transition-opacity",
             coarsePointer
               ? revealed
@@ -1011,7 +1016,7 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
                 disabled={actionsBusy}
                 title={tr("task.retryTitle")}
                 onClick={() => onRetry?.(item.seq!)}
-                className="group rounded-md px-2 py-0.5 text-caption font-medium"
+                className={`group rounded-md px-2 py-0.5 text-caption font-medium ${coarsePointer ? "min-w-11" : ""}`}
               >
                 <span className="text-kin-muted transition-colors group-hover:text-kin-text">
                   {tr("task.retry")}
@@ -1022,7 +1027,7 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
                 disabled={actionsBusy}
                 title={tr("task.forkTitle")}
                 onClick={() => onFork?.(item.seq!)}
-                className="group rounded-md px-2 py-0.5 text-caption font-medium"
+                className={`group rounded-md px-2 py-0.5 text-caption font-medium ${coarsePointer ? "min-w-11" : ""}`}
               >
                 <span className="text-kin-muted transition-colors group-hover:text-kin-text">
                   {tr("task.fork")}
@@ -1037,7 +1042,7 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
                 title={tr("chat.message.copyTitle")}
                 aria-label={tr("chat.message.copyTitle")}
                 onClick={() => onCopyMessage(item.text)}
-                className="group rounded-md px-2 py-0.5 text-caption font-medium"
+                className={`group rounded-md px-2 py-0.5 text-caption font-medium ${coarsePointer ? "min-w-11" : ""}`}
               >
                 <span className="inline-flex items-center gap-1 text-kin-muted transition-colors group-hover:text-kin-text">
                   <IconCopy size={13} />
@@ -1049,7 +1054,7 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
                 title={tr("chat.message.shareTitle")}
                 aria-label={tr("chat.message.shareTitle")}
                 onClick={() => onShareMessage(item.key)}
-                className="group rounded-md px-2 py-0.5 text-caption font-medium"
+                className={`group rounded-md px-2 py-0.5 text-caption font-medium ${coarsePointer ? "min-w-11" : ""}`}
               >
                 <span className="inline-flex items-center gap-1 text-kin-muted transition-colors group-hover:text-kin-text">
                   <IconShare size={13} />
