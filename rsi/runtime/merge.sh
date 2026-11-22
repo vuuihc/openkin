@@ -520,6 +520,7 @@ GATE_SCRIPTS = {
     "scripts/install-hub.sh", "scripts/install-hub.test.sh", "scripts/stories.py",
     "scripts/check-ui-inventory.py", "scripts/check-ui-inventory.test.py",
     "scripts/check-removed-surfaces.py", "scripts/check-removed-surfaces.test.py",
+    "scripts/ux_spec_refs.py", "scripts/ux_spec_refs_test.py",
     "scripts/ui_inventory.py", "scripts/ui_lint_guard.py", "scripts/ui_lint_guard_test.py",
     "scripts/ui-lint-guard.sh", "scripts/journeys_seed.py", "scripts/journeys_smoke.py",
     "scripts/journeys-smoke.sh", "scripts/journeys_walk_test.py", "scripts/journeys_smoke_test.py",
