@@ -5020,8 +5020,11 @@ class WalkJ17ContractTest(unittest.TestCase):
     lived in a PR body: a DOM test can assert the arrangement classes and
     cannot see the rendered width. J17 measures the un-focused box before
     anything focuses it (Watch 90), presses the card and reads the caret, types
-    a 40-character draft and bounds it to two lines, and hit-tests the textarea
-    while the queued guide is on screen. These cases are the Python-side proof
+    a 40-character draft and bounds it to two lines, hit-tests the textarea
+    while the queued guide is on screen, and measures every hittable control in
+    the composer card and bottom chrome against the 44px thumb floor at rest
+    and again once the draft arms the send (the phone-only lint is off at
+    768/820). These cases are the Python-side proof
     that ``--check-spec`` refuses a walk that lost any half.
     """
 
@@ -5105,6 +5108,53 @@ class WalkJ17ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("spec red: J17", out)
         self.assertIn("hit-test", out)
+
+    def test_j17_rejects_a_missing_composer_control_measurement(self) -> None:
+        # #589/#595 floored the composer controls by class string, but J17's
+        # tablet viewports are `isMobile: false`, so walk.mjs's phone-only
+        # smallTapTargets lint never runs there. A J17 that measures only the
+        # textarea leaves the send, attach and chip controls unread, and a
+        # 43px send would photograph green (Watch 53, TASTE 21).
+        def drop_control_measurement(steps):
+            steps[:] = [step for step in steps if step[0] != "composerControls"]
+
+        code, out = self.check(self.copy_with(drop_control_measurement))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("every composer control", out)
+
+    def test_j17_rejects_a_composer_control_measurement_only_at_rest(self) -> None:
+        # The resting send is `disabled` while the draft is empty, so the
+        # enabled filter skips it. A J17 that measures only at rest never reads
+        # the control Watch 53 is about, and a 40px send still walks green at
+        # 768/820; the reading must run again once the draft arms the send.
+        def drop_armed_measurement(steps):
+            fill = next(i for i, step in enumerate(steps)
+                        if step[0] == "fill" and len(str(step[2])) == 40)
+            steps[:] = [step for i, step in enumerate(steps)
+                        if not (i > fill and step[0] == "composerControls")]
+
+        code, out = self.check(self.copy_with(drop_armed_measurement))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("arms the send", out)
+
+    def test_j17_rejects_a_composer_control_measurement_after_the_card_press(self) -> None:
+        # The card press focuses the textarea and raises the composer, so a
+        # control reading that runs after it measures the wrong arrangement;
+        # the resting reading must come first, while the box is collapsed.
+        def move_resting_measurement_after_the_press(steps):
+            resting = next(i for i, step in enumerate(steps)
+                           if step[0] == "composerControls" and step[1] == "resting")
+            press = next(i for i, step in enumerate(steps)
+                         if step[0] == "pressComposerCard")
+            step = steps.pop(resting)
+            steps.insert(press, step)
+
+        code, out = self.check(self.copy_with(move_resting_measurement_after_the_press))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("only after the card press", out)
 
     def test_j17_rejects_a_missing_hidden_action_row_hit_test(self) -> None:
         # The 820 hidden-actions proof: the row rests invisible AND inert, and
