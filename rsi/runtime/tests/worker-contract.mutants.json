@@ -31,7 +31,7 @@
     "label": "the 820 screenshot is again accepted as an empty or placeholder view",
     "file": "rsi/runtime/lane.sh",
     "test": "RSI_TEST_ONLY=ui-evidence-and-locale-rules bash rsi/runtime/tests/test-lane-worker-contract.sh",
-    "old": "; the 820×1180 one must be the surface's real reading state (a conversation surface means a long answer containing a markdown table), never an empty or placeholder view — a blank 820 is a rework round, not evidence.",
+    "old": ".\n- Evidence, not a placeholder: the 820×1180 one must be the surface's real reading state (a conversation surface means a long answer containing a markdown table), never an empty or placeholder view — a blank 820 is a rework round, not evidence.",
     "new": "."
   },
   {
