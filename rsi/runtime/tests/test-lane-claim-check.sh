@@ -27,11 +27,15 @@ REPO="$(cd "$RUNTIME/../.." && pwd)"
 LANE="$RUNTIME/lane.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 CTRL="$T/ctrl"; mkdir -p "$CTRL/rsi/state/lanes" "$CTRL/rsi/runtime"
-# lane.sh sources $RSI_DIR/runtime/lane-pr.sh before any seam; the seam reads claim_check.py from
-# the same deployed path, so a copy keeps the suite hermetic and proves the real rule runs.
+# lane.sh sources $RSI_DIR/runtime/lane-pr.sh before any seam; each seam reads its checker from
+# the same deployed path, so a copy keeps the suite hermetic and proves the real rules run. The
+# red-first seam sits in the same pre-push span this suite extracts, so it needs its checker too
+# (a body with no Claims block is NA, which is what these claim-check cases exercise).
 printf '#!/bin/bash\n# stub: the seams never create a PR\n' > "$CTRL/rsi/runtime/lane-pr.sh"
 cp "$REPO/rsi/runtime/claim_check.py" "$CTRL/rsi/runtime/claim_check.py" \
   || { echo "FAIL cannot copy claim_check.py" >&2; exit 1; }
+cp "$REPO/rsi/runtime/red_first.py" "$CTRL/rsi/runtime/red_first.py" \
+  || { echo "FAIL cannot copy red_first.py" >&2; exit 1; }
 R=""   # the worktree the current case works on
 BODY=""  # the PR body the current case passes to the seam
 ONLY="${RSI_TEST_ONLY:-}"
