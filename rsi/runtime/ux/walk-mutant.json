@@ -124,5 +124,12 @@
     "old": "      if (opts?.interrupt) send.interrupt = true;",
     "new": "      // R-interrupt-walk: the interrupt flag dropped on purpose. The click\n      // still sends, but as an ordinary queue: the held round keeps running,\n      // no 已打断上一轮 mark is drawn, and the walk's note wait goes red.\n      // `opts?.interrupt && false` keeps the flag referenced so tsc accepts\n      // the mutant build; esbuild drops the dead branch.\n      if (opts?.interrupt && false) send.interrupt = true;",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J3"
+  },
+  {
+    "label": "the resting composer's textarea loses its width at 768 and 820 again (R-composer-resting-proof)",
+    "file": "ui/src/components/chat/Composer.tsx",
+    "old": "                : \"kin-composer-input w-full min-w-0 min-h-11 flex-none py-[11px] leading-ui @xl:flex-1 @xl:min-h-7 @xl:py-0\",",
+    "new": "                // R-composer-resting-proof: the resting textarea collapses to\n                // zero width on purpose — the 768-820 symptom J17 exists to catch.\n                : \"kin-composer-input w-0 min-w-0 min-h-11 flex-none py-[11px] leading-ui @xl:flex-1 @xl:min-h-7 @xl:py-0\",",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J17"
   }
 ]
