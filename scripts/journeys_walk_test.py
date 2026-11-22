@@ -3426,7 +3426,17 @@ J4_DEFAULT = "设为默认"
 J4_DEFAULT_EN = "Make default"
 J4_SAVE = "保存"
 J4_SAVE_EN = "Save folders"
-J4_ALPHA_LINK = "css=a[href^='/projects/']:has-text('Project Alpha')"
+# KIN-CONTRACT-001: the collection is gone, so the cover opens from the
+# conversation list's project heading. The collapse chevron beside it also
+# carries the project name, but it is the aria-expanded one.
+J4_ALPHA_LINK = "css=button[aria-label*='Project Alpha']:not([aria-expanded])"
+# A `goto` is a fresh document load; `/projects` redirects to the list now, so
+# either path proves the cover re-read the store rather than React state.
+J4_LIST_PATHS = ("/projects", "/sessions")
+
+
+def j4_is_reload(step: list) -> bool:
+    return step[0] == "goto" and str(step[1]).rstrip("/") in J4_LIST_PATHS
 # The two verbs the story is made of, and the inline confirmation they meet.
 J4_ADD = "添加目录"
 J4_ADD_EN = "Add folder"
@@ -3808,7 +3818,7 @@ def _j4_roots_problems(steps: list) -> list[str]:
 
     # A document reload, not a client-side route change: only a fresh load
     # re-reads /api/projects and proves the store's order. Bound the search at
-    # the 添加目录 leg, whose own goto /projects and Alpha link come later.
+    # the 添加目录 leg, whose own goto /sessions and Alpha click come later.
     verbs_start = (
         at(lambda step: step[0] == "click" and J4_ADD in str(step[1]), second_save + 1)
         if second_save >= 0
@@ -3817,7 +3827,7 @@ def _j4_roots_problems(steps: list) -> list[str]:
     goto_bound = verbs_start if verbs_start >= 0 else len(steps)
     goto = (
         at(
-            lambda step: step[0] == "goto" and str(step[1]).rstrip("/") == "/projects",
+            j4_is_reload,
             second_save + 1,
             goto_bound,
         )
@@ -3825,7 +3835,7 @@ def _j4_roots_problems(steps: list) -> list[str]:
         else -1
     )
     if second_save >= 0 and goto < 0:
-        problems.append("J4 never reloads the document (goto /projects) after the save; a route change reads the page, not the store")
+        problems.append("J4 never reloads the document (goto /sessions) after the save; a route change reads the page, not the store")
     reload_link = (
         at(lambda step: step[0] == "click" and step[1] == J4_ALPHA_LINK, goto + 1, goto_bound)
         if goto >= 0
@@ -4088,12 +4098,9 @@ def j4_roots_verbs_problems(steps: list) -> list[str]:
 
     # Leaving and returning is the persistence proof: a client-side route
     # change would read the list the save just installed, not the store.
-    reload = at(
-        lambda step: step[0] == "goto" and str(step[1]).rstrip("/") == "/projects",
-        save + 1,
-    )
+    reload = at(j4_is_reload, save + 1)
     if reload < 0:
-        problems.append("J4 never leaves the cover (goto /projects) after the add; the append's persistence is unproven")
+        problems.append("J4 never leaves the cover (goto /sessions) after the add; the append's persistence is unproven")
         return problems
     reopen = at(lambda step: step[0] == "click" and step[1] == J4_ALPHA_LINK, reload + 1)
     if reopen < 0:
@@ -4165,12 +4172,9 @@ def j4_roots_verbs_problems(steps: list) -> list[str]:
         problems.append("the cover never counts two folder rows after the remove")
 
     # Leave and return once more: the remove must have reached the store.
-    reload2 = at(
-        lambda step: step[0] == "goto" and str(step[1]).rstrip("/") == "/projects",
-        save2 + 1,
-    )
+    reload2 = at(j4_is_reload, save2 + 1)
     if reload2 < 0:
-        problems.append("J4 never leaves the cover (goto /projects) after the remove; the removal's persistence is unproven")
+        problems.append("J4 never leaves the cover (goto /sessions) after the remove; the removal's persistence is unproven")
     else:
         reopen2 = at(
             lambda step: step[0] == "click" and step[1] == J4_ALPHA_LINK,
@@ -4229,7 +4233,7 @@ class WalkJ4ContractTest(unittest.TestCase):
         self.assertLess(names.index("roots-saved"), names.index("roots-reloaded"), names)
 
     def test_j4_contract_rejects_a_cover_photo_without_the_editor(self) -> None:
-        # Today's shape: goto /projects, photograph the cover, leave for
+        # Today's shape: goto /sessions, photograph the cover, leave for
         # /routines. No editor step means no save and no reload either.
         def drop_editor(steps: list) -> None:
             steps[:] = [
@@ -4258,7 +4262,7 @@ class WalkJ4ContractTest(unittest.TestCase):
             )
             at = next(
                 i for i in range(saved + 1, len(steps))
-                if steps[i][0] == "goto" and str(steps[i][1]).rstrip("/") == "/projects"
+                if j4_is_reload(steps[i])
             )
             steps.pop(at)
 
@@ -4521,7 +4525,7 @@ class WalkJ4ContractTest(unittest.TestCase):
             )
             at = next(
                 i for i in range(save + 1, len(steps))
-                if steps[i][0] == "goto" and str(steps[i][1]).rstrip("/") == "/projects"
+                if j4_is_reload(steps[i])
             )
             steps.pop(at)
 

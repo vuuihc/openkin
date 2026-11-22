@@ -37,10 +37,6 @@ const NOT_A_PLACE = new Map([
     "/",
     "the start route: it resumes the last conversation or shows the draft, so its destination is decided at runtime rather than by the router; `/sessions` is the phone's list and the Mac sidebar is the Mac's",
   ],
-  [
-    "/projects",
-    "the Projects area root (N2): it is a destination in the four-area table `lib/areas.ts`, which the router, notification taps and the palette read; `PLACES` still drives the sidebar and the mobile bar until S1/S2 move them onto the area table",
-  ],
 ]);
 
 /**
