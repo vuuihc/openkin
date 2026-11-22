@@ -623,4 +623,29 @@ grep -q '^.*RELEASED .*local_main_only=0$' "$STATE/releases.log" \
   || fail "local_main_only_zero: a clean local main must not warn: $out"
 pass "local_main_only_zero"
 
+# (h) a gate that omits local_main_only entirely (an older check, or a hand-run stub) must
+#     not reach the numeric comparison or the record as an empty value: unknown, exit 0,
+#     no warning. Deleting the empty->unknown coercion records `local_main_only=` and this
+#     case goes red.
+STUB_GATE="$T/gate-no-local-main.sh"
+cat > "$STUB_GATE" <<SH
+#!/bin/bash
+echo "unshipped=6 commits=6 min=5"
+echo "sessions=0 node=up"
+echo "verdict=GO"; exit 0
+SH
+chmod +x "$STUB_GATE"
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+git -C "$SECOND" reset -q --hard origin/main
+: > "$STATE/releases.log"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_CHECK="$STUB_GATE" RSI_RELEASE_NODE_CMD=true \
+  bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "local_main_only_unknown_when_the_gate_omits_it: expected exit 0, got $rc"; }
+grep -q '^.*RELEASED .*local_main_only=unknown$' "$STATE/releases.log" \
+  || fail "local_main_only_unknown_when_the_gate_omits_it: RELEASED record lacks local_main_only=unknown: $(cat "$STATE/releases.log")"
+[ "$(grep -c 'local main only' <<<"$out")" = 0 ] \
+  || fail "local_main_only_unknown_when_the_gate_omits_it: an unreadable count must not warn: $out"
+pass "local_main_only_unknown_when_the_gate_omits_it"
+
 echo "all cases passed"
