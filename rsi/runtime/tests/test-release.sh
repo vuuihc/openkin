@@ -202,10 +202,12 @@ SECOND="$T/second"; git clone -q "$REPO" "$SECOND"
 git -C "$SECOND" checkout -q main
 git -C "$SECOND" remote set-url origin "$REPO"
 printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+LAST_OUT=""
 merge_run() { # merge_run <case> <want-exit>
   local name="$1" want="$2" out rc
   out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
     RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+  LAST_OUT="$out"
   [ "$rc" = "$want" ] || { printf '%s\n' "$out" >&2; fail "$name: expected exit $want, got $rc"; }
   pass "$name"
 }
@@ -234,6 +236,62 @@ merge_run "release: a conflict holds and rewrites nothing" 1
 [ "$(git -C "$SECOND" rev-parse HEAD)" = "$before" ] || fail "a conflicting release moved HEAD"
 [ -d "$SECOND/.git" ] && [ ! -f "$SECOND/.git/MERGE_HEAD" ] || fail "merge not aborted"
 git -C "$SECOND" status --porcelain | grep -q '^UU' && fail "conflict markers left behind"
+grep -q 'release: .*f6' <<<"$LAST_OUT" || fail "a conflicting release did not name the conflicting file: $LAST_OUT"
+
+# (c1) A local commit whose change is *already upstream* — it landed as a PR, so the local
+#      patch is redundant — can still conflict textually because upstream later touched the
+#      same lines. Nothing local can be lost, so the release must merge taking upstream's
+#      side and then prove the resulting tree equals origin/main. A dedicated fixture has
+#      its own upstream so both branches really reach this checkout.
+UP="$T/up"; mkdir -p "$UP"; git -C "$UP" init -q -b main
+( cd "$UP" && printf 'one\n' > file.txt && git add file.txt && git commit -q -m "chore: base"
+  printf 'one\ntwo\n' > file.txt && git commit -qam "feat: x (#11)"
+  printf 'one\ntwo\nthree\n' > file.txt && git commit -qam "feat: y (#12)" )
+UP_ROOT="$(git -C "$UP" rev-list --max-parents=0 HEAD)"
+DUP="$T/dup"; git clone -q "$UP" "$DUP"; git -C "$DUP" checkout -q main
+git -C "$DUP" reset -q --hard "$UP_ROOT"
+printf 'one\ntwo\n' > "$DUP/file.txt"; git -C "$DUP" add file.txt
+GIT_COMMITTER_DATE="2020-01-01T00:00:00 +0000" git -C "$DUP" commit -q -m "feat: x (local duplicate)"
+DUP_SHA="$(git -C "$DUP" rev-parse HEAD)"
+cherry_now="$(git -C "$DUP" cherry origin/main HEAD)"
+[ -n "$cherry_now" ] || fail "fixture: git cherry printed nothing for a patch-equivalent commit"
+printf '%s\n' "$cherry_now" | grep -q '^+' && fail "fixture: the local duplicate is not patch-equivalent to upstream"
+printf 'node=%s\nhub=%s\n' "$UP_ROOT" "$UP_ROOT" > "$STATE/last_release"
+out="$(env RSI_RELEASE_MIN=1 RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$DUP" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$DUP" --node-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "patch-equivalent: expected exit 0, got $rc"; }
+git -C "$DUP" diff --quiet origin/main HEAD || fail "patch-equivalent: merged tree differs from origin/main"
+git -C "$DUP" merge-base --is-ancestor "$DUP_SHA" HEAD || fail "patch-equivalent: the local commit is no longer an ancestor"
+grep -q '^node=' "$STATE/last_release" || fail "patch-equivalent: node marker not written"
+[ ! -f "$DUP/.git/MERGE_HEAD" ] || fail "patch-equivalent: MERGE_HEAD left behind"
+[ -z "$(git -C "$DUP" status --porcelain)" ] || fail "patch-equivalent: checkout left dirty"
+pass "release: a local commit already upstream merges onto origin/main"
+
+# (c2) The proof-of-equality guard cannot be skipped: a merge that reports success but
+#      leaves the tree unlike origin/main must stop, name the files that differ, and leave
+#      the checkout exactly as it was (no merge commit, clean tree) so the next release
+#      stops again instead of seeing origin/main as an ancestor and shipping the tree.
+REALGIT="$(command -v git)"
+git -C "$DUP" reset -q --hard "$DUP_SHA"
+WRAP2="$T/wrap-fake-merge"; mkdir -p "$WRAP2"
+cat > "$WRAP2/git" <<SH
+#!/bin/bash
+case " \$* " in
+  *" cherry "*) echo "- $DUP_SHA"; exit 0 ;;
+  *" merge "*"-X theirs"*) exit 0 ;;
+esac
+exec "$REALGIT" "\$@"
+SH
+chmod +x "$WRAP2/git"
+printf 'node=%s\nhub=%s\n' "$UP_ROOT" "$UP_ROOT" > "$STATE/last_release"
+out="$(env PATH="$WRAP2:$PATH" RSI_RELEASE_MIN=1 RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$DUP" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$DUP" --node-only 2>&1)"; rc=$?
+[ "$rc" = 1 ] || { printf '%s\n' "$out" >&2; fail "unproven merge: expected exit 1, got $rc"; }
+grep -q 'file.txt' <<<"$out" || fail "unproven merge: the abort did not name the differing file: $out"
+[ "$(git -C "$DUP" rev-parse HEAD)" = "$DUP_SHA" ] || fail "unproven merge: the failed proof moved HEAD"
+[ -z "$(git -C "$DUP" status --porcelain)" ] || fail "unproven merge: the failed proof left the checkout dirty"
+[ ! -f "$DUP/.git/MERGE_HEAD" ] || fail "unproven merge: MERGE_HEAD left behind"
+pass "release: a merge that leaves the tree different from origin/main stops and names the file"
 
 # (d) the node rebuild is told to detach: desktop-rebuild.sh ends by launching Electron
 #     and must not hold the release open until the desktop app exits.
