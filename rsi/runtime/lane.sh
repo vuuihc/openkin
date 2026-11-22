@@ -96,10 +96,11 @@ You are the WORKER for RSI item $item in worktree \`$wt\` on branch \`$br\`. Mod
 - UI ratchet: \`python3 scripts/check-ui-inventory.py\` must not grow. If your change IS the sanctioned primitive/facade (its own raw \`<button>\`, \`createPortal\`, \`role="dialog"\`, \`useAnchoredPanel\` use is the point), run \`python3 scripts/check-ui-inventory.py --update\`, commit the baseline, and say so in the PR body (Risk section). Also run the focused UI suites your change touches plus the design-token test: \`cd ui && npx vitest run <the suites you touched> src/design/tokens.test.ts\` (e.g. focus ring must use \`outline-kin-focus-ring\`). The merge gate owns the full suite; a worker does not run it.
 - Commit everything with Conventional Commits and explicit paths. Do NOT push, do NOT open the PR, do NOT touch other worktrees.
 - Before you finish write the PR body to \`$STATE/lanes/$slug.pr-body.md\` with sections: Symptom · Change · Verification (commands + results) · Claims · Screenshots (paths, or "none: not visible") · Risk · \`RSI item: $item\`.
-- Under Verification, the Claims block is one line per user-visible or behavioural claim: \`<path:line> · <test name> · <mutant or the check that would go red without the line>\`. A claim with no test is \`none: <reason of at least 20 characters>\`. The reviewer checks each line against the diff; this is a writing rule, not a hard gate.
+- Under Verification, the Claims block is one line per user-visible or behavioural claim: \`<path:line> · <test name> · <mutant or the check that would go red without the line>\`. A claim with no test is \`none: <reason of at least 20 characters>\`. A claim whose third field is a backticked command or a \`mutant\` label in this branch's \`*.mutants.json\` is run by the lane: it reverts the claimed file to \`origin/main\` and requires the named test in field 2 to go red. The claimed path is the implementation line the test exercises, not the test file itself. A claim it cannot resolve is NA; record why with \`red-first: none: <reason>\`, and a red that need not name a test carries \`red-first: any\`. The reviewer checks each line against the diff.
 - A PR that changes a prose-assertion path (\`docs/product/**\`, \`docs/plans/**\`, \`docs/adr/**\`, \`rsi/GOAL.md\`, \`rsi/DECISIONS.md\`, \`rsi/ASTRYX-PLAN.md\`, \`AGENTS.md\`, \`PRINCIPLE.md\`, \`SYSTEM_DESIGN.md\`) carries one \`Claim check:\` line at column 0 — one command that proves the sentence on this branch — and its literal output under \`Claim output:\`, or waives it with \`Claim check: none: <reason of at least 20 characters>\`.
 - The merge gate RUNS that claim command and compares the pasted output against it; a sentence whose claim check is missing or false is not delivery.
 - Run \`bash rsi/runtime/lane.sh --claim-check-check "\$PWD" "$STATE/lanes/$slug.pr-body.md"\` before you finish: only \`CLAIM_LANE_OK\` (or \`CLAIM_LANE_NA\` for a code-only diff, \`CLAIM_LANE_WAIVED\` for a reasoned waiver) proves the hand-off; fix a \`CLAIM_LANE_FAIL\` in the body (or the sentence) before finishing. The lane runs the same seam before pushing, and a FAIL there fails the lane.
+- Run \`bash rsi/runtime/lane.sh --red-first-check "\$PWD" "$STATE/lanes/$slug.pr-body.md"\` before you finish: only \`RED_FIRST_OK\` proves every claimed test goes red without the change (\`RED_FIRST_NA\` or \`RED_FIRST_WAIVED\` when no claim names a resolvable check); \`RED_FIRST_GREEN\` means the named test passes on \`origin/main\`, so the claim proves nothing and the lane stops before the push.
 - Final message: files changed, tests added (names), commands run with results, residual risk.
 HD
 }
@@ -300,6 +301,25 @@ pr_body_check() { # <worktree> <pr-number> <local-body-file> — one PR_BODY_OK/
   printf 'PR_BODY_OK: live body matches local; %s\n' "${out#CLAIM_LANE_}"
 }
 
+# --- red first: a claimed test must go red when its file is reverted -----------------------------
+# The 1d ledger ending 11-23 03:59 read 46 rounds / 44 merges = 1.05, and `test-green·not-red` was
+# 12 of those rounds: the Claims line named a test that was green on origin/main (`activity-pill`)
+# or the one test that stayed green (`local-main-only`). The Claims block was "a writing rule, not
+# a hard gate", so the worker learned it from a sendback after a full gate and a model review.
+# rsi/runtime/red_first.py is the rule; this seam runs it in the lane, before the push, against the
+# same changed-file list the merge gate computes. A claim the checker cannot resolve is NA, never
+# a FAIL (see red_first.py), so an honest PR the checker cannot read is not sent back here.
+red_first_check() { # <worktree> <body-file> — prints one RED_FIRST_* verdict; exits with the checker's code
+  local wt="$1" body="$2" out rc
+  [ -d "$wt" ] || { echo "RED_FIRST_FAIL: $wt · worktree not found"; return 1; }
+  # A seam that cannot read the branch point cannot revert anything: fail closed, not NA.
+  "$GIT" -C "$wt" rev-parse --verify -q origin/main >/dev/null 2>&1 \
+    || { echo "RED_FIRST_FAIL: $wt · origin/main is not resolvable"; return 1; }
+  out="$(python3 "$RSI_DIR/runtime/red_first.py" "$wt" "$body" 2>&1)"; rc=$?
+  printf '%s\n' "$out"
+  return "$rc"
+}
+
 if [ "$CMD" = _sendback-order ]; then sendback_order; exit 0; fi
 
 # Seams. --worker-contract-check prints the contract and exits before PAUSE, locks, fetch,
@@ -313,6 +333,10 @@ fi
 if [ "$CMD" = --claim-check-check ]; then
   [ "$#" -eq 3 ] || { echo "usage: lane.sh --claim-check-check <worktree> <body-file>" >&2; exit 2; }
   claim_lane_check "$2" "$3"; exit $?
+fi
+if [ "$CMD" = --red-first-check ]; then
+  [ "$#" -eq 3 ] || { echo "usage: lane.sh --red-first-check <worktree> <body-file>" >&2; exit 2; }
+  red_first_check "$2" "$3"; exit $?
 fi
 if [ "$CMD" = --pr-body-check ]; then
   [ "$#" -eq 4 ] || { echo "usage: lane.sh --pr-body-check <worktree> <pr-number> <local-body-file>" >&2; exit 2; }
@@ -567,6 +591,20 @@ if ! CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1
   exit 1
 fi
 [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
+
+# A claimed test must be the test that goes red without the change. The worker runs this same seam
+# first (worker_contract); this pass is authoritative. On GREEN, OTHER or NO_VERDICT the branch
+# stays committed and unpushed, and the verdict names the claim the worker has to fix.
+if ! RED_EV="$(bash "$SELF" --red-first-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; then
+  [ -n "$RED_EV" ] && printf '%s\n' "$RED_EV"
+  # Same evidence discipline as the claim check above: the verdict and the command's own output,
+  # written only on failure so a later green hand-off never rewrites the record.
+  printf '%s\n' "${RED_EV:-check produced no output}" > "$STATE/lanes/$N.red-first.txt"
+  RED_NOTE="$(printf '%s' "$RED_EV" | tr '\n' ' ' | sed 's/  */ /g')"
+  finish failed "" "red first: ${RED_NOTE:-check produced no output} (evidence: $STATE/lanes/$N.red-first.txt)"
+  exit 1
+fi
+[ -n "$RED_EV" ] && printf '%s\n' "$RED_EV"
 
 # push + PR (normal push only)
 if ! $GIT -C "$WT" push -q -u origin "$BR" 2>"$STATE/lanes/$N.push.err"; then
