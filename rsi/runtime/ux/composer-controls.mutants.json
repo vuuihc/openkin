@@ -1,9 +1,9 @@
 [
   {
-    "label": "J17's contract stops requiring the composer-control measurement (R-composer-controls)",
+    "label": "J17's contract stops requiring both composer-control measurements (R-composer-controls)",
     "file": "rsi/runtime/ux/walk.mjs",
-    "old": "  const controlsAt = idx((st) => st[0] === 'composerControls' && sel(st, 1).trim() !== '');\n  if (controlsAt < 0) {\n    errs.push('J17 never measures every composer control (composerControls <name>); '\n      + 'the textarea alone leaves the send, attach and chip controls unread at 768/820');\n  }",
-    "new": "  // R-composer-controls: the requirement dropped on purpose. A J17 that\n  // measures only the textarea passes, so a 43px send photographs green.\n  void idx((st) => st[0] === 'composerControls' && sel(st, 1).trim() !== '');",
+    "old": "  // Every painted, hittable control in the composer card and the bottom chrome\n  // is measured against the 44px thumb floor. J17's viewports are\n  // `isMobile: false`, so lint()'s phone-only smallTapTargets count is 0 there:\n  // the textarea measurement alone would leave the send, attach and chip\n  // controls unread (Watch 53). Two readings are required because the resting\n  // send is `disabled` while the draft is empty and the enabled filter skips\n  // it: at rest the textarea, attach and chips are read; after the 40-character\n  // fill arms the send, the now-enabled send is read too. The resting reading\n  // must precede the card press — the press focuses the box and raises the\n  // composer, so a reading after it measures the wrong arrangement.\n  const controlsAt = idx((st) => st[0] === 'composerControls' && sel(st, 1).trim() !== '');\n  if (controlsAt < 0) {\n    errs.push('J17 never measures every composer control (composerControls <name>); '\n      + 'the textarea alone leaves the send, attach and chip controls unread at 768/820');\n  } else if (pressAt >= 0 && controlsAt > pressAt) {\n    errs.push('J17 measures the composer controls only after the card press; '\n      + 'the resting reading must come first, while the composer is still collapsed');\n  }\n  const armedControlsAt = draftAt < 0 ? -1 : idx((st) => st[0] === 'composerControls'\n    && sel(st, 1).trim() !== '', draftAt + 1);\n  if (draftAt >= 0 && armedControlsAt < 0) {\n    errs.push('J17 never measures the composer controls while the draft arms the send '\n      + '(composerControls <name> after the 40-character fill); the resting send is disabled, '\n      + 'so a 40px send walks green at 768/820');\n  }",
+    "new": "  // R-composer-controls: both requirements dropped on purpose. A J17 that\n  // measures only at rest, or only the textarea, passes; a 43px send\n  // photographs green.\n  void idx((st) => st[0] === 'composerControls' && sel(st, 1).trim() !== '');",
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ17ContractTest.test_j17_rejects_a_missing_composer_control_measurement"
   },
   {
@@ -12,5 +12,12 @@
     "old": "        def drop_control_measurement(steps):\n            steps[:] = [step for step in steps if step[0] != \"composerControls\"]",
     "new": "        def drop_control_measurement(steps):\n            # R-composer-controls: keep every step, so a spec that lost the\n            # measurement still passes this case.\n            steps[:] = [step for step in steps if step[0] != \"never-matches\"]",
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ17ContractTest.test_j17_rejects_a_missing_composer_control_measurement"
+  },
+  {
+    "label": "the Python J17 case stops dropping the armed composer-control reading (R-composer-controls)",
+    "file": "scripts/journeys_walk_test.py",
+    "old": "        def drop_armed_measurement(steps):\n            fill = next(i for i, step in enumerate(steps)\n                        if step[0] == \"fill\" and len(str(step[2])) == 40)\n            steps[:] = [step for i, step in enumerate(steps)\n                        if not (i > fill and step[0] == \"composerControls\")]",
+    "new": "        def drop_armed_measurement(steps):\n            # R-composer-controls: keep the armed reading, so a J17 that\n            # lost it still passes this case.\n            steps[:] = list(steps)",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ17ContractTest.test_j17_rejects_a_composer_control_measurement_only_at_rest"
   }
 ]

@@ -3164,17 +3164,6 @@ function checkJ17Contract(spec) {
     }
   }
 
-  // Every visible, hittable, enabled control in the composer card and the
-  // bottom chrome is measured against the 44px thumb floor. J17's viewports
-  // are `isMobile: false`, so lint()'s phone-only smallTapTargets count is 0
-  // there: the textarea measurement alone would leave the send, attach and
-  // chip controls unread (Watch 53).
-  const controlsAt = idx((st) => st[0] === 'composerControls' && sel(st, 1).trim() !== '');
-  if (controlsAt < 0) {
-    errs.push('J17 never measures every composer control (composerControls <name>); '
-      + 'the textarea alone leaves the send, attach and chip controls unread at 768/820');
-  }
-
   // The card press is the reachability half: a press on the card's own padding
   // must leave the caret in the textarea. It focuses the box, so it belongs
   // after the resting measurement; the typed measurement of the 40-character
@@ -3195,6 +3184,32 @@ function checkJ17Contract(spec) {
     && sel(st, 2) === 'typed', draftAt + 1);
   if (draftAt >= 0 && typedAt < 0) {
     errs.push('J17 never measures the typed draft (restingComposer <name> typed); the two-line check is the readability claim');
+  }
+
+  // Every painted, hittable control in the composer card and the bottom chrome
+  // is measured against the 44px thumb floor. J17's viewports are
+  // `isMobile: false`, so lint()'s phone-only smallTapTargets count is 0 there:
+  // the textarea measurement alone would leave the send, attach and chip
+  // controls unread (Watch 53). Two readings are required because the resting
+  // send is `disabled` while the draft is empty and the enabled filter skips
+  // it: at rest the textarea, attach and chips are read; after the 40-character
+  // fill arms the send, the now-enabled send is read too. The resting reading
+  // must precede the card press — the press focuses the box and raises the
+  // composer, so a reading after it measures the wrong arrangement.
+  const controlsAt = idx((st) => st[0] === 'composerControls' && sel(st, 1).trim() !== '');
+  if (controlsAt < 0) {
+    errs.push('J17 never measures every composer control (composerControls <name>); '
+      + 'the textarea alone leaves the send, attach and chip controls unread at 768/820');
+  } else if (pressAt >= 0 && controlsAt > pressAt) {
+    errs.push('J17 measures the composer controls only after the card press; '
+      + 'the resting reading must come first, while the composer is still collapsed');
+  }
+  const armedControlsAt = draftAt < 0 ? -1 : idx((st) => st[0] === 'composerControls'
+    && sel(st, 1).trim() !== '', draftAt + 1);
+  if (draftAt >= 0 && armedControlsAt < 0) {
+    errs.push('J17 never measures the composer controls while the draft arms the send '
+      + '(composerControls <name> after the 40-character fill); the resting send is disabled, '
+      + 'so a 40px send walks green at 768/820');
   }
 
   // The queued follow-up must be confirmed by a row that leaves the box
