@@ -94,8 +94,11 @@ describe("the resting composer at a narrow card width", () => {
     expect(document.activeElement).not.toBe(box());
 
     // The card's own surface — its padding, the gap around the controls, the
-    // bare corners — is the box as far as a pointer is concerned.
-    fireEvent.pointerDown(card(container));
+    // bare corners — is the box as far as a pointer is concerned. The press is
+    // default-prevented because the browser's own mousedown focus change runs
+    // after this handler and would move the caret to the body; jsdom has no
+    // such default action, so `false` (not prevented ⇒ `true`) is what pins it.
+    expect(fireEvent.pointerDown(card(container))).toBe(false);
     expect(document.activeElement).toBe(box());
   });
 

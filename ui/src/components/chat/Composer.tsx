@@ -891,6 +891,10 @@ export default function Composer({
    * and they used to be dead — a pointer user clicked the box and no caret
    * appeared. Anything interactive inside the card keeps its own press, so this
    * only fills the holes; it never takes focus from a control or a menu row.
+   *
+   * The default is prevented before focusing: the browser runs its own
+   * mousedown focus change after this handler, and on a bare card surface that
+   * change targets the body — it would undo the caret this line just placed.
    */
   function focusFromCardSurface(event: ReactPointerEvent<HTMLDivElement>) {
     const target = event.target;
@@ -902,6 +906,7 @@ export default function Composer({
     ) {
       return;
     }
+    event.preventDefault();
     textareaRef.current?.focus();
   }
   /**
