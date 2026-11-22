@@ -5074,6 +5074,31 @@ class WalkJ17ContractTest(unittest.TestCase):
         self.assertIn("spec red: J17", out)
         self.assertIn("hit-test", out)
 
+    def test_j17_rejects_a_missing_hidden_action_row_hit_test(self) -> None:
+        # The 820 hidden-actions proof: the row rests invisible AND inert, and
+        # the reading is elementFromPoint plus computed style, not a class
+        # string (Watch 53). Dropping the notSelf reading must be red.
+        def drop_hidden_reading(steps):
+            steps[:] = [step for step in steps
+                        if not (step[0] == "hittest" and len(step) > 2 and step[2] == "notSelf")]
+
+        code, out = self.check(self.copy_with(drop_hidden_reading))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("hidden action row", out)
+
+    def test_j17_rejects_a_reveal_without_a_body_tap(self) -> None:
+        # A reveal that nobody asked for (or a click on the row itself) is not
+        # the proof: the tap must land on the answer body, never on 重试.
+        def drop_body_tap(steps):
+            steps[:] = [step for step in steps
+                        if not (step[0] == "click" and "[data-message-actions]) p" in str(step[1]))]
+
+        code, out = self.check(self.copy_with(drop_body_tap))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("never taps the answer body", out)
+
     def test_j17_paths_rows_select_the_composer_and_the_dock(self) -> None:
         # First match wins: dropping J17 from the conversation row must be red
         # for both files, or a composer diff would stop walking 768/820.

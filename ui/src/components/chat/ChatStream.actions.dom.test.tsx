@@ -40,6 +40,25 @@ const events = [
 let writeText: ReturnType<typeof vi.fn>;
 let createObjectURL: ReturnType<typeof vi.fn>;
 
+/**
+ * Answer the two queries the message row asks: the phone breakpoint and the
+ * pointer kind. A platform the stub does not name answers `false`, which keeps
+ * every other suite in its shipped desktop shape.
+ */
+function stubMedia({ phone = false, coarse = false }: { phone?: boolean; coarse?: boolean } = {}) {
+  const answer = (query: string) =>
+    query.includes("pointer: coarse") ? coarse : query.includes("max-width: 639px") ? phone : false;
+  Object.defineProperty(window, "matchMedia", {
+    value: vi.fn((query: string) => ({
+      matches: answer(query),
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+    configurable: true,
+  });
+}
+
 beforeEach(() => {
   writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", {
@@ -56,19 +75,10 @@ beforeEach(() => {
     configurable: true,
   });
   Element.prototype.scrollIntoView = vi.fn() as unknown as Element["scrollIntoView"];
-  // The message row's tap handler reads the phone breakpoint before deciding
-  // whether a tap reveals the action row. This file is about the actions
-  // themselves, so the query says "not a phone" and the reveal stays out of the
-  // way; the reveal has its own suite.
-  Object.defineProperty(window, "matchMedia", {
-    value: vi.fn(() => ({
-      matches: false,
-      media: "(max-width: 639px)",
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    })),
-    configurable: true,
-  });
+  // The message row's tap handler reads the phone breakpoint and the pointer
+  // kind before deciding whether a tap reveals the action row. The default is
+  // a mouse at desktop width, so the reveal stays out of the way.
+  stubMedia();
 });
 
 function renderStream(props: Partial<ComponentProps<typeof ChatStream>> = {}) {
@@ -108,6 +118,52 @@ describe("message actions", () => {
 
     expect(screen.getByRole("region", { name: t("chat.message.selection") })).toBeTruthy();
     expect(screen.getByText(t("chat.message.selected", { count: 1 }))).toBeTruthy();
+  });
+});
+
+describe("the actions reveal on a coarse pointer", () => {
+  const row = () => screen.getByRole("group", { name: t("task.actions") });
+  const body = () => screen.getByText("the parser is fixed");
+
+  it("a coarse pointer at tablet width reveals the actions on a body tap and hides them on a second tap", () => {
+    // The dogfood case: an iPad at 820 has a coarse pointer and no hover, but
+    // the desktop layout. The row rests hidden and a body tap is its only way
+    // in; the tap must not press anything.
+    stubMedia({ coarse: true, phone: false });
+    renderStream({ showMessageActions: true, onRetry: vi.fn(), onFork: vi.fn() });
+
+    expect(row().getAttribute("data-actions-state")).toBe("hidden");
+    fireEvent.click(body());
+    expect(row().getAttribute("data-actions-state")).toBe("revealed");
+    fireEvent.click(body());
+    expect(row().getAttribute("data-actions-state")).toBe("hidden");
+  });
+
+  it("the hidden action row is inert on a coarse pointer until it is revealed", () => {
+    stubMedia({ coarse: true, phone: false });
+    renderStream({ showMessageActions: true });
+
+    expect(row().getAttribute("data-actions-state")).toBe("hidden");
+    expect(row().getAttribute("data-actions-inert")).toBe("true");
+    fireEvent.click(body());
+    expect(row().getAttribute("data-actions-state")).toBe("revealed");
+    expect(row().getAttribute("data-actions-inert")).toBeNull();
+    // The reveal store is module-level and outlives this test; put it back so
+    // the next case starts from a hidden row.
+    fireEvent.click(body());
+    expect(row().getAttribute("data-actions-state")).toBe("hidden");
+  });
+
+  it("a fine pointer keeps the body tap from pinning the actions open", () => {
+    // Hover owns the row with a mouse; a click that pinned it open would be a
+    // second behaviour for the same gesture (and the reason the tap gate is
+    // width-or-coarse).
+    stubMedia({ coarse: false, phone: false });
+    renderStream({ showMessageActions: true });
+
+    fireEvent.click(body());
+    expect(row().getAttribute("data-actions-state")).toBe("hidden");
+    expect(row().getAttribute("data-actions-inert")).toBeNull();
   });
 });
 

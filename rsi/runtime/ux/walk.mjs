@@ -3182,6 +3182,31 @@ function checkJ17Contract(spec) {
     errs.push('J17 never hit-tests the textarea while the queued guide is visible (restingComposer <name> hit-test after the guide wait)');
   }
 
+  // The answer's action row is the iPad hidden-actions proof: at 820 the row
+  // is drawn by the desktop layout but its pointer is a finger, so a hidden
+  // row must not take the tap. The hit-test runs twice around a tap on the
+  // answer body — never on the row itself, which would run 重试.
+  const rowSel = '[data-message-actions]';
+  const bodySel = '[data-message-key]:has([data-message-actions]) p';
+  const inertAt = idx((st) => st[0] === 'hittest' && sel(st, 2) === 'notSelf'
+    && sel(st, 1).includes(rowSel));
+  if (inertAt < 0) {
+    errs.push('J17 never hit-tests the hidden action row (hittest css=…[data-message-actions] notSelf); at 820 the row must be inert while it is invisible');
+  }
+  const bodyTapAt = after(inertAt, (st) => st[0] === 'click' && sel(st, 1) === 'css=' + bodySel);
+  if (bodyTapAt < 0) {
+    errs.push('J17 never taps the answer body after the hidden-row hit-test (click css=' + bodySel + ')');
+  }
+  const rowPressAt = idx((st) => st[0] === 'click' && sel(st, 1).includes(rowSel));
+  if (rowPressAt >= 0 && (bodyTapAt < 0 || rowPressAt < bodyTapAt)) {
+    errs.push('J17 presses the action row before the body tap; the reveal must come from the answer body, never from 重试/分叉');
+  }
+  const revealedAt = after(bodyTapAt, (st) => st[0] === 'hittest' && sel(st, 2) === 'self'
+    && sel(st, 1).includes(rowSel));
+  if (revealedAt < 0) {
+    errs.push('J17 never hit-tests the revealed action row (hittest css=…[data-message-actions] self after the body tap)');
+  }
+
   // The hand-off proof is J3's: the sampler starts on /new before Start, and
   // `steady` reads it back after the URL change, before the `sent` shot. The
   // 24px bound is GOAL F1; a larger number would let the box jump.
@@ -4819,6 +4844,78 @@ for (const j of want) {
               hardFail.push(`${j}/${vpName}: ${line} — the textarea has no usable line-height to bound the draft`);
             } else if (measured.scrollHeight > maxHeight) {
               hardFail.push(`${j}/${vpName}: ${line} — the draft needs more than two lines`);
+            }
+          }
+        }
+        else if (op === 'hittest') {
+          // `["hittest", "css=<selector>", "<self|notSelf>"]`: what the browser
+          // would hit at the element's own centre, plus the element's computed
+          // `opacity` and `pointer-events` — a class string cannot prove an
+          // invisible row is inert (Watch 53). `notSelf` requires the point to
+          // belong to something else AND the row to say `pointer-events: none`
+          // (the 820 hidden-actions case); `self` requires the point to land on
+          // the row or a descendant AND the row to be fully opaque (one log
+          // line carries every number either way). A row scrolled out of the
+          // viewport cannot be hit-tested, so that is a miss, not a skip.
+          const { optional, value } = optionalOf(a);
+          const mode = String(b ?? '').trim();
+          if (!value.startsWith('css=') || !['self', 'notSelf'].includes(mode)) {
+            hardFail.push(`${j}/${vpName}: hittest needs css=<selector> and self|notSelf, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          const selector = value.slice('css='.length);
+          const measured = await page.evaluate((selector) => {
+            const round = (v) => Math.round(v * 10) / 10;
+            const label = (node) => (node
+              ? node.tagName.toLowerCase()
+                + (typeof node.className === 'string' && node.className.trim()
+                  ? '.' + node.className.trim().split(/\s+/)[0]
+                  : '')
+              : 'none');
+            const el = [...document.querySelectorAll(selector)].find((node) => {
+              const r = node.getBoundingClientRect();
+              return r.width > 0 && r.height > 0 && getComputedStyle(node).visibility !== 'hidden';
+            });
+            if (!el) return { error: 'no painted box matches ' + selector };
+            const r = el.getBoundingClientRect();
+            const x = r.left + r.width / 2;
+            const y = r.top + r.height / 2;
+            if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) {
+              return { error: 'the centre of ' + selector + ' is outside the viewport (' + round(x) + ', ' + round(y) + ')' };
+            }
+            const cs = getComputedStyle(el);
+            const hit = document.elementFromPoint(x, y);
+            return {
+              x: round(x), y: round(y), hit: label(hit),
+              owns: !!hit && (el === hit || el.contains(hit)),
+              opacity: round(parseFloat(cs.opacity)),
+              pointerEvents: cs.pointerEvents,
+              box: { width: round(r.width), height: round(r.height), y: round(r.top) },
+            };
+          }, selector).catch(() => null);
+          if (!measured || measured.error) {
+            const why = measured ? measured.error : 'the measurement threw';
+            if (optional) { log.push(`skipped hittest ${selector} (${why})`); continue; }
+            hardFail.push(`${j}/${vpName}: hittest ${selector}: ${why}`);
+            continue;
+          }
+          const line = `hittest ${selector} ${mode}: point (${measured.x}, ${measured.y}) hit ${measured.hit}; `
+            + `row ${measured.box.width}×${measured.box.height}px at y=${measured.box.y}; `
+            + `owns=${measured.owns} opacity=${measured.opacity} pointer-events=${measured.pointerEvents}`;
+          log.push(line);
+          if (mode === 'self') {
+            if (!measured.owns) {
+              hardFail.push(`${j}/${vpName}: ${line} — elementFromPoint returns ${measured.hit}, not the row`);
+            }
+            if (!(measured.opacity >= 0.99)) {
+              hardFail.push(`${j}/${vpName}: ${line} — the row is hit but still transparent (opacity ${measured.opacity})`);
+            }
+          } else {
+            if (measured.owns) {
+              hardFail.push(`${j}/${vpName}: ${line} — the hidden row still takes the tap (elementFromPoint returns ${measured.hit})`);
+            }
+            if (measured.pointerEvents !== 'none') {
+              hardFail.push(`${j}/${vpName}: ${line} — the hidden row does not say pointer-events: none (${measured.pointerEvents})`);
             }
           }
         }

@@ -1,5 +1,5 @@
 {
-  "title": "iPad portrait: the resting composer is a real box at 768 and 820, and a queued follow-up leaves it hittable",
+  "title": "iPad portrait: the resting composer is a real box at 768 and 820, a queued follow-up leaves it hittable, and the answer's action row is inert until a body tap reveals it",
   "viewports": [
     "tablet",
     "tablet-portrait"
@@ -24,6 +24,24 @@
     [
       "url",
       "^/tasks/"
+    ],
+    [
+      "wait",
+      "css=[data-message-actions]"
+    ],
+    [
+      "hittest",
+      "css=[data-message-key]:has([data-message-actions]) [data-message-actions]",
+      "notSelf"
+    ],
+    [
+      "click",
+      "css=[data-message-key]:has([data-message-actions]) p"
+    ],
+    [
+      "hittest",
+      "css=[data-message-key]:has([data-message-actions]) [data-message-actions]",
+      "self"
     ],
     [
       "restingComposer",
