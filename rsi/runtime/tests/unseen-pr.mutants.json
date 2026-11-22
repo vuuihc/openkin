@@ -1,0 +1,23 @@
+[
+  {
+    "label": "ignore the selected rows, so a PR the dispatcher already selected is reported as unseen",
+    "file": "rsi/runtime/unseen-pr.py",
+    "test": "RSI_TEST_ONLY=selected-is-silent bash rsi/runtime/tests/test-unseen-pr.sh",
+    "old": "    return number not in selected",
+    "new": "    return True  # mutant: the selected rows are ignored"
+  },
+  {
+    "label": "drop the draft and hold-label guards, so a draft or a held PR is reported",
+    "file": "rsi/runtime/unseen-pr.py",
+    "test": "RSI_TEST_ONLY=draft-hold-and-foreign-silent bash rsi/runtime/tests/test-unseen-pr.sh",
+    "old": "    if draft:\n        return False\n    if labels & HOLD_LABELS:\n        return False\n    return number not in selected",
+    "new": "    return number not in selected  # mutant: draft and hold labels ignored"
+  },
+  {
+    "label": "move the alarm after the empty-set exit, where it can never fire",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=wiring-order bash rsi/runtime/tests/test-unseen-pr.sh",
+    "old": "  UNSEEN=\"$(printf '%s' \"$PRJ\" | python3 \"$RSI_DIR/runtime/unseen-pr.py\" --rows \"$PRS\" --state \"$STATE\" 2>/dev/null || true)\"\n  [ -n \"$UNSEEN\" ] && while IFS= read -r l; do [ -n \"$l\" ] && say \"$l\"; done <<< \"$UNSEEN\"\n  [ -z \"$PRS\" ] && { say \"no open rsi PRs\"; exit 0; }",
+    "new": "  [ -z \"$PRS\" ] && { say \"no open rsi PRs\"; exit 0; }\n  UNSEEN=\"$(printf '%s' \"$PRJ\" | python3 \"$RSI_DIR/runtime/unseen-pr.py\" --rows \"$PRS\" --state \"$STATE\" 2>/dev/null || true)\"\n  [ -n \"$UNSEEN\" ] && while IFS= read -r l; do [ -n \"$l\" ] && say \"$l\"; done <<< \"$UNSEEN\""
+  }
+]

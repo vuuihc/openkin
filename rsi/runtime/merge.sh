@@ -1754,6 +1754,8 @@ if [ "${1:-}" != "--one" ]; then
     echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,body 2>/dev/null)"
   fi
   PRS="$(printf '%s' "$PRJ" | dispatch_rows)"
+  UNSEEN="$(printf '%s' "$PRJ" | python3 "$RSI_DIR/runtime/unseen-pr.py" --rows "$PRS" --state "$STATE" 2>/dev/null || true)"
+  [ -n "$UNSEEN" ] && while IFS= read -r l; do [ -n "$l" ] && say "$l"; done <<< "$UNSEEN"
   [ -z "$PRS" ] && { say "no open rsi PRs"; exit 0; }
   ACTIVE="$(python3 "$LANES_PY" slugs)"
   # One gate for ready disjoint PRs (RSI_BATCH_VERIFY=1): form and start the batch runner before
