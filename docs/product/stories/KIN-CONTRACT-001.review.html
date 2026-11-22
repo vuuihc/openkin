@@ -254,7 +254,7 @@
       <li><strong>为什么不并进相邻故事：</strong>并进去就会变成「顺手删一个页面」，删的依据是那条故事的方便，不是能力有没有搬完。退场表的每一行都点名负责故事，正是为了挡住这种顺手。</li>
       <li><strong>设备只是差异：</strong>这条覆盖 Mac 与手机；平板 820 是宽度与输入变体，不是第三个注册面。</li>
       <li><strong>不在这一条：</strong>删除执行（<code>R-delete-pages</code>、<code>R-agent-status</code>）、重做 agents 安装检测（后续 story）、列表密度（parked <code>R-list-scan</code>）、RN 客户端（独立 ADR/phase）。</li>
-      <li><strong>大小：</strong>5 屏 + 契约板 + 状态板；一次交付装得下：四个页面、运行搬家、设置删一个 tab、退场表、路由清单测试。删除一行一条 PR。</li>
+      <li><strong>大小：</strong>5 屏 + 契约板 + 状态板；一次交付装得下：四个页面、运行搬家、设置不动（六个 tab 原样）、退场表、路由清单测试。删除一行一条 PR。</li>
     </ul>
   </section>
 
@@ -415,7 +415,7 @@
       <ol class="flow">
         <li><b>起点</b><span>从底栏「设置」或列表的 Agents 入口进来（后者落到 operations tab）；默认停在上次的 tab。</span></li>
         <li><b>动作</b><span>在 general / agents / operations / providers / routing / advanced 之间切换；在 providers 里验证或配置凭据。</span></li>
-        <li><b>立刻看到</b><span>六个 tab 都在，agents 里的导入会话与角色默认仍可用；安装检测暂不展示；保存后新值立刻用于下一次新对话。</span></li>
+        <li><b>立刻看到</b><span>六个 tab 都在，agents 里的导入会话与角色默认仍可用；安装检测保持现状（半成品），重做归 R-agents-detect；保存后新值立刻用于下一次新对话。</span></li>
         <li><b>慢 / 空 / 失败 / 断线</b><span>打开设置不读 secure store、不调第三方；只有「验证/配置」这一次动作才读；失败只说这一行，不影响别的 tab。</span></li>
         <li><b>键盘与焦点</b><span>tab 之间 ←→；关闭确认框回触发按钮；未连接的 provider 行写明原因。</span></li>
         <li><b>离开再回来</b><span>回到上次的 tab；改到一半的 key 输入在离开时清空，不留在内存快照里。</span></li>
