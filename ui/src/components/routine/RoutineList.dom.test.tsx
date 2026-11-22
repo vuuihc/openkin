@@ -59,7 +59,6 @@ function setup(props: Partial<RoutineListProps> = {}) {
       cwd=""
       directories={[]}
       selectedId={null}
-      unreadByRoutine={{}}
       busy={{}}
       creating={false}
       machineOffline={false}
@@ -83,14 +82,6 @@ describe("RoutineList", () => {
     expect(rowButton("Evening review").getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(rowButton("Evening review"));
     expect(onSelect).toHaveBeenCalledWith(evening);
-  });
-
-  it("shows the unread badge only when a routine has unread runs", () => {
-    setup({ unreadByRoutine: { [morning.id]: 2 } });
-    const morningRow = rowButton("Morning review").closest("li") as HTMLLIElement;
-    const eveningRow = rowButton("Evening review").closest("li") as HTMLLIElement;
-    expect(within(morningRow).getByText(t("routines.unreadCount", { count: 2 }))).toBeTruthy();
-    expect(within(eveningRow).queryByText(t("routines.unreadCount", { count: 2 }))).toBeNull();
   });
 
   it("offers create from the empty list", () => {
