@@ -265,7 +265,15 @@ export default function TaskComposerDock({
           footerWide
           footer={
             active ? (
-              <div className="flex min-w-0 flex-1 items-center gap-1">
+              // The face and the usage chip are buttons on the composer's
+              // control row, and the row is allowed to shrink around them. At
+              // 768 the 44px attach/send targets leave this strip ~100px, and
+              // an unfloored `min-w-0` face truncated to 26.6px wide (measured
+              // by J17) — a miss for a thumb even though its height stayed 44.
+              // Floor the width; the face's label ellipsizes and the full value
+              // stays in its accessible name. At 1100 the strip has room and
+              // nothing moves.
+              <div className="flex min-w-0 flex-1 items-center gap-1 [&>button]:min-w-11">
                 <RunConfigControl
                   agentName={hostAgentName}
                   agentId={task.agent || ""}
