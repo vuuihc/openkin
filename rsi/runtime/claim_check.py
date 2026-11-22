@@ -426,9 +426,12 @@ def main(argv):
     haystack = collapse(actual)
     missing = [line for line in claimed if collapse(line) not in haystack]
     if missing:
+        # Keep the command's exit code and the tail of what it really printed. Without them a
+        # mismatch is indistinguishable from a slow or truncated run, and the reader has to
+        # re-run the check by hand to tell them apart. The tail is already bounded by tail().
         return fail(
-            "claimed output is not in the command's real output: %s"
-            % " | ".join(missing)
+            "claimed output is not in the command's real output: %s | exit %d | last output: %s"
+            % (" | ".join(missing), returncode, tail(actual))
         )
 
     print("CLAIM_OK: " + command)
