@@ -323,6 +323,78 @@ t_worktree_ownership() {
   check "M4 the dirty worktree is reported" grep -q 'uncommitted changes' "$T2/i2.log"
 }
 
+# --- T18: a worktree that resolves to the control checkout is refused before any git mutation (M4) -
+# Live 2026-11-22 00:40: the control checkout (a symlink into the worktree root) physically pointed
+# at a registered lane's worktree directory, checked out on that lane's branch. A NAS result for
+# that slug passed every check in sync_worktree (.git present, branch equal, clean, HEAD an
+# ancestor of the bundle) and its last line would have run `git merge --ff-only` inside the control
+# checkout, swapping the running gate, walker, GOAL.md and live state for a NAS result while every
+# status line still read healthy. The guard resolves both paths with Python (macOS has no GNU
+# realpath) and refuses before the first git call; a resolution failure fails closed (same shape as
+# lane.sh's #563 guard).
+case_wt_resolving_to_control_tree_is_refused() {
+  local T; sandbox; T=$T
+  local head; head="$(job "$T" s1 R-T-18a 0)"
+  git -C "$T/ctrl" checkout -q rsi/s1          # control checkout on the lane branch, clean: all four pass
+  ln -s "$T/ctrl" "$T/wt/rsi-s1"               # the live topology: the worktree path IS the control tree
+  run_ingest "$T" > "$T/ingest.log" 2>&1
+  check "M4 a worktree resolving to the control checkout is refused" grep -q 'resolves to the control checkout' "$T/ingest.log"
+  check "M4 the control checkout HEAD is unchanged" [ "$(git -C "$T/ctrl" rev-parse HEAD)" = "$head" ]
+  check "M4 the control checkout stays on its branch" [ "$(git -C "$T/ctrl" symbolic-ref --short HEAD)" = rsi/s1 ]
+  check "M4 the refused result publishes nothing" [ ! -s "$T/gh.log" ]
+  check "M4 the refused result is retried, not acked" bash -c "! grep -q '^s1:done:' '$T/state/nas/acks.txt' 2>/dev/null"
+}
+
+# The old CUR_BR != $BR check would refuse this worktree for the wrong reason (detached, not rsi/s2).
+# The refusal must be the control-tree one, which pins that the guard runs before the branch check.
+case_control_tree_on_another_branch_is_still_refused() {
+  local T; sandbox; T=$T
+  job "$T" s2 R-T-18b 0 >/dev/null
+  git -C "$T/ctrl" checkout -q --detach main
+  local before; before="$(git -C "$T/ctrl" rev-parse HEAD)"
+  ln -s "$T/ctrl" "$T/wt/rsi-s2"
+  run_ingest "$T" > "$T/ingest.log" 2>&1
+  check "M4 the control tree is refused before the branch check" grep -q 'resolves to the control checkout' "$T/ingest.log"
+  check "M4 the refusal is not the worktree-branch message" bash -c "! grep -q 'not rsi/s2' '$T/ingest.log'"
+  check "M4 a detached control checkout is unchanged" [ "$(git -C "$T/ctrl" rev-parse HEAD)" = "$before" ]
+  check "M4 nothing is published from a detached control tree" [ ! -s "$T/gh.log" ]
+}
+
+# The negative control: a distinct worktree still fast-forwards and publishes, so the guard is not
+# an "always refuse" switch. The worktree starts at main, behind the bundle, so reaching HEAD proves
+# the fast-forward actually ran.
+case_distinct_worktree_still_syncs() {
+  local T; sandbox; T=$T
+  local head; head="$(job "$T" s3 R-T-18c 0)"
+  git -C "$T/ctrl" worktree add -q -B rsi/s3 "$T/wt/rsi-s3" main
+  run_ingest "$T" > "$T/ingest.log" 2>&1
+  check "M4 a distinct worktree is still fast-forwarded" [ "$(git -C "$T/wt/rsi-s3" rev-parse HEAD)" = "$head" ]
+  check "M4 a distinct worktree still publishes" grep -q 'ingested R-T-18c s3' "$T/ingest.log"
+  check "M4 the published result opens its PR" [ "$(wc -l < "$T/gh.log" | tr -d ' ')" = 1 ]
+}
+
+# A guard that cannot resolve one side must refuse, not proceed. os.path.realpath does not fail for a
+# path that merely does not exist (non-strict default), so the fail-closed branch is exercised through
+# the NAS_REALPATH_PY seam: a stub that fails only for the control-checkout argument, leaving the
+# worktree side resolvable. The worktree starts at main, behind the bundle, so an unguarded run would
+# fast-forward it, which the assertions then see.
+case_unresolvable_path_fails_closed() {
+  local T; sandbox; T=$T
+  job "$T" s4 R-T-18d 0 >/dev/null
+  git -C "$T/ctrl" worktree add -q -B rsi/s4 "$T/wt/rsi-s4" main
+  local before; before="$(git -C "$T/wt/rsi-s4" rev-parse HEAD)"
+  cat > "$T/bin/realpath-ctrl-fails" <<'EOS'
+#!/bin/bash
+case "${3:-}" in *ctrl*) exit 1;; esac
+exec python3 "$@"
+EOS
+  chmod +x "$T/bin/realpath-ctrl-fails"
+  run_ingest "$T" NAS_REALPATH_PY="$T/bin/realpath-ctrl-fails" > "$T/ingest.log" 2>&1
+  check "M4 an unresolvable side fails closed" grep -q 'cannot resolve' "$T/ingest.log"
+  check "M4 an unresolved worktree is not fast-forwarded" [ "$(git -C "$T/wt/rsi-s4" rev-parse HEAD)" = "$before" ]
+  check "M4 nothing is published when resolution fails" [ ! -s "$T/gh.log" ]
+}
+
 # --- T12: a self-check is green only when it ran to completion (M5) -----------------------------
 t_selfcheck_completion() {
   local T; sandbox; T=$T
@@ -719,6 +791,10 @@ t_worktree_recovery
 t_screenshot_hold
 t_release_ownership
 t_worktree_ownership
+case_wt_resolving_to_control_tree_is_refused
+case_control_tree_on_another_branch_is_still_refused
+case_distinct_worktree_still_syncs
+case_unresolvable_path_fails_closed
 t_selfcheck_completion
 t_shot_validation
 t_existing_pr
