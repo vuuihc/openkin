@@ -65,6 +65,10 @@
       "resting"
     ],
     [
+      "composerControls",
+      "resting"
+    ],
+    [
       "pressComposerCard",
       "card-press"
     ],
@@ -72,6 +76,10 @@
       "fill",
       "textarea",
       "Resting composer draft: 40 chars on iPad"
+    ],
+    [
+      "composerControls",
+      "typed"
     ],
     [
       "restingComposer",
