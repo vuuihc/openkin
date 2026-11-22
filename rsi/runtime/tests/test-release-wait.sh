@@ -133,4 +133,11 @@ out="$(run_release RSI_RELEASE_WAIT=600 RSI_RELEASE_STEP=1 HEAVY_FIRST=99 -- --d
 [ "$(cat "$COUNT")" = 1 ] || fail "dry: a dry run re-read the gate $(cat "$COUNT") times"
 pass "release: a dry run never waits"
 
+# 5. --help prints the header whole: the range must follow the header, not end mid-sentence.
+out="$(env -u RSI_RELEASE_STATE bash "$RELEASE" --help)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "help: --help must exit 0 (exit $rc)"; }
+grep -q '^# usage: release.sh' <<<"$out" || fail "help: --help omits the usage line"
+grep -q '^#      RSI_HUB_TIMEOUT' <<<"$out" || fail "help: --help truncates the Env block"
+pass "release: --help prints the complete header"
+
 echo "all cases passed"

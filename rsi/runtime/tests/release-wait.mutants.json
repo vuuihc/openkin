@@ -26,5 +26,19 @@
     "test": "bash rsi/runtime/tests/test-release-wait.sh",
     "old": "  [ $rc -eq 0 ] && break\n",
     "new": "  break\n"
+  },
+  {
+    "label": "truncates --help before the usage and Env lines",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release-wait.sh",
+    "old": "-h|--help) sed -n '2,40p' \"$0\"; exit 0 ;;\n",
+    "new": "-h|--help) sed -n '2,30p' \"$0\"; exit 0 ;;\n"
+  },
+  {
+    "label": "the release-wait suite is dropped from the gate wiring, so nobody runs it",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-release-wait.sh || return 1\n",
+    "new": ""
   }
 ]

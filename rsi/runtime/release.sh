@@ -61,7 +61,7 @@ while [ $# -gt 0 ]; do
     --node-only) HUB=0; shift ;;
     --hub-only) NODE=0; shift ;;
     --dry-run) DRY=1; shift ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
     *) echo "release: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
