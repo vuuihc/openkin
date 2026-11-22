@@ -10,8 +10,9 @@ of the time (table 2).
 **The area leg moved; the numbers below did not.** `mac-area-to-area` used to
 switch conversations → projects. Projects retired with its collection
 (`ui/src/lib/areas.ts` now lists only conversations, routines, settings), so the
-leg was re-pointed in place at conversations → routines. Every number in this
-document was measured on the old conversations → projects leg; it is kept as
+leg was re-pointed in place at conversations → routines. Every
+`mac-area-to-area` number in this document was measured on the old
+conversations → projects leg; it is kept as
 history and labelled **retired leg**, and the new leg's baseline is whatever
 `switch-latency.mjs` prints now.
 
@@ -137,7 +138,7 @@ entry chunk), so nothing under `web/dist/` is part of this change.
 ## Table 2 — attribution, retired leg, 2026-11-20
 
 **Retired leg.** Every number in this table was measured on conversations →
-projects: the P12 cut took that retired leg to p50 61.9 / p90 66.0
+projects: the P12 cut took that retired leg to p50 63.9 / p90 66.0
 (`rsi/GOAL.md`) and this table's earlier split was p50 81.6 / p90 135.9, so
 neither is comparable with a number from the new conversations → routines leg —
 the new baseline is whatever the command prints now.
