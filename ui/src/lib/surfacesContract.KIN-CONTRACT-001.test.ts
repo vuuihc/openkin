@@ -50,11 +50,7 @@ function exitTable(text: string): string[][] {
       if (rows.length > 0) break;
       continue;
     }
-    const cells = line
-      .replace(/^\|/, "")
-      .replace(/\|$/, "")
-      .split("|")
-      .map(normalise);
+    const cells = line.replace(/^\|/, "").replace(/\|$/, "").split("|").map(normalise);
     // The |---|---| rule is not a row.
     if (cells.every((cell) => /^:?-{2,}:?$/.test(cell))) continue;
     if (!header) {
