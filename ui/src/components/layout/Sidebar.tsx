@@ -178,7 +178,7 @@ export default function Sidebar({
   ) : null;
 
   // The prototype's column header: the list's name on the left, the action
-  // that starts a chat on the right. The four areas are the rail's job, so
+  // that starts a chat on the right. The three areas are the rail's job, so
   // this names the column itself — the same word the rail gives the area, and
   // the one thing the 304px column is for.
   const newChatBlock = (
@@ -211,7 +211,7 @@ export default function Sidebar({
   // archive is a destination people never learn.
   //
   // Inbox stays here rather than moving to the rail: it is the list's own
-  // attention queue, not one of the four areas, and its count is the number of
+  // attention queue, not one of the areas, and its count is the number of
   // conversations in this list that wait on a person.
   //
   // Every entry is labelled and the two halves share the column's width: three

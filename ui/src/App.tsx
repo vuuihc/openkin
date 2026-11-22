@@ -10,7 +10,6 @@ import AppShell from "./components/layout/AppShell";
 import AreaRoute from "./components/layout/AreaRoute";
 import ToastHost from "./components/ToastHost";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
-import ProjectsCollectionPage from "./pages/ProjectsCollectionPage";
 import { designSystemRoute } from "./pages/DesignSystemPage";
 import NewChatPage from "./pages/NewChatPage";
 import SessionsRoute from "./pages/SessionsRoute";
@@ -222,12 +221,17 @@ export default function App() {
               <Route path="/approvals" element={<Navigate to="/sessions" replace />} />
               {/* Task detail UI is rendered by TaskSessionHost above. */}
               <Route path="/tasks/:id" element={null} />
-              {/* The Projects area root. Agent operations live in Settings →
-                  Operations, so the old full-page destinations redirect there:
-                  a bookmark, banner or notification from before E4a still lands
-                  on the panel. `App.areaRoutes.test.ts` pins the target. */}
-              <Route path="/projects" element={<ProjectsCollectionPage />} />
+              {/* KIN-CONTRACT-001 retired the Projects area and its
+                  collection: the project level is the conversation list's own
+                  headings. A bookmark or notification that names `/projects`
+                  lands on that list, the same way `/inbox` and `/approvals`
+                  do. The project cover at `/projects/:id` stays as the list's
+                  detail. `App.areaRoutes.test.ts` pins both. */}
+              <Route path="/projects" element={<Navigate to="/sessions" replace />} />
               <Route path="/projects/:id" element={<ProjectDetailPage />} />
+              {/* Agent operations live in Settings → Operations, so the old
+                  full-page destinations redirect there: a bookmark, banner or
+                  notification from before E4a still lands on the panel. */}
               <Route path="/agents" element={<Navigate to="/settings?tab=operations" replace />} />
               <Route path="/routines" element={<RoutinesPage />} />
               {/* A remote run is the task detail with `?device=`; the old

@@ -13,16 +13,18 @@ import { isKinDesktop } from "../../lib/desktop";
 import { SHELL_VIEW } from "../../lib/panels";
 
 /**
- * S1: the Mac four-area rail.
+ * S1: the Mac three-area rail.
  *
- * KIN-CONTINUE-003 rows 1–2, 15: this rail, its per-area state and its
- * accessible entry points are the Mac half of the four-area contract.
+ * KIN-CONTRACT-001 rows 1–2, 15: this rail, its per-area state and its
+ * accessible entry points are the Mac half of the area contract. The Projects
+ * area retired with its collection; the project level lives in the
+ * conversation list and the cover is that list's detail.
  *
  * The rail is a view of `AREAS`, so these tests read the table rather than a
  * second list of names: a destination added to the table has to turn up here,
  * and one removed has to disappear. What is pinned beyond the table is the
  * geometry decision (`railCompact`), the needs-you badge surviving both rail
- * widths, and the keyboard entry points into the same four roots.
+ * widths, and the keyboard entry points into the same three roots.
  */
 
 vi.mock("../../api/useLiveResources", () => ({
@@ -133,9 +135,10 @@ beforeEach(() => {
 });
 
 describe("the Mac area rail", () => {
-  it("lists the four areas in table order and marks the current one", () => {
+  it("lists the three areas in table order and marks the current one", () => {
     // A detail route, not the area root: the mark follows `resolveArea`, which
-    // is what makes `/projects/p-1` still read as Projects rather than nothing.
+    // is what makes `/projects/p-1` read as Conversations now that the cover is
+    // the conversation list's detail.
     const pathname = "/projects/p-1";
     nav(false, 0, pathname);
 
@@ -150,6 +153,21 @@ describe("the Mac area rail", () => {
     const area = resolveArea({ pathname, search: "" });
     expect(area).not.toBeNull();
     expect(current[0].textContent).toContain(t(areaById(area!).labelKey));
+  });
+
+  // KIN-CONTRACT-001: the Projects row left the rail with its collection. The
+  // table is the one source; this test refuses a second "Projects" destination
+  // sneaking back in beside the three areas.
+  it("draws three area entries after the projects area retires", () => {
+    nav(false);
+    const rail = screen.getByRole("navigation", { name: t("nav.areas") });
+    const labels = within(rail)
+      .getAllByRole("link")
+      .map((link) => link.getAttribute("aria-label"));
+    expect(labels).toEqual(AREAS.map((area) => t(area.labelKey)));
+    expect(labels).toHaveLength(3);
+    expect(labels).not.toContain("Projects");
+    expect(labels).not.toContain("项目");
   });
 
   it("compacts to an icon rail when the right panel is open or the window is narrower than 1280", () => {
@@ -213,14 +231,17 @@ describe("the Mac area rail", () => {
     expect(listSearchFields()).toHaveLength(1);
     unmount();
 
-    for (const path of ["/projects", "/routines", "/settings"]) {
+    for (const path of ["/routines", "/settings"]) {
       const { unmount: unmountArea } = shell(path);
       expect(listSearchFields()).toHaveLength(0);
       expect(screen.queryByRole("button", { name: /New chat/ })).toBeNull();
       unmountArea();
     }
 
-    for (const path of ["/", "/new", "/tasks/t-1", "/inbox"]) {
+    // `/projects` is a bookmark that redirects to the list; the shell answers
+    // from the same area table, so the list column is there before the
+    // redirect lands rather than a second Projects surface.
+    for (const path of ["/", "/new", "/tasks/t-1", "/inbox", "/projects"]) {
       const { unmount: unmountArea } = shell(path);
       expect(listSearchFields()).toHaveLength(1);
       unmountArea();
@@ -267,15 +288,13 @@ describe("the Mac area rail", () => {
 });
 
 describe("the area shortcuts", () => {
-  it("jumps between areas with Cmd+1..4", () => {
+  it("jumps between areas with Cmd+1..3", () => {
     shell();
     const here = () => screen.getByTestId("location").textContent;
 
     press({ key: "2", metaKey: true });
-    expect(here()).toBe("/projects");
-    press({ key: "3", metaKey: true });
     expect(here()).toBe("/routines");
-    press({ key: "4", metaKey: true });
+    press({ key: "3", metaKey: true });
     expect(here()).toBe("/settings");
     press({ key: "1", metaKey: true });
     expect(here()).toBe("/sessions");
