@@ -124,7 +124,10 @@ describe("Composer control row", () => {
     // rendered 44px box is measured by the J17 walk.
     const cardSized = (control: HTMLElement, variants: string[]) => {
       for (const variant of variants) {
-        expect(control.classList.contains(variant), `${variants.join(" ")} on ${control.outerHTML.slice(0, 120)}`).toBe(true);
+        expect(
+          control.classList.contains(variant),
+          `${variants.join(" ")} on ${control.outerHTML.slice(0, 120)}`,
+        ).toBe(true);
       }
       const viewportSizes = Array.from(control.classList).filter((cls) => /^sm:[wh]-/.test(cls));
       expect(viewportSizes).toEqual([]);
@@ -132,7 +135,10 @@ describe("Composer control row", () => {
 
     const first = setup();
     expect(first.row.classList.contains("[&>button]:shrink-0")).toBe(true);
-    cardSized(screen.getByRole("button", { name: t("composer.attachFile") }), ["@xl:w-6", "@xl:h-6"]);
+    cardSized(screen.getByRole("button", { name: t("composer.attachFile") }), [
+      "@xl:w-6",
+      "@xl:h-6",
+    ]);
     cardSized(screen.getByRole("button", { name: t("composer.send") }), ["@xl:h-7", "@xl:w-7"]);
     first.unmount();
 
@@ -142,7 +148,10 @@ describe("Composer control row", () => {
 
     const queued = setup({ running: true, onStop: vi.fn() });
     await userEvent.setup().type(screen.getByRole("textbox"), "next");
-    cardSized(screen.getByRole("button", { name: t("composer.interruptSend") }), ["@xl:h-7", "@xl:w-7"]);
+    cardSized(screen.getByRole("button", { name: t("composer.interruptSend") }), [
+      "@xl:h-7",
+      "@xl:w-7",
+    ]);
     cardSized(screen.getByRole("button", { name: t("composer.send") }), ["@xl:h-7", "@xl:w-7"]);
     queued.unmount();
 
