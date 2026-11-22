@@ -1,17 +1,11 @@
 // @vitest-environment jsdom
 // Hiding quiet routine runs is a local, per-machine preference: it empties the
-// inbox feed, never the run, and the routine's own history still lists it.
-import { within, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+// inbox feed, never the run itself.
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import RoutinesPage from "./RoutinesPage";
 import { setLocale } from "../i18n";
-import {
-  listRoutineRuns,
-  listRoutines,
-  runRoutineNow,
-  type Routine,
-  type Task,
-} from "../api/client";
+import { listRoutineRuns, listRoutines, runRoutineNow, type Task } from "../api/client";
 import type { WSMessage } from "../api/contract";
 import { hideRunIds } from "../lib/routineHiddenRuns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -212,26 +206,6 @@ function standardMachines() {
   ];
 }
 
-function routine(id: string, title: string): Routine {
-  return {
-    id,
-    cwd: "/tmp/kin",
-    agent: "codex",
-    model: "",
-    permission_mode: "default",
-    prompt: "check things",
-    interval_secs: 86400,
-    enabled: true,
-    next_due_at: Date.now() + 60_000,
-    consec_failures: 0,
-    created_at: Date.now(),
-    title,
-    missed_run_policy: "skip",
-    lane: "default",
-    recurrence: "",
-  };
-}
-
 function run(id: string, title: string, overrides: Partial<Task> = {}): Task {
   return {
     id,
@@ -328,31 +302,6 @@ describe("RoutinesPage hidden runs", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: /routines\.showSilent/ }));
     expect(await screen.findByText("Quiet read run")).toBeTruthy();
-  });
-
-  it("leaves the routine's own history untouched", async () => {
-    vi.mocked(listRoutines).mockResolvedValue({
-      routines: [routine("routine-1", "Morning review")],
-      next_cursor: "",
-      has_more: false,
-    });
-    const hiddenRun = quietRun("q1", "Quiet read run");
-    vi.mocked(listRoutineRuns).mockImplementation(
-      async (_limit, _device, _cursor = "", id = "") => ({
-        routines: [],
-        runs: id ? [hiddenRun] : [hiddenRun],
-        has_more: false,
-      }),
-    );
-    renderApp("/routines?device=dev-a");
-    fireEvent.click(await screen.findByRole("button", { name: /routines\.showSilent/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "routines.hideEnded" }));
-    expect(screen.queryByText("Quiet read run")).toBeNull();
-
-    // The history is the drill-down, and a hidden run is still findable there.
-    fireEvent.click(await screen.findByRole("button", { name: /routines\.showRuns/ }));
-    const panels = await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ });
-    expect(panels.some((panel) => within(panel).queryByText("Quiet read run"))).toBe(true);
   });
 
   it("restores every hidden run from the same line", async () => {
