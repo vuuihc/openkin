@@ -130,13 +130,18 @@ describe("the actions reveal on a coarse pointer", () => {
     // the desktop layout. The row rests hidden and a body tap is its only way
     // in; the tap must not press anything.
     stubMedia({ coarse: true, phone: false });
-    renderStream({ showMessageActions: true, onRetry: vi.fn(), onFork: vi.fn() });
+    const onRetry = vi.fn();
+    const onFork = vi.fn();
+    renderStream({ showMessageActions: true, onRetry, onFork });
 
     expect(row().getAttribute("data-actions-state")).toBe("hidden");
     fireEvent.click(body());
     expect(row().getAttribute("data-actions-state")).toBe("revealed");
     fireEvent.click(body());
     expect(row().getAttribute("data-actions-state")).toBe("hidden");
+    // Revealing is not pressing: the row's buttons stay untouched.
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(onFork).not.toHaveBeenCalled();
   });
 
   it("the hidden action row is inert on a coarse pointer until it is revealed", () => {
