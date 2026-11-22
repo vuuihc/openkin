@@ -1890,7 +1890,9 @@ function RunCard({
   const location = useLocation();
   const title = run.title || run.id.slice(0, 8);
   const href = device
-    ? `/machines/${encodeURIComponent(device)}/tasks/${encodeURIComponent(run.id)}`
+    ? // One task detail page; `?device=` says the run's transcript lives on
+      // that machine rather than in this Hub's task table.
+      `/tasks/${encodeURIComponent(run.id)}?device=${encodeURIComponent(device)}`
     : `/tasks/${encodeURIComponent(run.id)}`;
   const openRun = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     const modifier =

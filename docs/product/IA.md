@@ -86,7 +86,7 @@
 | 侧栏「例行任务」角标 | 与 `/routines` 同一台机器 | 未读数跟着页面会打开的那台机器走；机器列表还没到不猜，读失败时保留已存选择 |
 | 新建对话 → 存为例行任务 | 同一台机器 | 机器和目录跟着会话的选择走；选远程机器时也允许 |
 | 项目页的例行任务 | 拥有该项目 cwd 的机器（Node） | 项目封面按 cwd 匹配机器并只读列出 routine；「Go to routines」带着拥有者进入 `/routines?device=<id>`。选机器、目录、权限、模型、会话方式与创建都在 `/routines` 内完成。没有其他机器声明该目录时落在本机（单机桌面，或按路径在本机建的项目） |
-| 运行详情 `/machines/:device/tasks/:id` | 跑出这次运行的机器（Node） | 从「最近运行」点开的一条只读详情：任务行和 transcript 都向那台机器要。批准、回复、停跑仍在机器自己的 console 上，Hub 不转发这些动作 |
+| 运行详情 `/tasks/:id?device=<device>` | 跑出这次运行的机器（Node） | 从「最近运行」点开的一条只读详情：任务行和 transcript 都向那台机器要。它和本地任务是同一张任务详情页，`?device=` 说明 run 在哪台机器；旧的 `/machines/:device/tasks/:id` 以 `replace` 到达这里。批准、回复、停跑仍在机器自己的 console 上，Hub 不转发这些动作 |
 
 ## 设置与环境（KIN-SETTINGS-002，2026-11-09）
 
@@ -123,7 +123,7 @@
 |---|---|---|---|
 | 对话区 | `/sessions` 集合；Mac 左栏列表，手机整页 | #68 `8137ba28`、#76 `3206755c` | `areaNavigation.test.ts`、`PhoneNavigation.dom.test.tsx` |
 | 项目区 | `/projects` 集合、`/projects/:id` 封面 | #76 `3206755c`（区域表与路由）；封面沿用 PROJECT-001 | `areaNavigation.test.ts`、`ProjectsCollectionPage.dom.test.tsx` |
-| 例行任务区 | `/routines`、`/machines/:device/tasks/:id` | #76 `3206755c`（区域表与路由）；例程本体 ROUTINE-001 | `areaNavigation.test.ts`、`RoutinesPage.dom.test.tsx` |
+| 例行任务区 | `/routines`、`/tasks/:id?device=<device>`（旧 `/machines/:device/tasks/:id` 重定向到这里） | #76 `3206755c`（区域表与路由）；例程本体 ROUTINE-001 | `areaNavigation.test.ts`、`RoutinesPage.dom.test.tsx` |
 | 设置区 | `/settings` 六个分区；Agent 运维 = `?tab=operations`；目录里每个分区名旁写明当前生效的值（外观主题 / 当前 provider / 限流策略），值还没读到时保留原说明、不猜 | #76 `3206755c`（区域表与路由）；N4 托管该面板 | `settingsTabsWiring.test.ts`、`SettingsPage.operations.dom.test.tsx` |
 | S1 | Mac 208px / 64px 区域栏、⌘1–⌘4、角标 | #128 `0c2ec124` | `AreaNavigation.dom.test.tsx` |
 | S1b | 面板打开时列表让位，对话 ≥420px | #144 `5576e938` | `AppShell.dom.test.tsx`、`PanelSurface.test.ts` |

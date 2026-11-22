@@ -59,6 +59,9 @@ vi.mock("../api/useLiveResources", () => ({
 vi.mock("../api/client", () => ({
   isTerminal: (status: string) => ["succeeded", "failed", "canceled"].includes(status),
 }));
+vi.mock("../hooks/useMachines", () => ({
+  useMachines: () => ({ machines: [], loading: false, failed: false }),
+}));
 vi.mock("../hooks/useAgentRoles", () => ({ useAgentRoles: () => [] }));
 vi.mock("../store/appStore", () => ({
   subscribeWS: (listener: (msg: { kind: string; data: { id: string } }) => void) => {
