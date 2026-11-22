@@ -63,16 +63,8 @@ vi.mock("./pages/TaskSessionHost", () => ({
     return createElement(
       "div",
       null,
-      createElement(
-        "span",
-        { "data-testid": "here" },
-        location.pathname + location.search,
-      ),
-      createElement(
-        "button",
-        { type: "button", onClick: () => navigate(-1) },
-        "back",
-      ),
+      createElement("span", { "data-testid": "here" }, location.pathname + location.search),
+      createElement("button", { type: "button", onClick: () => navigate(-1) }, "back"),
     );
   },
 }));
@@ -100,9 +92,7 @@ beforeEach(() => {
 describe("the retired machine task URL", () => {
   it("redirects to the task detail with the device preserved", async () => {
     renderAt(["/machines/dev-a/tasks/run-1"]);
-    expect((await screen.findByTestId("here")).textContent).toBe(
-      "/tasks/run-1?device=dev-a",
-    );
+    expect((await screen.findByTestId("here")).textContent).toBe("/tasks/run-1?device=dev-a");
   });
 
   it("keeps the query string", async () => {
@@ -116,9 +106,7 @@ describe("the retired machine task URL", () => {
 
   it("replaces rather than pushes", async () => {
     renderAt(["/routines", "/machines/dev-a/tasks/run-1"]);
-    expect((await screen.findByTestId("here")).textContent).toBe(
-      "/tasks/run-1?device=dev-a",
-    );
+    expect((await screen.findByTestId("here")).textContent).toBe("/tasks/run-1?device=dev-a");
     // One Back reaches the page the reader came from, not the URL that just
     // redirected them. A push would land on `/machines/...` and bounce again.
     fireEvent.click(screen.getByText("back"));

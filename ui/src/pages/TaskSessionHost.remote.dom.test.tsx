@@ -137,9 +137,7 @@ vi.mock("../hooks/useAgentRoles", () => ({ useAgentRoles: () => [] }));
 
 // The local page is a marker: this suite asks which view the host chose.
 vi.mock("./TaskDetailPage", () => ({
-  default: ({ taskId }: { taskId: string }) => (
-    <div data-testid="local-detail">{taskId}</div>
-  ),
+  default: ({ taskId }: { taskId: string }) => <div data-testid="local-detail">{taskId}</div>,
 }));
 
 function remoteTask(id: string, title: string) {

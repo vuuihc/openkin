@@ -178,11 +178,7 @@ export default function TaskSessionHost() {
       ? mountedIds
       : touchSessionCache(mountedIds, activeId);
   const switching =
-    !remoteRun &&
-    Boolean(activeId) &&
-    !activeReady &&
-    Boolean(shownId) &&
-    shownId !== activeId;
+    !remoteRun && Boolean(activeId) && !activeReady && Boolean(shownId) && shownId !== activeId;
   // The pane kept on screen can be closed while the next one loads (its tab is
   // closed, or the task is deleted). It is then not drawn at all, so holding on
   // to it would hide the incoming pane too and leave the area blank. Fall back

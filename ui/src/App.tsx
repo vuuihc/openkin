@@ -55,12 +55,7 @@ function MachineTaskRedirect() {
     if (key === "device") continue;
     params.append(key, value);
   }
-  return (
-    <Navigate
-      to={`/tasks/${encodeURIComponent(id)}?${params.toString()}`}
-      replace
-    />
-  );
+  return <Navigate to={`/tasks/${encodeURIComponent(id)}?${params.toString()}`} replace />;
 }
 
 export default function App() {
