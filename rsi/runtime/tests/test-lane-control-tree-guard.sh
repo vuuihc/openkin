@@ -33,6 +33,30 @@ export GIT_AUTHOR_NAME="control tree guard test" GIT_AUTHOR_EMAIL=owner@example.
 export GIT_COMMITTER_NAME="control tree guard test" GIT_COMMITTER_EMAIL=owner@example.com
 mkdir -p "$T/runs" "$T/bin"
 printf 'brief\n' > "$T/brief.md"
+# lane.sh asks lanes.py host-ok before the guard, and on a pressured Mac that defers the lane with
+# exit 0. Pin every probe: the env knobs for load/mem/swap (as the sibling lane suites do) and stubs
+# for sysctl/vm_stat, because kern.memorystatus_vm_pressure_level has no env knob and is ≥4 on a
+# pressured host. Without this the gate can go red before the guard is ever reached.
+cat > "$T/bin/sysctl" <<'SH'
+#!/bin/sh
+case " $* " in
+  *" kern.memorystatus_vm_pressure_level "*) echo 1 ;;
+  *" vm.swapusage "*) echo "vm.swapusage: total = 0.00M  used = 0.00M  free = 999999.00M  (encrypted)" ;;
+esac
+exit 0
+SH
+cat > "$T/bin/vm_stat" <<'SH'
+#!/bin/sh
+p=$(( 999999 * 64 )); q=$(( p / 4 ))
+cat <<EOF
+Mach Virtual Memory Statistics: (page size of 16384 bytes)
+Pages free:                               ${q}.
+Pages inactive:                           ${q}.
+Pages speculative:                        ${q}.
+Pages purgeable:                          ${q}.
+EOF
+SH
+chmod +x "$T/bin/sysctl" "$T/bin/vm_stat"
 
 # new_ctrl <name> — a control checkout with runtime stubs. Prints its path. Every long step the
 # lane would take after the guard is stubbed, so a case that only reaches the guard costs nothing.
@@ -101,6 +125,9 @@ PY
 run_lane() {
   local case="$1" ctrl="$2" home="$3" gitbin="$4"
   HOME="$home" RSI_CTRL="$ctrl" GIT="$gitbin" RSI_MAX_LANES=2 RSI_LOAD_MAX=9999 \
+    RSI_MEM_AVAIL_MIN_MB=0 RSI_SWAP_USED_MAX_MB=999999999 \
+    RSI_LANE2_MEM_MIN_MB=0 RSI_LANE2_PRESSURE_MAX=99 RSI_LANE2_SWAP_FREE_MIN_MB=0 \
+    PATH="$T/bin:$PATH" \
     RSI_RUNS="$T/runs" bash "$LANE" run 1 >"$T/$case.out" 2>"$T/$case.err"
   RC=$?
 }
