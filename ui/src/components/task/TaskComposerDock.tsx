@@ -96,6 +96,12 @@ export type TaskComposerDockProps = {
   unseen?: number;
   /** Return the transcript to the newest output (the page's own handler). */
   showNewest?: () => void;
+  /**
+   * A follow-up this page queued behind the running round is still waiting.
+   * It is a row in the bottom lane, above the composer — never a toast over
+   * the box the person is about to use again.
+   */
+  queuedGuide?: boolean;
 };
 
 export default function TaskComposerDock({
@@ -138,6 +144,7 @@ export default function TaskComposerDock({
   onApproveFirstPending,
   unseen = 0,
   showNewest,
+  queuedGuide = false,
 }: TaskComposerDockProps) {
   const tr = useT();
   // Usage rides the footer whenever the side rail is absent (<1600); the
@@ -150,8 +157,23 @@ export default function TaskComposerDock({
       className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5"
     >
       {/* New activity is a row in the bottom lane, never an overlay. The live
-          region stays mounted while empty so its arrival is announced. */}
-      <div aria-live="polite" className="max-w-conversation mx-auto flex flex-none justify-center">
+          region stays mounted while empty so its arrival is announced. The
+          queued confirmation is a second row in the same lane, for the same
+          reason: it used to be a toast that covered the composer. */}
+      <div
+        aria-live="polite"
+        className="max-w-conversation mx-auto flex flex-none flex-col items-center"
+      >
+        {queuedGuide && (
+          <div
+            data-kin-queued-guide
+            data-testid="queued-guide"
+            role="status"
+            className="mb-1.5 rounded-full bg-kin-elevated px-3.5 py-1 text-caption text-kin-secondary shadow-e2"
+          >
+            {tr("task.queuedGuide")}
+          </div>
+        )}
         {unseen > 0 && (
           <Button
             variant="secondary"

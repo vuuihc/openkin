@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { setLocale } from "../../i18n";
+import { setLocale, t } from "../../i18n";
 import Composer from "./Composer";
 
 /**
@@ -74,6 +74,52 @@ describe("Composer refill", () => {
     const { container } = setup();
     expect(container.querySelector("[data-kin-composer-row]")?.className).toContain("mt-1.5");
     expect(box().className).toContain("kin-composer-input");
+  });
+});
+
+describe("the resting composer at a narrow card width", () => {
+  function card(container: HTMLElement): HTMLElement {
+    const surface = container.querySelector<HTMLElement>("[data-kin-composer-card]");
+    if (!surface) throw new Error("the composer has no card surface");
+    return surface;
+  }
+
+  it("a click on the composer card's padding puts the caret in the message box", () => {
+    const { container } = setup();
+
+    // A control keeps its own press: the card must not pull the caret away
+    // from the thing the pointer actually hit.
+    const attach = screen.getByRole("button", { name: t("composer.attachFile") });
+    fireEvent.pointerDown(attach);
+    expect(document.activeElement).not.toBe(box());
+
+    // The card's own surface — its padding, the gap around the controls, the
+    // bare corners — is the box as far as a pointer is concerned.
+    fireEvent.pointerDown(card(container));
+    expect(document.activeElement).toBe(box());
+  });
+
+  it("the resting composer is container-scoped, and the expanded arrangement stays a column", () => {
+    // A structural assertion, not the width proof: the live measurement in the
+    // PR body is what shows the textarea is wide enough at 768 and 820. This
+    // only pins the mechanism, so a later `sm:` cannot quietly come back.
+    const { container, rerender } = setup();
+    expect(card(container).className).toContain("@container");
+
+    const restingRow = box().parentElement!;
+    expect(restingRow.className).toContain("@xl:flex-row");
+    expect(restingRow.className).not.toContain("sm:flex-row");
+    expect(box().className).toContain("@xl:flex-1");
+    expect(box().className).toContain("min-h-11");
+    expect(box().className).not.toContain("sm:flex-1");
+    const controls = container.querySelector("[data-kin-composer-row]")!;
+    expect(controls.className).toContain("@xl:mt-0");
+
+    // The raised arrangement is a column at every width, before and after.
+    rerender(<Composer onSubmit={vi.fn()} focusSignal={1} />);
+    const expandedRow = box().parentElement!;
+    expect(expandedRow.className).toContain("flex-col");
+    expect(expandedRow.className).not.toContain("@xl:flex-row");
   });
 });
 
