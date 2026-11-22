@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the import trigger drops back to 32px on a finger",
+    "file": "ui/src/components/layout/Sidebar.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/layout/Sidebar.dom.test.tsx",
+    "old": "          coarse ? \"h-11 min-h-11\" : \"h-8\",\n          importMenuOpen",
+    "new": "          \"h-8\",\n          importMenuOpen"
+  },
+  {
+    "label": "new chat drops back to 32px on a finger",
+    "file": "ui/src/components/layout/Sidebar.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/layout/Sidebar.dom.test.tsx",
+    "old": "          coarse ? \"h-11 min-h-11\" : \"h-8\",\n          draftActive",
+    "new": "          \"h-8\",\n          draftActive"
+  },
+  {
+    "label": "the footer's Inbox and Archived links drop back to 32px on a finger",
+    "file": "ui/src/components/layout/Sidebar.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/layout/Sidebar.dom.test.tsx",
+    "old": "        coarse ? \"h-11 min-h-11\" : \"h-8\",\n        active",
+    "new": "        \"h-8\",\n        active"
+  }
+]
