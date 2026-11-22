@@ -436,6 +436,32 @@ describe("KIN-CONTRACT-001: /routines points at the one run list", () => {
     renderApp("/routines?device=dev-a");
     expect(await screen.findByRole("button", { name: "routines.openRoutine" })).toBeTruthy();
   });
+
+  it("keeps the runs link under the row until the two-column width", async () => {
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "Morning review")],
+      has_more: false,
+    });
+    renderApp("/routines?device=dev-a");
+    fireEvent.click(await screen.findByRole("button", { name: "routines.openRoutine" }));
+    const links = await screen.findAllByRole("link", { name: "routines.viewRunsFor" });
+    const inline = links.filter((link) => link.closest("aside") === null);
+    const inAside = links.filter((link) => link.closest("aside") !== null);
+    expect(inline).toHaveLength(1);
+    expect(inAside).toHaveLength(1);
+    // 820px is a tablet, not a desktop. The two-column layout used to start at
+    // md (768px), squeezing the routine row beside a nearly empty aside until
+    // the title truncated to two or three characters. It starts at lg, and the
+    // inline link takes over below it with the same 44px tap target as a phone.
+    expect(inline[0].parentElement?.className).toContain("lg:hidden");
+    expect(inline[0].parentElement?.className).not.toContain("md:hidden");
+    expect(inline[0].className).toContain("lg:min-h-0");
+    const aside = inAside[0].closest("aside");
+    expect(aside?.className).toContain("lg:block");
+    expect(aside?.className).not.toContain("md:block");
+    expect(aside?.parentElement?.className).toContain("lg:grid");
+    expect(aside?.parentElement?.className).not.toContain("md:grid");
+  });
 });
 
 describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {

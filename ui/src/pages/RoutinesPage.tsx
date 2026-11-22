@@ -1506,7 +1506,10 @@ export default function RoutinesPage() {
               )}
             </section>
 
-            <div className="mt-10 md:grid md:grid-cols-[minmax(0,1fr)_340px] md:items-start md:gap-6">
+            {/* Two columns only where the list column still fits a routine
+                row: at 820px the aside starved it into two-letter truncations,
+                so the runs link stays under the selected row until lg. */}
+            <div className="mt-10 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-6">
               <RoutineList
                 routines={routines}
                 query={routineQuery}
@@ -1534,14 +1537,14 @@ export default function RoutinesPage() {
                 onLoadMore={() => void loadMoreRoutines()}
                 renderRowExtra={(r) =>
                   selectedId === r.id ? (
-                    <div className="mt-3 md:hidden">
+                    <div className="mt-3 lg:hidden">
                       <RoutineRunsLink routine={r} tr={tr} />
                     </div>
                   ) : null
                 }
                 tr={tr}
               />
-              <aside className="hidden md:sticky md:top-4 md:block">
+              <aside className="hidden lg:sticky lg:top-4 lg:block">
                 {selected ? (
                   <section
                     aria-labelledby={`runs-link-${selected.id}`}
@@ -1591,7 +1594,7 @@ function RoutineRunsLink({
       to={`/sessions?routine=${encodeURIComponent(routine.id)}`}
       aria-label={tr("routines.viewRunsFor", { title: routineLabel(routine) })}
       className={[
-        "inline-flex min-h-11 items-center text-body font-medium text-kin-blue-ink hover:underline md:min-h-0",
+        "inline-flex min-h-11 items-center text-body font-medium text-kin-blue-ink hover:underline lg:min-h-0",
         className ?? "",
       ].join(" ")}
     >
