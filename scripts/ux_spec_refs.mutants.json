@@ -1,0 +1,79 @@
+[
+  {
+    "label": "the area rule is skipped, so a journey may click a retired area again (the #584 shape)",
+    "file": "scripts/ux_spec_refs.py",
+    "test": "python3 -B scripts/ux_spec_refs_test.py",
+    "old": "        if area not in areas:\n",
+    "new": "        if False and area not in areas:\n"
+  },
+  {
+    "label": "the goto rule is skipped, so a journey may visit an unregistered route",
+    "file": "scripts/ux_spec_refs.py",
+    "test": "python3 -B scripts/ux_spec_refs_test.py",
+    "old": "                if not goto_matches(path, routes):\n",
+    "new": "                if False and not goto_matches(path, routes):\n"
+  },
+  {
+    "label": "the catch-all exclusion is dropped, so the '*' route makes every path look registered",
+    "file": "scripts/ux_spec_refs.py",
+    "test": "python3 -B scripts/ux_spec_refs_test.py",
+    "old": "    named = [route for route in routes if route != \"*\"]\n",
+    "new": "    named = list(routes)  # mutant: a catch-all registers every path\n"
+  },
+  {
+    "label": "the data-kin rule is skipped, so a journey may wait on a hook nothing renders",
+    "file": "scripts/ux_spec_refs.py",
+    "test": "python3 -B scripts/ux_spec_refs_test.py",
+    "old": "        if name not in kin:\n",
+    "new": "        if False and name not in kin:\n"
+  },
+  {
+    "label": "the url-prefix rule is skipped, so a journey may expect a retired route prefix",
+    "file": "scripts/ux_spec_refs.py",
+    "test": "python3 -B scripts/ux_spec_refs_test.py",
+    "old": "                if not url_matches(step[1], routes):\n",
+    "new": "                if False and not url_matches(step[1], routes):\n"
+  },
+  {
+    "label": "a tree with no routes is given a wildcard instead of failing closed",
+    "file": "scripts/ux_spec_refs.py",
+    "test": "python3 -B scripts/ux_spec_refs_test.py",
+    "old": "    if not routes:\n        raise SourceError(\n            f\"{ROUTES_FILE}: no literal <Route path=...>; cannot read the live routes\"\n        )\n",
+    "new": "    if not routes:\n        return [\"*\"]  # mutant: a tree with no routes passes\n"
+  },
+  {
+    "label": "a runtime-built data-kin selector passes instead of failing closed",
+    "file": "scripts/ux_spec_refs.py",
+    "test": "python3 -B scripts/ux_spec_refs_test.py",
+    "old": "    if argument.count(attribute) != len(names):\n",
+    "new": "    if False and argument.count(attribute) != len(names):\n"
+  },
+  {
+    "label": "the goto assertion stops pinning the retired path it names",
+    "file": "scripts/ux_spec_refs_test.py",
+    "test": "python3 -B scripts/ux_spec_refs_test.py",
+    "old": "        self.assertIn(\"/projects\", result.stderr)\n",
+    "new": "        self.assertIn(\"/routes\", result.stderr)\n"
+  },
+  {
+    "label": "the gate stops starting the job, so the checker never runs",
+    "file": "scripts/check.sh",
+    "test": "python3 -B scripts/ux_spec_refs_test.py GateWiringTest.test_check_sh_runs_the_checker_on_every_gate",
+    "old": "start ux-spec-refs job_ux_spec_refs\n",
+    "new": ""
+  },
+  {
+    "label": "the gate's new job stops naming its own suite, so a new checker file is unwired",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  python3 -B scripts/ux_spec_refs_test.py || return 1\n",
+    "new": "  # python3 -B scripts/ux_spec_refs_test.py || return 1\n"
+  },
+  {
+    "label": "the new guard scripts drop out of the merge deny-list, so a move on main carries instead of re-gating",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_regates_every_script_the_gate_runs bash rsi/runtime/tests/test-gate-carry.sh",
+    "old": "    \"scripts/ux_spec_refs.py\", \"scripts/ux_spec_refs_test.py\",\n",
+    "new": "\n"
+  }
+]
