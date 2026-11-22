@@ -8,8 +8,9 @@
 # rerun that must keep a comment (re-anchored, then 该行已变化), the shell
 # that must not remount on a route change, the phone footer that must reopen the
 # URL the reader left in each area, the phone's Back that must not reload the
-# document, the unchecked PR branch that must not read as still checking, and
-# the row menu that must keep its disabled 运行中 line; that the runner prints
+# document, the phone's Back that must keep the search it left, the unchecked
+# PR branch that must not read as still checking, and the row menu that must
+# keep its disabled 运行中 line; that the runner prints
 # that same manifest; that a walk killed by the watchdog (TERM), a closed
 # terminal (HUP) or Ctrl-C (INT) puts the tracked web/dist/index.html back and
 # leaves no temp OUT behind; and that the J3 spec carries the mid-run ordering proof
@@ -45,8 +46,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 16:
-    raise SystemExit("manifest must be exactly sixteen entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 17:
+    raise SystemExit("manifest must be exactly seventeen entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -209,6 +210,24 @@ if 'window.location.assign("/sessions")' not in phone["new"] or "navigate(-1)" i
     raise SystemExit("the J11 mutant does not turn the phone's Back into a document load")
 if "R-f4-switch-phone" not in phone["new"]:
     raise SystemExit("the J11 mutant does not name the item it breaks (no R-f4-switch-phone marker)")
+# The J1 mutant must make Back land on the bare list instead of popping the
+# entry the reader left: J1's walk then returns to /sessions with an empty
+# search field and reddens on the `value`/`search` reads, not merely on the
+# address. Both lines of goBackToList's body are replaced, so navigate(-1) must
+# be gone from `new`; leaving it reachable would let J1 stay green.
+# `--walk-once J1` is a prefix of `--walk-once J11`, so select on the suffix.
+back_search = next((e for e in entries if e["file"].endswith("ui/src/lib/phoneBack.ts")
+                    and e["test"].rstrip().endswith("--walk-once J1")), None)
+if back_search is None:
+    raise SystemExit("no J1 entry for ui/src/lib/phoneBack.ts")
+if "navigate(-1)" not in back_search["old"]:
+    raise SystemExit("the J1 Back mutant does not replace the history pop")
+if "navigate(-1)" in back_search["new"]:
+    raise SystemExit("the J1 Back mutant leaves navigate(-1) reachable; the search could still come back")
+if 'navigate("/sessions", { replace: true })' not in back_search["new"]:
+    raise SystemExit("the J1 Back mutant does not land on the bare list")
+if "R-phone-back-walk" not in back_search["new"]:
+    raise SystemExit("the J1 Back mutant does not name the item it breaks (no R-phone-back-walk marker)")
 # The J13 mutant must refuse the PR tab's address in the parser: the tab still
 # opens, but `?panel=pr` names no place, so a cold arrival draws no PR surface
 # and the walk's selected-tab waits redden while the query bytes stay put.
@@ -1114,4 +1133,86 @@ print("J11 footer contract rejects all five deleted or weakened facts")
 PYTEST
 pass "$case_name"
 
-echo "walk-mutant contract: 20/20 cases passed"
+# The search → open → Back leg is only a claim if the contract rejects a spec
+# that drops one of its reads. Each deletion below must redden --check-spec and
+# name the missing read, not fail for another reason: a value that comes back
+# empty and a list address that no longer carries ?search= are the two ways
+# the search can be lost while `url ^/sessions` stays green.
+case_name="test_j1_spec_rejects_a_back_without_the_search_reads"
+python3 - "$SPEC_INDEX" "$SPECPY" "$WALKER" <<'PYTEST' || fail "$case_name: a missing search-after-Back read was accepted"
+import copy
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+index, specpy, walker = sys.argv[1:]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", index]))
+steps = spec["journeys"]["J1"]["steps"]
+
+value_at = next((i for i, st in enumerate(steps)
+                 if st[0] == "value" and "input[type=search]" in str(st[1])
+                 and str(st[2]) == "Morning"), -1)
+search_at = next((i for i, st in enumerate(steps)
+                  if st[0] == "search" and "search=Morning" in str(st[1])), -1)
+assert value_at >= 0 and search_at >= 0, "J1 carries no value/search after Back to guard"
+
+def run(mutant):
+    with tempfile.TemporaryDirectory(prefix="j1-back-") as tmp:
+        target = Path(tmp) / "spec.json"
+        target.write_text(json.dumps(mutant))
+        result = subprocess.run(["node", walker, "--check-spec", "--spec", str(target)],
+                                capture_output=True, text=True)
+    return result.returncode, result.stdout + result.stderr
+
+rc, out = run(copy.deepcopy(spec))
+assert rc == 0, "the good J1 spec was rejected:\n" + out
+
+cases = {
+    "missing value read": (value_at, "never reads the search text back after Back"),
+    "missing search read": (search_at, "never proves the list URL still carries the search"),
+}
+for label, (pos, needle) in cases.items():
+    mutant = copy.deepcopy(spec)
+    del mutant["journeys"]["J1"]["steps"][pos]
+    rc, out = run(mutant)
+    assert rc != 0, label + " deletion still passed --check-spec"
+    assert needle in out, label + " was rejected for another reason:\n" + out
+
+mutant = copy.deepcopy(spec)
+mutant["journeys"]["J1"]["steps"][value_at] = ["value", "input[type=search]", "seed"]
+rc, out = run(mutant)
+assert rc != 0, "a different search text still passed --check-spec"
+assert "reads a different search text" in out, \
+    "the different term was rejected for another reason:\n" + out
+print("J1 back leg ok: both reads and the same-term value are required")
+PYTEST
+pass "$case_name"
+
+# --walk-once J1 is the R-phone-back-walk mutant's whole test command. A runner
+# that no longer accepts J1 exits "unknown journey" before any walk, so
+# mutants.py would see a red for a reason that is not the product. The J1
+# branch must also keep the two search-back reads, or a walk that returns to an
+# empty field could print green. Text-level on purpose: the alternative is a
+# 20-minute browser walk, and the --walk-once build-path case above already
+# reads the runner this way.
+case_name="test_walk_once_accepts_j1_and_keeps_the_search_back_evidence"
+python3 - "$RUNNER" <<'PY' || fail "$case_name: --walk-once has no J1 dispatch"
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+if "      J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15) ;;" not in text:
+    raise SystemExit("--walk-once no longer accepts J1 (the case list lost J1)")
+start = text.index('if [ "$JOURNEY" = "J1" ]; then')
+end = text.index('if [ "$JOURNEY" = "J2" ]', start)
+branch = text[start:end]
+for needle in ('ux-walk.sh "$WT" "$OUT" J1',
+               'value input[type=search] is ', 'search=Morning'):
+    if needle not in branch:
+        raise SystemExit("the J1 walk-once branch is missing " + repr(needle))
+print("J1 walk-once dispatch ok: J1 accepted with the search-back evidence reads")
+PY
+pass "$case_name"
+
+echo "walk-mutant contract: 22/22 cases passed"
