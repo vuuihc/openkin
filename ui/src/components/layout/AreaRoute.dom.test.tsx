@@ -33,7 +33,7 @@ function Nav() {
     <>
       <button onClick={() => navigate("/tasks/t1")}>open-task-1</button>
       <button onClick={() => navigate("/tasks/t2")}>open-task-2</button>
-      <button onClick={() => navigate("/projects")}>open-projects</button>
+      <button onClick={() => navigate("/routines")}>open-routines</button>
       <button onClick={() => navigate("/settings?tab=agents")}>open-agents-tab</button>
       <button onClick={() => navigate(-1)}>go-back</button>
     </>
@@ -55,7 +55,7 @@ function Shell() {
         <Routes>
           <Route path="/sessions" element={<Page name="sessions" />} />
           <Route path="/tasks/:id" element={<Page name="task" />} />
-          <Route path="/projects" element={<Page name="projects" />} />
+          <Route path="/routines" element={<Page name="routines" />} />
           <Route path="/settings" element={<Page name="settings" />} />
         </Routes>
       </AreaRoute>
@@ -145,16 +145,16 @@ describe("AreaRoute", () => {
     expect(wrapper().getAttribute("data-motion")).toBe("pop");
     expect(commits.at(-1)).toEqual({ page: "sessions", motion: "pop" });
 
-    fireEvent.click(screen.getByRole("button", { name: "open-projects" }));
+    fireEvent.click(screen.getByRole("button", { name: "open-routines" }));
     expect(wrapper().getAttribute("data-motion")).toBe("area");
-    expect(commits.at(-1)).toEqual({ page: "projects", motion: "area" });
+    expect(commits.at(-1)).toEqual({ page: "routines", motion: "area" });
   });
 
   it("keeps a sibling outside the wrapper mounted across a navigation", () => {
     renderShell();
     const sentinel = screen.getByTestId("sentinel");
 
-    fireEvent.click(screen.getByRole("button", { name: "open-projects" }));
+    fireEvent.click(screen.getByRole("button", { name: "open-routines" }));
 
     // Same node object, not merely an equal one: nothing keyed by the location
     // remounted the shell beside the route.
@@ -189,7 +189,7 @@ describe("AreaRoute", () => {
     fireEvent.click(screen.getByRole("button", { name: "go-back" }));
     expect(wrapper().getAttribute("data-motion")).toBe("fade");
 
-    fireEvent.click(screen.getByRole("button", { name: "open-projects" }));
+    fireEvent.click(screen.getByRole("button", { name: "open-routines" }));
     expect(wrapper().getAttribute("data-motion")).toBe("fade");
   });
 

@@ -34,7 +34,7 @@ const ROOT_FLAG = "kin-zen";
  * during zen is not.
  */
 const CHROME = new Map([
-  ["src/components/layout/AreaNav.tsx", "the four-area rail"],
+  ["src/components/layout/AreaNav.tsx", "the three-area rail"],
   ["src/components/layout/Sidebar.tsx", "the desktop navigation column"],
   ["src/components/layout/AppShell.tsx", "the phone's detail-route top inset"],
   ["src/components/mobile/MobileHeader.tsx", "the phone's top bar"],

@@ -1,20 +1,21 @@
 /**
- * The four areas of the console, as one table.
+ * The three areas of the console, as one table.
  *
- * The signed direction (KIN-CONTINUE-003, `docs/product/IA.md`) is that the
- * console has four areas — Conversations, Projects, Routines, Settings — and
- * that every navigation surface is a view of the same definitions. Before this
- * table each surface could spell "where can I go" for itself; the failure mode
- * is a place that exists in the router and in no list, or two names for one
- * destination.
+ * The signed direction (KIN-CONTRACT-001, `docs/product/IA.md`) is that the
+ * console has three areas — Conversations, Routines, Settings — and that every
+ * navigation surface is a view of the same definitions. The Projects area
+ * retired with its collection: the project level lives in the conversation
+ * list, and `/projects` is a redirect to that list. Before this table each
+ * surface could spell "where can I go" for itself; the failure mode is a place
+ * that exists in the router and in no list, or two names for one destination.
  *
  * The table holds data, not presentation, for the same reason `places.ts` and
  * `panels.ts` do: the tests that read it run without a DOM. The icon is an id,
  * not a component; the label is a locale key, not a translated string.
  *
- * This module deliberately does not touch the catalogs. `nav.projects` is
- * reserved here and N2 adds the locale entries when the shell renders the
- * table; N1 is the contract only.
+ * This module deliberately does not touch the catalogs. `nav.projects` stays in
+ * the locale files because the project cover still names its mode; a key with
+ * no area row is harmless, a lost one is a regression.
  */
 
 /**
@@ -59,14 +60,6 @@ export const AREAS = [
     macNav: true,
   },
   {
-    id: "projects",
-    labelKey: "nav.projects",
-    icon: "projects",
-    root: "/projects",
-    phoneParent: null,
-    macNav: true,
-  },
-  {
     id: "routines",
     labelKey: "nav.routines",
     icon: "routines",
@@ -92,12 +85,12 @@ export const AREAS = [
 export type AreaId = (typeof AREAS)[number]["id"];
 export type Area = (typeof AREAS)[number];
 
-/** The ids, in display order, for code that needs to walk the four areas. */
+/** The ids, in display order, for code that needs to walk the three areas. */
 export const AREA_IDS: readonly AreaId[] = AREAS.map((area) => area.id);
 
 /**
  * Mac navigation membership, encoded separately from the table's order and
- * from the phone roots. All four areas belong to Mac navigation today, but a
+ * from the phone roots. All three areas belong to Mac navigation today, but a
  * future area can join the phone model without silently entering the sidebar.
  */
 export const MAC_NAV_AREA_IDS: readonly AreaId[] = AREAS.filter((area) => area.macNav).map(
