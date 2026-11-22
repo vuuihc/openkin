@@ -28,12 +28,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { designSystemRoute } from "../pages/DesignSystemPage";
-import {
-  CONTRACT_DRAFT_ROUTE,
-  CONTRACT_PAGES,
-  EXIT_ROWS,
-  type ExitRow,
-} from "./surfacesContract";
+import { CONTRACT_DRAFT_ROUTE, CONTRACT_PAGES, EXIT_ROWS, type ExitRow } from "./surfacesContract";
 
 const appSource = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
 
