@@ -246,8 +246,7 @@ describe("scale ladders through Tailwind", () => {
    */
   it("the touch-floor comment quotes the list column it is describing", async () => {
     const loaded = (await jiti.import(join(UI, "tailwind.config.ts"))) as
-      | Config
-      | { default: Config };
+      Config | { default: Config };
     const config = "default" in loaded ? loaded.default : loaded;
     const widths =
       (config.theme as { extend?: { width?: Record<string, string> } } | undefined)?.extend
