@@ -29,9 +29,12 @@ SOURCE_OF_TRUTH="rsi/MANDATE.md"
 CLAIM_FILES=(
   rsi/runtime/prompts/cloud-brief-template.md
   rsi/runtime/prompts/pulse-serial.md
+  rsi/runtime/prompts/fill.md
   rsi/roles/dogfooder.md
   rsi/roles/reviewer.md
   rsi/roles/fixer.md
+  rsi/runtime/lane.sh
+  rsi/runtime/merge.sh
 )
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 
