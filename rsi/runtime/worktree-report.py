@@ -6,9 +6,9 @@ worktrees (488 of them ``rsi-*``); the naive ``du -sh`` over that tree took over
 minutes, so nobody could answer the obvious question in bounded time. This is the
 read-only answer:
 
-    worktree-report.py [--repo DIR] [--state DIR] [--base REF] [--json]
-                       [--min-age-days N] [--size-timeout S] [--size-parallel N]
-                       [--now EPOCH]
+    worktree-report.py [--repo DIR] [--state DIR] [--base REF] [--merged-log PATH]
+                       [--json] [--min-age-days N] [--size-timeout S]
+                       [--size-parallel N] [--now EPOCH]
 
 It is a report, never a janitor. It runs only git readers (``worktree list``,
 ``status --porcelain``, ``rev-list``, ``log``) and ``du -skx``; it writes no file and
@@ -22,13 +22,24 @@ A fact it cannot read is ``unknown`` in the table and ``null`` in ``--json`` —
 ``unknown``, with one summary line counting what was not measured. Each git call is
 bounded too, so a wedged worktree cannot hang the report.
 
-``reclaimable`` means all of: the branch is ``rsi/<slug>``; it is an ancestor of
-``--base`` (default ``origin/main``); the worktree is clean; no active lane claims the
-slug; it is not locked; it is neither the worktree this command runs in nor the worktree
-that holds ``<state>`` (the control tree's state is gitignored, so it reads as clean);
-and its last commit is older than ``--min-age-days`` (default 1). Kin-managed ``kin/*``
-worktrees and non-``rsi`` worktrees are reported and never counted — they are not the
-loop's to judge.
+``reclaimable`` means all of: the branch is ``rsi/<slug>``; it is merged — either an
+ancestor of ``--base`` (default ``origin/main``) or named by a ``merged`` PR line in the
+merge record read from ``--merged-log`` (default ``<state>/merged.log``); the worktree is
+clean; no active lane claims the slug; it is not locked; it is neither the worktree this
+command runs in nor the worktree that holds ``<state>`` (the control tree's state is
+gitignored, so it reads as clean); and its last commit is older than ``--min-age-days``
+(default 1). Kin-managed ``kin/*`` worktrees and non-``rsi`` worktrees are reported and
+never counted — they are not the loop's to judge.
+
+The merge record is a second fact because this repository lands every PR with a squash
+commit: a merged branch's own commits are never ancestors of ``main``. Each line the merge
+lane writes is ``YYYY-MM-DD HH:MM PR #N <slug> <item> merged <sha> <url>``; only a line
+with at least seven fields whose 3rd is ``PR``, 4th is ``#<digits>`` and 7th is exactly
+``merged`` counts. A ``hold``/``closed``/``queued`` row, a bare slug, a comment or a
+header is not a delivery record. A missing, unreadable or directory-shaped record is
+unknown: it promotes nothing, while the ancestor fact still stands. The record never
+overrides a disqualifier — a dirty or claimed worktree stays un-reclaimable whatever the
+log says.
 
 The claim check reads only ``<state>/lanes/<lane-number>.json`` (``--state``, then
 ``$RSI_STATE``, then ``$STATE``, then ``<repo>/rsi/state``); the per-lane artifacts
@@ -48,6 +59,7 @@ import argparse
 import concurrent.futures
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -137,6 +149,36 @@ def merged_heads(repo: Path, base: str):
     if proc is None or proc.returncode != 0:
         return None
     return set(proc.stdout.split())
+
+
+PR_NUMBER = re.compile(r"#\d+\Z")
+
+
+def merged_pr_slugs(path: Path):
+    """Slugs named by a ``merged`` PR line in the merge record; None when it cannot be read.
+
+    The merge lane writes ``YYYY-MM-DD HH:MM PR #N <slug> <item> merged <sha> <url>`` for
+    each landed PR (merge.sh). A squash merge leaves the branch's commits outside ``main``,
+    so this line is the only record that the branch landed. Only a row with at least seven
+    fields, a ``PR`` 3rd field, a ``#<digits>`` 4th field and exactly ``merged`` 7th counts;
+    ``hold``/``closed``/``queued`` rows, bare slugs, comments and headers are not facts.
+    A missing, unreadable or directory-shaped log is unknown (None), never "no merges".
+    """
+    try:
+        if not path.is_file():
+            return None
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    slugs: set[str] = set()
+    for line in text.splitlines():
+        f = line.split()
+        if len(f) < 7 or f[2] != "PR" or f[6] != "merged" or not PR_NUMBER.match(f[3]):
+            continue
+        slug = f[4][len("rsi/"):] if f[4].startswith("rsi/") else f[4]
+        if slug:
+            slugs.add(slug)
+    return slugs
 
 
 def commit_times(repo: Path, heads: list[str]) -> dict[str, int]:
@@ -318,6 +360,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--repo", help="repo whose worktrees are read (default $RSI_CTRL, this repo)")
     ap.add_argument("--state", help="state dir (default $RSI_STATE, $STATE, repo/rsi/state)")
     ap.add_argument("--base", default=BASE, help=f"branch a merged worktree is an ancestor of (default {BASE})")
+    ap.add_argument("--merged-log", help="merge record with one line per landed PR "
+                    "(default <state>/merged.log)")
     ap.add_argument("--json", action="store_true", help="machine-readable report")
     ap.add_argument("--min-age-days", type=float, default=1.0,
                     help="a worktree must be older than this to count (default 1)")
@@ -342,6 +386,8 @@ def main(argv: list[str]) -> int:
     if merged is None:
         print(f"worktree-report: cannot resolve {a.base}; merged is unknown for every row",
               file=sys.stderr)
+    merged_log = Path(a.merged_log) if a.merged_log else state / "merged.log"
+    pr_slugs = merged_pr_slugs(merged_log)
     ages = commit_times(repo, [r["head"] for r in rows])
     lanes, lane_note = active_slugs(state, now)
     if lanes is not None and not lanes and not state_source:
@@ -373,7 +419,16 @@ def main(argv: list[str]) -> int:
         else:
             claimed = bool(slug and slug in lanes)
         head = row["head"]
-        is_merged = None if merged is None or head is None else head in merged
+        # A squash merge leaves no ancestor, so the merge record is the second fact. It
+        # only ever adds a merge; classify() still decides which facts can block a row.
+        if merged is not None and head is not None and head in merged:
+            is_merged, merged_by = True, "ancestor"
+        elif slug and pr_slugs is not None and slug in pr_slugs:
+            is_merged, merged_by = True, "pr-log"
+        elif merged is None or head is None:
+            is_merged, merged_by = None, None
+        else:
+            is_merged, merged_by = False, None
         age = None
         if head in ages:
             age = max(0.0, (now - ages[head]) / 86400.0)
@@ -384,6 +439,7 @@ def main(argv: list[str]) -> int:
             "branch": row["branch"],
             "head": head,
             "merged": is_merged,
+            "merged_by": merged_by,
             "dirty": dirty.get(path),
             "claimed": claimed,
             "locked": row["locked"],

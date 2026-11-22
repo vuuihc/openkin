@@ -57,9 +57,11 @@ setup() {
   # merged, clean, unclaimed, old: the one reclaimable row
   git -C "$R" worktree add -q -b rsi/merged-old "$W/merged-old" origin/main \
     || fail "setup: merged-old"
-  # one commit that never reached origin/main
+  # one old commit that never reached origin/main; old so that a merged PR line is the
+  # only fact standing between this worktree and `reclaimable`.
   git -C "$R" worktree add -q -b rsi/unmerged "$W/unmerged" origin/main || fail "setup: unmerged"
-  ( cd "$W/unmerged" && echo x > x.txt && git add x.txt && git commit -qm unmerged ) \
+  ( cd "$W/unmerged" && echo x > x.txt && git add x.txt \
+      && GIT_AUTHOR_DATE="$OLD" GIT_COMMITTER_DATE="$OLD" git commit -qm unmerged ) \
     || fail "setup: unmerged commit"
   # merged and old, but an untracked file
   git -C "$R" worktree add -q -b rsi/dirty "$W/dirty" origin/main || fail "setup: dirty"
@@ -364,10 +366,117 @@ PY
   pass git-timeout-is-honoured
 }
 
+# --- 9. a merged PR line in the merge record is a second, checkable merge fact -----------------
+# This repository lands every PR with a squash commit, so a merged branch's own commits are never
+# ancestors of origin/main. The merge lane writes one line per landed PR to <state>/merged.log:
+#     YYYY-MM-DD HH:MM PR #N <slug> <item> merged <sha> <url>
+# A `merged` line for the slug is delivery evidence; anything else is not.
+MERGED_LINE='2026-11-22 10:00 PR #999 unmerged R-fixture merged 0123456789abcdef https://github.com/example/example/pull/999'
+case_merged_pr_log_is_reclaimable() {
+  want merged-pr-log-is-reclaimable || return 0
+  run --min-age-days 1
+  [ "$rc" -eq 0 ] || fail "pr-log: baseline rc=$rc"
+  [ "$(field unmerged merged)" = false ] || fail "pr-log: baseline merged=$(field unmerged merged)"
+  [ "$(field unmerged merged_by)" = unknown ] \
+    || fail "pr-log: baseline merged_by=$(field unmerged merged_by)"
+  [ "$(field unmerged reclaimable)" = false ] || fail "pr-log: baseline reclaimable"
+  has_reason unmerged unmerged || fail "pr-log: baseline has no unmerged reason"
+  local before after
+  before="$(total reclaimable_count)"
+
+  printf '%s\n' "$MERGED_LINE" > "$S/merged.log"
+  run --min-age-days 1
+  [ "$rc" -eq 0 ] || fail "pr-log: merged rc=$rc ($(cat "$IO/err.txt"))"
+  [ "$(field unmerged merged)" = true ] || fail "pr-log: merged=$(field unmerged merged)"
+  [ "$(field unmerged merged_by)" = pr-log ] \
+    || fail "pr-log: merged_by=$(field unmerged merged_by)"
+  [ "$(field unmerged reclaimable)" = true ] \
+    || fail "pr-log: not reclaimable (reason=$(field unmerged reason))"
+  [ "$(field unmerged reason)" = unknown ] || fail "pr-log: reason=$(field unmerged reason)"
+  after="$(total reclaimable_count)"
+  [ "$after" -eq $((before + 1)) ] || fail "pr-log: count $before -> $after"
+  rm -f "$S/merged.log"
+  pass merged-pr-log-is-reclaimable
+}
+
+# --- 10. a status note is not a delivery record ------------------------------------------------
+case_merged_pr_log_needs_the_word_merged() {
+  want merged-pr-log-needs-the-word-merged || return 0
+  {
+    printf '%s\n' '2026-11-22 10:00 PR #999 unmerged R-fixture hold 0123456789abcdef https://github.com/example/example/pull/999'
+    printf '%s\n' 'unmerged'
+  } > "$S/merged.log"
+  run --min-age-days 1
+  [ "$rc" -eq 0 ] || fail "pr-log-status: rc=$rc"
+  [ "$(field unmerged merged)" = false ] || fail "pr-log-status: merged=$(field unmerged merged)"
+  [ "$(field unmerged merged_by)" = unknown ] \
+    || fail "pr-log-status: merged_by=$(field unmerged merged_by)"
+  [ "$(field unmerged reclaimable)" = false ] || fail "pr-log-status: row reclaimable"
+  has_reason unmerged unmerged || fail "pr-log-status: no unmerged reason"
+  rm -f "$S/merged.log"
+  pass merged-pr-log-needs-the-word-merged
+}
+
+# --- 11. an unreadable merge record is not a fact: nothing is promoted by a read failure ------
+case_merged_pr_log_unreadable_is_not_a_fact() {
+  want merged-pr-log-unreadable-is-not-a-fact || return 0
+  mkdir -p "$T/merged-dir"
+  local log
+  for log in "$T/does-not-exist.log" "$T/merged-dir"; do
+    run --min-age-days 1 --merged-log "$log"
+    [ "$rc" -eq 0 ] || fail "pr-log-unreadable: rc=$rc for $log ($(cat "$IO/err.txt"))"
+    [ "$(field unmerged merged_by)" = unknown ] \
+      || fail "pr-log-unreadable: merged_by=$(field unmerged merged_by) for $log"
+    [ "$(field unmerged merged)" = false ] \
+      || fail "pr-log-unreadable: merged=$(field unmerged merged) for $log"
+    [ "$(field unmerged reclaimable)" = false ] || fail "pr-log-unreadable: row offered for $log"
+    has_reason unmerged unmerged || fail "pr-log-unreadable: no unmerged reason for $log"
+    # The ancestor fact is independent of the merge record and must survive the read failure.
+    [ "$(field merged-old merged)" = true ] || fail "pr-log-unreadable: ancestor lost for $log"
+    [ "$(field merged-old merged_by)" = ancestor ] \
+      || fail "pr-log-unreadable: merged_by=$(field merged-old merged_by) for $log"
+    [ "$(field merged-old reclaimable)" = true ] || fail "pr-log-unreadable: ancestor row lost"
+  done
+  run_human --min-age-days 1 --merged-log "$T/does-not-exist.log"
+  [ "$rc" -eq 0 ] || fail "pr-log-unreadable: human rc=$rc"
+  grep -q 'reclaimable: 1' "$IO/out.txt" \
+    || fail "pr-log-unreadable: no summary ($(tail -3 "$IO/out.txt"))"
+  pass merged-pr-log-unreadable-is-not-a-fact
+}
+
+# --- 12. the merge record never overrides a disqualifier ---------------------------------------
+case_merged_pr_log_does_not_authorise_a_dirty_worktree() {
+  want merged-pr-log-does-not-authorise-a-dirty-worktree || return 0
+  {
+    printf '%s\n' "$MERGED_LINE"
+    printf '%s\n' '2026-11-22 10:00 PR #998 claimed-slug R-fixture merged 0123456789abcdef https://github.com/example/example/pull/998'
+  } > "$S/merged.log"
+  echo scratch > "$W/unmerged/scratch.txt"
+  printf '{"lane": 2, "slug": "other-slug", "status": "running", "pid": %s}\n' "$$" \
+    > "$S/lanes/2.json"
+
+  run --min-age-days 1
+  [ "$rc" -eq 0 ] || fail "pr-log-dirty: rc=$rc"
+  [ "$(field unmerged merged)" = true ] || fail "pr-log-dirty: merged=$(field unmerged merged)"
+  [ "$(field unmerged merged_by)" = pr-log ] \
+    || fail "pr-log-dirty: merged_by=$(field unmerged merged_by)"
+  [ "$(field unmerged dirty)" = true ] || fail "pr-log-dirty: dirty=$(field unmerged dirty)"
+  [ "$(field unmerged reclaimable)" = false ] || fail "pr-log-dirty: dirty row offered"
+  has_reason unmerged dirty || fail "pr-log-dirty: no dirty reason"
+  [ "$(field claimed claimed)" = true ] || fail "pr-log-dirty: claim lost"
+  [ "$(field claimed reclaimable)" = false ] || fail "pr-log-dirty: claimed row offered"
+  has_reason claimed claimed || fail "pr-log-dirty: no claimed reason"
+
+  rm -f "$S/merged.log" "$S/lanes/2.json" "$W/unmerged/scratch.txt"
+  pass merged-pr-log-does-not-authorise-a-dirty-worktree
+}
+
 for c in merged-clean-unclaimed-is-reclaimable unmerged-is-not-reclaimable \
          dirty-is-not-reclaimable claimed-lane-is-not-reclaimable \
          unreadable-reports-unknown-not-zero never-deletes size-pass-is-bounded \
-         git-timeout-is-honoured; do
+         git-timeout-is-honoured merged-pr-log-is-reclaimable \
+         merged-pr-log-needs-the-word-merged merged-pr-log-unreadable-is-not-a-fact \
+         merged-pr-log-does-not-authorise-a-dirty-worktree; do
   "case_${c//-/_}"
 done
 echo "PASS all"
