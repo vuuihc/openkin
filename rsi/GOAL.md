@@ -35,9 +35,7 @@ the five flows below closer to "passes without a human noticing".
 Closed 2026-11-22，五条 done-means 全绿收口：#542 `a007626f` 交付 820 阅读面；#543 `e8a9a834` 之后
 `journeys.json` 有 3 处 `820x1180`，`rsi/MANDATE.md:19` 的合并门写 390/820/1100；`KIN-QUALITY-001`
 在 `registry.json` 为 `covered`；#547 `b4bc72f7` 让 `removed-surfaces` 在 `scripts/check.sh` 里被点名执行。
-按本相 cut rule「落地已绿的」提前于 11-28 目标关闭。**不把 P17 提前打开**：它的硬入口第 3 条（最小契约
-story 签字）等 owner 的 D3–D6 回复，`KIN-CONTRACT-001` 仍是 `draft`，而本节自己写着四条「全部为真才把
-`next-phase` 改成 `phase:`」。
+按本相 cut rule「落地已绿的」提前于 11-28 目标关闭。**当时不把 P17 提前打开**：08:5x 它的硬入口第 3 条（最小契约 story 签字）还缺，`KIN-CONTRACT-001` 仍是 `draft`。同日 09:2x 受托签字落地，四条入口全绿后开相（见 P17 节）。
 
 **一句话**：在 390 / 820 / 1100 三个宽度上，把「读一条真实回答并接着问」做到 T3 的清晰与克制；820 是 owner 的日常设备，先过。
 
@@ -56,22 +54,22 @@ story 签字）等 owner 的 D3–D6 回复，`KIN-CONTRACT-001` 仍是 `draft`�
 
 **Cut rule.** 11-28 20:00 落地已绿的，其余带度量记下，不延日期。若 820 的走查在 11-28 仍是红，就把「820 进不了验收」本身记为这一相的结论，不要用 390/1100 全绿宣布完成（这正是这一相存在的理由）。
 
-## Next phase (P17) — 表面收缩与 T3 split
-<!-- next-phase: P17-surface-reduction target=not-set -->
+## Current phase (P17) — 表面收缩与 T3 split
+<!-- phase: P17-surface-reduction target=2026-12-05T20:00 -->
 
-**记录，不是许可。** 方向由 owner 2026-11-21 决定（`docs/adr/0035-mobile-rn-client-and-surface-reduction.md`、`docs/plans/2026-11-21-surface-reduction.md`）：先把 UI 面删到最小契约（owner 2026-11-22 定：四个页面——列表、任务详情、例行任务、设置；运行搬进列表；设置只删 agents 安装检测），再把手机端改成 Expo/RN + 本地 native modules；桌面保留 Electron + React/Vite，Go daemon 与共享 TS 不重写。它**顶着** 2026-11-20 23:47「不做第二客户端」的决定，且是 owner 覆议——那两个复活条件没有被满足，记录里不许写成「条件已满足」。
+**已开相（受托签字 2026-11-22 09:2x）。** 方向由 owner 2026-11-21 决定（`docs/adr/0035-mobile-rn-client-and-surface-reduction.md`、`docs/plans/2026-11-21-surface-reduction.md`）：先把 UI 面删到最小契约（owner 2026-11-22 定：四个页面——列表、任务详情、例行任务、设置；运行搬进列表；设置只删 agents 安装检测），再把手机端改成 Expo/RN + 本地 native modules；桌面保留 Electron + React/Vite，Go daemon 与共享 TS 不重写。它**顶着** 2026-11-20 23:47「不做第二客户端」的决定，且是 owner 覆议——那两个复活条件没有被满足，记录里不许写成「条件已满足」。**签字不是开工许可的替代品**：四条入口此刻都真（见下），但 RN 部分仍要自己的 story/ADR，契约冻结前不写 `mobile/`。
 
-**硬入口条件**（全部为真才把 `next-phase` 改成 `phase:`，缺一条就只记不启）：
-1. P16 全绿收口：J16 hardFail `[]`、820 进合并门、390/820/1100 截图在案（不是「大约好了」）。
-2. `#543` 的 820 验收注册已合入 main。
-3. 最小契约 story（`KIN-CONTRACT-001`）按 owner 2026-11-22 原话写完、交付时转 `approved`；`R-contract` 的路由清单测试在跑。
-4. `R-dead-paths` 已落地（1,090 行无引用死代码 + `removed-surfaces` 守卫在 `scripts/check.sh` 里被点名执行）。
+**硬入口条件**（四条全部为真才开相；2026-11-22 09:2x 全部为真）：
+1. P16 全绿收口：J16 hardFail `[]`、820 进合并门、390/820/1100 截图在案（不是「大约好了」）——`closed-phase: P16-t3-reading`。
+2. `#543` 的 820 验收注册已合入 main——`e8a9a834`。
+3. 最小契约 story（`KIN-CONTRACT-001`）按 owner 2026-11-22 原话写完并**受托签字**（`DECISIONS.md` 同日两条）；机器规则要求 `approved` 至少一条点名 story id 的测试，所以签字这一条同时落了退场表数据与逐行一致测试；**路由清单测试随 `R-delete-pages` 落地**，那是它第一次能诚实地绿的时候。
+4. `R-dead-paths` 已落地（1,090 行无引用死代码 + `removed-surfaces` 守卫在 `scripts/check.sh` 里被点名执行）——`b4bc72f7`。
 
-**Queue seeds（一次一行，按序）**：`R-dead-paths`（死代码 + 守卫，已落地 #547）→ `R-contract`（四个页面 + 运行搬进列表 + 删 settings 的 agents tab + 退场表 + 路由清单测试）→ `R-delete-pages`（`/projects`、`/projects/:id`、`/agent-sessions/:id`、`/machines/:device/tasks/:id` 退役；工作说明先搬进列表项目行）→ `R-rn-spike`（独立 story/ADR：抽共享 TS + RN 壳）。**不做**：隐藏 `/routines`、把 routine 改成卡片、Settings 收缩到 2 个 tab、搬走 provider 凭据。
+**Queue seeds（一次一行，按序）**：`R-dead-paths`（死代码 + 守卫，已落地 #547）→ `R-contract`（按面切，每条约 ≤ 800 行：① 运行搬进列表、`/routines` 不再拉运行；② 设置删 `agents` tab；③ 路由清单测试 + `/projects`、`/projects/:id`、`/agent-sessions/:id`、`/machines/:device/tasks/:id` 退役，并按退役后的面改 `NAVIGATION.md`/`IA.md` 与 `navigationContract.test.ts`）→ `R-rn-spike`（独立 story/ADR：抽共享 TS + RN 壳）。**不做**：隐藏 `/routines`、把 routine 改成卡片、Settings 收缩到 2 个 tab、搬走 provider 凭据。
 
 **门要补的**：`removed-surfaces` 始终运行（计划说删掉的路径必须在 main 上不存在）；路由清单测试（只允许契约里的路由，新增路由必须有 story）；替换先行（被删页面的能力仍有 tool/card 测试且已绿）。
 
-**Cut rule.** 契约冻结前不许有任何 `mobile/` RN 代码；RN MVP 若在四固定面（配对/登录、列表、对话读发流、审批/提问）上做不到与 web 等价，就停下来在这里记原因，不要把 MVP 扩大。
+**Cut rule.** 契约冻结前不许有任何 `mobile/` RN 代码；RN MVP 若在四固定面（配对/登录、列表、对话读发流、审批/提问）上做不到与 web 等价，就停下来在这里记原因，不要把 MVP 扩大。目标日期 2026-12-05 是暂定：按 cut rule 收「落地已绿的」，不延期。
 
 ## Closed phase (P3) — review → PR, proven
 <!-- closed-phase: P3-review-pr target=2026-11-20T20:00 -->

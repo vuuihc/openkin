@@ -11,7 +11,7 @@
 | `KIN-CONTINUE-004` | covered | P0 | J1、J2 | 手机 | 手机列表：按最近活动排设备、每设备新建、搜索收成放大镜 | 4 |
 | `KIN-CONTINUE-005` | approved | P0 | J1、J2 | 手机 | 手机底栏：玻璃与纯图标，四个区域共用 | 2 |
 | `KIN-CONTINUE-006` | blocked | P0 | J1 | 手机 | 手机开屏：先用自己的控制台打开，新版本在后台整套换 | 0 |
-| `KIN-CONTRACT-001` | draft | P0 | J1、J2、J4、J6 | Mac/手机 | 只留四个页面：列表、任务详情、例行任务、设置 | 0 |
+| `KIN-CONTRACT-001` | approved | P0 | J1、J2、J4、J6 | Mac/手机 | 只留四个页面：列表、任务详情、例行任务、设置 | 1 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
 | `KIN-PROJECT-002` | covered | P0 | J4 | Mac/手机 | 项目的工作目录：看清这几个目录为什么在一起，并能增删 | 5 |
 | `KIN-QUALITY-001` | covered | P0 | J1、J2 | Mac/手机 | 读完整条回答，再接着问（820 优先） | 4 |
@@ -29,4 +29,4 @@
 
 ## 汇总
 
-approved 3 · blocked 1 · covered 16 · draft 1
+approved 4 · blocked 1 · covered 16
