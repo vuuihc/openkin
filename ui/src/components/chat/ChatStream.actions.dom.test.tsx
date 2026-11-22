@@ -159,6 +159,43 @@ describe("the actions reveal on a coarse pointer", () => {
     expect(row().getAttribute("data-actions-state")).toBe("hidden");
   });
 
+  it("a revealed action row gives every button a 44px target on a coarse pointer", () => {
+    // An iPad in portrait draws the desktop shell (≥768) but still has a
+    // finger: every revealed action must clear the 44px thumb floor on its own
+    // box, not through a wrapper the walk cannot measure (TASTE 11, TASTE 21).
+    // The buttons' height already reaches 44 through the Button facade; the
+    // width is what the row never floored, so the coarse branch carries
+    // `min-w-11` and the fine-pointer render must not.
+    stubMedia({ coarse: true, phone: false });
+    const view = renderStream({ showMessageActions: true });
+
+    fireEvent.click(body());
+    expect(row().getAttribute("data-actions-state")).toBe("revealed");
+    for (const name of [
+      t("task.retry"),
+      t("task.fork"),
+      t("chat.message.copyTitle"),
+      t("chat.message.shareTitle"),
+    ]) {
+      expect(screen.getByRole("button", { name }).className).toContain("min-w-11");
+    }
+    // Put the module-level reveal store back for the next case.
+    fireEvent.click(body());
+    expect(row().getAttribute("data-actions-state")).toBe("hidden");
+
+    view.unmount();
+    stubMedia({ coarse: false, phone: false });
+    renderStream({ showMessageActions: true });
+    for (const name of [
+      t("task.retry"),
+      t("task.fork"),
+      t("chat.message.copyTitle"),
+      t("chat.message.shareTitle"),
+    ]) {
+      expect(screen.getByRole("button", { name }).className).not.toContain("min-w-11");
+    }
+  });
+
   it("a fine pointer keeps the body tap from pinning the actions open", () => {
     // Hover owns the row with a mouse; a click that pinned it open would be a
     // second behaviour for the same gesture (and the reason the tap gate is
