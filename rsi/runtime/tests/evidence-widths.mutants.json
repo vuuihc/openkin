@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the three-width evidence suite is missing from the gate wiring",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-evidence-widths.sh || return 1\n",
+    "new": ""
+  }
+]
