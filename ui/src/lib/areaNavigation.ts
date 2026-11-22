@@ -1,11 +1,14 @@
 /**
- * Which of the four areas owns a URL, what its phone cold-start parent is, and
+ * Which of the three areas owns a URL, what its phone cold-start parent is, and
  * whether the shell shows the area tabs.
  *
  * This is the executable form of two rows of the signed story map
  * (`docs/product/stories/ux-unification-story-map.md`): the route/parent table
- * and the rule that only area roots show the four tabs. N1 ships the contract;
+ * and the rule that only area roots show the tabs. N1 ships the contract;
  * N2/N3 wire it into the router and the shell. Nothing here navigates.
+ * KIN-CONTRACT-001 retired the Projects area: `/projects` resolves to the
+ * conversation collection it redirects to, and the project cover is that
+ * collection's detail.
  *
  * Deliberately narrow: a `Location`-shaped `{ pathname, search }` in, plain
  * values out. No React, router, storage, history, `window` or i18n import — the
@@ -55,8 +58,7 @@ export type AreaRouteName =
   | "conversations.approvals"
   | "conversations.task"
   | "conversations.agentSession"
-  | "projects.collection"
-  | "projects.detail"
+  | "conversations.projectCover"
   | "routines.root"
   | "routines.machineTask"
   | "settings.root"
@@ -86,9 +88,9 @@ export type AreaRoute = {
   /** The normalized settings tab; null outside settings. */
   tab: SettingsTabId | null;
   /**
-   * True for the URLs that are an area root: `/`, `/sessions`, `/projects`,
-   * `/routines`, `/settings`, and general settings. These synthesize no phone
-   * parent and are the only URLs that show the area tabs.
+   * True for the URLs that are an area root: `/`, `/sessions`, `/routines`,
+   * `/settings`, and general settings. These synthesize no phone parent and
+   * are the only URLs that show the area tabs.
    */
   root: boolean;
 };
@@ -199,7 +201,10 @@ export function resolveAreaRoute(location: LocationLike): AreaRoute | null {
       case "approvals":
         return { ...base("conversations", "conversations.approvals"), focus };
       case "projects":
-        return { ...base("projects", "projects.collection"), root: true };
+        // KIN-CONTRACT-001: the collection retired with the Projects area.
+        // `App.tsx` replaces this URL with `/sessions`; naming the destination
+        // here keeps the resolver honest about where the reader lands.
+        return { ...base("conversations", "conversations.collection"), root: true };
       case "routines":
         return {
           ...base("routines", "routines.root"),
@@ -241,7 +246,11 @@ export function resolveAreaRoute(location: LocationLike): AreaRoute | null {
     if (head === "agent-sessions") {
       return { ...base("conversations", "conversations.agentSession"), id };
     }
-    if (head === "projects") return { ...base("projects", "projects.detail"), id };
+    // The cover is a detail of the conversation list now (KIN-CONTRACT-001):
+    // the list's project heading opens it, so its phone parent is the list.
+    if (head === "projects") {
+      return { ...base("conversations", "conversations.projectCover"), id };
+    }
     return null;
   }
 
@@ -277,6 +286,7 @@ export function coldStartPhoneParent(location: LocationLike): string | null {
     case "conversations.new":
     case "conversations.task":
     case "conversations.agentSession":
+    case "conversations.projectCover":
       return "/sessions";
     case "conversations.inbox":
     case "conversations.approvals":
@@ -284,8 +294,6 @@ export function coldStartPhoneParent(location: LocationLike): string | null {
       // the destination and the focus rides along. `encodeURIComponent` matches
       // `notificationRoute`'s existing encoding of the same value.
       return resolved.focus ? `/sessions?focus=${encodeURIComponent(resolved.focus)}` : "/sessions";
-    case "projects.detail":
-      return "/projects";
     case "routines.machineTask":
       return machineTaskParent(location);
     case "settings.section":
@@ -298,7 +306,7 @@ export function coldStartPhoneParent(location: LocationLike): string | null {
 }
 
 /**
- * Whether the shell shows the four area tabs at this URL.
+ * Whether the shell shows the area tabs at this URL.
  *
  * True only at the area roots and at general settings; query order and
  * unrelated preserved parameters do not change the answer. This describes the
