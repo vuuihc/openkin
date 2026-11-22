@@ -5087,6 +5087,20 @@ class WalkJ17ContractTest(unittest.TestCase):
         self.assertIn("spec red: J17", out)
         self.assertIn("hidden action row", out)
 
+    def test_j17_rejects_a_hidden_row_hit_test_with_the_row_off_screen(self) -> None:
+        # The seeded conversation has grown by the time J17 runs (J2 reruns
+        # it), so the first action row opens above the viewport and
+        # elementFromPoint reports a miss. The walk must open the transcript
+        # at the top before it reads the hidden row.
+        def drop_scroll_to_top(steps):
+            steps[:] = [step for step in steps
+                        if not (step[0] == "scroll" and step[2] == "0")]
+
+        code, out = self.check(self.copy_with(drop_scroll_to_top))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("scrolls the transcript to the top", out)
+
     def test_j17_rejects_a_reveal_without_a_body_tap(self) -> None:
         # A reveal that nobody asked for (or a click on the row itself) is not
         # the proof: the tap must land on the answer body, never on 重试.

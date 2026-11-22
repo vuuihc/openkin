@@ -30,6 +30,11 @@
       "css=[data-message-actions]"
     ],
     [
+      "scroll",
+      "css=[role=region][tabindex=\"-1\"]",
+      "0"
+    ],
+    [
       "hittest",
       "css=[data-message-key]:has([data-message-actions]) [data-message-actions]",
       "notSelf"

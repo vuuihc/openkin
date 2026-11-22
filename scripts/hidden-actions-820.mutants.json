@@ -12,5 +12,19 @@
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ17ContractTest.test_j17_rejects_a_missing_hidden_action_row_hit_test",
     "old": "if not (step[0] == \"hittest\" and len(step) > 2 and step[2] == \"notSelf\")",
     "new": "if not (step[0] == \"hittest\" and len(step) > 2 and step[2] == \"self\")"
+  },
+  {
+    "label": "the J17 contract accepts a hidden-row hit-test with the row scrolled above the viewport",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ17ContractTest.test_j17_rejects_a_hidden_row_hit_test_with_the_row_off_screen",
+    "old": "  if (inertAt >= 0 && (toTopAt < 0 || toTopAt > inertAt)) {",
+    "new": "  if (false) {"
+  },
+  {
+    "label": "the new off-screen regression stops dropping the scroll, so the contract can lose it unnoticed",
+    "file": "scripts/journeys_walk_test.py",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ17ContractTest.test_j17_rejects_a_hidden_row_hit_test_with_the_row_off_screen",
+    "old": "if not (step[0] == \"scroll\" and step[2] == \"0\")",
+    "new": "if not (step[0] == \"scroll\" and step[2] == \"1\")"
   }
 ]

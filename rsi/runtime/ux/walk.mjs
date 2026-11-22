@@ -3193,6 +3193,17 @@ function checkJ17Contract(spec) {
   if (inertAt < 0) {
     errs.push('J17 never hit-tests the hidden action row (hittest css=…[data-message-actions] notSelf); at 820 the row must be inert while it is invisible');
   }
+  // `elementFromPoint` cannot read a row above the viewport, and the hittest
+  // op reports that as a miss (Watch 53). The seeded conversation has grown by
+  // the time J17 runs (J2 reruns it), so the transcript must be opened at the
+  // top first: the hidden reading, the body tap and the revealed reading then
+  // bracket the same on-screen message.
+  const toTopAt = idx((st) => st[0] === 'scroll'
+    && /\[role=.?region/.test(sel(st, 1)) && sel(st, 2) === '0');
+  if (inertAt >= 0 && (toTopAt < 0 || toTopAt > inertAt)) {
+    errs.push('J17 hit-tests the hidden action row before it scrolls the transcript to the top '
+      + '(scroll css=[role=region][tabindex="-1"] 0); a scrolled-out row cannot be hit-tested');
+  }
   const bodyTapAt = after(inertAt, (st) => st[0] === 'click' && sel(st, 1) === 'css=' + bodySel);
   if (bodyTapAt < 0) {
     errs.push('J17 never taps the answer body after the hidden-row hit-test (click css=' + bodySel + ')');
