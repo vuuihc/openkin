@@ -1,0 +1,53 @@
+{
+  "groups": [
+    {
+      "id": "evidence-widths",
+      "why": "rsi/MANDATE.md:19 (merge gate item 5) is the rule's source: a UI change carries 390/820/1100 before/after screenshots, and the 820 shot must show the surface's real reading state. #568 swept eight files onto it; this group keeps the next copy from drifting back.",
+      "current": {
+        "one_line_digits": [390, 820, 1100]
+      },
+      "stale": [
+        "390\\s*[×x]\\s*\\d+\\s+and\\s+1100\\s*[×x]\\s*\\d+",
+        "1100\\s*[×x]\\s*\\d+\\s+and\\s+390\\s*[×x]\\s*\\d+",
+        "(?<![\\d/])390/1100(?![\\d/])"
+      ],
+      "scope": [
+        "rsi/**/*.md",
+        "rsi/**/*.sh",
+        "rsi/**/*.py"
+      ],
+      "swept": [
+        "rsi/roles/dogfooder.md",
+        "rsi/roles/fixer.md",
+        "rsi/roles/reviewer.md",
+        "rsi/runtime/lane.sh",
+        "rsi/runtime/merge.sh",
+        "rsi/runtime/prompts/cloud-brief-template.md",
+        "rsi/runtime/prompts/fill.md",
+        "rsi/runtime/prompts/pulse-serial.md"
+      ],
+      "allow": [
+        {
+          "path": "rsi/DECISIONS.md",
+          "reason": "Dated decision log: the 2026-11-16 entries record what was true then, not the current merge gate. Rewriting them would falsify the log."
+        },
+        {
+          "path": "rsi/GOAL.md",
+          "reason": "Dated phase log: its matches record what a phase asked for at the time (several predate P16's 820 rule). The live rule is rsi/MANDATE.md:19."
+        },
+        {
+          "path": "rsi/README.md",
+          "reason": "Describes the NAS lane's real two-width Mac capture path. Moving that path to 820 is a separate row, not a doc sweep."
+        },
+        {
+          "path": "rsi/runtime/nas/ingest-nas.sh",
+          "reason": "The NAS worker has no browser; its required captures are the Mac-side two-width pair. Moving that path to 820 is a separate row."
+        },
+        {
+          "path": "rsi/runtime/ux-gate.sh",
+          "reason": "The console gate still walks and reports two widths (lines 7 and 370). Re-sweeping ux-gate.sh is a separate row; this group only names the copies it finds."
+        }
+      ]
+    }
+  ]
+}

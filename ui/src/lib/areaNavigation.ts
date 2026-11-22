@@ -75,8 +75,8 @@ export type AreaRoute = {
   /** Decoded dynamic segment: a task, session or project id. */
   id: string | null;
   /**
-   * Decoded device: the `?device=` of the routines root, or the path segment of
-   * a machine task.
+   * Decoded device: the `?device=` of the routines root or a task opened from
+   * another machine, or the path segment of the retired machine-task URL.
    */
   device: string | null;
   /** Decoded `?focus=` on the routes that own one (inbox, approvals, task). */
@@ -229,7 +229,15 @@ export function resolveAreaRoute(location: LocationLike): AreaRoute | null {
     const [head, segment] = segments;
     const id = decodeSegment(segment);
     if (!id) return null;
-    if (head === "tasks") return { ...base("conversations", "conversations.task"), id, focus };
+    if (head === "tasks")
+      return {
+        ...base("conversations", "conversations.task"),
+        id,
+        // A routine run opened at its task detail names the machine that owns
+        // the transcript; the old `/machines/:device/tasks/:id` redirects here.
+        device: params.get("device") || null,
+        focus,
+      };
     if (head === "agent-sessions") {
       return { ...base("conversations", "conversations.agentSession"), id };
     }

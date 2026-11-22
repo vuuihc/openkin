@@ -30,6 +30,7 @@
 - 设备名一直显示，单设备也不收起（2026-10-30 改；原规则"只有一台设备时收起"作废，`showMachineLabels` 随之改掉）。
 - 左栏现在已经是这个结构；手机列表现在也是这个三层结构（`DeviceSection`，见下表「手机对话列表」行）。
 - 归档页和搜索结果是同一份列表的另一种范围，层级相同。
+- 例行任务的运行就是一条任务行，不是第二份列表：`routine_id` 非空的行在尾部带「例行」标记并加入行的无障碍名称；`?routine=<id>` 把列表收窄到这一个例行的运行（服务端 `routine_id` 加已加载页的本地收窄，和 `?status=` 同一套规则），此时导入的 agent 会话整组隐藏、不提供手动排序、空结果显示「没有符合筛选的对话」，筛选条上留一枚可清除的「例行运行」chip。
 - 手机整页与 Mac 左栏共用同一个列表组件（`SessionList`）：数据、搜索、过滤、排序、折叠、行操作一致，宽度只决定容器和溢出的触发方式（左栏悬停按钮 / 手机滑动与长按；行操作与长按入口归 KIN-MANAGE-001）。项目标题是项目封面（`/projects/:id`）的入口，折叠是它前面的箭头。`/projects` 是「项目」区域的根 URL（四区域导航，N1/N2，2026-11-15）：路由、通知落点、⌘K 都从 `ui/src/lib/areas.ts` 这一张表读它，页面渲染项目集合；集合行是带 mode 与主目录、尾部 `>` 的 drill-in 链接，点进 `/projects/:id` 封面；手机四个底部入口的接线留给 N3/S2。R0b-2d 曾删掉这个索引页，四区域模型把 `/projects` 作为区域根恢复。
 - 项目封面没有「对话」tab：概览的最近活动只放最近一段对话的入口，更早的对话回列表按项目找；封面不复制第二份对话列表（2026-11-11，KIN-PROJECT-001 签字）。摘要编辑 One-Pager 的 `Current Focus`，热力图固定两周，例行任务只读并链到 `/routines`；项目记录、摘要、pulse、活动、例行任务各自失败、各自保留上次结果（2026-11-11 交付）。
 - 导入的 agent 会话不是项目：每台机器末尾单独一组「导入的会话（N）」，默认收起，行与原生对话同形（无彩色 rail、状态点或可用性徽标）；新导入只改计数，不自动展开。详情页的头部也只保留标题与来源行，来源 ID 放进时间戳那一行（R0b-2c，2026-11-10）。
@@ -85,7 +86,7 @@
 | 侧栏「例行任务」角标 | 与 `/routines` 同一台机器 | 未读数跟着页面会打开的那台机器走；机器列表还没到不猜，读失败时保留已存选择 |
 | 新建对话 → 存为例行任务 | 同一台机器 | 机器和目录跟着会话的选择走；选远程机器时也允许 |
 | 项目页的例行任务 | 拥有该项目 cwd 的机器（Node） | 项目封面按 cwd 匹配机器并只读列出 routine；「Go to routines」带着拥有者进入 `/routines?device=<id>`。选机器、目录、权限、模型、会话方式与创建都在 `/routines` 内完成。没有其他机器声明该目录时落在本机（单机桌面，或按路径在本机建的项目） |
-| 运行详情 `/machines/:device/tasks/:id` | 跑出这次运行的机器（Node） | 从「最近运行」点开的一条只读详情：任务行和 transcript 都向那台机器要。批准、回复、停跑仍在机器自己的 console 上，Hub 不转发这些动作 |
+| 运行详情 `/tasks/:id?device=<device>` | 跑出这次运行的机器（Node） | 从「最近运行」点开的一条只读详情：任务行和 transcript 都向那台机器要。它和本地任务是同一张任务详情页，`?device=` 说明 run 在哪台机器；旧的 `/machines/:device/tasks/:id` 以 `replace` 到达这里。批准、回复、停跑仍在机器自己的 console 上，Hub 不转发这些动作 |
 
 ## 设置与环境（KIN-SETTINGS-002，2026-11-09）
 
@@ -122,7 +123,7 @@
 |---|---|---|---|
 | 对话区 | `/sessions` 集合；Mac 左栏列表，手机整页 | #68 `8137ba28`、#76 `3206755c` | `areaNavigation.test.ts`、`PhoneNavigation.dom.test.tsx` |
 | 项目区 | `/projects` 集合、`/projects/:id` 封面 | #76 `3206755c`（区域表与路由）；封面沿用 PROJECT-001 | `areaNavigation.test.ts`、`ProjectsCollectionPage.dom.test.tsx` |
-| 例行任务区 | `/routines`、`/machines/:device/tasks/:id` | #76 `3206755c`（区域表与路由）；例程本体 ROUTINE-001 | `areaNavigation.test.ts`、`RoutinesPage.dom.test.tsx` |
+| 例行任务区 | `/routines`、`/tasks/:id?device=<device>`（旧 `/machines/:device/tasks/:id` 重定向到这里） | #76 `3206755c`（区域表与路由）；例程本体 ROUTINE-001 | `areaNavigation.test.ts`、`RoutinesPage.dom.test.tsx` |
 | 设置区 | `/settings` 六个分区；Agent 运维 = `?tab=operations`；目录里每个分区名旁写明当前生效的值（外观主题 / 当前 provider / 限流策略），值还没读到时保留原说明、不猜 | #76 `3206755c`（区域表与路由）；N4 托管该面板 | `settingsTabsWiring.test.ts`、`SettingsPage.operations.dom.test.tsx` |
 | S1 | Mac 208px / 64px 区域栏、⌘1–⌘4、角标 | #128 `0c2ec124` | `AreaNavigation.dom.test.tsx` |
 | S1b | 面板打开时列表让位，对话 ≥420px | #144 `5576e938` | `AppShell.dom.test.tsx`、`PanelSurface.test.ts` |
@@ -135,8 +136,8 @@ E4a（`/agents`、`/usage` 重定向到 `/settings?tab=operations`）已由 #141
 ## 一条用户路径（一条故事一条）
 
 - **手机上接着问**：打开 → 找到昨天的对话 → 继续 → 回答弹出的批准。
-- **Mac 上接着问**：打开 → 搜到上周的对话 → 继续 → 改模型和权限 → 看 diff。
-- **新建一段对话**：任一端 → 新建 → 写提示词、选 agent / 模型 / 权限（卡内）→ 选设备与项目（卡下一条）→ 开始（2026-11-11，KIN-START-001）。
+- **Mac 上接着问**：打开 → 搜到上周的对话 → 继续 → 改模型和权限 → 看 diff；读整条回答时只有一条 ≤44 px header、正文和一个 composer，用量在 composer footer、改动文件在 header 的文件入口，平板的次要动作走既有会话动作表（2026-11-21，KIN-QUALITY-001）。手机上的同一条 header 只有一行：返回 · 标题（超长截断）· 文件 · 「⋯」；运行中与断线不占 header 一行（composer 的停止按钮、正文活动行与 shell 的重连条各自说明），项目 · 分支在那条 header 的「⋯」会话动作表里（同上，D16）。
+- **新建一段对话**：任一端 → 新建 → 写提示词、选 agent / 模型 / 权限（卡内）→ 选设备与项目（卡上一条）→ 开始（2026-11-11，KIN-START-001）。
 - **找项目或例行任务**：找到项目或例行任务并操作它。
 
 引发这次整理的问题分别落在"Mac 上接着问"（Mac 没变化、还是手机控件）、"手机/Mac 上接着问"（两个列表）、"新建一段对话"（模型选择器）。

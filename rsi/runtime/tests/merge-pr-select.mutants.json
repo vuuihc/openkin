@@ -12,5 +12,26 @@
     "test": "RSI_TEST_ONLY=control-branch-skipped bash rsi/runtime/tests/test-merge-pr-select.sh",
     "old": "    if head == CONTROL_BRANCH:\n        return False",
     "new": "    if False:\n        return False"
+  },
+  {
+    "label": "the dream exclusion goes back to a prefix, so a real dream-* slice is stranded again (#535)",
+    "file": "rsi/runtime/pr_select.py",
+    "test": "RSI_TEST_ONLY=dream-deliverable-selected bash rsi/runtime/tests/test-merge-pr-select.sh",
+    "old": "    if DREAM_BRANCH.match(head):",
+    "new": "    if head.startswith(\"rsi/dream-\"):"
+  },
+  {
+    "label": "the DREAM job's date branch is no longer excluded, so its own consolidation PR reaches the merge lane",
+    "file": "rsi/runtime/pr_select.py",
+    "test": "RSI_TEST_ONLY=dream-branch-skipped bash rsi/runtime/tests/test-merge-pr-select.sh",
+    "old": "    if DREAM_BRANCH.match(head):\n        return False",
+    "new": "    if False:\n        return False"
+  },
+  {
+    "label": "the compact date form rsi/dream-20261121 counts as a deliverable, so the DREAM job's other spelling is dispatched",
+    "file": "rsi/runtime/pr_select.py",
+    "test": "RSI_TEST_ONLY=dream-compact-date-skipped bash rsi/runtime/tests/test-merge-pr-select.sh",
+    "old": "(?:\\d{8}|\\d{4}-\\d{2}-\\d{2})",
+    "new": "(?:\\d{4}-\\d{2}-\\d{2})"
   }
 ]

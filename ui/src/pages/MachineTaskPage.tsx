@@ -25,14 +25,15 @@ function formatWhen(ms?: number | null): string {
  * lists those rows by relaying that machine's console, so the id in the list
  * does not exist in this Hub's task table: the ordinary conversation page would
  * open, ask this Hub for the task, and show "not found" for a row the reader
- * just tapped. This page asks the machine that owns the run instead.
+ * just tapped. This view asks the machine that owns the run instead. It is the
+ * same task detail page: `?device=` says where the run lives, and
+ * `TaskSessionHost` picks this read-only body for it.
  *
  * It is read-only by design. Approvals, replies, files, and stopping a run are
  * actions on the machine's own console; the Hub relays none of them, and a
  * control that could only ever be refused is worse than no control.
  */
-export default function MachineTaskPage() {
-  const { device = "", id = "" } = useParams();
+export function RemoteTaskRunView({ device, id }: { device: string; id: string }) {
   const navigate = useNavigate();
   const location = useLocation();
   const tr = useT();
@@ -122,4 +123,16 @@ export default function MachineTaskPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * The URL-shaped entry: `/tasks/:id?device=<device>`. Kept as a thin wrapper
+ * because the task detail route reads its id from the path and the machine
+ * from the query, while the keep-alive host already holds both as props.
+ */
+export default function MachineTaskPage() {
+  const { device: pathDevice = "", id = "" } = useParams();
+  const { search } = useLocation();
+  const queryDevice = new URLSearchParams(search.split("#", 1)[0]).get("device") ?? "";
+  return <RemoteTaskRunView device={pathDevice || queryDevice} id={id} />;
 }

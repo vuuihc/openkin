@@ -40,5 +40,12 @@
     "test": "RSI_TEST_ONLY=test_flaked_journey_screen_does_not_ground bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
     "old": "        if f.endswith(\".png\") and any(f.startswith(g + \"-\") for g in green):",
     "new": "        if f.endswith(\".png\"):"
+  },
+  {
+    "label": "a size claim may rest on a Tailwind class name again, so the reviewer infers a rendered box and the gate is left with no verdict",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_prompt_requires_a_measurement_for_a_size_claim bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "  echo \"A claim about a control's size or tap target must quote a MEASUREMENT that is in the evidence: a walk.json lint reading (e.g. smallTapTargets), or a measured box the PR records. A Tailwind/CSS class name is NOT a measurement — a class is overridden by min-width/min-height rules and media queries, so it does not tell you what was rendered. If a class name is the only support for a size claim, write 'not measurable from the evidence' and do not score that axis below 3 for it.\"",
+    "new": "  echo \"\""
   }
 ]

@@ -8,11 +8,15 @@
 <rect x="40" y="100" width="490" height="300" rx="12" fill="#ffffff" stroke="#d8d8dd"/>
 <text x="64" y="140" font-size="15" fill="#1a1a1a" font-weight="600">空：还没写</text>
 <text x="64" y="164" font-size="11.5" fill="#6b6b6b">提示词为空，包括只有空白字符</text>
-<rect x="64" y="196" width="442" height="64" rx="9" fill="#ffffff" stroke="#c4c4c4"/>
-<text x="78" y="234" font-size="12" fill="#aaaaaa">想让 Kin 做什么？</text>
-<rect x="64" y="278" width="150" height="32" rx="8" fill="#e9e9ee"/>
-<text x="139" y="298" font-size="11.5" fill="#999" text-anchor="middle">开始 · 禁用</text>
-<text x="64" y="338" font-size="11" fill="#6b6b6b">只有空白字符也算空；主按钮只有一个，禁用时就地说明原因。</text>
+<rect x="64" y="212" width="442" height="30" rx="8" fill="#f6f6f8"/>
+<text x="78" y="232" font-size="11.5" fill="#1a1a1a" font-weight="600">本机 · alpha</text>
+<text x="492" y="231" font-size="11" fill="#1f6feb" text-anchor="end">更换 ▾</text>
+<rect x="64" y="252" width="442" height="74" rx="9" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="78" y="282" font-size="12" fill="#aaaaaa">想让 Kin 做什么？</text>
+<rect x="398" y="286" width="98" height="30" rx="8" fill="#e9e9ee"/>
+<text x="447" y="305" font-size="11" fill="#999" text-anchor="middle">开始 · 禁用</text>
+<text x="64" y="350" font-size="11" fill="#6b6b6b">只有空白字符也算空；主按钮只有一个，禁用时就地说明原因。</text>
+<text x="64" y="372" font-size="11" fill="#6b6b6b">输入卡钉在底部，设备 · 项目在卡上一条。</text>
 
 <rect x="554" y="100" width="490" height="300" rx="12" fill="#ffffff" stroke="#d8d8dd"/>
 <text x="578" y="140" font-size="15" fill="#1a1a1a" font-weight="600">加载</text>
@@ -94,6 +98,8 @@
 <text x="1106" y="919" font-size="12" fill="#1f6feb">已开始 → 对话页 · 第一条正在运行</text>
 <text x="1092" y="962" font-size="11" fill="#6b6b6b">新建页不留在历史里；回来直接回到这段对话。</text>
 <text x="1092" y="984" font-size="11" fill="#6b6b6b">标题先显示提示词前几个字，跑完再变成生成的标题。</text>
+<text x="1092" y="1008" font-size="11" fill="#6b6b6b">新建页与对话页同一条底栏：输入卡的位置与宽度不变。</text>
+<text x="1092" y="1028" font-size="11" fill="#6b6b6b">设备 · 项目在卡上一条，不随「开始」跳走。</text>
 
 <text x="40" y="1072" font-size="11.5" fill="#6b6b6b">状态都用文字说明；「开始」只在真有条件时可用，禁用时写出原因与下一步。</text>
 </g>

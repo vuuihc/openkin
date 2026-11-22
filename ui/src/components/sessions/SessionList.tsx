@@ -56,6 +56,7 @@ import {
   withPinnedBucket,
   type PhoneDeviceGroup,
   type PhoneProjectBucket,
+  type PhoneProjectRecord,
   type PhoneSessionRow,
 } from "../../lib/phoneSessionBuckets";
 import {
@@ -135,7 +136,7 @@ import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
  * put and both shells read the same parameters. Project order is the existing
  * sidebar preference, which is why it appears in both shells' filter panel.
  */
-const LIST_STATE_KEYS = ["search", "status", "scope"] as const;
+const LIST_STATE_KEYS = ["search", "status", "scope", "routine"] as const;
 
 /**
  * Carry the list's own params through a navigation.
@@ -192,6 +193,10 @@ export default function SessionList({
   const searching = query.trim() !== "";
   const status = normalizeStatusFilter(params.get("status"));
   const scope = normalizeScopeFilter(params.get("scope"));
+  // One routine's runs, by id. The list never fetches routine names: a run's
+  // title is its routine's title, so the row already says which routine it is.
+  const routineId = (params.get("routine") ?? "").trim();
+  const routineFilter = routineId !== "";
 
   const [searchTerm, setSearchTerm] = useState(() => query.trim());
   const [returnRow, setReturnRow] = useState<string | null>(() => takeRowReturn());
@@ -205,7 +210,7 @@ export default function SessionList({
     return () => clearTimeout(timer);
   }, [query]);
 
-  const taskList = useTaskList(sessionListParams(searchTerm, status));
+  const taskList = useTaskList(sessionListParams(searchTerm, status, false, routineId));
   const pending = usePendingResources();
   const pendingByTask = useMemo(() => pendingCountsByTask(pending.data), [pending.data]);
   const { machines, loading: machinesLoading, failed: machinesFailed } = useMachines();
@@ -291,7 +296,7 @@ export default function SessionList({
     selectionOriginId.current = null;
     setSelectionMode(false);
     setSelectedIds(new Set());
-  }, [query, status, scope]);
+  }, [query, status, scope, routineId]);
 
   // A focused move is one-shot and belongs to the mode change itself: the ref
   // is consumed in the commit that flips `selectionMode`, so a later list
@@ -393,7 +398,7 @@ export default function SessionList({
     setOlderArchivedTasks([]);
     setTaskMore(null);
     setArchiveMore(null);
-  }, [searchTerm, status]);
+  }, [searchTerm, status, routineId]);
 
   useEffect(() => {
     if (scope !== "archived") return;
@@ -418,7 +423,7 @@ export default function SessionList({
   }, [taskList.loaded, taskList.data]);
   const liveTasks = taskList.loaded ? taskList.data : lastLoadedTasks.current;
   const archivedList = useTaskList(
-    sessionListParams(searchTerm, status, true),
+    sessionListParams(searchTerm, status, true, routineId),
     scope === "archived",
   );
   const lastLoadedArchivedTasks = useRef<readonly Task[]>([]);
@@ -440,21 +445,23 @@ export default function SessionList({
     [archivedTasks, olderArchivedTasks],
   );
   const tasks = useMemo(
-    () => sessionFeedTasks(liveRows, archivedRows, scope, status),
-    [liveRows, archivedRows, status, scope],
+    () => sessionFeedTasks(liveRows, archivedRows, scope, status, routineId),
+    [liveRows, archivedRows, status, scope, routineId],
   );
   const allSessions = useMemo(() => {
     if (olderSessions.length === 0) return sessions;
     const seen = new Set(sessions.map((session) => session.id));
     return [...sessions, ...olderSessions.filter((session) => !seen.has(session.id))];
   }, [sessions, olderSessions]);
-  const taskLimit = sessionListParams(searchTerm, status).limit;
-  const archiveLimit = sessionListParams(searchTerm, status, true).limit;
+  const taskLimit = sessionListParams(searchTerm, status, false, routineId).limit;
+  const archiveLimit = sessionListParams(searchTerm, status, true, routineId).limit;
   const hasMoreTasks = taskMore ?? (taskList.pageFull || liveTasks.length >= taskLimit);
   const hasMoreArchive =
     scope === "archived" &&
     (archiveMore ?? (archivedList.pageFull || archivedTasks.length >= archiveLimit));
-  const hasMoreSessions = Boolean(sessionCursor) && !status;
+  // Imported agent sessions carry no routine, so a routine filter hides them
+  // entirely; their paging has nothing left to page through.
+  const hasMoreSessions = Boolean(sessionCursor) && !status && !routineFilter;
 
   // Opening a conversation from anywhere else in the shell still has to bump
   // its project and clear its completion dot; the list owns that bookkeeping
@@ -476,19 +483,25 @@ export default function SessionList({
 
   const archivedCwds = useMemo(() => getArchivedProjects(), [prefsTick]);
   const pinnedProjects = useMemo(() => getPinnedProjects(), [prefsTick]);
-  // A project's record names it; the folder is only its address. Every root of
-  // every record is a heading, keyed the way buckets key a cwd, and the first
-  // record wins on a duplicate root so a heading never depends on iteration
-  // order. The records are this machine's own filesystem (the API has no device
-  // column), which is also why `seedProjects` files them under this machine.
-  const projectNameByCwd = useMemo(() => {
-    const byKey = new Map<string, string>();
+  // A project's record gives it one identity and one name, whatever root a
+  // conversation ran in. Every root of every record is a way in, keyed the way
+  // buckets key a cwd, and the first record wins on a duplicate root so the
+  // heading never depends on iteration order. The records are this machine's
+  // own filesystem (the API has no device column), which is also why
+  // `seedProjects` files them under this machine.
+  const projectByCwd = useMemo(() => {
+    const byKey = new Map<string, PhoneProjectRecord>();
     for (const project of projects) {
       const name = project.name.trim();
       if (!name) continue;
-      for (const root of project.roots ?? []) {
+      const roots = (project.roots ?? []).filter(
+        (root) => bucketKeyFor(root) !== UNASSIGNED_PROJECT,
+      );
+      if (roots.length === 0) continue;
+      const record: PhoneProjectRecord = { id: project.id, name, roots };
+      for (const root of roots) {
         const key = bucketKeyFor(root);
-        if (key !== UNASSIGNED_PROJECT && !byKey.has(key)) byKey.set(key, name);
+        if (!byKey.has(key)) byKey.set(key, record);
       }
     }
     return byKey;
@@ -508,7 +521,7 @@ export default function SessionList({
     () =>
       phoneProjectBuckets(
         tasks,
-        status ? [] : allSessions,
+        status || routineFilter ? [] : allSessions,
         selfDeviceId,
         {
           untitled: tr("sessions.untitled"),
@@ -519,7 +532,7 @@ export default function SessionList({
         scope,
         // Asked about the cwd rather than the bucket key: an archived remote
         // copy's key carries a device suffix that is not part of the address.
-        (cwd) => projectNameByCwd.get(bucketKeyFor(cwd)),
+        (cwd) => projectByCwd.get(bucketKeyFor(cwd)),
         orders,
         localTitles,
       ),
@@ -527,11 +540,12 @@ export default function SessionList({
       tasks,
       allSessions,
       status,
+      routineFilter,
       scope,
       selfDeviceId,
       locale,
       archivedCwds,
-      projectNameByCwd,
+      projectByCwd,
       orders,
       localTitles,
     ],
@@ -543,7 +557,8 @@ export default function SessionList({
   // has failed or has not answered, "no rows" is not evidence the project is
   // empty, and seeding would replace "nothing matches" or a load error with a
   // wall of zero-count headings.
-  const canSeed = scope === "active" && !status && taskList.loaded && !taskList.error;
+  const canSeed =
+    scope === "active" && !status && !routineFilter && taskList.loaded && !taskList.error;
   const seeded = useMemo(
     () => seedProjects(buckets, canSeed ? projects : [], archivedCwds, tr("sessions.noProject")),
     [buckets, projects, canSeed, archivedCwds, tr],
@@ -582,6 +597,7 @@ export default function SessionList({
           shell === "page" &&
           !searching &&
           !status &&
+          !routineFilter &&
           scope === "active" &&
           // A failed read has no "empty": the page says it could not load the
           // list, and a machine heading under that would claim the failure
@@ -615,6 +631,7 @@ export default function SessionList({
     shell,
     searching,
     status,
+    routineFilter,
     taskList.loaded,
     taskList.error,
     sessionsFailed,
@@ -658,8 +675,11 @@ export default function SessionList({
   // A reorder here would mean "reorder the current results", not the project:
   // the order is stored per bucket, so it is offered only where the bucket is
   // shown whole. The stored order still displays in the narrowed views.
-  const canReorder = scope === "active" && !searching && !status && !selectionMode;
-  const filtering = Boolean(status) || scope === "archived";
+  const canReorder =
+    scope === "active" && !searching && !status && !routineFilter && !selectionMode;
+  // "Nothing here" must describe the filter, not a page that ended: the same
+  // empty state covers status, the archive and a routine narrowing.
+  const filtering = Boolean(status) || scope === "archived" || routineFilter;
   const pendingQuery = query.trim() !== searchTerm;
   const archiveFailed = scope === "archived" && Boolean(archivedList.error);
   const archiveProjectsFailed = scope === "archived" && !archiveFailed && Boolean(taskList.error);
@@ -667,16 +687,16 @@ export default function SessionList({
   // Imported sessions are a second index. Its failure is actionable on its own:
   // when it is the only feed with rows, the page must say what failed rather
   // than draw "no chats yet" over it.
-  const importsFailed = !status && sessionsFailed;
+  const importsFailed = !status && !routineFilter && sessionsFailed;
   const importsFailedHard = importsFailed && !loading && listed.length === 0 && !loadFailed;
   // One retry for whatever this page is showing: the live list, and the archive
   // list when that scope is open. The button exists because the story promises
   // one (`KIN-CONTINUE-002`, step 6) and because waiting for an event to
   // repaint the list is not a next step a reader can take.
   const retryList = () => {
-    void liveResources.refreshTaskList(sessionListParams(searchTerm, status));
+    void liveResources.refreshTaskList(sessionListParams(searchTerm, status, false, routineId));
     if (scope === "archived") {
-      void liveResources.refreshTaskList(sessionListParams(searchTerm, status, true));
+      void liveResources.refreshTaskList(sessionListParams(searchTerm, status, true, routineId));
     }
     // The imported half is a second index with its own read; a Retry that only
     // refreshes tasks would leave the error it is answering in place.
@@ -727,6 +747,13 @@ export default function SessionList({
     else nextParams.delete("status");
     if (next.scope === "archived") nextParams.set("scope", "archived");
     else nextParams.delete("scope");
+    setParams(nextParams, { replace: true });
+  }
+
+  /** The routine chip's clear control: back to the full list, same entry. */
+  function changeRoutineFilter() {
+    const nextParams = new URLSearchParams(params);
+    nextParams.delete("routine");
     setParams(nextParams, { replace: true });
   }
 
@@ -798,8 +825,8 @@ export default function SessionList({
         onRestoreProject={
           scope === "archived" && bucketIsLocal(bucket) && archivedCwdFor(bucket.key, archivedCwds)
             ? () => {
-                const cwd = archivedCwdFor(bucket.key, archivedCwds);
-                if (cwd) unarchiveProject(cwd);
+                const stored = archivedCwdFor(bucket.key, archivedCwds);
+                if (stored) unarchiveProjectRoots(bucket);
               }
             : undefined
         }
@@ -1022,7 +1049,7 @@ export default function SessionList({
         const oldest = liveRows[liveRows.length - 1]?.id;
         if (oldest) {
           const page = await listTasks({
-            ...sessionListParams(searchTerm, status),
+            ...sessionListParams(searchTerm, status, false, routineId),
             before: oldest,
           });
           if (requestGeneration.current !== generation) return;
@@ -1036,7 +1063,7 @@ export default function SessionList({
         const oldest = archivedRows[archivedRows.length - 1]?.id;
         if (oldest) {
           const page = await listTasks({
-            ...sessionListParams(searchTerm, status, true),
+            ...sessionListParams(searchTerm, status, true, routineId),
             before: oldest,
           });
           if (requestGeneration.current !== generation) return;
@@ -1046,7 +1073,7 @@ export default function SessionList({
           setArchiveMore(false);
         }
       }
-      if (sessionCursorRef.current && !status) {
+      if (sessionCursorRef.current && !status && !routineFilter) {
         const cursor = sessionCursorRef.current;
         const term = sessionListParams(searchTerm);
         const page = await listAgentSessionsPage({
@@ -1100,7 +1127,7 @@ export default function SessionList({
     if (!bucket.cwd) return;
     if (!bucketIsLocal(bucket)) return;
     if (!window.confirm(tr("nav.archiveConfirm", { project: bucket.label }))) return;
-    archiveProject(bucket.cwd);
+    for (const root of bucketRoots(bucket)) archiveProject(root);
   }
 
   function newSessionIn(bucket: PhoneProjectBucket) {
@@ -1112,7 +1139,7 @@ export default function SessionList({
       // path was clicked would edit the local project behind the reader's back.
       if (local) {
         touchProject(bucket.cwd);
-        if (scope === "archived") unarchiveProject(bucket.cwd);
+        if (scope === "archived") unarchiveProjectRoots(bucket);
       }
       // The cwd and its machine travel together: a remote path with no machine
       // recorded would quietly become a local path in the draft.
@@ -1339,6 +1366,8 @@ export default function SessionList({
       scope={scope}
       sortMode={sortMode}
       onFilterChange={changeFilter}
+      routineFilter={routineFilter}
+      onClearRoutine={changeRoutineFilter}
       onSortChange={(mode) => {
         setProjectSortMode(mode);
         setPrefsTick((n) => n + 1);
@@ -1527,7 +1556,7 @@ export default function SessionList({
                       onSelect: () => {
                         if (!projectMenu.bucket.cwd) return;
                         if (!bucketIsLocal(projectMenu.bucket)) return;
-                        if (projectMenu.archived) unarchiveProject(projectMenu.bucket.cwd);
+                        if (projectMenu.archived) unarchiveProjectRoots(projectMenu.bucket);
                         else archiveProjectConfirmed(projectMenu.bucket);
                       },
                     },
@@ -1570,11 +1599,13 @@ export default function SessionList({
 }
 
 /**
- * Project records can name one or more roots; each root is a heading.
+ * Project records can name one or more roots; the record is one heading.
  *
  * A project record is the local node's own (the API has no device id because
  * there is only one machine's filesystem behind it), which is why a seeded
- * heading is filed under this machine. A root the reader archived locally is
+ * heading is filed under this machine. The heading is keyed by the record's
+ * first root — the same key its conversations use — so a second root never
+ * draws a twin heading of its own. A record the reader archived locally is
  * skipped: the daemon still calls the project active, and re-adding it here
  * would resurrect the heading the archive was meant to hide.
  */
@@ -1588,22 +1619,50 @@ function seedProjects(
   const seen = new Set(buckets.map((bucket) => bucket.key));
   const extra: PhoneProjectBucket[] = [];
   for (const project of projects) {
+    const roots: string[] = [];
+    const rootKeys = new Set<string>();
     for (const root of project.roots ?? []) {
-      const key = bucketKeyFor(root);
-      if (!key || key === UNASSIGNED_PROJECT || archived.has(key) || seen.has(key)) continue;
-      seen.add(key);
-      extra.push({
-        key,
-        label: project.name.trim() || tailOf(root) || noProject,
-        cwd: root,
-        rows: [],
-        lastActivityAt: project.last_active_at ?? 0,
-        createdAt: project.created_at ?? 0,
-        hasActiveTask: false,
-      });
+      const rootKey = bucketKeyFor(root);
+      if (rootKey === UNASSIGNED_PROJECT || rootKeys.has(rootKey)) continue;
+      rootKeys.add(rootKey);
+      roots.push(root);
     }
+    const primary = roots[0];
+    if (primary === undefined) continue;
+    const key = bucketKeyFor(primary);
+    if (archived.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    extra.push({
+      key,
+      label: project.name.trim() || tailOf(primary) || noProject,
+      cwd: primary,
+      roots,
+      rows: [],
+      lastActivityAt: project.last_active_at ?? 0,
+      createdAt: project.created_at ?? 0,
+      hasActiveTask: false,
+    });
   }
   return [...buckets, ...extra];
+}
+
+/** Every root a heading stands for; a folder bucket is its own one root. */
+function bucketRoots(bucket: PhoneProjectBucket): string[] {
+  if (bucket.roots && bucket.roots.length > 0) return bucket.roots;
+  return bucket.cwd ? [bucket.cwd] : [];
+}
+
+/**
+ * Putting a merged heading back is one action.
+ *
+ * Archiving writes every root of the record, so restoring has to clear every
+ * one of them: clearing only the first leaves the record's other roots filed,
+ * and the heading comes back half hidden with no way to finish the job.
+ */
+function unarchiveProjectRoots(bucket: PhoneProjectBucket): void {
+  for (const cwd of bucketRoots(bucket)) {
+    unarchiveProject(cwd);
+  }
 }
 
 function tailOf(cwd: string): string {

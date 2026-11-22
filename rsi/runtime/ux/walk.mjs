@@ -47,6 +47,267 @@ function loadSpec(specPath) {
 }
 const base = arg('base'), token = arg('token', ''), out = path.resolve(arg('out', './ux-walk'));
 const spec = loadSpec(arg('spec', path.join(here, 'journeys.json')));
+// A viewport is a size and an input shape, and the two are different axes
+// (LESSONS 2026-11-10). `390x844` is a phone layout *and* a finger; `820x1180`
+// is the owner's iPad — a desktop layout that still receives touch. The
+// resolver is the one place that decides both, and `--context-options` prints
+// exactly what `browser.newContext` will receive, so a tablet viewport cannot
+// be a new name whose hasTouch silently stays false.
+function viewportContext(specDoc, name) {
+  const raw = (specDoc.viewports || {})[name];
+  if (raw == null) {
+    throw new Error('unknown viewport ' + JSON.stringify(name)
+      + ' (known: ' + Object.keys(specDoc.viewports || {}).join(', ') + ')');
+  }
+  const vp = typeof raw === 'string' ? { size: raw } : raw;
+  const [width, height] = String(vp.size || '').split('x').map(Number);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error('viewport ' + name + ' has no usable WxH size: ' + JSON.stringify(raw));
+  }
+  const phoneLayout = width < 700;
+  return {
+    viewport: { width, height },
+    deviceScaleFactor: Number.isFinite(vp.deviceScaleFactor) ? vp.deviceScaleFactor : (phoneLayout ? 2 : 1),
+    isMobile: typeof vp.isMobile === 'boolean' ? vp.isMobile : phoneLayout,
+    hasTouch: typeof vp.hasTouch === 'boolean' ? vp.hasTouch : phoneLayout,
+  };
+}
+const contextName = arg('context-options');
+if (contextName) {
+  let opts;
+  try { opts = viewportContext(spec, contextName); }
+  catch (e) { console.error('context refused: ' + e.message); process.exit(2); }
+  console.log(JSON.stringify({ name: contextName, ...opts }));
+  process.exit(0);
+}
+
+// The reading diagnostic's one verdict function. The browser op below measures;
+// this decides, so a synthetic 30 px action or an overlay over a cell can be
+// proved red without a browser, and the real walk uses the same rules. Every
+// criterion is evaluated independently: one red must not hide another.
+const READING_LIMITS = { chromeMax: 44, actionMin: 44, minRows: 4 };
+function readingVerdict(metrics, limits = READING_LIMITS) {
+  const m = metrics && typeof metrics === 'object' ? metrics : {};
+  const fixture = m.fixture || {};
+  const pane = m.scrollPane || {};
+  const cells = Array.isArray(m.cells) ? m.cells : [];
+  const visible = cells.filter((c) => c && c.visible === true);
+  const actions = Array.isArray(m.actions) ? m.actions : [];
+  const lastRow = m.lastRow || {};
+  const unavailable = [];
+  if (fixture.marker !== true) unavailable.push('fixture answer marker is absent from the transcript');
+  if (!Number.isFinite(fixture.rows) || fixture.rows < limits.minRows) {
+    unavailable.push(`fixture table has ${Number.isFinite(fixture.rows) ? fixture.rows : 0} body rows (need >= ${limits.minRows})`);
+  }
+  if (pane.present !== true) unavailable.push('reading pane not found');
+  if (actions.length === 0) unavailable.push('no header actions found');
+  if (visible.length === 0) unavailable.push('no visible table cells (off-screen or absent samples only)');
+  if (lastRow.present !== true) unavailable.push('final table row not found');
+  if (unavailable.length) return { available: false, ok: false, unavailable: unavailable.join('; '), criteria: {}, failures: [] };
+
+  const criteria = {};
+  const failures = [];
+  const chrome = Number(m.chrome && m.chrome.height);
+  criteria.chrome = {
+    ok: Number.isFinite(chrome) && chrome <= limits.chromeMax,
+    measured: Number.isFinite(chrome) ? chrome : null,
+    limit: limits.chromeMax,
+  };
+  if (!criteria.chrome.ok) failures.push(`chrome ${Number.isFinite(chrome) ? chrome + 'px' : 'unmeasured'} above the reading pane (limit ${limits.chromeMax}px)`);
+
+  const badActions = actions.filter((a) => !(a && a.width >= limits.actionMin && a.height >= limits.actionMin && a.clipped !== true));
+  criteria.actions = { ok: badActions.length === 0, checked: actions.length, failed: badActions.map((a) => ({
+    name: a && a.name, width: a && a.width, height: a && a.height, clipped: !!(a && a.clipped),
+  })) };
+  for (const a of badActions) {
+    failures.push(`action ${JSON.stringify((a && a.name) || 'unnamed')} is ${a && a.width}x${a && a.height}${a && a.clipped ? ' and clips its glyph or label' : ''} (need ${limits.actionMin}x${limits.actionMin}, unclipped)`);
+  }
+
+  const badCells = visible.filter((c) => c.relation !== 'self' && c.relation !== 'descendant');
+  criteria.cells = {
+    ok: badCells.length === 0, checked: visible.length,
+    failed: badCells.map((c) => ({ row: c.row, col: c.col, relation: c.relation || 'unmeasured' })),
+  };
+  for (const c of badCells) {
+    failures.push(`cell r${c.row}c${c.col} center hits ${c.relation === 'ancestor' ? 'an unrelated ancestor' : c.relation === 'other' ? 'another element (an overlay or the composer)' : 'nothing'} instead of the cell`);
+  }
+
+  criteria.lastRow = {
+    ok: lastRow.visible === true && lastRow.fullyVisible === true,
+    visible: lastRow.visible === true, fullyVisible: lastRow.fullyVisible === true,
+  };
+  if (!criteria.lastRow.ok) failures.push('the final table row is not fully readable at the reading position');
+
+  const activity = m.newActivity || {};
+  const required = m.requireNewActivity === true;
+  const covers = Number.isFinite(Number(activity.covers)) ? Number(activity.covers) : 0;
+  const overlaps = Number.isFinite(Number(activity.overlaps)) ? Number(activity.overlaps) : 0;
+  criteria.newActivity = {
+    ok: (activity.present !== true || (covers === 0 && overlaps === 0)) && (!required || activity.present === true),
+    present: activity.present === true,
+    covers,
+    overlaps,
+    required,
+  };
+  if (activity.present === true && covers > 0) {
+    failures.push(`the new-activity control is on top of ${covers} visible cell(s)`);
+  }
+  if (activity.present === true && overlaps > 0) {
+    failures.push(`the new-activity control overlaps ${overlaps} visible cell(s)`);
+  }
+  if (required && activity.present !== true) failures.push('the incoming-activity state was requested but the new-activity control is absent');
+
+  return { available: true, ok: failures.length === 0, criteria, failures };
+}
+const readingVerdictFile = arg('reading-verdict');
+if (readingVerdictFile) {
+  let metrics;
+  try { metrics = JSON.parse(fs.readFileSync(path.resolve(readingVerdictFile), 'utf8')); }
+  catch (e) { console.error('unavailable: cannot read reading metrics ' + readingVerdictFile + ': ' + e.message); process.exit(2); }
+  const verdict = readingVerdict(metrics);
+  console.log(JSON.stringify(verdict, null, 1));
+  process.exit(!verdict.available ? 2 : verdict.ok ? 0 : 1);
+}
+
+// Runs inside the page (page.evaluate serializes it): observe only, never
+// mutate the product. Named selectors are the shipped surfaces — the
+// transcript region is the `role=region` scroller, the action cluster is the
+// desktop header bar (`min-h-11` + `md:flex`), and the offer to return to the
+// end is the button whose name is `task.newActivity` in either locale.
+function measureReading() {
+  const round = (v) => Math.round(v * 10) / 10;
+  const shown = (el) => {
+    if (!el) return false;
+    const b = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return b.width > 0 && b.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+  };
+  const panes = [...document.querySelectorAll('[role="region"]')]
+    .filter((el) => /(^|\s)overflow-y-auto(\s|$)/.test(String(el.className || '')) && el.clientHeight > 0);
+  const pane = panes.find((el) => el.scrollHeight > el.clientHeight + 1) || panes[0] || null;
+  const paneRect = pane ? pane.getBoundingClientRect() : null;
+
+  const bar = [...document.querySelectorAll('div')].find((el) => {
+    const c = String(el.className || '');
+    return c.includes('min-h-11') && c.includes('md:flex') && shown(el);
+  }) || null;
+  // A phone has no desktop bar: measure its MobileHeader's controls by the
+  // same 44 px rule instead of returning "no actions" for that width.
+  const mobileBar = !bar ? ([...document.querySelectorAll('header')].find(shown) || null) : null;
+  const actionRoot = bar || mobileBar;
+  const actionRect = actionRoot ? actionRoot.getBoundingClientRect() : null;
+  const actions = actionRoot ? [...actionRoot.querySelectorAll('button, a[href]')].filter(shown).map((el) => {
+    const b = el.getBoundingClientRect();
+    const inBar = !actionRect || (b.right > actionRect.left + 1 && b.left < actionRect.right - 1);
+    let clipped = el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
+    if (!clipped) {
+      clipped = [...el.querySelectorAll('*')].some((child) => {
+        if (!shown(child)) return false;
+        const c = child.getBoundingClientRect();
+        return c.left < b.left - 1 || c.right > b.right + 1 || c.top < b.top - 1 || c.bottom > b.bottom + 1;
+      });
+    }
+    return {
+      name: (el.getAttribute('aria-label') || el.getAttribute('title') || (el.textContent || '').trim().slice(0, 40) || 'control'),
+      width: round(b.width), height: round(b.height), clipped: clipped || !inBar,
+    };
+  }) : [];
+
+  const tables = [...document.querySelectorAll('table')].filter((t) => t.querySelectorAll('tbody tr td').length > 0);
+  const table = tables[tables.length - 1] || null;
+  const bodyRows = table ? [...table.querySelectorAll('tbody tr')].filter((tr) => tr.querySelectorAll('td').length > 0) : [];
+  // Only the part of a cell inside the table's own scroll container is
+  // visible; pane-only clipping falsely called scrolled-out columns visible.
+  let tableClip = null;
+  if (table) {
+    for (let p = table.parentElement; p; p = p.parentElement) {
+      const overflowX = getComputedStyle(p).overflowX;
+      if (overflowX === 'auto' || overflowX === 'scroll') { tableClip = p; break; }
+    }
+  }
+  const clipRect = tableClip ? (() => {
+    const r = tableClip.getBoundingClientRect();
+    return {
+      left: r.left + tableClip.clientLeft, top: r.top + tableClip.clientTop,
+      right: r.left + tableClip.clientLeft + tableClip.clientWidth,
+      bottom: r.top + tableClip.clientTop + tableClip.clientHeight,
+    };
+  })() : null;
+  const samples = [];
+  const cells = table ? [...table.querySelectorAll('th, td')].map((cell) => {
+    const tr = cell.closest('tr');
+    const row = tr && tr.parentElement ? [...tr.parentElement.children].indexOf(tr) : -1;
+    const col = tr ? [...tr.children].indexOf(cell) : -1;
+    const b = cell.getBoundingClientRect();
+    let visible = false, relation = null, hitName = '', cellRect = null;
+    if (paneRect) {
+      const left = Math.max(b.left, paneRect.left, clipRect ? clipRect.left : -Infinity, 0);
+      const right = Math.min(b.right, paneRect.right, clipRect ? clipRect.right : Infinity, innerWidth);
+      const top = Math.max(b.top, paneRect.top, clipRect ? clipRect.top : -Infinity, 0);
+      const bottom = Math.min(b.bottom, paneRect.bottom, clipRect ? clipRect.bottom : Infinity, innerHeight);
+      if (right - left >= 2 && bottom - top >= 2) {
+        visible = true;
+        const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+        relation = !hit ? 'nothing'
+          : hit === cell ? 'self'
+            : cell.contains(hit) ? 'descendant'
+              : hit.contains(cell) ? 'ancestor' : 'other';
+        hitName = hit ? ((hit.tagName || '').toLowerCase()
+          + (typeof hit.className === 'string' && hit.className.trim()
+            ? '.' + hit.className.trim().split(/\s+/).slice(0, 2).join('.') : '')).slice(0, 60) : '';
+        cellRect = { left: round(left), top: round(top), right: round(right), bottom: round(bottom) };
+        samples.push({ visible, hit, rect: cellRect });
+      }
+    }
+    if (!visible) samples.push({ visible: false, hit: null, rect: null });
+    return { row, col, kind: cell.tagName.toLowerCase(), visible, relation, hit: hitName, rect: cellRect };
+  }) : [];
+
+  const last = bodyRows.length ? bodyRows[bodyRows.length - 1] : null;
+  const lb = last ? last.getBoundingClientRect() : null;
+  const lastRow = { present: !!last, visible: false, fullyVisible: false, verticalVisible: false };
+  if (lb && paneRect) {
+    const top = Math.max(lb.top, paneRect.top, 0);
+    const bottom = Math.min(lb.bottom, paneRect.bottom, innerHeight);
+    const left = Math.max(lb.left, paneRect.left, 0);
+    const right = Math.min(lb.right, paneRect.right, innerWidth);
+    lastRow.visible = bottom - top >= 2;
+    // Vertical only: a natural-width table scrolls inside its own container,
+    // so requiring the row's full width would make the fix permanently red.
+    lastRow.verticalVisible = lb.top >= paneRect.top - 1 && lb.bottom <= paneRect.bottom + 1 && lb.bottom <= innerHeight + 1;
+    lastRow.fullyVisible = lastRow.verticalVisible;
+    lastRow.rect = { top: round(lb.top), bottom: round(lb.bottom), left: round(lb.left), right: round(lb.right) };
+  }
+
+  const pill = [...document.querySelectorAll('button')]
+    .find((el) => /有新进展|New activity/.test(el.innerText || '') && shown(el)) || null;
+  const pr = pill ? pill.getBoundingClientRect() : null;
+  const covers = pill ? samples.filter((s) => s.visible && s.hit && (s.hit === pill || pill.contains(s.hit))).length : 0;
+  const overlaps = pr ? samples.filter((s) => {
+    if (!s.visible || !s.rect) return false;
+    const w = Math.min(s.rect.right, pr.right) - Math.max(s.rect.left, pr.left);
+    const h = Math.min(s.rect.bottom, pr.bottom) - Math.max(s.rect.top, pr.top);
+    return w > 2 && h > 2;
+  }).length : 0;
+
+  return {
+    fixture: { marker: (document.body.innerText || '').includes('Tablet reading fixture'), rows: bodyRows.length, visibleRows: bodyRows.filter(shown).length },
+    viewport: { width: innerWidth, height: innerHeight },
+    scrollPane: {
+      present: !!pane,
+      top: paneRect ? round(paneRect.top) : null,
+      height: paneRect ? round(paneRect.height) : null,
+      scrollTop: pane ? Math.round(pane.scrollTop) : null,
+      maxScrollTop: pane ? Math.max(0, pane.scrollHeight - pane.clientHeight) : null,
+    },
+    chrome: { height: paneRect ? round(paneRect.top) : null },
+    actions,
+    cells,
+    lastRow,
+    newActivity: { present: !!pill, covers, overlaps, rect: pr ? { top: round(pr.top), bottom: round(pr.bottom), left: round(pr.left), right: round(pr.right) } : null },
+  };
+}
+
 // How long a `wait`/`url` may take before it is a hard failure.
 const WAIT_MS = (() => { const n = Number(process.env.RSI_UX_WAIT_MS); return Number.isFinite(n) && n > 0 ? n : 15000; })();
 // `--delay-tasks <ms>` holds the task-detail GET open so a walk can prove the
@@ -199,6 +460,26 @@ function checkJ3Contract(spec) {
   if (stopFillAt >= 0 && (stopFollowWaitAt < 0 || stopFollowWaitAt > stopClickAt)) {
     errs.push('J3 never waits for the stopped round\'s follow-up inside the transcript');
   }
+  // The interrupt contract (R-interrupt-walk). The Stop proof above ends a
+  // round; this one cuts it with the message already typed. The explicit
+  // interrupt action is a press, not a wait: a walk that only proves the
+  // control exists can send as an ordinary queue and stay green while the
+  // round it was meant to cut keeps running. After the click the transcript
+  // must say the previous round was interrupted, and the walk must then read
+  // the message that cut it inside the scroller a reader actually sees.
+  const interruptControl = (sel) => /打断|[Ii]nterrupt/.test(String(sel)) && /aria-label/.test(String(sel));
+  const lastSlowFillAt = steps.reduce((last, st, i) => (Array.isArray(st) && st[0] === 'fill'
+    && /textarea/.test(String(st[1])) && typeof st[2] === 'string' && st[2].includes('[seed] slow') ? i : last), -1);
+  const interruptClickAt = lastSlowFillAt < 0 ? -1 : idx(([op, sel]) => op === 'click' && interruptControl(sel), lastSlowFillAt + 1);
+  if (interruptClickAt < 0) errs.push('J3 never presses the interrupt-send control (click composer.interruptSend)');
+  const interruptNoteWaitAt = interruptClickAt < 0 ? -1 : idx(([op, needle]) => op === 'wait' && /已打断上一轮|Interrupted the previous round/.test(String(needle)), interruptClickAt + 1);
+  if (interruptNoteWaitAt < 0) errs.push('J3 never waits for the interrupt mark (chat.interruptedNote)');
+  const interruptFillAt = lastSlowFillAt < 0 ? -1 : idx(([op, sel, val]) => op === 'fill' && /textarea/.test(String(sel))
+    && typeof val === 'string' && val.trim() !== '' && !val.includes('[seed] slow'), lastSlowFillAt + 1);
+  const interruptMessage = interruptFillAt >= 0 && interruptClickAt >= 0 && interruptFillAt < interruptClickAt ? String(steps[interruptFillAt][2]) : '';
+  const interruptWaitAt = interruptNoteWaitAt < 0 || !interruptMessage ? -1 : idx(([op, needle]) => op === 'wait'
+    && /^css=/.test(String(needle)) && /\[role=.?region/.test(String(needle)) && String(needle).includes(interruptMessage), interruptNoteWaitAt + 1);
+  if (interruptWaitAt < 0) errs.push('J3 never waits for the message that cut the round inside the transcript');
   return errs;
 }
 // J2's contract: the review loop a person runs, not a screenshot of it. A
@@ -2307,6 +2588,7 @@ function checkJ1Contract(spec) {
   const bare = (v) => String(v).replace(/^\?/, '');
   const sel = (st, i) => String((st || [])[i] ?? '');
   const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st, i));
+  const after = (from, pred) => (from < 0 ? -1 : idx(pred, from + 1));
 
   // Phone only: the search field, the filter sheet and the approval card are
   // the 390px surfaces; a Mac width would walk a layout this leg never claims.
@@ -2398,6 +2680,83 @@ function checkJ1Contract(spec) {
       errs.push('J1 points both decisions at the same conversation: the approve and deny deep links must name different placeholders');
     }
     if (denyAt < approveAt) errs.push('J1 denies before it approves: the approve conversation must be decided first');
+  }
+
+  // The list leg ends the way a thumb uses it: search, open the row the search
+  // found, press the in-app Back, and find the search text and the filtered
+  // list still there. J1 used to jump from the filter straight to the approve
+  // deep link, so a Back that landed on a bare /sessions kept every gate green:
+  // no journey ever read the search after the pop (R-phone-back-walk). The
+  // shape is J12's edge-back proof — fill → wait the named row → click it →
+  // url ^/tasks/ → back → url ^/sessions → value input[type=search] <the same
+  // term> → search search=<term> — plus J12's rule that a `goto` between the
+  // Back and the value read is refused, because a fresh load would restore the
+  // query from the URL rather than from the pop. The row the leg opens must be
+  // one the search term names, and the value read must be the exact term that
+  // was typed, or the proof would be about some other row and some other
+  // search.
+  const searchFill = (st) => st[0] === 'fill'
+    && /input\[type=search\]/.test(bare(sel(st, 1))) && sel(st, 2).trim() !== '';
+  const fillAt = idx(searchFill);
+  const anyBackAt = idx((st) => st[0] === 'back');
+  if (fillAt < 0) {
+    errs.push('J1 never fills a non-empty search term before it opens the found row');
+  }
+  if (anyBackAt < 0) {
+    errs.push('J1 never presses the in-app Back; the search-survives-Back proof needs the reader\'s own Back, not a deep link');
+  }
+  if (fillAt >= 0) {
+    const term = sel(steps[fillAt], 2);
+    const namesRow = (st) => (st[0] === 'wait' || st[0] === 'click')
+      && /data-session-row/.test(bare(sel(st, 1))) && bare(sel(st, 1)).includes(term);
+    const rowWaitAt = after(fillAt, (st) => st[0] === 'wait' && namesRow(st));
+    const rowOpenAt = after(fillAt, (st) => st[0] === 'click' && namesRow(st));
+    if (rowWaitAt < 0) {
+      errs.push(`J1 never waits for the row the search found (wait css=[data-session-row] … ${term})`);
+    }
+    if (rowOpenAt < 0) {
+      errs.push(`J1 never opens the found row (click [data-session-row] … ${term})`);
+    } else {
+      if (rowWaitAt >= 0 && rowWaitAt > rowOpenAt) {
+        errs.push('J1 opens the found row before it waits for the row to be drawn; the wait proves the search filtered the list');
+      }
+      const rowTaskAt = after(rowOpenAt, (st) => st[0] === 'url' && /^\^?\/tasks\//.test(bare(sel(st, 1))));
+      if (rowTaskAt < 0) {
+        errs.push('J1 never proves the found row opened a conversation (url ^/tasks/)');
+      } else {
+        const rowBackAt = after(rowTaskAt, (st) => st[0] === 'back');
+        if (rowBackAt < 0) {
+          errs.push('J1 never presses the in-app Back after opening the found row (back)');
+        } else {
+          const rowListAt = after(rowBackAt, (st) => st[0] === 'url' && /^\^?\/sessions/.test(bare(sel(st, 1))));
+          if (rowListAt < 0) errs.push('J1 never proves Back returned to the list (url ^/sessions after back)');
+          const rowValueAt = after(rowBackAt, (st) => st[0] === 'value' && /input\[type=search\]/.test(bare(sel(st, 1))));
+          if (rowValueAt < 0) {
+            errs.push('J1 never reads the search text back after Back (value input[type=search] …)');
+          } else if (sel(steps[rowValueAt], 2) !== term) {
+            errs.push('J1 reads a different search text after Back than it typed before opening the row');
+          }
+          const rowSearchAt = after(rowValueAt, (st) => {
+            if (st[0] !== 'search') return false;
+            try { return new RegExp(bare(sel(st, 1))).test('?search=' + term); } catch (_) { return false; }
+          });
+          if (rowSearchAt < 0) {
+            errs.push(`J1 never proves the list URL still carries the search after Back (search search=${term})`);
+          }
+          const gotoBetween = rowValueAt < 0 ? -1
+            : steps.findIndex((st, i) => i > rowBackAt && i < rowValueAt && Array.isArray(st) && st[0] === 'goto');
+          if (gotoBetween >= 0) {
+            errs.push('J1 reloads the document between Back and the search read; the search must come back from the pop, not a fresh load');
+          }
+          if (escapeAt >= 0 && rowWaitAt >= 0 && rowWaitAt < escapeAt) {
+            errs.push('J1 waits for the found row before it closes the filter with Escape; the search/Back leg follows the search leg');
+          }
+          if (approveAt >= 0 && rowOpenAt > approveAt) {
+            errs.push('J1 opens the found row only after the approve deep link; the search/Back leg must come before the decisions');
+          }
+        }
+      }
+    }
   }
 
   // No Mac-only input: a hover is a mouse a phone does not have, a platform
@@ -2608,6 +2967,259 @@ function checkJ6Contract(spec) {
   }
   return errs;
 }
+// J16's contract: 820x1180 touch is an acceptance width, not an opt-in
+// diagnostic. Before this journey every screenshot was 390 or 1100, and
+// #537's four high findings (stacked bars, clipped header verbs, a table
+// wrapping one character per line, a pill over the last rows) shipped through
+// a green gate. The walk must read a long table answer down to its last row,
+// then let a reply land while the reader is away and prove the new-activity
+// state covered no cell. The viewport object is part of the contract: a bare
+// "820x1180" string resolves to hasTouch false through the phoneLayout rule,
+// i.e. an iPad measured as a mouse.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ16Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J16) || {};
+  const steps = journey.steps;
+  // Registration is the point: deleting the one index line must be loud, or
+  // the reading width can be retired by an edit no gate notices.
+  if (!journey.title && !Array.isArray(steps)) return ['J16 is not in the spec'];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J16 has no steps'];
+  const errs = [];
+  const required = (v) => typeof v === 'string' && !v.startsWith('?');
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'tablet') {
+    errs.push('J16 is the 820 touch reading proof: its viewports must be exactly ["tablet"]');
+  }
+  const tablet = ((spec || {}).viewports || {}).tablet;
+  if (!tablet || typeof tablet !== 'object' || tablet.size !== '820x1180'
+    || tablet.hasTouch !== true || tablet.isMobile !== false) {
+    errs.push('the tablet viewport must be the object {size: "820x1180", hasTouch: true, isMobile: false}; '
+      + 'a bare "820x1180" string resolves to hasTouch false, an iPad measured as a mouse');
+  }
+
+  // The answer is what a person reads: the fake's `[seed] reading` branch
+  // (long prose plus a five-row markdown table). Its visible marker must be
+  // on screen before any verdict, or `reading` measures an empty page.
+  const seedAt = idx((st) => st[0] === 'fill' && required(sel(st, 1))
+    && required(sel(st, 2)) && sel(st, 2).includes('[seed] reading'));
+  if (seedAt < 0) errs.push('J16 never sends the [seed] reading answer (fill textarea … [seed] reading)');
+  const sendAt = after(seedAt, (st) => st[0] === 'send' && required(sel(st, 1)));
+  if (sendAt < 0) errs.push('J16 never presses send after the reading prompt');
+  const markerAt = after(sendAt, (st) => st[0] === 'wait' && required(sel(st, 1))
+    && sel(st, 1).includes('Tablet reading fixture'));
+  if (markerAt < 0) errs.push('J16 never waits for the fixture answer marker (Tablet reading fixture) before measuring');
+
+  // The table bottom is read at the reading position, not at the top.
+  const scrollAt = after(markerAt, (st) => st[0] === 'scroll' && required(sel(st, 1)) && sel(st, 2) === 'bottom');
+  if (scrollAt < 0) errs.push('J16 never scrolls the reading pane to the bottom before measuring');
+  const tableAt = after(scrollAt, (st) => st[0] === 'reading' && sel(st, 1) === 'table-bottom');
+  if (tableAt < 0) errs.push('J16 never records the table-bottom reading verdict');
+
+  // The seeded inbox's pending approvals float a card over the reading pane.
+  // The reading verdict must run while they are still waiting: the floating
+  // surface now gets out of the way by itself when it would cover a table cell
+  // (R-approval-strip-reading), so the deny clicks and the gone are cleanup
+  // *after* the table was read, not a precondition. They stay required — a
+  // walk that never proves the card can be dismissed photographs an overlay
+  // rather than the product — but a walk that dismisses it before the table
+  // verdict has stopped proving the overlay yields.
+  const denyAts = steps.map((st, i) => i).filter((i) => Array.isArray(steps[i])
+    && steps[i][0] === 'click' && /^\??\[data-kin-approval-card\]/.test(sel(steps[i], 1))
+    && /拒绝|Deny/.test(sel(steps[i], 1)));
+  const cardGoneAt = idx((st) => st[0] === 'gone' && /^\??\[data-kin-approval-card\]/.test(sel(st, 1)));
+  if (denyAts.length < 3) {
+    errs.push('J16 must deny the seeded approvals (three [data-kin-approval-card] deny clicks) after it reads the table; the reading verdict runs while the approval waits');
+  }
+  if (!denyAts.some((at) => required(sel(steps[at], 1)))) {
+    errs.push('J16 needs a required [data-kin-approval-card] deny click; optional clicks can all skip while the surface is hidden');
+  }
+  if (cardGoneAt < 0) {
+    errs.push('J16 never proves the approval card left the screen (gone ?[data-kin-approval-card]) after it reads the table');
+  }
+  const hygiene = [cardGoneAt, ...denyAts].filter((at) => at >= 0);
+  if (hygiene.some((at) => tableAt >= 0 && at < tableAt)) {
+    errs.push('J16 dismisses the approval card before it reads the table; the approval must still be waiting while the reading verdict runs, so the deny/gone belong after table-bottom');
+  }
+
+  // The incoming state: a held follow-up lands out of sight, and the verdict
+  // that requires the new-activity row must find it off every visible cell.
+  const slowAt = after(tableAt, (st) => st[0] === 'fill' && required(sel(st, 1))
+    && required(sel(st, 2)) && sel(st, 2).includes('[seed] slow'));
+  if (slowAt < 0) errs.push('J16 never sends the held [seed] slow follow-up');
+
+  // The follow-up send pins the pane to the bottom; #542 proved the scroll
+  // away must wait for the optimistic bubble first, or the pin beats it and
+  // the reply lands while the reader is still at the bottom.
+  const followSendAt = after(slowAt, (st) => st[0] === 'send' && required(sel(st, 1)));
+  const bubbleAt = after(followSendAt, (st) => st[0] === 'wait' && required(sel(st, 1))
+    && sel(st, 1).includes('Reading follow-up while the reader is away'));
+  const awayAt = after(followSendAt, (st) => st[0] === 'scroll' && required(sel(st, 2)) && sel(st, 2) === 'bottom-140');
+  if (bubbleAt < 0) {
+    errs.push('J16 never waits for the follow-up bubble before scrolling away; the send pins the pane to the bottom, so the reply would land in view');
+  }
+  if (awayAt < 0) {
+    errs.push('J16 never scrolls away from the bottom after the follow-up send (scroll … bottom-140)');
+  } else if (bubbleAt >= 0 && bubbleAt > awayAt) {
+    errs.push("J16 scrolls away before the follow-up bubble is on screen; the send's pin-to-bottom wins and the reader never leaves");
+  }
+  const incomingAt = after(slowAt, (st) => st[0] === 'reading' && sel(st, 1) === 'incoming'
+    && sel(st, 2) === 'require-new-activity');
+  if (incomingAt < 0) errs.push('J16 never records the incoming verdict with require-new-activity');
+  if (incomingAt >= 0 && incomingAt !== steps.length - 1) {
+    errs.push('J16 must end on the incoming reading verdict; a later step could hide the state it proved');
+  }
+
+  // The paths table selects the journeys --files walks, first match wins. A
+  // conversation reading-surface diff must walk J16; a settings diff must not
+  // inherit it through a broad row.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const selected = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return row && Array.isArray(row[1]) ? row[1] : null;
+  };
+  for (const file of ['ui/src/pages/TaskDetailPage.tsx', 'ui/src/components/chat/ChatStream.tsx', 'ui/src/components/cards/',
+    'ui/src/components/layout/SessionTabs.tsx', 'ui/src/index.css', 'ui/src/i18n/locales/en.ts']) {
+    const row = selected(file);
+    if (!row || !row.includes('J16')) {
+      errs.push(`the paths table does not map ${file} to J16; a diff there would not walk the 820 reading surface`);
+    }
+  }
+  const settings = selected('ui/src/pages/SettingsPage.tsx');
+  if (settings && settings.includes('J16')) {
+    errs.push('the paths table maps a settings diff to J16; the tablet reading walk is not a settings walk');
+  }
+  return errs;
+}
+// J17's contract: the resting composer at iPad portrait widths is a measured
+// box, not a class string (Watch 53/90). #580 fixed the 0px textarea at 768 and
+// the 33px one at 820, but its proof was a number in a PR body; a DOM test can
+// see the arrangement classes and cannot see the rendered width. The walk must
+// measure the UNFOCUSED textarea before anything focuses or fills it, press the
+// card and read the caret, type a 40-character draft and bound it to two lines,
+// carry the composer across the route with `sample`/`steady`, and hit-test the
+// textarea while the queued guide is on screen. The viewport objects are part
+// of the contract for J16's reason: a bare "768x1024" string resolves to
+// hasTouch false, i.e. an iPad measured as a mouse.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ17Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J17) || {};
+  const steps = journey.steps;
+  if (!journey.title && !Array.isArray(steps)) return ['J17 is not in the spec'];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J17 has no steps'];
+  const errs = [];
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const namesTextarea = (st) => /textarea/i.test(sel(st, 1));
+
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 2
+    || viewports[0] !== 'tablet' || viewports[1] !== 'tablet-portrait') {
+    errs.push('J17 is the iPad portrait resting-composer proof: its viewports must be exactly ["tablet", "tablet-portrait"]');
+  }
+  for (const [name, size] of [['tablet', '820x1180'], ['tablet-portrait', '768x1024']]) {
+    const vp = ((spec || {}).viewports || {})[name];
+    if (!vp || typeof vp !== 'object' || vp.size !== size
+      || vp.hasTouch !== true || vp.isMobile !== false) {
+      errs.push(`the ${name} viewport must be the object {size: "${size}", hasTouch: true, isMobile: false}; `
+        + `a bare "${size}" string resolves to hasTouch false, an iPad measured as a mouse`);
+    }
+  }
+
+  // The resting measurement is the whole point: it must be the first thing
+  // done to the textarea. A fill or focus first is the walk Watch 90 exists to
+  // refuse — the raised arrangement is `w-full`, so the collapse hides.
+  const restingAt = idx((st) => st[0] === 'restingComposer'
+    && (sel(st, 2) === '' || sel(st, 2) === 'resting'));
+  if (restingAt < 0) {
+    errs.push('J17 never measures the resting composer (restingComposer)');
+  } else {
+    const early = steps.findIndex((st, i) => i < restingAt && Array.isArray(st)
+      && (st[0] === 'fill' || st[0] === 'focus') && namesTextarea(st));
+    if (early >= 0) {
+      errs.push(`J17 ${steps[early][0]}s the textarea at step ${early + 1}, before the resting measurement; `
+        + 'measure the resting composer before anything focuses or fills it');
+    }
+  }
+
+  // The card press is the reachability half: a press on the card's own padding
+  // must leave the caret in the textarea. It focuses the box, so it belongs
+  // after the resting measurement; the typed measurement of the 40-character
+  // draft belongs after the press.
+  const pressAt = idx((st) => st[0] === 'pressComposerCard' && sel(st, 1).trim() !== '');
+  if (pressAt < 0) {
+    errs.push('J17 never presses the composer card (pressComposerCard); a click on the box surface is the reachability proof');
+  } else if (restingAt >= 0 && pressAt < restingAt) {
+    errs.push('J17 presses the composer card before the resting measurement; '
+      + 'measure the resting composer before anything focuses or fills it');
+  }
+  const draftAt = pressAt < 0 ? -1 : idx((st) => st[0] === 'fill' && namesTextarea(st)
+    && String(sel(st, 2)).length === 40, pressAt + 1);
+  if (pressAt >= 0 && draftAt < 0) {
+    errs.push('J17 never types the 40-character draft after the card press (fill textarea <40 chars>)');
+  }
+  const typedAt = draftAt < 0 ? -1 : idx((st) => st[0] === 'restingComposer'
+    && sel(st, 2) === 'typed', draftAt + 1);
+  if (draftAt >= 0 && typedAt < 0) {
+    errs.push('J17 never measures the typed draft (restingComposer <name> typed); the two-line check is the readability claim');
+  }
+
+  // The queued follow-up must be confirmed by a row that leaves the box
+  // hittable. The wait proves the guide is on screen; the hit-test is the
+  // measurement, and it must run after that wait.
+  const guideAt = idx((st) => st[0] === 'wait'
+    && /已排队|Queued — answered when the current round ends/.test(sel(st, 1)));
+  if (guideAt < 0) {
+    errs.push('J17 never waits for the queued guide ([role=status] 已排队：本轮结束后回答) before hit-testing the composer');
+  }
+  const hitAt = idx((st) => st[0] === 'restingComposer' && sel(st, 2) === 'hit-test', guideAt + 1);
+  if (hitAt < 0) {
+    errs.push('J17 never hit-tests the textarea while the queued guide is visible (restingComposer <name> hit-test after the guide wait)');
+  }
+
+  // The hand-off proof is J3's: the sampler starts on /new before Start, and
+  // `steady` reads it back after the URL change, before the `sent` shot. The
+  // 24px bound is GOAL F1; a larger number would let the box jump.
+  const startAt = idx((st) => st[0] === 'send' && /开始|Start/.test(sel(st, 1)));
+  const sampleAt = idx((st) => st[0] === 'sample' && /\[data-kin-bottom-chrome\]/.test(sel(st, 1)));
+  if (startAt < 0) errs.push('J17 never presses Start');
+  if (sampleAt < 0) {
+    errs.push('J17 never samples the composer before Send (sample css=[data-kin-bottom-chrome])');
+  } else if (startAt >= 0 && sampleAt > startAt) {
+    errs.push('J17 starts the composer sample after Start; the sample must begin before Send or the hand-off has no frames');
+  }
+  const urlAt = after(startAt, (st) => st[0] === 'url' && /tasks/.test(sel(st, 1)));
+  if (urlAt < 0) errs.push('J17 never waits for the /tasks/ route after Start');
+  const steadyAt = after(urlAt, (st) => st[0] === 'steady' && sel(st, 1) === 'composer'
+    && Number.isFinite(Number(sel(st, 2))) && Number(sel(st, 2)) <= 24);
+  if (steadyAt < 0) {
+    errs.push('J17 never steadies the composer after the URL change (steady composer <maxJump <= 24>); GOAL F1 allows 24px');
+  }
+  const sentAt = after(steadyAt, (st) => st[0] === 'shot' && sel(st, 1) === 'sent');
+  if (sentAt < 0) {
+    errs.push('J17 never takes the `sent` shot after steady; the shot is the hand-off evidence');
+  }
+
+  // The paths table selects the journeys --files walks, first match wins. A
+  // composer or dock diff must walk J17; a new row above the conversation row
+  // would steal J1-J16's selection, so the mapping belongs on that row.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const selected = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return row && Array.isArray(row[1]) ? row[1] : null;
+  };
+  for (const file of ['ui/src/components/chat/Composer.tsx', 'ui/src/components/task/TaskComposerDock.tsx']) {
+    const row = selected(file);
+    if (!row || !row.includes('J17')) {
+      errs.push(`the paths table does not map ${file} to J17; a composer diff would not walk the resting box at 768/820`);
+    }
+  }
+  return errs;
+}
 if (process.argv.includes('--check-spec')) {
   const j1 = checkJ1Contract(spec);
   const j2 = checkJ2Contract(spec);
@@ -2624,7 +3236,9 @@ if (process.argv.includes('--check-spec')) {
   const j13 = checkJ13Contract(spec);
   const j14 = checkJ14Contract(spec);
   const j15 = checkJ15Contract(spec);
-  if (j1.length || j2.length || j3.length || j4.length || j5.length || j6.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length || j14.length || j15.length) {
+  const j16 = checkJ16Contract(spec);
+  const j17 = checkJ17Contract(spec);
+  if (j1.length || j2.length || j3.length || j4.length || j5.length || j6.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length || j14.length || j15.length || j16.length || j17.length) {
     if (j1.length) { console.log('spec red: J1'); j1.forEach((e) => console.log(' - ' + e)); }
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
@@ -2640,6 +3254,8 @@ if (process.argv.includes('--check-spec')) {
     if (j13.length) { console.log('spec red: J13'); j13.forEach((e) => console.log(' - ' + e)); }
     if (j14.length) { console.log('spec red: J14'); j14.forEach((e) => console.log(' - ' + e)); }
     if (j15.length) { console.log('spec red: J15'); j15.forEach((e) => console.log(' - ' + e)); }
+    if (j16.length) { console.log('spec red: J16'); j16.forEach((e) => console.log(' - ' + e)); }
+    if (j17.length) { console.log('spec red: J17'); j17.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
   console.log('spec ok: J1 searches the list, filters it, and approves one card and denies another with both controls read gone');
@@ -2647,6 +3263,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J2 keeps a saved comment across a rerun — re-anchored to its new line, then 该行已变化 when the quoted line is gone');
   console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
   console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
+  console.log('spec ok: J3 interrupts a held round with the typed message, reads the mark above it in the transcript, and proves Stop left');
   console.log('spec ok: J4 reads the cover\'s 工作方式 block, sends the pre-filled prompt, edits the file, and proves the same cut on the cover and in the agent\'s receipt');
   console.log('spec ok: J5 opens the running row\'s menu and pins rename, pin, archive, delete and a disabled 运行中 line');
   console.log('spec ok: J6 changes the default agent at both widths, proves it persisted and hosts the next new chat, then restores it');
@@ -2659,6 +3276,8 @@ if (process.argv.includes('--check-spec')) {
   if (spec.journeys && spec.journeys.J13) console.log('spec ok: J13 walks the phone file link through Back to the list and the conversation, the PR tab as an address (cold, refreshed, Forward, Back closes only the panel), the HTML preview/source switch without leaving the file address, and an undrawable PDF offering the desktop shell\'s Open in… menu, closed with Escape');
   if (spec.journeys && spec.journeys.J14) console.log('spec ok: J14 reopens the last conversation on the Mac, finds no conversation rows in ⌘K, and draws the phone home as one list at three levels');
   if (spec.journeys && spec.journeys.J15) console.log('spec ok: J15 answers the agent\'s mid-run question by option and by Other, proves the card left, and finds it still gone after a reload');
+  if (spec.journeys && spec.journeys.J16) console.log('spec ok: J16 reads a long table answer at 820 touch down to its last row, then proves a reply that landed while away covered no cell');
+  if (spec.journeys && spec.journeys.J17) console.log('spec ok: J17 measures the resting composer at 768 and 820 before focus, then proves a queued follow-up leaves the box hittable');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
@@ -3346,8 +3965,13 @@ for (const j of want) {
   if (j15 && j15.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J15-skipped-no-question-target', url: '', lint: {}, notes: ['skipped J15: ' + j15.skip] }); continue; }
   const J = spec.journeys[j];
   for (const vpName of J.viewports) {
-    const [w, h] = spec.viewports[vpName].split('x').map(Number); const phone = w < 700;
-    const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: phone ? 2 : 1, isMobile: phone, hasTouch: phone });
+    const ctxOptions = viewportContext(spec, vpName);
+    // `phone` stays the layout question the walk's lint and contracts were
+    // written around; touch is its own axis, so 820 gets a finger without
+    // being treated as a phone.
+    const phone = ctxOptions.isMobile;
+    const touch = ctxOptions.hasTouch;
+    const ctx = await browser.newContext(ctxOptions);
     if (token) await ctx.addInitScript((t) => { try { localStorage.setItem('kin_token', t); } catch (_) {} }, token);
     // A journey may declare the Electron shell's bridge (`desktopBridge`). The
     // walker is otherwise a plain browser, and the console hides every
@@ -3372,7 +3996,7 @@ for (const j of want) {
     // The touch verbs speak CDP. The session is created only for the phone,
     // where the context is already a finger (`hasTouch`); it installs no
     // override, so the other journeys' hover/click semantics are untouched.
-    const cdp = phone ? await ctx.newCDPSession(page) : null;
+    const cdp = touch ? await ctx.newCDPSession(page) : null;
     if (DELAY_TASKS_MS > 0) {
       // Only the detail GET: /api/tasks/<one segment>, with or without a query.
       // Never the list (/api/tasks), the create POST, or /api/tasks/<id>/events:
@@ -3501,6 +4125,7 @@ for (const j of want) {
             await loc.focus({ timeout: 3000 }); await page.waitForTimeout(200); continue;
           }
           if (op === 'fill') await loc.fill(b, { timeout: 3000 }); else await (op === 'click' ? loc.click({ timeout: 3000 }) : loc.hover({ timeout: 3000 })); await page.waitForTimeout(400);
+          if (op === 'click') log.push('click ' + sel);
         } else if (op === 'gone') {
           // A decision landing must take its control off the screen: the
           // pending card unmounts its buttons when the answer arrives. Waiting
@@ -3720,8 +4345,13 @@ for (const j of want) {
           // short transcript clamps, and the log says so rather than pretending).
           const { optional, value } = optionalOf(a);
           const asked = String(b ?? '').trim();
-          if (!value.startsWith('css=') || !(asked === 'bottom' || /^\d+$/.test(asked))) {
-            hardFail.push(`${j}/${vpName}: scroll needs css=<selector> and <px>|bottom, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+          // `bottom-<px>` is the diagnostic's "just above the end" position:
+          // far enough from the bottom that the product no longer treats the
+          // reader as caught up, close enough that the final table rows stay
+          // on screen. Additive; `bottom` and an absolute pixel keep meaning.
+          const fromBottom = /^bottom-(\d+)$/.exec(asked);
+          if (!value.startsWith('css=') || !(asked === 'bottom' || /^\d+$/.test(asked) || fromBottom)) {
+            hardFail.push(`${j}/${vpName}: scroll needs css=<selector> and <px>|bottom|bottom-<px>, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
             continue;
           }
           const selector = value.slice('css='.length);
@@ -3732,7 +4362,10 @@ for (const j of want) {
             };
             const el = [...document.querySelectorAll(selector)].find(vis);
             if (!el) return null;
-            el.scrollTop = asked === 'bottom' ? el.scrollHeight : Number(asked);
+            const lift = /^bottom-(\d+)$/.exec(asked);
+            el.scrollTop = asked === 'bottom' ? el.scrollHeight
+              : lift ? Math.max(0, el.scrollHeight - el.clientHeight - Number(lift[1]))
+                : Number(asked);
             return { top: el.scrollTop, max: el.scrollHeight - el.clientHeight };
           }, { selector, asked }).catch(() => null);
           if (!got) {
@@ -4025,6 +4658,202 @@ for (const j of want) {
           if (jump > maxJump) why.push(`the box moved or resized ${r0(jump)}px between painted frames (max ${maxJump}px)`);
           if (why.length) hardFail.push(`${j}/${vpName}: ${line} — ${why.join('; ')}`);
           else log.push(`steady ${name} within ${maxJump}px`);
+        }
+        else if (op === 'reading') {
+          // The opt-in 820 reading measurement. The browser only observes;
+          // readingVerdict decides, with every criterion recorded separately
+          // so a red action does not hide a covered table cell. An unusable
+          // measurement (no fixture, no rendered rows, no visible cell) is a
+          // hard failure, never a vacuous green.
+          const name = String(a ?? '').trim();
+          const requireNewActivity = String(b || '') === 'require-new-activity';
+          if (!name) { hardFail.push(`${j}/${vpName}: reading needs a name`); continue; }
+          const metrics = await page.evaluate(measureReading);
+          metrics.requireNewActivity = requireNewActivity;
+          const file = `${j}-${vpName}-${String(++n).padStart(2, '0')}-${name}.reading.json`;
+          fs.writeFileSync(path.join(out, file), JSON.stringify(metrics, null, 1));
+          const verdict = readingVerdict(metrics);
+          log.push(`reading metrics ${file}`);
+          if (!verdict.available) {
+            hardFail.push(`${j}/${vpName}: reading ${name} unavailable: ${verdict.unavailable}`);
+          } else {
+            log.push(`reading ${name}: ${verdict.ok ? 'green' : 'RED'} (${verdict.failures.length} failure(s), ${verdict.criteria.cells.checked} visible cells)`);
+            for (const f of verdict.failures) hardFail.push(`${j}/${vpName}: reading ${name}: ${f}`);
+          }
+        }
+        else if (op === 'restingComposer') {
+          // `["restingComposer", "<name>"]` measures the composer box as it
+          // rests, before anything focuses or fills it (Watch 90). A walk that
+          // focuses first never sees the collapse: the raised arrangement is
+          // `w-full` at every width, so the 0px resting box photographs as a
+          // healthy one. Modes:
+          //   (default)   the unfocused box: width >= 240, height >= 44, and
+          //               document.activeElement is not the textarea;
+          //   `typed`     a >= 40-character draft is readable in <= 2 lines
+          //               (scrollHeight within two line boxes plus padding);
+          //   `hit-test`  with the queued guide on screen, elementFromPoint at
+          //               the textarea's centre is the textarea (or a
+          //               descendant) and the guide's rect does not intersect
+          //               the textarea's rect.
+          // Each mode prints one log line with the measured numbers and pushes
+          // a hardFail on a miss, prefixed with the journey and viewport.
+          const name = String(a ?? '').trim();
+          const mode = String(b ?? '').trim() || 'resting';
+          const taSelector = '[data-kin-composer-card] textarea';
+          if (!name || !['resting', 'typed', 'hit-test'].includes(mode)) {
+            hardFail.push(`${j}/${vpName}: restingComposer needs a name and one of resting, typed, hit-test; got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          try {
+            await page.locator(taSelector).first().waitFor({ state: 'visible', timeout: 15000 });
+          } catch (_) {
+            hardFail.push(`${j}/${vpName}: restingComposer ${name}: no visible composer textarea (${taSelector})`);
+            continue;
+          }
+          if (mode === 'hit-test') {
+            const hit = await page.evaluate(() => {
+              const round = (v) => Math.round(v * 10) / 10;
+              const card = document.querySelector('[data-kin-composer-card]');
+              const ta = card ? card.querySelector('textarea') : null;
+              const guide = document.querySelector('[data-kin-queued-guide]');
+              if (!ta) return { error: 'the composer textarea is not on screen' };
+              if (!guide) return { error: 'the queued guide ([data-kin-queued-guide]) is not on screen' };
+              const tr = ta.getBoundingClientRect();
+              const gr = guide.getBoundingClientRect();
+              if (!(gr.width > 0 && gr.height > 0)) return { error: 'the queued guide has no painted box' };
+              const x = tr.left + tr.width / 2;
+              const y = tr.top + tr.height / 2;
+              const el = document.elementFromPoint(x, y);
+              const label = (node) => (node
+                ? node.tagName.toLowerCase()
+                  + (typeof node.className === 'string' && node.className.trim()
+                    ? '.' + node.className.trim().split(/\s+/)[0]
+                    : '')
+                : 'none');
+              return {
+                x: round(x), y: round(y),
+                hit: label(el),
+                owns: el === ta || ta.contains(el),
+                overlap: !(gr.right <= tr.left || gr.left >= tr.right || gr.bottom <= tr.top || gr.top >= tr.bottom),
+                ta: { width: round(tr.width), height: round(tr.height), y: round(tr.top) },
+                guide: { width: round(gr.width), height: round(gr.height), y: round(gr.top) },
+              };
+            });
+            if (hit.error) {
+              hardFail.push(`${j}/${vpName}: restingComposer ${name}: ${hit.error}`);
+              continue;
+            }
+            const line = `hit-test ${name}: point (${hit.x}, ${hit.y}) hit ${hit.hit}; `
+              + `textarea ${hit.ta.width}×${hit.ta.height}px at y=${hit.ta.y}; `
+              + `guide ${hit.guide.width}×${hit.guide.height}px at y=${hit.guide.y}; `
+              + (hit.overlap ? 'OVERLAP' : 'no overlap');
+            log.push(line);
+            if (!hit.owns) {
+              hardFail.push(`${j}/${vpName}: ${line} — elementFromPoint returns ${hit.hit}, not the textarea`);
+            }
+            if (hit.overlap) {
+              hardFail.push(`${j}/${vpName}: ${line} — the queued guide intersects the textarea`);
+            }
+            continue;
+          }
+          const measured = await page.evaluate(() => {
+            const round = (v) => Math.round(v * 10) / 10;
+            const card = document.querySelector('[data-kin-composer-card]');
+            const el = card ? card.querySelector('textarea') : null;
+            if (!el) return { error: 'the composer textarea is not on screen' };
+            const r = el.getBoundingClientRect();
+            const cs = getComputedStyle(el);
+            const lh = parseFloat(cs.lineHeight);
+            const pt = parseFloat(cs.paddingTop) || 0;
+            const pb = parseFloat(cs.paddingBottom) || 0;
+            return {
+              width: round(r.width), height: round(r.height),
+              cardWidth: card ? round(card.getBoundingClientRect().width) : null,
+              value: (el.value || '').length,
+              active: document.activeElement === el,
+              activeTag: document.activeElement ? document.activeElement.tagName.toLowerCase() : 'none',
+              lineHeight: Number.isFinite(lh) ? round(lh) : null,
+              paddingTop: round(pt), paddingBottom: round(pb),
+              scrollHeight: el.scrollHeight,
+            };
+          });
+          if (measured.error) {
+            hardFail.push(`${j}/${vpName}: restingComposer ${name}: ${measured.error}`);
+            continue;
+          }
+          if (mode === 'resting') {
+            const line = `resting composer ${name}: ${measured.width}×${measured.height}px `
+              + `(card ${measured.cardWidth}px), activeElement=${measured.activeTag}`;
+            log.push(line);
+            if (measured.width < 240) {
+              hardFail.push(`${j}/${vpName}: ${line} — the textarea width is under the 240px floor`);
+            }
+            if (measured.height < 44) {
+              hardFail.push(`${j}/${vpName}: ${line} — the textarea height is under the 44px floor`);
+            }
+            if (measured.active) {
+              hardFail.push(`${j}/${vpName}: ${line} — the textarea already has focus; measure the resting composer before anything focuses or fills it`);
+            }
+          } else {
+            const lines = measured.lineHeight
+              ? Math.max(1, Math.ceil((measured.scrollHeight - measured.paddingTop - measured.paddingBottom) / measured.lineHeight))
+              : null;
+            const maxHeight = measured.lineHeight
+              ? 2 * measured.lineHeight + measured.paddingTop + measured.paddingBottom + 1
+              : null;
+            const line = `typed composer ${name}: ${measured.width}×${measured.height}px, `
+              + `${measured.value} chars, ${lines === null ? 'unmeasured' : lines + ' line(s)'} `
+              + `(scrollHeight ${measured.scrollHeight}px, 2-line budget ${maxHeight === null ? 'n/a' : maxHeight + 'px'})`;
+            log.push(line);
+            if (measured.width < 240) {
+              hardFail.push(`${j}/${vpName}: ${line} — the textarea width is under the 240px floor`);
+            }
+            if (measured.height < 44) {
+              hardFail.push(`${j}/${vpName}: ${line} — the textarea height is under the 44px floor`);
+            }
+            if (measured.value < 40) {
+              hardFail.push(`${j}/${vpName}: ${line} — the draft is shorter than the 40-character proof`);
+            }
+            if (lines === null) {
+              hardFail.push(`${j}/${vpName}: ${line} — the textarea has no usable line-height to bound the draft`);
+            } else if (measured.scrollHeight > maxHeight) {
+              hardFail.push(`${j}/${vpName}: ${line} — the draft needs more than two lines`);
+            }
+          }
+        }
+        else if (op === 'pressComposerCard') {
+          // `["pressComposerCard", "<name>"]`: press the card's own surface, not
+          // the textarea. +4/+4 lands inside the card's padding and (at the
+          // 12px desktop radius) inside the rounded corner, so the pointer
+          // targets the card. The assertion is the caret: the card's
+          // pointerdown handler focuses the textarea, and a press that leaves
+          // no caret is the dead surface #580 fixed.
+          const name = String(a ?? '').trim();
+          if (!name) { hardFail.push(`${j}/${vpName}: pressComposerCard needs a name`); continue; }
+          const card = page.locator('[data-kin-composer-card]').first();
+          try {
+            await card.waitFor({ state: 'visible', timeout: 15000 });
+          } catch (_) {
+            hardFail.push(`${j}/${vpName}: pressComposerCard ${name}: no visible [data-kin-composer-card]`);
+            continue;
+          }
+          const box = await card.boundingBox();
+          if (!box) {
+            hardFail.push(`${j}/${vpName}: pressComposerCard ${name}: the composer card has no box`);
+            continue;
+          }
+          await page.mouse.click(box.x + 4, box.y + 4);
+          const focused = await page.evaluate(() => {
+            const card = document.querySelector('[data-kin-composer-card]');
+            const ta = card ? card.querySelector('textarea') : null;
+            return { ok: !!ta && document.activeElement === ta, active: document.activeElement ? document.activeElement.tagName.toLowerCase() : 'none' };
+          });
+          const line = `press composer card ${name}: pressed (${Math.round(box.x) + 4}, ${Math.round(box.y) + 4}); `
+            + `textarea focused=${focused.ok} (activeElement=${focused.active})`;
+          log.push(line);
+          if (!focused.ok) {
+            hardFail.push(`${j}/${vpName}: ${line} — a press on the card surface left no caret in the textarea`);
+          }
         }
         else { hardFail.push(`${j}/${vpName}: unknown step op ${JSON.stringify(op)}`); }
       } catch (e) {

@@ -45,6 +45,28 @@ describe("sessionListParams", () => {
     expect(sessionListParams("note", "")).not.toHaveProperty("status");
   });
 
+  it("sends routineId only when a routine is selected", () => {
+    // `?routine=` is the daemon's own filter (`routine_id`), like `status`:
+    // the page is a page, and narrowing a loaded slice in the browser alone
+    // would say "no runs" about rows the page never reached.
+    expect(sessionListParams("")).not.toHaveProperty("routineId");
+    expect(sessionListParams("", "", false, "")).not.toHaveProperty("routineId");
+    expect(sessionListParams("", "", false, "r1")).toEqual({
+      limit: LIST_LIMIT,
+      routineId: "r1",
+    });
+    expect(sessionListParams("note", "running", true, "r1")).toEqual({
+      limit: SEARCH_LIMIT,
+      q: "note",
+      status: "running",
+      archived: true,
+      routineId: "r1",
+    });
+    // The limit rules are not the routine's to change: a search still asks for
+    // the bigger page, a routine filter or not.
+    expect(sessionListParams("note", "", false, "r1").limit).toBe(SEARCH_LIMIT);
+  });
+
   it("asks for the other side of the archive, never for both", () => {
     // The daemon reads `archived` as a side, not a widening: absent means the
     // live list, `1` means only archived rows. Sending `archived: false`

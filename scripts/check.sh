@@ -223,6 +223,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-merge-batch.sh || return 1
   bash rsi/runtime/tests/test-merge-ceo-ok.sh || return 1
   bash rsi/runtime/tests/test-gate-lock-timeout.sh || return 1
+  bash rsi/runtime/tests/test-gate-no-verdict.sh || return 1
   # The walk mutant's red proof builds the UI twice, so the gate runs only the
   # runner's hermetic mode here; the browser proof itself is one command by hand
   # (rsi/runtime/ux/walk-mutant-test.sh).
@@ -230,6 +231,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-mutants-restore.sh || return 1
   bash rsi/runtime/tests/test-journeys-smoke-assets.sh || return 1
   bash rsi/runtime/tests/test-smoke-assets.sh || return 1
+  bash rsi/runtime/tests/test-dream-contract.sh || return 1
   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest >/dev/null || return 1
   bash rsi/runtime/tests/test-ux-walker.sh || return 1
   bash rsi/runtime/tests/test-ux-walk-timeout.sh || return 1
@@ -237,6 +239,9 @@ job_shell_test() {
   bash rsi/runtime/tests/test-lane-autofill.sh || return 1
   bash rsi/runtime/tests/test-lane-worker-contract.sh || return 1
   bash rsi/runtime/tests/test-lane-sendback-reserve.sh || return 1
+  bash rsi/runtime/tests/test-lane-control-tree-guard.sh || return 1
+  bash rsi/runtime/tests/test-evidence-widths.sh || return 1
+  bash rsi/runtime/tests/test-claim-copies.sh || return 1
   bash rsi/runtime/tests/test-lanes-facts.sh || return 1
   bash rsi/runtime/tests/test-sendback-provenance.sh || return 1
   bash rsi/runtime/tests/test-release.sh || return 1
@@ -249,6 +254,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-reviewer-misses.sh || return 1
   bash rsi/runtime/tests/test-rework-attrib.sh || return 1
   bash rsi/runtime/tests/test-followups-lint.sh || return 1
+  bash rsi/runtime/tests/test-worktree-report.sh || return 1
   bash rsi/runtime/tests/test-live-config-ignore.sh || return 1
   bash rsi/runtime/tests/test-lane-bash-timeout.sh || return 1
   bash rsi/runtime/tests/test-dispatch-codex-timeout.sh || return 1
@@ -297,6 +303,15 @@ job_ui_inventory() {
   python3 -B scripts/check-ui-inventory.py
 }
 
+# The deletions this repo made on purpose, and the tests that prove the
+# checker can fail. Always runs: a merge that restores a deleted surface must
+# turn this job red even when no Go, shell or console job looks at that path,
+# and a changed-file glob would miss exactly that merge.
+job_removed_surfaces() {
+  python3 -B scripts/check-removed-surfaces.test.py || return 1
+  python3 -B scripts/check-removed-surfaces.py
+}
+
 # The added-file bans and their own tests. Always runs: a disabled rule must
 # still turn this job red, even when `ui-test` sees nothing.
 job_ui_lint_guard() {
@@ -328,6 +343,12 @@ job_journeys_smoke() {
   python3 -B scripts/journeys_smoke_test.py || return 1
 }
 
+# KIN-QUALITY-001's reading rules, fixture and gate wiring without a browser;
+# the pixel rows are the one-command walk the PR carries.
+job_quality_reading_contract() {
+  python3 -B scripts/quality_001_reading_test.py
+}
+
 start gofmt job_gofmt
 start vet job_vet
 start gotest job_gotest
@@ -343,10 +364,12 @@ start shell-test job_shell_test
 start python-syntax job_python_syntax
 start stories job_stories
 start ui-inventory job_ui_inventory
+start removed-surfaces job_removed_surfaces
 start ui-lint-guard job_ui_lint_guard
 start walk-contract job_walk_contract
 start phone-baseline-contract job_phone_baseline_contract
 start journeys-smoke job_journeys_smoke
+start quality-reading-contract job_quality_reading_contract
 
 FAILED=()
 for i in "${!PIDS[@]}"; do

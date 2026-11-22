@@ -29,6 +29,19 @@ beforeEach(() => {
 });
 
 describe("the project summary card", () => {
+  it("marks the draft's summary as reading content", () => {
+    // At 1100 the floating approval card covered this summary's right half on
+    // `/new`. The whole card is marked, including the cover link: the link is
+    // the half the card sat on, and it is the reader's next action.
+    const view = renderCard();
+    const marked = view.container.querySelector("[data-kin-reading]");
+
+    expect(marked).not.toBeNull();
+    expect(marked?.contains(screen.getByRole("link", { name: tr("newChat.openOnePager") }))).toBe(
+      true,
+    );
+  });
+
   it("gives the cover link the phone touch floor", () => {
     renderCard();
     const link = screen.getByRole("link", { name: tr("newChat.openOnePager") }) as HTMLElement;

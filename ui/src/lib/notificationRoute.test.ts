@@ -33,11 +33,43 @@ describe("parseNotificationRoute", () => {
     expect(route).toEqual({ path: "/tasks/task-1", focus: null, fallback: false });
   });
 
+  it("keeps the card a conversation link names", () => {
+    // KIN-NOTIFY-001: an approval or question link is /tasks/<id>?focus=<item>,
+    // and the conversation reveals that card from the parameter
+    // (TaskDetailPage.tsx:1286). Dropping the query lands on the conversation
+    // but never on the content that stopped the agent.
+    const route = parseNotificationRoute(
+      "https://kin.example.com/tasks/task-1?focus=appr-1",
+      ORIGIN,
+    );
+    expect(route).toEqual({ path: "/tasks/task-1?focus=appr-1", focus: "appr-1", fallback: false });
+    // A query the route does not own is still dropped, exactly as on /routines.
+    expect(parseNotificationRoute("/tasks/task-1?utm=push", ORIGIN).path).toBe("/tasks/task-1");
+    // `/approvals` names the same kind of item in its own list.
+    expect(parseNotificationRoute("/approvals?focus=q1", ORIGIN).path).toBe("/approvals?focus=q1");
+  });
+
   it("keeps a routine report's machine task link", () => {
-    // A routine run on a paired Node is opened at /machines/<device>/tasks/<id>,
-    // which is a known route even though it is not a local /tasks/:id.
+    // An alert written before KIN-CONTRACT-001 names the old machine path. It
+    // is still a known route (the console redirects it), so the tap lands.
     const route = parseNotificationRoute("/machines/dev-1/tasks/task-9", ORIGIN);
     expect(route).toEqual({ path: "/machines/dev-1/tasks/task-9", focus: null, fallback: false });
+  });
+
+  it("keeps the device of a routine report's task detail", () => {
+    // The report link is now the one task detail page with the machine in the
+    // query. Dropping the device would ask this Hub's task table for a run it
+    // has never held and answer "not found".
+    expect(parseNotificationRoute("/tasks/task-9?device=dev-1", ORIGIN)).toEqual({
+      path: "/tasks/task-9?device=dev-1",
+      focus: null,
+      fallback: false,
+    });
+    // A card focus and the device ride together, focus first (the existing
+    // order every conversation link already used).
+    expect(parseNotificationRoute("/tasks/task-9?device=dev-1&focus=appr-1", ORIGIN).path).toBe(
+      "/tasks/task-9?focus=appr-1&device=dev-1",
+    );
   });
 
   it("keeps the device a disabled-routine alert names", () => {

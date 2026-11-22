@@ -2809,7 +2809,7 @@ class WalkJ14ContractTest(unittest.TestCase):
             "ui/src/components/CommandPalette",
             "ui/src/pages/Sessions|ui/src/components/sessions/|ui/src/components/mobile/",
             "ui/src/pages/TaskDetail|ui/src/pages/TaskSession|ui/src/components/chat/"
-            "|ui/src/components/cards/|ui/src/components/workspace/",
+            "|ui/src/components/task/|ui/src/components/cards/|ui/src/components/workspace/",
         )
         for needle in needles:
             row = next((row for row in spec["paths"] if row[0] == needle), None)
@@ -3054,7 +3054,7 @@ class WalkJ1ContractTest(unittest.TestCase):
         needles = (
             "ui/src/pages/Sessions|ui/src/components/sessions/|ui/src/components/mobile/",
             "ui/src/pages/TaskDetail|ui/src/pages/TaskSession|ui/src/components/chat/"
-            "|ui/src/components/cards/|ui/src/components/workspace/",
+            "|ui/src/components/task/|ui/src/components/cards/|ui/src/components/workspace/",
         )
         for needle in needles:
             row = next((row for row in spec["paths"] if row[0] == needle), None)
@@ -4792,6 +4792,299 @@ class WalkJ15ContractTest(unittest.TestCase):
         self.assertIn("paths table", out)
 
 
+class WalkJ16ContractTest(unittest.TestCase):
+    """The 820x1180 touch reading surface must stay an acceptance width.
+
+    #537's four high findings shipped through a green gate because every
+    screenshot was 390 or 1100. J16 is the gate's own walk of the width the
+    owner reads on, and ``--check-spec`` is the reader, so a rule cannot drift
+    between the spec and the gate. The viewport object is part of the proof:
+    a bare "820x1180" string resolves to hasTouch false through the walker's
+    phoneLayout rule, i.e. an iPad measured as a mouse.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j16-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec["journeys"]["J16"]["steps"])
+        path = os.path.join(self.tmp, "steps.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    def copy_spec_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec)
+        path = os.path.join(self.tmp, "spec.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    @staticmethod
+    def steps() -> list:
+        return load_spec()["journeys"]["J16"]["steps"]
+
+    def test_shipped_j16_spec_is_ok(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J16", out)
+        self.assertEqual(load_spec()["journeys"]["J16"]["viewports"], ["tablet"],
+                         "J16 is the 820 touch reading proof")
+
+    def test_j16_without_either_reading_verdict_is_red(self) -> None:
+        # Both verdicts are the proof: the table bottom at the reading
+        # position, and the incoming state with the new-activity requirement.
+        steps = self.steps()
+        table = next(i for i, step in enumerate(steps)
+                     if step[0] == "reading" and step[1] == "table-bottom")
+        incoming = next(i for i, step in enumerate(steps)
+                        if step[0] == "reading" and step[1] == "incoming")
+        for label, index, needle in (
+            ("the table-bottom verdict", table, "table-bottom"),
+            ("the incoming verdict", incoming, "require-new-activity"),
+        ):
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J16", out)
+                self.assertIn(needle, out)
+
+    def test_j16_without_the_held_follow_up_is_red(self) -> None:
+        # Without the held reply there is no new-activity state to measure,
+        # and a verdict that never runs would leave the pill's overlap
+        # unproven while the gate stayed green.
+        steps = self.steps()
+        slow = next(i for i, step in enumerate(steps)
+                    if step[0] == "fill" and "[seed] slow" in str(step[2]))
+        code, out = self.check(self.copy_with(lambda steps: steps.pop(slow)))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("[seed] slow", out)
+
+    def test_j16_without_the_approval_card_hygiene_is_red(self) -> None:
+        # #542 proved the seeded inbox's approval card covers the table; the
+        # deny/gone fixture hygiene is the difference between a reading and a
+        # photograph of an overlay. Dropping the deny clicks must be loud.
+        steps = self.steps()
+        deny = [i for i, step in enumerate(steps)
+                if step[0] == "click"
+                and str(step[1]).lstrip("?").startswith("[data-kin-approval-card]")]
+        self.assertEqual(len(deny), 3, steps)
+
+        def drop_denies(steps):
+            steps[:] = [step for step in steps
+                        if not (step[0] == "click"
+                                and str(step[1]).lstrip("?").startswith("[data-kin-approval-card]"))]
+
+        code, out = self.check(self.copy_with(drop_denies))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("deny the seeded approvals", out)
+
+        # Optional clicks all skipped on a hidden surface while `gone`
+        # passed vacuously. Require at least one real dismissal, and count
+        # both required and optional forms in a mixed cleanup sequence.
+        def optional_denies(steps):
+            for i in deny:
+                steps[i][1] = "?" + steps[i][1].lstrip("?")
+
+        code, out = self.check(self.copy_with(optional_denies))
+        self.assertEqual(code, 1, out)
+        self.assertIn("required [data-kin-approval-card] deny", out)
+
+        def mixed_denies(steps):
+            optional_denies(steps)
+            steps[deny[0]][1] = steps[deny[0]][1].lstrip("?")
+
+        code, out = self.check(self.copy_with(mixed_denies))
+        self.assertEqual(code, 0, out)
+
+    def test_j16_scrolls_away_before_the_follow_up_bubble_is_red(self) -> None:
+        # The send pins the pane to the bottom. Without the bubble wait the
+        # scroll-away races that pin and the reply lands in view, so the
+        # incoming verdict measures the wrong state.
+        def drop_bubble_wait(steps):
+            steps[:] = [step for step in steps
+                        if not (step[0] == "wait"
+                                and "Reading follow-up while the reader is away" in str(step[1]))]
+
+        code, out = self.check(self.copy_with(drop_bubble_wait))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("follow-up bubble", out)
+
+    def test_j16_paths_rows_cover_layout_design_and_locales(self) -> None:
+        # First match wins: a tabs/chrome diff, a CSS/token diff and a label
+        # diff each stop at their own row, so J16 must be on all three or the
+        # 820 width is skipped for exactly the changes #537 found.
+        def drop(spec):
+            for row in spec["paths"]:
+                if row[0].startswith(("ui/src/components/layout/", "ui/src/components/ui/",
+                                      "ui/src/i18n/locales/")):
+                    row[1] = [journey for journey in row[1] if journey != "J16"]
+
+        code, out = self.check(self.copy_spec_with(drop))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        for needle in ("SessionTabs.tsx", "ui/src/index.css", "ui/src/i18n/locales/en.ts"):
+            self.assertIn(needle, out)
+
+    def test_j16_tablet_viewport_without_touch_is_red(self) -> None:
+        # A bare "820x1180" string is the regression this journey exists to
+        # keep out: it resolves to hasTouch false and measures a mouse.
+        def strip_touch(spec):
+            spec["viewports"]["tablet"] = "820x1180"
+
+        code, out = self.check(self.copy_spec_with(strip_touch))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("hasTouch false", out)
+
+    def test_j16_paths_rows_select_it_and_stop_at_settings(self) -> None:
+        # First match wins: dropping J16 from the conversation row must be
+        # red, and a broad row that hands a settings diff the tablet walk must
+        # be red too.
+        def drop(spec):
+            for row in spec["paths"]:
+                if "TaskDetail" in row[0] and "J16" in row[1]:
+                    row[1] = [journey for journey in row[1] if journey != "J16"]
+
+        code, out = self.check(self.copy_spec_with(drop))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("paths table", out)
+
+        def broaden(spec):
+            for row in spec["paths"]:
+                if row[0].startswith("ui/src/pages/Settings"):
+                    row[1].append("J16")
+
+        code, out = self.check(self.copy_spec_with(broaden))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J16", out)
+        self.assertIn("settings diff", out)
+
+
+class WalkJ17ContractTest(unittest.TestCase):
+    """The iPad portrait resting composer is a measured box, not a class string.
+
+    #580 fixed the 0px textarea at 768 and the 33px one at 820, but its proof
+    lived in a PR body: a DOM test can assert the arrangement classes and
+    cannot see the rendered width. J17 measures the un-focused box before
+    anything focuses it (Watch 90), presses the card and reads the caret, types
+    a 40-character draft and bounds it to two lines, and hit-tests the textarea
+    while the queued guide is on screen. These cases are the Python-side proof
+    that ``--check-spec`` refuses a walk that lost any half.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j17-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec["journeys"]["J17"]["steps"])
+        path = os.path.join(self.tmp, "steps.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    def copy_spec_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec)
+        path = os.path.join(self.tmp, "spec.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    @staticmethod
+    def steps() -> list:
+        return load_spec()["journeys"]["J17"]["steps"]
+
+    def test_shipped_j17_spec_is_ok(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J17", out)
+        self.assertEqual(
+            load_spec()["journeys"]["J17"]["viewports"], ["tablet", "tablet-portrait"],
+            "J17 is the 768/820 iPad portrait resting-composer proof")
+
+    def test_j17_rejects_a_resting_measurement_after_a_fill(self) -> None:
+        # Watch 90: a walk that fills first measures the raised arrangement,
+        # which is `w-full` at every width, so the collapse photographs green.
+        steps = self.steps()
+        resting = next(i for i, step in enumerate(steps)
+                       if step[0] == "restingComposer"
+                       and (len(step) < 3 or step[2] in ("", "resting")))
+        fill = next(i for i, step in enumerate(steps)
+                    if step[0] == "fill" and "textarea" in str(step[1]))
+
+        def fill_before_resting(steps):
+            steps.insert(resting, list(steps[fill]))
+
+        code, out = self.check(self.copy_with(fill_before_resting))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("measure the resting composer before anything focuses or fills it", out)
+
+    def test_j17_rejects_a_bare_viewport_string(self) -> None:
+        # A bare "768x1024" string resolves to hasTouch false through
+        # phoneLayout, i.e. an iPad measured as a mouse.
+        def strip_touch(spec):
+            spec["viewports"]["tablet-portrait"] = "768x1024"
+
+        code, out = self.check(self.copy_spec_with(strip_touch))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("hasTouch false", out)
+
+    def test_j17_rejects_a_missing_hit_test(self) -> None:
+        def drop_hit_test(steps):
+            steps[:] = [step for step in steps
+                        if not (step[0] == "restingComposer"
+                                and len(step) > 2 and step[2] == "hit-test")]
+
+        code, out = self.check(self.copy_with(drop_hit_test))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("hit-test", out)
+
+    def test_j17_paths_rows_select_the_composer_and_the_dock(self) -> None:
+        # First match wins: dropping J17 from the conversation row must be red
+        # for both files, or a composer diff would stop walking 768/820.
+        def drop(spec):
+            for row in spec["paths"]:
+                if row[0].startswith("ui/src/pages/TaskDetail") and "J17" in row[1]:
+                    row[1] = [journey for journey in row[1] if journey != "J17"]
+
+        code, out = self.check(self.copy_spec_with(drop))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("Composer.tsx", out)
+        self.assertIn("TaskComposerDock.tsx", out)
+
+
 class JourneyContractCoverageTest(unittest.TestCase):
     """The index, the contracts and their test classes must name the same journeys.
 
@@ -4887,6 +5180,163 @@ class JourneyContractCoverageTest(unittest.TestCase):
             "the guard no longer sees J15, the newest journey before this row; "
             "the journey reader is broken",
         )
+
+
+TABLET_SPEC = os.path.join(ROOT, "rsi", "runtime", "ux", "tablet-reading.json")
+
+
+def reading_metrics(**over: object) -> dict:
+    """A measured state that passes every tablet-reading criterion.
+
+    The shape is walk.mjs's `reading` op output, not a product fixture: the
+    tests below only vary one measured field at a time so a red verdict names
+    the criterion that produced it.
+    """
+    metrics: dict = {
+        "fixture": {"marker": True, "rows": 5},
+        "viewport": {"width": 820, "height": 1180},
+        "chrome": {"height": 44},
+        "scrollPane": {"present": True},
+        "actions": [
+            {"name": "workspace", "width": 44, "height": 44, "clipped": False},
+            {"name": "pull-request", "width": 44, "height": 44, "clipped": False},
+            {"name": "share", "width": 44, "height": 44, "clipped": False},
+        ],
+        "cells": [
+            {"row": 0, "col": 0, "kind": "th", "visible": True, "relation": "self"},
+            {"row": 0, "col": 1, "kind": "th", "visible": True, "relation": "descendant"},
+            {"row": 1, "col": 0, "kind": "td", "visible": True, "relation": "descendant"},
+            {"row": 4, "col": 0, "kind": "td", "visible": True, "relation": "self"},
+            {"row": 4, "col": 3, "kind": "td", "visible": True, "relation": "descendant"},
+            # A cell below the fold is measured, never sampled; it must not
+            # turn the verdict green or red on its own.
+            {"row": 5, "col": 0, "kind": "td", "visible": False},
+        ],
+        "lastRow": {"present": True, "visible": True, "fullyVisible": True},
+        "newActivity": {"present": False, "covers": 0},
+    }
+    metrics.update(over)
+    return metrics
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class WalkTabletReadingTest(unittest.TestCase):
+    """The 820 reading diagnostic is a real seam, not a renamed green walk."""
+
+    def run_node(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [NODE, WALK, *args], capture_output=True, text=True, timeout=60
+        )
+
+    def verdict(self, metrics: dict) -> tuple[int, dict]:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "metrics.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(metrics, fh)
+            result = self.run_node("--reading-verdict", path)
+        self.assertTrue(result.stdout.strip(), result.stderr)
+        return result.returncode, json.loads(result.stdout)
+
+    def test_tablet_context_has_touch_without_phone_layout(self) -> None:
+        # 820 is the owner's iPad width: a desktop layout (isMobile false) that
+        # still receives a finger (hasTouch true). Asking the resolver the walk
+        # itself calls, not a second copy of the numbers.
+        result = self.run_node("--spec", TABLET_SPEC, "--context-options", "tablet")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        tablet = json.loads(result.stdout)
+        self.assertEqual(tablet["viewport"], {"width": 820, "height": 1180})
+        self.assertTrue(tablet["hasTouch"])
+        self.assertFalse(tablet["isMobile"])
+
+        # The two acceptance widths keep their meaning: 390 is a phone (touch
+        # and phone layout), 1100 is a pointer device (desktop layout).
+        for name, touch, mobile in (("phone", True, True), ("mac", False, False)):
+            result = self.run_node("--spec", SPEC, "--context-options", name)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            got = json.loads(result.stdout)
+            self.assertEqual(got["hasTouch"], touch, name)
+            self.assertEqual(got["isMobile"], mobile, name)
+
+        # An unknown name must refuse rather than invent a context.
+        result = self.run_node("--spec", TABLET_SPEC, "--context-options", "watch")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("watch", result.stderr)
+
+    def test_tablet_reading_metrics_reject_empty_or_hidden_cells(self) -> None:
+        # No verdict may be produced from a fixture that never rendered, from
+        # samples that are all off screen, or from a page with no actions or
+        # scroll pane: an empty measurement is unavailable, never 0 failures.
+        cases = {
+            "zero-table-rows": reading_metrics(fixture={"marker": True, "rows": 0}),
+            "marker-absent": reading_metrics(fixture={"marker": False, "rows": 5}),
+            "off-screen-only": reading_metrics(
+                cells=[{"row": 0, "col": 0, "kind": "td", "visible": False}]
+            ),
+            "no-actions": reading_metrics(actions=[]),
+            "no-scroll-pane": reading_metrics(scrollPane={"present": False}),
+            "no-final-row": reading_metrics(lastRow={"present": False}),
+        }
+        for name, metrics in cases.items():
+            with self.subTest(case=name):
+                code, doc = self.verdict(metrics)
+                self.assertEqual(code, 2, doc)
+                self.assertFalse(doc["available"], doc)
+                self.assertFalse(doc["ok"], doc)
+                self.assertTrue(doc.get("unavailable"), doc)
+
+    def test_tablet_reading_detects_small_action_and_occluded_cell(self) -> None:
+        # The four findings, each carried by its own criterion so one failure
+        # cannot suppress the others.
+        red = reading_metrics(
+            chrome={"height": 170},
+            actions=[
+                {"name": "pull-request", "width": 30, "height": 44, "clipped": True},
+                {"name": "share", "width": 44, "height": 44, "clipped": False},
+            ],
+            cells=[
+                {"row": 0, "col": 0, "kind": "th", "visible": True, "relation": "self"},
+                {"row": 4, "col": 0, "kind": "td", "visible": True, "relation": "other"},
+            ],
+            lastRow={"present": True, "visible": True, "fullyVisible": False},
+            newActivity={"present": True, "covers": 1},
+        )
+        code, doc = self.verdict(red)
+        self.assertEqual(code, 1, doc)
+        self.assertFalse(doc["ok"], doc)
+        self.assertEqual(
+            {name for name, value in doc["criteria"].items() if not value["ok"]},
+            {"chrome", "actions", "cells", "lastRow", "newActivity"},
+            doc,
+        )
+        text = " ".join(doc["failures"])
+        for want in ("chrome", "30", "cell", "final table row", "new-activity"):
+            self.assertIn(want, text, doc)
+
+        # 44 px targets, a cell or a descendant of it under the point, a 44 px
+        # chrome, and a full final row are green. An unrelated ancestor under
+        # the point is not the cell and must stay red.
+        green = reading_metrics(newActivity={"present": True, "covers": 0})
+        code, doc = self.verdict(green)
+        self.assertEqual(code, 0, doc)
+        self.assertTrue(doc["ok"], doc)
+        self.assertNotIn("failures", [key for key, value in doc["criteria"].items() if not value["ok"]])
+
+        ancestor = reading_metrics(
+            cells=[{"row": 0, "col": 0, "kind": "td", "visible": True, "relation": "ancestor"}]
+        )
+        code, doc = self.verdict(ancestor)
+        self.assertEqual(code, 1, doc)
+        self.assertFalse(doc["criteria"]["cells"]["ok"], doc)
+
+        # The reported pill-over-table shape: the control geometrically
+        # overlaps visible cells even when another element wins the hit test.
+        overlaps_only = reading_metrics(
+            newActivity={"present": True, "covers": 0, "overlaps": 2}
+        )
+        code, doc = self.verdict(overlaps_only)
+        self.assertEqual(code, 1, doc)
+        self.assertFalse(doc["criteria"]["newActivity"]["ok"], doc)
+        self.assertIn("overlaps 2 visible cell", " ".join(doc["failures"]), doc)
 
 
 if __name__ == "__main__":

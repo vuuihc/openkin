@@ -494,6 +494,31 @@ UX_VERDICT: FAIL"
   prompt_has 1 "are not evidence about this PR" || fail "confirm-only-new-hard: the run was not in the confirm-only state"
 }
 
+# 2026-11-22: #574's strong UX review scored consistency=2 because the 例行运行 clear chip's
+# Tailwind class is `h-9 w-9` (36px). The rendered box is 44x44 at 390 — index.css floors
+# `.touch-lg button:not([data-touch-mini])` at min-width/height 44px under (max-width: 639.98px) —
+# so the axis rested on a class name, not on anything measured, and the gate then had no verdict:
+# three P17 rows stayed blocked behind a claim nobody could check. The prompt now says a size or
+# tap-target claim must quote a measurement from the evidence and that a class name is not one.
+test_prompt_requires_a_measurement_for_a_size_claim() {
+  new_case size_rule
+  run_gate
+  [ "$RC" -eq 0 ] || fail "size-rule: exit $RC, want 0 ($(tail -3 "$T/$CASE.out" | tr '\n' ' '))"
+  prompt_has 1 "A Tailwind/CSS class name is NOT a measurement" || fail "size-rule: the prompt lets a class name stand in for a measurement"
+  prompt_has 1 "not measurable from the evidence" || fail "size-rule: the prompt has no wording for an unmeasurable size claim"
+}
+
+# The rule has to survive into the flaked-only (confirm) state too: that is where #574 died, and
+# the re-ask prompt is the original prompt plus a suffix, so a plain-run assertion is not enough.
+test_confirm_only_prompt_keeps_the_measurement_rule() {
+  new_case size_rule_confirm
+  fixture 1 "$(flake_json)"
+  run_gate
+  [ "$RC" -eq 0 ] || fail "size-rule-confirm: exit $RC, want 0 ($(tail -3 "$T/$CASE.out" | tr '\n' ' '))"
+  [ "$(walks)" = 2 ] || fail "size-rule-confirm: $(walks) walks, want 2 (the case must be the CONFIRM_ONLY one)"
+  prompt_has 1 "A Tailwind/CSS class name is NOT a measurement" || fail "size-rule-confirm: the CONFIRM_ONLY prompt drops the measurement rule"
+}
+
 # The manifest must keep pointing at this gate and this suite: a rotted `old` would retire
 # the red proof silently.
 test_mutant_manifest_points_at_this_gate() {
@@ -504,8 +529,8 @@ import sys
 
 manifest, gate = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 6:
-    raise SystemExit("manifest must be exactly six entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 7:
+    raise SystemExit("manifest must be exactly seven entries, got %r" % (entries,))
 text = open(gate, encoding="utf-8").read()
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
@@ -520,7 +545,7 @@ for entry in entries:
         raise SystemExit("`old` occurs %d times in ux-gate.sh, not once: %r" % (count, entry["label"]))
     if "test-ux-gate-confirm-red.sh" not in entry["test"]:
         raise SystemExit("`test` does not run this suite: %r" % entry["label"])
-print("manifest ok: 6 mutants, each anchored once in ux-gate.sh")
+print("manifest ok: 7 mutants, each anchored once in ux-gate.sh")
 PY
   [ $? -eq 0 ] || fail "manifest: the mutants no longer point at the confirm block"
 }
@@ -549,6 +574,8 @@ run test_green_journey_screen_grounds_a_below_three_axis
 run test_flaked_journey_screen_does_not_ground
 run test_flaked_only_red_below_three_is_unavailable
 run test_reproduced_red_still_reviews_first_walk
+run test_prompt_requires_a_measurement_for_a_size_claim
+run test_confirm_only_prompt_keeps_the_measurement_rule
 run test_flaked_only_grounded_below_three_is_a_red
 run test_confirm_only_new_hard_failure_is_grounded
 run test_mutant_manifest_points_at_this_gate
