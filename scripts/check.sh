@@ -235,6 +235,9 @@ job_shell_test() {
   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest >/dev/null || return 1
   bash rsi/runtime/tests/test-ux-walker.sh || return 1
   bash rsi/runtime/tests/test-ux-walk-timeout.sh || return 1
+  # An optional walk step waits out one bounded paint before it records a skip
+  # (Watch 62: J14 logged 展开全部 as skipped while the list was rendering).
+  bash rsi/runtime/tests/test-optional-grace.sh || return 1
   bash rsi/runtime/tests/test-loop-sendback-stale.sh || return 1
   bash rsi/runtime/tests/test-lane-autofill.sh || return 1
   bash rsi/runtime/tests/test-lane-worker-contract.sh || return 1
