@@ -144,7 +144,7 @@ class SpecRefVerdictTest(unittest.TestCase):
 
     def test_goto_of_a_registered_route_with_a_placeholder_passes(self) -> None:
         self.fixture.write_journey(
-            [["goto", "/tasks/{conversation}?focus=chat"]]
+            [["goto", "/tasks/{conversation}?focus=chat#reply"]]
         )
         result = self.fixture.run_checker()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -156,9 +156,72 @@ class SpecRefVerdictTest(unittest.TestCase):
         self.assertIn("projects", result.stderr)
 
     def test_url_expectation_of_a_live_prefix_passes(self) -> None:
-        self.fixture.write_journey([["url", "^/tasks/"], ["url", "^/settings$"]])
+        self.fixture.write_journey(
+            [
+                ["url", "^/tasks/"],
+                ["url", "^/settings$"],
+                # An escaped `?` is a literal character, not regex syntax: the
+                # prefix is still /settings.
+                ["url", "^/settings\\?tab=providers"],
+            ]
+        )
         result = self.fixture.run_checker()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_commented_out_area_row_is_not_live(self) -> None:
+        # A retired id left in a comment is a mention, not a row.
+        self.fixture.write(
+            "ui/src/lib/areas.ts",
+            "type AreaRow = { readonly id: string };\n\n"
+            "export const AREAS = [\n"
+            '  { id: "conversations", labelKey: "nav.sessions" },\n'
+            '  // { id: "projects", labelKey: "nav.projects" },\n'
+            "] as const satisfies readonly AreaRow[];\n",
+        )
+        self.fixture.write_journey([["click", 'css=[data-area="projects"]']])
+        result = self.fixture.run_checker()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("projects", result.stderr)
+
+    def test_a_rendered_data_kin_selector_passes(self) -> None:
+        self.fixture.write_journey([["wait", "css=[data-kin-bottom-chrome]"]])
+        result = self.fixture.run_checker()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_css_selector_mentioning_a_hook_is_not_a_render(self) -> None:
+        # A dead stylesheet rule is how a retired hook stays mentioned after
+        # its component stops rendering it; it must not keep the hook live.
+        self.fixture.write(
+            "ui/src/index.css",
+            ".kin-main[data-kin-ghost-card] { outline: none; }\n",
+        )
+        self.fixture.write_journey([["wait", "css=[data-kin-ghost-card]"]])
+        result = self.fixture.run_checker()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("ghost-card", result.stderr)
+
+    def test_a_test_file_fabricating_a_hook_is_not_a_render(self) -> None:
+        # A test's fixture attribute is not a render: no reader can click it.
+        self.fixture.write(
+            "ui/src/components/BottomChrome.test.tsx",
+            'it("renders", () => render(<div data-kin-ghost-card="true" />));\n',
+        )
+        self.fixture.write_journey([["wait", "css=[data-kin-ghost-card]"]])
+        result = self.fixture.run_checker()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("ghost-card", result.stderr)
+
+    def test_a_commented_out_data_kin_attribute_is_not_a_render(self) -> None:
+        self.fixture.write(
+            "ui/src/components/Comments.tsx",
+            "// <div data-kin-ghost-card />\n"
+            "/* data-kin-spectre */\n"
+            "export const Comments = () => null;\n",
+        )
+        self.fixture.write_journey([["wait", "css=[data-kin-ghost-card]"]])
+        result = self.fixture.run_checker()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("ghost-card", result.stderr)
 
     def test_data_kin_selector_nothing_renders_fails(self) -> None:
         self.fixture.write_journey([["wait", "css=[data-kin-ghost-card]"]])
@@ -214,6 +277,15 @@ class FailClosedTest(unittest.TestCase):
         self.assertIn("UX_SPEC_REFS_ERROR", result.stderr)
         self.assertIn("route", result.stderr)
 
+    def test_a_tree_with_only_the_catch_all_route_fails_closed(self) -> None:
+        # The catch-all is a fallback, not a named route: a route set made only
+        # of it cannot prove any goto is live.
+        self.fixture.write_routes("*")
+        result = self.fixture.run_checker()
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("UX_SPEC_REFS_ERROR", result.stderr)
+        self.assertIn("catch-all", result.stderr)
+
     def test_a_tree_with_no_data_kin_names_fails_closed(self) -> None:
         self.fixture.write_kin()
         result = self.fixture.run_checker()
@@ -254,10 +326,17 @@ class RealTreeTest(unittest.TestCase):
                         named.update(KIN_ATTR.findall(argument))
         rendered: set[str] = set()
         for path in (ROOT / "ui" / "src").rglob("*"):
-            if path.is_file():
-                rendered.update(
-                    KIN_ATTR.findall(path.read_text(encoding="utf-8"))
-                )
+            if not path.is_file() or path.suffix not in (".ts", ".tsx"):
+                continue
+            if ".test." in path.name or ".spec." in path.name:
+                continue
+            source = path.read_text(encoding="utf-8")
+            # Comments and stylesheets mention hooks; only a component renders
+            # one. Same fact the checker judges, read independently here.
+            source = re.sub(r"\{\/\*[\s\S]*?\*\/\}", "", source)
+            source = re.sub(r"/\*[\s\S]*?\*/", "", source)
+            source = re.sub(r"//[^\n]*", "", source)
+            rendered.update(KIN_ATTR.findall(source))
         self.assertTrue(named, "the journeys name no data-kin selector; scan broken")
         self.assertLessEqual(named, rendered)
 

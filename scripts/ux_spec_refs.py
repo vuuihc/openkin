@@ -20,8 +20,10 @@ The live facts are read from the tree, never from a copy:
     stripped the way `ui/src/lib/routes.contract.test.ts:routePathsFrom` does;
   - `data-kin-*`: every literal attribute occurrence under `ui/src/`.
 
-The journey spec is resolved through `rsi/runtime/ux/spec.py`, the same reader
-the walker uses, including its one-file-per-journey bodies.
+The journey spec is resolved through `rsi/runtime/ux/spec.py`, the reader the
+loop's shell harnesses use, including its one-file-per-journey bodies;
+`walk.mjs` carries its own equivalent loader, and both treat a missing or
+empty body as fatal.
 
 Exit 0 when clean, 1 when a step names a retired ref (one `FAIL` line per
 finding on stderr), and 2 when a source cannot be read or yields zero areas,
@@ -44,6 +46,10 @@ DEFAULT_SPEC = Path("rsi/runtime/ux/journeys.json")
 UI_SRC = Path("ui/src")
 AREAS_FILE = UI_SRC / "lib" / "areas.ts"
 ROUTES_FILE = UI_SRC / "App.tsx"
+# A hook is rendered by a component, not by a stylesheet rule or a test that
+# fabricates the attribute; counting those mentions would let a retired hook
+# pass exactly the walk this guard exists to spare.
+RENDER_SUFFIXES = (".ts", ".tsx")
 
 AREAS_TABLE = re.compile(r"export const AREAS = \[(.*?)\]\s*as const", re.S)
 AREA_ROW = re.compile(r'\bid:\s*"([^"]+)"')
@@ -76,8 +82,12 @@ def read_text(path: Path) -> str:
 
 
 def read_areas(root: Path) -> set[str]:
-    """The area ids the console's one table declares."""
-    text = read_text(root / AREAS_FILE)
+    """The area ids the console's one table declares.
+
+    Comments are stripped first: an `id: "projects"` left in a comment is a
+    mention, not a row, and counting it would readmit the retired area.
+    """
+    text = strip_js_comments(read_text(root / AREAS_FILE))
     match = AREAS_TABLE.search(text)
     if match is None:
         raise SourceError(f"{AREAS_FILE}: no AREAS table; cannot read the live areas")
@@ -111,21 +121,29 @@ def read_routes(root: Path) -> list[str]:
 
 
 def read_kin_names(root: Path) -> set[str]:
-    """Every literal `data-kin-*` hook rendered anywhere under ui/src."""
+    """Every literal `data-kin-*` hook a console component renders.
+
+    Only component sources count, comments stripped: a CSS rule that selects
+    `[data-kin-swiping]` or a test that fabricates `data-kin-bottom-chrome` is
+    a mention, not a render, and would keep a retired hook green forever.
+    """
     source = root / UI_SRC
     if not source.is_dir():
         raise SourceError(f"{source}: not a directory; cannot read data-kin hooks")
     names: set[str] = set()
     for path in sorted(source.rglob("*")):
-        if path.is_file():
-            names.update(KIN_ATTR.findall(read_text(path)))
+        if not path.is_file() or path.suffix not in RENDER_SUFFIXES:
+            continue
+        if ".test." in path.name or ".spec." in path.name:
+            continue
+        names.update(KIN_ATTR.findall(strip_js_comments(read_text(path))))
     if not names:
         raise SourceError(f"{source}: no literal data-kin-* attribute anywhere")
     return names
 
 
 def read_journeys(spec_path: Path) -> dict[str, dict]:
-    """The spec with every journey body inlined, via the walker's own reader."""
+    """The spec with every journey body inlined, via the loop's spec reader."""
     if not spec_path.is_file():
         raise SourceError(f"journey spec not found: {spec_path}")
     spec = importlib.util.spec_from_file_location("ux_journey_reader", SPEC_READER)
@@ -185,6 +203,9 @@ def url_prefix(pattern: str) -> str | None:
         text = text[1:]
     if text.endswith("$"):
         text = text[:-1]
+    # `\?`, `\(` … are literal characters, not regex syntax: unescape them
+    # before deciding where the literal prefix ends.
+    text = re.sub(r"\\([(\[.?])", r"\1", text)
     cut = URL_CUT.search(text)
     if cut is not None:
         text = text[: cut.start()]
@@ -268,7 +289,7 @@ def check_journeys(
                     raise SourceError(
                         f"journey {jid} step {number}: goto names no path"
                     )
-                path = step[1].split("?")[0]
+                path = step[1].split("?")[0].split("#")[0]
                 if not goto_matches(path, routes):
                     findings.append(
                         f"FAIL {jid} step {number}: goto names an unregistered "
