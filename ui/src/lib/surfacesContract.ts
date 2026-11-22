@@ -17,10 +17,10 @@
  *   with no owner cannot be deleted from the table, and a route-shaped `from`
  *   may never name a page the contract keeps.
  *
- * This module is data on purpose: the routing test that reads `App.tsx` and
- * refuses an unlisted route belongs to the delivery that removes the pages
- * (`R-delete-pages`), because asserting it before the deletions would only
- * describe today's tree.
+ * This module is data on purpose: `routes.contract.test.ts` reads `App.tsx`
+ * and refuses an unlisted route. It is green before the deletions begin
+ * because every route in today's tree is already a contract page, the draft
+ * route, or a retirement row, so each later deletion is checked against it.
  */
 
 export interface ContractPage {
