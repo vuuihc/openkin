@@ -14,10 +14,31 @@
     "new": "    return number not in selected  # mutant: draft and hold labels ignored"
   },
   {
+    "label": "report the DREAM job's date-stamped consolidation branch the dispatcher excludes",
+    "file": "rsi/runtime/unseen-pr.py",
+    "test": "RSI_TEST_ONLY=draft-hold-and-foreign-silent bash rsi/runtime/tests/test-unseen-pr.sh",
+    "old": "    if DREAM_BRANCH.match(head):\n        return False\n",
+    "new": "    # mutant: the DREAM date branch is reported\n"
+  },
+  {
     "label": "move the alarm after the empty-set exit, where it can never fire",
     "file": "rsi/runtime/merge.sh",
     "test": "RSI_TEST_ONLY=wiring-order bash rsi/runtime/tests/test-unseen-pr.sh",
     "old": "  UNSEEN=\"$(printf '%s' \"$PRJ\" | python3 \"$RSI_DIR/runtime/unseen-pr.py\" --rows \"$PRS\" --state \"$STATE\" 2>/dev/null || true)\"\n  [ -n \"$UNSEEN\" ] && while IFS= read -r l; do [ -n \"$l\" ] && say \"$l\"; done <<< \"$UNSEEN\"\n  [ -z \"$PRS\" ] && { say \"no open rsi PRs\"; exit 0; }",
     "new": "  [ -z \"$PRS\" ] && { say \"no open rsi PRs\"; exit 0; }\n  UNSEEN=\"$(printf '%s' \"$PRJ\" | python3 \"$RSI_DIR/runtime/unseen-pr.py\" --rows \"$PRS\" --state \"$STATE\" 2>/dev/null || true)\"\n  [ -n \"$UNSEEN\" ] && while IFS= read -r l; do [ -n \"$l\" ] && say \"$l\"; done <<< \"$UNSEEN\""
+  },
+  {
+    "label": "feed the alarm the rows it built instead of the JSON it fetched, so a stranded PR stays silent",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=dispatcher-feeds-the-alarm bash rsi/runtime/tests/test-unseen-pr.sh",
+    "old": "  UNSEEN=\"$(printf '%s' \"$PRJ\" | python3 \"$RSI_DIR/runtime/unseen-pr.py\"",
+    "new": "  UNSEEN=\"$(printf '%s' \"$PRS\" | python3 \"$RSI_DIR/runtime/unseen-pr.py\""
+  },
+  {
+    "label": "drop the unseen-pr suite from the gate, so its guard never runs",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-unseen-pr.sh || return 1\n",
+    "new": "  # mutant: the unseen-pr suite is not wired\n"
   }
 ]
