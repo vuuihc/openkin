@@ -1,0 +1,16 @@
+[
+  {
+    "label": "J17's contract stops requiring the composer-control measurement (R-composer-controls)",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "old": "  const controlsAt = idx((st) => st[0] === 'composerControls' && sel(st, 1).trim() !== '');\n  if (controlsAt < 0) {\n    errs.push('J17 never measures every composer control (composerControls <name>); '\n      + 'the textarea alone leaves the send, attach and chip controls unread at 768/820');\n  }",
+    "new": "  // R-composer-controls: the requirement dropped on purpose. A J17 that\n  // measures only the textarea passes, so a 43px send photographs green.\n  void idx((st) => st[0] === 'composerControls' && sel(st, 1).trim() !== '');",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ17ContractTest.test_j17_rejects_a_missing_composer_control_measurement"
+  },
+  {
+    "label": "the Python J17 contract case stops dropping the composer-control step (R-composer-controls)",
+    "file": "scripts/journeys_walk_test.py",
+    "old": "        def drop_control_measurement(steps):\n            steps[:] = [step for step in steps if step[0] != \"composerControls\"]",
+    "new": "        def drop_control_measurement(steps):\n            # R-composer-controls: keep every step, so a spec that lost the\n            # measurement still passes this case.\n            steps[:] = [step for step in steps if step[0] != \"never-matches\"]",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ17ContractTest.test_j17_rejects_a_missing_composer_control_measurement"
+  }
+]

@@ -5020,8 +5020,10 @@ class WalkJ17ContractTest(unittest.TestCase):
     lived in a PR body: a DOM test can assert the arrangement classes and
     cannot see the rendered width. J17 measures the un-focused box before
     anything focuses it (Watch 90), presses the card and reads the caret, types
-    a 40-character draft and bounds it to two lines, and hit-tests the textarea
-    while the queued guide is on screen. These cases are the Python-side proof
+    a 40-character draft and bounds it to two lines, hit-tests the textarea
+    while the queued guide is on screen, and measures every hittable control in
+    the composer card and bottom chrome against the 44px thumb floor (the
+    phone-only lint is off at 768/820). These cases are the Python-side proof
     that ``--check-spec`` refuses a walk that lost any half.
     """
 
@@ -5105,6 +5107,20 @@ class WalkJ17ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("spec red: J17", out)
         self.assertIn("hit-test", out)
+
+    def test_j17_rejects_a_missing_composer_control_measurement(self) -> None:
+        # #589/#595 floored the composer controls by class string, but J17's
+        # tablet viewports are `isMobile: false`, so walk.mjs's phone-only
+        # smallTapTargets lint never runs there. A J17 that measures only the
+        # textarea leaves the send, attach and chip controls unread, and a
+        # 43px send would photograph green (Watch 53, TASTE 21).
+        def drop_control_measurement(steps):
+            steps[:] = [step for step in steps if step[0] != "composerControls"]
+
+        code, out = self.check(self.copy_with(drop_control_measurement))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("every composer control", out)
 
     def test_j17_rejects_a_missing_hidden_action_row_hit_test(self) -> None:
         # The 820 hidden-actions proof: the row rests invisible AND inert, and
