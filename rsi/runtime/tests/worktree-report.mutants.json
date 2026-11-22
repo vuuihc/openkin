@@ -14,6 +14,20 @@
     "new": "  true  # mutated: the worktree-report suite is not run\n"
   },
   {
+    "label": "the merged PR line stops counting, so a squash-merged branch reads as unmerged again",
+    "file": "rsi/runtime/worktree-report.py",
+    "test": "RSI_TEST_ONLY=merged-pr-log-is-reclaimable bash rsi/runtime/tests/test-worktree-report.sh",
+    "old": "        if slug:\n            slugs.add(slug)",
+    "new": "        if False:  # mutant: ignore a merged PR line\n            slugs.add(slug)"
+  },
+  {
+    "label": "any status counts as merged, so a hold note authorises clearing the branch",
+    "file": "rsi/runtime/worktree-report.py",
+    "test": "RSI_TEST_ONLY=merged-pr-log-needs-the-word-merged bash rsi/runtime/tests/test-worktree-report.sh",
+    "old": "        if len(f) < 7 or f[2] != \"PR\" or f[6] != \"merged\" or not PR_NUMBER.match(f[3]):",
+    "new": "        if len(f) < 7 or f[2] != \"PR\" or not PR_NUMBER.match(f[3]):"
+  },
+  {
     "label": "git reads ignore their per-call deadline and fall back to the long default",
     "file": "rsi/runtime/worktree-report.py",
     "test": "RSI_TEST_ONLY=git-timeout-is-honoured bash rsi/runtime/tests/test-worktree-report.sh",
