@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the claim-copies suite is missing from the gate wiring",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-claim-copies.sh || return 1\n",
+    "new": ""
+  },
+  {
+    "label": "a stale copy nobody swept is no longer discovered",
+    "file": "rsi/runtime/claim-copies.py",
+    "test": "bash rsi/runtime/tests/test-claim-copies.sh",
+    "old": "            if matches_stale(line, stale):",
+    "new": "            if False and matches_stale(line, stale):"
+  },
+  {
+    "label": "a swept file that drifts back to the old rule is no longer named",
+    "file": "rsi/runtime/claim-copies.py",
+    "test": "bash rsi/runtime/tests/test-claim-copies.sh",
+    "old": "        if not carries_current(text, digits):",
+    "new": "        if False and not carries_current(text, digits):"
+  }
+]
