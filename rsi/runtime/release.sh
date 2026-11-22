@@ -186,20 +186,31 @@ elif ! $git -C "$REPO" merge --ff-only -q origin/main; then
   # lost by taking upstream's side there, so an unattended release can decide that alone;
   # but it must prove the merged tree really is origin/main before shipping it. `git
   # cherry` marks a commit whose patch is absent upstream with `+`; no `+` line means every
-  # local commit is redundant. A failing or empty cherry is "cannot prove it" and keeps
-  # the plain merge.
+  # local non-merge commit is redundant. `cherry` ignores merge commits, so content that
+  # lives only in a local merge resolution is invisible here; the staged-tree proof below
+  # still has to pass before anything is committed. A failing or empty cherry is "cannot
+  # prove it" and keeps the plain merge.
   cherry_rc=0
   local_only="$($git -C "$REPO" cherry origin/main HEAD 2>/dev/null)" || cherry_rc=$?
   if [ "$cherry_rc" = 0 ] && [ -n "$local_only" ] && ! printf '%s\n' "$local_only" | grep -q '^+'; then
     say "main's local commits are already upstream; merging origin/main taking upstream on conflict"
-    if ! $git -C "$REPO" merge --no-edit -q -X theirs origin/main; then
+    # Merge without committing: the proof runs against the staged tree and a failed proof
+    # aborts the merge. Committing first would leave the unproven merge on local main, and
+    # the next release would see origin/main as an ancestor (the branch above), skip
+    # integration and ship that tree to the node and the Hub.
+    if ! $git -C "$REPO" merge --no-edit -q --no-commit -X theirs origin/main; then
       conflicts="$($git -C "$REPO" diff --name-only --diff-filter=U 2>/dev/null | head -3 | tr '\n' ' ')"
       $git -C "$REPO" merge --abort 2>/dev/null || true
       die "origin/main conflicts with local main; a person has to resolve that${conflicts:+ (conflicting: ${conflicts% })} (checkout left as it was)"
     fi
-    if ! $git -C "$REPO" diff --quiet origin/main HEAD; then
-      differs="$($git -C "$REPO" diff --name-only origin/main HEAD 2>/dev/null | head -3 | tr '\n' ' ')"
-      die "merged tree differs from origin/main${differs:+ (differs: ${differs% })}; a person has to resolve that"
+    if ! $git -C "$REPO" diff --quiet --cached origin/main; then
+      differs="$($git -C "$REPO" diff --name-only --cached origin/main 2>/dev/null | head -3 | tr '\n' ' ')"
+      $git -C "$REPO" merge --abort 2>/dev/null || true
+      die "merged tree differs from origin/main${differs:+ (differs: ${differs% })}; a person has to resolve that (checkout left as it was)"
+    fi
+    if ! $git -C "$REPO" commit --no-edit -q; then
+      $git -C "$REPO" merge --abort 2>/dev/null || true
+      die "could not commit the merge of origin/main (checkout left as it was)"
     fi
   elif ! $git -C "$REPO" merge --no-edit -q origin/main; then
     conflicts="$($git -C "$REPO" diff --name-only --diff-filter=U 2>/dev/null | head -3 | tr '\n' ' ')"

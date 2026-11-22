@@ -268,7 +268,9 @@ grep -q '^node=' "$STATE/last_release" || fail "patch-equivalent: node marker no
 pass "release: a local commit already upstream merges onto origin/main"
 
 # (c2) The proof-of-equality guard cannot be skipped: a merge that reports success but
-#      leaves the tree unlike origin/main must stop, and name the files that differ.
+#      leaves the tree unlike origin/main must stop, name the files that differ, and leave
+#      the checkout exactly as it was (no merge commit, clean tree) so the next release
+#      stops again instead of seeing origin/main as an ancestor and shipping the tree.
 REALGIT="$(command -v git)"
 git -C "$DUP" reset -q --hard "$DUP_SHA"
 WRAP2="$T/wrap-fake-merge"; mkdir -p "$WRAP2"
@@ -286,6 +288,9 @@ out="$(env PATH="$WRAP2:$PATH" RSI_RELEASE_MIN=1 RSI_RELEASE_STATE="$STATE" RSI_
   RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$DUP" --node-only 2>&1)"; rc=$?
 [ "$rc" = 1 ] || { printf '%s\n' "$out" >&2; fail "unproven merge: expected exit 1, got $rc"; }
 grep -q 'file.txt' <<<"$out" || fail "unproven merge: the abort did not name the differing file: $out"
+[ "$(git -C "$DUP" rev-parse HEAD)" = "$DUP_SHA" ] || fail "unproven merge: the failed proof moved HEAD"
+[ -z "$(git -C "$DUP" status --porcelain)" ] || fail "unproven merge: the failed proof left the checkout dirty"
+[ ! -f "$DUP/.git/MERGE_HEAD" ] || fail "unproven merge: MERGE_HEAD left behind"
 pass "release: a merge that leaves the tree different from origin/main stops and names the file"
 
 # (d) the node rebuild is told to detach: desktop-rebuild.sh ends by launching Electron

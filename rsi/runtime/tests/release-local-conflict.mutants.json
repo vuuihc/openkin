@@ -7,10 +7,17 @@
     "new": "  if true; then\n"
   },
   {
-    "label": "drop the post-merge proof that the tree equals origin/main",
+    "label": "drop the staged proof that the tree equals origin/main",
     "file": "rsi/runtime/release.sh",
     "test": "bash rsi/runtime/tests/test-release.sh",
-    "old": "    if ! $git -C \"$REPO\" diff --quiet origin/main HEAD; then\n      differs=\"$($git -C \"$REPO\" diff --name-only origin/main HEAD 2>/dev/null | head -3 | tr '\\n' ' ')\"\n      die \"merged tree differs from origin/main${differs:+ (differs: ${differs% })}; a person has to resolve that\"\n    fi\n",
+    "old": "    if ! $git -C \"$REPO\" diff --quiet --cached origin/main; then\n      differs=\"$($git -C \"$REPO\" diff --name-only --cached origin/main 2>/dev/null | head -3 | tr '\\n' ' ')\"\n      $git -C \"$REPO\" merge --abort 2>/dev/null || true\n      die \"merged tree differs from origin/main${differs:+ (differs: ${differs% })}; a person has to resolve that (checkout left as it was)\"\n    fi\n",
     "new": "    # mutant: no proof of equality\n"
+  },
+  {
+    "label": "disable the redundant-merge branch, so a patch-equivalent local commit conflicts",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "  if [ \"$cherry_rc\" = 0 ] && [ -n \"$local_only\" ] && ! printf '%s\\n' \"$local_only\" | grep -q '^+'; then\n    say \"main's local commits are already upstream; merging origin/main taking upstream on conflict\"\n",
+    "new": "  if false; then\n"
   }
 ]
