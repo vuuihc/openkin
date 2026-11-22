@@ -161,7 +161,7 @@ class CheckedInManifestTest(unittest.TestCase):
             for line in MANIFEST.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.strip().startswith("#")
         ]
-        self.assertEqual(len(paths), 8, paths)
+        self.assertEqual(len(paths), 12, paths)
         for path in RESURRECTED:
             self.assertIn(path, paths)
 
@@ -175,7 +175,7 @@ class CheckedInManifestTest(unittest.TestCase):
             text=True,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("REMOVED_SURFACES_OK (8 paths absent)", result.stdout)
+        self.assertIn("REMOVED_SURFACES_OK (12 paths absent)", result.stdout)
 
 
 class GateWiringTest(unittest.TestCase):
