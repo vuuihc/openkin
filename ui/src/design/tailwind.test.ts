@@ -466,6 +466,23 @@ describe("cascade foundation through the real stylesheet", () => {
     ).toContain("outline: 2px solid var(--kin-focus-ring)");
   });
 
+  it("floors a coarse tablet chip at 44px without changing the Mac's density", async () => {
+    // The `/new` draft's cover chip measured 75×27.9 at 820×1180 with a coarse
+    // pointer: the global floor stops at 768 and the chip's own `sm:min-h-0`
+    // drops `min-h-11` at ≥640. One chip opts in by class, so the 768–1023
+    // shell keeps desktop density everywhere else (index.css's `.touch-lg`
+    // comment records what a blanket floor does to a 304px list row). The
+    // doubled class beats `sm:` utilities regardless of emission order, the
+    // same reason `.kin-composer-input.kin-composer-input` is doubled.
+    const css = await stylesheet([]);
+    const chip = one(css, ".touch-floor.touch-floor");
+    expect(chip.layers).toEqual(["utilities"]);
+    expect(chip.atRules.join(" ")).toContain("pointer: coarse");
+    expect(chip.atRules.join(" ")).toContain("max-width: 1023.98px");
+    expect(chip.text).toContain("min-height: 44px");
+    expect(chip.text).toContain("min-width: 44px");
+  });
+
   it("preserves existing utility overrides for safe areas and touch controls", async () => {
     // Custom utilities stay in `@layer utilities` and are emitted *after* the
     // generated ones, which is the source order the safe-area helpers and
