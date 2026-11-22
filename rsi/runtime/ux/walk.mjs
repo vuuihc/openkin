@@ -502,6 +502,23 @@ function checkJ2Contract(spec) {
   const cssWait = (st, re) => st[0] === 'wait' && /^css=/.test(sel(st, 1)) && re.test(sel(st, 1));
   const traySel = (st, i = 1) => /改动评论|Diff comments/.test(sel(st, i));
 
+  // The list leg. J2 filters the list before it opens the seeded conversation,
+  // and past five rows the project bucket folds them behind 展开全部; the click
+  // on the seeded row used to be a loose, optional text match, so one miss was
+  // logged as `skipped` and all 52 later steps ran on /sessions while the
+  // journey still looked walked (2026-11-22, PR #585's four hours). The fold
+  // press stays optional — a standalone bucket holds four rows — but it must be
+  // the project's own disclosure, and the row click itself is a proof: mandatory
+  // and scoped to [data-session-row], never a bare text selector.
+  const foldAt = idx((st) => st[0] === 'click' && /展开全部|Show all/.test(sel(st, 1)));
+  const rowAt = idx((st) => st[0] === 'click' && !/^\?/.test(sel(st, 1))
+    && /\[data-session-row\]/.test(sel(st, 1)) && /Morning planning/.test(sel(st, 1)));
+  const skipRowAt = idx((st) => st[0] === 'click' && /^\?/.test(sel(st, 1)) && /Morning planning/.test(sel(st, 1)));
+  if (rowAt < 0) errs.push('J2 never opens the seeded conversation with a required [data-session-row] click (click [data-session-row]:has-text(… Morning planning))');
+  if (skipRowAt >= 0) errs.push('J2 step ' + JSON.stringify(steps[skipRowAt]) + ' is optional; the seeded row click must be mandatory or a skip leaves every later step on /sessions');
+  if (foldAt < 0) errs.push('J2 never presses the project fold before opening the seeded row from the list (click … 展开全部|Show all)');
+  else if (rowAt >= 0 && foldAt > rowAt) errs.push('J2 presses the project fold after opening the seeded row; the row is behind it');
+
   // The seeded diff must be open before a changed line is commented: the file
   // click, then Monaco's diff editor. A comment box opened on whatever was
   // mounted (the file list, another file) proves nothing about the diff.
@@ -3182,6 +3199,42 @@ function checkJ17Contract(spec) {
     errs.push('J17 never hit-tests the textarea while the queued guide is visible (restingComposer <name> hit-test after the guide wait)');
   }
 
+  // The answer's action row is the iPad hidden-actions proof: at 820 the row
+  // is drawn by the desktop layout but its pointer is a finger, so a hidden
+  // row must not take the tap. The hit-test runs twice around a tap on the
+  // answer body — never on the row itself, which would run 重试.
+  const rowSel = '[data-message-actions]';
+  const bodySel = '[data-message-key]:has([data-message-actions]) p';
+  const inertAt = idx((st) => st[0] === 'hittest' && sel(st, 2) === 'notSelf'
+    && sel(st, 1).includes(rowSel));
+  if (inertAt < 0) {
+    errs.push('J17 never hit-tests the hidden action row (hittest css=…[data-message-actions] notSelf); at 820 the row must be inert while it is invisible');
+  }
+  // `elementFromPoint` cannot read a row above the viewport, and the hittest
+  // op reports that as a miss (Watch 53). The seeded conversation has grown by
+  // the time J17 runs (J2 reruns it), so the transcript must be opened at the
+  // top first: the hidden reading, the body tap and the revealed reading then
+  // bracket the same on-screen message.
+  const toTopAt = idx((st) => st[0] === 'scroll'
+    && /\[role=.?region/.test(sel(st, 1)) && sel(st, 2) === '0');
+  if (inertAt >= 0 && (toTopAt < 0 || toTopAt > inertAt)) {
+    errs.push('J17 hit-tests the hidden action row before it scrolls the transcript to the top '
+      + '(scroll css=[role=region][tabindex="-1"] 0); a scrolled-out row cannot be hit-tested');
+  }
+  const bodyTapAt = after(inertAt, (st) => st[0] === 'click' && sel(st, 1) === 'css=' + bodySel);
+  if (bodyTapAt < 0) {
+    errs.push('J17 never taps the answer body after the hidden-row hit-test (click css=' + bodySel + ')');
+  }
+  const rowPressAt = idx((st) => st[0] === 'click' && sel(st, 1).includes(rowSel));
+  if (rowPressAt >= 0 && (bodyTapAt < 0 || rowPressAt < bodyTapAt)) {
+    errs.push('J17 presses the action row before the body tap; the reveal must come from the answer body, never from 重试/分叉');
+  }
+  const revealedAt = after(bodyTapAt, (st) => st[0] === 'hittest' && sel(st, 2) === 'self'
+    && sel(st, 1).includes(rowSel));
+  if (revealedAt < 0) {
+    errs.push('J17 never hit-tests the revealed action row (hittest css=…[data-message-actions] self after the body tap)');
+  }
+
   // The hand-off proof is J3's: the sampler starts on /new before Start, and
   // `steady` reads it back after the URL change, before the `sent` shot. The
   // 24px bound is GOAL F1; a larger number would let the box jump.
@@ -4819,6 +4872,78 @@ for (const j of want) {
               hardFail.push(`${j}/${vpName}: ${line} — the textarea has no usable line-height to bound the draft`);
             } else if (measured.scrollHeight > maxHeight) {
               hardFail.push(`${j}/${vpName}: ${line} — the draft needs more than two lines`);
+            }
+          }
+        }
+        else if (op === 'hittest') {
+          // `["hittest", "css=<selector>", "<self|notSelf>"]`: what the browser
+          // would hit at the element's own centre, plus the element's computed
+          // `opacity` and `pointer-events` — a class string cannot prove an
+          // invisible row is inert (Watch 53). `notSelf` requires the point to
+          // belong to something else AND the row to say `pointer-events: none`
+          // (the 820 hidden-actions case); `self` requires the point to land on
+          // the row or a descendant AND the row to be fully opaque (one log
+          // line carries every number either way). A row scrolled out of the
+          // viewport cannot be hit-tested, so that is a miss, not a skip.
+          const { optional, value } = optionalOf(a);
+          const mode = String(b ?? '').trim();
+          if (!value.startsWith('css=') || !['self', 'notSelf'].includes(mode)) {
+            hardFail.push(`${j}/${vpName}: hittest needs css=<selector> and self|notSelf, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          const selector = value.slice('css='.length);
+          const measured = await page.evaluate((selector) => {
+            const round = (v) => Math.round(v * 10) / 10;
+            const label = (node) => (node
+              ? node.tagName.toLowerCase()
+                + (typeof node.className === 'string' && node.className.trim()
+                  ? '.' + node.className.trim().split(/\s+/)[0]
+                  : '')
+              : 'none');
+            const el = [...document.querySelectorAll(selector)].find((node) => {
+              const r = node.getBoundingClientRect();
+              return r.width > 0 && r.height > 0 && getComputedStyle(node).visibility !== 'hidden';
+            });
+            if (!el) return { error: 'no painted box matches ' + selector };
+            const r = el.getBoundingClientRect();
+            const x = r.left + r.width / 2;
+            const y = r.top + r.height / 2;
+            if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) {
+              return { error: 'the centre of ' + selector + ' is outside the viewport (' + round(x) + ', ' + round(y) + ')' };
+            }
+            const cs = getComputedStyle(el);
+            const hit = document.elementFromPoint(x, y);
+            return {
+              x: round(x), y: round(y), hit: label(hit),
+              owns: !!hit && (el === hit || el.contains(hit)),
+              opacity: round(parseFloat(cs.opacity)),
+              pointerEvents: cs.pointerEvents,
+              box: { width: round(r.width), height: round(r.height), y: round(r.top) },
+            };
+          }, selector).catch(() => null);
+          if (!measured || measured.error) {
+            const why = measured ? measured.error : 'the measurement threw';
+            if (optional) { log.push(`skipped hittest ${selector} (${why})`); continue; }
+            hardFail.push(`${j}/${vpName}: hittest ${selector}: ${why}`);
+            continue;
+          }
+          const line = `hittest ${selector} ${mode}: point (${measured.x}, ${measured.y}) hit ${measured.hit}; `
+            + `row ${measured.box.width}×${measured.box.height}px at y=${measured.box.y}; `
+            + `owns=${measured.owns} opacity=${measured.opacity} pointer-events=${measured.pointerEvents}`;
+          log.push(line);
+          if (mode === 'self') {
+            if (!measured.owns) {
+              hardFail.push(`${j}/${vpName}: ${line} — elementFromPoint returns ${measured.hit}, not the row`);
+            }
+            if (!(measured.opacity >= 0.99)) {
+              hardFail.push(`${j}/${vpName}: ${line} — the row is hit but still transparent (opacity ${measured.opacity})`);
+            }
+          } else {
+            if (measured.owns) {
+              hardFail.push(`${j}/${vpName}: ${line} — the hidden row still takes the tap (elementFromPoint returns ${measured.hit})`);
+            }
+            if (measured.pointerEvents !== 'none') {
+              hardFail.push(`${j}/${vpName}: ${line} — the hidden row does not say pointer-events: none (${measured.pointerEvents})`);
             }
           }
         }
