@@ -502,6 +502,23 @@ function checkJ2Contract(spec) {
   const cssWait = (st, re) => st[0] === 'wait' && /^css=/.test(sel(st, 1)) && re.test(sel(st, 1));
   const traySel = (st, i = 1) => /改动评论|Diff comments/.test(sel(st, i));
 
+  // The list leg. J2 filters the list before it opens the seeded conversation,
+  // and past five rows the project bucket folds them behind 展开全部; the click
+  // on the seeded row used to be a loose, optional text match, so one miss was
+  // logged as `skipped` and all 52 later steps ran on /sessions while the
+  // journey still looked walked (2026-11-22, PR #585's four hours). The fold
+  // press stays optional — a standalone bucket holds four rows — but it must be
+  // the project's own disclosure, and the row click itself is a proof: mandatory
+  // and scoped to [data-session-row], never a bare text selector.
+  const foldAt = idx((st) => st[0] === 'click' && /展开全部|Show all/.test(sel(st, 1)));
+  const rowAt = idx((st) => st[0] === 'click' && !/^\?/.test(sel(st, 1))
+    && /\[data-session-row\]/.test(sel(st, 1)) && /Morning planning/.test(sel(st, 1)));
+  const skipRowAt = idx((st) => st[0] === 'click' && /^\?/.test(sel(st, 1)) && /Morning planning/.test(sel(st, 1)));
+  if (rowAt < 0) errs.push('J2 never opens the seeded conversation with a required [data-session-row] click (click [data-session-row]:has-text(… Morning planning))');
+  if (skipRowAt >= 0) errs.push('J2 step ' + JSON.stringify(steps[skipRowAt]) + ' is optional; the seeded row click must be mandatory or a skip leaves every later step on /sessions');
+  if (foldAt < 0) errs.push('J2 never presses the project fold before opening the seeded row from the list (click … 展开全部|Show all)');
+  else if (rowAt >= 0 && foldAt > rowAt) errs.push('J2 presses the project fold after opening the seeded row; the row is behind it');
+
   // The seeded diff must be open before a changed line is commented: the file
   // click, then Monaco's diff editor. A comment box opened on whatever was
   // mounted (the file list, another file) proves nothing about the diff.
