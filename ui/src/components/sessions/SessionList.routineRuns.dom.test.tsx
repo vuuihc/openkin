@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import SessionList from "./SessionList";
@@ -23,7 +23,7 @@ import type { AgentSession, Project, Task } from "../../api/client";
 const fixtures = vi.hoisted(() => ({
   tasks: [] as Task[],
   agentSessions: [] as AgentSession[],
-  taskListCalls: [] as Array<{ routineId?: string }>,
+  taskListCalls: [] as Array<{ limit?: number; routineId?: string }>,
 }));
 
 vi.mock("../../api/useLiveResources", () => ({
@@ -50,7 +50,9 @@ vi.mock("../../api/client", async (importOriginal) => {
     ...actual,
     listAgentSessionsPage: vi.fn(async () => ({
       items: fixtures.agentSessions,
-      next_cursor: undefined,
+      // Another imported page so the list-level paging control is live; the
+      // tests below decide whether a narrowing is allowed to offer it.
+      next_cursor: "next",
     })),
     listTasks: vi.fn(async () => [] as Task[]),
     listProjects: vi.fn(async () => [] as Project[]),
@@ -144,7 +146,10 @@ describe("routine runs in the conversation list", () => {
     // The narrowing is not only a browser pass over the loaded page: the URL
     // parameter reaches the list request, so a routine with no run on the
     // first page is not reported as "no runs".
-    expect(fixtures.taskListCalls).toContainEqual(expect.objectContaining({ routineId: "r1" }));
+    // The archived list is read on every mount and carries the filter too, so
+    // an objectContaining match would also accept that call; this exact shape
+    // is the live read only (the archived one adds `archived: true`).
+    expect(fixtures.taskListCalls).toContainEqual({ limit: 100, routineId: "r1" });
   });
 
   it("keeps routine in the list URL a return carries", () => {
@@ -178,11 +183,17 @@ describe("routine runs in the conversation list", () => {
 
     const all = mount("/sessions");
     expect(await screen.findByText(/Imported sessions/)).toBeTruthy();
+    // The fixture has another imported page, so an unfiltered list offers it.
+    expect(screen.getByRole("button", { name: "Load older chats" })).toBeTruthy();
     all.unmount();
 
     mount("/sessions?routine=r1");
     await waitFor(() => expect(screen.getByRole("button", { name: /Morning brief/ })).toBeTruthy());
     expect(screen.queryByText(/Imported sessions/)).toBeNull();
+    // Let the imported next-page answer land before judging the control: the
+    // cursor is real, and only the filter is allowed to keep it off screen.
+    await act(async () => {});
+    expect(screen.queryByRole("button", { name: "Load older chats" })).toBeNull();
   });
 
   it("shows the filter empty state and clears the chip", async () => {
