@@ -950,8 +950,9 @@ function checkJ9Contract(spec) {
     }
   }
   // Area changes are route changes too. A shell keyed on the pathname dies on
-  // /sessions → /projects just as it dies on one conversation → another.
-  const areas = ['projects', 'settings'].map((area) => ({
+  // /sessions → /routines just as it dies on one conversation → another. The
+  // Projects area retired in KIN-CONTRACT-001; /projects is a redirect now.
+  const areas = ['routines', 'settings'].map((area) => ({
     area,
     at: idx((st) => st[0] === 'click' && sel(st, 1).includes(`data-area="${area}"`)),
   }));
