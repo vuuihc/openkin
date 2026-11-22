@@ -1,6 +1,6 @@
 # KIN-CONTRACT-001 · 只留四个页面：列表、任务详情、例行任务、设置
 
-状态：draft
+状态：approved
 优先级：P0
 旅程：J1、J2、J4、J6
 归属面：`IA.md`「列表层级」「例行任务」「设置与环境」
@@ -19,16 +19,16 @@ owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任�
 - 例行任务页面把「例行任务清单」和「按时间倒序的运行」放在同一页（`ui/src/pages/RoutinesPage.tsx:135` 的注释、`:153-157` 的 `runs`/`runsCursor`），于是同一个运行既是列表里的一条，又是这里的一条。
 - 运行没有出现在任务列表里，读者要判断「刚才那次跑了没有」得换一个页面。
 - 项目封面是一个独立页面（`/projects/:id`），工作说明只在那里可读；集合页 `/projects` 与列表的项目层级重复。
-- 设置 6 个 tab（`ui/src/pages/SettingsPage.tsx:809-837`），其中 `agents` 的安装检测是半成品（`ui/src/components/settings/AgentOperationsSection.tsx:347` 的 `installSuggestions` 与 `:528` 的「未安装」判定），可用的部分与不可用的部分混在一起。
+- 设置 6 个 tab（`ui/src/pages/SettingsPage.tsx:809-837`）。owner 说的「agents 安装检测不完备」落在两处：`agents` tab 里逐个 provider 的探测状态与能力徽标（`ui/src/components/settings/LocalAgentSettingsSection.tsx`），以及 operations tab 里「装哪些」的建议块（`ui/src/components/settings/AgentOperationsSection.tsx:347` 的 `installSuggestions` 与 `:528` 的「未安装」行）。问题是：`agents` tab 同时是**导入 provider 会话**与**角色默认（prompt 前缀）**的唯一入口，所以「删 tab」会连带删掉两个别处没有的能力——那是删能力，不是删半成品。
 - 没有任何东西阻止下一条 PR 再加一个面：`removed-surfaces` 只保证删掉的路径不复活。
 
 ## 范围
 
 - 做：
-  - 冻结四个页面：`/sessions`（设备 → 项目 → 任务，运行是任务行）、`/tasks/:id`（详情 + composer + 文件/diff/PR 面板）、`/routines`（只有例行任务清单，不含运行列表）、`/settings`（保留 general、operations、providers、routing、advanced 五个 tab）。
+  - 冻结四个页面：`/sessions`（设备 → 项目 → 任务，运行是任务行）、`/tasks/:id`（详情 + composer + 文件/diff/PR 面板）、`/routines`（只有例行任务清单，不含运行列表）、`/settings`（现有六个 tab 原样：general、agents、operations、providers、routing、advanced）。
   - 运行列表原来在 `/routines`，移到 `/sessions`：每个运行就是一条任务行，带来源标记（例行任务名），可筛选；`/routines` 不再拉运行。
   - 项目封面 `/projects/:id` 退役，工作说明改为在列表里展开项目行可读（只读，编辑仍走「⋯」），`/projects` 集合页同退。
-  - 设置里删掉 `agents` tab（安装检测半成品），其余五个 tab 原样保留；重做安装检测由后续 story 负责。
+  - 设置这一轮**不改**：安装检测的重做拆成独立 story `R-agents-detect`，因为它要先看着屏分清「探测」与「导入/角色」的边界；在边界分清前删 `agents` tab 会删能力，而本故事的不做清单不允许那样做。
   - `/new` 是任务详情的草稿态（同一 shell），不是第五个页面。
   - `/machines/:device/tasks/:id` 合并进 `/tasks/:id?device=`。
   - 一张退场表（本故事「设计」一节与审阅页的契约板）：每条旧路径 → 落到哪条页面、能力搬进哪里、哪条故事负责；旧路径在能力搬完前保持可用。
@@ -37,7 +37,7 @@ owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任�
 - 不做（各自去处）：
   - 删除 `/routines` 页面、把例行任务改成卡片 → **不做**，owner 2026-11-22 明确保留页面。
   - Settings 收缩到 2 个 tab、把 providers 搬成 sheet → **不做**，其余 tab 保留；用量界面不动。
-  - 重做 agents 安装检测 → 后续独立 story（先删半成品，再重做）。
+  - 删除整个 `agents` tab，或把导入会话/角色默认搬走 → **不做**（那是删能力，不是删半成品检测）；安装检测重做 → 独立 story `R-agents-detect`。
   - 手机底栏改数量 → 不改：四个入口（对话、Agents、例行、设置）都落在保留的页面上；`KIN-` 手机底栏已签故事继续有效。
   - 列表密度、折叠交互 → parked `R-list-scan`。
   - RN 客户端 → 独立 ADR/phase，契约冻结前不写 `mobile/` 代码。
@@ -78,13 +78,13 @@ owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任�
 | 键盘与焦点 | 表单 Tab 顺序固定；Esc 关闭新建面板并回「新建」；保存后焦点回到该行 |
 | 离开再回来 | 回到清单，展开/滚动的行保留；不重复创建 |
 
-### 4. 确认：设置只留能用的那五个 tab
+### 4. 确认：设置这一轮不动（六个 tab 与其中的导入、角色默认原样）
 
 | 项 | 预期 |
 |---|---|
 | 起点 | `/settings`，默认上次的 tab |
-| 动作 | 在 general / operations / providers / routing / advanced 之间切换；provider 凭据仍在 providers tab |
-| 立刻看到 | 只有这五个 tab；不再有 `agents` tab（安装检测半成品已移除），新对话立刻用上新默认 |
+| 动作 | 在 general / agents / operations / providers / routing / advanced 之间切换；provider 凭据仍在 providers tab |
+| 立刻看到 | 仍是六个 tab；`agents` tab 里的导入会话与角色默认还在；新对话立刻用上新默认 |
 | 慢 / 空 / 失败 / 断线 | 打开设置不读 secure store、不调第三方；只有「验证/配置」这一次动作才读；失败只说这一行，不影响别的 tab |
 | 键盘与焦点 | tab 之间 ←→；关闭确认框回触发按钮；未连接的 provider 行写明原因 |
 | 离开再回来 | 回到上次的 tab；改到一半的 key 输入在离开时清空，不留在内存快照里 |
@@ -136,18 +136,20 @@ owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任�
 | `/routines` 里的运行列表 | `/sessions` | 每个运行是一条任务行，带例行任务名；「看运行」带筛选跳转 | 本条 |
 | `/agent-sessions/:id` | `/tasks/:id` | agent 状态进会话动作表 | `R-agent-status` |
 | `/machines/:device/tasks/:id` | `/tasks/:id?device=` | 同一份任务详情 | 本条 |
-| Settings 的 `agents` tab | `/settings` | 安装检测重做前不展示半成品；重做由后续 story 负责 | 本条 |
-| `design-system` | 不在生产路由 | 仅 dev build | 本条 |
+| Settings 的 `agents` 安装检测（探测状态与能力徽标） | `/settings?tab=agents` | 导入会话与角色默认**保留**；探测重做后再决定展示什么 | `R-agents-detect`（独立 story） |
+| `/` | `/sessions` | 入口 redirect（手机回列表，桌面回上次任务或 `/new`），不是页面 | 已落地 |
+| `*` | `/new` | 已登记的兜底 redirect：未匹配路径回新对话，不是页面 | 已落地 |
+| `/dev/components` | 不在生产路由 | 仅 dev build | 本条 |
 
 ## Do not
 
 - 不许删 `/routines` 页面或把例行任务改成卡片；运行列表搬走、页面留下。
-- 不许把 Settings 收缩到 2 个 tab，也不许搬走 providers 凭据；只删 `agents` tab。
+- 不许把 Settings 收缩到 2 个 tab，也不许搬走 providers 凭据；不许删 `agents` tab 或搬走导入会话/角色默认；安装检测重做归 `R-agents-detect`；其余五个 tab 与 providers 凭据位置不动。
 - 不许改手机底栏的数量或顺序（四个入口都有效）。
 - 不许把「删面」做成「删能力」：被退役路径的能力必须已经在新位置可读且测试绿。
 - 不许改 HTTP/事件契约、数据模型、权限或安全语义；这条只动前端路由、页面拆分与文档。
 - 不许在契约冻结前写 `mobile/` 的 RN 代码。
-- 不许用通配路由（`*`）吞掉未登记的路径来让清单测试变绿，也不许放宽断言。
+- 不许用通配路由（`*`）吞掉未登记的路径来让清单测试变绿；`*` 只允许是退场表里那条回 `/new` 的兜底 redirect，也不许放宽断言。
 
 ## 验收
 
@@ -156,7 +158,7 @@ owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任�
 | 一条新增的 `<Route path="/x">` 不在契约表 | 跑 `scripts/check.sh` | `ui/src/lib/routes.contract.test.ts` 失败，输出含 `KIN-CONTRACT-001` 与 `/x` |
 | 四个页面之一被删，或 `/new` 被当成第五个页面 | 跑同一个测试 | 失败并报出缺的/多出的那条 |
 | `/routines` 重新拉取运行列表，或运行不再出现在列表里 | 跑同一个测试 | 失败（`RoutinesPage` 不再引用 `listRoutineRuns`；列表有运行行） |
-| 设置 tab 集合不是 general / operations / providers / routing / advanced | 跑同一个测试 | 失败并打印多出或缺少的 tab |
+| 设置少了 `agents` tab，或少了其中的导入会话/角色默认 | 打开 `/settings` | 失败（判「删面变成了删能力」）；六个 tab 的集合由 `KIN-CONTRACT-001` 那一行固定 |
 | 旧路径 `/projects/:id`、`/agent-sessions/:id`、`/machines/:device/tasks/:id` | 打开 | 落到退场表写的页面，`replace` 进历史；工作说明在项目行里可读 |
 | 故事里的退场表与测试数据不一致，或某行「负责」为空 | 跑同一个测试 | 失败并打印不一致的那一行 |
 | 变异体：把 `/routines` 改回带运行列表的页面 | 跑测试 | 必须红 |
@@ -164,7 +166,7 @@ owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任�
 ## 证据
 
 - 契约与退场表：本文件「设计」一节；审阅页 `KIN-CONTRACT-001.review.html` 的契约板。
-- 现状：路由 `ui/src/App.tsx:194-219`；例行页的运行 feed `ui/src/pages/RoutinesPage.tsx:135,153-157`；设置 tab `ui/src/pages/SettingsPage.tsx:809-837`；agents 安装检测 `ui/src/components/settings/AgentOperationsSection.tsx:347,528`。
+- 现状：路由 `ui/src/App.tsx:194-219`；例行页的运行 feed `ui/src/pages/RoutinesPage.tsx:135,153-157`；设置 tab `ui/src/pages/SettingsPage.tsx:809-837`；agents 安装检测 `ui/src/components/settings/LocalAgentSettingsSection.tsx` 与 `ui/src/components/settings/AgentOperationsSection.tsx:347`。
 - owner 原话与决定：`rsi/DECISIONS.md` 2026-11-22 那条；`docs/plans/2026-11-21-surface-reduction.md` 的最小契约表按本条订正。
 - 已完成的死代码清理：#547 `b4bc72f7`，`removed-surfaces` 在 `scripts/check.sh` 里点名执行。
 
@@ -172,3 +174,5 @@ owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任�
 
 - 2026-11-22（+08）· 初稿：五个面 + 退场表（含把 routines 改成卡片），等 owner 签字。
 - 2026-11-22 · 按 owner 原话订正为四个页面：`/routines` 保留、运行搬进任务列表、设置只删 `agents` 安装检测、其余 tab 保留、项目封面退役且工作说明进列表项目行。这四条不再是待决项。
+- 2026-11-22 · **受托签字（approved）**：owner 当天把签字权交给「找 advisor 签」（`rsi/DECISIONS.md` 同日那条）；顾问 Kimi K3.1 Pro 只读复核建议签，本 PR 同时落退场表数据与逐行一致测试（`ui/src/lib/surfacesContract.KIN-CONTRACT-001.test.ts`）——机器规则要求 `approved` 至少有一条点名本故事的测试。路由清单测试随删面交付落地，不放进签字这一条。
+- 2026-11-22 · **设置一处改签：这一轮不动 `agents` tab**。签字前核代码时发现矛盾：安装检测确实半成品，但那个 tab 同时是导入 provider 会话与角色默认的唯一入口（`LocalAgentSettingsSection.tsx`），删 tab 会删能力，撞上本故事自己的不做条款。改为拆独立 story `R-agents-detect`（先看着屏分清探测与导入/角色的边界），本故事只冻结「设置仍是一个页面、六个 tab 不变」。
