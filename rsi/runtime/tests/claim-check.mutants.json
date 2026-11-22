@@ -14,6 +14,20 @@
     "new": "    if True:  # mutant: every PR is code-only"
   },
   {
+    "label": "never retry a silent failure",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=claim-check-retries-silence bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "    if returncode != 0 and not collapse(actual):",
+    "new": "    if False:  # mutant: never retry a silent failure"
+  },
+  {
+    "label": "accept the retry's silence as a pass",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=claim-check-retry-also-silent bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "        if not collapse(actual):",
+    "new": "        if not collapse(actual):  # mutant: accept the retry's silence as a pass\n            print(\"CLAIM_OK: \" + command)\n            return 0"
+  },
+  {
     "label": "make the Claim output block optional",
     "file": "rsi/runtime/claim_check.py",
     "test": "bash rsi/runtime/tests/test-claim-check.sh",
