@@ -2691,6 +2691,7 @@ export default function TaskDetailPage({
                 fallbackUserPromptImages={fallbackPrompt.images}
                 messageScope={task.id}
                 loading={!detail.loaded || !terminal || sending || awaitingReply}
+                taskStatus={task.status}
                 loadingSpeaker={task.agent || "kin"}
                 hostSpeaker={task.agent || "kin"}
                 hostModel={task.model}
