@@ -579,6 +579,5 @@ run test_confirm_only_prompt_keeps_the_measurement_rule
 run test_flaked_only_grounded_below_three_is_a_red
 run test_confirm_only_new_hard_failure_is_grounded
 run test_mutant_manifest_points_at_this_gate
-run test_mutant_manifest_points_at_this_gate
 [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo "ux-gate confirm-red contract: $RAN/$RAN cases passed"
