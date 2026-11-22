@@ -558,8 +558,12 @@ fi
 # and clean: no push, no PR, and the worker fixes the body in its own session.
 if ! CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; then
   [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
+  # Keep the verdict and the command's own tail on disk, the way merge.sh's claim_check_gate
+  # keeps its evidence. A flattened note cannot tell a genuine red from a slow or truncated run,
+  # and only the failure branch writes here, so a later green hand-off never rewrites the record.
+  printf '%s\n' "${CLAIM_EV:-check produced no output}" > "$STATE/lanes/$N.claim.txt"
   CLAIM_NOTE="$(printf '%s' "$CLAIM_EV" | tr '\n' ' ' | sed 's/  */ /g')"
-  finish failed "" "claim check: ${CLAIM_NOTE:-check produced no output}"
+  finish failed "" "claim check: ${CLAIM_NOTE:-check produced no output} (evidence: $STATE/lanes/$N.claim.txt)"
   exit 1
 fi
 [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"

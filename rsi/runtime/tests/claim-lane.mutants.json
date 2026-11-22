@@ -117,5 +117,19 @@
     "test": "RSI_TEST_ONLY=case_failed_body_edit_is_not_swallowed bash rsi/runtime/tests/test-lane-claim-check.sh",
     "old": "      echo \"PR body edit failed (rc=$PR_EDIT_RC); live read-back decides; see lanes/$N.pr-edit.log\"",
     "new": "      echo \"PR body edit failed; live read-back decides; see lanes/$N.pr-edit.log\""
+  },
+  {
+    "label": "a red claim verdict leaves no evidence file on disk",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  printf '%s\\n' \"${CLAIM_EV:-check produced no output}\" > \"$STATE/lanes/$N.claim.txt\"\n",
+    "new": ""
+  },
+  {
+    "label": "the mismatch verdict goes back to the flattened one-liner without exit code or real output",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=case_claim_fail_keeps_real_output bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "            \"claimed output is not in the command's real output: %s | exit %d | last output: %s\"\n            % (\" | \".join(missing), returncode, tail(actual))",
+    "new": "            \"claimed output is not in the command's real output: %s\"\n            % \" | \".join(missing)"
   }
 ]
