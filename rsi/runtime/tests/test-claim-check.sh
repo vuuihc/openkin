@@ -228,6 +228,62 @@ test_claim_check_does_not_retry_a_command_with_output() {
   pass "$CASE"
 }
 
+# --- 4d. a silent ZERO-exit run is not a verdict either: it is retried, and the retry can pass ---
+# A command wrapped in `exit $rc` can print no summary and still exit 0 (#574's 13:44 round: the
+# merge commit landed, then a shared node_modules run was silent and green). That silent zero-exit
+# used to skip the retry and report the claimed lines as missing, a red with nothing to fix.
+test_claim_check_retries_a_command_that_exits_zero_with_no_output() {
+  new_case claim-check-retries-zero-silence
+  local cnt="$T/claim-check-retries-zero-silence.count"
+  paths "docs/plans/claim-check.md"
+  body "Claim check: if [ -e '$cnt' ]; then echo x >> '$cnt'; echo CLAIM_CHECK_ZERO_SECOND_RUN; else echo x >> '$cnt'; exit 0; fi" \
+       "Claim output:" \
+       "CLAIM_CHECK_ZERO_SECOND_RUN"
+  run_check
+  [ "$RC" -eq 0 ] || fail "$CASE: exit $RC, want the retried command to pass ($OUT)"
+  case "$OUT" in CLAIM_OK:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_OK" ;; esac
+  [ "$(runs "$cnt")" -eq 2 ] \
+    || fail "$CASE: the command ran $(runs "$cnt") times, want exactly 2 (a silent zero-exit must be retried)"
+  pass "$CASE"
+}
+
+# --- 4e. two silent zero-exit runs say the command never answered, not that the claim is false ---
+test_claim_check_fails_when_both_zero_exit_runs_are_silent() {
+  new_case claim-check-zero-retry-also-silent
+  local cnt="$T/claim-check-zero-retry-also-silent.count"
+  paths "docs/plans/claim-check.md"
+  body "Claim check: echo x >> '$cnt'; exit 0" \
+       "Claim output:" \
+       "CLAIM_CHECK_RAN"
+  run_check
+  [ "$RC" -eq 1 ] || fail "$CASE: exit $RC, want 1 after two silent runs ($OUT)"
+  case "$OUT" in CLAIM_FAIL:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_FAIL" ;; esac
+  case "$OUT" in *"no output on two runs"*) ;; *) fail "$CASE: detail lacks 'no output on two runs': $OUT" ;; esac
+  case "$OUT" in *"did not reach a verdict"*) ;; *) fail "$CASE: detail lacks 'did not reach a verdict': $OUT" ;; esac
+  case "$OUT" in *"claimed output is not in the command's real output"*) \
+    fail "$CASE: a silent zero-exit was reported as a false claim: $OUT" ;; esac
+  [ "$(runs "$cnt")" -eq 2 ] \
+    || fail "$CASE: the command ran $(runs "$cnt") times, want exactly 2"
+  pass "$CASE"
+}
+
+# --- 4f. a zero-exit run that PRINTED a mismatch is a real red and keeps its single run -----------
+test_claim_check_does_not_retry_a_zero_exit_mismatch_with_output() {
+  new_case claim-check-zero-no-retry-with-output
+  local cnt="$T/claim-check-zero-no-retry-with-output.count"
+  paths "docs/plans/claim-check.md"
+  body "Claim check: echo x >> '$cnt'; echo CLAIM_CHECK_OTHER; exit 0" \
+       "Claim output:" \
+       "CLAIM_CHECK_RAN"
+  run_check
+  [ "$RC" -eq 1 ] || fail "$CASE: exit $RC, want 1 ($OUT)"
+  case "$OUT" in *"claimed output is not in the command's real output"*) ;; \
+    *) fail "$CASE: detail lacks the printed-mismatch sentence: $OUT" ;; esac
+  [ "$(runs "$cnt")" -eq 1 ] \
+    || fail "$CASE: the command ran $(runs "$cnt") times; a printed mismatch must not be retried"
+  pass "$CASE"
+}
+
 # --- 5. a code-only PR is not asked for a claim check at all ------------------------------------
 test_code_only_pr_is_not_applicable() {
   new_case code-only
@@ -484,4 +540,7 @@ run test_claim_check_runs_before_the_reviewer_is_launched
 run test_claim_check_retries_a_command_that_prints_nothing claim-check-retries-silence
 run test_claim_check_fails_when_the_retry_also_prints_nothing claim-check-retry-also-silent
 run test_claim_check_does_not_retry_a_command_with_output claim-check-no-retry-with-output
+run test_claim_check_retries_a_command_that_exits_zero_with_no_output claim-check-retries-zero-silence
+run test_claim_check_fails_when_both_zero_exit_runs_are_silent claim-check-zero-retry-also-silent
+run test_claim_check_does_not_retry_a_zero_exit_mismatch_with_output claim-check-zero-no-retry-with-output
 echo "test-claim-check: ALL-PASS"
