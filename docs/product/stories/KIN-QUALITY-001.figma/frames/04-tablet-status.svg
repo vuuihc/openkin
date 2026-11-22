@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="1180" viewBox="0 0 820 1180">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="820" height="1180" fill="#ffffff"/><text x="12" y="17" font-size="11" fill="#555">KIN-QUALITY-001 · 平板 820×1180 · 展开状态：复用既有入口</text>
+<text x="808" y="17" font-size="10" fill="#8a8a8a" text-anchor="end">人点一次才出现 · 被动打开不查</text><line x1="0" y1="26" x2="820" y2="26" stroke="#e6e6e6"/>
+<rect x="0" y="26" width="280" height="1154" fill="#fbfbfb"/><line x1="280" y1="26" x2="280" y2="1180" stroke="#e3e3e3"/><rect x="10" y="130" width="260" height="26" rx="7" fill="#eef3ff"/>
+<text x="22" y="147" font-size="11" fill="#1f6feb" font-weight="600">项目 · alpha</text><text x="30" y="172" font-size="11" fill="#333">这段对话的标题（打开中）</text>
+<text x="30" y="196" font-size="11" fill="#444">另一段对话</text><text x="18" y="1140" font-size="10" fill="#8a8a8a">读者停留在原对话，列表不动</text><rect x="280" y="26" width="540" height="44" fill="#ffffff"/>
+<line x1="280" y1="70" x2="820" y2="70" stroke="#e0e0e0"/><text x="298" y="53" font-size="13" fill="#1a1a1a" font-weight="600">一段对话的标题，长到需要截断…</text>
+<text x="584" y="52" font-size="10" fill="#666">项目名…</text><rect x="640" y="26" width="60" height="44" rx="8" fill="#ffffff" stroke="#d8d8d8"/><text x="670" y="52" font-size="10.5" fill="#333" text-anchor="middle">文件 · 2</text>
+<rect x="708" y="26" width="44" height="44" rx="8" fill="#ffffff" stroke="#93b8f5"/><text x="730" y="53" font-size="15" fill="#1f6feb" text-anchor="middle">⋯</text>
+<text x="300" y="84" font-size="9" fill="#8a8a8a">header 仍只有 44；入口都是 ≥44×44</text><text x="298" y="112" font-size="10.5" fill="#8a8a8a">Kin · 刚刚</text>
+<text x="298" y="136" font-size="12" fill="#1f1f1f">已经整理完。表格和结论保留在下面，状态展开不替换阅读。</text><rect x="292" y="692" width="516" height="270" rx="12" fill="#ffffff" stroke="#1f6feb"/>
+<text x="308" y="718" font-size="11" fill="#1f6feb" font-weight="600">会话动作（既有 ⋯ 动作表）</text><text x="308" y="742" font-size="10" fill="#6b6b6b">点一次入口；不新增常驻栏或第二份状态面板</text>
+<line x1="308" y1="754" x2="792" y2="754" stroke="#e0e0e0"/><rect x="308" y="764" width="484" height="44" rx="8" fill="#f7f7f9"/><text x="326" y="791" font-size="11.5" fill="#333">分享只读对话链接</text>
+<rect x="308" y="816" width="484" height="44" rx="8" fill="#f7f7f9"/><text x="326" y="843" font-size="11.5" fill="#333">归档这段对话</text>
+<rect x="308" y="868" width="484" height="44" rx="8" fill="#fff1f0"/><text x="326" y="895" font-size="11.5" fill="#b42318">删除这段对话</text>
+<text x="308" y="936" font-size="9.5" fill="#8a8a8a">用量在 composer footer「用量 ▾」；改动文件在 header「文件 · 2」</text><text x="308" y="952" font-size="9.5" fill="#8a8a8a">三处各自最多一个动作可达；Esc 关闭并把焦点还给 ⋯</text><text x="308" y="968" font-size="9.5" fill="#8a8a8a">PR 面板在「文件」入口内（同一右侧容器，只读）</text>
+<rect x="280" y="1000" width="540" height="180" fill="#f7f7f9"/><line x1="280" y1="1000" x2="820" y2="1000" stroke="#dedede"/>
+<rect x="292" y="1014" width="516" height="86" rx="14" fill="#ffffff" stroke="#1f6feb"/><text x="308" y="1040" font-size="11.5" fill="#999">接着问…</text>
+<rect x="728" y="1040" width="64" height="44" rx="10" fill="#1f6feb"/><text x="760" y="1068" font-size="11" fill="#ffffff" text-anchor="middle">发送</text>
+<rect x="292" y="1100" width="252" height="44" rx="8" fill="#eef3ff"/><text x="300" y="1122" font-size="10.5" fill="#1f6feb" font-weight="600">用量 ▾（打开后是既有 popover）</text><text x="294" y="1150" font-size="9.5" fill="#8a8a8a">加载中就地写「正在读取」；失败保留上次值并说明；空写「还没有用量」</text>
+</g>
+</svg>

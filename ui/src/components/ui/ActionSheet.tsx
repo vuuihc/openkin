@@ -33,6 +33,34 @@ export type ActionSheetRow = {
   onSelect: () => void;
 };
 
+/**
+ * The row button's classes, kept out of the JSX so the disabled treatment is
+ * assertable. A disabled row recedes through its label's ink and loses the
+ * hover/active fill; it never dims the whole button, because the `hint` under
+ * the label is the reason the row cannot run and has to stay as readable as
+ * any other muted body text on the sheet.
+ */
+export function actionSheetRowClass(
+  row: Pick<ActionSheetRow, "disabled" | "destructive" | "selected">,
+): string {
+  return [
+    "flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-body transition-colors",
+    row.destructive ? "text-kin-red-ink" : "text-kin-text",
+    row.selected ? "bg-[var(--kin-fill-strong)] font-semibold" : "",
+    row.disabled ? "cursor-default" : "hover:bg-[var(--kin-fill)] active:bg-[var(--kin-fill)]",
+  ].join(" ");
+}
+
+/**
+ * A disabled row's label is what recedes. The ink stays off the button so the
+ * `hint` underneath keeps the contrast it has on an enabled row: it is the
+ * sentence that explains the row, and it is the only thing on the sheet that
+ * does.
+ */
+export function actionSheetLabelClass(row: Pick<ActionSheetRow, "disabled">): string {
+  return row.disabled ? "w-full truncate text-kin-muted" : "w-full truncate";
+}
+
 export default function ActionSheet({
   open,
   onClose,
@@ -85,17 +113,10 @@ export default function ActionSheet({
                 pending.current = row.onSelect;
                 onClose();
               }}
-              className={[
-                "flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-body transition-colors",
-                row.destructive ? "text-kin-red-ink" : "text-kin-text",
-                row.selected ? "bg-[var(--kin-fill-strong)] font-semibold" : "",
-                row.disabled
-                  ? "opacity-40"
-                  : "hover:bg-[var(--kin-fill)] active:bg-[var(--kin-fill)]",
-              ].join(" ")}
+              className={actionSheetRowClass(row)}
             >
               <span className="flex min-w-0 flex-1 flex-col items-start">
-                <span className="w-full truncate">{row.label}</span>
+                <span className={actionSheetLabelClass(row)}>{row.label}</span>
                 {row.hint ? (
                   <span className="whitespace-normal text-caption text-kin-muted">{row.hint}</span>
                 ) : null}

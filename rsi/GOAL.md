@@ -8,7 +8,7 @@ the five flows below closer to "passes without a human noticing".
 
 | # | Flow | Pass means |
 |---|---|---|
-| F1 | New chat → send | Message and waiting row appear instantly and **never vanish**: no full-page skeleton, no blank area, and a composer visible at every 16 ms sample across `/new` → `/tasks/:id`, its box moving at most 460 px (measured 451 px at 390, 244 px at 1100; the detail page mounts its own composer, so element identity is not claimed — J3 `sample`/`steady`; gap-log 2026-11-14 高). |
+| F1 | New chat → send | Message and waiting row appear instantly and **never vanish**: no full-page skeleton, no blank area, and a composer visible at every 16 ms sample across `/new` → `/tasks/:id`, its box moving at most 24 px (measured 2026-11-21: 2 px at 390, 4 px at 1100; the conversation's composer takes the caret and the draft composer's `expanded` arrangement on arrival, so Start does not resize the box; the detail page mounts its own composer, so element identity is not claimed — J3 `sample`/`steady`; gap-log 2026-11-14 高). |
 | F2 | Mid-run control | While an agent runs: send a follow-up, interrupt, approve/deny, answer a question, all from the composer/cards with consistent pickers (agent/model/permission/dir open the same way, no layout jump). YOLO means no approval prompts. Steer is honest: native if the agent supports it, otherwise labelled interrupt+requeue. |
 | F3 | Review → PR | See what changed this round, open the diff, comment on lines, send comments back, commit/push/open PR without leaving the conversation (parity target: Lody diff comments, T3 one-button PR). |
 | F4 | Switch without repaint | Chat↔chat, chat↔project, area↔area keep shell, scroll, drafts and loaded content. Skeleton only on the first load of a block (TASTE 15). |
@@ -28,6 +28,50 @@ the five flows below closer to "passes without a human noticing".
 - A UI change is not done without 390px and 1100px before/after screenshots (TASTE 9) and a one-line "what the user sees now".
 - Prefer deleting/merging UI over adding it (TASTE 7). Prompt before product machinery (PRINCIPLE 5.5).
 - Escaped defects → `docs/product/LESSONS.md` (see `LESSONS-HOOK.md`).
+
+## Closed phase (P16) — 820 阅读面，T3 的克制
+<!-- closed-phase: P16-t3-reading target=2026-11-28T20:00 -->
+
+Closed 2026-11-22，五条 done-means 全绿收口：#542 `a007626f` 交付 820 阅读面；#543 `e8a9a834` 之后
+`journeys.json` 有 3 处 `820x1180`，`rsi/MANDATE.md:19` 的合并门写 390/820/1100；`KIN-QUALITY-001`
+在 `registry.json` 为 `covered`；#547 `b4bc72f7` 让 `removed-surfaces` 在 `scripts/check.sh` 里被点名执行。
+按本相 cut rule「落地已绿的」提前于 11-28 目标关闭。**不把 P17 提前打开**：它的硬入口第 3 条（最小契约
+story 签字）等 owner 的 D3–D6 回复，`KIN-CONTRACT-001` 仍是 `draft`，而本节自己写着四条「全部为真才把
+`next-phase` 改成 `phase:`」。
+
+**一句话**：在 390 / 820 / 1100 三个宽度上，把「读一条真实回答并接着问」做到 T3 的清晰与克制；820 是 owner 的日常设备，先过。
+
+**为什么是这个。** owner 2026-11-21 的实机报告：820×1180 分栏后对话列约 520 CSS px，正文上方叠着 tabs、header、用量、改动文件四条常驻条（约 170 CSS px），header 的动作栏被压成 24–30 px 的单字碎片，长表格逐字换行，还要和「有新进展」药丸抢位置。同一天验收宽度只有 390 与 1100，820 落在两者之间，于是两端全绿、中间是被压碎的屏。完整对照见 `docs/plans/2026-11-21-t3-parity-quality-reset.md`。
+
+**Done means**（一条阅读交付，story `KIN-QUALITY-001`（draft；#542 合入后转 covered））：
+1. 820×1180 + `hasTouch` 下正文上方常驻 chrome ≤44 CSS px（只留一条 header），用量/改动文件/会话动作各自最多一个动作可达，不删除。
+2. 每个可见控件 ≥44×44 且没有半个字形；`document.elementFromPoint` 命中每个可见表格单元格中心都返回单元格；表格在自身容器内横向滚动。
+3. 新进展走一条非内容通道，不压正文；失败/断线一条 transient 说明且内容保留；回答末尾在同一个 composer 接着问——发送后消息入流、composer 清空并保持焦点、屏幕上只有一条输入路径（`KIN-QUALITY-001` 步骤 3）。
+4. 820 接进验收：`journeys.json` 的 `tablet: 820x1180`、J16 走查、`rsi/MANDATE.md` 的合并门写 390/820/1100；390/820/1100 三张截图在 PR body。
+5. 走查自己证明它真的在跑：J16 的 hardFail 为 `[]`，且一条变异体能把它打红。
+
+**Parked after this**：`R-list-scan`（820 列表一屏 ≥10 条、一行标题 + 一行元数据、设备/项目层级默认折叠）——保持停着，直到它自己的 story 存在；本相只把它列为 Out of scope，不进 P17 种子。
+
+**Out of scope** — 列表重排/折叠（`R-list-scan`）；把用量/改动文件整块删掉；用新增 bar/badge/banner 解决「状态看不见」；`mac-wide: 1280` 冒充平板。
+
+**Cut rule.** 11-28 20:00 落地已绿的，其余带度量记下，不延日期。若 820 的走查在 11-28 仍是红，就把「820 进不了验收」本身记为这一相的结论，不要用 390/1100 全绿宣布完成（这正是这一相存在的理由）。
+
+## Next phase (P17) — 表面收缩与 T3 split
+<!-- next-phase: P17-surface-reduction target=not-set -->
+
+**记录，不是许可。** 方向由 owner 2026-11-21 决定（`docs/adr/0035-mobile-rn-client-and-surface-reduction.md`、`docs/plans/2026-11-21-surface-reduction.md`）：先把 UI 面删到最小契约（owner 2026-11-22 定：四个页面——列表、任务详情、例行任务、设置；运行搬进列表；设置只删 agents 安装检测），再把手机端改成 Expo/RN + 本地 native modules；桌面保留 Electron + React/Vite，Go daemon 与共享 TS 不重写。它**顶着** 2026-11-20 23:47「不做第二客户端」的决定，且是 owner 覆议——那两个复活条件没有被满足，记录里不许写成「条件已满足」。
+
+**硬入口条件**（全部为真才把 `next-phase` 改成 `phase:`，缺一条就只记不启）：
+1. P16 全绿收口：J16 hardFail `[]`、820 进合并门、390/820/1100 截图在案（不是「大约好了」）。
+2. `#543` 的 820 验收注册已合入 main。
+3. 最小契约 story（`KIN-CONTRACT-001`）按 owner 2026-11-22 原话写完、交付时转 `approved`；`R-contract` 的路由清单测试在跑。
+4. `R-dead-paths` 已落地（1,090 行无引用死代码 + `removed-surfaces` 守卫在 `scripts/check.sh` 里被点名执行）。
+
+**Queue seeds（一次一行，按序）**：`R-dead-paths`（死代码 + 守卫，已落地 #547）→ `R-contract`（四个页面 + 运行搬进列表 + 删 settings 的 agents tab + 退场表 + 路由清单测试）→ `R-delete-pages`（`/projects`、`/projects/:id`、`/agent-sessions/:id`、`/machines/:device/tasks/:id` 退役；工作说明先搬进列表项目行）→ `R-rn-spike`（独立 story/ADR：抽共享 TS + RN 壳）。**不做**：隐藏 `/routines`、把 routine 改成卡片、Settings 收缩到 2 个 tab、搬走 provider 凭据。
+
+**门要补的**：`removed-surfaces` 始终运行（计划说删掉的路径必须在 main 上不存在）；路由清单测试（只允许契约里的路由，新增路由必须有 story）；替换先行（被删页面的能力仍有 tool/card 测试且已绿）。
+
+**Cut rule.** 契约冻结前不许有任何 `mobile/` RN 代码；RN MVP 若在四固定面（配对/登录、列表、对话读发流、审批/提问）上做不到与 web 等价，就停下来在这里记原因，不要把 MVP 扩大。
 
 ## Closed phase (P3) — review → PR, proven
 <!-- closed-phase: P3-review-pr target=2026-11-20T20:00 -->

@@ -1,0 +1,38 @@
+{
+  "_doc": "KIN-QUALITY-001 reading fixture (R-quality-reading-surface). Not part of rsi/runtime/ux/journeys.json: it boots the throwaway daemon and fake agent through scripts/journeys-smoke.sh --spec and is the one-command pixel proof for the story's three widths. `[seed] reading` renders long prose plus a 5-row table; a `[seed] slow` follow-up (the smoke script holds it 10 s) is sent, its optimistic bubble is awaited, the reader scrolls away, and the reply lands out of sight — the bubble wait keeps the send's pin-to-bottom from beating the scroll. The follow-up prompt carries the earlier `[seed] reading` text, so its reply is a second copy of the long answer; after the new-activity control appears the fixture scrolls to `bottom-140` again, now that the reply's height exists, so the last table is in view for the overlap measurement without marking the reader caught up. The 45 s control wait covers a follow-up the throwaway daemon serializes behind the denied seeded approvals; a timeout still fails. The seeded inbox's pending approvals are denied first so the shell's floating card does not cover the table; that overlay is not this story's. The `reading` op observes only; `readingVerdict` and scripts/quality_001_reading_test.py in scripts/check.sh decide.",
+  "viewports": {
+    "phone": { "size": "390x844", "hasTouch": true, "isMobile": true },
+    "tablet": { "size": "820x1180", "hasTouch": true, "isMobile": false, "deviceScaleFactor": 2 },
+    "mac": "1100x760"
+  },
+  "journeys": {
+    "JQ1": {
+      "title": "KIN-QUALITY-001 reading: a long answer with a table at phone/tablet/mac, then an unseen reply while the reader is away",
+      "viewports": ["phone", "tablet", "mac"],
+      "steps": [
+        ["goto", "/new"],
+        ["fill", "textarea", "Read the whole answer before asking again [seed] reading"],
+        ["place", "button[aria-label^='设备与项目'], button[aria-label*='Device & project'], button[aria-label*='Place'], button[aria-label*='Workspace'], button:has-text('更换'), button:has-text('Change')"],
+        ["send", "button[aria-label='开始'], button[aria-label='Start']"],
+        ["url", "^/tasks/"],
+        ["wait", "css=[role=region][tabindex=\"-1\"]:has-text(\"Tablet reading fixture\")"],
+        ["click", "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"],
+        ["click", "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"],
+        ["click", "?[data-kin-approval-card] button:has-text('拒绝'), [data-kin-approval-card] button:has-text('Deny')"],
+        ["gone", "?[data-kin-approval-card]"],
+        ["shot", "answer-top"],
+        ["scroll", "css=[role=region][tabindex=\"-1\"]", "bottom"],
+        ["reading", "table-bottom"],
+        ["shot", "answer-bottom"],
+        ["fill", "textarea", "Reading follow-up while the reader is away [seed] slow"],
+        ["send", "button[aria-label='发送'], button[aria-label='Send']"],
+        ["wait", "css=[role=region][tabindex=\"-1\"]:has-text(\"Reading follow-up while the reader is away\")"],
+        ["scroll", "css=[role=region][tabindex=\"-1\"]", "bottom-140"],
+        ["wait", "css=button:has-text('有新进展'), button:has-text('New activity')", "45000"],
+        ["scroll", "css=[role=region][tabindex=\"-1\"]", "bottom-140"],
+        ["shot", "incoming"],
+        ["reading", "incoming", "require-new-activity"]
+      ]
+    }
+  }
+}

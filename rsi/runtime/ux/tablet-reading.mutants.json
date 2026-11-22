@@ -1,0 +1,65 @@
+[
+  {
+    "label": "the tablet viewport loses its finger (hasTouch false at 820)",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkTabletReadingTest.test_tablet_context_has_touch_without_phone_layout",
+    "old": "    isMobile: typeof vp.isMobile === 'boolean' ? vp.isMobile : phoneLayout,\n    hasTouch: typeof vp.hasTouch === 'boolean' ? vp.hasTouch : phoneLayout,",
+    "new": "    isMobile: typeof vp.isMobile === 'boolean' ? vp.isMobile : phoneLayout,\n    hasTouch: false,"
+  },
+  {
+    "label": "an all-off-screen sample counts as a measured cell set",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkTabletReadingTest.test_tablet_reading_metrics_reject_empty_or_hidden_cells",
+    "old": "  if (visible.length === 0) unavailable.push('no visible table cells (off-screen or absent samples only)');",
+    "new": ""
+  },
+  {
+    "label": "the action 44 px floor and clipping check are dropped",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkTabletReadingTest.test_tablet_reading_detects_small_action_and_occluded_cell",
+    "old": "  const badActions = actions.filter((a) => !(a && a.width >= limits.actionMin && a.height >= limits.actionMin && a.clipped !== true));",
+    "new": "  const badActions = [];"
+  },
+  {
+    "label": "--spec is parsed but never forwarded",
+    "file": "scripts/journeys-smoke.sh",
+    "test": "python3 -B scripts/journeys_smoke_test.py ShellTest.test_tablet_spec_is_forwarded_to_walk_and_summary",
+    "old": "    --spec) [ $# -ge 2 ] || unavail \"--spec needs a path\"; SPEC=\"$2\"; SPEC_ARG=1; shift 2 ;;",
+    "new": "    --spec) [ $# -ge 2 ] || unavail \"--spec needs a path\"; SPEC=\"$2\"; SPEC_ARG=\"\"; shift 2 ;;"
+  },
+  {
+    "label": "the summarizer resolves the default spec instead of the supplied one",
+    "file": "scripts/journeys_smoke.py",
+    "test": "python3 -B scripts/journeys_smoke_test.py ShellTest.test_summarizer_reads_the_supplied_tablet_spec",
+    "old": "             \"--resolve\", args.spec],",
+    "new": "             \"--resolve\", DEFAULT_SPEC],"
+  },
+  {
+    "label": "the tablet context test accepts a layout without touch",
+    "file": "scripts/journeys_walk_test.py",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkTabletReadingTest.test_tablet_context_has_touch_without_phone_layout",
+    "old": "        self.assertTrue(tablet[\"hasTouch\"])",
+    "new": "        self.assertFalse(tablet[\"hasTouch\"])"
+  },
+  {
+    "label": "the forwarding test stops requiring the walk spec",
+    "file": "scripts/journeys_smoke_test.py",
+    "test": "python3 -B scripts/journeys_smoke_test.py ShellTest.test_tablet_spec_is_forwarded_to_walk_and_summary",
+    "old": "        self.assertIn(f\"--spec {tablet}\", walk_line, walk_line)",
+    "new": "        self.assertIn(f\"--spec {tablet}-absent\", walk_line, walk_line)"
+  },
+  {
+    "label": "the fake fixture test accepts fewer than four body rows",
+    "file": "scripts/journeys_seed_test.py",
+    "test": "python3 -B scripts/journeys_seed_test.py HarnessContractTest.test_tablet_fixture_uses_fake_agent_and_keeps_other_replies",
+    "old": "            self.assertGreaterEqual(len(body), 4, text)",
+    "new": "            self.assertGreaterEqual(len(body), 99, text)"
+  },
+  {
+    "label": "the fake agent no longer answers the reading marker with the table",
+    "file": "scripts/journeys_fake_agent/claude",
+    "test": "python3 -B scripts/journeys_seed_test.py HarnessContractTest.test_tablet_fixture_uses_fake_agent_and_keeps_other_replies",
+    "old": "  *\"[seed] reading\"*)",
+    "new": "  *\"[seed] reading-off\"*)"
+  }
+]

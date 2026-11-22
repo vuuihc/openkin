@@ -1196,6 +1196,48 @@ class HarnessContractTest(unittest.TestCase):
         with open(os.path.join(root, "notes.md"), encoding="utf-8") as fh:
             return fh.read()
 
+    def test_tablet_fixture_uses_fake_agent_and_keeps_other_replies(self) -> None:
+        # The 820 reading walk needs a real answer with a real markdown table.
+        # The only allowed source is the journey fake's stream-json: no DOM
+        # insertion, no API interception, no product CSS injection, no model
+        # call. The prompt carries an explicit marker; every other prompt must
+        # keep the reply the other journeys already assert.
+        with tempfile.TemporaryDirectory() as cwd:
+            notes = os.path.join(cwd, "notes.md")
+            with open(notes, "w", encoding="utf-8") as fh:
+                fh.write("# notes\n\n- untouched\n")
+            result = run_fake_agent(cwd, "Draft the reading review [seed] reading")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+            self.assertEqual([line["type"] for line in lines],
+                             ["system", "stream_event", "assistant", "result"])
+            text = "".join(
+                part.get("text", "")
+                for line in lines if line["type"] == "assistant"
+                for part in line["message"]["content"] if part.get("type") == "text"
+            )
+            self.assertIn("Tablet reading fixture", text)
+            self.assertGreater(len(text), 1200, "the answer must be long enough to overflow an 820x1180 reading pane")
+            rows = [line.strip() for line in text.splitlines() if line.strip().startswith("|")]
+            self.assertGreaterEqual(len(rows), 6, text)  # header + separator + 4 body rows
+            body = rows[2:]
+            self.assertGreaterEqual(len(body), 4, text)
+            self.assertEqual({len(line.strip().strip("|").split("|")) for line in body}, {4}, text)
+            # This cwd is not a `kin-journeys-seed-` root, so the fixture
+            # proves the long answer without writing anything.
+            with open(notes, encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "# notes\n\n- untouched\n")
+
+            plain = run_fake_agent(cwd, "Draft: summarise this week's TODOs")
+            self.assertEqual(plain.returncode, 0, plain.stderr)
+            plain_lines = [json.loads(line) for line in plain.stdout.splitlines() if line.strip()]
+            plain_text = "".join(
+                part.get("text", "")
+                for line in plain_lines if line["type"] == "assistant"
+                for part in line["message"]["content"] if part.get("type") == "text"
+            )
+            self.assertEqual(plain_text, "Fake reply from the journey fake agent.")
+
     def test_seed_roots_are_clean_git_repos(self) -> None:
         base = journeys_seed._seed_roots()
         self.addCleanup(shutil.rmtree, base, True)

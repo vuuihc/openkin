@@ -19,5 +19,68 @@
     "test": "bash rsi/runtime/tests/test-claim-check.sh",
     "old": "    if output_at is None:\n        return fail(\n            \"the body has no 'Claim output:' line at column 0 after the claim check; \"\n            \"paste the command's real output there\"\n        )",
     "new": "    if output_at is None:  # mutant: no output block is fine\n        print(\"CLAIM_OK: \" + command)\n        return 0"
+  },
+  {
+    "label": "accept the waiver before reading the changed prose",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=citation-missing-line bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "    if citation_scan_applies(command):\n        problem = citation_problem(worktree, prose)\n        if problem is not None:\n            return fail(problem)",
+    "new": "    if False:  # mutant: waive before the scan\n        problem = citation_problem(worktree, prose)\n        if problem is not None:\n            return fail(problem)"
+  },
+  {
+    "label": "drop the line-count bound on a single-line citation",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=citation-missing-line bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "                    if start > lines:",
+    "new": "                    if False:  # mutant: no line-count bound"
+  },
+  {
+    "label": "treat a cited file that is missing as resolved",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=citation-missing-file bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "                    problems.append(\"%s (no such file)\" % cited)",
+    "new": "                    pass  # mutant: a missing cited file resolves"
+  },
+  {
+    "label": "let a citation range run past the end of the file",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=citation-range bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "                elif end > lines:",
+    "new": "                elif False:  # mutant: a range may run past the file"
+  },
+  {
+    "label": "scan the prose even when a real Claim check: command exists",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=citation-real-command-unchanged bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "    return lowered == \"none\" or lowered.startswith(\"none:\")",
+    "new": "    return True  # mutant: scan a real command's prose too"
+  },
+  {
+    "label": "let an unreadable changed prose file pass",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=citation-unreadable-fails bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "        except OSError as exc:\n            return \"cannot read the changed prose file %s: %s\" % (rel, exc)",
+    "new": "        except OSError as exc:  # mutant: an unreadable prose file is skipped\n            continue"
+  },
+  {
+    "label": "fail closed on a prose file the diff deleted",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "        if not os.path.exists(source):\n            continue",
+    "new": "        if not os.path.exists(source):  # mutant: a deletion is unreadable\n            return \"cannot read the changed prose file %s\" % rel"
+  },
+  {
+    "label": "scan the whole prose file instead of this branch's added lines",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=citation-historical-lines bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "        added = added_lines(worktree, rel)\n        for line in (text.splitlines() if added is None else added):",
+    "new": "        added = None  # mutant: scan the whole file again\n        for line in (text.splitlines() if added is None else added):"
+  },
+  {
+    "label": "skip an added line whose own text starts with ++",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=citation-historical-lines bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "        if in_hunk and line.startswith(\"+\"):",
+    "new": "        if in_hunk and line.startswith(\"+\") and not line.startswith(\"+++\"):  # mutant: a ++ line is a header"
   }
 ]

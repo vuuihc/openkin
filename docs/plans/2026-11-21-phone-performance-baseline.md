@@ -328,3 +328,42 @@ already 6.5 % — so the paired delta is the only evidence about containment
 here, and it is null. A longer transcript, a slower device, or WKWebView's own
 `content-visibility` implementation could still separate the arms; this Chrome
 number cannot.
+
+## Baseline re-run (row 28, 2026-11-21)
+
+**Status: measured, 5/5 runs green, no guard fired — verdict `no-gap`.** The
+plain baseline (no A/B) on the product tree at `c98e1924` dropped **2.7 %** of
+frames on the `/sessions` list and **4.8 %** on the transcript, both inside the
+memo's **9 %** closing bar; #522's 18.0 % transcript gap did not reproduce here.
+
+Command: `node scripts/phone-interaction.mjs --runs 5 --json` — exit 0. Chrome
+**157.0.8103.51 headed**, viewport **390×844** (`isMobile`, `hasTouch`), 8 CPUs,
+1-minute load **6.91–8.71** across the five runs (machine load average at the
+end **6.91 8.29 8.92**), idle-rAF p50 **8.3 ms** on every run (120 Hz clock, not
+throttled). Seed: **30 rows**, **61 message events**, 19 follow-ups.
+
+| Leg | Frames | Frame p50 | Frame p90 | Dropped | Long tasks |
+|---|---:|---:|---:|---:|---:|
+| `/sessions` scroll (30 rows) | 1,214 | **8.3 ms** | **8.8 ms** | **2.7 %** | 0 |
+| `/tasks/:id` scroll (61 messages) | 1,225 | **8.3 ms** | **9.2 ms** | **4.8 %** | 0 |
+
+Tap → detail p50 **129.1 ms** / p90 **155.3 ms** over 5/5 runs; run-config sheet
+57.3/61.6 ms; composer send → bubble 54.1/63.3 ms.
+
+Per-run dropped %: list 2.4, 2.4, 2.5, 2.0, 4.1; transcript 3.7, 2.8, 2.8, 4.5,
+10.4. Run 5's 10.4 % transcript is a single-run spike; the pooled figure the
+rule reads is 4.8 %.
+
+`phone gap: list 2.7% / transcript 4.8% -> no-gap`
+
+**Next step: the proxy is exhausted; the next candidate is a real-device
+WKWebView trace — park until a phone is available.** The baseline gap does not
+reproduce on the current product tree, so the containment story is not signed;
+no product code was written and no story is signed by this row.
+
+**What this cannot prove.** Chrome headed is a proxy; WKWebView on a real
+iPhone is the fact. The machine was shared (load printed above, lower than
+#522's 8.9–13.1), so these absolute numbers are not comparable with #522, row 19
+or row 22. This run says the gap is absent on this proxy today; it cannot say a
+real phone is smooth. The run JSON and table are kept under the lane's local
+`state/shots/phone-gap-repro/` and are not committed.

@@ -33,6 +33,22 @@ describe("parseNotificationRoute", () => {
     expect(route).toEqual({ path: "/tasks/task-1", focus: null, fallback: false });
   });
 
+  it("keeps the card a conversation link names", () => {
+    // KIN-NOTIFY-001: an approval or question link is /tasks/<id>?focus=<item>,
+    // and the conversation reveals that card from the parameter
+    // (TaskDetailPage.tsx:1286). Dropping the query lands on the conversation
+    // but never on the content that stopped the agent.
+    const route = parseNotificationRoute(
+      "https://kin.example.com/tasks/task-1?focus=appr-1",
+      ORIGIN,
+    );
+    expect(route).toEqual({ path: "/tasks/task-1?focus=appr-1", focus: "appr-1", fallback: false });
+    // A query the route does not own is still dropped, exactly as on /routines.
+    expect(parseNotificationRoute("/tasks/task-1?utm=push", ORIGIN).path).toBe("/tasks/task-1");
+    // `/approvals` names the same kind of item in its own list.
+    expect(parseNotificationRoute("/approvals?focus=q1", ORIGIN).path).toBe("/approvals?focus=q1");
+  });
+
   it("keeps a routine report's machine task link", () => {
     // A routine run on a paired Node is opened at /machines/<device>/tasks/<id>,
     // which is a known route even though it is not a local /tasks/:id.

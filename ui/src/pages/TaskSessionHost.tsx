@@ -229,13 +229,20 @@ export default function TaskSessionHost() {
             : "hidden"
       }
     >
-      <SessionTabs
-        tabs={tabs}
-        activeId={activeId}
-        onSelect={selectTab}
-        onClose={closeTab}
-        onMove={moveTab}
-      />
+      {/* Session tabs are shell chrome, not reading chrome. Below 1600 the
+          strip sat inside the transcript's measured top offset and the reading
+          surface paid for it on every screen; the list column is visible at
+          820/1100 (and the header keeps its show-list control), so switching
+          stays one action away. The strip returns with the side rail. */}
+      <div className="hidden min-[1600px]:block">
+        <SessionTabs
+          tabs={tabs}
+          activeId={activeId}
+          onSelect={selectTab}
+          onClose={closeTab}
+          onMove={moveTab}
+        />
+      </div>
       <div
         className={show ? "relative flex flex-1 min-h-0 min-w-0 flex-col" : "hidden"}
         aria-hidden={!show}

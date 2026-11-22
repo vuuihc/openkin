@@ -56,6 +56,7 @@ import {
   withPinnedBucket,
   type PhoneDeviceGroup,
   type PhoneProjectBucket,
+  type PhoneProjectRecord,
   type PhoneSessionRow,
 } from "../../lib/phoneSessionBuckets";
 import {
@@ -476,19 +477,25 @@ export default function SessionList({
 
   const archivedCwds = useMemo(() => getArchivedProjects(), [prefsTick]);
   const pinnedProjects = useMemo(() => getPinnedProjects(), [prefsTick]);
-  // A project's record names it; the folder is only its address. Every root of
-  // every record is a heading, keyed the way buckets key a cwd, and the first
-  // record wins on a duplicate root so a heading never depends on iteration
-  // order. The records are this machine's own filesystem (the API has no device
-  // column), which is also why `seedProjects` files them under this machine.
-  const projectNameByCwd = useMemo(() => {
-    const byKey = new Map<string, string>();
+  // A project's record gives it one identity and one name, whatever root a
+  // conversation ran in. Every root of every record is a way in, keyed the way
+  // buckets key a cwd, and the first record wins on a duplicate root so the
+  // heading never depends on iteration order. The records are this machine's
+  // own filesystem (the API has no device column), which is also why
+  // `seedProjects` files them under this machine.
+  const projectByCwd = useMemo(() => {
+    const byKey = new Map<string, PhoneProjectRecord>();
     for (const project of projects) {
       const name = project.name.trim();
       if (!name) continue;
-      for (const root of project.roots ?? []) {
+      const roots = (project.roots ?? []).filter(
+        (root) => bucketKeyFor(root) !== UNASSIGNED_PROJECT,
+      );
+      if (roots.length === 0) continue;
+      const record: PhoneProjectRecord = { id: project.id, name, roots };
+      for (const root of roots) {
         const key = bucketKeyFor(root);
-        if (key !== UNASSIGNED_PROJECT && !byKey.has(key)) byKey.set(key, name);
+        if (!byKey.has(key)) byKey.set(key, record);
       }
     }
     return byKey;
@@ -519,7 +526,7 @@ export default function SessionList({
         scope,
         // Asked about the cwd rather than the bucket key: an archived remote
         // copy's key carries a device suffix that is not part of the address.
-        (cwd) => projectNameByCwd.get(bucketKeyFor(cwd)),
+        (cwd) => projectByCwd.get(bucketKeyFor(cwd)),
         orders,
         localTitles,
       ),
@@ -531,7 +538,7 @@ export default function SessionList({
       selfDeviceId,
       locale,
       archivedCwds,
-      projectNameByCwd,
+      projectByCwd,
       orders,
       localTitles,
     ],
@@ -798,8 +805,8 @@ export default function SessionList({
         onRestoreProject={
           scope === "archived" && bucketIsLocal(bucket) && archivedCwdFor(bucket.key, archivedCwds)
             ? () => {
-                const cwd = archivedCwdFor(bucket.key, archivedCwds);
-                if (cwd) unarchiveProject(cwd);
+                const stored = archivedCwdFor(bucket.key, archivedCwds);
+                if (stored) unarchiveProjectRoots(bucket);
               }
             : undefined
         }
@@ -1100,7 +1107,7 @@ export default function SessionList({
     if (!bucket.cwd) return;
     if (!bucketIsLocal(bucket)) return;
     if (!window.confirm(tr("nav.archiveConfirm", { project: bucket.label }))) return;
-    archiveProject(bucket.cwd);
+    for (const root of bucketRoots(bucket)) archiveProject(root);
   }
 
   function newSessionIn(bucket: PhoneProjectBucket) {
@@ -1112,7 +1119,7 @@ export default function SessionList({
       // path was clicked would edit the local project behind the reader's back.
       if (local) {
         touchProject(bucket.cwd);
-        if (scope === "archived") unarchiveProject(bucket.cwd);
+        if (scope === "archived") unarchiveProjectRoots(bucket);
       }
       // The cwd and its machine travel together: a remote path with no machine
       // recorded would quietly become a local path in the draft.
@@ -1527,7 +1534,7 @@ export default function SessionList({
                       onSelect: () => {
                         if (!projectMenu.bucket.cwd) return;
                         if (!bucketIsLocal(projectMenu.bucket)) return;
-                        if (projectMenu.archived) unarchiveProject(projectMenu.bucket.cwd);
+                        if (projectMenu.archived) unarchiveProjectRoots(projectMenu.bucket);
                         else archiveProjectConfirmed(projectMenu.bucket);
                       },
                     },
@@ -1570,11 +1577,13 @@ export default function SessionList({
 }
 
 /**
- * Project records can name one or more roots; each root is a heading.
+ * Project records can name one or more roots; the record is one heading.
  *
  * A project record is the local node's own (the API has no device id because
  * there is only one machine's filesystem behind it), which is why a seeded
- * heading is filed under this machine. A root the reader archived locally is
+ * heading is filed under this machine. The heading is keyed by the record's
+ * first root — the same key its conversations use — so a second root never
+ * draws a twin heading of its own. A record the reader archived locally is
  * skipped: the daemon still calls the project active, and re-adding it here
  * would resurrect the heading the archive was meant to hide.
  */
@@ -1588,22 +1597,50 @@ function seedProjects(
   const seen = new Set(buckets.map((bucket) => bucket.key));
   const extra: PhoneProjectBucket[] = [];
   for (const project of projects) {
+    const roots: string[] = [];
+    const rootKeys = new Set<string>();
     for (const root of project.roots ?? []) {
-      const key = bucketKeyFor(root);
-      if (!key || key === UNASSIGNED_PROJECT || archived.has(key) || seen.has(key)) continue;
-      seen.add(key);
-      extra.push({
-        key,
-        label: project.name.trim() || tailOf(root) || noProject,
-        cwd: root,
-        rows: [],
-        lastActivityAt: project.last_active_at ?? 0,
-        createdAt: project.created_at ?? 0,
-        hasActiveTask: false,
-      });
+      const rootKey = bucketKeyFor(root);
+      if (rootKey === UNASSIGNED_PROJECT || rootKeys.has(rootKey)) continue;
+      rootKeys.add(rootKey);
+      roots.push(root);
     }
+    const primary = roots[0];
+    if (primary === undefined) continue;
+    const key = bucketKeyFor(primary);
+    if (archived.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    extra.push({
+      key,
+      label: project.name.trim() || tailOf(primary) || noProject,
+      cwd: primary,
+      roots,
+      rows: [],
+      lastActivityAt: project.last_active_at ?? 0,
+      createdAt: project.created_at ?? 0,
+      hasActiveTask: false,
+    });
   }
   return [...buckets, ...extra];
+}
+
+/** Every root a heading stands for; a folder bucket is its own one root. */
+function bucketRoots(bucket: PhoneProjectBucket): string[] {
+  if (bucket.roots && bucket.roots.length > 0) return bucket.roots;
+  return bucket.cwd ? [bucket.cwd] : [];
+}
+
+/**
+ * Putting a merged heading back is one action.
+ *
+ * Archiving writes every root of the record, so restoring has to clear every
+ * one of them: clearing only the first leaves the record's other roots filed,
+ * and the heading comes back half hidden with no way to finish the job.
+ */
+function unarchiveProjectRoots(bucket: PhoneProjectBucket): void {
+  for (const cwd of bucketRoots(bucket)) {
+    unarchiveProject(cwd);
+  }
 }
 
 function tailOf(cwd: string): string {

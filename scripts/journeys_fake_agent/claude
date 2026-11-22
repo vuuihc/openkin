@@ -280,6 +280,24 @@ EOF
     ;;
 esac
 
+# One prompt answers with the 820 reading fixture. A prompt containing
+# "[seed] reading" prints a long prose answer and a 5-row GFM table through the
+# same stream-json the adapter already parses — no DOM insertion, no API
+# interception, no product CSS, no model call, no real data. The table is what
+# the tablet reading diagnostic measures; the phrase "Tablet reading fixture"
+# appears only in this answer, so a metric can prove the fixture rendered.
+# Every other prompt keeps the reply below unchanged.
+case "$prompt" in
+  *"[seed] reading"*)
+    cat <<'EOF'
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Tablet reading fixture"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Tablet reading fixture: a long answer for the 820x1180 reading pane.\n\nThe point of this answer is to be read, not skimmed. It is long enough that the reader must scroll, and it ends in a table whose last row is the sentence the walk measures. Nothing here is real product data; it is the journey fake speaking the same stream-json a model turn would.\n\nWhat the next table records:\n\n- Four findings were observed on the owner's tablet: the header actions shrink below a finger, persistent bars crowd the answer, the new-activity control floats over the table, and the 820 width is not in the acceptance set.\n- This fixture makes those findings reproducible before anything is fixed.\n- The table below carries five body rows so a hidden or clipped final row is visible to the measurement.\n\n| Surface | Before | After | Owner |\n| --- | --- | --- | --- |\n| Reading chrome | Four persistent bars, about 170 CSS px | One header, at most 44 px | R-reading-chrome |\n| Header actions | 24 to 30 px fragments, half glyphs | 44 px floor, no clipping | R-header-cluster |\n| New activity | Floats over the final table rows | A non-content lane or side margin | R-new-activity-lane |\n| Table measure | First column wraps word by word | nowrap or a minimum width | R-table-measure |\n| Acceptance | 390 and 1100 only | 390, 820 and 1100 | R-tablet-walk |\n\nFinal row: the tablet reading answer ends here, and this sentence must be fully readable at the bottom of the pane."}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"Tablet reading fixture: a long answer for the 820x1180 reading pane.","total_cost_usd":0.00042,"usage":{"input_tokens":42,"output_tokens":7}}
+EOF
+    exit 0
+    ;;
+esac
+
 cat <<'EOF'
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Fake reply"}}}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Fake reply from the journey fake agent."}]}}

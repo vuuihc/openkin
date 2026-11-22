@@ -1,0 +1,121 @@
+[
+  {
+    "label": "the tablet viewport loses its finger (hasTouch false at 820)",
+    "file": "rsi/runtime/ux/journeys.json",
+    "test": "python3 -B scripts/journeys_smoke_test.py TabletAcceptanceTest.test_tablet_viewport_resolves_to_820_touch",
+    "old": "\"tablet\": { \"size\": \"820x1180\", \"hasTouch\": true, \"isMobile\": false, \"deviceScaleFactor\": 2 },",
+    "new": "\"tablet\": { \"size\": \"820x1180\", \"hasTouch\": false, \"isMobile\": false, \"deviceScaleFactor\": 2 },"
+  },
+  {
+    "label": "a reading-surface diff no longer selects the tablet reading walk",
+    "file": "rsi/runtime/ux/journeys.json",
+    "test": "python3 -B scripts/journeys_smoke_test.py TabletAcceptanceTest.test_tablet_reading_journey_is_wired_and_selected",
+    "old": "\"J13\", \"J14\", \"J15\", \"J16\"]],",
+    "new": "\"J13\", \"J14\", \"J15\"]],"
+  },
+  {
+    "label": "the merge gate stops asking for the tablet width",
+    "file": "rsi/MANDATE.md",
+    "test": "python3 -B scripts/journeys_smoke_test.py TabletAcceptanceTest.test_mandate_acceptance_asks_for_the_tablet_width",
+    "old": "5. UI change: 390/820/1100 screenshots",
+    "new": "5. UI change: 390/1100 screenshots"
+  },
+  {
+    "label": "the tablet acceptance test stops asserting the touch input shape",
+    "file": "scripts/journeys_smoke_test.py",
+    "test": "python3 -B scripts/journeys_smoke_test.py TabletAcceptanceTest.test_tablet_viewport_resolves_to_820_touch",
+    "old": "        self.assertIs(ctx[\"hasTouch\"], True)",
+    "new": "        self.assertIs(ctx[\"hasTouch\"], False)"
+  },
+  {
+    "label": "the J16 contract stops requiring the table-bottom reading verdict",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_without_either_reading_verdict_is_red",
+    "old": "  if (tableAt < 0) errs.push('J16 never records the table-bottom reading verdict');",
+    "new": ""
+  },
+  {
+    "label": "the J16 contract stops requiring a reading-surface diff to select it",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_paths_rows_select_it_and_stop_at_settings",
+    "old": "    if (!row || !row.includes('J16')) {",
+    "new": "    if (false) {"
+  },
+  {
+    "label": "the J16 contract stops requiring the approval-card deny/gone hygiene",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_without_the_approval_card_hygiene_is_red",
+    "old": "  if (denyAts.length < 3) {\n    errs.push('J16 must deny the seeded approvals (three [data-kin-approval-card] deny clicks) after it reads the table; the reading verdict runs while the approval waits');\n  }",
+    "new": ""
+  },
+  {
+    "label": "the J16 contract accepts an approval dismissed before the reading verdict",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_shipped_j16_spec_is_ok",
+    "old": "  if (hygiene.some((at) => tableAt >= 0 && at < tableAt)) {",
+    "new": "  if (hygiene.some((at) => tableAt >= 0 && at > tableAt)) {"
+  },
+  {
+    "label": "the J16 contract accepts an all-optional dismissal that can skip every deny",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_without_the_approval_card_hygiene_is_red",
+    "old": "  if (!denyAts.some((at) => required(sel(steps[at], 1)))) {",
+    "new": "  if (false) {"
+  },
+  {
+    "label": "the J16 regression no longer tests an all-optional dismissal",
+    "file": "scripts/journeys_walk_test.py",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_without_the_approval_card_hygiene_is_red",
+    "old": "                steps[i][1] = \"?\" + steps[i][1].lstrip(\"?\")",
+    "new": "                steps[i][1] = steps[i][1].lstrip(\"?\")"
+  },
+  {
+    "label": "the hidden approval drops its arrival live region",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "VITEST_MAX_WORKERS=2 ui/node_modules/.bin/vitest run --root ui src/components/cards/FloatingApproval.overlap.dom.test.tsx",
+    "old": "  if (hidden && !raised && !panelOpen) {\n    return <ApprovalStatus className=\"sr-only\">{stripLabel}</ApprovalStatus>;\n  }",
+    "new": "  if (hidden && !raised && !panelOpen) return null;"
+  },
+  {
+    "label": "the hidden strip forgets its actual offset after the decision card yields",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "VITEST_MAX_WORKERS=2 ui/node_modules/.bin/vitest run --root ui src/components/cards/FloatingApproval.overlap.dom.test.tsx",
+    "old": "        top: box.bottom - stripBox.current.bottomGap - stripBox.current.height,\n        bottom: box.bottom - stripBox.current.bottomGap,",
+    "new": "        top: box.top,\n        bottom: box.top + stripBox.current.height,"
+  },
+  {
+    "label": "the J16 contract stops requiring the follow-up bubble wait before the scroll away",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_scrolls_away_before_the_follow_up_bubble_is_red",
+    "old": "  if (bubbleAt < 0) {\n    errs.push('J16 never waits for the follow-up bubble before scrolling away; the send pins the pane to the bottom, so the reply would land in view');\n  }",
+    "new": ""
+  },
+  {
+    "label": "a layout-chrome diff stops selecting the tablet reading walk",
+    "file": "rsi/runtime/ux/journeys.json",
+    "test": "python3 -B scripts/journeys_smoke_test.py TabletAcceptanceTest.test_tablet_reading_journey_is_wired_and_selected",
+    "old": "    [\"ui/src/components/layout/\", [\"J1\", \"J2\", \"J3\", \"J4\", \"J5\", \"J6\", \"J7\", \"J8\", \"J9\", \"J10\", \"J11\", \"J12\", \"J16\"]],",
+    "new": "    [\"ui/src/components/layout/\", [\"J1\", \"J2\", \"J3\", \"J4\", \"J5\", \"J6\", \"J7\", \"J8\", \"J9\", \"J10\", \"J11\", \"J12\"]],"
+  },
+  {
+    "label": "a design-token/CSS diff stops selecting the tablet reading walk",
+    "file": "rsi/runtime/ux/journeys.json",
+    "test": "python3 -B scripts/journeys_smoke_test.py TabletAcceptanceTest.test_tablet_reading_journey_is_wired_and_selected",
+    "old": "    [\"ui/src/components/ui/|ui/src/design/|ui/src/index.css|ui/package.json|ui/tailwind|ui/postcss\", [\"J1\", \"J2\", \"J3\", \"J4\", \"J5\", \"J6\", \"J7\", \"J8\", \"J16\"]],",
+    "new": "    [\"ui/src/components/ui/|ui/src/design/|ui/src/index.css|ui/package.json|ui/tailwind|ui/postcss\", [\"J1\", \"J2\", \"J3\", \"J4\", \"J5\", \"J6\", \"J7\", \"J8\"]],"
+  },
+  {
+    "label": "an i18n label diff stops selecting the tablet reading walk",
+    "file": "rsi/runtime/ux/journeys.json",
+    "test": "python3 -B scripts/journeys_smoke_test.py TabletAcceptanceTest.test_tablet_reading_journey_is_wired_and_selected",
+    "old": "    [\"ui/src/i18n/locales/\", [\"J1\", \"J2\", \"J3\", \"J4\", \"J5\", \"J6\", \"J7\", \"J8\", \"J9\", \"J10\", \"J11\", \"J12\", \"J13\", \"J14\", \"J15\", \"J16\"]]",
+    "new": "    [\"ui/src/i18n/locales/\", [\"J1\", \"J2\", \"J3\", \"J4\", \"J5\", \"J6\", \"J7\", \"J8\", \"J9\", \"J10\", \"J11\", \"J12\", \"J13\", \"J14\", \"J15\"]]"
+  },
+  {
+    "label": "the J16 contract test stops expecting the touch input shape to be stated",
+    "file": "scripts/journeys_walk_test.py",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ16ContractTest.test_j16_tablet_viewport_without_touch_is_red",
+    "old": "        self.assertIn(\"hasTouch false\", out)",
+    "new": "        self.assertIn(\"hasTouch true\", out)"
+  }
+]
