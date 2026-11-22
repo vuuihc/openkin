@@ -57,9 +57,9 @@ Closed 2026-11-22，五条 done-means 全绿收口：#542 `a007626f` 交付 820 
 ## Current phase (P17) — 表面收缩与 T3 split
 <!-- phase: P17-surface-reduction target=2026-12-05T20:00 -->
 
-**已开相（受托签字 2026-11-22 09:2x）。** 方向由 owner 2026-11-21 决定（`docs/adr/0035-mobile-rn-client-and-surface-reduction.md`、`docs/plans/2026-11-21-surface-reduction.md`）：先把 UI 面删到最小契约（owner 2026-11-22 定：四个页面——列表、任务详情、例行任务、设置；运行搬进列表；设置只删 agents 安装检测），再把手机端改成 Expo/RN + 本地 native modules；桌面保留 Electron + React/Vite，Go daemon 与共享 TS 不重写。它**顶着** 2026-11-20 23:47「不做第二客户端」的决定，且是 owner 覆议——那两个复活条件没有被满足，记录里不许写成「条件已满足」。**签字不是开工许可的替代品**：四条入口此刻都真（见下），但 RN 部分仍要自己的 story/ADR，契约冻结前不写 `mobile/`。
+**已开相（受托签字 2026-11-22 09:2x）。** 方向由 owner 2026-11-21 决定（`docs/adr/0035-mobile-rn-client-and-surface-reduction.md`、`docs/plans/2026-11-21-surface-reduction.md`）：先把 UI 面删到最小契约（owner 2026-11-22 定：四个页面——列表、任务详情、例行任务、设置；运行搬进列表；设置这一轮不动 `agents` tab，安装检测重做归 `R-agents-detect`），再把手机端改成 Expo/RN + 本地 native modules；桌面保留 Electron + React/Vite，Go daemon 与共享 TS 不重写。它**顶着** 2026-11-20 23:47「不做第二客户端」的决定，且是 owner 覆议——那两个复活条件没有被满足，记录里不许写成「条件已满足」。**签字不是开工许可的替代品**：入口条件 3 已按修正案满足、其余三条为真（见下），但 RN 部分仍要自己的 story/ADR，契约冻结前不写 `mobile/`。
 
-**硬入口条件**（四条全部为真才开相；2026-11-22 09:2x 全部为真）：
+**硬入口条件**（原四条全真才开相；2026-11-22 09:2x 第 3 条按修正案满足——签字先行，路由清单测试推到 `R-delete-pages`；其余三条为真）：
 1. P16 全绿收口：J16 hardFail `[]`、820 进合并门、390/820/1100 截图在案（不是「大约好了」）——`closed-phase: P16-t3-reading`。
 2. `#543` 的 820 验收注册已合入 main——`e8a9a834`。
 3. 最小契约 story（`KIN-CONTRACT-001`）按 owner 2026-11-22 原话写完并**受托签字**（`DECISIONS.md` 同日两条）；机器规则要求 `approved` 至少一条点名 story id 的测试，所以签字这一条同时落了退场表数据与逐行一致测试；**路由清单测试随 `R-delete-pages` 落地**，那是它第一次能诚实地绿的时候。

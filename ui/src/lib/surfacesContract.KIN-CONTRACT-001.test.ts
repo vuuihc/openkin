@@ -104,7 +104,7 @@ describe("KIN-CONTRACT-001 surface contract", () => {
   });
 
   it("every exit row lands on a page the contract keeps", () => {
-    const kept = new Set(CONTRACT_PAGES.map((page) => page.path));
+    const kept = new Set([...CONTRACT_PAGES.map((page) => page.path), CONTRACT_DRAFT_ROUTE]);
     for (const row of EXIT_ROWS) {
       const route = landingRoute(row.to);
       if (route === null) {

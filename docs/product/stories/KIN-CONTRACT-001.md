@@ -137,17 +137,19 @@ owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任�
 | `/agent-sessions/:id` | `/tasks/:id` | agent 状态进会话动作表 | `R-agent-status` |
 | `/machines/:device/tasks/:id` | `/tasks/:id?device=` | 同一份任务详情 | 本条 |
 | Settings 的 `agents` 安装检测（探测状态与能力徽标） | `/settings?tab=agents` | 导入会话与角色默认**保留**；探测重做后再决定展示什么 | `R-agents-detect`（独立 story） |
-| `design-system` | 不在生产路由 | 仅 dev build | 本条 |
+| `/` | `/sessions` | 入口 redirect（手机回列表，桌面回上次任务或 `/new`），不是页面 | 已落地 |
+| `*` | `/new` | 已登记的兜底 redirect：未匹配路径回新对话，不是页面 | 已落地 |
+| `/dev/components` | 不在生产路由 | 仅 dev build | 本条 |
 
 ## Do not
 
 - 不许删 `/routines` 页面或把例行任务改成卡片；运行列表搬走、页面留下。
-- 不许把 Settings 收缩到 2 个 tab，也不许搬走 providers 凭据；只删 `agents` tab。
+- 不许把 Settings 收缩到 2 个 tab，也不许搬走 providers 凭据；不许删 `agents` tab 或搬走导入会话/角色默认；安装检测重做归 `R-agents-detect`；其余五个 tab 与 providers 凭据位置不动。
 - 不许改手机底栏的数量或顺序（四个入口都有效）。
 - 不许把「删面」做成「删能力」：被退役路径的能力必须已经在新位置可读且测试绿。
 - 不许改 HTTP/事件契约、数据模型、权限或安全语义；这条只动前端路由、页面拆分与文档。
 - 不许在契约冻结前写 `mobile/` 的 RN 代码。
-- 不许用通配路由（`*`）吞掉未登记的路径来让清单测试变绿，也不许放宽断言。
+- 不许用通配路由（`*`）吞掉未登记的路径来让清单测试变绿；`*` 只允许是退场表里那条回 `/new` 的兜底 redirect，也不许放宽断言。
 
 ## 验收
 

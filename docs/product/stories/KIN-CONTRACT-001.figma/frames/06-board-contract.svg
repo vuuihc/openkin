@@ -23,7 +23,7 @@
 <text x="34" y="448">/settings</text><text x="300" y="448" fill="#8a8a8a">6 个 tab，含半成品 agents 安装检测</text>
 <text x="34" y="474">/agent-sessions/:id</text><text x="300" y="474" fill="#8a8a8a">Agent 会话详情页</text>
 <text x="34" y="500">*</text><text x="300" y="500" fill="#8a8a8a">redirect → /new</text>
-<text x="34" y="526" fill="#8a8a8a">design-system</text><text x="300" y="526" fill="#8a8a8a">仅 dev build，生产没有</text>
+<text x="34" y="526" fill="#8a8a8a">/dev/components</text><text x="300" y="526" fill="#8a8a8a">仅 dev build，生产没有</text>
 </g>
 <line x1="34" y1="544" x2="518" y2="544" stroke="#efefef"/>
 <text x="34" y="572" font-size="11" fill="#b42318" font-weight="600">三个具体缺口</text>
@@ -44,14 +44,14 @@
 <text x="578" y="118" font-weight="600">1 · /sessions</text><text x="760" y="118" fill="#555">设备 → 项目 → 任务列表；运行就是任务行，带例行任务名</text>
 <text x="578" y="146" font-weight="600">2 · /tasks/:id</text><text x="760" y="146" fill="#555">任务详情 + composer；文件/diff/PR 是同一路由内的面板</text>
 <text x="578" y="174" font-weight="600">3 · /routines</text><text x="760" y="174" fill="#555">例行任务清单与增删改查；不含运行列表</text>
-<text x="578" y="202" font-weight="600">4 · /settings</text><text x="760" y="202" fill="#555">general · operations · providers · routing · advanced</text>
+<text x="578" y="202" font-weight="600">4 · /settings</text><text x="760" y="202" fill="#555">general · agents · operations · providers · routing · advanced</text>
 </g>
 <line x1="578" y1="218" x2="1166" y2="218" stroke="#efefef"/>
 <text x="578" y="244" font-size="10" fill="#555">/new 是 2 的草稿态（同一 shell），不是第 5 个页面；</text>
 <text x="578" y="262" font-size="10" fill="#555">手机底栏仍是 4 个入口（对话 / Agents / 例行 / 设置），</text>
 <text x="578" y="280" font-size="10" fill="#555">Agents 落到设置的 operations tab，已签底栏故事不改。</text>
 <text x="578" y="308" font-size="10" fill="#555">项目不再是页面：项目行展开读工作说明，编辑走「⋯」。</text>
-<text x="578" y="326" font-size="10" fill="#555">设置只删 agents tab；其它 5 个 tab 与 provider 凭据位置不动。</text>
+<text x="578" y="326" font-size="10" fill="#555">设置六个 tab 全保留；agents tab 与导入/角色默认不动；安装检测重做推后。</text>
 <text x="578" y="352" font-size="9.5" fill="#8a8a8a">删除顺序：能力先在新位置可读，旧路径后删；清单测试挡住新增。</text>
 <rect x="560" y="396" width="624" height="454" rx="14" fill="#ffffff" stroke="#dcdcdc"/>
 <text x="578" y="426" font-size="13" fill="#1a1a1a" font-weight="600">退场表 · 每条旧路径都有落点与负责人</text>
@@ -65,8 +65,8 @@
 <text x="578" y="592">/projects/:id</text><text x="740" y="592">→ 项目行展开读工作说明（只读）</text><text x="1166" y="592" text-anchor="end" fill="#8a8a8a">R-delete-pages</text>
 <text x="578" y="618">/agent-sessions/:id</text><text x="740" y="618">→ /tasks/:id 的会话动作表</text><text x="1166" y="618" text-anchor="end" fill="#8a8a8a">R-agent-status</text>
 <text x="578" y="644">/machines/:device/tasks/:id</text><text x="740" y="644">→ /tasks/:id?device=</text><text x="1166" y="644" text-anchor="end" fill="#8a8a8a">本条</text>
-<text x="578" y="670">Settings 的 agents tab</text><text x="740" y="670">→ 删除；安装检测重做后由新 story 回来</text><text x="1166" y="670" text-anchor="end" fill="#8a8a8a">本条</text>
-<text x="578" y="696">design-system</text><text x="740" y="696">→ 仅 dev；生产路由清单不含</text><text x="1166" y="696" text-anchor="end" fill="#8a8a8a">本条</text>
+<text x="578" y="670">Settings 的 agents 安装检测</text><text x="740" y="670">→ 保留 tab；探测重做归 R-agents-detect</text><text x="1166" y="670" text-anchor="end" fill="#8a8a8a">R-agents-detect</text>
+<text x="578" y="696">/dev/components</text><text x="740" y="696">→ 仅 dev；生产路由清单不含</text><text x="1166" y="696" text-anchor="end" fill="#8a8a8a">本条</text>
 </g>
 <line x1="578" y1="712" x2="1166" y2="712" stroke="#efefef"/>
 <text x="578" y="738" font-size="10" fill="#6b6b6b">规则：能力没搬完，旧路径不删；「负责」为空的行，</text>

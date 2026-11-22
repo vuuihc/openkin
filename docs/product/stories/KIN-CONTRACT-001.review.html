@@ -274,7 +274,7 @@
         <ul>
           <li>4 个页面：列表（运行也是任务行）、任务详情、例行任务、设置。</li>
           <li>运行只在列表出现一次，点开就是那次的详情。</li>
-          <li>只删 agents tab；其它 5 个 tab 与 provider 凭据位置不动。</li>
+          <li>六个 tab 全保留；agents tab 与导入会话/角色默认都不动；安装检测重做归 R-agents-detect。</li>
         </ul>
       </div>
     </div>
@@ -398,13 +398,13 @@
       <div class="screen-head">
         <div>
           <div class="eyebrow">04 · 手机 · 390×844</div>
-          <h3>设置：六个 tab → 五个，只删 agents</h3>
+          <h3>设置：六个 tab 全保留，安装检测重做推后</h3>
         </div>
         <span class="pill plain">Figma 帧</span>
       </div>
       <figure class="frame fig-phone">
         <div class="frame-scroll" role="region" aria-label="手机设置的 Figma 帧" tabindex="0">
-          <img src="KIN-CONTRACT-001.figma/frames/03-phone-settings.svg" width="390" height="844" alt="手机设置：五个 tab 的横向条（General、Operations、Providers、更多），下面是外观、默认 agent 与模型、默认权限、Provider 凭据、路由与高级五行；一个红框说明已移除 Agents tab 的安装检测，重做后再回来；底部四个入口。" loading="lazy">
+          <img src="KIN-CONTRACT-001.figma/frames/03-phone-settings.svg" width="390" height="844" alt="手机设置：六个 tab 的横向条（General、Agents、Operations、Providers、更多），下面是外观、默认 agent 与模型、默认权限、Provider 凭据、路由与高级五行；一个红框说明 agents 安装检测暂缓重做、导入会话与角色默认保留；底部四个入口。" loading="lazy">
         </div>
         <figcaption>
           <span>390×844 · 手机帧</span>
@@ -414,8 +414,8 @@
       <h4>用户流程</h4>
       <ol class="flow">
         <li><b>起点</b><span>从底栏「设置」或列表的 Agents 入口进来（后者落到 operations tab）；默认停在上次的 tab。</span></li>
-        <li><b>动作</b><span>在 general / operations / providers / routing / advanced 之间切换；在 providers 里验证或配置凭据。</span></li>
-        <li><b>立刻看到</b><span>只有这五个 tab，不再有 agents；保存后新值立刻用于下一次新对话。</span></li>
+        <li><b>动作</b><span>在 general / agents / operations / providers / routing / advanced 之间切换；在 providers 里验证或配置凭据。</span></li>
+        <li><b>立刻看到</b><span>六个 tab 都在，agents 里的导入会话与角色默认仍可用；安装检测暂不展示；保存后新值立刻用于下一次新对话。</span></li>
         <li><b>慢 / 空 / 失败 / 断线</b><span>打开设置不读 secure store、不调第三方；只有「验证/配置」这一次动作才读；失败只说这一行，不影响别的 tab。</span></li>
         <li><b>键盘与焦点</b><span>tab 之间 ←→；关闭确认框回触发按钮；未连接的 provider 行写明原因。</span></li>
         <li><b>离开再回来</b><span>回到上次的 tab；改到一半的 key 输入在离开时清空，不留在内存快照里。</span></li>
@@ -468,7 +468,7 @@
       <div class="state"><b>加载</b><span>只局部：列表行骨架、任务详情保留已读内容；禁止整页骨架（F1：消息不消失）；超过 8 秒补一句「还在读取」。</span></div>
       <div class="state"><b>失败</b><span>一行原因 + 重试；内容保留；不弹模态、不跳设置页。</span></div>
       <div class="state"><b>断线</b><span>一条 transient 说明，草稿与待发评论不丢；离线设备的行不可展开，点一次说明原因。</span></div>
-      <div class="state"><b>下线</b><span>能力先在新位置可读，旧路径再下线；退场表写「等哪条故事」；设置 agents tab 先删、重做要有 story。</span></div>
+      <div class="state"><b>下线</b><span>能力先在新位置可读，旧路径再下线；退场表写「等哪条故事」；设置 agents tab 保留、安装检测重做要有 story。</span></div>
       <div class="state"><b>运行中 / 等待批准</b><span>状态写在列表行与任务 header 里，不新开页面；approval / question 仍是卡片。</span></div>
       <div class="state"><b>例行运行的失败</b><span>在列表行上写「失败」，点开是那次运行的详情；例行页不重复一份。</span></div>
     </div>
@@ -488,9 +488,9 @@
       <p class="tradeoff"><strong>代价：</strong>例行页少了一个「顺手看历史」的位置，要多一次跳转；换来同一个运行只出现一次。</p>
     </div>
     <div class="decision settled">
-      <h3>D3 设置只删 agents tab，其余保留</h3>
-      <p class="rec"><strong>已定：</strong>「agents 安装检测现在不完备可以删除等重做，其他保留」。删的是安装检测这一块，重做由后续 story 负责；providers 凭据仍留在 providers tab。</p>
-      <p class="tradeoff"><strong>代价：</strong>暂时没有「装了什么 agent、什么版本」的界面；换来不再展示一个说不准的半成品。</p>
+      <h3>D3 设置六个 tab 全保留，安装检测重做推后</h3>
+      <p class="rec"><strong>已定：</strong>「agents 安装检测现在不完备可以删除等重做，其他保留」。这一轮不动 agents tab——它是导入 provider 会话与角色默认的唯一入口；安装检测的重做由 <code>R-agents-detect</code> 负责；providers 凭据仍留在 providers tab。</p>
+      <p class="tradeoff"><strong>代价：</strong>这一轮仍留着说不准的探测状态；换来不删掉导入会话与角色默认两个别处没有的能力。</p>
     </div>
     <div class="decision settled">
       <h3>D4 项目不是页面：工作说明进列表的项目行</h3>

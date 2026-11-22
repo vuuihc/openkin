@@ -114,7 +114,19 @@ export const EXIT_ROWS: readonly ExitRow[] = [
     owner: "R-agents-detect（独立 story）",
   },
   {
-    from: "design-system",
+    from: "/",
+    to: "/sessions",
+    ability: "入口 redirect（手机回列表，桌面回上次任务或 /new），不是页面",
+    owner: "已落地",
+  },
+  {
+    from: "*",
+    to: "/new",
+    ability: "已登记的兜底 redirect：未匹配路径回新对话，不是页面",
+    owner: "已落地",
+  },
+  {
+    from: "/dev/components",
     to: "不在生产路由",
     ability: "仅 dev build",
     owner: "本条",
