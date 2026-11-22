@@ -694,13 +694,9 @@ export default function SessionList({
   // one (`KIN-CONTINUE-002`, step 6) and because waiting for an event to
   // repaint the list is not a next step a reader can take.
   const retryList = () => {
-    void liveResources.refreshTaskList(
-      sessionListParams(searchTerm, status, false, routineId),
-    );
+    void liveResources.refreshTaskList(sessionListParams(searchTerm, status, false, routineId));
     if (scope === "archived") {
-      void liveResources.refreshTaskList(
-        sessionListParams(searchTerm, status, true, routineId),
-      );
+      void liveResources.refreshTaskList(sessionListParams(searchTerm, status, true, routineId));
     }
     // The imported half is a second index with its own read; a Retry that only
     // refreshes tasks would leave the error it is answering in place.

@@ -144,18 +144,16 @@ describe("routine runs in the conversation list", () => {
     // The narrowing is not only a browser pass over the loaded page: the URL
     // parameter reaches the list request, so a routine with no run on the
     // first page is not reported as "no runs".
-    expect(fixtures.taskListCalls).toContainEqual(
-      expect.objectContaining({ routineId: "r1" }),
-    );
+    expect(fixtures.taskListCalls).toContainEqual(expect.objectContaining({ routineId: "r1" }));
   });
 
   it("keeps routine in the list URL a return carries", () => {
     // Back from a task, a draft return and a device-new return all rebuild the
     // list URL from this key list; a missing key would quietly drop the filter
     // and land the reader on the full list.
-    expect(
-      listUrlFor("?q=prefill&routine=r1&scope=archived&status=running&search=note"),
-    ).toBe("/sessions?search=note&status=running&scope=archived&routine=r1");
+    expect(listUrlFor("?q=prefill&routine=r1&scope=archived&status=running&search=note")).toBe(
+      "/sessions?search=note&status=running&scope=archived&routine=r1",
+    );
   });
 
   it("hides the imported sessions group while a routine is filtered", async () => {
@@ -183,9 +181,7 @@ describe("routine runs in the conversation list", () => {
     all.unmount();
 
     mount("/sessions?routine=r1");
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /Morning brief/ })).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: /Morning brief/ })).toBeTruthy());
     expect(screen.queryByText(/Imported sessions/)).toBeNull();
   });
 
