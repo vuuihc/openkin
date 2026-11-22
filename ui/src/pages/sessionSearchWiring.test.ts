@@ -31,7 +31,7 @@ describe("the phone list's search wiring", () => {
     // The live list, the "is there more" bound, the older page and the retry
     // all ask the same question; a request that forgot the status would append
     // unfiltered rows under a filtered list.
-    expect(count("sessionListParams(searchTerm, status)")).toBe(4);
+    expect(count("sessionListParams(searchTerm, status, false, routineId)")).toBe(4);
   });
 
   it("builds the imported-session requests without a status", () => {
@@ -92,7 +92,7 @@ describe("the phone list's search wiring", () => {
     // now, where it is covered directly; what this pins is that the page asks
     // it for every scope instead of carrying a second copy of the rule.
     expect(FEED.split("task.status === status").length - 1).toBe(1);
-    expect(SOURCE).toContain("sessionFeedTasks(liveRows, archivedRows, scope, status)");
+    expect(SOURCE).toContain("sessionFeedTasks(liveRows, archivedRows, scope, status, routineId)");
   });
 
   it("reconciles the older page with the live store", () => {
