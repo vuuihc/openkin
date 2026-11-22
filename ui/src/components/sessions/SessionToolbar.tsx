@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { useT } from "../../i18n/react";
 import type { ProjectSortMode } from "../../lib/projectSidebar";
-import { IconArchive, IconPin, IconRestore, IconSearch, IconTrash } from "../icons";
+import { IconArchive, IconPin, IconRestore, IconSearch, IconTrash, IconX } from "../icons";
 import Button from "../ui/Button";
 import SessionFilters, {
   type SessionScopeFilter,
@@ -34,6 +34,10 @@ export type SessionToolbarProps = {
   sortMode: ProjectSortMode;
   onFilterChange: (next: { status: SessionStatusFilter; scope: SessionScopeFilter }) => void;
   onSortChange: (mode: ProjectSortMode) => void;
+  /** The list is narrowed to one routine's runs (`?routine=`). */
+  routineFilter?: boolean;
+  /** Drop `?routine=` and return to the full list. */
+  onClearRoutine?: () => void;
 };
 
 export default function SessionToolbar({
@@ -48,6 +52,8 @@ export default function SessionToolbar({
   sortMode,
   onFilterChange,
   onSortChange,
+  routineFilter = false,
+  onClearRoutine,
 }: SessionToolbarProps) {
   const tr = useT();
   return (
@@ -85,6 +91,26 @@ export default function SessionToolbar({
         sortMode={sortMode}
         onSortChange={onSortChange}
       />
+      {/* A routine is not a status and not a scope: it comes from a link
+          (`?routine=`), names one routine, and has no panel to live in — the
+          list deliberately never fetches routine names. The chip is the one
+          visible reminder, and its clear control is the way back. */}
+      {routineFilter ? (
+        <div className="px-4 pb-1 pt-0.5">
+          <span className="inline-flex min-h-9 items-center gap-0.5 rounded-full bg-kin-blue/10 pl-2.5 pr-1 text-caption font-medium text-kin-blue-ink">
+            {tr("sessions.routineFiltered")}
+            <Button
+              variant="quiet"
+              onClick={onClearRoutine}
+              aria-label={tr("sessions.clearRoutineFilter")}
+              title={tr("sessions.clearRoutineFilter")}
+              className="h-9 w-9 flex-none items-center justify-center rounded-full p-0"
+            >
+              <IconX size={13} />
+            </Button>
+          </span>
+        </div>
+      ) : null}
     </>
   );
 }
