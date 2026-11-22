@@ -381,6 +381,32 @@ trap cleanup EXIT
 finish() { FINISHED=1; python3 "$LANES_PY" finish "$N" --status "$1" --pr "${2:-}" --note "${3:-}"; }
 
 WT="$WT_ROOT/rsi-$SLUG"; BR="rsi/$SLUG"; TAG="lane$N-$SLUG"
+
+# --- control-tree guard -----------------------------------------------------------------------
+# WT_ROOT holds every lane worktree, and the control checkout itself can be a symlink to a
+# directory under it. A slug that names that directory makes WT resolve to RSI_CTRL, and the
+# worktree add/merge block below would then do git work inside the control checkout: the gate,
+# the walker, GOAL.md and the live state directory become that lane's, and every later pulse runs
+# the wrong tree while every status line still reads healthy (same family as 2026-11-20, when one
+# stale line held the control tree 17 commits behind main for six hours). Resolve both paths with
+# Python — macOS has no GNU realpath — and refuse before the first git call. A resolution failure
+# fails closed; distinct paths, including a worktree that does not exist yet, still run.
+lane_real_path() { python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null; }
+WT_REAL="$(lane_real_path "$WT")" || WT_REAL=""
+CTRL_REAL="$(lane_real_path "$RSI_CTRL")" || CTRL_REAL=""
+if [ -z "$WT_REAL" ] || [ -z "$CTRL_REAL" ]; then
+  GUARD_NOTE="control-tree guard: cannot resolve worktree $WT or control checkout $RSI_CTRL; refusing to start"
+  echo "$GUARD_NOTE" >&2
+  finish blocked "" "$GUARD_NOTE"
+  exit 1
+fi
+if [ "$WT_REAL" = "$CTRL_REAL" ]; then
+  GUARD_NOTE="control-tree guard: worktree $WT resolves to the control checkout $CTRL_REAL (control checkout $RSI_CTRL); refusing to start"
+  echo "$GUARD_NOTE" >&2
+  finish blocked "" "$GUARD_NOTE"
+  exit 1
+fi
+
 echo "[$(date +%T)] lane $N start item=$ITEM slug=$SLUG mode=$MODE wt=$WT"
 $GIT -C "$RSI_CTRL" fetch -q origin main 2>/dev/null
 if [ "$MODE" = rework ] || [ -d "$WT/.git" ] || [ -f "$WT/.git" ]; then
