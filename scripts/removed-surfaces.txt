@@ -12,3 +12,7 @@ ui/src/lib/inboxFocus.test.ts
 ui/src/lib/inboxKeyboard.ts
 ui/src/lib/inboxKeyboard.test.ts
 ui/src/pages/inboxFocusWiring.test.ts
+ui/src/pages/ProjectsCollectionPage.tsx
+ui/src/pages/ProjectsCollectionPage.dom.test.tsx
+ui/src/lib/projectsCache.ts
+ui/src/lib/projectsCache.test.ts
