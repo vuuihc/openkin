@@ -896,7 +896,7 @@ seen: 1
 ## 2026-11-21 · 同一设置有多份发货副本时，守卫要读全部副本并把不一致当失败
 seen: 1
 
-发生了什么：NAS worker 容器的 `ANTHROPIC_DEFAULT_OPUS_MODEL` 是 `kimi-k3.1-pro`，而 Mac 与 box 车道都把 opus 解析到 DeepSeek；ROUTING.md（CEO 2026-11-17）规定 worker/rework/director/fill/planner/dream 都不得落到 Kimi，只有 advisor 用显式 `--model` 才允许。六天没人发现，因为这个值只在请求 opus 类时生效、Kimi 支出一直是 ¥0，也没有测试读这个文件。`350f562a`（#548）一个 PR 修了三轮才收敛：先改 `nas/compose/claude-settings.json`；随后发现 `nas-lane.sh` 每次启动都用 `nas/nas-side/claude-settings.json` 覆盖 `$HOME/.claude/settings.json`，nas-side 永远赢；再发现两份文件里还有 `modelOverrides` 把 `claude-opus-5-5` 映射到 Kimi，只读 env 的守卫看不到；最后发现 `nas-lane.sh` 还会 source `/opt/rsi/claude-env.sh`，第三份副本也能决定映射。守卫现在读三个主机共五个 pin，任一写成 Kimi、主机之间不一致或 pin 缺失都失败，并为每份副本配了 mutant。
+发生了什么：NAS worker 容器的 `ANTHROPIC_DEFAULT_OPUS_MODEL` 是 `kimi-k3.1-pro`，而 Mac 与 box 车道都把 opus 解析到 DeepSeek；ROUTING.md（CEO 2026-11-17）规定 worker/rework/director/fill/planner/dream 都不得落到 Kimi，只有 advisor 用显式 `--model` 才允许。六天没人发现，因为这个值只在请求 opus 类时生效、Kimi 支出一直是 ¥0，也没有测试读这个文件。`350f562a`（#548）一个 PR 修了三轮才收敛：先改 `nas/compose/claude-settings.json`；随后发现 `nas-lane.sh` 每次启动都用 `nas/nas-side/claude-settings.json` 覆盖 `$HOME/.claude/settings.json`，nas-side 永远赢；再发现两份文件里还有 `modelOverrides` 把 `claude-opus-5-5` 映射到 Kimi，只读 env 的守卫看不到；最后发现 `nas-lane.sh` 还会 source `/opt/rsi/claude-env.sh`，第三份副本也能决定映射。守卫现在读三个主机共五个 pin，任一写成 Kimi、主机之间不一致或 pin 缺失都失败，并为 NAS 的三份副本各配了 mutant。
 
 为什么没拦住：同一个生效值在发货链路上有多份副本，谁生效由启动时的拷贝与 source 顺序决定，而不是由“最新改的那份”决定；守卫只读了 Mac 与 box 的副本，NAS 的没读，于是“改了一处”与“全部一致”都不是绿色能区分的。值不在任何测试里出现，六天里所有 gate 都对它无话可说。
 
@@ -929,7 +929,7 @@ seen: 1
 ## 2026-11-21 · 排除项要精确到真正要排除的身份，前缀会连坐同族
 seen: 1
 
-发生了什么：merge lane 的选择器跳过所有以 `rsi/dream-` 开头的 head，本意只是跳过 DREAM 自己的文档分支 `rsi/dream-<date>`（历史上两种拼法 `rsi/dream-2026-11-19`、`rsi/dream-20261121`）。PR #535（head `rsi/dream-phone-line`，DREAM 夜报的电话行）带着绿色 CI、`mergeStateStatus=CLEAN` 在队列里躺了 2.5 小时，`cycles.log` 一条记录都没有——它不是排队，是不可见；与 #392 的 `rsi/ceo-ok-marker` 同一形状。`2d98f69e`（#540）把排除收窄到两种日期拼法，放在唯一的共享判据里；三个用例分别固定“两种日期分支仍跳过”和“`rsi/dream-phone-line` 被选中”，两个新 mutant 加上两个既有 mutant 全红，`shared-predicate-wired` 还拒绝任一读取方重新内联 `rsi/dream-` 前缀。
+发生了什么：merge lane 的选择器跳过所有以 `rsi/dream-` 开头的 head，本意只是跳过 DREAM 自己的文档分支 `rsi/dream-<date>`（历史上两种拼法 `rsi/dream-2026-11-19`、`rsi/dream-20261121`）。PR #535（head `rsi/dream-phone-line`，DREAM 夜报的电话行）带着绿色 CI、`mergeStateStatus=CLEAN` 在队列里躺了 2.5 小时，`cycles.log` 一条记录都没有——它不是排队，是不可见；与 #392 的 `rsi/ceo-ok-marker` 同一形状。`2d98f69e`（#540）把排除收窄到两种日期拼法，放在唯一的共享判据里；三个用例分别固定“两种日期分支仍跳过”和“`rsi/dream-phone-line` 被选中”，三个新 mutant 加上两个既有 mutant 全红，`shared-predicate-wired` 还拒绝任一读取方重新内联 `rsi/dream-` 前缀。
 
 为什么没拦住：排除规则按“这个族看起来都像 DREAM 的”来写，而不是按 DREAM 分支的真实身份；被误排除的 PR 不进任何队列、不产生日志，绿色 CI 与干净的 merge 状态反而让它看起来一切正常。
 
@@ -1002,7 +1002,7 @@ seen: 1
 | 把一次失败计进 rework 之前，先在同一棵树上确认它能复现 | 4 | AGENTS.md「Agent best practices」第 15 条；`c8e66893`/`c22dc001`/`359a1a69` 已分别修超时计费、确认证据与绿 journey 证据并集；仍需一条能复现“未复现的失败不得计费”的端到端回归测试，本轮不改代码 |
 | 改到受版本控制的文件或生成物时，恢复要挂满退出与信号路径 | 1 | 未升级；`25dc3d81` 已挂 EXIT/TERM/HUP/INT 并有信号回放用例，下一次写临时改动受控文件的工具先复用 `restore_dist` |
 | 调度与健康判据读瞬时状态，不读累积计数或代理指标 | 1 | 未升级；`1505de69` 已改读 VM pressure 与真实 headroom，下一次加门槛先在“历史高水位、当前正常”的样本上验证不误拒 |
-| 散文承诺要写清它断言的那一行 | 5 | 未升级；2026-11-19 一天 4 次，2026-11-21 又两次（#538/#546），只跨 2 个日期；`2b78ee75` 已让 STATUS 发布行由 `release-check.sh` 推导；满 3 个日期再升级 |
+| 散文承诺要写清它断言的那一行 | 6 | 未升级；2026-11-19 一天 4 次，2026-11-21 又两次（#538/#546），只跨 2 个日期；`2b78ee75` 已让 STATUS 发布行由 `release-check.sh` 推导；满 3 个日期再升级 |
 | 扫描目录要容忍条目在列举与读取之间消失 | 1 | 未升级；`efab74f2` 已逐条 stat 并加 `_sendback-order` stdin seam，下一次写批处理先区分“扫描失败”和“扫描为空” |
 | 变体工具类要在编译产物里断言有规则，安全区用注入值量 | 1 | 未升级；`@utility pt-safe` 已让变体产出规则，`topInset` 套件编译真实样式表覆盖每个 `*pt-safe` token；下一次新增自定义工具类先在构建产物里断言变体选择器 |
 | 测试要等它断言的事件，不用睡眠或读一次赌时序 | 1 | 未升级；`a8b74835` 已把“不用 sleep、`-count=5 -race`”写进 worker/reviewer 契约；下一次改并发测试先指出它等的是哪个信号 |
@@ -1010,10 +1010,10 @@ seen: 1
 | 同一判据只留一份实现，复制出来的副本会各自长洞 | 1 | 未升级；`e91065e6` 已把记录分类收敛到 sessioncatalog、`379a123e` 已把红线清单定义一次；下一次修判据先 grep 所有副本 |
 | 调度意图要在 claim 处机械执行，所有入口回答同一问题 | 1 | 未升级；`1ce227f7`/`0da63a2b` 已让 claim 与 idle 用同一门槛、`2e962351` 已把 debounce 与 autofill 解耦；下一次加调度规则先写两个入口同答的测试 |
 | 按“第一个”选元素或资源会被新增项打破，按身份选并断言 | 1 | 未升级；`57abd128` 已按入口 chunk 前缀选择、`ed9c707f` 已改为枚举全部 assets；下一次加脚本/资源先查 first-of-type 消费者 |
-| 同一设置有多份发货副本时，守卫要读全部副本并把不一致当失败 | 1 | 未升级；`350f562a` 已让守卫读三个主机五个 pin 并逐份配 mutant；下一次改发货配置先按启动顺序列副本清单 |
+| 同一设置有多份发货副本时，守卫要读全部副本并把不一致当失败 | 1 | 未升级；`350f562a` 已让守卫读三个主机五个 pin 并为 NAS 的三份副本各配 mutant；下一次改发货配置先按启动顺序列副本清单 |
 | 删除要有清单闸门，合并会把删掉的东西带回来 | 1 | 未升级；`b4bc72f7` 已建 `removed-surfaces.txt`、fail-closed 检查器与进 gate 的红测；下一次删除面或模块先写清单 |
 | 可能重叠的定时轮次要在动作前拿锁，锁要辨死活主并在每条退出路径释放 | 1 | 未升级；`9868c8a0` 已让 `release.sh` 在 gate 前取 pid 锁并覆盖持锁/陈旧锁/成功/HOLD/中止五条路径；下一次加定时动作先写互斥测试 |
-| 排除项要精确到真正要排除的身份，前缀会连坐同族 | 1 | 未升级；`2d98f69e` 已把排除收窄到两种日期拼法并加四个 mutant；下一次写选择器先补“同族不同身份被选中”的用例 |
+| 排除项要精确到真正要排除的身份，前缀会连坐同族 | 1 | 未升级；`2d98f69e` 已把排除收窄到两种日期拼法并加三个 mutant；下一次写选择器先补“同族不同身份被选中”的用例 |
 
 ## 2026-11-19 · 走查步骤没有契约，就能在全绿时被删掉
 seen: 2
@@ -1030,7 +1030,7 @@ seen: 2
 证据：`2a6eaa9e`、`3c2d4a5c`
 
 ## 2026-11-19 · 散文承诺要写清它断言的那一行
-seen: 5
+seen: 6
 
 发生了什么：一天里三次：GOAL 说「打开 PR 面板不花 GitHub 调用」而测试钉着首看查询；`PLAN.md`
 手写「4 covered / 10 approved」而注册表是 2/14；ADR 把 `migrate()` 的盖章顺序和 node→Hub 载体
