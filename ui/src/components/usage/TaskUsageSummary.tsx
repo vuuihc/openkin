@@ -253,7 +253,13 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
             "hover:brightness-100",
           ].join(" ")}
         >
-          {total}
+          {/* The unit is part of the face, not a tooltip: a thumb has no
+              hover, and a bare total reads as a mystery button. It comes from
+              the catalogue so zh says "Token" and en "Tokens"; the accessible
+              name above still spells the field and the total (TASTE 18). */}
+          <span className="whitespace-nowrap">
+            {total} {tr("usage.tokens")}
+          </span>
         </Button>
         <Sheet open={open} onClose={() => setOpen(false)} title={tr("usage.taskSummary")}>
           {details}

@@ -29,7 +29,7 @@ const task: Task = {
   event_epoch: 0,
 };
 
-function setup() {
+function setup(phone = false) {
   const props: TaskHeaderProps = {
     task,
     hostAgentName: "Kin",
@@ -55,7 +55,7 @@ function setup() {
   };
   return render(
     <MemoryRouter>
-      <TaskHeader {...props} />
+      <TaskHeader {...props} phone={phone} />
     </MemoryRouter>,
   );
 }
@@ -65,29 +65,35 @@ describe("TaskHeader and local renames", () => {
     localStorage.clear();
   });
 
-  it("draws the locally renamed title instead of the task title", () => {
+  it("draws the locally renamed title instead of the task title at both widths", () => {
     // The rename happened earlier (the list's row menu), so the header mounts
     // with the store already carrying it. Reading only `task.title` is the bug.
     setLocalTaskTitle("task-1", "New name");
-    setup();
 
-    expect(screen.queryByText("Old name")).toBeNull();
-    // Phone bar and desktop bar are one another's mirror image; both draw the
-    // one name.
-    expect(screen.getAllByText("New name")).toHaveLength(2);
+    // One bar renders per width; each draws the one name.
+    for (const phone of [false, true]) {
+      const view = setup(phone);
+      expect(screen.queryByText("Old name")).toBeNull();
+      expect(screen.getAllByText("New name")).toHaveLength(1);
+      view.unmount();
+    }
   });
 
   it("updates when another surface renames the same conversation", () => {
-    setup();
-    expect(screen.getAllByText("Old name")).toHaveLength(2);
+    for (const phone of [false, true]) {
+      const view = setup(phone);
+      expect(screen.getAllByText("Old name")).toHaveLength(1);
 
-    // Another mounted surface (the sidebar's row menu) writes the rename; the
-    // header gets no new props and is not remounted. Only the store changes.
-    act(() => {
-      setLocalTaskTitle("task-1", "Renamed elsewhere");
-    });
+      // Another mounted surface (the sidebar's row menu) writes the rename; the
+      // header gets no new props and is not remounted. Only the store changes.
+      act(() => {
+        setLocalTaskTitle("task-1", "Renamed elsewhere");
+      });
 
-    expect(screen.queryByText("Old name")).toBeNull();
-    expect(screen.getAllByText("Renamed elsewhere")).toHaveLength(2);
+      expect(screen.queryByText("Old name")).toBeNull();
+      expect(screen.getAllByText("Renamed elsewhere")).toHaveLength(1);
+      view.unmount();
+      setLocalTaskTitle("task-1", "");
+    }
   });
 });

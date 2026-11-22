@@ -1,0 +1,9 @@
+[
+  {
+    "label": "unwire the dream contract suite: the prompt can lose the phone line while the gate stays green, because no job runs its test",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-dream-contract.sh || return 1\n",
+    "new": ""
+  }
+]

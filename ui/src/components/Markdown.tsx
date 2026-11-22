@@ -79,12 +79,16 @@ function MarkdownImpl({ text, className = "" }: { text: string; className?: stri
         if (b.type === "table") {
           return (
             <div key={i} className="overflow-x-auto rounded-lg border border-[var(--kin-hairline)]">
-              <table className="w-full min-w-prose border-collapse text-left text-strong">
+              {/* Natural width, not `w-full`: the wrapper scrolls, and a table
+                  squeezed to the prose measure wrapped its first column one
+                  character per line. */}
+              <table className="min-w-max border-collapse text-left text-strong">
                 <thead className="bg-[var(--kin-fill)]">
                   <tr>
                     {b.header.map((cell, j) => (
                       <th
                         key={j}
+                        data-kin-reading=""
                         className="border-b border-[var(--kin-hairline)] px-3 py-2 font-semibold text-kin-text align-top"
                       >
                         {inline(cell)}
@@ -98,6 +102,7 @@ function MarkdownImpl({ text, className = "" }: { text: string; className?: stri
                       {row.map((cell, ci) => (
                         <td
                           key={ci}
+                          data-kin-reading=""
                           className="border-b border-[var(--kin-hairline)] px-3 py-2 text-kin-secondary align-top"
                         >
                           {inline(cell)}

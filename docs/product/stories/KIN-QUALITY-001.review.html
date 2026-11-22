@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<title>KIN-QUALITY-001 · 读完整条回答，再接着问 · Figma 审阅</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1a1a1a; --muted: #666a73; --line: #dedee3; --bg: #f1f1f4;
+    --page: #fbfbfd; --card: #ffffff; --accent: #1f6feb; --accent-soft: #eef3ff;
+    --warn: #b42318; --warn-soft: #fff1f0; --ok: #137a3f; --ok-soft: #eef8f1;
+    --gutter: clamp(16px, 5vw, 24px); --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7; --muted: #a1a1aa; --line: #35353a; --bg: #0b0b0d;
+      --page: #141416; --card: #1d1d20; --accent: #6ea8fe; --accent-soft: #17243a;
+      --warn: #ff8a80; --warn-soft: #2a1717; --ok: #6dd58c; --ok-soft: #13251b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  code { padding: 1px 5px; border-radius: 5px; background: var(--bg); font-size: .9em; overflow-wrap: anywhere; }
+  .page { max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom)); background: var(--page); }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 26px; line-height: 1.28; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 2px; font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill { display: inline-flex; align-items: center; min-height: 25px; padding: 0 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 15.5px; }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 14.5px; }
+  .note { color: var(--muted); font-size: 13.5px; }
+  .toc {
+    position: sticky; top: 0; z-index: 20; display: flex; gap: 8px;
+    margin: 0 calc(-1 * var(--gutter)); padding: 8px var(--gutter);
+    overflow-x: auto; background: var(--page); border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none; display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 14px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none; white-space: nowrap;
+  }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 0 0 6px; font-size: 16px; line-height: 1.4; }
+  h4 { margin: 16px 0 8px; font-size: 15px; line-height: 1.4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .bullets { font-size: 14.5px; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 12.5px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a {
+    display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px;
+    border: 1px solid var(--line); border-radius: 999px; background: var(--card);
+    color: var(--ink); font-size: 13px; text-decoration: none;
+  }
+  .screen { margin: 16px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+  .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll {
+    overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line);
+    border-radius: 12px; background: #fff; scrollbar-width: thin; -webkit-overflow-scrolling: touch;
+  }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-phone .frame-scroll { max-width: 390px; margin: 0 auto; }
+  .fig-phone img { width: 100%; }
+  .fig-tablet img { width: 820px; }
+  .fig-wide img { width: 1100px; }
+  .frame figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li {
+    display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); font-size: 14.5px;
+  }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+  .state-list { display: grid; gap: 8px; margin-top: 10px; }
+  .state { padding: 11px 13px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
+  .state b { display: block; margin-bottom: 2px; font-size: 14.5px; }
+  .state span { color: var(--muted); }
+  .decision { margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 14px; }
+  .decision h3 { font-size: 16px; }
+  .decision p { font-size: 14.5px; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 13.5px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+  .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 13.5px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .sign { border-left: 4px solid var(--ok); }
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+  a:focus-visible, .screen-index a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 380px) { .flow li { grid-template-columns: 1fr; gap: 4px; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 约 7 分钟 · 1 个待拍板（D6）</div>
+    <h1>KIN-QUALITY-001 · 读完整条回答，再接着问<small>820×1180 优先的阅读面设计合同</small></h1>
+    <p class="meta">draft · 未实现、未签字 · 面：Mac / 手机 / 平板 820 触摸变体 · 对照 <code>KIN-QUALITY-001.md</code></p>
+    <p class="meta">2026-11-21 · 6 屏 · 7 个状态</p>
+    <div class="tags">
+      <span class="pill here">待签字</span>
+      <span class="pill plain">J1、J2（接着问）</span>
+      <span class="pill plain">390 / 820 / 1100</span>
+    </div>
+  </header>
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>把一条长回答连同表格完整读完，正文上方只剩一条 ≤44px 的 header，状态收进既有入口，新进展不盖住内容，然后在同一个 composer 里接着问。</p>
+  </section>
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：这条为什么单独成一条，列表重做为什么不在里面。</li>
+      <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面的六段用户流程。</li>
+      <li><strong>最后回决定</strong>：已定的不用回；只回不同意的编号。页尾有回复模板。</li>
+    </ol>
+    <p class="note">宽帧在卡片内左右滑动，页面本身不横滚。本页是设计审阅，不是已交付界面。</p>
+  </section>
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">它属于「接着问一段对话」这条意图，但只负责其中「把回答读完」的那一半质量合同；发下一条的行为仍归 <code>KIN-CONTINUE-001</code>。</p>
+    <div class="card mece">
+      <div class="mece-row"><div class="name">接着问一段对话<div class="who">KIN-CONTINUE-001 / 002 / 003 / 004</div></div><span class="pill plain">相邻</span></div>
+      <div class="mece-row"><div class="name">新建一段对话<div class="who">KIN-START-001</div></div><span class="pill plain">别处</span></div>
+      <div class="mece-row"><div class="name">看它改了什么<div class="who">KIN-RESULT-001 / 002 / 003</div></div><span class="pill plain">别处</span></div>
+      <div class="mece-row"><div class="name">整理对话与项目<div class="who">KIN-MANAGE-001 / KIN-PROJECT-001…003</div></div><span class="pill plain">别处</span></div>
+      <div class="mece-row"><div class="name">设置与环境<div class="who">KIN-SETTINGS-001 / 002、KIN-AGENTS-001</div></div><span class="pill plain">别处</span></div>
+      <div class="mece-row"><div class="name">让它按时跑 / 被叫回来<div class="who">KIN-ROUTINE-001、KIN-NOTIFY-001</div></div><span class="pill plain">别处</span></div>
+      <div class="mece-row here"><div class="name"><strong>读完整条回答，再接着问</strong><div class="who">KIN-QUALITY-001 · 这条</div></div><span class="pill here">本页</span></div>
+    </div>
+    <ul class="bullets">
+      <li><strong>为什么单独一条：</strong>它是一次可测量的阅读面交付（chrome 预算、单元格命中、最后一行、状态按需、新进展通道、失败诚实），不是六个技术小修的拼盘。</li>
+      <li><strong>为什么不并进 KIN-CONTINUE-001：</strong>那条已 covered，负责找对话、发下一条与批准；本条不改变这些行为，只规定读完回答时的布局与状态位置。</li>
+      <li><strong>设备只是差异：</strong>覆盖 Mac、手机，并把 820×1180 触摸作为宽度/输入变体写进合同与帧；不按设备拆故事，也不改 registry schema。</li>
+      <li><strong>不在这一条：</strong>列表重排、筛选/默认折叠、T3 的「一屏 ≥10 条」→ parked 到 <code>R-list-scan</code>，邻接 KIN-CONTINUE-004 / 003；把 820 接进 journeys/MANDATE/ux-gate 的公共走查 → parked 到并行 <code>R-tablet-walk</code> lane（本条实现仍自带 820 fixture 与真浏览器验收）；模型权限 → KIN-CONTINUE-001；diff、文件工作区与只读 PR 面板 → KIN-RESULT-002；结果摘要与分享 → KIN-RESULT-001；逐行评论 → KIN-RESULT-003；F1 handoff 保持现状。</li>
+      <li><strong>大小：</strong>6 屏设计合同；签字后的实现一次交付，装不下就按用户意图再切，不分轮次。</li>
+    </ul>
+  </section>
+  <section id="before-after">
+    <h2>现在 → 之后</h2>
+    <div class="two">
+      <div class="card now">
+        <h3>现在</h3>
+        <ul>
+          <li>820 上四条常驻条约占 170 CSS px，正文只剩半屏。</li>
+          <li>动作栏压成「P…」「kin…」和半个字形，低于 44px。</li>
+          <li>「有新进展」药丸 absolute 压在表格最后两行。</li>
+          <li>长表格逐字换行，字号被挤小。</li>
+        </ul>
+      </div>
+      <div class="card after">
+        <h3>之后</h3>
+        <ul>
+          <li>正文上方只有一条 ≤44px header；用量、改动文件、会话动作各一次点按可达。</li>
+          <li>每个可见单元格中心命中自己，最后一行完整可见。</li>
+          <li>新进展走 composer 上方的非内容通道，点后消失。</li>
+          <li>失败/断线一条 transient 说明，内容、草稿和批准都还在。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+  <section id="screens">
+    <h2>界面与用户流程</h2>
+    <p class="note">820 优先。每一屏先看 Figma 帧，再读下面六段流程；帧是设计源，放在本页旁边的 <code>.figma/frames/</code>。job map 对应：1/3/6 → 01–03 的阅读、composer 与返回位置；2 → 04；4 → 05；5 → 06。</p>
+    <div class="screen-index" aria-label="界面索引">
+      <a href="#screen-1">01 · 平板 820 · 默认阅读</a>
+      <a href="#screen-2">02 · 手机 390 · 默认阅读</a>
+      <a href="#screen-3">03 · Mac 1100 · 默认阅读</a>
+      <a href="#screen-4">04 · 平板 · 展开状态</a>
+      <a href="#screen-5">05 · 平板 · 新进展</a>
+      <a href="#screen-6">06 · 平板 · 失败/断线</a>
+    </div>
+    <article class="screen" id="screen-1">
+      <div class="screen-head"><div><div class="eyebrow">01 · 平板 · 820×1180（触摸，分栏）</div><h3>默认阅读：一条 header、正文、一个 composer</h3></div><span class="pill plain">Figma 帧</span></div>
+      <figure class="frame fig-tablet">
+        <div class="frame-scroll" role="region" aria-label="平板默认阅读的 Figma 帧" tabindex="0" data-start="280">
+          <img src="KIN-QUALITY-001.figma/frames/02-tablet-reading.svg" width="820" height="1180" alt="平板 820×1180 分栏阅读：左侧对话列表，主区只有一条 44px header（文件与省略号动作），标题与省略号项目名，正文含 6 行表格，表格在自身容器内保持列宽，底部是占布局的 composer 与用量入口" loading="lazy">
+        </div>
+        <figcaption><span>820×1180 · 触摸变体 · 左右滑动看完整</span><a href="KIN-QUALITY-001.figma/frames/02-tablet-reading.svg">打开原图</a></figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>在对话列表点开一段有长回答和表格的对话；分栏仍展开。</span></li>
+        <li><b>动作</b><span>纵向读正文；表格需要时在自身容器里横向滑；不点状态。</span></li>
+        <li><b>立刻看到</b><span>正文上方只有一条 ≤44px header；表格第一列完整，最后一行在 composer 之上完整可见。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>加载保留已有内容并给局部等待面；空对话说明「还没有回答」；失败给可重试说明；断线见 06 屏。</span></li>
+        <li><b>键盘与焦点</b><span>打开后焦点在正文阅读起点；Tab 到 header 入口、表格容器、composer；表格容器可用方向键滚动。</span></li>
+        <li><b>离开再回来</b><span>回来恢复滚动位置和草稿；不重新播报已读内容。</span></li>
+      </ol>
+    </article>
+    <article class="screen" id="screen-2">
+      <div class="screen-head"><div><div class="eyebrow">02 · 手机 · 390×844</div><h3>同一个阅读结构，收成单列</h3></div><span class="pill plain">Figma 帧</span></div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机默认阅读的 Figma 帧" tabindex="0">
+          <img src="KIN-QUALITY-001.figma/frames/01-phone-reading.svg" width="390" height="844" alt="手机 390×844 阅读：一条 44px header，正文与 5 行表格，表格容器可横向滑动，底部 composer 与「用量」popover 入口" loading="lazy">
+        </div>
+        <figcaption><span>390×844 · 手机帧</span><a href="KIN-QUALITY-001.figma/frames/01-phone-reading.svg">打开原图</a></figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>手机上从列表进入同一段对话。</span></li>
+        <li><b>动作</b><span>拇指滚动阅读；表格在容器内左右滑；状态从 footer 的「用量」或 header 的「文件」进入。</span></li>
+        <li><b>立刻看到</b><span>header 动作 ≥44×44；正文不横滚；composer 占布局，不被浮层替代。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>软键盘弹起时 composer 不被遮；断线保留内容；空/失败文案与平板相同。</span></li>
+        <li><b>键盘与焦点</b><span>外接键盘 Tab 顺序与平板一致；Esc 不吞掉未发送草稿。</span></li>
+        <li><b>离开再回来</b><span>切到别的对话再回来，草稿与滚动位置仍按这段对话保存。</span></li>
+      </ol>
+    </article>
+    <article class="screen" id="screen-3">
+      <div class="screen-head"><div><div class="eyebrow">03 · Mac · 1100×760</div><h3>宽屏不靠常驻 bar 换阅读空间</h3></div><span class="pill plain">Figma 帧</span></div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 默认阅读的 Figma 帧" tabindex="0" data-start="330">
+          <img src="KIN-QUALITY-001.figma/frames/03-mac-reading.svg" width="1100" height="760" alt="Mac 1100×760：区域栏、对话列表和主区；主区一条 44px header 显示完整动作，正文含 5 行表格，底部 composer 与用量入口" loading="lazy">
+        </div>
+        <figcaption><span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span><a href="KIN-QUALITY-001.figma/frames/03-mac-reading.svg">打开原图</a></figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>Mac 上从列表打开同一段对话，右侧面板未打开。</span></li>
+        <li><b>动作</b><span>滚动阅读；需要时点 header 的文件、用量或省略号动作。</span></li>
+        <li><b>立刻看到</b><span>动作完整可读；正文 measure 不被表格变窄；页面不横滚。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>打开右侧面板时对话区不低于 420px；断线说明在 header 下，不挤掉内容。</span></li>
+        <li><b>键盘与焦点</b><span>Tab 到每个 header 动作；Esc 关闭浮层并还焦点；⌘F 只作用于当前对话。</span></li>
+        <li><b>离开再回来</b><span>切对话再回来保留滚动与草稿；列表状态同步更新。</span></li>
+      </ol>
+    </article>
+    <article class="screen" id="screen-4">
+      <div class="screen-head"><div><div class="eyebrow">04 · 平板 · 820×1180</div><h3>展开状态：复用既有入口，不新增面板</h3></div><span class="pill plain">Figma 帧</span></div>
+      <figure class="frame fig-tablet">
+        <div class="frame-scroll" role="region" aria-label="平板展开状态的 Figma 帧" tabindex="0" data-start="280">
+          <img src="KIN-QUALITY-001.figma/frames/04-tablet-status.svg" width="820" height="1180" alt="平板点开省略号动作表：分享、归档、删除三行，每个 44 高；说明用量在 composer footer、改动文件在 header 文件入口，各自最多一个动作可达" loading="lazy">
+        </div>
+        <figcaption><span>820×1180 · 状态展开 · 左右滑动看完整</span><a href="KIN-QUALITY-001.figma/frames/04-tablet-status.svg">打开原图</a></figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>读者正在读，想确认用量或找一个会话动作。</span></li>
+        <li><b>动作</b><span>点 footer 的「用量」、header 的「文件 · 2」（PR 面板也在这里）或「⋯」中的一处。</span></li>
+        <li><b>立刻看到</b><span>对应的既有 popover/动作表出现；每个目标最多一个动作可达；阅读内容不被替换。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>用量加载写「正在读取」；失败保留上次值并说明；空写「还没有用量」；被动打开不发 GitHub 请求、不读 secret。</span></li>
+        <li><b>键盘与焦点</b><span>入口是按钮；Esc 关闭并把焦点还给入口；动作表行可 Tab。</span></li>
+        <li><b>离开再回来</b><span>面板默认关闭，不记住上次展开；阅读滚动位置不变。</span></li>
+      </ol>
+    </article>
+    <article class="screen" id="screen-5">
+      <div class="screen-head"><div><div class="eyebrow">05 · 平板 · 820×1180</div><h3>新进展：非内容通道，不盖单元格</h3></div><span class="pill plain">Figma 帧</span></div>
+      <figure class="frame fig-tablet">
+        <div class="frame-scroll" role="region" aria-label="平板新进展通道的 Figma 帧" tabindex="0" data-start="280">
+          <img src="KIN-QUALITY-001.figma/frames/05-tablet-activity.svg" width="820" height="1180" alt="平板阅读中 unseen 大于 0：composer 上方出现一条「有新进展」按钮行，表格六行仍完整可见，没有浮层压住任何单元格" loading="lazy">
+        </div>
+        <figcaption><span>820×1180 · 新进展 · 左右滑动看完整</span><a href="KIN-QUALITY-001.figma/frames/05-tablet-activity.svg">打开原图</a></figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>读者停在回答中段，下方又来了新内容。</span></li>
+        <li><b>动作</b><span>继续读；想跟上时点「有新进展」。</span></li>
+        <li><b>立刻看到</b><span>通道在 composer 上方占一行，表格让位但不被覆盖；点后滚到末尾，通道自行消失。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>没有新内容时不出现；断线时保留通道里的最后状态；新内容失败时用消息说明且不擦除旧内容。</span></li>
+        <li><b>键盘与焦点</b><span>按钮有可见名字，Tab 可达，Enter/Space 触发；live region 礼貌播报一次，不抢焦点。</span></li>
+        <li><b>离开再回来</b><span>已在末尾则不再出现；不在末尾则重新出现，不重复播报旧内容。</span></li>
+      </ol>
+    </article>
+    <article class="screen" id="screen-6">
+      <div class="screen-head"><div><div class="eyebrow">06 · 平板 · 820×1180</div><h3>失败/断线：一条说明，内容和批准都在</h3></div><span class="pill plain">Figma 帧</span></div>
+      <figure class="frame fig-tablet">
+        <div class="frame-scroll" role="region" aria-label="平板失败与断线的 Figma 帧" tabindex="0" data-start="280">
+          <img src="KIN-QUALITY-001.figma/frames/06-tablet-offline.svg" width="820" height="1180" alt="平板断线：header 下一条 transient 说明「连接已断 · 恢复后继续」，正文表格与等待批准卡片保留，composer 里草稿还在" loading="lazy">
+        </div>
+        <figcaption><span>820×1180 · 失败/断线 · 左右滑动看完整</span><a href="KIN-QUALITY-001.figma/frames/06-tablet-offline.svg">打开原图</a></figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>阅读或发送时连接断开，或一次加载失败。</span></li>
+        <li><b>动作</b><span>读那条说明；点重试或等待恢复。</span></li>
+        <li><b>立刻看到</b><span>只有一条 transient 说明；表格、草稿、批准按钮都还在；恢复后说明自己走。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>断线写「连接已断 · 恢复后继续」；失败给原因和重试；不显示永久红块，不擦除批准/回答 affordance。</span></li>
+        <li><b>键盘与焦点</b><span>说明以 role=alert/status 播报一次；焦点不跳走；重试按钮可 Tab。</span></li>
+        <li><b>离开再回来</b><span>恢复后不重复播报；内容、草稿、滚动位置都在。</span></li>
+      </ol>
+    </article>
+  </section>
+  <section id="states">
+    <h2>状态</h2>
+    <p class="note">状态板就是 06 屏加下面这张检查表；没有单独的第七张板。锁定不适用：本条没有需要锁定的控件。</p>
+    <div class="state-list">
+      <div class="state"><b>默认</b><span>一条 ≤44px header、正文、一个占布局的 composer；表格在自身容器内可读。</span></div>
+      <div class="state"><b>加载</b><span>已有内容保留，局部等待面；不整页骨架、不白屏。</span></div>
+      <div class="state"><b>空</b><span>「这段对话还没有回答」，composer 仍可用；用量「还没有用量」，不画 0。</span></div>
+      <div class="state"><b>失败</b><span>一条原因 + 重试；内容保留；消息只播报一次。</span></div>
+      <div class="state"><b>断线</b><span>「连接已断 · 恢复后继续」；草稿进本地队列，队列可见；批准按钮仍在。</span></div>
+      <div class="state"><b>运行中</b><span>运行状态可见但不新增常驻 bar；发送/打断仍在同一个 composer。</span></div>
+      <div class="state"><b>等待批准</b><span>批准条占 composer 上方一行；点它定位卡片；批准语义不变。</span></div>
+    </div>
+  </section>
+  <section id="decisions">
+    <h2>要你拍板的</h2>
+    <p class="note">已定的不用回；只回不同意的编号。D6 是唯一还需要你确认的取舍。</p>
+    <div class="decision settled">
+      <h3>D1 820 优先，阅读结构只留 header + 正文 + 一个 composer</h3>
+      <p class="rec"><strong>已定：</strong>常驻 chrome ≤44px；状态收进既有入口，不加 bar、badge 或第二份状态面板。</p>
+      <p class="tradeoff"><strong>代价：</strong>状态不再一眼可见，需要一次点按；换取正文完整。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D2 新进展不能盖内容，位移优先</h3>
+      <p class="rec"><strong>已定：</strong>新进展占 composer 上方的非内容通道；内容 readability 优先于零位移。</p>
+      <p class="tradeoff"><strong>代价：</strong>出现时会挤动阅读区域；换取任何可见单元格都不被遮挡。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D3 表格在自身容器内滚动，不缩字号</h3>
+      <p class="rec"><strong>已定：</strong>列保持可读，页面不横滚；最后一行可完整进入视野。</p>
+      <p class="tradeoff"><strong>代价：</strong>窄列需要横向滑动；换取不逐字换行、不靠 hidden 掩盖。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D4 失败/断线只留一条 transient 说明</h3>
+      <p class="rec"><strong>已定：</strong>内容、草稿、批准与回答 affordance 保留；恢复后说明自己走。</p>
+      <p class="tradeoff"><strong>代价：</strong>错误不再有永久红色区域；换取不占阅读空间、不制造假状态。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D5 列表重做不在这一条</h3>
+      <p class="rec"><strong>已定：</strong>筛选、默认折叠与 ≥10 条目标 parked 到 <code>R-list-scan</code>，邻接 KIN-CONTINUE-004 / 003。</p>
+      <p class="tradeoff"><strong>代价：</strong>这条交付后列表仍不是 T3；换取一次只交付一个连贯的阅读意图。</p>
+    </div>
+    <div class="decision">
+      <h3>D6 平板的次要动作复用既有 <code>⋯</code>，按对话列宽度挂载</h3>
+      <p class="rec"><strong>推荐：</strong>复用手机已有的会话动作表/浮层，把「只在 &lt;768 挂载」改成按对话列宽度与 <code>useCoarsePointer()</code> 判断；不新写第五个弹层（TASTE 13）。</p>
+      <p class="tradeoff"><strong>代价：</strong>要动一处既有挂载条件，回归面比新组件小；若改成新浮层，代码更多、与手机行为分叉。</p>
+    </div>
+  </section>
+  <section id="reply">
+    <h2>回复模板</h2>
+    <div class="card reply">
+      <p class="note">长按复制；都同意就回「全部同意」，不同意 D6 就写「D6 改成…」。</p>
+      <pre>D6 同意
+（D1–D5 已定，不用回）</pre>
+    </div>
+  </section>
+  <section id="sign">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p>本页和合同现在都是 <code>draft</code>：未实现、未签字。你回「全部同意」后，由 CEO 把 <code>KIN-QUALITY-001.md</code> 改成 <code>approved</code>，同时把 <code>registry.json</code> 的 <code>state</code> 改成 <code>approved</code>，再跑 <code>python3 scripts/stories.py --write-coverage</code>；worker 不代签。</p>
+      <p class="note">签字后的实现一次交付：代码、测试、IA 行与 390/820/1100 前后截图一起；这条合同不承诺分轮次。</p>
+    </div>
+  </section>
+  <footer>
+    <p>设计源：<code>KIN-QUALITY-001.figma/frames/</code>（6 帧 SVG，可离线打开）</p>
+    <p>审阅编排：<code>KIN-QUALITY-001.review.html</code>（本页） · 合同：<code>KIN-QUALITY-001.md</code></p>
+    <p>Figma 审阅版 · figma-flow-v1 · 2026-11-21</p>
+  </footer>
+</main>
+<script>
+  for (const el of document.querySelectorAll('.frame-scroll[data-start]')) {
+    el.scrollLeft = Number(el.dataset.start) || 0;
+  }
+</script>
+</body>
+</html>

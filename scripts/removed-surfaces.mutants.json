@@ -1,0 +1,44 @@
+[
+  {
+    "label": "the existence check is skipped, so a resurrected file passes the gate",
+    "file": "scripts/check-removed-surfaces.py",
+    "test": "python3 -B scripts/check-removed-surfaces.test.py ResurrectedPathTest.test_listed_file_that_exists_turns_red",
+    "old": "        if target.exists() or target.is_symlink():\n",
+    "new": "        if False and (target.exists() or target.is_symlink()):\n"
+  },
+  {
+    "label": "the empty-manifest guard is removed, so an empty record reports success",
+    "file": "scripts/check-removed-surfaces.py",
+    "test": "python3 -B scripts/check-removed-surfaces.test.py ManifestFailureTest.test_empty_manifest_fails_closed",
+    "old": "    if not paths:\n        raise ManifestError(f\"{origin}: no paths listed; an empty record guards nothing\")\n",
+    "new": "    if False:\n        raise ManifestError(f\"{origin}: no paths listed; an empty record guards nothing\")\n"
+  },
+  {
+    "label": "the pass-count assertion expects the wrong number, so the test no longer pins the output",
+    "file": "scripts/check-removed-surfaces.test.py",
+    "test": "python3 -B scripts/check-removed-surfaces.test.py ResurrectedPathTest.test_absent_paths_pass_and_report_the_count",
+    "old": "        self.assertIn(\"REMOVED_SURFACES_OK (3 paths absent)\", result.stdout)\n",
+    "new": "        self.assertIn(\"REMOVED_SURFACES_OK (4 paths absent)\", result.stdout)\n"
+  },
+  {
+    "label": "the gate stops starting the job, so the checker never runs",
+    "file": "scripts/check.sh",
+    "test": "python3 -B scripts/check-removed-surfaces.test.py GateWiringTest.test_check_sh_runs_the_checker_on_every_gate",
+    "old": "start removed-surfaces job_removed_surfaces\n",
+    "new": ""
+  },
+  {
+    "label": "the new guard scripts drop out of the merge deny-list, so a move on main carries instead of re-gating",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-gate-carry.sh",
+    "old": "    \"scripts/check-removed-surfaces.py\", \"scripts/check-removed-surfaces.test.py\",\n",
+    "new": "\n"
+  },
+  {
+    "label": "a deleted surface drops off the record, so the gate would miss its resurrection",
+    "file": "scripts/removed-surfaces.txt",
+    "test": "python3 -B scripts/check-removed-surfaces.test.py CheckedInManifestTest.test_checked_in_manifest_names_the_four_resurrected_surfaces",
+    "old": "ui/src/lib/inboxFocus.ts\n",
+    "new": ""
+  }
+]

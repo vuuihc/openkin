@@ -33,5 +33,89 @@
     "test": "RSI_TEST_ONLY=case_check_sh_wires_the_suite bash rsi/runtime/tests/test-lane-claim-check.sh",
     "old": "  bash rsi/runtime/tests/test-lane-claim-check.sh || return 1\n",
     "new": ""
+  },
+  {
+    "label": "the lane trusts the local body and never reads the live one at handoff",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_live_body_missing_claim_fails bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "PR_BODY_EV=\"$(bounded_run \"${RSI_PR_BODY_CHECK_SECS:-180}\" bash \"$SELF\" --pr-body-check \"$WT\" \"$PRN\" \"$STATUS_NOTE_FILE\" 2>&1)\"; PR_BODY_RC=$?",
+    "new": "PR_BODY_EV=\"$(true)\"; PR_BODY_RC=$?"
+  },
+  {
+    "label": "the live text is fetched but the claim checker still reads the local body",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_live_body_missing_claim_fails bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  out=\"$(claim_lane_check \"$wt\" \"$tmp/live\" 2>&1)\"; rc=$?\n  if [ \"$rc\" -ne 0 ]; then",
+    "new": "  out=\"$(claim_lane_check \"$wt\" \"$body\" 2>&1)\"; rc=$?\n  if [ \"$rc\" -ne 0 ]; then"
+  },
+  {
+    "label": "GitHub injection is ignored and the hermetic guard uses the real client",
+    "file": "rsi/runtime/common.sh",
+    "test": "RSI_TEST_ONLY=case_gh_override_is_honoured bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "GH=\"${RSI_GH:-/opt/homebrew/bin/gh}\"",
+    "new": "GH=/opt/homebrew/bin/gh"
+  },
+  {
+    "label": "a failed edit is hidden from the worker log",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_failed_body_edit_is_not_swallowed bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "    if [ \"$PR_EDIT_RC\" -ne 0 ]; then",
+    "new": "    if false; then"
+  },
+  {
+    "label": "code-only deliveries require a live GitHub body",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_code_only_diff_is_na bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  if [ \"$rc\" -eq 0 ] && [[ \"$out\" = CLAIM_LANE_NA:* ]]; then",
+    "new": "  if false; then"
+  },
+  {
+    "label": "a transient read failure loses the one permitted retry",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_live_body_read_retries_once bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  for attempt in 1 2; do",
+    "new": "  for attempt in 1; do"
+  },
+  {
+    "label": "an old body with a valid claim is accepted despite differing from the handoff",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_live_body_stale_valid_claim_fails bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  if [ ! -r \"$body\" ] || [ \"$(<\"$tmp/live\")\" != \"$(<\"$body\")\" ]; then",
+    "new": "  if false; then"
+  },
+  {
+    "label": "the live body read has no process-tree timeout",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_live_body_timeout_fails_closed bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "    bounded_run 5 \"$GH\" pr view",
+    "new": "    \"$GH\" pr view"
+  },
+  {
+    "label": "the lane reports done before checking the live body",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_live_body_missing_claim_fails bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "PR_BODY_EV=\"$(bounded_run \"${RSI_PR_BODY_CHECK_SECS:-180}\" bash \"$SELF\" --pr-body-check \"$WT\" \"$PRN\" \"$STATUS_NOTE_FILE\" 2>&1)\"; PR_BODY_RC=$?",
+    "new": "finish done \"$PRN\" \"premature handoff\"\nPR_BODY_EV=\"$(bounded_run \"${RSI_PR_BODY_CHECK_SECS:-180}\" bash \"$SELF\" --pr-body-check \"$WT\" \"$PRN\" \"$STATUS_NOTE_FILE\" 2>&1)\"; PR_BODY_RC=$?"
+  },
+  {
+    "label": "the whole live-body check has no bound for a stalled git read",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_live_body_check_timeout_fails_closed bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "PR_BODY_EV=\"$(bounded_run \"${RSI_PR_BODY_CHECK_SECS:-180}\" bash \"$SELF\" --pr-body-check \"$WT\" \"$PRN\" \"$STATUS_NOTE_FILE\" 2>&1)\"; PR_BODY_RC=$?",
+    "new": "PR_BODY_EV=\"$(bash \"$SELF\" --pr-body-check \"$WT\" \"$PRN\" \"$STATUS_NOTE_FILE\" 2>&1)\"; PR_BODY_RC=$?"
+  },
+  {
+    "label": "body edit errors lose their persisted stderr log",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_failed_body_edit_is_not_swallowed bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "      >\"$STATE/lanes/$N.pr-edit.log\" 2>&1; PR_EDIT_RC=$?",
+    "new": "      >/dev/null 2>&1; PR_EDIT_RC=$?"
+  },
+  {
+    "label": "body edit errors omit the captured exit status",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_failed_body_edit_is_not_swallowed bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "      echo \"PR body edit failed (rc=$PR_EDIT_RC); live read-back decides; see lanes/$N.pr-edit.log\"",
+    "new": "      echo \"PR body edit failed; live read-back decides; see lanes/$N.pr-edit.log\""
   }
 ]

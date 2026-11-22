@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff"/><text x="12" y="17" font-size="11" fill="#555">KIN-CONTRACT-001 · Mac 1100×760 · 页面 3/4 例行任务</text>
+<text x="1088" y="17" font-size="10" fill="#8a8a8a" text-anchor="end">清单在左，编辑在右；运行不在这里</text><line x1="0" y1="26" x2="1100" y2="26" stroke="#e6e6e6"/>
+<rect x="0" y="26" width="300" height="734" fill="#fbfbfb"/><line x1="300" y1="26" x2="300" y2="760" stroke="#e3e3e3"/>
+<text x="14" y="56" font-size="14" fill="#1a1a1a" font-weight="600">对话</text>
+<rect x="12" y="82" width="276" height="36" rx="9" fill="#f2f2f5" stroke="#dcdcdc"/><text x="24" y="105" font-size="10.5" fill="#8a8a8a">搜索任务</text>
+<text x="16" y="146" font-size="10" fill="#8a8a8a">设备 · 本机</text><line x1="14" y1="156" x2="286" y2="156" stroke="#efefef"/>
+<text x="16" y="180" font-size="11" fill="#333" font-weight="600">项目 · alpha</text>
+<text x="16" y="210" font-size="10.5" fill="#333">这段对话的标题</text><text x="16" y="230" font-size="9.5" fill="#8a8a8a">昨天 · 已完成</text>
+<text x="16" y="258" font-size="10.5" fill="#333">例行 · 每日整理 · 07:00 那次</text><text x="16" y="278" font-size="9.5" fill="#1f6feb">运行就是任务行</text>
+<line x1="0" y1="700" x2="300" y2="700" stroke="#efefef"/><text x="16" y="726" font-size="9.5" fill="#8a8a8a">列表仍是唯一的任务入口</text>
+<text x="16" y="744" font-size="9.5" fill="#8a8a8a">「看运行」从右页跳回列表并带筛选</text>
+<rect x="300" y="26" width="800" height="44" fill="#ffffff"/><line x1="300" y1="70" x2="1100" y2="70" stroke="#e0e0e0"/>
+<text x="318" y="53" font-size="13" fill="#1a1a1a" font-weight="600">例行任务</text>
+<rect x="1012" y="26" width="76" height="44" rx="9" fill="#1f6feb"/><text x="1050" y="53" font-size="10.5" fill="#ffffff" text-anchor="middle">＋ 新建</text>
+<text x="318" y="96" font-size="10" fill="#8a8a8a">计划、上次运行、启停；运行记录去列表看</text>
+<line x1="318" y1="106" x2="1088" y2="106" stroke="#efefef"/>
+<rect x="312" y="116" width="776" height="64" rx="10" fill="#eef3ff" stroke="#93b8f5"/>
+<text x="328" y="140" font-size="12" fill="#1a1a1a" font-weight="600">每日整理</text>
+<text x="328" y="160" font-size="10" fill="#555">每天 07:00 · 上次 5 小时前 · 已完成</text>
+<text x="1010" y="150" font-size="10" fill="#1f6feb">看运行 ›</text><text x="1070" y="150" font-size="10" fill="#137a3f" text-anchor="end">开</text>
+<rect x="312" y="192" width="776" height="64" rx="10" fill="#ffffff" stroke="#dcdcdc"/>
+<text x="328" y="216" font-size="12" fill="#1a1a1a" font-weight="600">每周复盘</text>
+<text x="328" y="236" font-size="10" fill="#555">每周一 09:00 · 上次 失败</text>
+<text x="1010" y="226" font-size="10" fill="#1f6feb">看运行 ›</text><text x="1070" y="226" font-size="10" fill="#137a3f" text-anchor="end">开</text>
+<rect x="312" y="268" width="776" height="64" rx="10" fill="#ffffff" stroke="#dcdcdc"/>
+<text x="328" y="292" font-size="12" fill="#1a1a1a" font-weight="600">夜间归档</text>
+<text x="328" y="312" font-size="10" fill="#555">每天 23:30 · 已暂停</text>
+<text x="1010" y="302" font-size="10" fill="#1f6feb">看运行 ›</text><text x="1070" y="302" font-size="10" fill="#8a8a8a" text-anchor="end">停</text>
+<rect x="312" y="356" width="776" height="250" rx="12" fill="#fbfbfd" stroke="#d8d8d8"/>
+<text x="330" y="382" font-size="11" fill="#1a1a1a" font-weight="600">编辑面板（从行或「＋ 新建」打开）</text>
+<text x="330" y="408" font-size="10" fill="#555">名称 · 计划 · 提示词 · agent / 模型 / 权限 · 通知</text>
+<text x="330" y="432" font-size="10" fill="#555">保存后清单立刻更新；失败保留输入并说明</text>
+<line x1="330" y1="450" x2="1070" y2="450" stroke="#efefef"/>
+<text x="330" y="476" font-size="10" fill="#6b6b6b">原来在这里的运行 feed 已搬走：</text>
+<text x="330" y="496" font-size="10" fill="#6b6b6b">每次运行都是任务列表里的一行，点开就是那次的详情。</text>
+<text x="330" y="520" font-size="10" fill="#6b6b6b">同一个运行不再同时出现在两个页面；失败也只有一个去处。</text>
+<text x="330" y="548" font-size="9" fill="#8a8a8a">隐藏运行、全部已读这类只对「运行 feed」有意义的控件随之下线</text>
+<text x="330" y="570" font-size="9" fill="#8a8a8a">例行任务本身的能力（引擎、计划、删除、启停）不动</text>
+<rect x="300" y="628" width="800" height="132" fill="#f7f7f9"/><line x1="300" y1="628" x2="1100" y2="628" stroke="#dedede"/>
+<text x="318" y="656" font-size="10.5" fill="#555">看运行：跳 /sessions 并带 routine 筛选（同一任务列表，不新开页面）</text>
+<text x="318" y="680" font-size="10" fill="#8a8a8a">空：清单写「还没有例行任务」+「＋ 新建」</text>
+<text x="318" y="700" font-size="10" fill="#8a8a8a">断线：清单可读，保存与启停禁用并说明原因</text>
+<text x="318" y="730" font-size="9.5" fill="#8a8a8a">键盘：Tab 按行顺序；Enter 打开编辑；Esc 关闭回该行</text>
+</g>
+</svg>

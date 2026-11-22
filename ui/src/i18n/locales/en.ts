@@ -405,6 +405,7 @@ const en: MessageTree = {
     withdrawFailed: "Could not withdraw the message",
     withdrawnNote: "A queued message was withdrawn before it was sent",
     interruptedNote: "Interrupted the previous round",
+    stoppedNote: "Stopped this round",
     editQueued: "Edit queued message",
     editQueuedNamed: "Edit “{text}”",
     editNeedsEmptyComposer: "The composer already has a draft — clear it to edit a queued message",
@@ -796,6 +797,7 @@ const en: MessageTree = {
     openFile: "Open in files panel",
     sidebarTabs: "Workspace sidebar",
     tabChanges: "Changes",
+    filesCount: "Files · {count}",
     tabChangesCount: "Changes · {count}",
     tabFiles: "Tree",
     find: {

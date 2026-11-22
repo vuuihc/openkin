@@ -390,6 +390,7 @@ const zh = {
     withdrawFailed: "撤回失败",
     withdrawnNote: "一条排队中的消息已在发送前撤回",
     interruptedNote: "已打断上一轮",
+    stoppedNote: "已停止本轮",
     editQueued: "编辑排队消息",
     editQueuedNamed: "编辑“{text}”",
     editNeedsEmptyComposer: "输入框里已有草稿，清空后才能编辑排队中的消息",
@@ -772,6 +773,7 @@ const zh = {
     openFile: "在文件面板中打开",
     sidebarTabs: "工作区侧栏",
     tabChanges: "改动",
+    filesCount: "文件 · {count}",
     tabChangesCount: "改动 · {count}",
     tabFiles: "目录树",
     find: {

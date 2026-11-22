@@ -91,6 +91,12 @@ type Props = {
    * streaming yet (and no progress is mid-run).
    */
   loading?: boolean;
+  /**
+   * The task's durable status. A Stop the adapter never recorded leaves the
+   * events with an open round; the terminal `canceled` status is what lets the
+   * projection close it in the transcript.
+   */
+  taskStatus?: string | null;
   /** Avatar speaker for the loading row (pass the session host). */
   loadingSpeaker?: string;
   /**
@@ -190,6 +196,7 @@ export default function ChatStream({
   pendingUserMessages,
   trailing,
   loading = false,
+  taskStatus,
   loadingSpeaker = "",
   hostSpeaker = "",
   hostModel,
@@ -222,7 +229,7 @@ export default function ChatStream({
     // While the turn runs, the projection keeps its notes as body text and its
     // tools in a card; a settled turn folds into one row as it always has.
     const built = mergeProcessRuns(
-      buildChatItems(events, hostSpeaker, hostModel, !loading),
+      buildChatItems(events, hostSpeaker, hostModel, !loading, taskStatus),
       loading,
     );
     if (!pendingUserMessages || pendingUserMessages.length === 0) return built;
@@ -241,7 +248,7 @@ export default function ChatStream({
         partial: false,
       })),
     ];
-  }, [events, locale, hostSpeaker, hostModel, loading, pendingUserMessages]);
+  }, [events, locale, hostSpeaker, hostModel, loading, taskStatus, pendingUserMessages]);
   const turns = useMemo(
     () => groupIntoTurns(items, hostSpeaker, normalizeModel(hostModel)),
     [items, hostSpeaker, hostModel],
