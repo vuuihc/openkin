@@ -1,0 +1,23 @@
+[
+  {
+    "label": "J17's contract stops refusing a resting measurement taken after a fill (R-composer-resting-proof)",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "old": "    if (early >= 0) {\n      errs.push(`J17 ${steps[early][0]}s the textarea at step ${early + 1}, before the resting measurement; `\n        + 'measure the resting composer before anything focuses or fills it');\n    }",
+    "new": "    // R-composer-resting-proof: the ordering rule dropped on purpose. A walk\n    // that focuses or fills first then measures the raised `w-full` box and\n    // the 768-820 collapse photographs green.\n    void steps[early];",
+    "test": "bash rsi/runtime/tests/test-walk-mutant.sh"
+  },
+  {
+    "label": "the mutant runner stops accepting --walk-once J17, so the resting-composer mutant can never run (R-composer-resting-proof)",
+    "file": "rsi/runtime/ux/walk-mutant-test.sh",
+    "old": "      J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15|J17) ;;",
+    "new": "      J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15) ;;",
+    "test": "bash rsi/runtime/tests/test-walk-mutant.sh"
+  },
+  {
+    "label": "the Python J17 contract test accepts a one-viewport journey",
+    "file": "scripts/journeys_walk_test.py",
+    "old": "            load_spec()[\"journeys\"][\"J17\"][\"viewports\"], [\"tablet\", \"tablet-portrait\"],",
+    "new": "            load_spec()[\"journeys\"][\"J17\"][\"viewports\"], [\"tablet\"],",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ17ContractTest.test_shipped_j17_spec_is_ok"
+  }
+]

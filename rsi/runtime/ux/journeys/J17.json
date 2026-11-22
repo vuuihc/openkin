@@ -1,0 +1,128 @@
+{
+  "title": "iPad portrait: the resting composer is a real box at 768 and 820, and a queued follow-up leaves it hittable",
+  "viewports": [
+    "tablet",
+    "tablet-portrait"
+  ],
+  "steps": [
+    [
+      "goto",
+      "/sessions"
+    ],
+    [
+      "click",
+      "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"
+    ],
+    [
+      "wait",
+      "css=[data-session-row]:has-text(\"[seed] Morning planning\")"
+    ],
+    [
+      "click",
+      "[data-session-row]:has-text('[seed] Morning planning')"
+    ],
+    [
+      "url",
+      "^/tasks/"
+    ],
+    [
+      "restingComposer",
+      "resting"
+    ],
+    [
+      "shot",
+      "resting"
+    ],
+    [
+      "pressComposerCard",
+      "card-press"
+    ],
+    [
+      "fill",
+      "textarea",
+      "Resting composer draft: 40 chars on iPad"
+    ],
+    [
+      "restingComposer",
+      "typed",
+      "typed"
+    ],
+    [
+      "shot",
+      "typed"
+    ],
+    [
+      "goto",
+      "/new"
+    ],
+    [
+      "fill",
+      "textarea",
+      "Draft the resting composer proof [seed] slow"
+    ],
+    [
+      "place",
+      "button[aria-label^='设备与项目'], button[aria-label*='Device & project'], button[aria-label*='Place'], button[aria-label*='Workspace'], button:has-text('更换'), button:has-text('Change')"
+    ],
+    [
+      "sample",
+      "css=[data-kin-bottom-chrome]",
+      "composer"
+    ],
+    [
+      "send",
+      "button[aria-label='开始'], button[aria-label='Start']"
+    ],
+    [
+      "url",
+      "^/tasks/"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex=\"-1\"]:has-text(\"Draft the resting composer proof [seed] slow\")"
+    ],
+    [
+      "wait",
+      "css=[role=status][aria-label*='思考'], [role=status][aria-label*='thinking']"
+    ],
+    [
+      "steady",
+      "composer",
+      "24"
+    ],
+    [
+      "shot",
+      "sent"
+    ],
+    [
+      "fill",
+      "textarea",
+      "Follow-up: does the queued guide cover this box?"
+    ],
+    [
+      "wait",
+      "css=button[aria-label='打断本轮并立即发送'], button[aria-label='Interrupt this round & send now']"
+    ],
+    [
+      "send",
+      "button[aria-label='发送'], button[aria-label='Send']"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex=\"-1\"]:has-text(\"Follow-up: does the queued guide cover this box?\")"
+    ],
+    [
+      "wait",
+      "css=[role=status]:has-text(\"已排队：本轮结束后回答\"), [role=status]:has-text(\"Queued — answered when the current round ends\")"
+    ],
+    [
+      "restingComposer",
+      "queued-guide",
+      "hit-test"
+    ],
+    [
+      "shot",
+      "queued-hit-test"
+    ]
+  ]
+}

@@ -2809,7 +2809,7 @@ class WalkJ14ContractTest(unittest.TestCase):
             "ui/src/components/CommandPalette",
             "ui/src/pages/Sessions|ui/src/components/sessions/|ui/src/components/mobile/",
             "ui/src/pages/TaskDetail|ui/src/pages/TaskSession|ui/src/components/chat/"
-            "|ui/src/components/cards/|ui/src/components/workspace/",
+            "|ui/src/components/task/|ui/src/components/cards/|ui/src/components/workspace/",
         )
         for needle in needles:
             row = next((row for row in spec["paths"] if row[0] == needle), None)
@@ -3054,7 +3054,7 @@ class WalkJ1ContractTest(unittest.TestCase):
         needles = (
             "ui/src/pages/Sessions|ui/src/components/sessions/|ui/src/components/mobile/",
             "ui/src/pages/TaskDetail|ui/src/pages/TaskSession|ui/src/components/chat/"
-            "|ui/src/components/cards/|ui/src/components/workspace/",
+            "|ui/src/components/task/|ui/src/components/cards/|ui/src/components/workspace/",
         )
         for needle in needles:
             row = next((row for row in spec["paths"] if row[0] == needle), None)
@@ -4975,6 +4975,114 @@ class WalkJ16ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("spec red: J16", out)
         self.assertIn("settings diff", out)
+
+
+class WalkJ17ContractTest(unittest.TestCase):
+    """The iPad portrait resting composer is a measured box, not a class string.
+
+    #580 fixed the 0px textarea at 768 and the 33px one at 820, but its proof
+    lived in a PR body: a DOM test can assert the arrangement classes and
+    cannot see the rendered width. J17 measures the un-focused box before
+    anything focuses it (Watch 90), presses the card and reads the caret, types
+    a 40-character draft and bounds it to two lines, and hit-tests the textarea
+    while the queued guide is on screen. These cases are the Python-side proof
+    that ``--check-spec`` refuses a walk that lost any half.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j17-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec["journeys"]["J17"]["steps"])
+        path = os.path.join(self.tmp, "steps.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    def copy_spec_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec)
+        path = os.path.join(self.tmp, "spec.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    @staticmethod
+    def steps() -> list:
+        return load_spec()["journeys"]["J17"]["steps"]
+
+    def test_shipped_j17_spec_is_ok(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J17", out)
+        self.assertEqual(
+            load_spec()["journeys"]["J17"]["viewports"], ["tablet", "tablet-portrait"],
+            "J17 is the 768/820 iPad portrait resting-composer proof")
+
+    def test_j17_rejects_a_resting_measurement_after_a_fill(self) -> None:
+        # Watch 90: a walk that fills first measures the raised arrangement,
+        # which is `w-full` at every width, so the collapse photographs green.
+        steps = self.steps()
+        resting = next(i for i, step in enumerate(steps)
+                       if step[0] == "restingComposer"
+                       and (len(step) < 3 or step[2] in ("", "resting")))
+        fill = next(i for i, step in enumerate(steps)
+                    if step[0] == "fill" and "textarea" in str(step[1]))
+
+        def fill_before_resting(steps):
+            steps.insert(resting, list(steps[fill]))
+
+        code, out = self.check(self.copy_with(fill_before_resting))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("measure the resting composer before anything focuses or fills it", out)
+
+    def test_j17_rejects_a_bare_viewport_string(self) -> None:
+        # A bare "768x1024" string resolves to hasTouch false through
+        # phoneLayout, i.e. an iPad measured as a mouse.
+        def strip_touch(spec):
+            spec["viewports"]["tablet-portrait"] = "768x1024"
+
+        code, out = self.check(self.copy_spec_with(strip_touch))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("hasTouch false", out)
+
+    def test_j17_rejects_a_missing_hit_test(self) -> None:
+        def drop_hit_test(steps):
+            steps[:] = [step for step in steps
+                        if not (step[0] == "restingComposer"
+                                and len(step) > 2 and step[2] == "hit-test")]
+
+        code, out = self.check(self.copy_with(drop_hit_test))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("hit-test", out)
+
+    def test_j17_paths_rows_select_the_composer_and_the_dock(self) -> None:
+        # First match wins: dropping J17 from the conversation row must be red
+        # for both files, or a composer diff would stop walking 768/820.
+        def drop(spec):
+            for row in spec["paths"]:
+                if row[0].startswith("ui/src/pages/TaskDetail") and "J17" in row[1]:
+                    row[1] = [journey for journey in row[1] if journey != "J17"]
+
+        code, out = self.check(self.copy_spec_with(drop))
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J17", out)
+        self.assertIn("Composer.tsx", out)
+        self.assertIn("TaskComposerDock.tsx", out)
 
 
 class JourneyContractCoverageTest(unittest.TestCase):

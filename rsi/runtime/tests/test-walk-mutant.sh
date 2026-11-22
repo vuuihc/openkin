@@ -49,8 +49,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 18:
-    raise SystemExit("manifest must be exactly eighteen entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 19:
+    raise SystemExit("manifest must be exactly nineteen entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -1288,7 +1288,7 @@ python3 - "$RUNNER" <<'PY' || fail "$case_name: --walk-once has no J1 dispatch"
 import sys
 
 text = open(sys.argv[1], encoding="utf-8").read()
-if "      J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15) ;;" not in text:
+if "      J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15|J17) ;;" not in text:
     raise SystemExit("--walk-once no longer accepts J1 (the case list lost J1)")
 start = text.index('if [ "$JOURNEY" = "J1" ]; then')
 end = text.index('if [ "$JOURNEY" = "J2" ]', start)
@@ -1301,4 +1301,42 @@ print("J1 walk-once dispatch ok: J1 accepted with the search-back evidence reads
 PY
 pass "$case_name"
 
-echo "walk-mutant contract: 24/24 cases passed"
+# The resting-composer measurement is only a proof if the contract refuses a
+# walk that focuses or fills the box first (Watch 90). Moving the resting step
+# after the 40-character draft is what a walk that measures the expanded box
+# looks like; --check-spec must name the order, not accept the photograph.
+case_name="test_j17_spec_rejects_a_resting_measurement_after_a_fill"
+command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
+spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
+log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
+python3 - "$SPEC_INDEX" "$spec_tmp" "$SPECPY" <<'PY' || exit 1
+import json
+import subprocess
+import sys
+
+src, dst, specpy = sys.argv[1], sys.argv[2], sys.argv[3]
+spec = json.loads(subprocess.check_output([sys.executable, specpy, "--resolve", src]))
+steps = spec["journeys"]["J17"]["steps"]
+resting = next(i for i, st in enumerate(steps)
+               if st[0] == "restingComposer"
+               and (len(st) < 3 or st[2] in ("", "resting")))
+fill = next(i for i, st in enumerate(steps)
+            if st[0] == "fill" and "textarea" in str(st[1]))
+assert resting < fill, "J17 does not start with the resting measurement"
+# A copy of the draft fill before the resting measurement: the measurement now
+# comes after a fill while the card press stays after it, so only the ordering
+# rule can reject the walk (the press-order rule cannot stand in for it).
+steps.insert(resting, list(steps[fill]))
+json.dump(spec, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+( cd "$WT" && node rsi/runtime/ux/walk.mjs --check-spec --spec "$spec_tmp" ) >"$log" 2>&1
+rc=$?
+if [ "$rc" -ne 1 ] || ! grep -q "measure the resting composer before anything focuses or fills it" "$log"; then
+  cat "$log" >&2
+  rm -f "$log" "$spec_tmp"
+  fail "$case_name: --check-spec exited $rc without rejecting a resting measurement after a fill"
+fi
+rm -f "$log" "$spec_tmp"
+pass "$case_name"
+
+echo "walk-mutant contract: 25/25 cases passed"

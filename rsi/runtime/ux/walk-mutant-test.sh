@@ -2,7 +2,7 @@
 # walk-mutant-test.sh — the one-command red proof for the walk contracts (R-walk-mutant, R-walk-tap-j7).
 #
 #   bash rsi/runtime/ux/walk-mutant-test.sh                    # apply every committed mutant, require red, restore
-#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
+#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15|J17] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
 #   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest
 #
 # J3 has two contracts. One: pressing Start on /new must keep the typed message
@@ -169,8 +169,8 @@ case "${1:-}" in
   --walk-once)
     JOURNEY="${2:-J3}"
     case "$JOURNEY" in
-      J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15) ;;
-      *) unavailable "unknown journey $JOURNEY; --walk-once takes J1, J3 (default), J5, J7, J2, J8, J9, J10, J11, J12, J13 or J15" ;;
+      J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15|J17) ;;
+      *) unavailable "unknown journey $JOURNEY; --walk-once takes J1, J3 (default), J5, J7, J2, J8, J9, J10, J11, J12, J13, J15 or J17" ;;
     esac
     ;;
   --trap-check)
@@ -936,6 +936,73 @@ if hard or missing:
         print("walk-mutant: J1 red: the walk never read " + ", ".join(missing))
     sys.exit(1)
 print("walk-mutant: J1 green: the search text and the filtered list came back from the in-app Back")
+PY
+  exit $?
+fi
+
+# J17: the resting composer at 768/820. The manifest gives the resting
+# textarea zero width, the symptom #580 fixed. The walk measures the
+# un-focused box before anything focuses it (Watch 90), so the raised
+# arrangement cannot hide the collapse; --walk-once J17 prints red on the
+# resting width line. The runner also requires the four numbers the row
+# exists for — resting width/height, the hand-off jump and the hit-test —
+# so a walk that never measured cannot pass as green.
+if [ "$JOURNEY" = "J17" ]; then
+  bash rsi/runtime/ux-walk.sh "$WT" "$OUT" J17 >"$OUT/ux-walk.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    unavailable "$(cat "$OUT/UNAVAILABLE" 2>/dev/null || tail -c 300 "$OUT/ux-walk.log")"
+  fi
+  [ "$rc" -eq 0 ] || unavailable "ux-walk.sh exited $rc: $(tail -c 300 "$OUT/ux-walk.log")"
+  [ -s "$OUT/walk.json" ] || unavailable "the walker wrote no walk.json"
+
+  python3 - "$OUT/walk.json" <<'PY'
+import json
+import re
+import sys
+
+walk = json.load(open(sys.argv[1], encoding="utf-8"))
+screens = [s for s in walk.get("screens", []) if s.get("journey") == "J17"]
+names = [str(s.get("name", "")) for s in screens]
+skips = [n for n in names if "-skipped-" in n]
+if skips:
+    # The fake agent or a workdir is missing: the queued guide cannot appear,
+    # so the hit-test would measure nothing. Fail closed as "could not run".
+    print("UNAVAILABLE: J17 was skipped (" + ", ".join(skips[:2]) + ")")
+    sys.exit(2)
+
+# Step failures are `J17/…`; screenshot lint is `J17-<vp>-…`. Both are J17's.
+hard = [f for f in walk.get("hardFail", [])
+        if str(f).startswith("J17/") or str(f).startswith("J17-")]
+print("J17 screens: " + (", ".join(names) or "none"))
+for f in hard:
+    print("J17 hardFail: " + str(f))
+
+missing = []
+for vp in ("tablet", "tablet-portrait"):
+    mine = [s for s in screens if str(s.get("name", "")).startswith("J17-%s-" % vp)]
+    if not mine:
+        missing.append(vp + " (no screens)")
+        continue
+    notes = [str(n) for n in mine[-1].get("notes", [])]
+    resting = next((n for n in notes if n.startswith("resting composer ")), "")
+    measured = re.search(r"resting composer [^:]+: (\d+(?:\.\d+)?)×(\d+(?:\.\d+)?)px", resting)
+    if not measured:
+        missing.append(vp + " (no resting width/height line)")
+    elif float(measured.group(1)) < 240 or float(measured.group(2)) < 44:
+        missing.append(vp + " (resting box %s×%s below the 240×44 floor)" % measured.groups())
+    if not any("composer steady:" in n and "max jump" in n for n in notes):
+        missing.append(vp + " (no hand-off jump line)")
+    if not any(n.startswith("hit-test ") and "no overlap" in n for n in notes):
+        missing.append(vp + " (no queued-guide hit-test line)")
+if hard or missing:
+    if hard:
+        print("walk-mutant: J17 red: %d hard failure(s)" % len(hard))
+    if missing:
+        print("walk-mutant: J17 red: the walk never read " + ", ".join(missing))
+    sys.exit(1)
+print("walk-mutant: J17 green: the resting composer is a measured 240×44+ box at 768 and 820, "
+      "the hand-off jump is bounded, and the queued guide leaves the box hittable")
 PY
   exit $?
 fi
