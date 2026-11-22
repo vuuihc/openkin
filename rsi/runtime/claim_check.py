@@ -37,11 +37,21 @@ the scan. A changed prose file that exists but cannot be read fails closed --
 a citation set that cannot be read is not proven.
 
 Usage: claim_check.py <worktree> <body-file> <changed-files-file>
-Exit:  0 = pass, not applicable, or waived; 1 = failed; 2 = usage.
+Exit:  0 = pass, not applicable, or waived; 1 = failed; 2 = usage;
+       3 = no verdict — the command printed nothing at all, so it never proved
+       or disproved anything and the caller may replay it once.
 
 One status line on stdout: `CLAIM_OK: <command>`, `CLAIM_NA: ...`,
-`CLAIM_WAIVED: <reason>`, or `CLAIM_FAIL: <detail>`, where the failure line
-carries the short human detail. Standard library only: no network, no
+`CLAIM_WAIVED: <reason>`, `CLAIM_NOVERDICT: <detail>`, or `CLAIM_FAIL: <detail>`,
+where the failure line carries the short human detail.
+
+A command that writes nothing is not a false sentence. `| grep` at the end of a
+claim command is the house style for keeping the block short, and it swallows
+the reason a command did not start (a missing `ui/node_modules`, a tool the
+launchd PATH does not carry, a child the machine killed) exactly as it swallows
+"no match". Reporting that as a failure charges a rework round for an
+undiagnosed red: on 2026-11-22 12:33 #574 was sent back on it while the same head
+passed the same command 25 minutes later. Standard library only: no network, no
 state dirs, no imports from the repo, so the merge lane can run it before it
 pays for the reviewer.
 """
@@ -401,6 +411,14 @@ def main(argv):
     returncode, actual, error = run_command(worktree, command)
     if error is not None:
         return fail(error)
+    if returncode != 0 and not actual.strip():
+        # Nothing was written, so the command never ran (or it matched nothing and exited 1 with
+        # its reason piped into the body's own grep). No verdict: the caller replays it once.
+        print(
+            "CLAIM_NOVERDICT: the claim check exited %d and printed nothing at all: %s"
+            % (returncode, command)
+        )
+        return 3
     if returncode != 0:
         return fail(
             "the claim check exited %d (want 0): %s | last output: %s"

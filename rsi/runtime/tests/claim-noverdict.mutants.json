@@ -1,0 +1,30 @@
+[
+  {
+    "label": "an empty run decides again: the script reports it as a failed claim instead of no verdict",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=no-output-is-no-verdict bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "        return 3\n    if returncode != 0:\n        return fail(",
+    "new": "        return 1\n    if returncode != 0:\n        return fail("
+  },
+  {
+    "label": "the gate never replays an empty run, so a command that did not start costs a rework round",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=replay-empty-run bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "  if [ \"$rc\" -eq 3 ]; then\n    say \"#$n $slug: claim check printed nothing (no verdict) — replaying it once before any sendback\"",
+    "new": "  if false; then\n    say \"#$n $slug: claim check printed nothing (no verdict) — replaying it once before any sendback\""
+  },
+  {
+    "label": "the replay is silent: a pass on the replay leaves no claim_check=replayed line for the patrol",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=replay-empty-run bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "    echo \"$(date '+%F %H:%M') #$n $slug claim_check=replayed rc=$rc\" >> \"$STATE/merge/cycles.log\"",
+    "new": "    : # mutant: replay not logged"
+  },
+  {
+    "label": "the lane fails a finished delivery on an empty claim run instead of replaying it once",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_no_output_is_replayed_once bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  if [ \"$rc\" -eq 3 ]; then\n    out=\"$(python3 \"$RSI_DIR/runtime/claim_check.py\" \"$wt\" \"$body\" \"$changed\" 2>&1)\"; rc=$?\n  fi",
+    "new": "  : # mutant: no lane replay"
+  }
+]

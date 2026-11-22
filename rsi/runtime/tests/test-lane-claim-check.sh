@@ -442,6 +442,34 @@ run() { # a case is named either case_... or its short form, x-...
   pass "$1"
 }
 
+# 2026-11-22 12:33 (#574): the claim command exited non-zero and wrote nothing at all — the body's
+# own `| grep` swallows why (a missing dependency, a tool the PATH does not carry, a killed child)
+# exactly as it swallows "no match". The lane replays that shape once before it fails a finished
+# delivery on it; only a second empty run is a verdict, and it says what went wrong.
+case_no_output_is_replayed_once() {
+  new_repo nooutput
+  local cnt="$T/nooutput.cnt"
+  change docs/plans/gap-log.md '- a sentence proved by a command that had to start'
+  body "Claim check: if [ -e $cnt ]; then echo ' Test Files  5 passed (5)'; else : > $cnt; exit 1; fi 2>&1 | grep -E '^ Test Files'" \
+       "Claim output:" \
+       "Test Files  5 passed (5)"
+  seam
+  [ "$RC" -eq 0 ] || fail "nooutput: exit $RC, want 0 after one replay ($OUT; $(cat "$T/seam.err"))"
+  seam_output_has 'CLAIM_LANE_OK: ' || fail "nooutput: no OK verdict after the replay: $OUT"
+}
+
+case_no_output_twice_is_a_no_verdict() {
+  new_repo nooutputtwice
+  change docs/plans/gap-log.md '- a sentence nobody can reproduce'
+  body "Claim check: sh -c 'exit 1' 2>&1 | grep -E '^ Test Files'" \
+       "Claim output:" \
+       "Test Files  5 passed (5)"
+  seam
+  [ "$RC" -eq 3 ] || fail "nooutputtwice: exit $RC, want 3 ($OUT)"
+  seam_output_has 'CLAIM_LANE_NOVERDICT:' || fail "nooutputtwice: no no-verdict verdict: $OUT"
+  seam_output_has 'printed nothing at all' || fail "nooutputtwice: the reason is not named: $OUT"
+}
+
 run case_code_only_change_is_na
 run case_prose_change_without_claim_check_fails
 run case_empty_claim_output_fails
@@ -464,5 +492,7 @@ run case_live_body_stale_valid_claim_fails
 run case_live_body_timeout_fails_closed
 run case_live_body_check_timeout_fails_closed
 run case_gh_override_is_honoured
+run case_no_output_is_replayed_once
+run case_no_output_twice_is_a_no_verdict
 [ -z "$ONLY" ] || [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS

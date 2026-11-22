@@ -186,6 +186,17 @@ pr_finished() { # <slug> <pr-number|""> <sha> <detail-file> -> 0 finished and ar
 claim_check_gate() { # <pr-number> <slug> <item> <worktree> <body-file> <changed-files-file> -> 0 pass/NA/waived, 1 sent back
   local n="$1" slug="$2" item="$3" wt="$4" bodyf="$5" pathsf="$6" out rc det
   out="$(python3 "$RSI_DIR/runtime/claim_check.py" "$wt" "$bodyf" "$pathsf" 2>&1)"; rc=$?
+  # exit 3 = the command printed nothing at all: it never ran (a missing ui/node_modules, a tool
+  # the launchd PATH does not carry, a child the machine killed) or it matched nothing, and the
+  # `| grep` a body normally ends with swallowed the reason. That is no verdict, not a false
+  # sentence, so replay it once — the same rule a gate NO_VERDICT and a failed CI run already get.
+  # 2026-11-22 12:33 (#574) spent a rework round on this shape while the very same head passed the
+  # very same command 25 minutes later; a second empty run is still a sendback, reported as such.
+  if [ "$rc" -eq 3 ]; then
+    say "#$n $slug: claim check printed nothing (no verdict) — replaying it once before any sendback"
+    out="$(python3 "$RSI_DIR/runtime/claim_check.py" "$wt" "$bodyf" "$pathsf" 2>&1)"; rc=$?
+    echo "$(date '+%F %H:%M') #$n $slug claim_check=replayed rc=$rc" >> "$STATE/merge/cycles.log"
+  fi
   if [ "$rc" -ne 0 ]; then
     det="$STATE/merge/$slug.claim.txt"
     printf '%s\n' "$out" > "$det"

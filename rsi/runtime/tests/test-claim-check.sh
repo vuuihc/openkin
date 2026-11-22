@@ -399,6 +399,58 @@ test_citation_historical_lines_are_not_rescanned() {
   pass "$CASE"
 }
 
+# --- 17. a claim command that printed nothing is no verdict, not a false sentence ----------------
+# 2026-11-22 12:33 (#574): the claim command exited 1 and wrote nothing at all. `| grep` at the end
+# of a claim command — the house style for keeping the block short — swallows the reason a command
+# did not start (a missing ui/node_modules, a tool the launchd PATH does not carry, a killed child)
+# exactly as it swallows "no match", so the merge lane could not tell a false sentence from a
+# command that never ran and spent a rework round on it; the same head passed the same command 25
+# minutes later. The script now says no verdict (exit 3) instead of deciding.
+test_claim_check_with_no_output_is_no_verdict() {
+  new_case no-output-is-no-verdict
+  paths "rsi/GOAL.md"
+  body "Claim check: sh -c 'exit 1' 2>&1 | grep -E '^ Test Files'" \
+       "Claim output:" \
+       "Test Files  5 passed (5)"
+  run_check
+  [ "$RC" -eq 3 ] || fail "$CASE: exit $RC, want 3 ($OUT)"
+  case "$OUT" in CLAIM_NOVERDICT:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_NOVERDICT" ;; esac
+  pass "$CASE"
+}
+
+# --- 18. the gate replays an empty run once, and a pass on the replay is not a sendback ----------
+# The counter file makes the first run print nothing and exit 1, the second print the claimed line:
+# only a caller that re-runs the command can pass this case, and only one that logs the replay
+# leaves the audit line the patrol reads.
+test_claim_check_replays_an_empty_run_once() {
+  new_case replay-empty-run
+  local cnt="$T/$CASE.cnt"
+  paths "docs/product/IA.md"
+  body "Claim check: if [ -e $cnt ]; then echo ' Test Files  5 passed (5)'; else : > $cnt; exit 1; fi 2>&1 | grep -E '^ Test Files'" \
+       "Claim output:" \
+       "Test Files  5 passed (5)"
+  run_gate
+  [ "$RC" -eq 0 ] || fail "$CASE: exit $RC, want 0 after one replay ($OUT)"
+  [ ! -e "$(sb)" ] || fail "$CASE: a replayed pass must not write a sendback"
+  grep -qF -- "#461 $SLUG claim_check=replayed rc=0" "$(st)/merge/cycles.log" \
+    || fail "$CASE: cycles.log lacks the replay line"
+  pass "$CASE"
+}
+
+# --- 19. a second empty run is still a sendback, and the detail says why it is empty -------------
+test_claim_check_still_empty_after_the_replay_is_sent_back() {
+  new_case empty-twice
+  paths "rsi/DECISIONS.md"
+  body "Claim check: sh -c 'exit 1' 2>&1 | grep -E '^ Test Files'" \
+       "Claim output:" \
+       "Test Files  5 passed (5)"
+  run_gate
+  expect_sent_back "$CASE" "printed nothing"
+  grep -qF -- "#461 $SLUG claim_check=replayed rc=3" "$(st)/merge/cycles.log" \
+    || fail "$CASE: cycles.log lacks the replayed rc=3 line"
+  pass "$CASE"
+}
+
 run() { # <function> [<case name>] — RSI_TEST_ONLY accepts either spelling
   local fn="$1" name="${2:-$1}"
   [ -n "${RSI_TEST_ONLY:-}" ] && [ "$fn" != "$RSI_TEST_ONLY" ] && [ "$name" != "$RSI_TEST_ONLY" ] \
@@ -411,6 +463,9 @@ run test_claim_check_output_absent_from_real_output_is_sent_back
 run test_claim_check_without_claim_output_is_sent_back
 run test_claim_check_passes_when_the_command_output_matches
 run test_code_only_pr_is_not_applicable
+run test_claim_check_with_no_output_is_no_verdict no-output-is-no-verdict
+run test_claim_check_replays_an_empty_run_once replay-empty-run
+run test_claim_check_still_empty_after_the_replay_is_sent_back empty-twice
 run test_waiver_with_a_reason_is_accepted_and_a_bare_none_is_not
 run test_last_claim_check_line_wins_over_a_quoted_one
 run test_citation_missing_line citation-missing-line

@@ -248,6 +248,15 @@ claim_lane_check() { # <worktree> <body-file> — prints one CLAIM_LANE_* verdic
   "$GIT" -C "$wt" -c core.fileMode=false diff --no-renames --raw origin/main...HEAD 2>/dev/null \
     | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}' > "$changed"
   out="$(python3 "$RSI_DIR/runtime/claim_check.py" "$wt" "$body" "$changed" 2>&1)"; rc=$?
+  # exit 3 = the command printed nothing at all: it never ran (a missing ui/node_modules in this
+  # worktree, a tool the PATH does not carry, a killed child) or it matched nothing, and the `| grep`
+  # a body normally ends with swallowed the reason. No verdict, not a false sentence: replay it once
+  # here too, so the lane does not fail a finished delivery on the same undiagnosed shape the merge
+  # lane replays (2026-11-22 12:33, #574). A second empty run is still a failure, and its
+  # CLAIM_LANE_NOVERDICT line now tells the rework lane the command printed nothing.
+  if [ "$rc" -eq 3 ]; then
+    out="$(python3 "$RSI_DIR/runtime/claim_check.py" "$wt" "$body" "$changed" 2>&1)"; rc=$?
+  fi
   rm -f "$changed"
   printf '%s\n' "$out" | sed 's/^CLAIM_/CLAIM_LANE_/'
   return "$rc"
