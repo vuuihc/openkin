@@ -238,6 +238,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-lane-autofill.sh || return 1
   bash rsi/runtime/tests/test-lane-worker-contract.sh || return 1
   bash rsi/runtime/tests/test-lane-sendback-reserve.sh || return 1
+  bash rsi/runtime/tests/test-lane-control-tree-guard.sh || return 1
   bash rsi/runtime/tests/test-lanes-facts.sh || return 1
   bash rsi/runtime/tests/test-sendback-provenance.sh || return 1
   bash rsi/runtime/tests/test-release.sh || return 1
