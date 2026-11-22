@@ -73,6 +73,16 @@ mkdir -p "$STATE"
 CHK="$(RSI_REPO="$REPO" bash "$HERE/release-check.sh")"; rc=$?
 [ $rc -eq 0 ] || { printf '%s\n' "$CHK"; die "release-check says HOLD (see above)"; }
 printf '%s\n' "$CHK"
+# The gate also reports how many non-merge commits sit on the released checkout's local
+# main and nowhere on origin/main: they ship with this release, unreviewed. Report them,
+# never gate on them (MANDATE allows an owner's local commits to ride a release); the
+# number goes on the durable RELEASED record so a patrol can see what actually shipped.
+LOCAL_MAIN_ONLY="$(printf '%s' "$CHK" | sed -n 's/^local_main_only=//p' | head -1)"
+case "$LOCAL_MAIN_ONLY" in ''|*[!0-9]*) LOCAL_MAIN_ONLY=unknown ;; esac
+case "$LOCAL_MAIN_ONLY" in
+  unknown) : ;;
+  *) [ "$LOCAL_MAIN_ONLY" -gt 0 ] && say "warning: $LOCAL_MAIN_ONLY commit(s) are on the local main only and are being shipped unreviewed" ;;
+esac
 SHA="$($git -C "$REPO" fetch -q origin main && $git -C "$REPO" rev-parse origin/main)"
 # A failed fetch must stop here, before a single thing is rebuilt. Without this guard the
 # script logged an empty SHA, rebuilt and restarted the live node, and only then aborted at
@@ -195,5 +205,5 @@ if [ "$HUB" = 1 ]; then
   say "hub: shipped $SHORT"
 fi
 
-log "RELEASED $SHORT node=$NODE hub=$HUB unshipped_before=$(printf '%s' "$CHK" | sed -n 's/^unshipped=\([0-9]*\).*/\1/p')"
-say "done: $SHORT released"
+log "RELEASED $SHORT node=$NODE hub=$HUB unshipped_before=$(printf '%s' "$CHK" | sed -n 's/^unshipped=\([0-9]*\).*/\1/p') local_main_only=$LOCAL_MAIN_ONLY"
+say "done: $SHORT released local_main_only=$LOCAL_MAIN_ONLY"
