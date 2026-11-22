@@ -1941,7 +1941,10 @@ function DraftRow({
  * the empty state is one line, and the body is clamped to two lines with the
  * title as its disclosure. The region's name carries the project's name: a
  * screen reader's landmark list otherwise shows several identical "工作方式"
- * regions with no way to tell which project each belongs to.
+ * regions with no way to tell which project each belongs to. It is a
+ * `role="region"` div, not a `<section>`: the row is drawn inside the project
+ * bucket's `<section>`, and a nested section stops the bucket from reading as
+ * a leaf element to DOM queries and walkers.
  */
 function ProjectInstructionsRow({
   projectName,
@@ -1994,7 +1997,8 @@ function ProjectInstructionsRow({
     .join(" · ");
 
   return (
-    <section
+    <div
+      role="region"
       aria-label={`${tr("projects.instructionsTitle")} · ${projectName}`}
       className="rounded-lg bg-kin-panel px-3 py-1.5"
     >
@@ -2065,7 +2069,7 @@ function ProjectInstructionsRow({
           {caption ? <p className="mt-1 text-caption text-kin-muted">{caption}</p> : null}
         </>
       )}
-    </section>
+    </div>
   );
 }
 

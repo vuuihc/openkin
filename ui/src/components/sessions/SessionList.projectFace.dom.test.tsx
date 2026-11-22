@@ -407,6 +407,19 @@ describe("a project's work instructions in the conversation list", () => {
     ]);
   });
 
+  it("keeps the bucket a leaf section so the project row stays addressable", async () => {
+    list();
+
+    const block = await screen.findByRole("region", {
+      name: "How to work here · Project Alpha",
+    });
+    // The row is drawn inside the project bucket's <section>. A nested section
+    // stops `section:not(:has(section))` — the journey walker's row selector —
+    // from finding the project row, so the block must not be a section itself.
+    expect(block.tagName).not.toBe("SECTION");
+    expect(bucketSection("Project Alpha").querySelector("section")).toBeNull();
+  });
+
   it("collapses the empty state to one line, without the not-sent footnote", async () => {
     readOnePager.mockResolvedValue(onePager("# Project Alpha\n\n## 摘要\n\nA summary only.\n"));
     list();
