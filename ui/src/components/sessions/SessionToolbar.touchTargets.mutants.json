@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the search field drops back to 32px on a finger",
+    "file": "ui/src/components/sessions/SessionToolbar.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionToolbar.dom.test.tsx",
+    "old": "                coarse ? \"h-11\" : \"h-8\",",
+    "new": "                \"h-8\","
+  },
+  {
+    "label": "the routine chip's clear control drops back to 36px on a finger",
+    "file": "ui/src/components/sessions/SessionToolbar.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionToolbar.dom.test.tsx",
+    "old": "                coarse ? \"h-11 w-11\" : \"h-9 w-9\",",
+    "new": "                \"h-9 w-9\","
+  }
+]

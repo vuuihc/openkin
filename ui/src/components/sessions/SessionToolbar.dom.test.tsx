@@ -57,8 +57,23 @@ function button(name: string | RegExp): HTMLButtonElement {
   return screen.getByRole("button", { name }) as HTMLButtonElement;
 }
 
+/** jsdom has no matchMedia; the pointer is a render-time branch here. */
+function pointer(kind: "fine" | "coarse") {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(pointer: coarse)" ? kind === "coarse" : false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 beforeEach(() => {
   setLocale("en");
+  pointer("fine");
   localStorage.clear();
   sessionStorage.clear();
 });
@@ -84,6 +99,30 @@ describe("SessionToolbar", () => {
 
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(button(/Filter/)).toBeTruthy();
+  });
+
+  it("a coarse pointer gives the search field a 44px target", () => {
+    pointer("coarse");
+    const { unmount } = render(
+      <SessionToolbar {...toolbarProps({ routineFilter: true, onClearRoutine: vi.fn() })} />,
+    );
+
+    const search = screen.getByRole("searchbox", { name: /Search chats/ });
+    expect(search.className).toContain("h-11");
+    const clear = button("Clear routine filter");
+    expect(clear.className).toContain("h-11");
+    expect(clear.className).toContain("w-11");
+
+    // A mouse keeps the desktop 32px field and 36px clear control.
+    unmount();
+    pointer("fine");
+    render(<SessionToolbar {...toolbarProps({ routineFilter: true, onClearRoutine: vi.fn() })} />);
+    const mouseSearch = screen.getByRole("searchbox", { name: /Search chats/ });
+    expect(mouseSearch.className).toContain("h-8");
+    expect(mouseSearch.className).not.toContain("h-11");
+    const mouseClear = button("Clear routine filter");
+    expect(mouseClear.className).toContain("h-9");
+    expect(mouseClear.className).toContain("w-9");
   });
 });
 
