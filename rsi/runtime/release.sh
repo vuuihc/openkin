@@ -19,6 +19,17 @@
 # two patrol rounds that both passed the gate cannot restart the node twice.
 # Nothing here force-pushes, tags, publishes a dmg, or touches relay/Hub config.
 #
+# Waiting for the machine slot: the gate holds on `heavy:` whenever a verification build or
+# UX walk owns the machine-wide slot, and the rebuild's own npm/go build takes no slot — so
+# starting next to one is the memory condition behind the 2026-11-18/19 false reds. That
+# hold is right, but the patrol only looks once per round, so a release used to be skipped
+# for a walk that ended two minutes later (2026-11-22: 6 unshipped held from 20:15 to
+# 21:2x). `heavy:` is therefore the one HOLD this script waits out: it re-runs the full
+# gate every RSI_RELEASE_STEP (default 20s) for up to RSI_RELEASE_WAIT (default 600s) and
+# ships at the first GO. Every other HOLD — a session in flight, a merge landing, too few
+# unshipped — still aborts immediately, and a wait that runs out aborts with the last gate
+# output. Each wait is one GATE_WAIT line in state/releases.log, so the cost is measurable.
+#
 # usage: release.sh [--repo DIR] [--node-only|--hub-only] [--dry-run]
 #   --repo DIR   the checkout to release (default /Users/vuuihc/Workspace/study/kin-multidevice)
 #   --dry-run    print the plan and the release-check verdict, change nothing
@@ -38,6 +49,11 @@ HUB_COMPOSE="${RSI_HUB_COMPOSE:-docker-compose.dogfood.yml}"
 IMAGE="${RSI_HUB_IMAGE:-openkin:dogfood}"
 KIN_API="${KIN_API:-http://127.0.0.1:7777}"
 TIMEOUT="${RSI_HUB_TIMEOUT:-3600}"
+CHK_CMD="${RSI_RELEASE_CHECK:-$HERE/release-check.sh}"
+WAIT="${RSI_RELEASE_WAIT:-600}"
+STEP="${RSI_RELEASE_STEP:-20}"
+case "$WAIT" in ''|*[!0-9]*) WAIT=600 ;; esac
+case "$STEP" in ''|*[!0-9]*|0) STEP=20 ;; esac
 NODE=1; HUB=1; DRY=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -100,9 +116,36 @@ fi
 
 # 1. Gate. Never releasable on a red check: the whole point is that the loop, not a
 #    person, remembers the two conditions.
-CHK="$(RSI_REPO="$REPO" bash "$HERE/release-check.sh")"; rc=$?
-[ $rc -eq 0 ] || { printf '%s\n' "$CHK"; die "release-check says HOLD (see above)"; }
+deadline=$(( $(date +%s) + WAIT ))
+waits=0
+while :; do
+  CHK="$(RSI_REPO="$REPO" bash "$CHK_CMD")"; rc=$?
+  [ $rc -eq 0 ] && break
+  case "$CHK" in
+    *reason=heavy:*)
+      left=$(( deadline - $(date +%s) ))
+      # A dry run reports, it does not wait: the patrol asks for a verdict here.
+      if [ "$DRY" = 1 ] || [ "$left" -le 0 ]; then
+        printf '%s\n' "$CHK"
+        [ "$waits" -gt 0 ] && log "GATE_WAIT gave up after ${waits} checks"
+        die "release-check says HOLD (see above)"
+      fi
+      rsn="$(printf '%s' "$CHK" | sed -n 's/^reason=//p')"
+      waits=$((waits + 1))
+      say "gate: waiting for the machine slot (${left}s left): $rsn"
+      log "GATE_WAIT $rsn"
+      [ "$STEP" -lt "$left" ] && nap="$STEP" || nap="$left"
+      sleep "$nap"
+      ;;
+    *)
+      printf '%s\n' "$CHK"
+      [ "$waits" -gt 0 ] && log "GATE_WAIT ended after ${waits} checks: $(printf '%s' "$CHK" | sed -n 's/^reason=//p')"
+      die "release-check says HOLD (see above)"
+      ;;
+  esac
+done
 printf '%s\n' "$CHK"
+[ "$waits" -gt 0 ] && say "gate: the slot freed after $waits wait(s); releasing"
 SHA="$($git -C "$REPO" fetch -q origin main && $git -C "$REPO" rev-parse origin/main)"
 # A failed fetch must stop here, before a single thing is rebuilt. Without this guard the
 # script logged an empty SHA, rebuilt and restarted the live node, and only then aborted at

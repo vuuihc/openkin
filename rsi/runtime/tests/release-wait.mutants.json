@@ -1,0 +1,30 @@
+[
+  {
+    "label": "no wait budget: a heavy HOLD is refused on the first reading",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release-wait.sh",
+    "old": "WAIT=\"${RSI_RELEASE_WAIT:-600}\"\n",
+    "new": "WAIT=0\n"
+  },
+  {
+    "label": "waits, then aborts instead of re-reading the gate",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release-wait.sh",
+    "old": "      sleep \"$nap\"\n",
+    "new": "      printf '%s\\n' \"$CHK\"; die \"release-check says HOLD (see above)\"\n"
+  },
+  {
+    "label": "records no GATE_WAIT line, so the cost of waiting is invisible",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release-wait.sh",
+    "old": "      log \"GATE_WAIT $rsn\"\n",
+    "new": "      :\n"
+  },
+  {
+    "label": "leaves the loop on a HOLD instead of waiting for GO",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release-wait.sh",
+    "old": "  [ $rc -eq 0 ] && break\n",
+    "new": "  break\n"
+  }
+]
