@@ -25,6 +25,12 @@
 # task"). A Stop that does nothing leaves the control up and the report absent,
 # so the walk reddens on the gone, not on a screenshot.
 #
+# Four: a held round must be interruptible with the message already typed. The
+# manifest's last entry never sets send.interrupt, so the click queues instead
+# of cutting: the round keeps running, the transcript draws no 已打断上一轮
+# mark above the new message, and the walk's note wait goes red on the proof,
+# not on a screenshot.
+#
 # J3 therefore runs as two walks, because the two proofs pull apart: holding
 # the detail GET is what proves the hand-off (walk 2), but it also keeps
 # `detail.loaded` false, and the composer is disabled until it flips — at the
@@ -1021,7 +1027,8 @@ if hard:
 # transcript) -> midrun-queued (the second one was queued and read while the
 # round was still open) -> replied (the first answer finally landed) ->
 # stopped (a later held round was stopped and the screen says what became of
-# the message queued behind it).
+# the message queued behind it) -> interrupted (another held round was cut by
+# the explicit action and the transcript says so above the message that did it).
 shots = {}
 for i, name in enumerate(names):
     m = re.match(r"^J3-([^-]+)-\d+-(.+)$", name)
@@ -1034,10 +1041,11 @@ for vp in ("phone", "mac"):
     queued = [i for i, shot in seq if shot == "midrun-queued"]
     replied = [i for i, shot in seq if shot == "replied"]
     stopped = [i for i, shot in seq if shot == "stopped"]
-    if not sent or not queued or not replied or not stopped or not (min(sent) < min(queued) < min(replied) < min(stopped)):
+    interrupted = [i for i, shot in seq if shot == "interrupted"]
+    if not sent or not queued or not replied or not stopped or not interrupted or not (min(sent) < min(queued) < min(replied) < min(stopped) < min(interrupted)):
         missing.append(vp)
 if missing:
-    print("walk-mutant: J3 red: no sent -> midrun-queued -> replied -> stopped order at " + ", ".join(missing))
+    print("walk-mutant: J3 red: no sent -> midrun-queued -> replied -> stopped -> interrupted order at " + ", ".join(missing))
     sys.exit(1)
 
 # The mid-run screen is only evidence if the walk actually saw the composer's
@@ -1070,8 +1078,27 @@ for vp in ("phone", "mac"):
 if unread:
     print("walk-mutant: J3 red: the stopped screen never read the " + ", ".join(unread))
     sys.exit(1)
-print("walk-mutant: J3 mid-run green: sent -> midrun-queued -> replied -> stopped at both viewports, "
-      "queued guide read, Stop gone, stopped toast and discard report read")
+
+# The interrupted screen is only evidence if the walk read, from the page it
+# photographed, the mark above the message that cut the round and the reply
+# that message earned. A mutant that quietly queues leaves the round running
+# and draws no mark, so the note read is the proof that the round was cut
+# rather than merely sent behind.
+unread = []
+for vp in ("phone", "mac"):
+    mine = [s for s in screens if s["name"].startswith(f"J3-{vp}-") and s["name"].endswith("-interrupted")]
+    notes = [str(n) for n in (mine[-1].get("notes", []) if mine else [])]
+    if not any(n.startswith("waited for css=") and ("已打断上一轮" in n or "Interrupted the previous round" in n) for n in notes):
+        unread.append(vp + " (interrupt mark)")
+    if not any(n.startswith("waited for css=[role=region]") and "Interrupt proof: cut this round and answer this message now" in n for n in notes):
+        unread.append(vp + " (the message that cut the round)")
+    if not any(n.startswith("waited for css=[role=region]") and "Fake reply from the journey fake agent." in n and "nth=2" in n for n in notes):
+        unread.append(vp + " (the reply that message earned)")
+if unread:
+    print("walk-mutant: J3 red: the interrupted screen never read the " + ", ".join(unread))
+    sys.exit(1)
+print("walk-mutant: J3 mid-run green: sent -> midrun-queued -> replied -> stopped -> interrupted at both viewports, "
+      "queued guide read, Stop gone, stopped toast and discard report read, interrupt mark read above the message that cut the round")
 PY
 midrun_rc=$?
 # A red mid-run verdict is the verdict: without this the script would run the

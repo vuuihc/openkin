@@ -1,0 +1,16 @@
+[
+  {
+    "label": "J3's contract stops requiring the interrupt press, so a queue-only build passes (R-interrupt-walk)",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "old": "  if (interruptClickAt < 0) errs.push('J3 never presses the interrupt-send control (click composer.interruptSend)');",
+    "new": "  // R-interrupt-walk: the press clause dropped on purpose. A spec that only\n  // waits for the control and then queues passes the contract again.\n  if (interruptClickAt < 0) { /* no press requirement */ }",
+    "test": "bash rsi/runtime/tests/test-walk-mutant.sh"
+  },
+  {
+    "label": "the J3 walk-once verdict stops reading the interrupt mark, so a running round reads green (R-interrupt-walk)",
+    "file": "rsi/runtime/ux/walk-mutant-test.sh",
+    "old": "    if not any(n.startswith(\"waited for css=\") and (\"已打断上一轮\" in n or \"Interrupted the previous round\" in n) for n in notes):\n        unread.append(vp + \" (interrupt mark)\")",
+    "new": "    # R-interrupt-walk: the mark read dropped on purpose — the interrupted\n    # screen would pass with the round still running.",
+    "test": "bash rsi/runtime/tests/test-walk-mutant.sh"
+  }
+]
