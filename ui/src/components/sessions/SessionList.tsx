@@ -2007,17 +2007,27 @@ function ProjectInstructionsRow({
           {text && !loadError && (clipped || expanded) ? (
             <Button
               variant="quiet"
+              aria-label={tr("projects.instructionsTitle")}
               aria-expanded={expanded}
               aria-controls={bodyId}
               onClick={() => setExpanded((open) => !open)}
               className="-my-1 min-h-9 gap-1 px-0 text-caption font-medium uppercase tracking-label text-kin-secondary! hover:bg-transparent!"
             >
-              {tr("projects.instructionsTitle")}
-              <IconChevronDown
-                size={12}
-                strokeWidth={2.25}
-                className={expanded ? "rotate-180 transition-transform" : "transition-transform"}
-              />
+              {/* One nowrap row inside the button: Astryx's content span is a
+                  block, so a bare label + block SVG stacks the chevron under
+                  the text and the row grows by a line at 820. */}
+              <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                {tr("projects.instructionsTitle")}
+                <IconChevronDown
+                  size={12}
+                  strokeWidth={2.25}
+                  className={
+                    expanded
+                      ? "shrink-0 rotate-180 transition-transform"
+                      : "shrink-0 transition-transform"
+                  }
+                />
+              </span>
             </Button>
           ) : (
             tr("projects.instructionsTitle")

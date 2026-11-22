@@ -448,4 +448,27 @@ describe("a project's work instructions in the conversation list", () => {
       restore();
     }
   });
+
+  it("keeps the disclosure title and its chevron on one line", async () => {
+    const restore = stubPreviewOverflow();
+    try {
+      list();
+
+      const toggle = await screen.findByRole("button", { name: "How to work here" });
+      // The title shares its row with the edit launcher, and at 820 the row is
+      // narrower than both labels want. Astryx's content span is a block, so a
+      // bare label plus a block SVG stacks the chevron under 工作方式 and adds a
+      // line to every expanded project; the label and glyph must ride one
+      // nowrap row inside the button, and the glyph must not be squeezed out.
+      const row = toggle.querySelector("span.inline-flex");
+      expect(row).toBeTruthy();
+      expect(row!.className).toContain("items-center");
+      expect(row!.className).toContain("whitespace-nowrap");
+      const chevron = row!.querySelector("svg");
+      expect(chevron).toBeTruthy();
+      expect(chevron!.getAttribute("class") ?? "").toContain("shrink-0");
+    } finally {
+      restore();
+    }
+  });
 });
