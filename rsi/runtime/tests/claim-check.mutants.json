@@ -17,8 +17,8 @@
     "label": "never retry a silent failure",
     "file": "rsi/runtime/claim_check.py",
     "test": "RSI_TEST_ONLY=claim-check-retries-silence bash rsi/runtime/tests/test-claim-check.sh",
-    "old": "    if returncode != 0 and not collapse(actual):",
-    "new": "    if False:  # mutant: never retry a silent failure"
+    "old": "    if error is not None:\n        return fail(error)\n    if not collapse(actual):",
+    "new": "    if error is not None:\n        return fail(error)\n    if False:  # mutant: never retry a silent failure"
   },
   {
     "label": "accept the retry's silence as a pass",
@@ -96,5 +96,26 @@
     "test": "RSI_TEST_ONLY=citation-historical-lines bash rsi/runtime/tests/test-claim-check.sh",
     "old": "        if in_hunk and line.startswith(\"+\"):",
     "new": "        if in_hunk and line.startswith(\"+\") and not line.startswith(\"+++\"):  # mutant: a ++ line is a header"
+  },
+  {
+    "label": "retry only a non-zero silence",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=claim-check-retries-zero-silence bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "    if error is not None:\n        return fail(error)\n    if not collapse(actual):",
+    "new": "    if error is not None:\n        return fail(error)\n    if returncode != 0 and not collapse(actual):  # mutant: only a non-zero silence is retried"
+  },
+  {
+    "label": "accept a second zero-exit silence as a pass",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=claim-check-zero-retry-also-silent bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "        if error is not None:\n            return fail(error)\n        if not collapse(actual):",
+    "new": "        if error is not None:\n            return fail(error)\n        if not collapse(actual):  # mutant: accept the second silence as a pass\n            print(\"CLAIM_OK: \" + command)\n            return 0"
+  },
+  {
+    "label": "retry a printed zero-exit mismatch",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=claim-check-zero-no-retry-with-output bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "    if error is not None:\n        return fail(error)\n    if not collapse(actual):",
+    "new": "    if error is not None:\n        return fail(error)\n    if not collapse(actual) or returncode == 0:  # mutant: retry a printed zero-exit mismatch"
   }
 ]
