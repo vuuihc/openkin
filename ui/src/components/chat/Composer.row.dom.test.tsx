@@ -116,6 +116,41 @@ describe("Composer control row", () => {
     expect(interrupt.classList.contains("kin-btn-secondary")).toBe(true);
   });
 
+  it("sizes the control row by the card, not the viewport", async () => {
+    // The desktop size of a control is gated on the card's own width (`@xl`,
+    // 36rem), not the viewport (`sm`). An iPad in portrait draws the desktop
+    // two-column shell at 768px, so a viewport-sized control draws at 24–28px
+    // around a 344–396px card — a thumb miss. This pins the wiring only; the
+    // rendered 44px box is measured by the J17 walk.
+    const cardSized = (control: HTMLElement, variants: string[]) => {
+      for (const variant of variants) {
+        expect(control.classList.contains(variant), `${variants.join(" ")} on ${control.outerHTML.slice(0, 120)}`).toBe(true);
+      }
+      const viewportSizes = Array.from(control.classList).filter((cls) => /^sm:[wh]-/.test(cls));
+      expect(viewportSizes).toEqual([]);
+    };
+
+    const first = setup();
+    expect(first.row.classList.contains("[&>button]:shrink-0")).toBe(true);
+    cardSized(screen.getByRole("button", { name: t("composer.attachFile") }), ["@xl:w-6", "@xl:h-6"]);
+    cardSized(screen.getByRole("button", { name: t("composer.send") }), ["@xl:h-7", "@xl:w-7"]);
+    first.unmount();
+
+    const running = setup({ running: true, onStop: vi.fn() });
+    cardSized(screen.getByRole("button", { name: t("composer.stop") }), ["@xl:h-7", "@xl:w-7"]);
+    running.unmount();
+
+    const queued = setup({ running: true, onStop: vi.fn() });
+    await userEvent.setup().type(screen.getByRole("textbox"), "next");
+    cardSized(screen.getByRole("button", { name: t("composer.interruptSend") }), ["@xl:h-7", "@xl:w-7"]);
+    cardSized(screen.getByRole("button", { name: t("composer.send") }), ["@xl:h-7", "@xl:w-7"]);
+    queued.unmount();
+
+    setup({ sendLabel: "Start" });
+    // The labelled pill keeps its height on the card's cut too.
+    cardSized(screen.getByRole("button", { name: "Start" }), ["@xl:h-8"]);
+  });
+
   it("the attach control is a facade quiet button", () => {
     const click = vi.spyOn(HTMLInputElement.prototype, "click");
     const { container } = setup();

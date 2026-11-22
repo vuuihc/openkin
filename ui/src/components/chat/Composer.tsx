@@ -1268,7 +1268,12 @@ export default function Composer({
           <div
             data-kin-composer-row
             className={[
-              "flex min-w-0 flex-nowrap items-center gap-1.5",
+              // The controls on this row keep their target: a flex item's
+              // default `shrink: 1` shaved every 44px button to 43.9px when
+              // the 768 row was a fraction over its width (measured by J17's
+              // running-draft pass). The slot that is allowed to give way is
+              // the scrolling footer, not the thumb target.
+              "flex min-w-0 flex-nowrap items-center gap-1.5 [&>button]:shrink-0",
               expanded ? "mt-2" : "mt-1.5 @xl:mt-0",
             ].join(" ")}
           >
@@ -1278,12 +1283,16 @@ export default function Composer({
               onClick={() => fileRef.current?.click()}
               disabled={disabled || busy || stopping || uploading}
               className={[
-                // 44pt while the phone shell is in charge, desktop size from `md`
-                // up. A 24px target is not hittable with a thumb. (`sm:w-6` alone
-                // would not restore the desktop size: the floor is a two-class
+                // 44pt until the card itself is wide enough to hold the dense
+                // row: the viewport is not the ruler here, because an iPad in
+                // portrait draws the desktop two-column shell around a 344–396px
+                // card. `@xl` is the same 36rem cut the textarea uses, so a Mac
+                // (card ~650px) keeps the 24px control and the iPad keeps a
+                // target a thumb can hit. (`@xl:w-6` alone would not restore the
+                // desktop size under the phone floor: the floor is a two-class
                 // selector and outranks it.)
                 "rounded-lg p-0 text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] flex items-center justify-center",
-                expanded ? "w-11 h-11 sm:w-7 sm:h-7 sm:-ml-1" : "w-11 h-11 sm:w-6 sm:h-6",
+                expanded ? "w-11 h-11 @xl:w-7 @xl:h-7 @xl:-ml-1" : "w-11 h-11 @xl:w-6 @xl:h-6",
               ].join(" ")}
               aria-label={tr("composer.attachFile")}
               title={tr("composer.attachFile")}
@@ -1352,7 +1361,7 @@ export default function Composer({
                 variant="secondary"
                 onClick={() => void onStop()}
                 disabled={stopping || busy}
-                className="ml-auto h-11 w-11 rounded-full border-kin-red/35 bg-kin-red/15 p-0 text-kin-red-ink sm:h-7 sm:w-7 sm:rounded-lg"
+                className="ml-auto h-11 w-11 rounded-full border-kin-red/35 bg-kin-red/15 p-0 text-kin-red-ink @xl:h-7 @xl:w-7 @xl:rounded-lg"
                 aria-label={tr("composer.stop")}
                 title={tr("composer.stop")}
               >
@@ -1374,8 +1383,8 @@ export default function Composer({
                   "ml-auto flex items-center justify-center",
                   canSend ? "bg-kin-text text-kin-bg sm:bg-kin-blue sm:text-kin-on-brand" : "",
                   sendLabel
-                    ? "h-11 rounded-full px-4 text-body font-semibold sm:h-8"
-                    : "h-11 w-11 rounded-full p-0 sm:h-7 sm:w-7 sm:rounded-lg",
+                    ? "h-11 rounded-full px-4 text-body font-semibold @xl:h-8"
+                    : "h-11 w-11 rounded-full p-0 @xl:h-7 @xl:w-7 @xl:rounded-lg",
                 ].join(" ")}
                 aria-label={busy ? tr("composer.sending") : (sendLabel ?? tr("composer.send"))}
               >
@@ -1403,7 +1412,7 @@ export default function Composer({
                   // above: a send that cannot happen yet must not be armable, or the
                   // intent outlives the click that set it.
                   disabled={disabled || blockSend || busy || stopping || uploading}
-                  className="h-11 w-11 rounded-full border-kin-orange/40 bg-kin-orange/15 p-0 text-kin-orange-ink sm:h-7 sm:w-7 sm:rounded-lg"
+                  className="h-11 w-11 rounded-full border-kin-orange/40 bg-kin-orange/15 p-0 text-kin-orange-ink @xl:h-7 @xl:w-7 @xl:rounded-lg"
                   aria-label={tr("composer.interruptSend")}
                   title={tr("composer.interruptSend")}
                 >
@@ -1419,7 +1428,7 @@ export default function Composer({
                   // above: a send that cannot happen yet must not be armable.
                   disabled={disabled || blockSend || busy || stopping || uploading}
                   className={[
-                    "h-11 w-11 rounded-full p-0 flex items-center justify-center sm:h-7 sm:w-7 sm:rounded-lg",
+                    "h-11 w-11 rounded-full p-0 flex items-center justify-center @xl:h-7 @xl:w-7 @xl:rounded-lg",
                     canSend ? "bg-kin-text text-kin-bg sm:bg-kin-blue sm:text-kin-on-brand" : "",
                   ].join(" ")}
                   aria-label={tr("composer.send")}
