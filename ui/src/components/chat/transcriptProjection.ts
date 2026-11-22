@@ -383,6 +383,10 @@ export function buildChatItems(
   // message and leaves the transcript to say so at the result. The cancel
   // error itself cannot tell the two apart.
   let canceledByInterrupt = false;
+  // A cancel-noise error on the conversation's own stream. Delegated workers
+  // persist their events on the same log but stamped task-only; a step canceled
+  // in the plan table is not the conversation stopping.
+  let bareStopRound = false;
   // A turn the executor has started in the loaded window. Its events may not
   // have produced a visible item yet — an interrupt can land before the first
   // token — but the round exists, and an interrupt that cuts it should say so.
@@ -827,8 +831,8 @@ export function buildChatItems(
         if (sp === "user") {
           canceledRound = interruptsRound;
           // Only the interrupt's own line closes this round. A plain follow-up
-          // resets nothing here: the cancel error still belongs to the round the
-          // interrupt cut, and must not be mistaken for a bare Stop at result.
+          // leaves canceledByInterrupt alone: the cancel error still belongs to
+          // the round the interrupt cut, so it must not read as a bare Stop.
           if (interruptsRound) canceledByInterrupt = true;
         }
         // `task_started` and `result` own the round lifecycle. A prompt that
@@ -1257,6 +1261,9 @@ export function buildChatItems(
         const errMsg = String(p.message ?? "error");
         if (isCancelNoise(errMsg)) {
           canceledRound = true;
+          // A worker's cancel is process chatter on the parent log; only the
+          // conversation's own cancel can close the round this transcript shows.
+          if (isUserFacingEvent(p, speaker, hostSpeaker)) bareStopRound = true;
           break;
         }
         flushStream(true, "error");
@@ -1276,6 +1283,7 @@ export function buildChatItems(
         // A new round has its own cancel story; an earlier interrupt no longer
         // owns the cancel error this one may end with.
         canceledByInterrupt = false;
+        bareStopRound = false;
         break;
       case "result": {
         // Orchestrator / adapter result closes the turn: finalize any trailing
@@ -1292,10 +1300,17 @@ export function buildChatItems(
         // own: the toast said so once, and a reload left an answer that simply
         // stops. Close the round in the transcript, after the text the stop cut,
         // keyed so a repeated copy of the result adds no second line. Only a
-        // round this window saw start is claimed: a mid-round window has
-        // process rows above the result but no evidence of a round to close,
-        // and a Stop there is not ours to annotate.
-        if (canceledRound && !canceledByInterrupt && roundStarted) {
+        // failed result of a round this window saw start is claimed: a
+        // mid-round window has process rows above the result but no evidence of
+        // a round to close, and a cancel the agent recovered from (a steer) is
+        // not a stop.
+        if (
+          bareStopRound &&
+          !canceledByInterrupt &&
+          p.is_error === true &&
+          roundStarted &&
+          isUserFacingEvent(p, speaker, hostSpeaker)
+        ) {
           const stopKey = `stopped-${ev.seq}`;
           if (!items.some((item) => item.kind === "meta" && item.key === stopKey)) {
             items.push({ kind: "meta", key: stopKey, label: t("chat.stoppedNote") });
@@ -1303,6 +1318,7 @@ export function buildChatItems(
         }
         canceledRound = false;
         canceledByInterrupt = false;
+        bareStopRound = false;
         roundStarted = false;
         break;
       }

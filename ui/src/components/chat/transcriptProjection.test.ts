@@ -525,14 +525,92 @@ describe("transcriptProjection", () => {
 
   it("does not add a stop mark when the interrupt path already marked the round", () => {
     // The composer's interrupt sent a message that already closed the round.
-    // The cancel error that follows is the same stop, not a second one.
+    // The cancel error that follows is the same stop, not a second one. The
+    // round really started, so the roundStarted guard is not what suppresses
+    // the second line here.
     const items = buildChatItems(
-      [...interruptEvents(), ev(4, "error", { message: "canceled" }), ev(5, "result", { is_error: true })],
+      [
+        ev(1, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "write the plan" }],
+        }),
+        ev(2, "task_started", {}),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "kin",
+          partial: true,
+          message_id: "m1",
+          index: 0,
+          content: [{ type: "text", text: "here is the first half" }],
+        }),
+        ev(4, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "stop, go another way" }],
+          source: "interrupt",
+          interrupted: true,
+        }),
+        ev(5, "error", { message: "canceled" }),
+        ev(6, "result", { is_error: true }),
+      ],
       "kin",
     );
     const labels = items.flatMap((item) => (item.kind === "meta" ? [item.label] : []));
     expect(labels.filter((label) => label === t("chat.stoppedNote"))).toHaveLength(0);
     expect(labels.filter((label) => label === t("chat.interruptedNote"))).toHaveLength(1);
+  });
+
+  it("does not mark a worker's cancel as the round stopping", () => {
+    // Delegated workers persist their events on the parent log, stamped
+    // task-only. A step canceled from the plan table is not the conversation
+    // stopping, and its result must not close the host round.
+    const worker = { speaker: "worker-1", visibility: { user: false, task: true } };
+    const items = buildChatItems(
+      [
+        ev(1, "task_started", worker),
+        ev(2, "error", { ...worker, message: "canceled" }),
+        ev(3, "result", { ...worker, is_error: true }),
+      ],
+      "kin",
+    );
+    expect(items.filter((item) => item.kind === "meta")).toHaveLength(0);
+  });
+
+  it("does not let a worker's cancel label the host round stopped", () => {
+    // The worker's cancel is task-only chatter, but the host's own failed
+    // result is user-facing. Without attributing the cancel to its emitter,
+    // the host failure would borrow the worker's stop and read as a Stop.
+    const items = buildChatItems(
+      [
+        ev(1, "message", { role: "user", content: [{ type: "text", text: "go" }] }),
+        ev(2, "task_started", {}),
+        ev(3, "error", {
+          message: "canceled",
+          speaker: "worker-1",
+          visibility: { user: false, task: true },
+        }),
+        ev(4, "result", { is_error: true }),
+      ],
+      "kin",
+    );
+    expect(items.filter((item) => item.kind === "meta")).toHaveLength(0);
+  });
+
+  it("does not mark a round stopped when the agent recovered from the cancel", () => {
+    // Steering aborts emit the same cancel noise, but the round carries on and
+    // ends successfully. That is not a Stop, so it gets no closing line.
+    const items = buildChatItems(
+      [
+        ev(1, "message", { role: "user", content: [{ type: "text", text: "go" }] }),
+        ev(2, "task_started", {}),
+        ev(3, "message", { role: "assistant", speaker: "kin", content: [{ type: "text", text: "ok" }] }),
+        ev(4, "error", { message: "canceled" }),
+        ev(5, "result", { is_error: false }),
+      ],
+      "kin",
+    );
+    expect(items.filter((item) => item.kind === "meta")).toHaveLength(0);
   });
 
   it("does not add a stop mark with no round above it", () => {
