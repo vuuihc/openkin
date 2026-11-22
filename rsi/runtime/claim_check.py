@@ -401,12 +401,14 @@ def main(argv):
     returncode, actual, error = run_command(worktree, command)
     if error is not None:
         return fail(error)
-    if returncode != 0 and not collapse(actual):
+    if not collapse(actual):
         # A command killed before it reached a verdict (out of memory, a signal)
-        # prints nothing. That is not a red claim, so it gets one retry; only a
-        # second silent run fails, in words that say the command never answered.
-        # Anything printed keeps today's single-run path below, so a genuinely
-        # red claim is never retried and cannot pass on a second look.
+        # prints nothing, and a wrapper that ends in `exit $rc` can print nothing
+        # while exiting 0. Neither is a red claim, so the first silent result gets
+        # one retry whatever its exit code; only a second silent run fails, in
+        # words that say the command never answered. Anything printed keeps
+        # today's single-run path below, so a genuinely red claim is never
+        # retried and cannot pass on a second look.
         returncode, actual, error = run_command(worktree, command)
         if error is not None:
             return fail(error)
