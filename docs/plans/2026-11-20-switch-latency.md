@@ -7,14 +7,23 @@ opens from. At `e2c96089` the same script also splits the area leg on the page
 clock: 10/10 runs attributed, and the render after the answer owns nearly all
 of the time (table 2).
 
+**The area leg moved; the numbers below did not.** `mac-area-to-area` used to
+switch conversations → projects. Projects retired with its collection
+(`ui/src/lib/areas.ts` now lists only conversations, routines, settings), so the
+leg was re-pointed in place at conversations → routines. Every number in this
+document was measured on the old conversations → projects leg; it is kept as
+history and labelled **retired leg**, and the new leg's baseline is whatever
+`switch-latency.mjs` prints now.
+
 ## Current position (现在的位置)
 
 | Item | State |
 |---|---|
 | `rsi/runtime/ux/switch-latency.mjs` | green — boots, seeds, times three legs; `node --check` passes |
+| `mac-area-to-area` leg | re-pointed to conversations → routines; Projects retired with its collection, so the numbers below are the **retired leg**'s and are not comparable with the new leg's |
 | Real end-to-end run (10 runs/leg) | green — table 1 below; JSON at `rsi/state/switch-latency/switch-latency.json` |
-| Attribution split (`mac-area-to-area`) | green — 10/10 runs attributed at `e2c96089`; table 2 below |
-| Hermetic attribution test | green — `rsi/runtime/tests/test-switch-attribution.sh`, 5 cases, wired into `check.sh` |
+| Attribution split (`mac-area-to-area`) | green — 10/10 runs attributed at `e2c96089` on the retired leg; table 2 below |
+| Hermetic attribution test | green — `rsi/runtime/tests/test-switch-attribution.sh`, 6 cases, wired into `check.sh` |
 | Guard (a) `--break-target` | green — exit 2, `GUARD (a) destination-never-appeared` |
 | Guard (b) `--break-shell` | green — exit 2, `GUARD (b) shell-rebuilt` |
 | Guard (c) splash/blank/error | green — `--break-splash`, `--break-alert`, `--break-blank` each exit 2 with `GUARD (c) splash-blank-or-error` and their own detail |
@@ -42,11 +51,12 @@ lower bound.
 | Leg | Viewport | Press | Destination (its own content) |
 |---|---|---|---|
 | `mac-chat-to-chat` | 1100x760 | `[data-session-row]:has-text('[seed] Failed migration')` | `[role=region][tabindex='-1']:has-text('[seed] fail: explain why the migration stopped.')` |
-| `mac-area-to-area` | 1100x760 | `[data-area="projects"]` | `[data-projects-list]` (the fetched project rows) **and** `[data-area="projects"][aria-current="page"]` |
+| `mac-area-to-area` | 1100x760 | `[data-area="routines"]` | `[data-area="routines"][aria-current="page"]` (the nav's own state) **and** `ul li:has-text('[seed] Morning check-in')` (the fetched routine row — the last selector is the content gate) |
 | `phone-list-to-chat` | 390x844 | `[data-session-row]:has-text('[seed] Morning planning')` | `[role=region][tabindex='-1']:has-text('[seed] change: summarise the three things worth doing today.')` |
 
 `mac-area-to-area` starts from the conversations area each run; the reset
-(projects → conversations) is not measured. The phone leg returns through the
+(routines → conversations, waiting for the area to be current and the seeded
+rows to be back) is not measured. The phone leg returns through the
 app's own Back control (`header button[aria-label='返回'|'Back']`), never
 `page.goto`, and waits for the list's `input[type=search]`; that return is not
 measured either. `mac-chat-to-chat` resets by opening `[seed] Morning planning`
@@ -76,6 +86,9 @@ Guard runs pass `--out "$(mktemp -d)"`: they write a guard JSON with no
 numbers, and must never replace a real measurement file.
 
 ## Table 1 — measured 2026-11-20
+
+The `mac-area-to-area` row here is the **retired leg** (conversations →
+projects): these numbers are history, not the current leg's baseline.
 
 Nearest-rank p50/p90: with 10 runs p50 is the 5th smallest and p90 the 9th; no
 interpolation is invented. Every value below comes from
@@ -121,7 +134,13 @@ p50/p90 are reported as measured over the whole sample.
 The worktree's `web/dist/index.html` was unchanged by the build (same hashed
 entry chunk), so nothing under `web/dist/` is part of this change.
 
-## Table 2 — attribution, 2026-11-20
+## Table 2 — attribution, retired leg, 2026-11-20
+
+**Retired leg.** Every number in this table was measured on conversations →
+projects: the P12 cut took that retired leg to p50 61.9 / p90 66.0
+(`rsi/GOAL.md`) and this table's earlier split was p50 81.6 / p90 135.9, so
+neither is comparable with a number from the new conversations → routines leg —
+the new baseline is whatever the command prints now.
 
 `switch-latency.mjs` now splits a measured press on the page's clock. The
 page's resource timeline is cleared before the press; after `t1` the first
@@ -192,7 +211,7 @@ cross-run delta, is what table 2 supports.
 - **Real conversations.** The seeded transcripts are one prompt and one answer;
   a long real transcript may render, virtualise or restore scroll differently.
 - **The reverse legs.** Morning planning → Failed migration, conversations →
-  projects, and list → chat are measured. The opposite directions and
+  routines, and list → chat are measured. The opposite directions and
   alternating areas are not.
 - **The Electron shell and the packaged build.** Chrome headless drives the
   console directly; the desktop shell's boot surface, its navigation and the
@@ -232,10 +251,13 @@ go build -o ./kin ./cmd/kin
 node rsi/runtime/ux/switch-latency.mjs --kin ./kin --runs 10
 
 # Claim check: the JSON's numbers and attribution lines, no daemon needed.
+# The output below is the 2026-11-20 retired-leg run; a fresh run prints the
+# new conversations → routines leg's rows and split instead.
 node rsi/runtime/ux/switch-latency.mjs --print rsi/state/switch-latency/switch-latency.json
 # -> attr mac-area-to-area attributed 10/10 dispatch p50 1.8 p90 1.9 · read p50 1.3 p90 1.5 · render p50 78.6 p90 133.1
 
-# Hermetic: the printer's attribution contract (5 cases, no daemon, no browser).
+# Hermetic: the printer's attribution contract and the legs' area tokens
+# (6 cases, no daemon, no browser).
 bash rsi/runtime/tests/test-switch-attribution.sh
 
 # Guard (a): a destination that never appears.
