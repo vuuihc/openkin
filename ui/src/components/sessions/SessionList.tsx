@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -6,12 +7,15 @@ import {
   useState,
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
+  ApiError,
   archiveTask,
   ensureProject,
+  getOnePager,
   isTerminal,
   listAgentSessionsPage,
   listProjects,
@@ -94,6 +98,7 @@ import {
 import { mergeTaskTail } from "../../lib/taskTail";
 import ActionSheet from "../ui/ActionSheet";
 import Button from "../ui/Button";
+import ProjectInstructionsBlock from "../project/ProjectInstructionsBlock";
 import { SessionListSkeleton } from "../Skeleton";
 import HighlightedText from "../HighlightedText";
 import {
@@ -171,6 +176,16 @@ type SessionDrag = {
   offsetY: number;
 };
 
+/** One project's work-instructions read, cached under the project id. */
+type ProjectInstructionsEntry = {
+  /** The answer has landed at least once; cached text paints on re-expand. */
+  loaded: boolean;
+  loading: boolean;
+  /** The newest read failed; the block shows its sentence and Retry. */
+  failed: boolean;
+  markdown: string;
+};
+
 export default function SessionList({
   shell,
   activeTaskId = null,
@@ -184,6 +199,7 @@ export default function SessionList({
   const { locale } = useLocale();
   const pushToast = useAppStore((s) => s.pushToast);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
+  const wsStatus = useAppStore((s) => s.wsStatus);
   const { deleteOne, deleteMany } = useSessionDeletion();
   const navigate = useNavigate();
   const location = useLocation();
@@ -283,6 +299,16 @@ export default function SessionList({
   const dragStartTop = useRef<number | null>(null);
   const [prefsTick, setPrefsTick] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
+  // Work instructions are read lazily, once per project, when its row is
+  // expanded. Keyed by project id so an answer can only ever paint under the
+  // heading that asked for it.
+  const [projectInstructions, setProjectInstructions] = useState<
+    Record<string, ProjectInstructionsEntry>
+  >({});
+  // One generation per project id. A re-expand refreshes, and the newer read
+  // owns the cache; a late answer from the previous one is dropped rather than
+  // overwriting fresher text.
+  const instructionsGeneration = useRef(new Map<string, number>());
   const [projectMenu, setProjectMenu] = useState<{
     bucket: PhoneProjectBucket;
     archived: boolean;
@@ -417,6 +443,62 @@ export default function SessionList({
    *  never to apply it to someone else's filesystem. */
   const bucketIsLocal = (bucket: PhoneProjectBucket): boolean =>
     !bucket.deviceId || (selfDeviceId !== "" && bucket.deviceId === selfDeviceId);
+  const offline = wsStatus === "disconnected";
+  const readProjectInstructions = useCallback((projectId: string) => {
+    const generation = (instructionsGeneration.current.get(projectId) ?? 0) + 1;
+    instructionsGeneration.current.set(projectId, generation);
+    setProjectInstructions((current) => {
+      const cached = current[projectId];
+      return {
+        ...current,
+        // A cached answer keeps painting while the refresh is out; only the
+        // first read of a block shows its skeleton (TASTE 15).
+        [projectId]: {
+          loaded: cached?.loaded ?? false,
+          loading: true,
+          failed: false,
+          markdown: cached?.markdown ?? "",
+        },
+      };
+    });
+    getOnePager(projectId)
+      .then((onePager) => {
+        if (instructionsGeneration.current.get(projectId) !== generation) return;
+        setProjectInstructions((current) => ({
+          ...current,
+          [projectId]: {
+            loaded: true,
+            loading: false,
+            failed: false,
+            markdown: onePager.markdown,
+          },
+        }));
+      })
+      .catch((error: unknown) => {
+        if (instructionsGeneration.current.get(projectId) !== generation) return;
+        // A project with no ONE_PAGER.md yet has an empty section, not a failed
+        // read (the cover's rule): the block offers the write launcher.
+        if (error instanceof ApiError && error.status === 404) {
+          setProjectInstructions((current) => ({
+            ...current,
+            [projectId]: { loaded: true, loading: false, failed: false, markdown: "" },
+          }));
+          return;
+        }
+        setProjectInstructions((current) => {
+          const cached = current[projectId];
+          return {
+            ...current,
+            [projectId]: {
+              loaded: cached?.loaded ?? false,
+              loading: false,
+              failed: true,
+              markdown: cached?.markdown ?? "",
+            },
+          };
+        });
+      });
+  }, []);
   const lastLoadedTasks = useRef<readonly Task[]>([]);
   useEffect(() => {
     if (taskList.loaded) lastLoadedTasks.current = taskList.data;
@@ -768,6 +850,22 @@ export default function SessionList({
 
   function renderBucket(bucket: PhoneProjectBucket, stateKey: string) {
     const imported = isImportedBucket(bucket.key);
+    // The reading half of the project cover moves into the list. Only this
+    // machine's project record can answer a one-pager: a remote copy of the
+    // same path, the synthetic pinned / no-project buckets and the imported
+    // index have no cover here.
+    const instructionsProject =
+      bucket.cwd && !imported && bucketIsLocal(bucket)
+        ? (projects.find((project) =>
+            (project.roots ?? []).some((root) => bucketKeyFor(root) === bucket.key),
+          ) ?? null)
+        : null;
+    // The launcher lands on the same draft "New conversation in …" opens, with
+    // the edit request in the URL so even a new tab receives it.
+    const draftQuery = listStateQuery(params, { cwd: bucket.cwd });
+    const instructionsHref = instructionsProject
+      ? `${DRAFT_PATH}${draftQuery}${draftQuery.includes("?") ? "&" : "?"}q=${encodeURIComponent(tr("projects.instructionsPrompt"))}`
+      : null;
     return (
       <ProjectBucket
         key={stateKey}
@@ -840,6 +938,32 @@ export default function SessionList({
         onNewSession={() => newSessionIn(bucket)}
         onArchiveProject={() => archiveProjectConfirmed(bucket)}
         onProjectMenu={() => setProjectMenu({ bucket, archived: scope === "archived" })}
+        offline={offline}
+        instructionsProjectId={instructionsProject?.id ?? null}
+        instructions={instructionsProject ? projectInstructions[instructionsProject.id] : undefined}
+        instructionsHref={instructionsHref}
+        onReadInstructions={readProjectInstructions}
+        onEditInstructions={(event) => {
+          if (!instructionsHref) return;
+          // Modifier clicks stay the browser's: the href itself carries the
+          // cwd and the request, so a new tab opens the same draft.
+          if (
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          )
+            return;
+          event.preventDefault();
+          runGuardedNavigation(() => {
+            setDraftMachine("");
+            setDraftCwd(bucket.cwd);
+            phonePush(navigate, location, instructionsHref, {
+              state: draftEntryState(listUrlFor(location.search)),
+            });
+          });
+        }}
       />
     );
   }
@@ -1850,6 +1974,12 @@ function ProjectBucket({
   onNewSession,
   onArchiveProject,
   onProjectMenu,
+  instructionsProjectId,
+  instructions,
+  instructionsHref,
+  onReadInstructions,
+  onEditInstructions,
+  offline,
 }: {
   bucket: PhoneProjectBucket;
   machines: readonly Machine[];
@@ -1902,6 +2032,14 @@ function ProjectBucket({
   onNewSession: () => void;
   onArchiveProject: () => void;
   onProjectMenu: () => void;
+  /** The local project record this bucket is, or null when it has none. */
+  instructionsProjectId: string | null;
+  instructions?: ProjectInstructionsEntry;
+  /** The edit draft, or null when the bucket has no record to read. */
+  instructionsHref: string | null;
+  onReadInstructions: (projectId: string) => void;
+  onEditInstructions: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
+  offline: boolean;
 }) {
   const tr = useT();
   const headingRef = useRef<HTMLButtonElement | null>(null);
@@ -1930,6 +2068,13 @@ function ProjectBucket({
   // header gap, a finger keeps the roomier one it has always had.
   const dense = shell === "sidebar" && !coarse;
   const pinnedProject = pinnedProjects.some((cwd) => bucketKeyFor(cwd) === bucket.key);
+  const instructionsTitleId = useId();
+  // Reading is lazy: a collapsed bucket issues no one-pager read. Re-expanding
+  // paints the cached answer while this refresh is out.
+  useEffect(() => {
+    if (collapsed || !instructionsProjectId) return;
+    onReadInstructions(instructionsProjectId);
+  }, [collapsed, instructionsProjectId, onReadInstructions]);
 
   return (
     <section className="pb-1">
@@ -2119,6 +2264,23 @@ function ProjectBucket({
           data-sidebar-indent={shell === "sidebar" ? "session" : undefined}
           className={shell === "sidebar" ? (dense ? "pl-3" : "pl-4") : undefined}
         >
+          {instructionsProjectId ? (
+            <div className="pb-2">
+              <ProjectInstructionsBlock
+                titleId={instructionsTitleId}
+                loaded={instructions?.loaded ?? false}
+                loading={instructions?.loading ?? true}
+                loadError={instructions?.failed ? tr("projects.summaryLoadFailed") : null}
+                markdown={instructions?.markdown ?? ""}
+                offline={offline}
+                launcherHref={instructionsHref}
+                launcherLabel={tr("projects.instructionsAsk")}
+                launcherReason=""
+                onLauncherClick={onEditInstructions}
+                onRetry={() => onReadInstructions(instructionsProjectId)}
+              />
+            </div>
+          ) : null}
           {rows.map((row) => (
             <SessionRow
               key={row.key}
