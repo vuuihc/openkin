@@ -36,7 +36,10 @@ printf 'brief\n' > "$T/brief.md"
 # lane.sh asks lanes.py host-ok before the guard, and on a pressured Mac that defers the lane with
 # exit 0. Pin every probe: the env knobs for load/mem/swap (as the sibling lane suites do) and stubs
 # for sysctl/vm_stat, because kern.memorystatus_vm_pressure_level has no env knob and is ≥4 on a
-# pressured host. Without this the gate can go red before the guard is ever reached.
+# pressured host. run_lane installs the stubs into the case's $HOME/.local/bin instead of prefixing
+# the inherited PATH: lane.sh sources common.sh, which REPLACES PATH with a literal list, so only a
+# directory on that list can shadow the real probes — $HOME/.local/bin is on it, ahead of
+# /usr/bin:/sbin. Without this the gate can go red before the guard is ever reached.
 cat > "$T/bin/sysctl" <<'SH'
 #!/bin/sh
 case " $* " in
@@ -124,10 +127,13 @@ PY
 # run_lane <case> <ctrl> <home> <git-binary> — run the claimed lane hermetically.
 run_lane() {
   local case="$1" ctrl="$2" home="$3" gitbin="$4"
+  # common.sh replaces PATH outright, so the stubs must sit on the literal list it exports;
+  # $HOME/.local/bin is on it, ahead of /usr/bin:/sbin, and shadows the live sysctl/vm_stat.
+  mkdir -p "$home/.local/bin" && cp "$T/bin/sysctl" "$T/bin/vm_stat" "$home/.local/bin/" \
+    || bad "$case: cannot install the host-pressure stubs"
   HOME="$home" RSI_CTRL="$ctrl" GIT="$gitbin" RSI_MAX_LANES=2 RSI_LOAD_MAX=9999 \
     RSI_MEM_AVAIL_MIN_MB=0 RSI_SWAP_USED_MAX_MB=999999999 \
     RSI_LANE2_MEM_MIN_MB=0 RSI_LANE2_PRESSURE_MAX=99 RSI_LANE2_SWAP_FREE_MIN_MB=0 \
-    PATH="$T/bin:$PATH" \
     RSI_RUNS="$T/runs" bash "$LANE" run 1 >"$T/$case.out" 2>"$T/$case.err"
   RC=$?
 }
