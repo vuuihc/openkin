@@ -11,8 +11,10 @@
 | `KIN-CONTINUE-004` | covered | P0 | J1、J2 | 手机 | 手机列表：按最近活动排设备、每设备新建、搜索收成放大镜 | 4 |
 | `KIN-CONTINUE-005` | approved | P0 | J1、J2 | 手机 | 手机底栏：玻璃与纯图标，四个区域共用 | 2 |
 | `KIN-CONTINUE-006` | blocked | P0 | J1 | 手机 | 手机开屏：先用自己的控制台打开，新版本在后台整套换 | 0 |
+| `KIN-CONTRACT-001` | approved | P0 | J1、J2、J4、J6 | Mac/手机 | 只留四个页面：列表、任务详情、例行任务、设置 | 2 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
 | `KIN-PROJECT-002` | covered | P0 | J4 | Mac/手机 | 项目的工作目录：看清这几个目录为什么在一起，并能增删 | 5 |
+| `KIN-QUALITY-001` | covered | P0 | J1、J2 | Mac/手机 | 读完整条回答，再接着问（820 优先） | 4 |
 | `KIN-RESULT-002` | covered | P0 | J4 | Mac/手机 | 读懂文件、预览并返回原对话 | 10 |
 | `KIN-RESULT-003` | covered | P0 | J2、J1 | Mac/手机 | 对改动逐行评论并发回对话 | 5 |
 | `KIN-AGENTS-001` | covered | P1 | J6 | Mac/手机 | 机器上的 agent：装了什么、能不能用、用掉多少 | 7 |
@@ -20,11 +22,11 @@
 | `KIN-PROJECT-001` | covered | P1 | J4 | Mac/手机 | 一个项目的封面：看清这里发生过什么，并从这里继续 | 6 |
 | `KIN-PROJECT-003` | covered | P1 | J4 | Mac/手机 | 项目的工作说明：新对话一开始就知道这里怎么干活 | 7 |
 | `KIN-RESULT-001` | covered | P1 | J4 | Mac/手机 | 看它改了什么 | 4 |
-| `KIN-ROUTINE-001` | covered | P1 | J4 | Mac/手机 | 让它按时跑：把一件事交给机器重复做 | 6 |
+| `KIN-ROUTINE-001` | covered | P1 | J4 | Mac/手机 | 让它按时跑：把一件事交给机器重复做 | 5 |
 | `KIN-SETTINGS-001` | covered | P1 | J6 | Mac/手机 | 改默认设置 | 9 |
 | `KIN-SETTINGS-002` | approved | P1 | J1、J6 | Mac | 桌面壳一键升级 | 3 |
 | `KIN-START-001` | covered | P1 | J3 | Mac/手机 | 新建一段对话 | 6 |
 
 ## 汇总
 
-approved 3 · blocked 1 · covered 15
+approved 4 · blocked 1 · covered 16

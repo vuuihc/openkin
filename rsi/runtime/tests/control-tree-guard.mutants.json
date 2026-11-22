@@ -1,0 +1,23 @@
+[
+  {
+    "label": "a lane never refuses a worktree that resolves to the control checkout",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_refuses_worktree_that_resolves_to_control_tree bash rsi/runtime/tests/test-lane-control-tree-guard.sh",
+    "old": "if [ \"$WT_REAL\" = \"$CTRL_REAL\" ]; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "a lane compares the raw spellings instead of the resolved paths",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_symlinked_spelling_refused_via_realpath bash rsi/runtime/tests/test-lane-control-tree-guard.sh",
+    "old": "if [ \"$WT_REAL\" = \"$CTRL_REAL\" ]; then",
+    "new": "if [ \"$WT\" = \"$RSI_CTRL\" ]; then"
+  },
+  {
+    "label": "the control-tree guard suite is missing from the gate wiring",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-lane-control-tree-guard.sh || return 1\n",
+    "new": ""
+  }
+]

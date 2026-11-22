@@ -3,20 +3,19 @@ import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { listProjects, type Project } from "./api/client";
 import App from "./App";
 import { setLocale } from "./i18n";
-import { resetProjectsCache } from "./lib/projectsCache";
 import { useAppStore } from "./store/appStore";
 
 /**
- * N2: the four areas own the console's URLs.
+ * N2 / KIN-CONTRACT-001: the three areas own the console's URLs.
  *
  * The route table is the thing under test, so the pages are markers and the
  * shell is a passthrough — a test that mounts the real sidebar would be asking
  * whether the sidebar works, and would fail for reasons this slice did not
- * change. The one real page is the new `/projects` host, because "not blank"
- * is its acceptance.
+ * change. `/projects` is the exception: its acceptance is that a bookmark
+ * lands on the real conversation list, so that redirect renders the real
+ * `SessionsRoute`.
  */
 
 vi.mock("./api/client", async (importOriginal) => {
@@ -26,7 +25,6 @@ vi.mock("./api/client", async (importOriginal) => {
     getToken: vi.fn(() => "test-token"),
     hasStoredToken: vi.fn(() => true),
     getRoutineUnreadCount: vi.fn(async () => ({ count: 0 })),
-    listProjects: vi.fn(async () => [] as Project[]),
   };
 });
 
@@ -35,6 +33,13 @@ vi.mock("./api/useLiveResources", () => ({
     data: { approvals: [], questions: [] },
     loaded: true,
     error: null,
+  }),
+  useTaskList: () => ({
+    data: [],
+    loaded: true,
+    error: null,
+    pageFull: false,
+    loading: false,
   }),
 }));
 
@@ -76,17 +81,6 @@ vi.mock("./pages/RoutinesPage", () => ({
   default: () => createElement("div", null, "routines page"),
 }));
 
-const PROJECT: Project = {
-  id: "p1",
-  name: "alpha",
-  mode: "ship",
-  status: "active",
-  created_at: 1,
-  updated_at: 2,
-  last_active_at: 3,
-  roots: ["/work/alpha"],
-};
-
 function renderAt(path: string) {
   return render(createElement(MemoryRouter, { initialEntries: [path] }, createElement(App)));
 }
@@ -96,25 +90,26 @@ beforeEach(() => {
   // catalogue, so the test says which one it is reading.
   setLocale("en");
   useAppStore.setState({ auth: { status: "ok" } });
-  vi.mocked(listProjects).mockResolvedValue([]);
-  // This file mounts `/projects` more than once; the kept block must not leak
-  // from one route test into the next.
-  resetProjectsCache();
+  // The phone shape: `SessionsRoute` is the list where there is no sidebar, so
+  // the redirect test reads the list the reader actually lands on.
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
 });
 
 describe("area routes", () => {
-  it("serves the projects collection at /projects", async () => {
+  it("sends /projects to the sessions list in place of the retired collection", async () => {
     renderAt("/projects");
-    expect(screen.getByRole("heading", { name: "Projects" })).toBeTruthy();
-    // Not blank: an empty collection says so rather than rendering nothing.
-    expect(await screen.findByText(/No covers yet/)).toBeTruthy();
-  });
-
-  it("lists a loaded project at its detail URL", async () => {
-    vi.mocked(listProjects).mockResolvedValue([PROJECT]);
-    renderAt("/projects");
-    const link = await screen.findByRole("link", { name: /alpha/ });
-    expect(link.getAttribute("href")).toBe("/projects/p1");
+    // The real list, empty, says so; the retired collection's heading is gone.
+    expect(await screen.findByText("No chats yet")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Projects" })).toBeNull();
   });
 
   // The collection route must not swallow the detail route: `/projects/:id`

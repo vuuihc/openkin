@@ -17,7 +17,8 @@
 # through. Hermetic: throwaway git trees under mktemp -d, a bare origin per case so origin/main
 # resolves, RSI_CTRL redirected into the temp dir (common.sh derives STATE and RSI_DIR from it), a
 # stubbed lane-pr.sh and a copy of the real claim_check.py at the deployed path. No network, no
-# gh, no npm, no model calls. Prints "PASS <case>" per case and exits non-zero on the first
+# real gh, no npm, no model calls. Live-body cases use RSI_GH and run the production push/PR
+# tail against the bare origin. Prints "PASS <case>" per case and exits non-zero on the first
 # failure. Set RSI_TEST_ONLY=<case name> to run one case (used to show the red run per case).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -26,11 +27,15 @@ REPO="$(cd "$RUNTIME/../.." && pwd)"
 LANE="$RUNTIME/lane.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 CTRL="$T/ctrl"; mkdir -p "$CTRL/rsi/state/lanes" "$CTRL/rsi/runtime"
-# lane.sh sources $RSI_DIR/runtime/lane-pr.sh before any seam; the seam reads claim_check.py from
-# the same deployed path, so a copy keeps the suite hermetic and proves the real rule runs.
+# lane.sh sources $RSI_DIR/runtime/lane-pr.sh before any seam; each seam reads its checker from
+# the same deployed path, so a copy keeps the suite hermetic and proves the real rules run. The
+# red-first seam sits in the same pre-push span this suite extracts, so it needs its checker too
+# (a body with no Claims block is NA, which is what these claim-check cases exercise).
 printf '#!/bin/bash\n# stub: the seams never create a PR\n' > "$CTRL/rsi/runtime/lane-pr.sh"
 cp "$REPO/rsi/runtime/claim_check.py" "$CTRL/rsi/runtime/claim_check.py" \
   || { echo "FAIL cannot copy claim_check.py" >&2; exit 1; }
+cp "$REPO/rsi/runtime/red_first.py" "$CTRL/rsi/runtime/red_first.py" \
+  || { echo "FAIL cannot copy red_first.py" >&2; exit 1; }
 R=""   # the worktree the current case works on
 BODY=""  # the PR body the current case passes to the seam
 ONLY="${RSI_TEST_ONLY:-}"
@@ -252,6 +257,309 @@ case_clean_tree_with_built_assets_is_na() {
   seam_output_has 'CLAIM_LANE_NA:' || fail "clean: want NA, got: $OUT"
 }
 
+# claim_fail_handoff — run lane.sh's pre-push hand-off verbatim: the prose-delivery claim seam (the
+# guarded --claim-check-check call plus its evidence write) and then the push + PR tail. awk lifts
+# that span out of lane.sh so the case drives the production lines, not a copy. Only the variables
+# the block reads before its own exit are supplied: a stubbed `finish` records the note, a stubbed
+# `gh` keeps the PR path offline, and the worktree's own bare origin accepts the green re-run's
+# push. Sets PH_RC (the exact status the lane's `exit 1` / `exit 0` produced).
+# Named apart from the live-body pr_handoff() fixture below: both branches added a helper under
+# that name, and the two drive different tails of lane.sh.
+claim_fail_handoff() { # <body-file>
+  local body="$1" tail_file="$T/push-tail.sh"
+  # Stop before the live-body check main added: it is driven by pr_handoff() and bounded_run,
+  # neither of which belongs to the claim seam these cases assert.
+  awk '/^# A prose delivery hands off only when/ { on = 1 } \
+       on && /^# Only the body the merge lane will read/ { exit } on { print }' "$LANE" > "$tail_file"
+  [ -s "$tail_file" ] || fail "handoff: cannot extract the claim/push tail from lane.sh"
+  ! grep -q -- '--pr-body-check' "$tail_file" \
+    || fail "handoff: the claim tail runs into the live-body check; adjust the extraction boundary"
+  printf '#!/bin/bash\nexit 0\n' > "$T/gh"; chmod +x "$T/gh"
+  mkdir -p "$CTRL/rsi/state/lanes" "$T/home" "$T/runs"
+  cp "$body" "$CTRL/rsi/state/lanes/1.pr-body.md"
+  : > "$T/ph-finish.log"
+  (
+    RSI_CTRL="$CTRL"; HOME="$T/home"; export RSI_CTRL HOME
+    N=1
+    SELF="$LANE"
+    WT="$R"
+    BR="rsi/handoff"
+    ITEM="R-claim-fail-output"
+    SLUG="handoff"
+    STATE="$CTRL/rsi/state"
+    RSI_DIR="$CTRL/rsi"
+    RUNS="$T/runs"
+    STATUS_NOTE_FILE="$STATE/lanes/1.pr-body.md"
+    GIT="$(command -v git)"
+    GH="$T/gh"
+    GH_REPO="vuuihc/openkin"
+    MODE=new; TIMEDOUT=0; W_MIN=1; COST=0; SWEPT_N=0; M_WORKER=worker
+    WORKER_TITLE=""; HDR="$T/hdr"; LK="$T/lk"; PRN=""; PRURL=""
+    finish() { printf 'FINISH %s|%s|%s\n' "$1" "${2:-}" "${3:-}" >> "$T/ph-finish.log"; }
+    count_fail() { :; }; count_ok() { :; }; count_timeout() { :; }; scorecard_row() { :; }
+    gh_pr_create() { printf 'https://github.com/%s/pull/77\n' "$GH_REPO"; }
+    . "$tail_file"
+  )
+  PH_RC=$?
+}
+
+# R-claim-fail-output: a red claim verdict used to survive only as a flattened one-line note, so
+# the reader could not tell a genuine red from a slow or truncated run. The lane must keep the
+# verdict plus the command's own tail — including its exit code — on disk, next to the other lane
+# artefacts, exactly as merge.sh already does for its claim gate.
+case_claim_fail_keeps_real_output() {
+  local claim="$CTRL/rsi/state/lanes/1.claim.txt"
+  new_repo claimfail
+  change docs/plans/gap-log.md '- a sentence the claim cannot prove'
+  body "Claim check: printf 'REAL-OUTPUT-42\n'" \
+       "Claim output:" \
+       "a line the command never prints"
+  rm -f "$claim"
+  claim_fail_handoff "$BODY"
+  [ "$PH_RC" -eq 1 ] || fail "claimfail: claim_fail_handoff exit $PH_RC, want 1"
+  [ -f "$claim" ] || fail "claimfail: $claim was not written"
+  grep -qF "claimed output is not in the command's real output" "$claim" \
+    || fail "claimfail: the verdict is not in the evidence: $(cat "$claim")"
+  grep -qF 'REAL-OUTPUT-42' "$claim" \
+    || fail "claimfail: the command's real output is not in the evidence: $(cat "$claim")"
+  grep -qF 'exit 0' "$claim" \
+    || fail "claimfail: the command's exit code is not in the evidence: $(cat "$claim")"
+  grep -qF "$claim" "$T/ph-finish.log" \
+    || fail "claimfail: the failure note does not point at the evidence: $(cat "$T/ph-finish.log")"
+}
+
+# The evidence is the bounded tail (tail(actual)), never a dump: a command that floods output must
+# still leave a small, readable file.
+case_claim_fail_real_output_is_bounded() {
+  local claim="$CTRL/rsi/state/lanes/1.claim.txt" size
+  new_repo bounded
+  change docs/plans/gap-log.md '- a command with a long output'
+  body "Claim check: seq 1 5000" "Claim output:" "999999"
+  rm -f "$claim"
+  claim_fail_handoff "$BODY"
+  [ "$PH_RC" -eq 1 ] || fail "bounded: claim_fail_handoff exit $PH_RC, want 1"
+  [ -f "$claim" ] || fail "bounded: $claim was not written"
+  size="$(wc -c < "$claim")"
+  [ "$size" -lt 16384 ] || fail "bounded: evidence is $size bytes, want < 16384"
+  grep -qF '5000' "$claim" || fail "bounded: the tail of the real output is missing"
+}
+
+# A green hand-off for the same lane must not rewrite or delete the first run's evidence: the red
+# is the durable record a person reads after the fact.
+case_claim_fail_evidence_keeps_the_first_run() {
+  local claim="$CTRL/rsi/state/lanes/1.claim.txt"
+  new_repo evidence
+  change docs/plans/gap-log.md '- one sentence'
+  g checkout -q -b rsi/handoff || fail "evidence: cannot create the branch"
+  body "Claim check: printf 'REAL-OUTPUT-42\n'" "Claim output:" "never printed"
+  rm -f "$claim"
+  claim_fail_handoff "$BODY"
+  [ "$PH_RC" -eq 1 ] || fail "evidence: first run exit $PH_RC, want 1"
+  [ -f "$claim" ] || fail "evidence: the first run wrote no evidence"
+  cp "$claim" "$T/claim.first"
+  body "Claim check: printf 'REAL-OUTPUT-42\n'" "Claim output:" "REAL-OUTPUT-42"
+  claim_fail_handoff "$BODY"
+  [ "$PH_RC" -eq 0 ] || fail "evidence: green re-run exit $PH_RC, want 0 ($(cat "$T/ph-finish.log"))"
+  cmp -s "$T/claim.first" "$claim" \
+    || fail "evidence: the green run rewrote or deleted the first run's evidence"
+}
+
+# Source pin, the same shape as case_lane_runs_seam_before_push: the pre-push claim seam must write
+# the evidence file before it calls finish failed, so deleting the write is a red.
+case_claim_fail_evidence_wiring() {
+  local inv claim fin
+  inv="$(grep -nF 'if ! CLAIM_EV="$(bash "$SELF" --claim-check-check' "$LANE" | head -1 | cut -d: -f1)"
+  [ -n "$inv" ] || fail "wiring: lane.sh has no guarded claim check"
+  claim="$(grep -nF '$STATE/lanes/$N.claim.txt' "$LANE" | head -1 | cut -d: -f1)"
+  [ -n "$claim" ] || fail "wiring: lane.sh never writes the claim evidence file"
+  fin="$(grep -nF 'finish failed "" "claim check:' "$LANE" | cut -d: -f1)"
+  [ -n "$fin" ] || fail "wiring: no claim-check failure branch"
+  [ "$claim" -gt "$inv" ] \
+    || fail "wiring: the evidence write (line $claim) does not follow the check (line $inv)"
+  [ "$claim" -lt "$fin" ] \
+    || fail "wiring: the evidence write (line $claim) does not precede finish failed (line $fin)"
+}
+
+# A fake GitHub retains its old body even when edit reports success: only a read-back can prove
+# what the merge lane will read. All commands are logged, so code-only can prove zero reads.
+live_fixture() {
+  new_repo "$1"
+  g checkout -qb rsi/live-body || fail "cannot create fixture branch"
+  change "${2:-docs/plans/gap-log.md}" 'a delivery change'
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  LIVE_BODY="$T/live.body"; cp "$BODY" "$LIVE_BODY"
+  GH_STUB="$T/gh-stub"; GH_CALLS="$T/gh.calls"; : > "$GH_CALLS"
+  VIEW_MODE=body; EDIT_RC=0; LIST_MODE=existing
+  HANDOFF_GIT=/usr/bin/git; HANDOFF_CHECK_SECS=180
+  cat > "$GH_STUB" <<'SH'
+#!/bin/bash
+printf '%s\n' "$*" >> "$STUB_CALLS"
+case "$1 $2" in
+  'pr list') [ "$STUB_LIST_MODE" != existing ] || echo 123 ;;
+  'pr create') echo 'https://github.com/example/repo/pull/123' ;;
+  'pr edit') echo 'stub edit rejected' >&2; exit "$STUB_EDIT_RC" ;;
+  'pr comment') : ;;
+  'pr view')
+    case "$STUB_VIEW_MODE" in
+      error) echo 'stub read rejected' >&2; exit 1 ;;
+      empty) exit 0 ;;
+      whitespace) printf ' \n\t\n'; exit 0 ;;
+      retry) [ "$(grep -c '^pr view ' "$STUB_CALLS")" -gt 1 ] || exit 1 ;;
+      timeout) sleep 20 & wait; exit 1 ;;
+    esac
+    cat "$STUB_BODY" ;;
+  *) echo "unexpected gh command: $*" >&2; exit 1 ;;
+esac
+SH
+  chmod +x "$GH_STUB"
+}
+
+live_seam() {
+  OUT="$(RSI_CTRL="$CTRL" HOME="$T/home" RSI_GH="$GH_STUB" \
+    STUB_CALLS="$GH_CALLS" STUB_BODY="$LIVE_BODY" STUB_VIEW_MODE="$VIEW_MODE" \
+    STUB_EDIT_RC="$EDIT_RC" STUB_LIST_MODE="$LIST_MODE" \
+    bash "$LANE" --pr-body-check "$R" 123 "$BODY" 2>&1)"; RC=$?
+}
+
+# Execute the actual push/create/edit/check/finish block, with no worker/model/bookkeeping. The
+# real push targets this case's bare origin. Stopping at finish done prevents merge/pulse launches.
+# Set GH explicitly too: the pre-fix common.sh ignores RSI_GH and RED must never reach the network.
+pr_handoff() {
+  local hdr="$T/brief.md"
+  : > "$hdr"; touch -t 200001010000 "$hdr"
+  {
+    printf '#!/bin/bash\nset -u\nsource %q\n' "$RUNTIME/common.sh"
+    printf 'SELF=%q\nWT=%q\nBR=rsi/live-body\nSTATUS_NOTE_FILE=%q\nHDR=%q\n' \
+      "$LANE" "$R" "$BODY" "$hdr"
+    printf 'FINISH_FILE=%q\nGH=%q\n' "$T/finish" "$GH_STUB"
+    printf 'source %q\n' "$RUNTIME/lane-pr.sh"
+    cat <<'SH'
+N=1; ITEM=R-fixture; SLUG=fixture; MODE=new; WORKER_TITLE='fix: fixture'
+TIMEDOUT=0; W_MIN=0; COST=0; SWEPT_N=0
+finish() { printf '%s\n' "$*" >> "$FINISH_FILE"; }
+count_fail() { :; }; count_ok() { :; }; scorecard_row() { :; }
+SH
+    awk '/^# push \+ PR / { on = 1 } on { print } on && /^finish done / { exit }' "$LANE"
+  } > "$T/handoff.sh"
+  rm -f "$T/finish"
+  OUT="$(RSI_CTRL="$CTRL" HOME="$T/home" RSI_GH="$GH_STUB" \
+    STUB_CALLS="$GH_CALLS" STUB_BODY="$LIVE_BODY" STUB_VIEW_MODE="$VIEW_MODE" \
+    STUB_EDIT_RC="$EDIT_RC" STUB_LIST_MODE="$LIST_MODE" STUB_SLOW_GIT="$T/slow-git-started" \
+    GIT="$HANDOFF_GIT" RSI_PR_BODY_CHECK_SECS="$HANDOFF_CHECK_SECS" \
+    bash "$T/handoff.sh" 2>&1)"; RC=$?
+}
+
+assert_live_fail() {
+  [ "$RC" -eq 1 ] || fail "live body: exit $RC, want 1 ($OUT)"
+  seam_output_has 'PR_BODY_FAIL:' || fail "live body: no FAIL verdict ($OUT)"
+  ! seam_output_has 'PR_BODY_OK' || fail "live body: FAIL also reported OK ($OUT)"
+}
+
+case_live_body_missing_claim_fails() {
+  live_fixture live-missing
+  printf 'An old summary without the claim line.\n' > "$LIVE_BODY"
+  live_seam; assert_live_fail
+  seam_output_has "no 'Claim check:' line" || fail "missing live claim is not named ($OUT)"
+  pr_handoff; assert_live_fail
+  grep -q '^failed .*pr body:' "$T/finish" || fail "handoff did not record failed ($OUT)"
+  ! grep -q '^done ' "$T/finish" || fail "handoff recorded done before checking the live body"
+}
+
+case_live_body_matching_passes() {
+  live_fixture live-matching
+  live_seam
+  [ "$RC" -eq 0 ] && seam_output_has 'PR_BODY_OK' || fail "matching: exit $RC ($OUT)"
+  pr_handoff
+  [ "$RC" -eq 0 ] && seam_output_has 'PR_BODY_OK' || fail "edit handoff: exit $RC ($OUT)"
+  grep -q '^done 123 ' "$T/finish" || fail "matching edit did not finish done"
+  LIST_MODE=new
+  pr_handoff
+  [ "$RC" -eq 0 ] && seam_output_has 'PR_BODY_OK' || fail "create handoff: exit $RC ($OUT)"
+  grep -q '^pr create ' "$GH_CALLS" || fail "create path was not exercised"
+}
+
+case_failed_body_edit_is_not_swallowed() {
+  live_fixture live-edit-failed
+  EDIT_RC=1
+  printf 'The old PR body without a claim.\n' > "$LIVE_BODY"
+  rm -f "$CTRL/rsi/state/lanes/1.pr-edit.log"
+  pr_handoff; assert_live_fail
+  seam_output_has 'edit failed (rc=1)' || fail "edit failure and rc are not logged ($OUT)"
+  grep -q 'stub edit rejected' "$CTRL/rsi/state/lanes/1.pr-edit.log" \
+    || fail "edit stderr was not saved"
+  grep -q '^failed .*pr body:' "$T/finish" || fail "failed edit finished done ($OUT)"
+  grep -q '^pr view ' "$GH_CALLS" || fail "failed edit skipped read-back"
+}
+
+case_unreadable_live_body_fails_closed() {
+  local mode
+  live_fixture live-unreadable
+  for mode in error empty whitespace; do
+    VIEW_MODE="$mode"; : > "$GH_CALLS"
+    live_seam; assert_live_fail
+    [ "$(grep -c '^pr view ' "$GH_CALLS")" -eq 2 ] \
+      || fail "$mode: read-back must stop after exactly two attempts ($OUT)"
+  done
+}
+
+case_code_only_diff_is_na() {
+  live_fixture live-code ui/src/foo.ts
+  VIEW_MODE=error
+  live_seam
+  [ "$RC" -eq 0 ] && seam_output_has 'PR_BODY_OK' && seam_output_has 'NA' \
+    || fail "code-only: exit $RC, want OK/NA ($OUT)"
+  [ ! -s "$GH_CALLS" ] || fail "code-only seam called gh"
+  pr_handoff
+  [ "$RC" -eq 0 ] && seam_output_has 'PR_BODY_OK' || fail "code-only handoff: exit $RC ($OUT)"
+  ! grep -q '^pr view ' "$GH_CALLS" || fail "code-only handoff read the body"
+}
+
+case_live_body_read_retries_once() {
+  live_fixture live-retry
+  VIEW_MODE=retry
+  live_seam
+  [ "$RC" -eq 0 ] && seam_output_has 'PR_BODY_OK' || fail "retry: exit $RC ($OUT)"
+  [ "$(grep -c '^pr view ' "$GH_CALLS")" -eq 2 ] || fail "retry: want exactly two reads"
+}
+
+case_live_body_stale_valid_claim_fails() {
+  live_fixture live-stale
+  printf '\nAn older but valid delivery summary.\n' >> "$LIVE_BODY"
+  live_seam; assert_live_fail
+  seam_output_has 'differs' || fail "stale valid body mismatch is not named ($OUT)"
+}
+
+case_live_body_timeout_fails_closed() {
+  live_fixture live-timeout
+  VIEW_MODE=timeout
+  live_seam; assert_live_fail
+  seam_output_has '124' || fail "timeout has no bounded-run verdict ($OUT)"
+}
+
+case_live_body_check_timeout_fails_closed() {
+  live_fixture live-check-timeout
+  HANDOFF_GIT="$T/slow-git"; HANDOFF_CHECK_SECS=1
+  cat > "$HANDOFF_GIT" <<'SH'
+#!/bin/bash
+if [[ "$*" = *' rev-parse '* ]] && mkdir "$STUB_SLOW_GIT" 2>/dev/null; then
+  sleep 20 & wait
+fi
+exec /usr/bin/git "$@"
+SH
+  chmod +x "$HANDOFF_GIT"
+  pr_handoff; assert_live_fail
+  seam_output_has 'no verdict' || fail "whole-check timeout did not report no verdict ($OUT)"
+  ! grep -q '^done ' "$T/finish" || fail "timed-out handoff recorded done"
+}
+
+case_gh_override_is_honoured() {
+  local actual
+  actual="$(RSI_CTRL="$CTRL" HOME="$T/home" RSI_GH="$T/test-gh" \
+    bash -c 'source "$1"; printf "%s" "$GH"' bash "$RUNTIME/common.sh")"
+  [ "$actual" = "$T/test-gh" ] || fail "RSI_GH override ignored"
+}
+
 RAN=0
 run() { # a case is named either case_... or its short form, x-...
   local short="${1#case_}"; short="${short//_/-}"
@@ -273,5 +581,19 @@ run case_worker_contract_names_the_seam
 run case_lane_runs_seam_before_push
 run case_check_sh_wires_the_suite
 run case_clean_tree_with_built_assets_is_na
+run case_claim_fail_keeps_real_output
+run case_claim_fail_real_output_is_bounded
+run case_claim_fail_evidence_keeps_the_first_run
+run case_claim_fail_evidence_wiring
+run case_live_body_missing_claim_fails
+run case_live_body_matching_passes
+run case_failed_body_edit_is_not_swallowed
+run case_unreadable_live_body_fails_closed
+run case_code_only_diff_is_na
+run case_live_body_read_retries_once
+run case_live_body_stale_valid_claim_fails
+run case_live_body_timeout_fails_closed
+run case_live_body_check_timeout_fails_closed
+run case_gh_override_is_honoured
 [ -z "$ONLY" ] || [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS

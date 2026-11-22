@@ -7,6 +7,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import {
   Link,
@@ -56,6 +57,7 @@ import {
 import { liveResources } from "../api/liveResources";
 import { useFindSeed } from "./useFindSeed";
 import { useMinWidth } from "../hooks/useMinWidth";
+import { useCoarsePointer } from "../hooks/useMediaQuery";
 import { usePendingResources, useTaskResource } from "../api/useLiveResources";
 import { isImeKeyEvent } from "../lib/ime";
 import { taskIdFromPathname } from "../lib/sessionCache";
@@ -73,14 +75,10 @@ import {
   settlePendingSendList,
   type PendingSend,
 } from "../lib/pendingSend";
-import { IconChevronDown } from "../components/icons";
 import IosSpinner from "../components/IosSpinner";
 import { SlowConnectHint } from "../components/Skeleton";
 import ActionSheet, { type ActionSheetRow } from "../components/ui/ActionSheet";
-import Button from "../components/ui/Button";
-import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import FileQuickOpen from "../components/workspace/FileQuickOpen";
-import TaskUsageSummary from "../components/usage/TaskUsageSummary";
 import TaskComposerDock from "../components/task/TaskComposerDock";
 import TaskPanels from "../components/task/TaskPanels";
 import WorkerTimeline from "../components/task/WorkerTimeline";
@@ -182,6 +180,24 @@ function routeHistoryIndex(pathname: string): number | null {
   return typeof idx === "number" && Number.isFinite(idx) ? idx : null;
 }
 
+/** The conversation column's measured width (0 before its first report), so
+ *  compact follows the column, not the window; 560 is the icon-only verb
+ *  row's floor (title floor, five verbs, project, Stop). */
+function useColumnWidth(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const next = entries[0]?.contentRect?.width;
+      if (typeof next === "number" && next > 0) setWidth(next);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+  return width;
+}
+
 export default function TaskDetailPage({
   taskId,
   active = true,
@@ -203,6 +219,14 @@ export default function TaskDetailPage({
   // stop, share or find. It is mounted only there, so a Mac never carries the
   // sheet's Escape/Back handlers behind its chip row.
   const wide = useMinWidth(768);
+  // Compact by column width OR a finger (an iPad is desktop-wide with touch),
+  // never the viewport alone. The row itself gives up its words (container
+  // query) before this fires, so 560 only compacts when even the icon row no
+  // longer fits; at 760 it compacted an 1100 Mac that had room for the verbs.
+  const columnRef = useRef<HTMLDivElement>(null);
+  const columnWidth = useColumnWidth(columnRef);
+  const coarsePointer = useCoarsePointer();
+  const compact = !wide || coarsePointer || (columnWidth > 0 && columnWidth < 560);
   const { machines } = useMachines();
   const detail = useTaskResource(id);
   const pending = usePendingResources();
@@ -247,6 +271,14 @@ export default function TaskDetailPage({
   const [limitWait, setLimitWait] = useState<TaskLimitWait | null>(null);
   const [workerSteps, setWorkerSteps] = useState<WorkerStep[]>([]);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
+  /**
+   * The queued confirmation, as a row in the dock rather than a toast over the
+   * composer. It goes up when this page queues a follow-up behind a running
+   * round, and comes down when a queue read that *started after* that send
+   * reports the queue drained — a read begun earlier cannot speak for it.
+   */
+  const [queuedGuide, setQueuedGuide] = useState(false);
+  const queuedGuideSinceRef = useRef<number | null>(null);
   /**
    * The queue as the last poll saw it, readable from a click handler whose
    * identity must stay put: the message rows are memoized and keep the handler
@@ -318,6 +350,15 @@ export default function TaskDetailPage({
     const handed = peekPendingSend(id);
     return handed ? [handed] : [];
   });
+  /**
+   * This conversation was entered from the draft composer, which was raised
+   * while the person typed. Read once, at mount, before the effect below
+   * forgets the record, and keyed to this pane by the mount itself. On a Mac
+   * the composer starts in that same arrangement and takes the caret, so
+   * Start does not resize the box the J3 hand-off sampler watches; on a phone
+   * it stays compact and does not raise the keyboard.
+   */
+  const [enteredFromSend] = useState(() => peekPendingSend(id) !== null);
   /**
    * A list row navigates in with the shell's data but not the conversation's:
    * no events, no handed-off send, no failure yet. Until the detail answers
@@ -526,6 +567,16 @@ export default function TaskDetailPage({
    * as soon as its event arrives (or the task changes).
    */
   const programmaticScrollTopRef = useRef<number | null>(null);
+  /**
+   * The task this instance opened with.
+   *
+   * `id` can change under an instance the router reuses, and then everything
+   * below has to reset. The *first* run is this pane's mount, though, and there
+   * the opening restore owns `stickToBottomRef`: a restored middle place sets
+   * it to false, and resetting it here a moment later would let the next event
+   * pin the reader to the bottom they just left.
+   */
+  const mountedTaskIdRef = useRef(id);
   const markScrollReady = useCallback(() => {
     setScrollReady((prev) => (prev ? prev : true));
   }, []);
@@ -573,6 +624,8 @@ export default function TaskDetailPage({
   }, [id]);
 
   useEffect(() => {
+    const switched = mountedTaskIdRef.current !== id;
+    mountedTaskIdRef.current = id;
     taskIdRef.current = id;
     lastObservedEventSeq.current = 0;
     setUsage(null);
@@ -580,12 +633,16 @@ export default function TaskDetailPage({
     setWorkerSteps([]);
     setQueuedPrompts([]);
     queuedPromptsRef.current = [];
+    queuedGuideSinceRef.current = null;
+    setQueuedGuide(false);
     withdrawnRef.current = new Set();
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
     setWorkspaceShowListNonce(0);
     setSelectedWorkspaceId(undefined);
-    stickToBottomRef.current = true;
+    // On mount the opening restore decides whether the transcript follows the
+    // end; only a conversation swapped into an existing instance resets it.
+    if (switched) stickToBottomRef.current = true;
     pendingRestoreRef.current = null;
     programmaticScrollTopRef.current = null;
     panelBaseIdx.current = null;
@@ -636,12 +693,22 @@ export default function TaskDetailPage({
       const request = ++queueMoveRequestRef.current;
       // A read is happening now; whatever an earlier poll deferred is covered.
       deferredQueueReadRef.current = false;
+      const startedAt = Date.now();
       listQueuedPrompts(id)
         .then((prompts) => {
           if (!live || request !== queueMoveRequestRef.current) return;
           const next = withoutWithdrawn(prompts, withdrawnRef.current);
           queuedPromptsRef.current = next;
           setQueuedPrompts(next);
+          // The queued row has done its job once the queue it was raised for
+          // has drained. Only a read that began after the send can say that:
+          // one already in flight describes the queue from before the message
+          // was accepted.
+          const guideSince = queuedGuideSinceRef.current;
+          if (guideSince !== null && startedAt >= guideSince && next.length === 0) {
+            queuedGuideSinceRef.current = null;
+            setQueuedGuide(false);
+          }
         })
         .catch(() => {
           if (!live || request !== queueMoveRequestRef.current) return;
@@ -872,18 +939,26 @@ export default function TaskDetailPage({
     const programmatic = programmaticScrollTopRef.current;
     programmaticScrollTopRef.current = null;
     if (programmatic != null && el.scrollTop === programmatic) return;
+    // A hidden pane (display:none) reports 0 for scrollTop, scrollHeight and
+    // clientHeight. The reset that clears the scroller — or a flick's last
+    // event, delivered after the keep-alive host hid the pane — is not the
+    // reader moving, and `isNearBottom` over zeros reads as "at the end".
+    // Leave the intent alone: flipping it to "follow" here makes the next
+    // show pin the reader to the bottom of the conversation they were reading.
+    if (!active || el.clientHeight <= 0) return;
     stickToBottomRef.current = isNearBottom(el);
+    // A send's pin belongs to the commit that lands its bubble. Once the
+    // reader has taken the transcript somewhere else, that place wins: a
+    // later growth must announce itself, never drag them back to the end.
+    if (!stickToBottomRef.current) pinAfterSendRef.current = false;
     // Reading at the end is what "caught up" means: drop the offer to go
     // there, whether the reader scrolled down or the content shrank to fit.
     if (stickToBottomRef.current) setUnseen(0);
-    // Only record while laid out — hidden (display:none) panes report 0.
-    if (active && el.clientHeight > 0) {
-      // The reader has taken the scroller somewhere themselves; a restore
-      // still waiting for layout must not overrule them later.
-      pendingRestoreRef.current = null;
-      savedScrollTopRef.current = el.scrollTop;
-      if (id) setSessionScroll(id, el.scrollTop);
-    }
+    // The reader has taken the scroller somewhere themselves; a restore
+    // still waiting for layout must not overrule them later.
+    pendingRestoreRef.current = null;
+    savedScrollTopRef.current = el.scrollTop;
+    if (id) setSessionScroll(id, el.scrollTop);
   }, [isNearBottom, active, id]);
 
   // First paint of this mounted instance: restore saved scroll, else jump to bottom.
@@ -1091,14 +1166,26 @@ export default function TaskDetailPage({
   // as the reader is back at the end, sends a follow-up, or changes session.
   useEffect(() => {
     const previous = seenEventCountRef.current;
+    // Re-sync either way: a transcript that shrank (a reload, a lower epoch)
+    // must not leave the counter above its new length, or every later growth
+    // would look already seen.
     seenEventCountRef.current = events.length;
     if (events.length <= previous) return;
+    const arrived = events.length - previous;
     // The opening layout already lands at the end (or is still on its way); a
-    // keep-alive-hidden pane is not being read; a send's pin is still owed.
-    if (!didInitialScrollRef.current || !active || (sending && pinAfterSendRef.current)) return;
-    if (stickToBottomRef.current) return;
-    setUnseen((count) => count + (events.length - previous));
-  }, [events.length, active, sending]);
+    // keep-alive-hidden pane is not being read.
+    if (!didInitialScrollRef.current || !active) return;
+    const el = scrollRef.current;
+    if (!el || el.clientHeight <= 0) return;
+    // Ask the transcript where the reader is now, not whether a send still
+    // owns a pin. The layout effect above has already run for this commit, so
+    // a pin that placed these rows reads as the end here. A pin that is still
+    // owed (a restore holding the reader's place) or one the reader scrolled
+    // away from does not — and treating the send window as "seen" is how a
+    // reply that outran its POST landed in silence.
+    if (isNearBottom(el)) return;
+    setUnseen((count) => count + arrived);
+  }, [events.length, active, isNearBottom]);
 
   // The counter belongs to the conversation it was raised for: another task
   // has its own transcript, its own place and its own unread output.
@@ -1792,8 +1879,19 @@ export default function TaskDetailPage({
       if (wasRunning) {
         // Say which of the two things happened. The queue is the default, so
         // claiming an interrupt here would be a lie the user only discovers when
-        // the round they thought they had stopped keeps going.
-        pushToast(tr(opts?.interrupt ? "task.interruptedGuide" : "task.queuedGuide"), "info");
+        // the round they thought they had stopped keeps going. The queue's
+        // confirmation is a row in the dock: a toast sat over the composer for
+        // five seconds, and the box the person sends from again is the one
+        // surface it must not cover.
+        if (opts?.interrupt) {
+          pushToast(tr("task.interruptedGuide"), "info");
+        } else {
+          queuedGuideSinceRef.current = Date.now();
+          setQueuedGuide(true);
+          // Ask the queue now, not on the next three-second tick: the row is
+          // tied to a real waiting prompt, and the read is what proves it.
+          setQueueReload((n) => n + 1);
+        }
       }
     } catch (err) {
       setPendingSends((current) => current.filter((item) => item.id !== sent.id));
@@ -2499,7 +2597,7 @@ export default function TaskDetailPage({
       diff and the chat are readable at the same time.
     */
     <div className="flex-1 min-w-0 min-h-0 flex flex-col lg:flex-row relative">
-      <div className="flex-1 min-w-0 min-h-0 flex flex-col kin-surface-chat">
+      <div ref={columnRef} className="flex-1 min-w-0 min-h-0 flex flex-col kin-surface-chat">
         <TaskHeader
           task={task}
           hostAgentName={hostAgentName}
@@ -2532,29 +2630,53 @@ export default function TaskDetailPage({
           // One surface at a time: bringing the list back closes the panel
           // rather than leaving both columns to squeeze the conversation.
           onShowList={() => closeFilesPanel()}
+          compact={compact}
+          // One bar, chosen here: below `md` the phone bar, above it the
+          // desktop bar. Rendering both and letting CSS hide one left two
+          // Files and two Session actions controls in the accessible tree.
+          phone={!wide}
+          changedFileCount={changedFiles.length}
         />
 
-        {!wide && (
+        {/* The tablet's overflow is this same sheet; `anyWidth` keeps it
+            visible above the phone breakpoint. */}
+        {compact && (
           <ActionSheet
             open={actionsOpen}
             onClose={() => setActionsOpen(false)}
+            anyWidth={wide}
             title={tr("task.sessionActions")}
-            // Which machine is about to be acted on. The footer strip that named
-            // it is below `md` too, and "stop this session" on an unnamed remote
-            // machine is the decision this sheet exists for.
+            // Two facts this sheet has to answer before a destructive row: which
+            // machine the actions run on, and (on a phone) which project the
+            // conversation belongs to. The phone bar stopped carrying the second
+            // one when it became one text line (KIN-QUALITY-001, D16); the footer
+            // strip that used to name the machine is below `md` too.
             subtitle={
-              machine
-                ? machine.known
-                  ? tr("machine.runsOn", { name: machine.text })
-                  : tr("machine.runsOnUnknown", { name: machine.text })
-                : undefined
+              project || machine ? (
+                <span className="flex flex-col">
+                  {project ? (
+                    <span className="block truncate">
+                      {[project, task?.workspace_branch].filter(Boolean).join(" · ")}
+                    </span>
+                  ) : null}
+                  {machine ? (
+                    <span className="block truncate">
+                      {machine.known
+                        ? tr("machine.runsOn", { name: machine.text })
+                        : tr("machine.runsOnUnknown", { name: machine.text })}
+                    </span>
+                  ) : null}
+                </span>
+              ) : undefined
             }
             rows={sessionActions}
           />
         )}
         <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} taskId={task.id} />
 
-        {error && (
+        {/* One honest message, and only when the shell's reconnect strip is
+            not already saying it; the content stays. */}
+        {error && wsStatus !== "disconnected" && (
           <div
             className="flex-none border-b border-kin-red/30 bg-kin-red/10 px-4 py-2 text-body text-kin-red-ink"
             role="alert"
@@ -2563,32 +2685,8 @@ export default function TaskDetailPage({
           </div>
         )}
 
-        {/* Below the rail breakpoint: keep compact chips so usage/diff stay reachable without the rail. On a phone the usage bar is gone entirely — the
-            transcript already shows the agent's own model line, and the
-            reference keeps usage behind a popover at the input, not a bar
-            across the reading. The phone's trigger lives in the composer
-            footer. */}
-        <div className="min-[1600px]:hidden flex-none border-b border-[var(--kin-hairline)]">
-          <div className="max-md:hidden">
-            <TaskUsageSummary usage={usage} loading={usageLoading} />
-          </div>
-          <ChangedFilesBar
-            files={changedFiles}
-            onOpenPath={onOpenWorkspacePath}
-            canOpenPath={canOpenWorkspacePath}
-            onOpenPanel={openFilesPanel}
-            reviewActions={terminal}
-            onKeepAll={onKeepAllChanges}
-            onDiscardAll={onDiscardAllChanges}
-            actionsBusy={reviewBusy}
-          />
-        </div>
-
-        {/* The transcript and the offer to return to its end. The wrapper is
-            what the pill floats in: the scroller keeps its own classes and
-            refs, and the pill sits over the last lines rather than taking a
-            row of its own — a new row would move the reading it interrupts. */}
-        <div className="relative flex-1 min-h-0 flex flex-col">
+        {/* The transcript slot; new activity is a row in the composer lane. */}
+        <div className="flex-1 min-h-0 flex flex-col">
           {entryWait ? (
             /*
               The transcript slot's waiting state. It carries the region's own
@@ -2640,6 +2738,7 @@ export default function TaskDetailPage({
                 fallbackUserPromptImages={fallbackPrompt.images}
                 messageScope={task.id}
                 loading={!detail.loaded || !terminal || sending || awaitingReply}
+                taskStatus={task.status}
                 loadingSpeaker={task.agent || "kin"}
                 hostSpeaker={task.agent || "kin"}
                 hostModel={task.model}
@@ -2709,34 +2808,6 @@ export default function TaskDetailPage({
               />
             </div>
           )}
-
-          {/* Kept mounted while empty: a live region announces what is added
-              to it, and a region that arrives with its content already inside
-              is the case screen readers most often miss. */}
-          <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2" aria-live="polite">
-            {unseen > 0 && (
-              /*
-                New output below the fold, offered rather than announced by
-                movement. It floats over the last lines so the reading does not
-                shift, and it is a real button with a name: the phone taps it,
-                the keyboard tabs to it, and it goes away by itself once the
-                reader is back at the end.
-              */
-              <Button
-                variant="secondary"
-                onClick={showNewest}
-                className="rounded-full bg-kin-elevated px-3.5 shadow-e2"
-              >
-                {/* One nowrap row: as bare children of the button's label span
-                    the chevron and the text stack, because Tailwind preflight
-                    makes the icon's svg a block. */}
-                <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                  <IconChevronDown className="w-4 h-4 flex-none" />
-                  {tr("task.newActivity")}
-                </span>
-              </Button>
-            )}
-          </div>
         </div>
 
         <TaskComposerDock
@@ -2752,7 +2823,10 @@ export default function TaskDetailPage({
           stopping={stopping}
           initialValue={followUpDraft.prompt}
           initialAttachments={followUpDraft.attachments}
-          focusSignal={refill.taskID === task.id ? refill.n : 0}
+          // A refill asks for the caret; so does arriving from Start, where
+          // the draft composer was already raised. Only a Mac takes it
+          // (`focusSignal` on a phone would raise the keyboard unasked).
+          focusSignal={refill.taskID === task.id ? refill.n : wide && enteredFromSend ? 1 : 0}
           fileSearch={searchSourceFiles}
           onValueChange={(v) => persistFollowUpDraft(v)}
           onAttachmentsChange={(atts) => persistFollowUpDraft(draftPromptRef.current, atts)}
@@ -2775,6 +2849,9 @@ export default function TaskDetailPage({
           pendingCardOnScreen={pendingCardOnScreen}
           pendingApprovalBusy={needsYou[0] ? Boolean(busy[needsYou[0].id]) : false}
           onRevealFirstPending={revealFirstPending}
+          unseen={unseen}
+          showNewest={showNewest}
+          queuedGuide={queuedGuide}
           // The oldest waiting decision, through the same path the inline card
           // uses: one decision implementation, two places to reach it.
           onApproveFirstPending={() => {

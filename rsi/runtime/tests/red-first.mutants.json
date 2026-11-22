@@ -1,0 +1,51 @@
+[
+  {
+    "label": "a green run on the reverted file is accepted as proof",
+    "file": "rsi/runtime/red_first.py",
+    "test": "RSI_TEST_ONLY=red_first_green_when_the_test_passes_on_the_reverted_file bash rsi/runtime/tests/test-red-first.sh",
+    "old": "    if returncode == 0:\n        return \"green\"",
+    "new": "    if returncode == 0:\n        return \"ok\"  # mutant: a green run counts as proof"
+  },
+  {
+    "label": "the reverted file is left reverted after the command",
+    "file": "rsi/runtime/red_first.py",
+    "test": "RSI_TEST_ONLY=red_first_restores_byte_for_byte_on_success bash rsi/runtime/tests/test-red-first.sh",
+    "old": "    finally:\n        problem = restore(saved)",
+    "new": "    finally:\n        problem = None  # mutant: the reverted file is never restored"
+  },
+  {
+    "label": "a file the branch adds fails closed instead of NA",
+    "file": "rsi/runtime/red_first.py",
+    "test": "RSI_TEST_ONLY=red_first_na_for_a_file_the_branch_added bash rsi/runtime/tests/test-red-first.sh",
+    "old": "        if not present:\n            na_reasons.append(\"%s · the branch adds this file\" % claim[\"where\"])\n            continue",
+    "new": "        if False:  # mutant: a file the branch adds fails closed instead of NA\n            na_reasons.append(\"%s · the branch adds this file\" % claim[\"where\"])\n            continue"
+  },
+  {
+    "label": "a passing mention of the claimed test counts as the red",
+    "file": "rsi/runtime/red_first.py",
+    "test": "RSI_TEST_ONLY=red_first_other_when_the_name_appears_only_on_a_passing_line bash rsi/runtime/tests/test-red-first.sh",
+    "old": "        if name in line and FAIL_MARKERS.search(line):",
+    "new": "        if name in line:  # mutant: any mention counts, including a run announcement"
+  },
+  {
+    "label": "the command's process group is never killed",
+    "file": "rsi/runtime/red_first.py",
+    "test": "RSI_TEST_ONLY=red_first_restores_the_file_after_a_timeout bash rsi/runtime/tests/test-red-first.sh",
+    "old": "    try:\n        os.killpg(proc.pid, signal.SIGKILL)\n    except (ProcessLookupError, PermissionError):\n        pass",
+    "new": "    try:\n        pass  # mutant: never kill the command's process group\n    except (ProcessLookupError, PermissionError):\n        pass"
+  },
+  {
+    "label": "the lane pushes without running the red-first seam",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=lane_runs_the_seam_before_the_push bash rsi/runtime/tests/test-red-first.sh",
+    "old": "if ! RED_EV=\"$(bash \"$SELF\" --red-first-check \"$WT\" \"$STATUS_NOTE_FILE\" 2>&1)\"; then",
+    "new": "if false; then  # mutant: the lane never proves the claimed test goes red"
+  },
+  {
+    "label": "the gate never runs the red-first suite",
+    "file": "scripts/check.sh",
+    "test": "RSI_TEST_ONLY=check_sh_names_the_red_first_suite bash rsi/runtime/tests/test-red-first.sh",
+    "old": "  bash rsi/runtime/tests/test-red-first.sh || return 1",
+    "new": "  true  # mutant: the red-first suite is not wired into the gate"
+  }
+]

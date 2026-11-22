@@ -621,6 +621,35 @@ describe("the sidebar's pointer shapes", () => {
     expect(screen.queryByRole("button", { name: "Project actions" })).toBeNull();
   });
 
+  it("gives the list column's own controls a 44px target on a coarse pointer", () => {
+    // The 820px iPad draws the desktop shell, so the width says "Mac" while
+    // the pointer is a thumb. The pointer decides the density of the column's
+    // own controls, not the width.
+    viewport("coarse");
+    fixtures.tasks = [task("one", "/work/alpha")];
+    const { unmount } = render(sidebar());
+
+    const controls = () => [
+      screen.getByRole("button", { name: /New chat/ }),
+      screen.getByRole("button", { name: "Import Agent sessions" }),
+      screen.getByRole("link", { name: "Inbox" }),
+      screen.getByRole("link", { name: "Archived" }),
+    ];
+    for (const control of controls()) {
+      expect(control.className).toContain("h-11");
+      expect(control.className).toContain("min-h-11");
+    }
+
+    // A mouse at the same desktop width keeps today's 32px density.
+    unmount();
+    viewport("fine");
+    render(sidebar());
+    for (const control of controls()) {
+      expect(control.className).toContain("h-8");
+      expect(control.className).not.toContain("h-11");
+    }
+  });
+
   it("starts a new chat without handing the shell a click event", async () => {
     // The shell's entry point reads a literal `true` as "the page was already
     // asked"; a click event passed straight through would skip the guard.

@@ -13,6 +13,10 @@
 # (node, hub) last ran, and the count starts from the older of the two, so a release
 # that shipped the node but failed on the Hub is retried instead of counted done.
 #
+# local_main_only describes the checkout passed as $REPO (RSI_REPO): non-merge commits on
+# its local main that origin/main does not have, i.e. work a release would ship unreviewed.
+# A patrol that wants the release checkout's number passes RSI_REPO=<primary checkout>.
+#
 # Prints KEY=VALUE lines and exits 0 (GO) / 10 (HOLD) / 2 (usage, config error).
 # --json prints one object. Never prints the node token.
 #
@@ -75,6 +79,14 @@ if [ -n "$BASE" ]; then
 else
   UNSHIPPED=0; COMMITS=0; BASE="none"
 fi
+
+# local_main_only — non-merge commits on local main that origin/main has not seen: work a
+# release would ship without a PR or a review. Merge commits are excluded because the
+# release itself creates them, so counting them would report a permanent non-zero number.
+# A read that cannot be trusted (no local main, a git failure, non-numeric output) is
+# "unknown", never 0: a failed read must not look like a clean tree (STATUS Watch 40).
+LOCAL_MAIN_ONLY="$($git -C "$REPO" rev-list --count --no-merges origin/main..main 2>/dev/null)"
+case "$LOCAL_MAIN_ONLY" in ''|*[!0-9]*) LOCAL_MAIN_ONLY=unknown ;; esac
 
 # sessions — a conversation the rebuild would kill. Fail closed: if the node answers
 # but refuses the request, we cannot see who is mid-turn, so do not release.
@@ -149,11 +161,13 @@ elif [ -n "$heavy" ]; then
 fi
 
 if [ "$JSON" = 1 ]; then
-  printf '{"verdict":"%s","reason":"%s","unshipped":%d,"commits":%d,"baseline":"%s","sessions":%d,"jobs":%d,"node":"%s"}\n' \
-    "$verdict" "$reason" "$UNSHIPPED" "$COMMITS" "$BASE" "$sessions_num" "$jobs" "$health"
+  shown_lmo=null; [ "$LOCAL_MAIN_ONLY" = unknown ] || shown_lmo="$LOCAL_MAIN_ONLY"
+  printf '{"verdict":"%s","reason":"%s","unshipped":%d,"commits":%d,"local_main_only":%s,"baseline":"%s","sessions":%d,"jobs":%d,"node":"%s"}\n' \
+    "$verdict" "$reason" "$UNSHIPPED" "$COMMITS" "$shown_lmo" "$BASE" "$sessions_num" "$jobs" "$health"
 else
   echo "baseline=$BASE"
   echo "unshipped=$UNSHIPPED commits=$COMMITS min=$MIN"
+  echo "local_main_only=$LOCAL_MAIN_ONLY"
   echo "sessions=$sessions_num node=$health"
   echo "jobs=$jobs"
   echo "verdict=$verdict"

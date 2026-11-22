@@ -31,10 +31,11 @@ describe("the routines page and its machine", () => {
     expect(PAGE).toContain("writeRoutineDevice(resolved);");
   });
 
-  it("reads remoteness from the device id, not from the machine cache", () => {
-    // A degraded cache must not turn a remote page into a local one: the run
-    // links and the history read would then point at the Hub's own store.
-    expect(PAGE).toContain("const remote = isRemoteDevice(deviceId) && !machine?.isSelf;");
+  it("does not fold live task updates into a page-local run feed", () => {
+    // Runs are /sessions rows now; this page keeps no run list for a push to
+    // fold into, and a later feed would be the duplicate the contract retired.
+    expect(PAGE).not.toContain("subscribeWS(");
+    expect(PAGE).not.toContain("foldRoutineRun");
   });
 
   it("opens on the device a notification named before the remembered one", () => {
@@ -45,24 +46,28 @@ describe("the routines page and its machine", () => {
     expect(PAGE).toContain("const [searchParams, setSearchParams] = useSearchParams();");
   });
 
-  it("keeps the Hub's task updates out of a remote machine's feed", () => {
-    expect(PAGE).toContain("if (remoteRef.current) return;");
+  it("drops a run-now answer that belongs to the machine the page left", () => {
     // A run-now answered after the page moved belongs to the machine that was
     // showing, not the one that is.
     expect(PAGE).toMatch(
-      /const t = await runRoutineNow\(r\.id, view\.deviceId\);[\s\S]*?if \(!isCurrentView\(view\)\) return;/,
+      /await runRoutineNow\(r\.id, view\.deviceId\);[\s\S]*?if \(!isCurrentView\(view\)\) return;/,
     );
   });
 
   it("sends the machine with every routine request", () => {
     expect(PAGE).toContain("listRoutines({ limit: 100, q: query, ...filters }, deviceId)");
-    expect(PAGE).toContain("listRoutineRuns(ROUTINE_HISTORY_PAGE, deviceId)");
     expect(PAGE).toContain("patchRoutine(r.id, { enabled: !r.enabled }, view.deviceId)");
     expect(PAGE).toContain("deleteRoutine(r.id, view.deviceId)");
     expect(PAGE).toContain("runRoutineNow(r.id, view.deviceId)");
-    expect(PAGE).toContain("markRoutineRunRead(taskId, view.deviceId)");
-    expect(PAGE).toContain("markAllRoutineRunsRead(view.deviceId)");
     expect(EDITOR).toContain("device={deviceId || undefined}");
+  });
+
+  it("leaves the run feed, its mark-all and its reads to the one run list", () => {
+    // KIN-CONTRACT-001: /routines lists routines only; every run is a
+    // /sessions row, and unread lives there and in the sidebar badge.
+    expect(PAGE).not.toContain("listRoutineRuns(");
+    expect(PAGE).not.toContain("markAllRoutineRunsRead(");
+    expect(PAGE).not.toContain("markRoutineRunRead(");
   });
 
   it("widens the retry instead of polling a sleeping machine forever", () => {

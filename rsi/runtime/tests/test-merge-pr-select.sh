@@ -5,8 +5,10 @@
 # control branch. PR #392 (head rsi/ceo-ok-marker) therefore sat open with zero cycles.log
 # entries while other PRs were verified; it had to be re-opened from another head as #395.
 # Only rsi/ceo-loop — the loop's working branch, auto-synced to origin/main, never a
-# deliverable — is a control branch. rsi/dream-* stay excluded, and every other rsi/* head is
-# selected exactly as before.
+# deliverable — is a control branch. The same shape hit the dream rule: the DREAM job's own
+# branch is rsi/dream-<date>, but the filter skipped every rsi/dream-* head, so #535
+# (rsi/dream-phone-line, a real slice) sat green and MERGEABLE with zero cycles.log entries.
+# Only the date-stamped dream branch is excluded now; a dream-* deliverable is selected.
 #
 # One predicate (rsi/runtime/pr_select.py) now answers both callers: the dispatcher's row
 # filter and the open-PR backpressure counter in common.sh. The row filter leaves the
@@ -79,6 +81,17 @@ cat > "$T/dream.json" <<'EOF'
 [{"number":402,"headRefName":"rsi/dream-2026-11-19","isDraft":false,"labels":[],"title":"dream",
   "body":"","files":[{"path":"rsi/runtime/merge.sh","additions":1,"deletions":0}]}]
 EOF
+cat > "$T/dream-compact.json" <<'EOF'
+[{"number":507,"headRefName":"rsi/dream-20261121","isDraft":false,"labels":[],"title":"dream",
+  "body":"","files":[{"path":"rsi/DECISIONS.md","additions":3,"deletions":0}]}]
+EOF
+# A deliverable whose head happens to start with dream- is not the DREAM job's branch (#535).
+cat > "$T/dream-deliverable.json" <<'EOF'
+[{"number":535,"headRefName":"rsi/dream-phone-line","isDraft":false,"labels":[],
+  "title":"feat(rsi): make the phone line part of the DREAM report contract",
+  "body":"RSI item: R-dream-phone-line",
+  "files":[{"path":"rsi/runtime/prompts/dream.md","additions":3,"deletions":1}]}]
+EOF
 cat > "$T/non-rsi.json" <<'EOF'
 [{"number":403,"headRefName":"feat/console","isDraft":false,"labels":[],"title":"console",
   "body":"","files":[{"path":"ui/src/App.tsx","additions":1,"deletions":0}]}]
@@ -120,10 +133,20 @@ control_branch_skipped() {
   expect_none control-branch-skipped
 }
 
-# Dream branches are not deliverables.
+# The DREAM job's date branch is not a deliverable; both date spellings it has used stay out.
 dream_branch_skipped() {
   run_select "$T/dream.json"
   expect_none dream-branch-skipped
+}
+dream_compact_date_skipped() {
+  run_select "$T/dream-compact.json"
+  expect_none dream-compact-date-skipped
+}
+
+# A real slice named dream-* is selected: the prefix rule stranded #535 for 2.5 hours.
+dream_deliverable_selected() {
+  run_select "$T/dream-deliverable.json"
+  expect_one dream-deliverable-selected dream-phone-line
 }
 
 # Regression pins: selection stays rsi/* only, non-draft, and not a labelled CEO hold.
@@ -189,6 +212,9 @@ shared_predicate_wired() {
     if grep -q 'startswith("rsi/ceo-")' "$f"; then
       fail "shared-predicate-wired: $f carries an inline rsi/ceo-* exclusion again"
     fi
+    if grep -q 'startswith("rsi/dream-")' "$f"; then
+      fail "shared-predicate-wired: $f carries an inline rsi/dream-* prefix exclusion again"
+    fi
   done
 }
 
@@ -201,6 +227,8 @@ run() { # <case name> <function>
 run ceo-pr-claimed ceo_pr_claimed
 run control-branch-skipped control_branch_skipped
 run dream-branch-skipped dream_branch_skipped
+run dream-compact-date-skipped dream_compact_date_skipped
+run dream-deliverable-selected dream_deliverable_selected
 run non-rsi-skipped non_rsi_skipped
 run draft-skipped draft_skipped
 run hold-label-skipped hold_label_skipped

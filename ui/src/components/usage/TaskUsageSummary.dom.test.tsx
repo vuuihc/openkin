@@ -195,6 +195,44 @@ function expectFacade(el: HTMLElement) {
   expect(el.className).toContain("focus-visible:outline-kin-focus-ring");
 }
 
+describe("TaskUsageSummary phone trigger says what the number counts", () => {
+  // On a 390px phone the trigger rendered a bare "49": its accessible name
+  // said "conversation usage summary", but a sighted reader only saw the
+  // number. The unit is the smallest fix that keeps the 44pt face, the
+  // composer row and the accessible name unchanged (TASTE 18: the visible
+  // words agree with the name instead of inventing a second one).
+  function phoneOpener() {
+    render(
+      <TaskUsageSummary
+        usage={usage({ tokens_in: 49, tokens_out: 0 })}
+        loading={false}
+        variant="phone"
+      />,
+    );
+    return screen
+      .getAllByRole("button")
+      .find((button) => button.getAttribute("aria-haspopup") === "dialog")!;
+  }
+
+  it("phone trigger names its unit at a small total", () => {
+    const opener = phoneOpener();
+    expect(opener.textContent).not.toBe("49");
+    expect(opener.textContent).toContain("49");
+    // The unit comes from the locale catalogue, so the zh reader sees
+    // "49 Token" and the en reader "49 Tokens" from the same code path.
+    expect(opener.textContent).toContain(t("usage.tokens"));
+  });
+
+  it("phone trigger still carries the full accessible name", () => {
+    // Only the visible layer changed: the name still spells the field and the
+    // total in the same shape the strip's disclosure uses.
+    const opener = phoneOpener();
+    expect(opener.getAttribute("aria-label")).toBe(
+      `${t("usage.taskSummary")}${t("common.labelSeparator")}49`,
+    );
+  });
+});
+
 describe("TaskUsageSummary controls on the facade (E4c)", () => {
   it("both disclosure toggles and the phone trigger are facade buttons", async () => {
     const user = userEvent.setup();

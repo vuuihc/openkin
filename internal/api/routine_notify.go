@@ -192,7 +192,10 @@ func routineNotifyPayload(deviceID, owner string, msg worker.RoutineNotify) noti
 	switch msg.Event {
 	case worker.RoutineEventReport:
 		id = msg.TaskID
-		link = "/machines/" + escDevice + "/tasks/" + url.PathEscape(msg.TaskID)
+		// The one task detail page, with the machine that owns the run in the
+		// query (KIN-CONTRACT-001). The old `/machines/<device>/tasks/<id>`
+		// still redirects, but new links name the page that exists.
+		link = "/tasks/" + url.PathEscape(msg.TaskID) + "?device=" + escDevice
 	case worker.RoutineEventDisabled:
 		id = msg.RoutineID
 		link = "/routines?device=" + url.QueryEscape(deviceID)

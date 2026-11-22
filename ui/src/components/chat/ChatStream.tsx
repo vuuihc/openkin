@@ -30,6 +30,7 @@ import {
   toggleMobileMessageActions,
   useMobileMessageActionsRevealed,
 } from "../../lib/mobileMessageActions";
+import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useAppStore } from "../../store/appStore";
 import { IconChevron, IconCopy, IconDownload, IconSearch, IconShare, IconX } from "../icons";
 import Button from "../ui/Button";
@@ -91,6 +92,12 @@ type Props = {
    * streaming yet (and no progress is mid-run).
    */
   loading?: boolean;
+  /**
+   * The task's durable status. A Stop the adapter never recorded leaves the
+   * events with an open round; the terminal `canceled` status is what lets the
+   * projection close it in the transcript.
+   */
+  taskStatus?: string | null;
   /** Avatar speaker for the loading row (pass the session host). */
   loadingSpeaker?: string;
   /**
@@ -190,6 +197,7 @@ export default function ChatStream({
   pendingUserMessages,
   trailing,
   loading = false,
+  taskStatus,
   loadingSpeaker = "",
   hostSpeaker = "",
   hostModel,
@@ -222,7 +230,7 @@ export default function ChatStream({
     // While the turn runs, the projection keeps its notes as body text and its
     // tools in a card; a settled turn folds into one row as it always has.
     const built = mergeProcessRuns(
-      buildChatItems(events, hostSpeaker, hostModel, !loading),
+      buildChatItems(events, hostSpeaker, hostModel, !loading, taskStatus),
       loading,
     );
     if (!pendingUserMessages || pendingUserMessages.length === 0) return built;
@@ -241,7 +249,7 @@ export default function ChatStream({
         partial: false,
       })),
     ];
-  }, [events, locale, hostSpeaker, hostModel, loading, pendingUserMessages]);
+  }, [events, locale, hostSpeaker, hostModel, loading, taskStatus, pendingUserMessages]);
   const turns = useMemo(
     () => groupIntoTurns(items, hostSpeaker, normalizeModel(hostModel)),
     [items, hostSpeaker, hostModel],
@@ -923,6 +931,14 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
   // message: several sessions stay mounted (tab host), and their seqs collide.
   const storeKey = messageScope ? `${messageScope}:${item.key}` : item.key;
   const revealed = useMobileMessageActionsRevealed(storeKey);
+  // A finger has no hover at any width. The old reveal was scoped to the phone
+  // breakpoint, so an iPad at 768/820 drew the desktop layout with the row at
+  // `opacity: 0` and no `pointer-events` rule: invisible, still hit-testable,
+  // and a tap meant to read the answer could press 重试. With a coarse pointer
+  // the hidden row is inert everywhere, and the tap that reveals it is the only
+  // way in; a mouse keeps today's hover/focus reveal (TASTE 21).
+  const coarsePointer = useCoarsePointer();
+  const actionsInert = coarsePointer && !revealed;
   return (
     <div
       data-message-key={item.key}
@@ -937,13 +953,15 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
             // Touch has no hover, so the actions rest hidden and a tap on the
             // body reveals them (one message at a time). A tap on a control
             // or a link inside the body does that control's job instead, and
-            // a tap that ends a text selection leaves the actions alone.
+            // a tap that ends a text selection leaves the actions alone. The
+            // coarse arm is the iPad: same gesture, at a width where the
+            // desktop layout draws the row.
             onClick: (event: ReactMouseEvent) => {
-              // The tap-to-reveal is the touch answer to hover; with a
+              // The tap-to-reveal is the touch answer to hover; with a fine
               // pointer, hover owns the row (the same `sm` cut the classes
               // use), and a click that stuck an action row on screen would
               // be a second behaviour for the same gesture.
-              if (!window.matchMedia("(max-width: 639px)").matches) return;
+              if (!coarsePointer && !window.matchMedia("(max-width: 639px)").matches) return;
               if (!isMessageActionsToggleTap(event.target)) return;
               toggleMobileMessageActions(storeKey);
             },
@@ -964,12 +982,27 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
             // `sm:` is the desktop cut: hover exists there, so the row hides
             // until the pointer is on the message. Below it the row hides
             // until the message is tapped, and a revealed row stays visible
-            // — there is no hover to lose it.
+            // — there is no hover to lose it. A coarse pointer skips the
+            // `sm:` cut entirely: an iPad has no hover to reveal the row, and
+            // an opacity-0 row that still takes pointer events is a tap target
+            // nobody can see. Focus stays a reveal so Tab reaches the buttons.
+            // A coarse pointer also floors each action's own width at 44px
+            // (`min-w-11`): at 820 the desktop density draws 重试/分叉 at
+            // 40.5px, and the global touch floor stops at 768. Height already
+            // reaches 44 through the Button facade at this width; the width is
+            // the part nothing floored.
             "flex items-center gap-1 transition-opacity",
-            revealed
-              ? "max-sm:opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100"
-              : "max-sm:opacity-0 max-sm:pointer-events-none sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100",
+            coarsePointer
+              ? revealed
+                ? "opacity-100"
+                : "opacity-0 pointer-events-none focus-within:opacity-100 focus-within:pointer-events-auto"
+              : revealed
+                ? "max-sm:opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100"
+                : "max-sm:opacity-0 max-sm:pointer-events-none sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100",
           ].join(" ")}
+          data-message-actions=""
+          data-actions-state={revealed ? "revealed" : "hidden"}
+          data-actions-inert={actionsInert ? "true" : undefined}
           role="group"
           aria-label={tr("task.actions")}
         >
@@ -983,7 +1016,7 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
                 disabled={actionsBusy}
                 title={tr("task.retryTitle")}
                 onClick={() => onRetry?.(item.seq!)}
-                className="group rounded-md px-2 py-0.5 text-caption font-medium"
+                className={`group rounded-md px-2 py-0.5 text-caption font-medium ${coarsePointer ? "min-w-11" : ""}`}
               >
                 <span className="text-kin-muted transition-colors group-hover:text-kin-text">
                   {tr("task.retry")}
@@ -994,7 +1027,7 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
                 disabled={actionsBusy}
                 title={tr("task.forkTitle")}
                 onClick={() => onFork?.(item.seq!)}
-                className="group rounded-md px-2 py-0.5 text-caption font-medium"
+                className={`group rounded-md px-2 py-0.5 text-caption font-medium ${coarsePointer ? "min-w-11" : ""}`}
               >
                 <span className="text-kin-muted transition-colors group-hover:text-kin-text">
                   {tr("task.fork")}
@@ -1009,7 +1042,7 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
                 title={tr("chat.message.copyTitle")}
                 aria-label={tr("chat.message.copyTitle")}
                 onClick={() => onCopyMessage(item.text)}
-                className="group rounded-md px-2 py-0.5 text-caption font-medium"
+                className={`group rounded-md px-2 py-0.5 text-caption font-medium ${coarsePointer ? "min-w-11" : ""}`}
               >
                 <span className="inline-flex items-center gap-1 text-kin-muted transition-colors group-hover:text-kin-text">
                   <IconCopy size={13} />
@@ -1021,7 +1054,7 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
                 title={tr("chat.message.shareTitle")}
                 aria-label={tr("chat.message.shareTitle")}
                 onClick={() => onShareMessage(item.key)}
-                className="group rounded-md px-2 py-0.5 text-caption font-medium"
+                className={`group rounded-md px-2 py-0.5 text-caption font-medium ${coarsePointer ? "min-w-11" : ""}`}
               >
                 <span className="inline-flex items-center gap-1 text-kin-muted transition-colors group-hover:text-kin-text">
                   <IconShare size={13} />

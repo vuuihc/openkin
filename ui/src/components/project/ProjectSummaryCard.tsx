@@ -32,6 +32,7 @@ export default function ProjectSummaryCard({
 
   return (
     <div
+      data-kin-reading=""
       className={[
         "w-full max-w-xl rounded-2xl bg-kin-panel/80 px-4 py-3 text-left shadow-e1",
         className,
@@ -57,7 +58,7 @@ export default function ProjectSummaryCard({
           // project above a synthesized list. Modifier clicks keep the
           // browser's new-tab behaviour.
           onClick={(event) => onGuardedLinkClick(event, navigate, location, coverPath)}
-          className="inline-flex min-h-11 flex-none items-center rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-body text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text sm:min-h-0"
+          className="inline-flex min-h-11 touch-floor flex-none items-center rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-body text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text sm:min-h-0"
         >
           {tr("newChat.openOnePager")}
         </Link>
