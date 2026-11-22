@@ -83,14 +83,18 @@ export function parseNotificationRoute(
     resolved.name === "conversations.approvals" ||
     resolved.name === "conversations.task";
   const focus = ownsFocus ? resolved.focus : null;
-  let query = "";
-  if (focus) {
-    query = `?focus=${encodeURIComponent(focus)}`;
+  const parts: string[] = [];
+  if (focus) parts.push(`focus=${encodeURIComponent(focus)}`);
+  if (resolved.name === "conversations.task" && resolved.device) {
+    // A run in another machine's store is the same task detail page; the
+    // device is what makes it ask that machine. Dropping it here sent the tap
+    // to this Hub's task table, which never held the run (KIN-CONTRACT-001).
+    parts.push(`device=${encodeURIComponent(resolved.device)}`);
   } else if (resolved.name === "routines.root" && resolved.device) {
     // A disabled-routine alert names which machine owns the routine, so the
     // Routines page opens on it. Any other query is dropped, exactly as an
     // unrecognized query on any other route is.
-    query = `?device=${encodeURIComponent(resolved.device)}`;
+    parts.push(`device=${encodeURIComponent(resolved.device)}`);
   } else if (
     (resolved.name === "settings.root" || resolved.name === "settings.section") &&
     resolved.tab &&
@@ -98,8 +102,9 @@ export function parseNotificationRoute(
   ) {
     // A section link keeps its normalized tab; retired ids have already become
     // general, which is the settings root.
-    query = `?tab=${encodeURIComponent(resolved.tab)}`;
+    parts.push(`tab=${encodeURIComponent(resolved.tab)}`);
   }
+  const query = parts.length ? `?${parts.join("&")}` : "";
   return { path: url.pathname + query, focus, fallback: false };
 }
 

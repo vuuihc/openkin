@@ -42,6 +42,9 @@ const STORY_ROUTES: Array<[url: string, area: string]> = [
   ["/approvals?focus=question-1", "conversations"],
   ["/tasks/task-1", "conversations"],
   ["/tasks/task-1?focus=appr-1", "conversations"],
+  // A routine run on another machine is one task detail carrying where it
+  // lives; the old four-segment path still resolves while its redirect exists.
+  ["/tasks/task-1?device=dev-1", "conversations"],
   ["/agent-sessions/session-1", "conversations"],
   ["/projects", "projects"],
   ["/projects/project-1", "projects"],
@@ -116,6 +119,30 @@ describe("resolveArea", () => {
     expect(
       resolveAreaRoute({ pathname: "/tasks/task-1#card", search: "?focus=appr-1" }),
     ).toMatchObject({ name: "conversations.task", id: "task-1", focus: "appr-1" });
+  });
+
+  it("carries the device of a run opened from another machine", () => {
+    // `?device=` is how the task detail says where the run lives (TASTE 12).
+    // The page is still the conversations task detail, not a second page.
+    expect(resolveAreaRoute(loc("/tasks/task-1?device=dev-1"))).toMatchObject({
+      area: "conversations",
+      name: "conversations.task",
+      id: "task-1",
+      device: "dev-1",
+    });
+    // A local task carries no device, and the device rides beside a focus.
+    expect(resolveAreaRoute(loc("/tasks/task-1"))?.device).toBeNull();
+    expect(resolveAreaRoute(loc("/tasks/task-1?device=dev-1&focus=appr-1"))).toMatchObject({
+      device: "dev-1",
+      focus: "appr-1",
+    });
+    // The old path still resolves while the redirect is the compatibility.
+    expect(resolveAreaRoute(loc("/machines/dev-1/tasks/task-1"))).toMatchObject({
+      area: "routines",
+      name: "routines.machineTask",
+      id: "task-1",
+      device: "dev-1",
+    });
   });
 
   it("decodes a dynamic segment exactly once", () => {

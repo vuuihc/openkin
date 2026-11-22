@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -215,7 +216,7 @@ func TestRoutineNotifyEndToEnd(t *testing.T) {
 	}
 
 	sent := apnsFake.wait(t, 1)
-	wantURL := "/machines/" + deviceID + "/tasks/task-1"
+	wantURL := "/tasks/task-1?device=" + url.PathEscape(deviceID)
 	if sent[0].URL != wantURL {
 		t.Fatalf("apns url = %q, want %q", sent[0].URL, wantURL)
 	}
@@ -799,7 +800,7 @@ func TestRoutineNotifyEngineToHubToAPNs(t *testing.T) {
 	}
 
 	sent := apnsFake.wait(t, 1)
-	wantURL := "/machines/" + deviceID + "/tasks/" + created.ID
+	wantURL := "/tasks/" + url.PathEscape(created.ID) + "?device=" + url.PathEscape(deviceID)
 	if sent[0].URL != wantURL {
 		t.Fatalf("apns url = %q, want %q", sent[0].URL, wantURL)
 	}
