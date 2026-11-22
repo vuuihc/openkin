@@ -123,6 +123,9 @@ const en: MessageTree = {
     filterEmpty: "No chats match this filter",
     filterEmptyHint: "Clear the filter to see every chat.",
     filterActiveCount: "Filters applied: {count}",
+    routineRun: "Routine",
+    routineFiltered: "Routine runs",
+    clearRoutineFilter: "Clear routine filter",
     archiveEmpty: "Nothing archived",
     archiveEmptyHint:
       "Conversations you put away, and projects removed from the drawer, wait here — nothing is deleted.",

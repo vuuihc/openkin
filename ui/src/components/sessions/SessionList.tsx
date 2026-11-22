@@ -136,7 +136,7 @@ import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
  * put and both shells read the same parameters. Project order is the existing
  * sidebar preference, which is why it appears in both shells' filter panel.
  */
-const LIST_STATE_KEYS = ["search", "status", "scope"] as const;
+const LIST_STATE_KEYS = ["search", "status", "scope", "routine"] as const;
 
 /**
  * Carry the list's own params through a navigation.
@@ -193,6 +193,10 @@ export default function SessionList({
   const searching = query.trim() !== "";
   const status = normalizeStatusFilter(params.get("status"));
   const scope = normalizeScopeFilter(params.get("scope"));
+  // One routine's runs, by id. The list never fetches routine names: a run's
+  // title is its routine's title, so the row already says which routine it is.
+  const routineId = (params.get("routine") ?? "").trim();
+  const routineFilter = routineId !== "";
 
   const [searchTerm, setSearchTerm] = useState(() => query.trim());
   const [returnRow, setReturnRow] = useState<string | null>(() => takeRowReturn());
@@ -206,7 +210,7 @@ export default function SessionList({
     return () => clearTimeout(timer);
   }, [query]);
 
-  const taskList = useTaskList(sessionListParams(searchTerm, status));
+  const taskList = useTaskList(sessionListParams(searchTerm, status, false, routineId));
   const pending = usePendingResources();
   const pendingByTask = useMemo(() => pendingCountsByTask(pending.data), [pending.data]);
   const { machines, loading: machinesLoading, failed: machinesFailed } = useMachines();
@@ -292,7 +296,7 @@ export default function SessionList({
     selectionOriginId.current = null;
     setSelectionMode(false);
     setSelectedIds(new Set());
-  }, [query, status, scope]);
+  }, [query, status, scope, routineId]);
 
   // A focused move is one-shot and belongs to the mode change itself: the ref
   // is consumed in the commit that flips `selectionMode`, so a later list
@@ -394,7 +398,7 @@ export default function SessionList({
     setOlderArchivedTasks([]);
     setTaskMore(null);
     setArchiveMore(null);
-  }, [searchTerm, status]);
+  }, [searchTerm, status, routineId]);
 
   useEffect(() => {
     if (scope !== "archived") return;
@@ -419,7 +423,7 @@ export default function SessionList({
   }, [taskList.loaded, taskList.data]);
   const liveTasks = taskList.loaded ? taskList.data : lastLoadedTasks.current;
   const archivedList = useTaskList(
-    sessionListParams(searchTerm, status, true),
+    sessionListParams(searchTerm, status, true, routineId),
     scope === "archived",
   );
   const lastLoadedArchivedTasks = useRef<readonly Task[]>([]);
@@ -441,21 +445,23 @@ export default function SessionList({
     [archivedTasks, olderArchivedTasks],
   );
   const tasks = useMemo(
-    () => sessionFeedTasks(liveRows, archivedRows, scope, status),
-    [liveRows, archivedRows, status, scope],
+    () => sessionFeedTasks(liveRows, archivedRows, scope, status, routineId),
+    [liveRows, archivedRows, status, scope, routineId],
   );
   const allSessions = useMemo(() => {
     if (olderSessions.length === 0) return sessions;
     const seen = new Set(sessions.map((session) => session.id));
     return [...sessions, ...olderSessions.filter((session) => !seen.has(session.id))];
   }, [sessions, olderSessions]);
-  const taskLimit = sessionListParams(searchTerm, status).limit;
-  const archiveLimit = sessionListParams(searchTerm, status, true).limit;
+  const taskLimit = sessionListParams(searchTerm, status, false, routineId).limit;
+  const archiveLimit = sessionListParams(searchTerm, status, true, routineId).limit;
   const hasMoreTasks = taskMore ?? (taskList.pageFull || liveTasks.length >= taskLimit);
   const hasMoreArchive =
     scope === "archived" &&
     (archiveMore ?? (archivedList.pageFull || archivedTasks.length >= archiveLimit));
-  const hasMoreSessions = Boolean(sessionCursor) && !status;
+  // Imported agent sessions carry no routine, so a routine filter hides them
+  // entirely; their paging has nothing left to page through.
+  const hasMoreSessions = Boolean(sessionCursor) && !status && !routineFilter;
 
   // Opening a conversation from anywhere else in the shell still has to bump
   // its project and clear its completion dot; the list owns that bookkeeping
@@ -515,7 +521,7 @@ export default function SessionList({
     () =>
       phoneProjectBuckets(
         tasks,
-        status ? [] : allSessions,
+        status || routineFilter ? [] : allSessions,
         selfDeviceId,
         {
           untitled: tr("sessions.untitled"),
@@ -534,6 +540,7 @@ export default function SessionList({
       tasks,
       allSessions,
       status,
+      routineFilter,
       scope,
       selfDeviceId,
       locale,
@@ -550,7 +557,8 @@ export default function SessionList({
   // has failed or has not answered, "no rows" is not evidence the project is
   // empty, and seeding would replace "nothing matches" or a load error with a
   // wall of zero-count headings.
-  const canSeed = scope === "active" && !status && taskList.loaded && !taskList.error;
+  const canSeed =
+    scope === "active" && !status && !routineFilter && taskList.loaded && !taskList.error;
   const seeded = useMemo(
     () => seedProjects(buckets, canSeed ? projects : [], archivedCwds, tr("sessions.noProject")),
     [buckets, projects, canSeed, archivedCwds, tr],
@@ -589,6 +597,7 @@ export default function SessionList({
           shell === "page" &&
           !searching &&
           !status &&
+          !routineFilter &&
           scope === "active" &&
           // A failed read has no "empty": the page says it could not load the
           // list, and a machine heading under that would claim the failure
@@ -622,6 +631,7 @@ export default function SessionList({
     shell,
     searching,
     status,
+    routineFilter,
     taskList.loaded,
     taskList.error,
     sessionsFailed,
@@ -665,8 +675,11 @@ export default function SessionList({
   // A reorder here would mean "reorder the current results", not the project:
   // the order is stored per bucket, so it is offered only where the bucket is
   // shown whole. The stored order still displays in the narrowed views.
-  const canReorder = scope === "active" && !searching && !status && !selectionMode;
-  const filtering = Boolean(status) || scope === "archived";
+  const canReorder =
+    scope === "active" && !searching && !status && !routineFilter && !selectionMode;
+  // "Nothing here" must describe the filter, not a page that ended: the same
+  // empty state covers status, the archive and a routine narrowing.
+  const filtering = Boolean(status) || scope === "archived" || routineFilter;
   const pendingQuery = query.trim() !== searchTerm;
   const archiveFailed = scope === "archived" && Boolean(archivedList.error);
   const archiveProjectsFailed = scope === "archived" && !archiveFailed && Boolean(taskList.error);
@@ -674,16 +687,16 @@ export default function SessionList({
   // Imported sessions are a second index. Its failure is actionable on its own:
   // when it is the only feed with rows, the page must say what failed rather
   // than draw "no chats yet" over it.
-  const importsFailed = !status && sessionsFailed;
+  const importsFailed = !status && !routineFilter && sessionsFailed;
   const importsFailedHard = importsFailed && !loading && listed.length === 0 && !loadFailed;
   // One retry for whatever this page is showing: the live list, and the archive
   // list when that scope is open. The button exists because the story promises
   // one (`KIN-CONTINUE-002`, step 6) and because waiting for an event to
   // repaint the list is not a next step a reader can take.
   const retryList = () => {
-    void liveResources.refreshTaskList(sessionListParams(searchTerm, status));
+    void liveResources.refreshTaskList(sessionListParams(searchTerm, status, false, routineId));
     if (scope === "archived") {
-      void liveResources.refreshTaskList(sessionListParams(searchTerm, status, true));
+      void liveResources.refreshTaskList(sessionListParams(searchTerm, status, true, routineId));
     }
     // The imported half is a second index with its own read; a Retry that only
     // refreshes tasks would leave the error it is answering in place.
@@ -734,6 +747,13 @@ export default function SessionList({
     else nextParams.delete("status");
     if (next.scope === "archived") nextParams.set("scope", "archived");
     else nextParams.delete("scope");
+    setParams(nextParams, { replace: true });
+  }
+
+  /** The routine chip's clear control: back to the full list, same entry. */
+  function changeRoutineFilter() {
+    const nextParams = new URLSearchParams(params);
+    nextParams.delete("routine");
     setParams(nextParams, { replace: true });
   }
 
@@ -1029,7 +1049,7 @@ export default function SessionList({
         const oldest = liveRows[liveRows.length - 1]?.id;
         if (oldest) {
           const page = await listTasks({
-            ...sessionListParams(searchTerm, status),
+            ...sessionListParams(searchTerm, status, false, routineId),
             before: oldest,
           });
           if (requestGeneration.current !== generation) return;
@@ -1043,7 +1063,7 @@ export default function SessionList({
         const oldest = archivedRows[archivedRows.length - 1]?.id;
         if (oldest) {
           const page = await listTasks({
-            ...sessionListParams(searchTerm, status, true),
+            ...sessionListParams(searchTerm, status, true, routineId),
             before: oldest,
           });
           if (requestGeneration.current !== generation) return;
@@ -1053,7 +1073,7 @@ export default function SessionList({
           setArchiveMore(false);
         }
       }
-      if (sessionCursorRef.current && !status) {
+      if (sessionCursorRef.current && !status && !routineFilter) {
         const cursor = sessionCursorRef.current;
         const term = sessionListParams(searchTerm);
         const page = await listAgentSessionsPage({
@@ -1346,6 +1366,8 @@ export default function SessionList({
       scope={scope}
       sortMode={sortMode}
       onFilterChange={changeFilter}
+      routineFilter={routineFilter}
+      onClearRoutine={changeRoutineFilter}
       onSortChange={(mode) => {
         setProjectSortMode(mode);
         setPrefsTick((n) => n + 1);
