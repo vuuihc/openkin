@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import type { AgentInfo, Upload } from "../../api/client";
@@ -883,6 +884,32 @@ export default function Composer({
   const expanded =
     Boolean(value.trim()) || items.length > 0 || focused || uploading || focusSignal > 0;
   /**
+   * A press on the card's own surface belongs to the message box.
+   *
+   * The card is what looks like the input: its padding, the gap between the
+   * text and the control row, and the bare corners are the natural aim point,
+   * and they used to be dead — a pointer user clicked the box and no caret
+   * appeared. Anything interactive inside the card keeps its own press, so this
+   * only fills the holes; it never takes focus from a control or a menu row.
+   *
+   * The default is prevented before focusing: the browser runs its own
+   * mousedown focus change after this handler, and on a bare card surface that
+   * change targets the body — it would undo the caret this line just placed.
+   */
+  function focusFromCardSurface(event: ReactPointerEvent<HTMLDivElement>) {
+    const target = event.target;
+    if (
+      target instanceof Element &&
+      target.closest(
+        "button, a, input, textarea, select, [contenteditable='true'], [role='listbox'], [role='menu']",
+      )
+    ) {
+      return;
+    }
+    event.preventDefault();
+    textareaRef.current?.focus();
+  }
+  /**
    * There is something to send and the composer can send it now. The send
    * control carries the accent only then; an empty box shows the same control
    * quiet, because a filled primary button over an empty draft says "press me"
@@ -1050,7 +1077,15 @@ export default function Composer({
       )}
 
       <div
+        data-kin-composer-card
+        onPointerDown={focusFromCardSurface}
         className={[
+          // `@container`: the resting arrangement is chosen by the width the
+          // card actually has, not the window's. A side rail or a panel can
+          // leave the card ~374 px wide in a 768–900 px window, and a
+          // viewport `sm:` kept the row horizontal there until the 300 px of
+          // controls squeezed the textarea to nothing.
+          "@container",
           // Phone: the elevated card the reference composer uses — its own
           // surface, a 2xl radius and a drop, so the input reads as a thing you
           // hold rather than a hole cut in the transcript. Desktop keeps the
@@ -1163,7 +1198,11 @@ export default function Composer({
         />
         <div
           className={
-            expanded ? "flex flex-col" : "flex flex-col sm:flex-row sm:items-center sm:gap-1.5"
+            // Resting, the row is a column until the card can hold the ~300 px
+            // of controls and a readable textarea (≥240 px) beside them; `@xl`
+            // (36 rem) is comfortably above that sum. The raised arrangement is
+            // a column at every width, as it has always been.
+            expanded ? "flex flex-col" : "flex flex-col @xl:flex-row @xl:items-center @xl:gap-1.5"
           }
         >
           <textarea
@@ -1215,10 +1254,10 @@ export default function Composer({
               // beside it are already that tall, and a 28px textarea inside a
               // 44px row clipped the second line of its own placeholder. The
               // `kin-composer-input` half covers the coarse-pointer widths the
-              // `sm` breakpoint would otherwise drop back to 28px.
+              // `@xl` container breakpoint would otherwise drop back to 28px.
               expanded
                 ? "w-full min-h-11 leading-ui"
-                : "kin-composer-input w-full min-w-0 min-h-11 flex-none py-[11px] leading-ui sm:flex-1 sm:min-h-7 sm:py-0",
+                : "kin-composer-input w-full min-w-0 min-h-11 flex-none py-[11px] leading-ui @xl:flex-1 @xl:min-h-7 @xl:py-0",
             ].join(" ")}
           />
           {/* One row, and it never wraps: the card keeps one height whether a
@@ -1230,7 +1269,7 @@ export default function Composer({
             data-kin-composer-row
             className={[
               "flex min-w-0 flex-nowrap items-center gap-1.5",
-              expanded ? "mt-2" : "mt-1.5 sm:mt-0",
+              expanded ? "mt-2" : "mt-1.5 @xl:mt-0",
             ].join(" ")}
           >
             <Button

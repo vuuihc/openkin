@@ -34,6 +34,16 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
+- 2026-11-22 · 高 · 768×1024（iPad 竖屏）对话输入框宽 0px，鼠标/触摸点输入区不聚焦、键入被丢弃；820×1180 空闲时也只有 33px 宽，占位文字逐字换行，获得焦点或已有草稿才展开
+  - **期望行为可写成测试**：在 768×1024 与 820×1180 打开任一对话，未聚焦、无草稿时 `textarea` 的 `getBoundingClientRect().width ≥ 240`（或 `flex` 行在自身容器窄于约 520px 时改为上下排列）；点输入区后 `document.activeElement` 是该 `textarea`，键入 40 个字符后草稿在不超过两行内可读。实测：768 → 0×135，点 composer 卡片不聚焦、键入被丢弃；820 → 33×58；390 → 336×44、700 → 281×28 均正常。
+  - **不要的做法**：不要靠“聚焦/有内容才展开”来让输入框可用（768 下 0px 根本没有可点的区域），也不要把发送/停止压到 44px 以下或只在展开态才给输入框最小宽度。
+  - **照抄的同类**：`ui/src/components/chat/Composer.tsx:883-884` 的 `expanded`（`value.trim() || focused || …`）决定 `:1166` 的 `flex-col`/`sm:flex-row`：390 走 `flex-col`，输入框 336px；`ui/src/components/task/TaskComposerDock.tsx:243` 的 `footerWide` 在 1100 把控件放到 footer 行，输入框 650px。这两种排法都能用，缺的是“输入框自身盒子窄时也走它们”的判据（容器查询或最小宽度），而不是 `sm:` 视口断点。
+
+- 2026-11-22 · 中 · 两条「已排队：本轮结束后回答」确认浮层正好压在输入框上约 4.5 秒，点输入框中心会点到浮层的 ×
+  - **期望行为可写成测试**：在 1100×760 连续排队两条追问后，任一条确认浮层可见期间，`document.elementFromPoint(textarea 中心)` 返回该 `textarea`（或其子节点），浮层矩形与 `[data-kin-bottom-chrome]` 不相交。实测：两个 448×54 浮层位于 y=628/690，`textarea` 为 y=639 高 44，中心命中的是浮层的 44px × 按钮；4545ms 后浮层消失。
+  - **不要的做法**：不要为了避让就删掉这条确认（它与气泡上的 `1 排队中` 徽标各说一件事：徽标说消息在队列里，确认说这次发送被接受），也不要保留浮层却只把它改成 `pointer-events-none` —— 那样输入框仍被盖住，只是点得到而已。
+  - **照抄的同类**：`ui/src/components/task/TaskComposerDock.tsx:152-153` 的注释与结构——“New activity is a row in the bottom lane, never an overlay”；问题出在 `ui/src/components/ToastHost.tsx:11` 的 `fixed bottom-0 inset-x-0` 居中宿主。把确认放在 composer 上方的非内容行（或屏幕角落），而不是底边中央。
+
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。

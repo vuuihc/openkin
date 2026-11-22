@@ -272,6 +272,14 @@ export default function TaskDetailPage({
   const [workerSteps, setWorkerSteps] = useState<WorkerStep[]>([]);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
   /**
+   * The queued confirmation, as a row in the dock rather than a toast over the
+   * composer. It goes up when this page queues a follow-up behind a running
+   * round, and comes down when a queue read that *started after* that send
+   * reports the queue drained — a read begun earlier cannot speak for it.
+   */
+  const [queuedGuide, setQueuedGuide] = useState(false);
+  const queuedGuideSinceRef = useRef<number | null>(null);
+  /**
    * The queue as the last poll saw it, readable from a click handler whose
    * identity must stay put: the message rows are memoized and keep the handler
    * they were given, so the handler reads the current queue from here rather
@@ -625,6 +633,8 @@ export default function TaskDetailPage({
     setWorkerSteps([]);
     setQueuedPrompts([]);
     queuedPromptsRef.current = [];
+    queuedGuideSinceRef.current = null;
+    setQueuedGuide(false);
     withdrawnRef.current = new Set();
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
@@ -683,12 +693,22 @@ export default function TaskDetailPage({
       const request = ++queueMoveRequestRef.current;
       // A read is happening now; whatever an earlier poll deferred is covered.
       deferredQueueReadRef.current = false;
+      const startedAt = Date.now();
       listQueuedPrompts(id)
         .then((prompts) => {
           if (!live || request !== queueMoveRequestRef.current) return;
           const next = withoutWithdrawn(prompts, withdrawnRef.current);
           queuedPromptsRef.current = next;
           setQueuedPrompts(next);
+          // The queued row has done its job once the queue it was raised for
+          // has drained. Only a read that began after the send can say that:
+          // one already in flight describes the queue from before the message
+          // was accepted.
+          const guideSince = queuedGuideSinceRef.current;
+          if (guideSince !== null && startedAt >= guideSince && next.length === 0) {
+            queuedGuideSinceRef.current = null;
+            setQueuedGuide(false);
+          }
         })
         .catch(() => {
           if (!live || request !== queueMoveRequestRef.current) return;
@@ -1843,8 +1863,19 @@ export default function TaskDetailPage({
       if (wasRunning) {
         // Say which of the two things happened. The queue is the default, so
         // claiming an interrupt here would be a lie the user only discovers when
-        // the round they thought they had stopped keeps going.
-        pushToast(tr(opts?.interrupt ? "task.interruptedGuide" : "task.queuedGuide"), "info");
+        // the round they thought they had stopped keeps going. The queue's
+        // confirmation is a row in the dock: a toast sat over the composer for
+        // five seconds, and the box the person sends from again is the one
+        // surface it must not cover.
+        if (opts?.interrupt) {
+          pushToast(tr("task.interruptedGuide"), "info");
+        } else {
+          queuedGuideSinceRef.current = Date.now();
+          setQueuedGuide(true);
+          // Ask the queue now, not on the next three-second tick: the row is
+          // tied to a real waiting prompt, and the read is what proves it.
+          setQueueReload((n) => n + 1);
+        }
       }
     } catch (err) {
       setPendingSends((current) => current.filter((item) => item.id !== sent.id));
@@ -2804,6 +2835,7 @@ export default function TaskDetailPage({
           onRevealFirstPending={revealFirstPending}
           unseen={unseen}
           showNewest={showNewest}
+          queuedGuide={queuedGuide}
           // The oldest waiting decision, through the same path the inline card
           // uses: one decision implementation, two places to reach it.
           onApproveFirstPending={() => {
