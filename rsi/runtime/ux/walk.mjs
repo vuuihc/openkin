@@ -460,6 +460,26 @@ function checkJ3Contract(spec) {
   if (stopFillAt >= 0 && (stopFollowWaitAt < 0 || stopFollowWaitAt > stopClickAt)) {
     errs.push('J3 never waits for the stopped round\'s follow-up inside the transcript');
   }
+  // The interrupt contract (R-interrupt-walk). The Stop proof above ends a
+  // round; this one cuts it with the message already typed. The explicit
+  // interrupt action is a press, not a wait: a walk that only proves the
+  // control exists can send as an ordinary queue and stay green while the
+  // round it was meant to cut keeps running. After the click the transcript
+  // must say the previous round was interrupted, and the walk must then read
+  // the message that cut it inside the scroller a reader actually sees.
+  const interruptControl = (sel) => /打断|[Ii]nterrupt/.test(String(sel)) && /aria-label/.test(String(sel));
+  const lastSlowFillAt = steps.reduce((last, st, i) => (Array.isArray(st) && st[0] === 'fill'
+    && /textarea/.test(String(st[1])) && typeof st[2] === 'string' && st[2].includes('[seed] slow') ? i : last), -1);
+  const interruptClickAt = lastSlowFillAt < 0 ? -1 : idx(([op, sel]) => op === 'click' && interruptControl(sel), lastSlowFillAt + 1);
+  if (interruptClickAt < 0) errs.push('J3 never presses the interrupt-send control (click composer.interruptSend)');
+  const interruptNoteWaitAt = interruptClickAt < 0 ? -1 : idx(([op, needle]) => op === 'wait' && /已打断上一轮|Interrupted the previous round/.test(String(needle)), interruptClickAt + 1);
+  if (interruptNoteWaitAt < 0) errs.push('J3 never waits for the interrupt mark (chat.interruptedNote)');
+  const interruptFillAt = lastSlowFillAt < 0 ? -1 : idx(([op, sel, val]) => op === 'fill' && /textarea/.test(String(sel))
+    && typeof val === 'string' && val.trim() !== '' && !val.includes('[seed] slow'), lastSlowFillAt + 1);
+  const interruptMessage = interruptFillAt >= 0 && interruptClickAt >= 0 && interruptFillAt < interruptClickAt ? String(steps[interruptFillAt][2]) : '';
+  const interruptWaitAt = interruptNoteWaitAt < 0 || !interruptMessage ? -1 : idx(([op, needle]) => op === 'wait'
+    && /^css=/.test(String(needle)) && /\[role=.?region/.test(String(needle)) && String(needle).includes(interruptMessage), interruptNoteWaitAt + 1);
+  if (interruptWaitAt < 0) errs.push('J3 never waits for the message that cut the round inside the transcript');
   return errs;
 }
 // J2's contract: the review loop a person runs, not a screenshot of it. A
@@ -3115,6 +3135,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J2 keeps a saved comment across a rerun — re-anchored to its new line, then 该行已变化 when the quoted line is gone');
   console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
   console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
+  console.log('spec ok: J3 interrupts a held round with the typed message, reads the mark above it in the transcript, and proves Stop left');
   console.log('spec ok: J4 reads the cover\'s 工作方式 block, sends the pre-filled prompt, edits the file, and proves the same cut on the cover and in the agent\'s receipt');
   console.log('spec ok: J5 opens the running row\'s menu and pins rename, pin, archive, delete and a disabled 运行中 line');
   console.log('spec ok: J6 changes the default agent at both widths, proves it persisted and hosts the next new chat, then restores it');
