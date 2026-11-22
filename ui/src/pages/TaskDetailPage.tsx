@@ -947,6 +947,10 @@ export default function TaskDetailPage({
     // show pin the reader to the bottom of the conversation they were reading.
     if (!active || el.clientHeight <= 0) return;
     stickToBottomRef.current = isNearBottom(el);
+    // A send's pin belongs to the commit that lands its bubble. Once the
+    // reader has taken the transcript somewhere else, that place wins: a
+    // later growth must announce itself, never drag them back to the end.
+    if (!stickToBottomRef.current) pinAfterSendRef.current = false;
     // Reading at the end is what "caught up" means: drop the offer to go
     // there, whether the reader scrolled down or the content shrank to fit.
     if (stickToBottomRef.current) setUnseen(0);
@@ -1162,14 +1166,26 @@ export default function TaskDetailPage({
   // as the reader is back at the end, sends a follow-up, or changes session.
   useEffect(() => {
     const previous = seenEventCountRef.current;
+    // Re-sync either way: a transcript that shrank (a reload, a lower epoch)
+    // must not leave the counter above its new length, or every later growth
+    // would look already seen.
     seenEventCountRef.current = events.length;
     if (events.length <= previous) return;
+    const arrived = events.length - previous;
     // The opening layout already lands at the end (or is still on its way); a
-    // keep-alive-hidden pane is not being read; a send's pin is still owed.
-    if (!didInitialScrollRef.current || !active || (sending && pinAfterSendRef.current)) return;
-    if (stickToBottomRef.current) return;
-    setUnseen((count) => count + (events.length - previous));
-  }, [events.length, active, sending]);
+    // keep-alive-hidden pane is not being read.
+    if (!didInitialScrollRef.current || !active) return;
+    const el = scrollRef.current;
+    if (!el || el.clientHeight <= 0) return;
+    // Ask the transcript where the reader is now, not whether a send still
+    // owns a pin. The layout effect above has already run for this commit, so
+    // a pin that placed these rows reads as the end here. A pin that is still
+    // owed (a restore holding the reader's place) or one the reader scrolled
+    // away from does not — and treating the send window as "seen" is how a
+    // reply that outran its POST landed in silence.
+    if (isNearBottom(el)) return;
+    setUnseen((count) => count + arrived);
+  }, [events.length, active, isNearBottom]);
 
   // The counter belongs to the conversation it was raised for: another task
   // has its own transcript, its own place and its own unread output.
