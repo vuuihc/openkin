@@ -35,6 +35,10 @@
       "notSelf"
     ],
     [
+      "shot",
+      "actions-hidden"
+    ],
+    [
       "click",
       "css=[data-message-key]:has([data-message-actions]) p"
     ],
@@ -42,6 +46,10 @@
       "hittest",
       "css=[data-message-key]:has([data-message-actions]) [data-message-actions]",
       "self"
+    ],
+    [
+      "shot",
+      "actions-revealed"
     ],
     [
       "restingComposer",
