@@ -41,7 +41,11 @@
     ],
     [
       "click",
-      "?/Morning planning/"
+      "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"
+    ],
+    [
+      "click",
+      "[data-session-row]:has-text('[seed] Morning planning')"
     ],
     [
       "shot",
