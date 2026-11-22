@@ -16,7 +16,9 @@ calls are the CEO's; report after, not before. This file is the contract. It may
 2. Reviewer (a model different from the worker) reports **no blocker/major** on the final diff.
 3. Diff ≤ ~800 changed lines (excluding `web/dist/index.html`, lockfiles); otherwise split.
 4. `web/dist/index.html` committed if the console changed; **never** `web/dist/assets/`.
-5. UI change: 390/1100 screenshots saved under the PR body or `rsi/state/shots/<slug>/`.
+5. UI change: 390/820/1100 screenshots saved under the PR body or `rsi/state/shots/<slug>/`.
+   The 820 shot must show the surface's real reading state — for a conversation surface, a long
+   answer containing a markdown table — never an empty or placeholder state.
 6. `rsi/state/NO_MERGE` absent. `gh pr checks` all green.
 
 ## Red lines (never, even if a model argues for it)

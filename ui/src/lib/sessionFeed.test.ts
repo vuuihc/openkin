@@ -35,20 +35,18 @@ describe("sessionFeedTasks", () => {
     // the archive feed.
     const live = [task({ id: "project-chat" })];
     const feed = [task({ id: "put-away", archived_at: 99 })];
-    expect(ids(sessionFeedTasks(live, feed, "archived"))).toEqual([
-      "project-chat",
-      "put-away",
-    ]);
+    expect(ids(sessionFeedTasks(live, feed, "archived"))).toEqual(["project-chat", "put-away"]);
   });
 
   it("shows a row once when both feeds carry it", () => {
     // A conversation archived from this screen is in the loaded live page and
     // in the archive feed; a flat merge would show it twice under one heading.
     const putAway = task({ id: "put-away", archived_at: 99 });
-    expect(ids(sessionFeedTasks([putAway], [putAway, task({ id: "older", archived_at: 1 })], "archived"))).toEqual([
-      "put-away",
-      "older",
-    ]);
+    expect(
+      ids(
+        sessionFeedTasks([putAway], [putAway, task({ id: "older", archived_at: 1 })], "archived"),
+      ),
+    ).toEqual(["put-away", "older"]);
   });
 
   it("narrows by status on both feeds while the server catches up", () => {
@@ -82,5 +80,42 @@ describe("sessionFeedTasks", () => {
     const live = [task({ id: "live" })];
     const feed = [task({ id: "stale", archived_at: 5 })];
     expect(ids(sessionFeedTasks(live, feed, "active"))).toEqual(["live"]);
+  });
+});
+
+describe("sessionFeedTasks · routine narrowing", () => {
+  // A run is a task row carrying `routine_id`; a chat has none. The server
+  // already narrows the page, but a filter change hands back the previous
+  // page's rows until the new answer lands, so the local rule is the same one
+  // `status` applies. Imported sessions have no routine at all and are dropped
+  // by the caller; here only the task feeds are read.
+  const live = [
+    task({ id: "chat" }),
+    task({ id: "run-1", routine_id: "r1" }),
+    task({ id: "run-2", routine_id: "r2" }),
+  ];
+  const feed = [
+    task({ id: "archived-run-1", routine_id: "r1", archived_at: 9 }),
+    task({ id: "archived-chat", archived_at: 9 }),
+    task({ id: "archived-run-2", routine_id: "r2", archived_at: 9 }),
+  ];
+
+  it("keeps only the named routine's runs in the active scope", () => {
+    expect(ids(sessionFeedTasks(live, feed, "active", undefined, "r1"))).toEqual(["run-1"]);
+  });
+
+  it("applies the same narrowing to both feeds in the archive scope", () => {
+    expect(ids(sessionFeedTasks(live, feed, "archived", undefined, "r1"))).toEqual([
+      "run-1",
+      "archived-run-1",
+    ]);
+  });
+
+  it("leaves the list alone without a routine", () => {
+    expect(ids(sessionFeedTasks(live, feed, "active", undefined, ""))).toEqual([
+      "chat",
+      "run-1",
+      "run-2",
+    ]);
   });
 });

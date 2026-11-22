@@ -152,11 +152,16 @@ export default function SessionRow({
   }, []);
   const dot = row.task ? sessionStatusDotClass(row.task.status, viewedIds.has(row.task.id)) : null;
   const avatar = agentAvatarMeta(row.agentId);
+  // A run is a task spawned by a routine; an ordinary chat carries no
+  // `routine_id`. The marker is part of the row's sentence as well as its
+  // tail, so a screen reader hears "this is a run" before the actions.
+  const routineRun = Boolean(row.task?.routine_id);
   const label = [
     row.title,
     agentDisplayName(row.agentId),
     formatRelativeTime(row.at, now),
     row.task && dot ? tr(taskCardStatusView(row.task.status).labelKey) : "",
+    routineRun ? tr("sessions.routineRun") : "",
     pendingCount > 0 ? tr("sessions.pendingApprovals", { count: String(pendingCount) }) : "",
     row.remote ? deviceLabel || tr("machine.remote") : "",
   ]
@@ -413,6 +418,11 @@ export default function SessionRow({
             </span>
           )}
           <PendingBadge count={pendingCount} />
+          {routineRun ? (
+            <span className="max-w-[6rem] flex-none truncate text-caption leading-ui text-kin-muted">
+              {tr("sessions.routineRun")}
+            </span>
+          ) : null}
           {deviceLabel ? (
             <span className="max-w-[6rem] flex-none truncate text-caption leading-ui text-kin-muted">
               {deviceLabel}

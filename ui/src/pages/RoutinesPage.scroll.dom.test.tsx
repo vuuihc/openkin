@@ -8,7 +8,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import RoutinesPage from "./RoutinesPage";
 import { setLocale } from "../i18n";
-import { listRoutineRuns, listRoutines, type Routine } from "../api/client";
+import { listRoutines, type Routine } from "../api/client";
 import { getKeyedScroll, setKeyedScroll } from "../lib/sessionScroll";
 import type { WSMessage } from "../api/contract";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,7 +55,6 @@ vi.mock("../api/client", () => ({
   getRoutine: vi.fn(),
   isAuthenticated: () => true,
   isTerminal: () => true,
-  listRoutineRuns: vi.fn(async () => ({ routines: [], runs: [], has_more: false })),
   listRoutines: vi.fn(async () => ({ routines: [], next_cursor: "", has_more: false })),
   listTasks: vi.fn(async () => []),
   markAllRoutineRunsRead: vi.fn(),
@@ -93,11 +92,6 @@ vi.mock("../lib/routineRecurrence", () => ({
   localTimeZone: () => "UTC",
   parseRoutineRule: () => null,
   serializeRoutineRule: () => null,
-}));
-
-vi.mock("../lib/routineHistory", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../lib/routineHistory")>()),
-  ROUTINE_HISTORY_MAX: 100,
 }));
 
 vi.mock("../components/Skeleton", async (importOriginal) => ({
@@ -233,7 +227,6 @@ beforeEach(() => {
     next_cursor: "",
     has_more: false,
   });
-  vi.mocked(listRoutineRuns).mockResolvedValue({ routines: [], runs: [], has_more: false });
 });
 
 afterEach(() => {

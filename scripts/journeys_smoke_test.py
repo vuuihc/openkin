@@ -14,6 +14,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,11 @@ import unittest
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCRIPTS)
 SHELL = os.path.join(SCRIPTS, "journeys-smoke.sh")
+NODE = shutil.which("node")
+JOURNEYS = os.path.join(ROOT, "rsi", "runtime", "ux", "journeys.json")
+WALK = os.path.join(ROOT, "rsi", "runtime", "ux", "walk.mjs")
+SPECPY = os.path.join(ROOT, "rsi", "runtime", "ux", "spec.py")
+MANDATE = os.path.join(ROOT, "rsi", "MANDATE.md")
 
 sys.path.insert(0, SCRIPTS)
 import journeys_seed  # noqa: E402
@@ -292,6 +298,160 @@ class ShellTest(unittest.TestCase):
             ['export RSI_FAKE_SLOW_SECS="${RSI_FAKE_SLOW_SECS:-10}"'],
             "scripts/journeys-smoke.sh must export RSI_FAKE_SLOW_SECS with a 10 s default",
         )
+
+    def test_tablet_spec_is_forwarded_to_walk_and_summary(self) -> None:
+        # The opt-in diagnostic is one spec for the browser and the summarizer.
+        # A --spec that reached only one of them would summarize a different
+        # matrix than the one that was walked.
+        tablet = os.path.join(ROOT, "rsi", "runtime", "ux", "tablet-reading.json")
+        result = self.run_shell("--spec", tablet, "--dry-run")
+        combined = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, combined)
+        walk_line = next(line for line in result.stdout.splitlines() if line.startswith("walk: "))
+        sum_line = next(
+            line for line in result.stdout.splitlines() if line.startswith("summarize: ")
+        )
+        self.assertIn(f"--spec {tablet}", walk_line, walk_line)
+        self.assertIn(f"--spec {tablet}", sum_line, sum_line)
+        self.assertIn("JT1 tablet 820x1180", result.stdout)
+        # A dry run reads no token and writes no out dir; it may only *plan*
+        # a build.
+        self.assertIsNone(re.search(r"\b[0-9a-fA-F]{32,}\b", combined), combined)
+
+        # The old default invocation is byte-identical: no --spec is invented
+        # when the caller did not ask for one.
+        default = self.run_shell("--dry-run")
+        self.assertEqual(default.returncode, 0, default.stdout + default.stderr)
+        self.assertIn(
+            "walk: node rsi/runtime/ux/walk.mjs --base http://127.0.0.1:<port> "
+            "--token <token> --out <out>\n",
+            default.stdout,
+        )
+        self.assertIn(
+            "summarize: python3 scripts/journeys_smoke.py --walk-json <out>/walk.json\n",
+            default.stdout,
+        )
+
+        # A missing spec is a refusal, not an empty green walk of nothing.
+        missing = self.run_shell("--spec", os.path.join(ROOT, "no-such-spec.json"), "--dry-run")
+        self.assertEqual(missing.returncode, 2, missing.stdout + missing.stderr)
+        self.assertIn("unavailable:", missing.stderr)
+
+        # A selection the supplied spec does not declare is refused too; the
+        # diagnostic spec carries only JT1.
+        unknown = self.run_shell("--spec", tablet, "--journeys", "J1", "--dry-run")
+        self.assertEqual(unknown.returncode, 2, unknown.stdout + unknown.stderr)
+        self.assertIn("unknown journey id: J1", unknown.stderr)
+
+    def test_summarizer_reads_the_supplied_tablet_spec(self) -> None:
+        # The same --spec the runner forwards must decide the summarizer's
+        # declared pairs; otherwise the walk is red/green against one matrix
+        # and the table is printed from another.
+        tablet = os.path.join(ROOT, "rsi", "runtime", "ux", "tablet-reading.json")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        walk = os.path.join(tmp.name, "walk.json")
+        with open(walk, "w", encoding="utf-8") as fh:
+            json.dump({
+                "screens": [
+                    {"journey": "JT1", "viewport": "tablet", "name": "JT1-tablet-01-reading",
+                     "lint": {"bodyText": 400, "overflowX": False,
+                              "smallTapTargets": 0, "rawSelects": 0}},
+                    {"journey": "JT1", "viewport": "mac", "name": "JT1-mac-01-reading",
+                     "lint": {"bodyText": 400, "overflowX": False,
+                              "smallTapTargets": 0, "rawSelects": 0}},
+                ],
+                "hardFail": [],
+            }, fh)
+        code, out, err = self.run_summary("--walk-json", walk, "--spec", tablet)
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("JT1", out)
+        self.assertIn("tablet", out)
+
+    def run_summary(self, *argv: str) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = journeys_smoke.main(list(argv))
+        return code, out.getvalue(), err.getvalue()
+
+
+class TabletAcceptanceTest(unittest.TestCase):
+    """820x1180 is an acceptance width, not an opt-in diagnostic.
+
+    #537's four high findings shipped through a green gate because every
+    screenshot was 390 or 1100. These tests pin the three seams that make the
+    owner's iPad width part of the gate: the viewport resolves to a desktop
+    layout with a finger, the reading surface's own journey is registered and
+    selected by the first-match paths rule, and the merge gate asks for it.
+    """
+
+    def test_tablet_viewport_resolves_to_820_touch(self) -> None:
+        # The production spec's own resolver, via the walker's seam: an iPad is
+        # a desktop layout (isMobile false) that still receives touch. A bare
+        # "820x1180" string would land on hasTouch false.
+        self.assertIsNotNone(NODE, "node is required to read the walk viewports")
+        result = subprocess.run(
+            [NODE, WALK, "--context-options", "tablet", "--spec", JOURNEYS],
+            capture_output=True, text=True, timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        ctx = json.loads(result.stdout)
+        self.assertEqual(ctx["viewport"], {"width": 820, "height": 1180})
+        self.assertIs(ctx["hasTouch"], True)
+        self.assertIs(ctx["isMobile"], False)
+        self.assertEqual(ctx["deviceScaleFactor"], 2)
+
+    def test_tablet_reading_journey_is_wired_and_selected(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-B", SPECPY, "--resolve", JOURNEYS],
+            capture_output=True, text=True, timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        spec = json.loads(result.stdout)
+        j16 = spec["journeys"]["J16"]
+        self.assertEqual(j16["viewports"], ["tablet"])
+        readings = [
+            step for step in j16["steps"]
+            if isinstance(step, list) and step and step[0] == "reading"
+        ]
+        self.assertIn(["reading", "table-bottom"], readings)
+        self.assertIn(["reading", "incoming", "require-new-activity"], readings)
+
+        # The gate's own first-match rule (walk.mjs --files / ux-gate.sh): a
+        # reading-surface diff walks J16, a settings diff does not.
+        def selected(file: str) -> list[str] | None:
+            row = next(
+                (r for r in spec["paths"] if any(file.startswith(p) for p in r[0].split("|"))),
+                None,
+            )
+            return row[1] if row else None
+
+        self.assertIn("J16", selected("ui/src/pages/TaskDetailPage.tsx") or [])
+        self.assertNotIn("J16", selected("ui/src/pages/SettingsPage.tsx") or [])
+        # The layout chrome, the design tokens/CSS and the i18n labels each
+        # have their own first-match row; omitting J16 there skips the 820
+        # walk for exactly the changes #537's findings came from.
+        self.assertIn("J16", selected("ui/src/components/layout/SessionTabs.tsx") or [])
+        self.assertIn("J16", selected("ui/src/index.css") or [])
+        self.assertIn("J16", selected("ui/src/i18n/locales/en.ts") or [])
+
+    def test_mandate_acceptance_asks_for_the_tablet_width(self) -> None:
+        # A contract pin, not the behaviour proof: the merge gate's item 5 must
+        # name the third width and refuse an empty 820 shot.
+        with open(MANDATE, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        start = next(
+            (i for i, line in enumerate(lines) if line.startswith("5. UI change:")), None
+        )
+        self.assertIsNotNone(start, "MANDATE merge-gate item 5 is missing")
+        end = next(
+            (i for i in range(start + 1, len(lines)) if re.match(r"^\d+\. ", lines[i])),
+            len(lines),
+        )
+        item = " ".join(lines[start:end])
+        self.assertIn("390/820/1100", item)
+        self.assertIn("markdown table", item)
+        self.assertIn("never an empty or placeholder state", item)
 
 
 if __name__ == "__main__":

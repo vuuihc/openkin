@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the body tap stays on the phone breakpoint, so an iPad tap neither reveals the row nor stops being a tap on 重试",
+    "file": "ui/src/components/chat/ChatStream.tsx",
+    "test": "VITEST_MAX_WORKERS=2 ui/node_modules/.bin/vitest run --root ui src/components/chat/ChatStream.actions.dom.test.tsx",
+    "old": "if (!coarsePointer && !window.matchMedia(\"(max-width: 639px)\").matches) return;",
+    "new": "if (!window.matchMedia(\"(max-width: 639px)\").matches) return;"
+  }
+]

@@ -127,6 +127,72 @@ test_prose_claim_check_rule() {
     || bad "prose-claim-check-rule: the contract does not say a missing claim is not delivery"
 }
 
+# A PR body that claims more than the diff does costs a whole rework round: the reviewer has to
+# re-derive every claim by hand. The contract therefore asks for a Claims block whose every line
+# names the test or mutant that would go red, and the reviewer card makes checking it the first
+# pass. This is a writing rule, not a second hard gate, so a testless claim is waived with a
+# reasoned `none:` line rather than refused.
+test_claims_block_rule() {
+  lane_record new
+  local text
+  text="$(contract_text new)" || bad "claims-block-rule: --worker-contract-check exited $?"
+  # Section order: the Claims block sits after Verification and before Screenshots.
+  python3 - "$text" <<'PY' || exit 1
+import sys
+text = sys.argv[1]
+def pos(needle):
+    i = text.find(needle)
+    if i < 0:
+        sys.exit("claims-block-rule: the contract never names %r" % needle)
+    return i
+v, c, s = pos("Verification"), pos("Claims"), pos("Screenshots")
+if not v < c < s:
+    sys.exit("claims-block-rule: Claims must sit after Verification and before Screenshots "
+             "(Verification@%d Claims@%d Screenshots@%d)" % (v, c, s))
+PY
+  # One line per claim, in field order: where it lives, the test, the mutant/check that goes red.
+  grep -Fq '<path:line> · <test name> · <mutant or the check that would go red without the line>' <<<"$text" \
+    || bad "claims-block-rule: the path:line · test · mutant field order is not stated"
+  # A claim with no test is waived with a reason, not silently dropped. Anchor on the Claims
+  # sentence: the bare `none:` text also appears in the older prose Claim-check rule, so only the
+  # full sentence makes this case go red when the Claims waiver is deleted.
+  grep -Fq 'A claim with no test is `none: <reason of at least 20 characters>`' <<<"$text" \
+    || bad "claims-block-rule: the none: waiver and its 20-character minimum are not stated"
+  # It is a writing rule the reviewer applies; it is not a second hard gate.
+  grep -Fq 'this is a writing rule, not a hard gate' <<<"$text" \
+    || bad "claims-block-rule: the contract does not say the Claims rule is not a hard gate"
+  if grep -F 'Claims' <<<"$text" | grep -Eq '\bmust\b|fails the lane'; then
+    bad "claims-block-rule: the Claims block introduces hard-gate wording"
+  fi
+}
+
+# Two facts the contract did not carry until 2026-11-22, each of which cost a whole rework round
+# that the gate had to report a day later: (a) an 820 shot of an empty screen passed as "evidence"
+# when MANDATE item 5 asks for the surface's real reading state, and (b) a new or reworded UI
+# string landed in one locale — or an untouched test still asserted the old English — which is
+# deterministic red CI (`locales` is the example path in the `gate+review·ui` rework shape, 30
+# rounds in 7 days). Both rules live in the contract's own `ui/` bullets so a worker reads them
+# before the gate has to say the same thing; this case fails if either sentence disappears.
+test_ui_evidence_and_locale_rules() {
+  lane_record new
+  local text
+  text="$(contract_text new)" || bad "ui-evidence-and-locale-rules: --worker-contract-check exited $?"
+  grep -Fq "the 820×1180 one must be the surface's real reading state" <<<"$text" \
+    || bad "ui-evidence-and-locale-rules: the contract never requires a real 820 reading state"
+  grep -Fq "markdown table" <<<"$text" \
+    || bad "ui-evidence-and-locale-rules: the 820 rule does not say what a conversation surface shows"
+  grep -Fq "never an empty or placeholder view" <<<"$text" \
+    || bad "ui-evidence-and-locale-rules: the 820 rule does not forbid an empty shot"
+  grep -Fq "ui/src/i18n/locales/en.ts" <<<"$text" \
+    || bad "ui-evidence-and-locale-rules: the contract does not name the English catalog"
+  grep -Fq "ui/src/i18n/locales/zh.ts" <<<"$text" \
+    || bad "ui-evidence-and-locale-rules: the contract does not name the Chinese catalog"
+  grep -Fq "npx vitest run src/i18n/locales.test.ts" <<<"$text" \
+    || bad "ui-evidence-and-locale-rules: the contract does not name the parity suite"
+  grep -Fq "assertion on the old English" <<<"$text" \
+    || bad "ui-evidence-and-locale-rules: the contract does not send the worker to untouched tests on reworded copy"
+}
+
 # The worker's copy of the full suite competes with the merge gate for the same machine: on
 # 2026-11-19 a worker's `check.sh` ran beside three queued gates (load 9–10.6 on 8 cores,
 # swap free 1.3 GB) and two concurrent UI builds sat behind that day's false reds. The merge
@@ -213,7 +279,9 @@ RAN=0
 run race-ordering-rule test_race_ordering_rule
 run race-flag-self-check test_race_flag_self_check
 run prose-claim-check-rule test_prose_claim_check_rule
+run claims-block-rule test_claims_block_rule
 run no-full-gate-instruction test_no_full_gate_instruction
+run ui-evidence-and-locale-rules test_ui_evidence_and_locale_rules
 run cloud-brief-has-no-full-gate test_cloud_brief_has_no_full_gate
 run rework-keeps-rules test_rework_keeps_rules
 run one-source test_one_source

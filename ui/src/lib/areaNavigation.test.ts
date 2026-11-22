@@ -12,9 +12,10 @@ import {
 } from "./areaNavigation";
 
 // KIN-CONTINUE-003 / ux-unification-story-map.md: one route/parent table for
-// the four areas. The source contract is the story map's "已有或新增 URL" table
-// (lines 22-34) and the tab rule (line 44); these tests are its executable
-// form. N1 is pure logic — no router, storage, window or i18n here.
+// the areas; KIN-CONTRACT-001 left three of them. The source contract is the
+// story map's "已有或新增 URL" table (lines 22-34) and the tab rule (line 44);
+// these tests are its executable form. N1 is pure logic — no router, storage,
+// window or i18n here.
 
 /** Split a URL the way `window.location` would, hash discarded. */
 function loc(url: string): LocationLike {
@@ -42,9 +43,12 @@ const STORY_ROUTES: Array<[url: string, area: string]> = [
   ["/approvals?focus=question-1", "conversations"],
   ["/tasks/task-1", "conversations"],
   ["/tasks/task-1?focus=appr-1", "conversations"],
+  // A routine run on another machine is one task detail carrying where it
+  // lives; the old four-segment path still resolves while its redirect exists.
+  ["/tasks/task-1?device=dev-1", "conversations"],
   ["/agent-sessions/session-1", "conversations"],
-  ["/projects", "projects"],
-  ["/projects/project-1", "projects"],
+  ["/projects", "conversations"],
+  ["/projects/project-1", "conversations"],
   ["/routines", "routines"],
   ["/routines?device=dev-1", "routines"],
   ["/machines/dev-1/tasks/task-9", "routines"],
@@ -118,6 +122,30 @@ describe("resolveArea", () => {
     ).toMatchObject({ name: "conversations.task", id: "task-1", focus: "appr-1" });
   });
 
+  it("carries the device of a run opened from another machine", () => {
+    // `?device=` is how the task detail says where the run lives (TASTE 12).
+    // The page is still the conversations task detail, not a second page.
+    expect(resolveAreaRoute(loc("/tasks/task-1?device=dev-1"))).toMatchObject({
+      area: "conversations",
+      name: "conversations.task",
+      id: "task-1",
+      device: "dev-1",
+    });
+    // A local task carries no device, and the device rides beside a focus.
+    expect(resolveAreaRoute(loc("/tasks/task-1"))?.device).toBeNull();
+    expect(resolveAreaRoute(loc("/tasks/task-1?device=dev-1&focus=appr-1"))).toMatchObject({
+      device: "dev-1",
+      focus: "appr-1",
+    });
+    // The old path still resolves while the redirect is the compatibility.
+    expect(resolveAreaRoute(loc("/machines/dev-1/tasks/task-1"))).toMatchObject({
+      area: "routines",
+      name: "routines.machineTask",
+      id: "task-1",
+      device: "dev-1",
+    });
+  });
+
   it("decodes a dynamic segment exactly once", () => {
     expect(resolveAreaRoute(loc("/projects/a%252Fb"))?.id).toBe("a%2Fb");
     // An escaped slash is part of the id; an unescaped one is a second segment
@@ -127,6 +155,34 @@ describe("resolveArea", () => {
       device: "dev 1",
       id: "task-9",
     });
+  });
+
+  // KIN-CONTRACT-001: the collection retired with the Projects area. The
+  // resolver names the destination the reader lands on, not the dead page.
+  it("resolves /projects to the conversations collection it redirects to", () => {
+    expect(resolveAreaRoute(loc("/projects"))).toEqual({
+      area: "conversations",
+      name: "conversations.collection",
+      id: null,
+      device: null,
+      focus: null,
+      cwd: null,
+      tab: null,
+      root: true,
+    });
+    expect(resolveAreaRoute(loc("/projects?tab=chats"))?.name).toBe("conversations.collection");
+  });
+
+  it("resolves the project cover as a conversations detail that returns to the list", () => {
+    expect(resolveAreaRoute(loc("/projects/project-1"))).toMatchObject({
+      area: "conversations",
+      name: "conversations.projectCover",
+      id: "project-1",
+      root: false,
+    });
+    // The cover is now a detail of the list, so its phone parent is the list.
+    expect(coldStartPhoneParent(loc("/projects/project-1"))).toBe("/sessions");
+    expect(coldStartPhoneParent(loc("/projects/project-1?tab=chats"))).toBe("/sessions");
   });
 });
 
@@ -157,11 +213,11 @@ describe("coldStartPhoneParent", () => {
     expect(coldStartPhoneParent(loc("/sessions?search=x"))).toBeNull();
   });
 
-  it("cold-start project cover and remote routine run return to their exact area roots", () => {
+  it("cold-start project cover and remote routine run return to the conversation list", () => {
     expect(coldStartPhoneParent(loc("/projects"))).toBeNull();
-    expect(coldStartPhoneParent(loc("/projects/project-1"))).toBe("/projects");
+    expect(coldStartPhoneParent(loc("/projects/project-1"))).toBe("/sessions");
     // The old project `?tab=` is cleared, never revived as a conversation list.
-    expect(coldStartPhoneParent(loc("/projects/project-1?tab=chats"))).toBe("/projects");
+    expect(coldStartPhoneParent(loc("/projects/project-1?tab=chats"))).toBe("/sessions");
     expect(coldStartPhoneParent(loc("/routines"))).toBeNull();
     expect(coldStartPhoneParent(loc("/machines/dev-1/tasks/task-9"))).toBe(
       "/routines?device=dev-1",
@@ -217,7 +273,7 @@ describe("coldStartPhoneParent", () => {
 });
 
 describe("showsAreaTabs", () => {
-  it("only the four roots and general settings show phone area tabs", () => {
+  it("only the three roots and general settings show phone area tabs", () => {
     const shown = [
       "/",
       "/sessions",

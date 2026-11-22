@@ -306,6 +306,44 @@ describe("LiveResourceStore", () => {
     expect(taskListKey({ limit: 50, archived: true })).not.toBe(taskListKey({ limit: 50 }));
   });
 
+  it("keys and narrows a routine task list separately", async () => {
+    // The server narrows the page by `routine_id`, so the snapshot is trusted.
+    // A live frame is not a snapshot: it may be any task, and one arriving
+    // while the list is filtered must not slip into it.
+    const chat = task({ id: "chat-1" });
+    const run = task({ id: "run-1", routine_id: "r1", status: "succeeded" });
+    const other = task({ id: "run-2", routine_id: "r2", status: "succeeded" });
+    const client = api({
+      listTasks: vi.fn(async (params?: { routineId?: string }) =>
+        params?.routineId === "r1" ? [run] : [run, other, chat],
+      ),
+    });
+    const store = new LiveResourceStore(client);
+    const params = { limit: 50, routineId: "r1" };
+    const release = store.acquireTaskList(params);
+    await store.refreshTaskList(params);
+    expect(store.getTaskList(taskListKey(params)).data.map((item) => item.id)).toEqual(["run-1"]);
+
+    // Two routines are two lists, not one list whose rows are re-narrowed.
+    expect(taskListKey({ limit: 50, routineId: "r1" })).not.toBe(
+      taskListKey({ limit: 50, routineId: "r2" }),
+    );
+
+    store.applyMessage({ kind: "task_update", data: task({ id: "late-chat" }) });
+    expect(store.getTaskList(taskListKey(params)).data.map((item) => item.id)).toEqual(["run-1"]);
+
+    store.applyMessage({ kind: "task_update", data: task({ id: "late-other", routine_id: "r2" }) });
+    expect(store.getTaskList(taskListKey(params)).data.map((item) => item.id)).toEqual(["run-1"]);
+
+    const freshRun = task({ id: "late-run", routine_id: "r1", status: "running" });
+    store.applyMessage({ kind: "task_update", data: freshRun });
+    expect(store.getTaskList(taskListKey(params)).data.map((item) => item.id)).toEqual([
+      "run-1",
+      "late-run",
+    ]);
+    release();
+  });
+
   it("remembers that a page was full after live updates shrink it", async () => {
     // "There is more" is a fact about the answer, not about the array: the
     // list drops a row the moment it is archived, and a full first page minus

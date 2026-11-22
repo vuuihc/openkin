@@ -15,11 +15,11 @@ import type { Task } from "../../api/client";
 
 /**
  * The list is the parent of a conversation on a phone, whichever surface the
- * conversation was opened from. A project's Chats tab, a routine's run row and
- * the command palette all sit on destinations of their own; opening a
- * conversation (or the draft) from one must replace that destination with the
- * list instead of leaving it underneath, or Back lands on the project or the
- * routines page instead of the list.
+ * conversation was opened from. A project's Chats tab and the command palette
+ * sit on destinations of their own; opening a conversation (or the draft) from
+ * one must replace that destination with the list instead of leaving it
+ * underneath, or Back lands on the project or the routines page instead of the
+ * list.
  */
 
 const fixtures = vi.hoisted(() => ({
@@ -304,18 +304,6 @@ describe("the list under a conversation", () => {
 
     // The browser's own Back is the honest test of what sits underneath: the
     // list, not the project the conversation was opened from.
-    await browserBack();
-    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
-    expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
-  });
-
-  it("replaces the routines page when a run opens", async () => {
-    const user = userEvent.setup();
-    browser("/routines");
-
-    await user.click(await screen.findByRole("link", { name: "Nightly run" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/tasks/run-1"));
-
     await browserBack();
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
     expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();

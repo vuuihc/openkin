@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the area leg clicks a retired area again, so the switch measures a surface that does not exist (R-switch-latency-areas)",
+    "file": "rsi/runtime/ux/switch-latency.mjs",
+    "old": "    click: '[data-area=\"routines\"]',",
+    "new": "    click: '[data-area=\"projects\"]',",
+    "test": "bash rsi/runtime/tests/test-switch-attribution.sh"
+  },
+  {
+    "label": "the area leg's destination ends on the nav's aria-current, so the number is taken before the page's own content exists (R-switch-latency-areas)",
+    "file": "rsi/runtime/ux/switch-latency.mjs",
+    "old": "    destination: ['[data-area=\"routines\"][aria-current=\"page\"]', \"ul li:has-text('[seed] Morning check-in')\"],",
+    "new": "    destination: ['[data-area=\"routines\"][aria-current=\"page\"]'],",
+    "test": "bash rsi/runtime/tests/test-switch-attribution.sh"
+  }
+]

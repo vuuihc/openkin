@@ -20,7 +20,7 @@ export RSI_HEAVY_SLOTS="${RSI_HEAVY_SLOTS:-1}" UV_THREADPOOL_SIZE="${UV_THREADPO
 
 CLAUDE="$HOME/.local/bin/claude"
 GIT="${GIT:-/usr/bin/git}"
-GH=/opt/homebrew/bin/gh
+GH="${RSI_GH:-/opt/homebrew/bin/gh}"
 KIN_BIN="$HOME/.kin/node/kin"
 
 # Public repo: commit as the noreply identity everywhere.

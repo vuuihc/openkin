@@ -3,8 +3,9 @@ import { useSyncExternalStore, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { setLocale } from "../i18n";
+import { setLocale, t } from "../i18n";
 import { forgetPendingSend, handOffPendingSend } from "../lib/pendingSend";
+import { useAppStore } from "../store/appStore";
 import TaskDetailPage from "./TaskDetailPage";
 
 /**
@@ -84,6 +85,8 @@ const api = vi.hoisted(() => {
           rejectSend = reject;
         }),
     ),
+    /** What the queue poll answers; a test that drains the queue empties it. */
+    queue: [] as unknown[],
     resolveSend(task: unknown) {
       resolveSend?.(task);
     },
@@ -102,7 +105,7 @@ vi.mock("../api/client", async (importOriginal) => {
     listAgents: pending,
     getTaskUsage: pending,
     getTaskLimitWait: pending,
-    listQueuedPrompts: pending,
+    listQueuedPrompts: () => Promise.resolve(api.queue as never[]),
     listWorkerSteps: pending,
     followUpPrompt: api.followUpPrompt,
   };
@@ -121,13 +124,16 @@ vi.mock("../components/chat/Composer", () => ({
   default: ({
     onSubmit,
     disabled,
+    focusSignal,
   }: {
     onSubmit: (text: string) => Promise<void> | void;
     disabled?: boolean;
+    focusSignal?: number;
   }) => (
     <button
       type="button"
       data-testid="send"
+      data-focus-signal={String(focusSignal ?? 0)}
       disabled={disabled}
       onClick={() => {
         void Promise.resolve(onSubmit("hello")).catch(() => {});
@@ -205,6 +211,7 @@ beforeEach(() => {
   forgetPendingSend("task-1");
   forgetPendingSend("task-2");
   api.followUpPrompt.mockClear();
+  api.queue = [];
 });
 
 describe("a send handed over from the new-conversation route", () => {
@@ -265,6 +272,21 @@ describe("a send handed over from the new-conversation route", () => {
     store.setDetail({ loaded: false });
     open();
     expect(screen.queryByTestId("pending-user")).toBeNull();
+  });
+
+  it("hands a conversation entered from Start the caret and the raised composer", () => {
+    // The draft composer was raised while the person typed, and step 5 puts
+    // the caret back in the conversation's composer. The signal is what gives
+    // Composer that arrangement from its first frame, before the detail loads.
+    handOffPendingSend("task-1", { id: "handoff-1", text: "hello", images: [], startSeq: 0 });
+    store.setDetail({ loaded: false });
+    open();
+    expect(screen.getByTestId("send").getAttribute("data-focus-signal")).toBe("1");
+  });
+
+  it("leaves a conversation opened from the list alone", () => {
+    open();
+    expect(screen.getByTestId("send").getAttribute("data-focus-signal")).toBe("0");
   });
 
   it("does not replay the handoff on a later visit to the same conversation", () => {
@@ -343,6 +365,102 @@ describe("sending a follow-up", () => {
       api.rejectSend(new Error("refused"));
     });
     expect(screen.queryByTestId("pending-user")).toBeNull();
+  });
+});
+
+describe("a follow-up queued while the round is running", () => {
+  const queuedPrompt = {
+    id: 7,
+    task_id: "task-1",
+    prompt: "hello",
+    user_seq: 4,
+    position: 1,
+    created_at: 1,
+  };
+
+  function running() {
+    return {
+      id: "task-1",
+      title: "Conversation",
+      status: "running",
+      agent: "kin",
+      cwd: "/work",
+      prompt: "first",
+      tokens_in: 0,
+      tokens_out: 0,
+      event_epoch: 0,
+      created_at: 1,
+    };
+  }
+
+  it("a queued follow-up is announced in the dock, not as a toast over the composer", async () => {
+    // A toast floats over the bottom of the page — over the very box the person
+    // is about to use again. The confirmation belongs to the conversation, in
+    // the band above the composer, where the transcript cannot hide it.
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    store.setDetail({ task: running() });
+    api.queue = [queuedPrompt];
+    open();
+
+    await act(async () => {
+      screen.getByTestId("send").click();
+    });
+    await act(async () => {
+      api.resolveSend(running());
+    });
+
+    const dock = document.querySelector("[data-kin-bottom-chrome]");
+    expect(dock).not.toBeNull();
+    expect(dock!.querySelector("[data-kin-queued-guide]")).not.toBeNull();
+    expect(dock!.textContent).toContain(t("task.queuedGuide"));
+    expect(pushToast).not.toHaveBeenCalledWith(t("task.queuedGuide"), "info");
+  });
+
+  it("the queued guidance clears when the queue drains", async () => {
+    store.setDetail({ task: running() });
+    api.queue = [queuedPrompt];
+    open();
+
+    await act(async () => {
+      screen.getByTestId("send").click();
+    });
+    await act(async () => {
+      api.resolveSend(running());
+    });
+    expect(screen.getByTestId("queued-guide")).toBeTruthy();
+
+    // The read that follows the send sees the message waiting, so the row is
+    // describing something real, not just the click that raised it.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+    expect(screen.getByTestId("queued-guide")).toBeTruthy();
+
+    // The round ends and the queued message is answered; the next read reports
+    // an empty queue and the row goes without moving the composer.
+    api.queue = [];
+    act(() => {
+      store.setEvents([
+        {
+          task_id: "task-1",
+          event_epoch: 0,
+          seq: 9,
+          ts: 9,
+          type: "message",
+          payload: {
+            role: "assistant",
+            speaker: "kin",
+            content: [{ type: "text", text: "done" }],
+          },
+        },
+      ]);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+
+    expect(screen.queryByTestId("queued-guide")).toBeNull();
+    expect(screen.getByTestId("send")).toBeTruthy();
   });
 });
 

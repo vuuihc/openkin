@@ -15,7 +15,20 @@
 # node but failed on the Hub is retried by the next one instead of counted as shipped.
 # A marker write is read back and compared before the run calls that target shipped, and
 # when both targets run in one invocation the second refuses a stale first value.
+# One release runs at a time: state/.release.lock holds the pid of the live invocation, so
+# two patrol rounds that both passed the gate cannot restart the node twice.
 # Nothing here force-pushes, tags, publishes a dmg, or touches relay/Hub config.
+#
+# Waiting for the machine slot: the gate holds on `heavy:` whenever a verification build or
+# UX walk owns the machine-wide slot, and the rebuild's own npm/go build takes no slot — so
+# starting next to one is the memory condition behind the 2026-11-18/19 false reds. That
+# hold is right, but the patrol only looks once per round, so a release used to be skipped
+# for a walk that ended two minutes later (2026-11-22: 6 unshipped held from 20:15 to
+# 21:2x). `heavy:` is therefore the one HOLD this script waits out: it re-runs the full
+# gate every RSI_RELEASE_STEP (default 20s) for up to RSI_RELEASE_WAIT (default 600s) and
+# ships at the first GO. Every other HOLD — a session in flight, a merge landing, too few
+# unshipped — still aborts immediately, and a wait that runs out aborts with the last gate
+# output. Each wait is one GATE_WAIT line in state/releases.log, so the cost is measurable.
 #
 # usage: release.sh [--repo DIR] [--node-only|--hub-only] [--dry-run]
 #   --repo DIR   the checkout to release (default /Users/vuuihc/Workspace/study/kin-multidevice)
@@ -36,6 +49,11 @@ HUB_COMPOSE="${RSI_HUB_COMPOSE:-docker-compose.dogfood.yml}"
 IMAGE="${RSI_HUB_IMAGE:-openkin:dogfood}"
 KIN_API="${KIN_API:-http://127.0.0.1:7777}"
 TIMEOUT="${RSI_HUB_TIMEOUT:-3600}"
+CHK_CMD="${RSI_RELEASE_CHECK:-$HERE/release-check.sh}"
+WAIT="${RSI_RELEASE_WAIT:-600}"
+STEP="${RSI_RELEASE_STEP:-20}"
+case "$WAIT" in ''|*[!0-9]*) WAIT=600 ;; esac
+case "$STEP" in ''|*[!0-9]*|0) STEP=20 ;; esac
 NODE=1; HUB=1; DRY=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -43,7 +61,7 @@ while [ $# -gt 0 ]; do
     --node-only) HUB=0; shift ;;
     --hub-only) NODE=0; shift ;;
     --dry-run) DRY=1; shift ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
     *) echo "release: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -68,11 +86,76 @@ with_timeout() { # secs cmd...   (macOS has no `timeout`; same helper as runtime
 git="$(command -v git)" || die "git not found"
 mkdir -p "$STATE"
 
+# 0. One release at a time. Two patrol rounds can pass the same gate seconds apart; without
+#    this lock the second restarts the node while the first is still building or rolling the
+#    Hub, and both write state/last_release (2026-11-21: overlapping CEO rounds, 18:10 and
+#    18:55). A held pid means a live release: refuse, change nothing, exit 0 so a patrol
+#    reports a skip rather than a failure. A pid that no longer exists is a crash leftover
+#    and is cleared. A dry run changes nothing and takes no lock.
+LOCK="$STATE/.release.lock"
+release_lock_release() {
+  [ -d "$LOCK" ] || return 0
+  [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"
+  return 0
+}
+if [ "$DRY" = 0 ]; then
+  if ! mkdir "$LOCK" 2>/dev/null; then
+    held="$(cat "$LOCK/pid" 2>/dev/null || true)"
+    if [ -n "$held" ] && kill -0 "$held" 2>/dev/null; then
+      say "release: another release is running (pid $held); nothing shipped"
+      log "SKIP another release is running (pid $held)"
+      exit 0
+    fi
+    say "release: clearing a stale release lock (pid ${held:-unknown})"
+    rm -rf "$LOCK"
+    mkdir "$LOCK" 2>/dev/null || die "cannot take $LOCK; nothing shipped"
+  fi
+  printf '%s\n' "$$" > "$LOCK/pid"
+  trap release_lock_release EXIT
+fi
+
 # 1. Gate. Never releasable on a red check: the whole point is that the loop, not a
 #    person, remembers the two conditions.
-CHK="$(RSI_REPO="$REPO" bash "$HERE/release-check.sh")"; rc=$?
-[ $rc -eq 0 ] || { printf '%s\n' "$CHK"; die "release-check says HOLD (see above)"; }
+deadline=$(( $(date +%s) + WAIT ))
+waits=0
+while :; do
+  CHK="$(RSI_REPO="$REPO" bash "$CHK_CMD")"; rc=$?
+  [ $rc -eq 0 ] && break
+  case "$CHK" in
+    *reason=heavy:*)
+      left=$(( deadline - $(date +%s) ))
+      # A dry run reports, it does not wait: the patrol asks for a verdict here.
+      if [ "$DRY" = 1 ] || [ "$left" -le 0 ]; then
+        printf '%s\n' "$CHK"
+        [ "$waits" -gt 0 ] && log "GATE_WAIT gave up after ${waits} checks"
+        die "release-check says HOLD (see above)"
+      fi
+      rsn="$(printf '%s' "$CHK" | sed -n 's/^reason=//p')"
+      waits=$((waits + 1))
+      say "gate: waiting for the machine slot (${left}s left): $rsn"
+      log "GATE_WAIT $rsn"
+      [ "$STEP" -lt "$left" ] && nap="$STEP" || nap="$left"
+      sleep "$nap"
+      ;;
+    *)
+      printf '%s\n' "$CHK"
+      [ "$waits" -gt 0 ] && log "GATE_WAIT ended after ${waits} checks: $(printf '%s' "$CHK" | sed -n 's/^reason=//p')"
+      die "release-check says HOLD (see above)"
+      ;;
+  esac
+done
 printf '%s\n' "$CHK"
+[ "$waits" -gt 0 ] && say "gate: the slot freed after $waits wait(s); releasing"
+# The gate also reports how many non-merge commits sit on the released checkout's local
+# main and nowhere on origin/main: they ship with this release, unreviewed. Report them,
+# never gate on them (MANDATE allows an owner's local commits to ride a release); the
+# number goes on the durable RELEASED record so a patrol can see what actually shipped.
+LOCAL_MAIN_ONLY="$(printf '%s' "$CHK" | sed -n 's/^local_main_only=//p' | head -1)"
+case "$LOCAL_MAIN_ONLY" in ''|*[!0-9]*) LOCAL_MAIN_ONLY=unknown ;; esac
+case "$LOCAL_MAIN_ONLY" in
+  unknown) : ;;
+  *) [ "$LOCAL_MAIN_ONLY" -gt 0 ] && say "warning: $LOCAL_MAIN_ONLY commit(s) are on the local main only and are being shipped unreviewed" ;;
+esac
 SHA="$($git -C "$REPO" fetch -q origin main && $git -C "$REPO" rev-parse origin/main)"
 # A failed fetch must stop here, before a single thing is rebuilt. Without this guard the
 # script logged an empty SHA, rebuilt and restarted the live node, and only then aborted at
@@ -192,7 +275,7 @@ if [ "$HUB" = 1 ]; then
   command -v docker >/dev/null || die "hub: docker not available on this machine"
   docker info >/dev/null 2>&1 || die "hub: docker daemon is not running (start OrbStack, then release again)"
   STAGE="$(mktemp -d)"
-  trap 'rm -rf "$STAGE"' EXIT
+  trap 'release_lock_release; rm -rf "$STAGE"' EXIT
   ( set -o pipefail; $git -C "$REPO" archive "$SHA" | tar -x -C "$STAGE" ) || die "hub: could not stage $SHORT"
   say "hub: building $IMAGE for linux/amd64 from $SHORT (emulated, this takes a while)"
   start=$(date +%s)
@@ -216,5 +299,5 @@ if [ "$HUB" = 1 ]; then
   say "hub: shipped $SHORT"
 fi
 
-log "RELEASED $SHORT node=$NODE hub=$HUB unshipped_before=$(printf '%s' "$CHK" | sed -n 's/^unshipped=\([0-9]*\).*/\1/p')"
-say "done: $SHORT released"
+log "RELEASED $SHORT node=$NODE hub=$HUB unshipped_before=$(printf '%s' "$CHK" | sed -n 's/^unshipped=\([0-9]*\).*/\1/p') local_main_only=$LOCAL_MAIN_ONLY"
+say "done: $SHORT released local_main_only=$LOCAL_MAIN_ONLY"

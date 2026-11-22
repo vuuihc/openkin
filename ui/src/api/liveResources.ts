@@ -17,6 +17,8 @@ export type TaskListParams = {
   limit?: number;
   before?: string;
   q?: string;
+  /** One routine's runs; `routine_id` on the wire. */
+  routineId?: string;
   /** The archive view: archived rows instead of live ones. */
   archived?: boolean;
 };
@@ -114,6 +116,9 @@ function effectiveTaskLimit(params: TaskListParams): number {
 
 function taskMatches(task: Task, params: TaskListParams): boolean {
   if (params.status && task.status !== params.status) return false;
+  // A live frame is not a snapshot: it can be any task, so a chat arriving
+  // while the list is narrowed to one routine must not slip into it.
+  if (params.routineId && task.routine_id !== params.routineId) return false;
   if (params.before && task.id >= params.before) return false;
   // The archive is a place, not a flag: a row is on one side of it or the
   // other, so a live update that arrives while the list is open can move the
@@ -135,6 +140,7 @@ export function taskListKey(params: TaskListParams): string {
     limit: params.limit ?? 0,
     before: params.before ?? "",
     q: params.q?.trim() ?? "",
+    routineId: params.routineId ?? "",
     archived: params.archived ?? false,
   });
 }

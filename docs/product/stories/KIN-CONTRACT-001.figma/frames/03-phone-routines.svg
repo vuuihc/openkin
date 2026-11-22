@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff"/><text x="12" y="16" font-size="11" fill="#555">KIN-CONTRACT-001 · 手机 390×844 · 页面 3/4 例行任务</text>
+<text x="378" y="16" font-size="10" fill="#8a8a8a" text-anchor="end">只有例行任务；运行在列表里</text><line x1="0" y1="24" x2="390" y2="24" stroke="#e6e6e6"/>
+<rect x="0" y="24" width="390" height="44" fill="#ffffff"/><line x1="0" y1="68" x2="390" y2="68" stroke="#e0e0e0"/>
+<rect x="4" y="24" width="44" height="44" fill="#ffffff"/><text x="18" y="51" font-size="16" fill="#1a1a1a">‹</text>
+<text x="52" y="51" font-size="13" fill="#1a1a1a" font-weight="600">例行任务</text>
+<rect x="300" y="24" width="76" height="44" rx="10" fill="#1f6feb"/><text x="338" y="51" font-size="11" fill="#ffffff" text-anchor="middle">＋ 新建</text>
+<text x="14" y="92" font-size="10.5" fill="#8a8a8a">清单：名称、计划、上次运行、启停</text>
+<line x1="14" y1="102" x2="376" y2="102" stroke="#efefef"/>
+<rect x="12" y="112" width="366" height="76" rx="12" fill="#ffffff" stroke="#dcdcdc"/>
+<text x="26" y="136" font-size="12" fill="#1a1a1a" font-weight="600">每日整理</text><text x="366" y="136" font-size="10" fill="#137a3f" text-anchor="end">开</text>
+<text x="26" y="156" font-size="10" fill="#6b6b6b">每天 07:00 · 上次运行 5 小时前（已完成）</text>
+<text x="26" y="175" font-size="10" fill="#1f6feb">看运行 ›</text>
+<rect x="12" y="200" width="366" height="76" rx="12" fill="#ffffff" stroke="#dcdcdc"/>
+<text x="26" y="224" font-size="12" fill="#1a1a1a" font-weight="600">每周复盘</text><text x="366" y="224" font-size="10" fill="#137a3f" text-anchor="end">开</text>
+<text x="26" y="244" font-size="10" fill="#6b6b6b">每周一 09:00 · 上次运行 失败</text>
+<text x="26" y="263" font-size="10" fill="#1f6feb">看运行 ›</text>
+<rect x="12" y="288" width="366" height="76" rx="12" fill="#ffffff" stroke="#dcdcdc"/>
+<text x="26" y="312" font-size="12" fill="#1a1a1a" font-weight="600">夜间归档</text><text x="366" y="312" font-size="10" fill="#8a8a8a" text-anchor="end">停</text>
+<text x="26" y="332" font-size="10" fill="#6b6b6b">每天 23:30 · 已暂停</text>
+<text x="26" y="351" font-size="10" fill="#1f6feb">看运行 ›</text>
+<rect x="12" y="392" width="366" height="96" rx="12" fill="#f7f7f9" stroke="#e3e3e3"/>
+<text x="26" y="416" font-size="10.5" fill="#333" font-weight="600">这一页不画运行列表</text>
+<text x="26" y="436" font-size="10" fill="#555">「看运行」跳到对话列表，筛好这个例行任务，</text>
+<text x="26" y="454" font-size="10" fill="#555">每次运行就是一条任务行，点开就是那次的详情。</text>
+<text x="26" y="476" font-size="9" fill="#8a8a8a">运行不再同时出现在两个页面；失败也有同一个去处</text>
+<line x1="14" y1="520" x2="376" y2="520" stroke="#efefef"/>
+<text x="14" y="546" font-size="10" fill="#6b6b6b">空：写「还没有例行任务」+「新建」，不铺插画</text>
+<text x="14" y="566" font-size="10" fill="#6b6b6b">慢：行骨架，保留 header 与「新建」</text>
+<text x="14" y="586" font-size="10" fill="#6b6b6b">失败：一行原因 + 重试；表单保存失败保留输入</text>
+<text x="14" y="606" font-size="10" fill="#6b6b6b">断线：清单可读，保存与启停禁用并说明原因</text>
+<rect x="14" y="716" width="362" height="56" rx="16" fill="#ffffff" stroke="#d8d8d8"/>
+<text x="59" y="749" font-size="10.5" fill="#444" text-anchor="middle">对话</text>
+<text x="150" y="749" font-size="10.5" fill="#444" text-anchor="middle">Agents</text>
+<rect x="194" y="720" width="86" height="48" rx="12" fill="#eef3ff"/><text x="237" y="749" font-size="10.5" fill="#1f6feb" text-anchor="middle">例行</text>
+<text x="324" y="749" font-size="10.5" fill="#444" text-anchor="middle">设置</text>
+<text x="16" y="800" font-size="9.5" fill="#8a8a8a">页面保留，内容变窄：例行任务的增删改查留在这里，运行不进来</text>
+<text x="16" y="818" font-size="9.5" fill="#8a8a8a">「看运行」只跳一次列表并带筛选，返回回到这一页原来的行</text>
+<text x="16" y="836" font-size="9.5" fill="#8a8a8a">编辑与启停都是整行 44 高；不用滑动手势做删除</text>
+</g>
+</svg>
