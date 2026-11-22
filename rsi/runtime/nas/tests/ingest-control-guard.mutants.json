@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the NAS ingest fast-forwards a worktree that resolves to the control checkout",
+    "file": "rsi/runtime/nas/ingest-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh case_wt_resolving_to_control_tree_is_refused",
+    "old": "if [ \"$WT_REAL\" = \"$CTRL_REAL\" ]; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "the control-tree case no longer builds the collision it claims to test",
+    "file": "rsi/runtime/nas/tests/test-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh case_wt_resolving_to_control_tree_is_refused",
+    "old": "ln -s \"$T/ctrl\" \"$T/wt/rsi-s1\"",
+    "new": "mkdir -p \"$T/wt/rsi-s1\""
+  }
+]
