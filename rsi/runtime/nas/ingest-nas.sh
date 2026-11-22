@@ -7,6 +7,8 @@
 # launched_at and the claim carries the same stamp (under the scheduler flock), an existing worktree is only
 # fast-forwarded while the per-slug merge lock is held and cannot discard a newer HEAD, and the published
 # branch/PR head must already contain the NAS commit.
+# A worktree path that resolves to the control checkout is refused before the first git call, so a replayed
+# slug can never fast-forward the running loop's own tree.
 # Idempotent twice over: handled jobs are marked `ingested`/`held` on the NAS and their run identity is
 # recorded in state/nas/acks.txt, so a second pulse does no work and writes no second history/notice.
 # Every remote call is bounded (M8); the job list is read on fd 3 so ssh cannot drain it (M3).
@@ -19,6 +21,7 @@ SSH_BIN="${NAS_SSH:-ssh}"
 SCP_BIN="${NAS_SCP:-scp}"
 GH_BIN="${NAS_GH:-$GH}"
 DATE_BIN="${NAS_DATE:-date}"
+REALPATH_BIN="${NAS_REALPATH_PY:-python3}"   # test seam: stubbing it exercises the fail-closed branch
 SSH=("$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -n)
 SSH_T="${NAS_SSH_TIMEOUT:-90}"
 XFER_T="${NAS_XFER_TIMEOUT:-900}"
@@ -292,11 +295,33 @@ hold_diverged() { # SLUG ITEM REMOTE_SHA PRN
   echo "held $SLUG: branch diverged (remote $RSHA)"
 }
 
+# Resolve a path to its physical spelling (macOS has no GNU realpath). Prints nothing and returns
+# nonzero when the resolution cannot be made, so callers can fail closed instead of comparing guesses.
+real_path() { "$REALPATH_BIN" -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null; }
+
 # Materialise the lane worktree and prove it is at the bundle's commit (M4/M7). Runs under the per-slug
 # merge lock, never re-points an existing branch, and fast-forwards with `merge --ff-only`, which cannot
 # discard a HEAD that advanced after our checks. Prints why it refused and returns 1 to leave it alone.
 sync_worktree() { # SLUG WT BR REF EXPECT
-  local SLUG="$1" WT="$2" BR="$3" REF="$4" EXPECT="$5" CUR_BR CUR GOT
+  local SLUG="$1" WT="$2" BR="$3" REF="$4" EXPECT="$5" CUR_BR CUR GOT WT_REAL CTRL_REAL
+  # --- control-tree guard -----------------------------------------------------------------------
+  # The control checkout can itself resolve into the worktree root: on 2026-11-22 the control
+  # checkout was a symlink that physically pointed at a registered lane's worktree directory, with
+  # its HEAD on that lane's branch. For that slug every check below passes — .git present, branch
+  # equal, clean, HEAD an ancestor of the bundle — and the final `merge --ff-only` would then run
+  # inside the control checkout, swapping the running gate, walker, GOAL.md and live state for the
+  # NAS result while every status line still read healthy (same family as 2026-11-20, when one stale
+  # line held the control tree 17 commits behind main).
+  # Resolve both paths and refuse before the first git call. A resolution failure fails closed;
+  # distinct paths, including a worktree that does not exist yet, still sync.
+  WT_REAL="$(real_path "$WT")" || WT_REAL=""
+  CTRL_REAL="$(real_path "$CTRL")" || CTRL_REAL=""
+  if [ -z "$WT_REAL" ] || [ -z "$CTRL_REAL" ]; then
+    echo "control-tree guard: cannot resolve worktree $WT or control checkout $CTRL; refusing to sync"; return 1
+  fi
+  if [ "$WT_REAL" = "$CTRL_REAL" ]; then
+    echo "control-tree guard: worktree $WT resolves to the control checkout $CTRL ($CTRL_REAL); refusing to sync"; return 1
+  fi
   if lane_active "$SLUG"; then
     echo "a local lane is active on $SLUG; leaving its worktree alone"; return 1
   fi
