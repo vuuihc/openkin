@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -6,12 +7,15 @@ import {
   useState,
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
+  ApiError,
   archiveTask,
   ensureProject,
+  getOnePager,
   isTerminal,
   listAgentSessionsPage,
   listProjects,
@@ -42,6 +46,7 @@ import {
 } from "../../lib/draftChat";
 import { isImeKeyEvent } from "../../lib/ime";
 import { pendingCountsByTask } from "../../lib/pendingCounts";
+import { projectInstructions } from "../../lib/projectInstructions";
 import {
   archivedCwdFor,
   bucketKeyFor,
@@ -94,7 +99,8 @@ import {
 import { mergeTaskTail } from "../../lib/taskTail";
 import ActionSheet from "../ui/ActionSheet";
 import Button from "../ui/Button";
-import { SessionListSkeleton } from "../Skeleton";
+import InlineAlert from "../ui/InlineAlert";
+import { SessionListSkeleton, SkeletonLine } from "../Skeleton";
 import HighlightedText from "../HighlightedText";
 import {
   IconAlert,
@@ -171,6 +177,16 @@ type SessionDrag = {
   offsetY: number;
 };
 
+/** One project's work-instructions read, cached under the project id. */
+type ProjectInstructionsEntry = {
+  /** The answer has landed at least once; cached text paints on re-expand. */
+  loaded: boolean;
+  loading: boolean;
+  /** The newest read failed; the block shows its sentence and Retry. */
+  failed: boolean;
+  markdown: string;
+};
+
 export default function SessionList({
   shell,
   activeTaskId = null,
@@ -184,6 +200,7 @@ export default function SessionList({
   const { locale } = useLocale();
   const pushToast = useAppStore((s) => s.pushToast);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
+  const wsStatus = useAppStore((s) => s.wsStatus);
   const { deleteOne, deleteMany } = useSessionDeletion();
   const navigate = useNavigate();
   const location = useLocation();
@@ -283,6 +300,16 @@ export default function SessionList({
   const dragStartTop = useRef<number | null>(null);
   const [prefsTick, setPrefsTick] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
+  // Work instructions are read lazily, once per project, when its row is
+  // expanded. Keyed by project id so an answer can only ever paint under the
+  // heading that asked for it.
+  const [projectInstructions, setProjectInstructions] = useState<
+    Record<string, ProjectInstructionsEntry>
+  >({});
+  // One generation per project id. A re-expand refreshes, and the newer read
+  // owns the cache; a late answer from the previous one is dropped rather than
+  // overwriting fresher text.
+  const instructionsGeneration = useRef(new Map<string, number>());
   const [projectMenu, setProjectMenu] = useState<{
     bucket: PhoneProjectBucket;
     archived: boolean;
@@ -417,6 +444,62 @@ export default function SessionList({
    *  never to apply it to someone else's filesystem. */
   const bucketIsLocal = (bucket: PhoneProjectBucket): boolean =>
     !bucket.deviceId || (selfDeviceId !== "" && bucket.deviceId === selfDeviceId);
+  const offline = wsStatus === "disconnected";
+  const readProjectInstructions = useCallback((projectId: string) => {
+    const generation = (instructionsGeneration.current.get(projectId) ?? 0) + 1;
+    instructionsGeneration.current.set(projectId, generation);
+    setProjectInstructions((current) => {
+      const cached = current[projectId];
+      return {
+        ...current,
+        // A cached answer keeps painting while the refresh is out; only the
+        // first read of a block shows its skeleton (TASTE 15).
+        [projectId]: {
+          loaded: cached?.loaded ?? false,
+          loading: true,
+          failed: false,
+          markdown: cached?.markdown ?? "",
+        },
+      };
+    });
+    getOnePager(projectId)
+      .then((onePager) => {
+        if (instructionsGeneration.current.get(projectId) !== generation) return;
+        setProjectInstructions((current) => ({
+          ...current,
+          [projectId]: {
+            loaded: true,
+            loading: false,
+            failed: false,
+            markdown: onePager.markdown,
+          },
+        }));
+      })
+      .catch((error: unknown) => {
+        if (instructionsGeneration.current.get(projectId) !== generation) return;
+        // A project with no ONE_PAGER.md yet has an empty section, not a failed
+        // read (the cover's rule): the block offers the write launcher.
+        if (error instanceof ApiError && error.status === 404) {
+          setProjectInstructions((current) => ({
+            ...current,
+            [projectId]: { loaded: true, loading: false, failed: false, markdown: "" },
+          }));
+          return;
+        }
+        setProjectInstructions((current) => {
+          const cached = current[projectId];
+          return {
+            ...current,
+            [projectId]: {
+              loaded: cached?.loaded ?? false,
+              loading: false,
+              failed: true,
+              markdown: cached?.markdown ?? "",
+            },
+          };
+        });
+      });
+  }, []);
   const lastLoadedTasks = useRef<readonly Task[]>([]);
   useEffect(() => {
     if (taskList.loaded) lastLoadedTasks.current = taskList.data;
@@ -768,6 +851,22 @@ export default function SessionList({
 
   function renderBucket(bucket: PhoneProjectBucket, stateKey: string) {
     const imported = isImportedBucket(bucket.key);
+    // The reading half of the project cover moves into the list. Only this
+    // machine's project record can answer a one-pager: a remote copy of the
+    // same path, the synthetic pinned / no-project buckets and the imported
+    // index have no cover here.
+    const instructionsProject =
+      bucket.cwd && !imported && bucketIsLocal(bucket)
+        ? (projects.find((project) =>
+            (project.roots ?? []).some((root) => bucketKeyFor(root) === bucket.key),
+          ) ?? null)
+        : null;
+    // The launcher lands on the same draft "New conversation in …" opens, with
+    // the edit request in the URL so even a new tab receives it.
+    const draftQuery = listStateQuery(params, { cwd: bucket.cwd });
+    const instructionsHref = instructionsProject
+      ? `${DRAFT_PATH}${draftQuery}${draftQuery.includes("?") ? "&" : "?"}q=${encodeURIComponent(tr("projects.instructionsPrompt"))}`
+      : null;
     return (
       <ProjectBucket
         key={stateKey}
@@ -840,6 +939,32 @@ export default function SessionList({
         onNewSession={() => newSessionIn(bucket)}
         onArchiveProject={() => archiveProjectConfirmed(bucket)}
         onProjectMenu={() => setProjectMenu({ bucket, archived: scope === "archived" })}
+        offline={offline}
+        instructionsProjectId={instructionsProject?.id ?? null}
+        instructions={instructionsProject ? projectInstructions[instructionsProject.id] : undefined}
+        instructionsHref={instructionsHref}
+        onReadInstructions={readProjectInstructions}
+        onEditInstructions={(event) => {
+          if (!instructionsHref) return;
+          // Modifier clicks stay the browser's: the href itself carries the
+          // cwd and the request, so a new tab opens the same draft.
+          if (
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          )
+            return;
+          event.preventDefault();
+          runGuardedNavigation(() => {
+            setDraftMachine("");
+            setDraftCwd(bucket.cwd);
+            phonePush(navigate, location, instructionsHref, {
+              state: draftEntryState(listUrlFor(location.search)),
+            });
+          });
+        }}
       />
     );
   }
@@ -1803,6 +1928,161 @@ function DraftRow({
   );
 }
 
+/**
+ * The project cover's "工作方式", compressed for the conversation list
+ * (KIN-PROJECT-003).
+ *
+ * The cover's block is a page card: a lead line, the body and a footnote. At
+ * the cover's width that is fine; in a 240px sidebar or on a 390px phone it
+ * spent the whole fold, and three expanded projects hid every conversation
+ * below them. Inside the list the lead and the footnote are therefore gone —
+ * the footnote stays only where it says something the body does not (the text
+ * was cut at the 400-code-point bound, or this is the cached copy offline) —
+ * the empty state is one line, and the body is clamped to two lines with the
+ * title as its disclosure. The region's name carries the project's name: a
+ * screen reader's landmark list otherwise shows several identical "工作方式"
+ * regions with no way to tell which project each belongs to. It is a
+ * `role="region"` div, not a `<section>`: the row is drawn inside the project
+ * bucket's `<section>`, and a nested section stops the bucket from reading as
+ * a leaf element to DOM queries and walkers.
+ */
+function ProjectInstructionsRow({
+  projectName,
+  loaded,
+  loading,
+  loadError,
+  markdown,
+  offline,
+  launcherHref,
+  onLauncherClick,
+  onRetry,
+}: {
+  projectName: string;
+  loaded: boolean;
+  loading: boolean;
+  loadError: string | null;
+  markdown: string;
+  offline: boolean;
+  launcherHref: string | null;
+  onLauncherClick: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
+  onRetry: () => void;
+}) {
+  const tr = useT();
+  const bodyId = useId();
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  const bodyRef = useRef<HTMLParagraphElement | null>(null);
+  const { text, truncated } = projectInstructions(markdown);
+  const disabled = offline || launcherHref === null;
+  const launcherLabel = text ? tr("projects.instructionsAsk") : tr("projects.instructionsWrite");
+  // Only offer the disclosure when the preview actually overflows. Measured on
+  // the closed clamp and kept once seen, so the control does not vanish when
+  // opening removes the clamp. A resize re-measures; a browser without
+  // ResizeObserver keeps the initial reading.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || expanded) return;
+    const measure = () => setClipped(body.scrollHeight > body.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [expanded, text]);
+  const caption = [
+    offline && text ? tr("projects.instructionsOffline") : "",
+    truncated ? tr("projects.instructionsTruncated") : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div
+      role="region"
+      aria-label={`${tr("projects.instructionsTitle")} · ${projectName}`}
+      className="rounded-lg bg-kin-panel px-3 py-1.5"
+    >
+      <div className="flex min-h-11 items-center justify-between gap-2">
+        <h3 className="min-w-0 text-caption font-medium uppercase tracking-label text-kin-secondary">
+          {text && !loadError && (clipped || expanded) ? (
+            <Button
+              variant="quiet"
+              aria-label={tr("projects.instructionsTitle")}
+              aria-expanded={expanded}
+              aria-controls={bodyId}
+              onClick={() => setExpanded((open) => !open)}
+              className="-my-1 min-h-9 gap-1 px-0 text-caption font-medium uppercase tracking-label text-kin-secondary! hover:bg-transparent!"
+            >
+              {/* One nowrap row inside the button: Astryx's content span is a
+                  block, so a bare label + block SVG stacks the chevron under
+                  the text and the row grows by a line at 820. */}
+              <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                {tr("projects.instructionsTitle")}
+                <IconChevronDown
+                  size={12}
+                  strokeWidth={2.25}
+                  className={
+                    expanded
+                      ? "shrink-0 rotate-180 transition-transform"
+                      : "shrink-0 transition-transform"
+                  }
+                />
+              </span>
+            </Button>
+          ) : (
+            tr("projects.instructionsTitle")
+          )}
+        </h3>
+        {loaded && !loadError ? (
+          disabled ? (
+            <span className="flex-none text-caption text-kin-muted">{launcherLabel}</span>
+          ) : (
+            <a
+              href={launcherHref}
+              onClick={onLauncherClick}
+              className="inline-flex min-h-11 flex-none items-center gap-1 text-caption text-kin-secondary hover:text-kin-text"
+            >
+              {launcherLabel}
+              <span aria-hidden>→</span>
+            </a>
+          )
+        ) : null}
+      </div>
+
+      {loadError ? (
+        <InlineAlert>
+          <p>{loadError}</p>
+          <Button variant="secondary" onClick={onRetry} className="mt-2 text-strong">
+            {tr("common.retry")}
+          </Button>
+        </InlineAlert>
+      ) : !loaded ? (
+        loading ? (
+          <SkeletonLine />
+        ) : null
+      ) : (
+        <>
+          {text ? (
+            <p
+              id={bodyId}
+              ref={bodyRef}
+              className={[
+                "whitespace-pre-wrap text-caption leading-prose text-kin-text",
+                expanded ? "" : "line-clamp-2",
+              ].join(" ")}
+            >
+              {text}
+            </p>
+          ) : (
+            <p className="text-caption text-kin-muted">{tr("projects.instructionsEmpty")}</p>
+          )}
+          {caption ? <p className="mt-1 text-caption text-kin-muted">{caption}</p> : null}
+        </>
+      )}
+    </div>
+  );
+}
+
 function ProjectBucket({
   bucket,
   machines,
@@ -1850,6 +2130,12 @@ function ProjectBucket({
   onNewSession,
   onArchiveProject,
   onProjectMenu,
+  instructionsProjectId,
+  instructions,
+  instructionsHref,
+  onReadInstructions,
+  onEditInstructions,
+  offline,
 }: {
   bucket: PhoneProjectBucket;
   machines: readonly Machine[];
@@ -1902,6 +2188,14 @@ function ProjectBucket({
   onNewSession: () => void;
   onArchiveProject: () => void;
   onProjectMenu: () => void;
+  /** The local project record this bucket is, or null when it has none. */
+  instructionsProjectId: string | null;
+  instructions?: ProjectInstructionsEntry;
+  /** The edit draft, or null when the bucket has no record to read. */
+  instructionsHref: string | null;
+  onReadInstructions: (projectId: string) => void;
+  onEditInstructions: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
+  offline: boolean;
 }) {
   const tr = useT();
   const headingRef = useRef<HTMLButtonElement | null>(null);
@@ -1930,6 +2224,12 @@ function ProjectBucket({
   // header gap, a finger keeps the roomier one it has always had.
   const dense = shell === "sidebar" && !coarse;
   const pinnedProject = pinnedProjects.some((cwd) => bucketKeyFor(cwd) === bucket.key);
+  // Reading is lazy: a collapsed bucket issues no one-pager read. Re-expanding
+  // paints the cached answer while this refresh is out.
+  useEffect(() => {
+    if (collapsed || !instructionsProjectId) return;
+    onReadInstructions(instructionsProjectId);
+  }, [collapsed, instructionsProjectId, onReadInstructions]);
 
   return (
     <section className="pb-1">
@@ -2119,6 +2419,21 @@ function ProjectBucket({
           data-sidebar-indent={shell === "sidebar" ? "session" : undefined}
           className={shell === "sidebar" ? (dense ? "pl-3" : "pl-4") : undefined}
         >
+          {instructionsProjectId ? (
+            <div className="pb-2">
+              <ProjectInstructionsRow
+                projectName={bucket.label}
+                loaded={instructions?.loaded ?? false}
+                loading={instructions?.loading ?? true}
+                loadError={instructions?.failed ? tr("projects.summaryLoadFailed") : null}
+                markdown={instructions?.markdown ?? ""}
+                offline={offline}
+                launcherHref={instructionsHref}
+                onLauncherClick={onEditInstructions}
+                onRetry={() => onReadInstructions(instructionsProjectId)}
+              />
+            </div>
+          ) : null}
           {rows.map((row) => (
             <SessionRow
               key={row.key}
