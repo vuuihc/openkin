@@ -34,6 +34,10 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
+- 2026-11-22 · 高 · 820×1180 触屏上，助手消息的「消息操作」行（重试 / 分叉）以 `opacity: 0` 隐藏却仍可点：在回答上点一下就会静默重跑那一轮 — 820×1180（`hasTouch`、`pointer: coarse`、`hover: none`）实测 `[seed] Morning planning`：该行 `getComputedStyle(row).opacity === "0"`、`pointerEvents === "auto"`，`重试` 按钮 40.5×44 @ (434, 284.5)，`document.elementFromPoint(454, 307)` 命中按钮里的 `重试` span；`touchscreen.tap(454, 307)` 后 `/api/tasks/<id>/events` 从一个 epoch 进入下一个（`event_epoch` 0 → 1，事件数 50 → 9，新的 `task_started` 与 `result`），即一次阅读中的触摸重跑了这一轮。同一行在 390 是 `max-sm:pointer-events-none`，点一下只把行揭示出来（`opacity` 0 → 1）；1100 鼠标悬停先把 `opacity` 提到 1 再点击，所以只有「≥640 且没有 hover」这一档会误触。 — 期望行为可写成测试：在 820×1180、`hasTouch: true`、`pointer: coarse`、`hover: none` 下，未揭示的消息操作行 `pointer-events: none`，`document.elementFromPoint(重试按钮中心)` 不落在该行内，`touchscreen.tap` 该点不产生新的 `task_started`（任务 `event_epoch` 不变）；390 与 1100 的行为不变。 — 不要的做法：不要只用 `opacity: 0` 隐藏一个仍可点的控件，也不要给 768–1023 的平板改成「点一下才揭示」来绕过——第一次点按仍会落在看不见的动作上。 — 照抄的同类：`ui/src/components/chat/ChatStream.tsx:978` 的 `max-sm:pointer-events-none` 已经做对（手机宽度下隐藏即不可点）；把同一条件补到 `sm:opacity-0` 那一支，揭示继续走已有的 `revealed` / hover 路径。
+
+- 2026-11-22 · 中 · 820×1180 触屏的列表工具栏与 `/new` 摘要卡仍是桌面密度，可见点按目标低于 44px — 820×1180（`hasTouch: true`、`pointer: coarse`、`hover: none`）实测可见且 `elementFromPoint` 命中自身的控件：新建对话 115.6×32、搜索对话 280×32、筛选 87.5×36、收件箱 142×32、已归档 142×32、导入 Agent 会话 288×32；`/new` 草稿摘要卡的「打开封面」75×27.9。44px 地板止于 767.98（`ui/src/index.css:279`），这一段因此继承桌面尺寸；#589 只把 composer 的控制按卡片宽度抬到 44，不覆盖这些常驻控件。 — 期望行为可写成测试：在 820×1180、`hasTouch: true` 下，列表页与对话页每个可见、可点、可聚焦的控件（`a,button,input,select,summary,[role="button"]`，排除 composer 卡片内）命中矩形至少 44×44；只计 `elementFromPoint` 命中自身的可见目标，不把缓存或隐藏面板算进来；1023.98 与 1100 的规则不变。 — 不要的做法：不要给列表行内按钮统一加 `min-h-11`（TASTE 21 记录过旧 248px 列宽下会把项目名压到 0px），也不要把 768–1023 直接按手机重排——常驻的列表 + 详情外壳要保留（TASTE 21）。 — 照抄的同类：`ui/src/components/sessions/SessionList.tsx:1952` 的折叠触发器在 `coarse` 下用 `h-11 min-h-11 w-11`，`ui/src/components/sessions/SessionRow.tsx:633` 的粗指针行触发器已是 44px；把同样的 coarse 分支用到新建 / 搜索 / 筛选 / 收件箱 / 已归档 / 导入。
+
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
