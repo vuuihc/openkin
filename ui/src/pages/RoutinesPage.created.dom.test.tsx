@@ -296,7 +296,7 @@ describe("RoutinesPage created routine arrival", () => {
     // still unpressed and nothing was opened.
     expect(
       within(rowOf("Two"))
-        .getByRole("button", { name: "routines.showRuns" })
+        .getByRole("button", { name: "routines.openRoutine" })
         .getAttribute("aria-pressed"),
     ).toBe("false");
     // It is brought on screen even when the saved list scroll was elsewhere:

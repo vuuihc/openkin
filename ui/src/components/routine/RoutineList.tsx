@@ -194,7 +194,7 @@ export default function RoutineList({
                     type="button"
                     onClick={() => onSelect(r)}
                     aria-pressed={selectedHere}
-                    aria-label={tr("routines.showRuns", {
+                    aria-label={tr("routines.openRoutine", {
                       title: r.title || r.prompt.slice(0, 48),
                     })}
                     className="min-w-0 flex-1 rounded-lg text-left"
