@@ -26,5 +26,26 @@
     "test": "RSI_TEST_ONLY=claims-block-rule bash rsi/runtime/tests/test-lane-worker-contract.sh",
     "old": " The reviewer checks each line against the diff; this is a writing rule, not a hard gate.",
     "new": ""
+  },
+  {
+    "label": "the 820 screenshot is again accepted as an empty or placeholder view",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=ui-evidence-and-locale-rules bash rsi/runtime/tests/test-lane-worker-contract.sh",
+    "old": ".\n- Evidence, not a placeholder: the 820×1180 one must be the surface's real reading state (a conversation surface means a long answer containing a markdown table), never an empty or placeholder view — a blank 820 is a rework round, not evidence.",
+    "new": "."
+  },
+  {
+    "label": "the locale bullet again sends a new UI string into English only",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=ui-evidence-and-locale-rules bash rsi/runtime/tests/test-lane-worker-contract.sh",
+    "old": "and \\`ui/src/i18n/locales/zh.ts\\` in the same commit",
+    "new": "in the same commit"
+  },
+  {
+    "label": "reworded copy again leaves untouched tests asserting the old English",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=ui-evidence-and-locale-rules bash rsi/runtime/tests/test-lane-worker-contract.sh",
+    "old": " When you replace existing copy, \\`grep -rn\\` the old sentence in \\`ui/src/\\` including \\`*.test.*\\`: an assertion on the old English is red CI that the gate charges to this PR.",
+    "new": ""
   }
 ]
