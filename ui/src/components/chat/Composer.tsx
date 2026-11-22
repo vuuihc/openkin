@@ -1333,10 +1333,16 @@ export default function Composer({
                 // wrapper. A shrinkable hint would collapse and let the slot,
                 // settings and send paint past the card's edge instead.
                 "flex-none text-caption text-kin-muted items-center gap-1",
-                // `@` is not a desktop key: a phone keyboard has one, and this
-                // is the only place the delegation feature is named. The ⌘↵
-                // legend below it is the one that gets the `sm` gate.
-                expanded ? "inline-flex" : "hidden",
+                // Both legends are desktop hints, and the card's own width —
+                // not the viewport — decides whether there is room for them.
+                // An iPad in portrait draws the desktop two-column shell at
+                // 768–820 around a 344–396px card; there the legends took the
+                // row the run-config face needed, and the gate measured the
+                // face at 44px wide (`C C`) with the usage chip clipped. The
+                // phone never showed them at rest, and the placeholder's
+                // `@ 委派 / 引用文件` still names delegation when the card is
+                // narrow.
+                expanded ? "hidden @xl:inline-flex" : "hidden",
               ].join(" ")}
             >
               <kbd className="rounded border border-[var(--kin-hairline-strong)] px-1 font-semibold">
@@ -1347,7 +1353,7 @@ export default function Composer({
             <span
               className={[
                 "flex-none text-caption text-kin-muted items-center gap-1",
-                expanded ? "hidden sm:inline-flex" : "hidden",
+                expanded ? "hidden @xl:inline-flex" : "hidden",
               ].join(" ")}
             >
               <kbd className="rounded border border-[var(--kin-hairline-strong)] px-1 font-semibold">

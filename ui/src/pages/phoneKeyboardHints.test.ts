@@ -71,17 +71,23 @@ describe("keyboard legends on a phone", () => {
     }
   });
 
-  it("keeps the composer's precedent, and does not gate the @ legend", () => {
-    // Two things at once. The ⌘↵ legend is where this pattern comes from — the
-    // gate below `sm` is copied from it rather than invented — and `@` is the
-    // contrast case: a phone keyboard has an @, so gating it would be the same
-    // rule applied by pattern instead of by reason.
+  it("keeps the composer's legends on the card's width, not the viewport", () => {
+    // The composer's ⌘↵ legend was where this pattern came from, but its gate
+    // moved from the viewport (`sm`) to the card (`@xl`): an iPad in portrait
+    // draws a 344–396px card inside the desktop shell at 768–820, and there
+    // both legends cost the run-config face more than the row could spare.
+    // `@` follows the same cut — the legends are one desktop affordance, and
+    // the placeholder still names delegation when the card is narrow. The
+    // approval letters keep their viewport gate: they are drawn inside a card
+    // that is the full phone width.
     const composer = read("src/components/chat/Composer.tsx");
-    expect(composer).toMatch(/hidden sm:inline-flex/);
+    expect(composer).toMatch(/hidden @xl:inline-flex/);
+    expect(composer).not.toMatch(/hidden sm:inline-flex/);
     const atLegend = composer.slice(
-      Math.max(0, composer.indexOf('"composer.agent"') - 320),
+      Math.max(0, composer.indexOf('"composer.agent"') - 480),
       composer.indexOf('"composer.agent"'),
     );
+    expect(atLegend).toMatch(/@xl:inline-flex/);
     expect(atLegend).not.toMatch(/sm:(block|inline|inline-flex|flex)/);
   });
 });

@@ -4,6 +4,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale, t } from "../../i18n";
 import Composer from "./Composer";
+import RunConfigControl from "./RunConfigSheet";
 
 /**
  * The composer card is one card with one control row.
@@ -114,6 +115,52 @@ describe("Composer control row", () => {
     const interrupt = screen.getByRole("button", { name: t("composer.interruptSend") });
     expect(interrupt.classList.contains("kin-btn")).toBe(true);
     expect(interrupt.classList.contains("kin-btn-secondary")).toBe(true);
+  });
+
+  it("keeps the key-hint legends on the card's width, not the viewport", async () => {
+    // An iPad in portrait (768–820) draws the desktop shell around a 344–396px
+    // card. The two legends cost ~105px of the row the run-config face needs,
+    // so they follow the controls' `@xl` card cut, not the viewport `sm` gate
+    // that used to show them there and crush the face to its avatar.
+    const user = userEvent.setup();
+    const { row } = setup({ footerWide: true, footer: <span data-testid="cfg" /> });
+
+    await user.type(screen.getByRole("textbox"), "h");
+
+    const hints = Array.from(row.querySelectorAll("kbd")).map((kbd) => kbd.parentElement!);
+    expect(hints).toHaveLength(2);
+    for (const hint of hints) {
+      expect(hint.classList.contains("hidden")).toBe(true);
+      expect(hint.classList.contains("@xl:inline-flex")).toBe(true);
+      const viewportGates = Array.from(hint.classList).filter((cls) => /^sm:/.test(cls));
+      expect(viewportGates).toEqual([]);
+    }
+  });
+
+  it("keeps the run-config face's agent name on the card's width too", () => {
+    // The compact face is the same cut: at 344–396px the row has room for one
+    // name, and the model is the one that changes. A viewport `sm` gate spent
+    // that card on "Claude Code" until the model and permission mode clipped.
+    setup({
+      footerWide: true,
+      footer: (
+        <RunConfigControl
+          agentName="Claude Code"
+          agentAvatar={{ initials: "C", className: "" }}
+          model=""
+          models={[]}
+          onModelChange={vi.fn()}
+          permission="default"
+          permissionModes={["default"]}
+          onPermissionChange={vi.fn()}
+        />
+      ),
+    });
+
+    const face = screen.getByRole("button", { name: /Run settings/ });
+    const name = within(face).getByText("Claude Code");
+    expect(name.classList.contains("@xl:block")).toBe(true);
+    expect(name.classList.contains("sm:block")).toBe(false);
   });
 
   it("sizes the control row by the card, not the viewport", async () => {
