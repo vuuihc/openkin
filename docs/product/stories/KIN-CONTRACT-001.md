@@ -1,150 +1,174 @@
-# KIN-CONTRACT-001 · 只留五个面：一份会被检查器执行的最小契约
+# KIN-CONTRACT-001 · 只留四个页面：列表、任务详情、例行任务、设置
 
 状态：draft
 优先级：P0
 旅程：J1、J2、J4、J6
-归属面：`IA.md`「一条用户路径」与「列表层级」
+归属面：`IA.md`「列表层级」「例行任务」「设置与环境」
 面：Mac、手机
 
 ## 谁、什么时候、为什么
 
-当我每天在 Mac、iPad 和手机上打开 Kin 继续干活，我想只看到五个面——列表、对话、新建、项目封面、设置——其余能力收进对话里的卡片或 sheet，以便每个留下的面都能被真机验收到底，而不是十个页面各好一半。
+当我每天在 Mac、iPad 和手机上打开 Kin 继续干活，我想只看到四个页面——设备 → 项目 → 任务列表（运行就在列表里）、任务详情、例行任务、设置——以便每个留下的页面都能被真机验收到底，而不是十个页面各好一半。
 
-这条来自 owner 2026-11-21 的决定：先删到最小契约，再用 RN 重建手机端；删面不删能力（`docs/adr/0035-mobile-rn-client-and-surface-reduction.md`、`docs/plans/2026-11-21-surface-reduction.md`）。
+owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任务详情，例行任务列表（不包含运行列表，运行列表放到任务列表就行），设置（agents 安装检测现在不完备可以删除等重做，其他保留）这三个页面」。它取代 2026-11-21 计划里「5–6 个路由、Settings 6→2 tab」的估计。
 
 ## 现在
 
-今天 `ui/src/App.tsx:194-219` 有 15 条 `<Route>`：4 条已是 redirect（`/inbox`、`/approvals`、`/agents`、`/usage`），真页面约 10 个；Settings 有 6 个 tab（`ui/src/pages/SettingsPage.tsx:807`）；手机底栏 4 个入口（`ui/src/components/layout/PhoneFooter.tsx`）。五个路线各有故事且已验收（列表、对话、新建、项目、设置），但没有任何东西阻止下一条 PR 再加一个面：`removed-surfaces` 只保证删掉的路径不复活，不保证新增的面经过一次签字。结果是每个面只做完一半，手机端每个 tab 都留着一个桌面时代的页面。
+`ui/src/App.tsx:194-219` 有 15 条 `<Route>`，真页面约 10 个。具体缺口：
+
+- 例行任务页面把「例行任务清单」和「按时间倒序的运行」放在同一页（`ui/src/pages/RoutinesPage.tsx:135` 的注释、`:153-157` 的 `runs`/`runsCursor`），于是同一个运行既是列表里的一条，又是这里的一条。
+- 运行没有出现在任务列表里，读者要判断「刚才那次跑了没有」得换一个页面。
+- 项目封面是一个独立页面（`/projects/:id`），工作说明只在那里可读；集合页 `/projects` 与列表的项目层级重复。
+- 设置 6 个 tab（`ui/src/pages/SettingsPage.tsx:809-837`），其中 `agents` 的安装检测是半成品（`ui/src/components/settings/AgentOperationsSection.tsx:347` 的 `installSuggestions` 与 `:528` 的「未安装」判定），可用的部分与不可用的部分混在一起。
+- 没有任何东西阻止下一条 PR 再加一个面：`removed-surfaces` 只保证删掉的路径不复活。
 
 ## 范围
 
 - 做：
-  - 冻结五个面：`/sessions`、`/tasks/:id`、`/new`、`/projects/:id`、`/settings`；文件/diff/PR 是 `/tasks/:id` 内的面板，不是第六个面。
-  - 一张退场表（本故事「设计」一节与审阅页的契约板）：每条旧路径 → 落到哪条面、能力搬进哪个卡片/工具、哪条故事负责。旧路径在能力搬完前保持可用。
-  - 一个路由清单测试：`ui/src/App.tsx` 的每条 `<Route path>` 必须在契约面或退场表里；新增/删除一条而没改表就红，并打印 `KIN-CONTRACT-001`。生产路由与 dev-only 路由分开断言。
-  - 退场表在测试文件里是一份数据（路径、落点、能力去处、负责故事），测试同时断言本故事的表格与它逐行一致——两处漂移也红；「负责」为空的行不算落地，不允许从表里删掉。
-  - 这份契约与审阅页（`KIN-CONTRACT-001.review.html`、7 张 SVG 帧）由 owner 签字后才开始交付。
+  - 冻结四个页面：`/sessions`（设备 → 项目 → 任务，运行是任务行）、`/tasks/:id`（详情 + composer + 文件/diff/PR 面板）、`/routines`（只有例行任务清单，不含运行列表）、`/settings`（保留 general、operations、providers、routing、advanced 五个 tab）。
+  - 运行列表原来在 `/routines`，移到 `/sessions`：每个运行就是一条任务行，带来源标记（例行任务名），可筛选；`/routines` 不再拉运行。
+  - 项目封面 `/projects/:id` 退役，工作说明改为在列表里展开项目行可读（只读，编辑仍走「⋯」），`/projects` 集合页同退。
+  - 设置里删掉 `agents` tab（安装检测半成品），其余五个 tab 原样保留；重做安装检测由后续 story 负责。
+  - `/new` 是任务详情的草稿态（同一 shell），不是第五个页面。
+  - `/machines/:device/tasks/:id` 合并进 `/tasks/:id?device=`。
+  - 一张退场表（本故事「设计」一节与审阅页的契约板）：每条旧路径 → 落到哪条页面、能力搬进哪里、哪条故事负责；旧路径在能力搬完前保持可用。
+  - 一个路由清单测试：`ui/src/App.tsx` 的每条 `<Route path>` 必须在四个页面、`/new` 或退场表里；新增/删除一条而没改表就红，并打印 `KIN-CONTRACT-001`。生产路由与 dev-only 路由分开断言。
+  - 检查器的数据表与故事里的退场表逐行一致（同一测试断言），「负责」为空的行不允许从表里删掉。
 - 不做（各自去处）：
-  - 真正删除 routines / settings tab / usage / agent-sessions / projects 集合页 → 计划队列 `R-routine-tool`、`R-provider-sheet`、`R-usage-surface`、`R-delete-pages`；本条只冻结目标与顺序。
-  - 死代码清理 → 已由 #547（`b4bc72f7`）完成，`removed-surfaces` 在 `scripts/check.sh` 里点名执行。
-  - 手机端 RN 实现 → 独立 ADR/phase（`R-rn-spike`）；契约冻结前不写 `mobile/` 代码。
-  - 列表密度与默认折叠的交互细节 → parked `R-list-scan`。
-  - 设置里具体某一项的搬迁 → `KIN-SETTINGS-002` 与 `R-provider-sheet`。
+  - 删除 `/routines` 页面、把例行任务改成卡片 → **不做**，owner 2026-11-22 明确保留页面。
+  - Settings 收缩到 2 个 tab、把 providers 搬成 sheet → **不做**，其余 tab 保留；用量界面不动。
+  - 重做 agents 安装检测 → 后续独立 story（先删半成品，再重做）。
+  - 手机底栏改数量 → 不改：四个入口（对话、Agents、例行、设置）都落在保留的页面上；`KIN-` 手机底栏已签故事继续有效。
+  - 列表密度、折叠交互 → parked `R-list-scan`。
+  - RN 客户端 → 独立 ADR/phase，契约冻结前不写 `mobile/` 代码。
   - 文件/diff/PR 面板的内容与只读 PR 面板 → `KIN-RESULT-002`、`KIN-RESULT-003`。
-  - `/machines/:device/tasks/:id` 的读取实现 → 若 D5 选择合并，由本条交付；若选择保留，它作为第六个面写进契约。
 
 ## 每一步的预期
 
-### 1. 定义 / 定位：打开 Kin，先认出自己在哪一个面
+### 1. 定位：从列表认出设备、项目与要读的那个任务
 
 | 项 | 预期 |
 |---|---|
-| 起点 | 冷启动，或从通知、书签、旧深链进来；地址可能是契约内路径，也可能是退场表里的旧路径 |
-| 动作 | 不点任何东西，等首屏 |
-| 立刻看到 | 落到五个面之一；旧路径落到退场表指向的那条面，地址栏换成契约路径（`replace`，不新增一条可后退的假历史） |
-| 慢 / 空 / 失败 / 断线 | 首屏慢时保留 shell 与上一个面（F4）；daemon 不可达时一条 transient 说明加重试，不整页空白；深链里的对话不在这台设备上时落到列表并说明 |
-| 键盘与焦点 | 落在目标面的第一个可操作元素（列表搜索框 / composer / 设置首个控件），不停在被重定向的旧地址上 |
-| 离开再回来 | 回到同一个面，不重复重定向、不重复弹权限 |
-
-### 2. 准备 / 确认：从列表认出要读的那一段
-
-| 项 | 预期 |
-|---|---|
-| 起点 | `/sessions`：设备 → 项目 → 对话三层，项目与设备默认折叠 |
-| 动作 | 展开一层、搜索、点标题 |
-| 立刻看到 | 对话在同一个 shell 里打开；列表保持滚动与展开状态 |
-| 慢 / 空 / 失败 / 断线 | 空列表写「还没有对话」并给一个「新对话」；搜索无结果写清搜索词；列表加载失败一行重试，已加载的行不消失；离线设备的行不可展开，点一次说明原因 |
+| 起点 | `/sessions`：设备 → 项目 → 任务三层，项目与设备默认折叠；任务包含对话、例行任务的每次运行、远端任务 |
+| 动作 | 展开一层；点项目行看工作说明；搜索；点任务标题 |
+| 立刻看到 | 任务在同一个 shell 里打开；列表保持滚动与展开；运行行带例行任务名与状态 |
+| 慢 / 空 / 失败 / 断线 | 空写「还没有对话」+「新对话」；搜索无结果写清搜索词；列表加载失败一行重试，已加载的行不消失；离线设备的行不可展开，点一次说明原因 |
 | 键盘与焦点 | 搜索框可 Tab 到；↑↓ 在行间移动，Enter 打开，Esc 清空搜索并留在列表 |
 | 离开再回来 | 搜索词、筛选、滚动位置、展开层级都保留（F4） |
 
-### 3. 执行：读、发、看改动，全部留在同一条对话里
+### 2. 执行：读、发、看改动，全部留在同一条任务里
 
 | 项 | 预期 |
 |---|---|
-| 起点 | `/tasks/:id`，或 `/new` 的草稿发出去 |
+| 起点 | `/tasks/:id`，或 `/new` 的草稿发出去；远端任务带 `?device=` 落到同一页 |
 | 动作 | 滚动阅读、点 header「文件」打开面板、在 composer 接着问 |
-| 立刻看到 | 面板在同一条对话内打开（不换路由）；发出去的消息入流、composer 清空并保持焦点 |
-| 慢 / 空 / 失败 / 断线 | 流式时保留已收到的内容；断线时内容不丢、一条重连说明；发送失败把草稿留在 composer 并给原因 |
+| 立刻看到 | 面板在同一条任务内打开（不换路由）；发出去的消息入流、composer 清空并保持焦点 |
+| 慢 / 空 / 失败 / 断线 | 流式时保留已收到的内容；断线时内容不丢、一条重连说明；发送失败把草稿留在 composer 并给原因；远端离线时同一页说明「这台设备现在连不上」 |
 | 键盘与焦点 | composer 是唯一输入路径；Esc 关面板并把焦点还给「文件」；⌘Enter 发送 |
 | 离开再回来 | 草稿、滚动位置、面板开关按 F4 恢复；不重复发送 |
 
-### 4. 监控：契约被破坏时，机器先看见
+### 3. 准备：例行任务只住例行任务
+
+| 项 | 预期 |
+|---|---|
+| 起点 | `/routines`：例行任务清单（名称、计划、上次运行、启停） |
+| 动作 | 新建或编辑一个例行任务；点「看运行」跳到 `/sessions` 并带上该任务的筛选 |
+| 立刻看到 | 保存后清单里立刻出现；「看运行」落到列表，筛选已就位，运行就是任务行 |
+| 慢 / 空 / 失败 / 断线 | 空写「还没有例行任务」+「新建」；保存失败保留表单并说明；断线时清单可读、保存禁用并说明 |
+| 键盘与焦点 | 表单 Tab 顺序固定；Esc 关闭新建面板并回「新建」；保存后焦点回到该行 |
+| 离开再回来 | 回到清单，展开/滚动的行保留；不重复创建 |
+
+### 4. 确认：设置只留能用的那五个 tab
+
+| 项 | 预期 |
+|---|---|
+| 起点 | `/settings`，默认上次的 tab |
+| 动作 | 在 general / operations / providers / routing / advanced 之间切换；provider 凭据仍在 providers tab |
+| 立刻看到 | 只有这五个 tab；不再有 `agents` tab（安装检测半成品已移除），新对话立刻用上新默认 |
+| 慢 / 空 / 失败 / 断线 | 打开设置不读 secure store、不调第三方；只有「验证/配置」这一次动作才读；失败只说这一行，不影响别的 tab |
+| 键盘与焦点 | tab 之间 ←→；关闭确认框回触发按钮；未连接的 provider 行写明原因 |
+| 离开再回来 | 回到上次的 tab；改到一半的 key 输入在离开时清空，不留在内存快照里 |
+
+### 5. 监控：契约被破坏时，机器先看见
 
 | 项 | 预期 |
 |---|---|
 | 起点 | 一条普通 PR，改了 `ui/src/App.tsx` 或新增一个页面 |
 | 动作 | 什么都不做，等 `scripts/check.sh` |
-| 立刻看到 | 新增路由不在契约里 → 测试失败，输出点名 `KIN-CONTRACT-001` 和那条路径；删掉契约路由同样红；退场表里的「负责」为空也红 |
+| 立刻看到 | 新增路由不在契约里 → 测试失败，输出点名 `KIN-CONTRACT-001` 和那条路径；删掉契约页面同样红；`/routines` 重新拉运行也红 |
 | 慢 / 空 / 失败 / 断线 | 测试不联网、不起浏览器；读不到 `App.tsx` 就先红，不静默跳过 |
 | 键盘与焦点 | 无（命令行） |
 | 离开再回来 | 同一棵树重跑结论一致 |
 
-### 5. 收尾：退场表里的每一条都有主
+### 6. 收尾：退场表里的每一条都有主
 
 | 项 | 预期 |
 |---|---|
-| 起点 | 一条旧路径（如 `/routines`） |
+| 起点 | 一条旧路径（如 `/projects/:id`、`/agent-sessions/:id`） |
 | 动作 | 打开它 |
-| 立刻看到 | 落到契约面，并且它的能力在对话里可达（工具或卡片），不是消失 |
+| 立刻看到 | 落到保留的页面（工作说明在项目行里、agent 状态在会话动作表里），不是 404 |
 | 慢 / 空 / 失败 / 断线 | 能力还没搬完时旧路径保持可用，退场表写「等哪条故事」；不许先删后补 |
-| 键盘与焦点 | 落到目标面的第一个可操作元素 |
+| 键盘与焦点 | 落到目标页面的第一个可操作元素 |
 | 离开再回来 | 旧书签仍然可用；退场表有一行日期与负责故事 |
 
 ## 各面差异
 
 | 面 | 这一面怎么呈现 | 为什么不同 |
 |---|---|---|
-| Mac | 左列表 + 主区两栏；文件/diff/PR 是主区右侧面板；设置在同一个面里两个 tab | 屏幕宽，列表与正文可以同时在场；面板不换路由才能保住滚动与草稿 |
-| 手机 | 列表、对话、新建、设置各自占满一屏；文件/diff 是对话上的面板页，返回先关面板；底栏只指向契约路由 | 一屏只有一个面；底栏多一个入口就多一个要维护的面 |
+| Mac | 左列表 + 主区两栏；文件/diff/PR 是主区右侧面板；例行任务与设置各是一个页面 | 屏幕宽，列表与正文可以同时在场；面板不换路由才能保住滚动与草稿 |
+| 手机 | 列表、任务详情、例行任务、设置各自占满一屏；底部四个入口分别指向它们（Agents 入口落在设置的 operations tab）；文件/diff 是任务详情上的面板页 | 一屏只有一个页面；四个入口都落在保留的页面上，底栏不需要改数量 |
 
 ## 设计
 
-设计稿：`KIN-CONTRACT-001.figma/frames/`（7 张 SVG 源帧）和 `KIN-CONTRACT-001.review.html`（Figma 帧 + 每屏六段用户流程 + 决定）。
+设计稿：`KIN-CONTRACT-001.figma/frames/`（8 张 SVG 源帧）和 `KIN-CONTRACT-001.review.html`（Figma 帧 + 每屏六段用户流程 + 决定记录）。
 
-必须画到的状态：默认、空列表、加载、失败、断线、锁定（能力还没搬完的旧路径）。
+必须画到的状态：默认、空、加载、失败、断线、运行中、等待批准。
 
 **退场表**（清单测试以同内容的数据表为准，并断言与这里逐行一致）：
 
 | 旧路径 | 落点 | 能力去处 | 负责 |
 |---|---|---|---|
+| `/projects` | `/sessions` | 列表的项目层级 | `R-delete-pages` |
+| `/projects/:id` | `/sessions` | 项目行展开可读工作说明（只读，编辑走「⋯」） | `R-delete-pages` |
 | `/inbox`、`/approvals` | `/sessions` | 列表每行写「等你处理」 | 已落地 |
-| `/usage` | 对话内 | composer footer 的「用量 ▾」sheet | `R-usage-surface` |
-| `/routines` | 对话内 | routine 工具 + `RoutineCard` | `R-routine-tool` |
-| `/agents` | 对话内 | agent-status card | `R-agent-status` |
-| `/agent-sessions/:id` | 对话内 | agent-status card 的展开 | `R-agent-status` |
-| Settings 的 agents / operations / account / push / roles | `/settings` | Provider sheet 与对话内卡片 | `R-provider-sheet` |
-| `/projects` | `/sessions` | 列表层级 + `/projects/:id` 封面 | `R-delete-pages` |
-| `/machines/:device/tasks/:id` | `/tasks/:id?device=` | 同一份阅读面 | 本条（D5） |
+| `/agents` | `/settings?tab=operations` | Agent Ops 留在 operations tab | 已落地 |
+| `/usage` | `/settings?tab=operations` | 用量界面不动（composer footer 的 popover 仍是入口） | 已落地 |
+| `/routines` 里的运行列表 | `/sessions` | 每个运行是一条任务行，带例行任务名；「看运行」带筛选跳转 | 本条 |
+| `/agent-sessions/:id` | `/tasks/:id` | agent 状态进会话动作表 | `R-agent-status` |
+| `/machines/:device/tasks/:id` | `/tasks/:id?device=` | 同一份任务详情 | 本条 |
+| Settings 的 `agents` tab | `/settings` | 安装检测重做前不展示半成品；重做由后续 story 负责 | 本条 |
 | `design-system` | 不在生产路由 | 仅 dev build | 本条 |
 
 ## Do not
 
-- 不许新增第六个面；新面必须先有 story，再改契约与清单测试。
-- 不许把「删面」做成「删能力」：被删路径的能力必须已有 tool/card 且测试绿。
-- 不许改 HTTP/事件契约、数据模型、权限或安全语义；这条只动前端路由与文档。
-- 不许在契约冻结前写 `mobile/` 的 RN 代码，也不许把 RN 重写夹进删除 PR。
-- 不许用通配路由（`*`）吞掉未登记的路径来让清单测试变绿。
-- 不许用放宽断言（前缀匹配、允许列表留空）代替清单。
+- 不许删 `/routines` 页面或把例行任务改成卡片；运行列表搬走、页面留下。
+- 不许把 Settings 收缩到 2 个 tab，也不许搬走 providers 凭据；只删 `agents` tab。
+- 不许改手机底栏的数量或顺序（四个入口都有效）。
+- 不许把「删面」做成「删能力」：被退役路径的能力必须已经在新位置可读且测试绿。
+- 不许改 HTTP/事件契约、数据模型、权限或安全语义；这条只动前端路由、页面拆分与文档。
+- 不许在契约冻结前写 `mobile/` 的 RN 代码。
+- 不许用通配路由（`*`）吞掉未登记的路径来让清单测试变绿，也不许放宽断言。
 
 ## 验收
 
 | Given | When | Then |
 |---|---|---|
 | 一条新增的 `<Route path="/x">` 不在契约表 | 跑 `scripts/check.sh` | `ui/src/lib/routes.contract.test.ts` 失败，输出含 `KIN-CONTRACT-001` 与 `/x` |
-| 契约五条面路由之一被删 | 跑同一个测试 | 失败并报出缺的那条 |
-| 故事里的退场表与测试数据表不一致，或某行「负责」为空 | 跑同一个测试 | 失败，并打印不一致的那一行；不允许把那条路径从表里去掉 |
-| `/inbox`、`/approvals`、`/agents`、`/usage` 这类退场路径 | 打开 | 落到退场表写的面，`replace` 进历史，不产生可后退的假记录 |
-| 一条计划删除的页面（如 `/routines`） | 能力还没搬完时打开 | 仍可用；清单测试不允许提前删 |
-| 变异体：把一条契约面路由塞进退场表当 redirect | 跑测试 | 必须红（退场表不能当后门） |
-| 手机底栏 | 在 390 打开 | 每个 tab 的目标都在契约表里，没有指向退场路径的 tab |
+| 四个页面之一被删，或 `/new` 被当成第五个页面 | 跑同一个测试 | 失败并报出缺的/多出的那条 |
+| `/routines` 重新拉取运行列表，或运行不再出现在列表里 | 跑同一个测试 | 失败（`RoutinesPage` 不再引用 `listRoutineRuns`；列表有运行行） |
+| 设置 tab 集合不是 general / operations / providers / routing / advanced | 跑同一个测试 | 失败并打印多出或缺少的 tab |
+| 旧路径 `/projects/:id`、`/agent-sessions/:id`、`/machines/:device/tasks/:id` | 打开 | 落到退场表写的页面，`replace` 进历史；工作说明在项目行里可读 |
+| 故事里的退场表与测试数据不一致，或某行「负责」为空 | 跑同一个测试 | 失败并打印不一致的那一行 |
+| 变异体：把 `/routines` 改回带运行列表的页面 | 跑测试 | 必须红 |
 
 ## 证据
 
 - 契约与退场表：本文件「设计」一节；审阅页 `KIN-CONTRACT-001.review.html` 的契约板。
-- 现状：路由 `ui/src/App.tsx:194-219`；Settings tab `ui/src/pages/SettingsPage.tsx:807`；手机底栏 `ui/src/components/layout/PhoneFooter.tsx`。
-- 方向来源：`docs/adr/0035-mobile-rn-client-and-surface-reduction.md`、`docs/plans/2026-11-21-surface-reduction.md`。
-- 已完成的第一步：#547 `b4bc72f7` 删除 1,090 行死代码，`removed-surfaces` 已在 `scripts/check.sh` 里点名执行。
+- 现状：路由 `ui/src/App.tsx:194-219`；例行页的运行 feed `ui/src/pages/RoutinesPage.tsx:135,153-157`；设置 tab `ui/src/pages/SettingsPage.tsx:809-837`；agents 安装检测 `ui/src/components/settings/AgentOperationsSection.tsx:347,528`。
+- owner 原话与决定：`rsi/DECISIONS.md` 2026-11-22 那条；`docs/plans/2026-11-21-surface-reduction.md` 的最小契约表按本条订正。
+- 已完成的死代码清理：#547 `b4bc72f7`，`removed-surfaces` 在 `scripts/check.sh` 里点名执行。
 
 ## 变更记录
 
-- 2026-11-22（+08）· 初稿：五个面 + 退场表 + 路由清单测试；等 owner 在审阅页签字。
+- 2026-11-22（+08）· 初稿：五个面 + 退场表（含把 routines 改成卡片），等 owner 签字。
+- 2026-11-22 · 按 owner 原话订正为四个页面：`/routines` 保留、运行搬进任务列表、设置只删 `agents` 安装检测、其余 tab 保留、项目封面退役且工作说明进列表项目行。这四条不再是待决项。

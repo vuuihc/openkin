@@ -34,16 +34,16 @@
 <text x="836" y="236" font-size="10" fill="#7a3b34">连不上这台设备 · 正在重试</text>
 <text x="836" y="258" font-size="9" fill="#7a3b34">草稿与已读内容仍在本机，不会重复发送</text>
 <rect x="16" y="328" width="580" height="264" rx="14" fill="#ffffff" stroke="#dcdcdc"/>
-<text x="34" y="356" font-size="12" fill="#1a1a1a" font-weight="600">锁定 · 能力还没搬完的旧路径</text>
+<text x="34" y="356" font-size="12" fill="#1a1a1a" font-weight="600">下线 · 半成品与被替代的页面</text>
 <line x1="34" y1="368" x2="580" y2="368" stroke="#efefef"/>
-<text x="34" y="392" font-size="10.5" fill="#333">旧路径仍可用，退场表写「等哪条故事」；</text>
-<text x="34" y="414" font-size="10.5" fill="#333">清单测试不允许把它的能力提前删掉。</text>
-<text x="34" y="440" font-size="10" fill="#6b6b6b">例：/routines 在 R-routine-tool 合入前保持原样，</text>
-<text x="34" y="458" font-size="10" fill="#6b6b6b">同一时间 routine card 的测试必须已经绿。</text>
+<text x="34" y="392" font-size="10.5" fill="#333">能力先在新位置可读，旧路径再下线；</text>
+<text x="34" y="414" font-size="10.5" fill="#333">退场表写「等哪条故事」，清单测试不允许提前删。</text>
+<text x="34" y="440" font-size="10" fill="#6b6b6b">例：/projects/:id 在 R-delete-pages 合入前保持原样，</text>
+<text x="34" y="458" font-size="10" fill="#6b6b6b">同一时间「列表项目行可读工作说明」的测试必须已经绿。</text>
 <rect x="34" y="480" width="546" height="92" rx="10" fill="#f7f7f9" stroke="#e3e3e3"/>
-<text x="48" y="504" font-size="10" fill="#333">退场表一行：/routines → routine 工具 + RoutineCard</text>
-<text x="48" y="524" font-size="10" fill="#555">负责：R-routine-tool（未合入前保留页面）</text>
-<text x="48" y="544" font-size="9" fill="#8a8a8a">清单测试读这张表；「负责」为空 → 不许删</text>
+<text x="48" y="504" font-size="10" fill="#333">退场表一行：/projects/:id → 列表项目行的工作说明</text>
+<text x="48" y="524" font-size="10" fill="#555">负责：R-delete-pages（未合入前保留页面）</text>
+<text x="48" y="544" font-size="9" fill="#8a8a8a">设置 agents tab 同理：删除先于重做，但重做要有 story</text>
 <rect x="620" y="328" width="564" height="264" rx="14" fill="#ffffff" stroke="#dcdcdc"/>
 <text x="638" y="356" font-size="12" fill="#1a1a1a" font-weight="600">键盘与焦点 · 每个面各一条</text>
 <line x1="638" y1="368" x2="1166" y2="368" stroke="#efefef"/>
