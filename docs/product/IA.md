@@ -11,7 +11,7 @@
 
 **Mac（默认窗口 1100×760）**
 现在：左边一列是对话列表（带"搜索会话…"），右边一页又是同一批对话（带"搜索对话"）；左栏底部还挂着一块文字导航。
-目标：左缘是**区域栏**（对话 / 项目 / 例行任务 / 设置，⌘1–⌘4，带待批准与未读例程角标）；旁边是唯一的对话列表，层级是**设备 → 项目 → 对话**；再往右是主区。右边是一个对话；没有打开对话时，右边是新建页。右侧面板打开或窗口窄于 1280 时，区域栏收成 64px 图标栏，对话列表让位（标题栏留一个"显示列表"），对话区永远不低于 420px。（2026-11-17，S1/S1b）
+目标：左缘是**区域栏**（对话 / 例行任务 / 设置，⌘1–⌘3，带待批准与未读例程角标）；旁边是唯一的对话列表，层级是**设备 → 项目 → 对话**；再往右是主区。右边是一个对话；没有打开对话时，右边是新建页。右侧面板打开或窗口窄于 1280 时，区域栏收成 64px 图标栏，对话列表让位（标题栏留一个"显示列表"），对话区永远不低于 420px。（2026-11-17，S1/S1b）
 
 **手机（390 宽）**
 现在：一页对话列表（"搜索对话"，只有项目 → 对话两层）；点左上角 K，又出来一份同样的列表（"搜索会话…"）。
@@ -125,7 +125,7 @@
 | 项目（并入对话列表） | 列表的设备 → 项目 → 对话层级；`/projects` 重定向到 `/sessions`；`/projects/:id` 封面是列表的详情 | KIN-CONTRACT-001（R-delete-pagesb）；封面沿用 PROJECT-001 | `areaNavigation.test.ts`、`App.areaRoutes.test.ts` |
 | 例行任务区 | `/routines`、`/tasks/:id?device=<device>`（旧 `/machines/:device/tasks/:id` 重定向到这里） | #76 `3206755c`（区域表与路由）；例程本体 ROUTINE-001 | `areaNavigation.test.ts`、`RoutinesPage.dom.test.tsx` |
 | 设置区 | `/settings` 六个分区；Agent 运维 = `?tab=operations`；目录里每个分区名旁写明当前生效的值（外观主题 / 当前 provider / 限流策略），值还没读到时保留原说明、不猜 | #76 `3206755c`（区域表与路由）；N4 托管该面板 | `settingsTabsWiring.test.ts`、`SettingsPage.operations.dom.test.tsx` |
-| S1 | Mac 208px / 64px 区域栏、⌘1–⌘4、角标 | #128 `0c2ec124` | `AreaNavigation.dom.test.tsx` |
+| S1 | Mac 208px / 64px 区域栏、⌘1–⌘4（2026-11-22 起 ⌘1–⌘3）、角标 | #128 `0c2ec124` | `AreaNavigation.dom.test.tsx` |
 | S1b | 面板打开时列表让位，对话 ≥420px | #144 `5576e938` | `AppShell.dom.test.tsx`、`PanelSurface.test.ts` |
 | S2 | 手机底部入口是区域间唯一通道，每个入口记住自己的 URL | #118 `0a6c7a17` | `PhoneNavigation.dom.test.tsx`、`PhonePushContract.dom.test.tsx` |
 | S2b | 列表头「新建对话」为次级动作，返回与记忆保持 | #136 `fe4b18a5` | `PhoneNavigation.dom.test.tsx`、`phoneNavigation.test.tsx` |

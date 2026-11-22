@@ -3,7 +3,8 @@ import { AREAS, AREA_IDS, MAC_NAV_AREA_IDS, areaById } from "./areas";
 
 // KIN-CONTRACT-001: the console has three areas and they are one table. These
 // assertions are deliberately DOM-free and catalog-free — the table is data,
-// and every surface renders it.
+// and every surface renders it. (KIN-CONTINUE-003 first pinned this table when
+// it had four areas; the three-row shape is what replaced it.)
 
 describe("AREAS", () => {
   it("AREA_IDS and table rows cover exactly the three areas in display order", () => {

@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the J4 contract again demands the retired /projects reload, so the shipped /sessions load is invisible (R-delete-pagesb)",
+    "file": "scripts/journeys_walk_test.py",
+    "old": "J4_LIST_PATHS = (\"/projects\", \"/sessions\")",
+    "new": "J4_LIST_PATHS = (\"/projects\",)",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_roots_editor_and_reloads"
+  }
+]

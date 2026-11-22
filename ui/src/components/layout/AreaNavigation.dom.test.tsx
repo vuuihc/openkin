@@ -18,7 +18,8 @@ import { SHELL_VIEW } from "../../lib/panels";
  * KIN-CONTRACT-001 rows 1–2, 15: this rail, its per-area state and its
  * accessible entry points are the Mac half of the area contract. The Projects
  * area retired with its collection; the project level lives in the
- * conversation list and the cover is that list's detail.
+ * conversation list and the cover is that list's detail. (KIN-CONTINUE-003
+ * pinned the four-area rail this three-area rail replaced.)
  *
  * The rail is a view of `AREAS`, so these tests read the table rather than a
  * second list of names: a destination added to the table has to turn up here,
