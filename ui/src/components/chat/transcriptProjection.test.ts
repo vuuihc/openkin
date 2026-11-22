@@ -447,6 +447,311 @@ describe("transcriptProjection", () => {
     expect(items.some((item) => item.kind === "error")).toBe(false);
   });
 
+  // A bare Stop (no message behind it) ends the round as a cancel error and a
+  // result. The only thing that said so was a toast, and it is gone after a
+  // reload: the transcript itself has to close the round.
+  const stoppedEvents = (): TaskEvent[] => [
+    ev(1, "message", {
+      role: "user",
+      speaker: "user",
+      content: [{ type: "text", text: "write the plan" }],
+    }),
+    ev(2, "task_started", {}),
+    ev(3, "message", {
+      role: "assistant",
+      speaker: "kin",
+      partial: true,
+      message_id: "m1",
+      index: 0,
+      content: [{ type: "text", text: "here is the first half" }],
+    }),
+    ev(4, "tool_use", {
+      speaker: "kin",
+      tool_use_id: "call-1",
+      name: "bash",
+      visibility: { user: true, task: true },
+    }),
+    ev(5, "error", { message: "canceled" }),
+    ev(6, "result", { is_error: true }),
+  ];
+
+  it("marks a round a bare Stop canceled", () => {
+    const items = buildChatItems(stoppedEvents(), "kin");
+
+    const marks = items.filter((item) => item.kind === "meta");
+    expect(marks).toMatchObject([{ kind: "meta", label: t("chat.stoppedNote") }]);
+    // The cut half of the answer stays; the line closes the round below it,
+    // after the process box the running step left behind.
+    expect(
+      items.map((item) =>
+        item.kind === "meta" ? item.label : item.kind === "message" ? item.text : item.kind,
+      ),
+    ).toEqual(["write the plan", "here is the first half", "progress", t("chat.stoppedNote")]);
+    // A Stop is not a failure: no error line and the step settles done.
+    expect(items.some((item) => item.kind === "error")).toBe(false);
+    expect(items).toMatchObject([
+      { kind: "message" },
+      { kind: "message" },
+      { kind: "progress", steps: [{ kind: "tool", status: "done" }] },
+      { kind: "meta", label: t("chat.stoppedNote") },
+    ]);
+
+    // Reloading re-reads the same events into a fresh projection; the line is
+    // derived from them, not from the toast, so it comes back exactly once.
+    expect(
+      buildChatItems(stoppedEvents(), "kin").filter((item) => item.kind === "meta"),
+    ).toHaveLength(1);
+
+    const before = getLocale();
+    setLocale("en");
+    try {
+      const enMark = buildChatItems(stoppedEvents(), "kin").find((item) => item.kind === "meta");
+      expect(enMark).toMatchObject({ label: "Stopped this round" });
+    } finally {
+      setLocale(before);
+    }
+    setLocale("zh");
+    try {
+      const zhMark = buildChatItems(stoppedEvents(), "kin").find((item) => item.kind === "meta");
+      expect(zhMark?.label).toContain("已停止本轮");
+    } finally {
+      setLocale(before);
+    }
+  });
+
+  it("does not add a stop mark when the interrupt path already marked the round", () => {
+    // The composer's interrupt sent a message that already closed the round.
+    // The cancel error that follows is the same stop, not a second one. The
+    // round really started, so the roundStarted guard is not what suppresses
+    // the second line here.
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "write the plan" }],
+        }),
+        ev(2, "task_started", {}),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "kin",
+          partial: true,
+          message_id: "m1",
+          index: 0,
+          content: [{ type: "text", text: "here is the first half" }],
+        }),
+        ev(4, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "stop, go another way" }],
+          source: "interrupt",
+          interrupted: true,
+        }),
+        ev(5, "error", { message: "canceled" }),
+        ev(6, "result", { is_error: true }),
+      ],
+      "kin",
+    );
+    const labels = items.flatMap((item) => (item.kind === "meta" ? [item.label] : []));
+    expect(labels.filter((label) => label === t("chat.stoppedNote"))).toHaveLength(0);
+    expect(labels.filter((label) => label === t("chat.interruptedNote"))).toHaveLength(1);
+  });
+
+  it("does not mark a worker's cancel as the round stopping", () => {
+    // Delegated workers persist their events on the parent log, stamped
+    // task-only. A step canceled from the plan table is not the conversation
+    // stopping, and its result must not close the host round.
+    const worker = { speaker: "worker-1", visibility: { user: false, task: true } };
+    const items = buildChatItems(
+      [
+        ev(1, "task_started", worker),
+        ev(2, "error", { ...worker, message: "canceled" }),
+        ev(3, "result", { ...worker, is_error: true }),
+      ],
+      "kin",
+    );
+    expect(items.filter((item) => item.kind === "meta")).toHaveLength(0);
+  });
+
+  it("does not let a worker's cancel label the host round stopped", () => {
+    // The worker's cancel is task-only chatter, but the host's own failed
+    // result is user-facing. Without attributing the cancel to its emitter,
+    // the host failure would borrow the worker's stop and read as a Stop.
+    const items = buildChatItems(
+      [
+        ev(1, "message", { role: "user", content: [{ type: "text", text: "go" }] }),
+        ev(2, "task_started", {}),
+        ev(3, "error", {
+          message: "canceled",
+          speaker: "worker-1",
+          visibility: { user: false, task: true },
+        }),
+        ev(4, "result", { is_error: true }),
+      ],
+      "kin",
+    );
+    expect(items.filter((item) => item.kind === "meta")).toHaveLength(0);
+  });
+
+  it("does not mark a round stopped when the agent recovered from the cancel", () => {
+    // Steering aborts emit the same cancel noise, but the round carries on and
+    // ends successfully. That is not a Stop, so it gets no closing line.
+    const items = buildChatItems(
+      [
+        ev(1, "message", { role: "user", content: [{ type: "text", text: "go" }] }),
+        ev(2, "task_started", {}),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "kin",
+          content: [{ type: "text", text: "ok" }],
+        }),
+        ev(4, "error", { message: "canceled" }),
+        ev(5, "result", { is_error: false }),
+      ],
+      "kin",
+    );
+    expect(items.filter((item) => item.kind === "meta")).toHaveLength(0);
+  });
+
+  it("does not add a stop mark with no round above it", () => {
+    // A window that starts at the cancel, or a prompt the executor never picked
+    // up, has no cut round in view; claiming one stopped would point at a round
+    // the reader cannot see.
+    const windowStart = buildChatItems(
+      [ev(1, "error", { message: "canceled" }), ev(2, "result", { is_error: true })],
+      "kin",
+    );
+    expect(windowStart.filter((item) => item.kind === "meta")).toHaveLength(0);
+
+    const noRoundStarted = buildChatItems(
+      [
+        ev(1, "message", { role: "user", content: [{ type: "text", text: "go" }] }),
+        ev(2, "error", { message: "canceled" }),
+        ev(3, "result", { is_error: true }),
+      ],
+      "kin",
+    );
+    expect(noRoundStarted.filter((item) => item.kind === "meta")).toHaveLength(0);
+  });
+
+  // The default claude-code agent and the fake CLI dogfood/J3 use record no
+  // cancel error and no result at all: the engine drops events once the cancel
+  // deletes the run. The task's terminal status is then the only durable fact
+  // that the round was stopped, and the line has to come from it.
+  const silentlyStoppedEvents = (): TaskEvent[] => [
+    ev(1, "message", {
+      role: "user",
+      speaker: "user",
+      content: [{ type: "text", text: "write the plan" }],
+    }),
+    ev(2, "task_started", {}),
+    ev(3, "message", {
+      role: "assistant",
+      speaker: "kin",
+      partial: true,
+      message_id: "m1",
+      index: 0,
+      content: [{ type: "text", text: "here is the first half" }],
+    }),
+    ev(4, "tool_use", {
+      speaker: "kin",
+      tool_use_id: "call-1",
+      name: "bash",
+      visibility: { user: true, task: true },
+    }),
+  ];
+
+  it("closes a round a stopped task never recorded in its events", () => {
+    const items = buildChatItems(silentlyStoppedEvents(), "kin", undefined, true, "canceled");
+
+    expect(
+      items.map((item) =>
+        item.kind === "meta" ? item.label : item.kind === "message" ? item.text : item.kind,
+      ),
+    ).toEqual(["write the plan", "here is the first half", "progress", t("chat.stoppedNote")]);
+    // No adapter error to blame and no step left running: the cut is a stop,
+    // not a failure.
+    expect(items.some((item) => item.kind === "error")).toBe(false);
+    expect(items).toMatchObject([
+      { kind: "message" },
+      { kind: "message" },
+      { kind: "progress", steps: [{ kind: "tool", status: "done" }] },
+      { kind: "meta", label: t("chat.stoppedNote") },
+    ]);
+
+    // Reloading re-projects the same events; the keyed line appears once.
+    expect(
+      buildChatItems(silentlyStoppedEvents(), "kin", undefined, true, "canceled").filter(
+        (item) => item.kind === "meta",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("does not close a round while the task is live or ended another way", () => {
+    // The toast is the live cue; the transcript line is the durable one and
+    // only a terminal canceled task earns it.
+    expect(
+      buildChatItems(silentlyStoppedEvents(), "kin", undefined, false, "canceled").filter(
+        (item) => item.kind === "meta",
+      ),
+    ).toHaveLength(0);
+    expect(
+      buildChatItems(silentlyStoppedEvents(), "kin", undefined, true, "succeeded").filter(
+        (item) => item.kind === "meta",
+      ),
+    ).toHaveLength(0);
+    expect(
+      buildChatItems(silentlyStoppedEvents(), "kin", undefined, true, undefined).filter(
+        (item) => item.kind === "meta",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("does not add a second line when the events already recorded the stop", () => {
+    expect(
+      buildChatItems(stoppedEvents(), "kin", undefined, true, "canceled").filter(
+        (item) => item.kind === "meta",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("does not claim the task status for a round an interrupt already closed", () => {
+    // An interrupt ends the round above the message that cut it and already
+    // put its own line there; the canceled status describes that same stop.
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "write the plan" }],
+        }),
+        ev(2, "task_started", {}),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "kin",
+          partial: true,
+          message_id: "m1",
+          index: 0,
+          content: [{ type: "text", text: "here is the first half" }],
+        }),
+        ev(4, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "stop, go another way" }],
+          source: "interrupt",
+          interrupted: true,
+        }),
+      ],
+      "kin",
+      undefined,
+      true,
+      "canceled",
+    );
+    const labels = items.flatMap((item) => (item.kind === "meta" ? [item.label] : []));
+    expect(labels.filter((label) => label === t("chat.stoppedNote"))).toHaveLength(0);
+    expect(labels.filter((label) => label === t("chat.interruptedNote"))).toHaveLength(1);
+  });
+
   it("keeps the running round when a queued follow-up sits above the interrupt", () => {
     // The follow-up was queued while the round above it was still running and
     // never started a round of its own, so the interrupt still cuts the round
