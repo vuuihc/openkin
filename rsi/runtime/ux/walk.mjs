@@ -19,6 +19,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import { awaitOptionalVisible } from './optional-grace.mjs';
 const require = createRequire(import.meta.url);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
@@ -4174,7 +4175,16 @@ for (const j of want) {
         } else if (op === 'click' || op === 'hover' || op === 'fill' || op === 'enabled' || op === 'focus') {
           const raw = String(a), optional = raw.startsWith('?'), sel = optional ? raw.slice(1) : raw;
           const loc = await stepLocator(page, sel);
-          if (await loc.count() === 0) { if (optional) { log.push('skipped ' + op + ' ' + sel); continue; } hardFail.push(`${j}/${vpName}: missing required ${op} ${sel}`); continue; }
+          if (await loc.count() === 0) {
+            if (!optional) { hardFail.push(`${j}/${vpName}: missing required ${op} ${sel}`); continue; }
+            // An optional control the page draws late is not missing. Give the
+            // first paint a bounded chance before recording "not on this page";
+            // without it J14 logged 展开全部 as skipped while the list was
+            // still rendering, and the journey under-ran green (Watch 62).
+            const grace = await awaitOptionalVisible(loc);
+            if (grace.state === 'visible') log.push(`${op} ${sel} after ${grace.waitedMs}ms optional grace`);
+            else { log.push(`skipped ${op} ${sel} (${grace.state} after ${grace.waitedMs}ms grace)`); continue; }
+          }
           // An optional step whose only match is invisible is that control not
           // being on this page; clicking it can only time out.
           if (optional && !(await loc.isVisible().catch(() => false))) { log.push('skipped ' + op + ' ' + sel + ' (not visible)'); continue; }
@@ -4237,8 +4247,14 @@ for (const j of want) {
           const { optional, value: sel } = optionalOf(a);
           const loc = await stepLocator(page, sel);
           if (await loc.count() === 0) {
-            if (optional) { log.push('skipped send ' + sel); continue; }
-            hardFail.push(`${j}/${vpName}: missing required send ${sel}`); continue;
+            if (optional) {
+              // Same rule as the click entry point (Watch 87): the press is the
+              // step a journey might exist to prove, so an empty optional send
+              // waits out one paint before it is recorded as skipped.
+              const grace = await awaitOptionalVisible(loc);
+              if (grace.state === 'visible') log.push(`send ${sel} after ${grace.waitedMs}ms optional grace`);
+              else { log.push(`skipped send ${sel} (${grace.state} after ${grace.waitedMs}ms grace)`); continue; }
+            } else { hardFail.push(`${j}/${vpName}: missing required send ${sel}`); continue; }
           }
           if (optional && !(await loc.isVisible().catch(() => false))) { log.push('skipped send ' + sel + ' (not visible)'); continue; }
           if (await loc.isDisabled()) {
