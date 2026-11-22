@@ -389,6 +389,7 @@ fi
   echo "UX_VERDICT: PASS or FAIL"
   echo "Before those lines list concrete findings: screen name, what is wrong, how it affects which journey, the fix. Quote screenshot names."
   echo "For every axis you score below 3, write a finding line that STARTS with the axis name (e.g. \`feedback: after-wait-390.png ...\`) and names the screenshot plus what is missing. That line becomes the rework instruction; a below-3 score with no such line is not a verdict."
+  echo "A claim about a control's size or tap target must quote a MEASUREMENT that is in the evidence: a walk.json lint reading (e.g. smallTapTargets), or a measured box the PR records. A Tailwind/CSS class name is NOT a measurement — a class is overridden by min-width/min-height rules and media queries, so it does not tell you what was rendered. If a class name is the only support for a size claim, write 'not measurable from the evidence' and do not score that axis below 3 for it."
 } > "$PF"
 UXR="$UXD/review.txt"
 SHA="$(git -C "$WT" rev-parse HEAD 2>/dev/null || true)"
