@@ -75,5 +75,26 @@
     "test": "RSI_TEST_ONLY=test_outside_surface_red_does_not_convict bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
     "old": "final = [l for l in conf if in_scope(l) or not journey(l)] + unattributed",
     "new": "final = conf + unattributed"
+  },
+  {
+    "label": "an unmatched executable non-ui path is dropped again, so a UI PR's own backend regression is filed as outside and merges",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_unmapped_non_ui_path_fails_closed bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "        closed(\"unmapped path: \" + path)",
+    "new": "        continue"
+  },
+  {
+    "label": "outside reds stay unlabelled in the reviewer prompt, so a below-3 axis can rest on evidence the gate called not this PR's",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_outside_surface_red_does_not_convict bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "    echo \"These reproduced failures are on journeys outside this PR's surfaces: evidence about the product, not about this PR. Do not score an axis below 3 on them, do not treat them as hard failures, and do not ground a finding in their screenshots or walk.json lines:\"",
+    "new": "    echo \"\""
+  },
+  {
+    "label": "a confirm line that names no journey is dropped again, so a real second failure with no journey prefix is not billed",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_unattributed_line_still_convicts bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "final = [l for l in conf if in_scope(l) or not journey(l)] + unattributed",
+    "new": "final = [l for l in conf if in_scope(l)] + unattributed"
   }
 ]

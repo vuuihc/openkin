@@ -22,9 +22,11 @@
 # A reproduced walk red (1b) convicts only when its journey is attributable to this PR's own diff
 # (1b0, R-ux-outside-reds 2026-11-22): journeys.json `paths`, first match wins, with test files,
 # web/dist/ and the copy-only locales catch-all excluded. Unattributable reproductions are printed,
-# saved to state/ux/<slug>/outside.txt and counted in confirm.summary as evidence, not blocked. An
-# unreadable spec, an unmapped rendered ui/ path or an empty union fails closed: every reproduced
-# red convicts, exactly as before this rule.
+# saved to state/ux/<slug>/outside.txt and counted in confirm.summary as evidence, not blocked,
+# and the reviewer prompt names them as evidence about the product rather than about this PR. An
+# unreadable spec, an unmatched path that is not documentation or loop plumbing (docs/, rsi/,
+# scripts/, web/, *.md) or an empty union fails closed: every reproduced red convicts, exactly as
+# before this rule.
 set -u
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 if [ -n "${RSI_UX_STATE:-}" ]; then STATE="$RSI_UX_STATE"; export RSI_STATE="$STATE"; fi
@@ -144,9 +146,9 @@ if [ -n "$HARD" ]; then
     # back. Same rule as the walker (first paths row whose `|`-separated alternative is a prefix
     # wins), read from the branch's own journeys.json. Test files, manifests and web/dist/ are not
     # rendered surfaces; the copy-only locales row selects journeys for walking, not conviction.
-    # Any unreadable spec, unmapped rendered ui/ path or empty union fails closed to today's rule:
-    # every reproduced red convicts. Unattributable reproductions are still printed, saved and
-    # counted, never silently dropped.
+    # Any unreadable spec, unmatched path outside documentation/loop plumbing, or empty union
+    # fails closed to today's rule: every reproduced red convicts. Unattributable reproductions
+    # are still printed, saved and counted, never silently dropped.
     python3 - "$WT/rsi/runtime/ux/journeys.json" "$UXD/changed.txt" > "$UXD/attributed.txt" <<'PY'
 import json, re, sys
 
@@ -175,6 +177,12 @@ def skipped(path):
         return True
     # *.test.ts(x), *.dom.test.tsx, *.test.py, *.spec.*, *.mutants.json
     return bool(re.search(r"\.(test\.[A-Za-z0-9]+|test\.py|spec\.[A-Za-z0-9]+|mutants\.json)$", path))
+# Documentation and loop plumbing are not rendered surfaces and cannot reach a journey. Every
+# other path with no row falls back to journeys.json's own "no match = all journeys", so it can:
+# an `internal/api/...` change beside a routines page may have caused the red the walk filed
+# as outside, and freeing it would merge a real regression.
+def not_surface(path):
+    return path.startswith(("docs/", "rsi/", "scripts/", "web/")) or path.endswith(".md")
 union = set()
 for path in files:
     if skipped(path):
@@ -182,9 +190,11 @@ for path in files:
     hit = next(((pat, js) for pat, js in parsed
                 if any(path.startswith(p) for p in pat.split("|"))), None)
     if hit is None:
+        if not_surface(path):
+            continue
         if path.startswith("ui/"):
             closed("unmapped ui path: " + path)
-        continue
+        closed("unmapped path: " + path)
     if hit[0] == "ui/src/i18n/locales/":
         continue
     union.update(hit[1])
@@ -309,10 +319,8 @@ PY
     if [ -z "$CRSN" ]; then
       HARD="$(cat "$UXD/confirm.hard")"
       CONF_SUMMARY="$(cat "$UXD/confirm.summary")"
-      if [ -s "$UXD/outside.txt" ]; then
-        echo "ux-gate: outside this PR's surfaces (evidence, not blocking):"
-        sed 's/^/  - /' "$UXD/outside.txt"
-      fi
+      # The summary already carries the outside lines; printing them again here duplicated the
+      # block on stdout (the `ux-gate:` line below prints it once).
     else
       # Never unavailable() from here: the first walk already produced a verdict, and an infra
       # hiccup on the second must not turn a red into "not merged / needs-ceo".
@@ -472,6 +480,14 @@ fi
   echo "Look at the attached diff only to explain what you see (do not run git/shell; the diff is provided). What the PR claims: $BODY"
   [ -n "$HARD" ] && { echo; echo "Walk hard failures (each is an automatic reject unless you can show it is a walker artefact):"; echo "$HARD"; }
   [ -n "$UX_IGNORED" ] && { echo; echo "Known walk artefacts ignored for this run (pre-existing fixture gap, not a defect of this PR; still report it as 'not verifiable: needs seed data'):"; echo "$UX_IGNORED"; }
+  # Outside lines stay in $EVID/walk.json (hardFail) and $SHOTS, so the reviewer can still see
+  # them; without this block it could ground a below-3 axis on a red the gate already ruled out
+  # of this PR's scope and send the PR back anyway (the #389 / R-ux-gate-confirm-carry class).
+  if [ -s "$UXD/outside.txt" ]; then
+    echo
+    echo "These reproduced failures are on journeys outside this PR's surfaces: evidence about the product, not about this PR. Do not score an axis below 3 on them, do not treat them as hard failures, and do not ground a finding in their screenshots or walk.json lines:"
+    sed 's/^/  - /' "$UXD/outside.txt"
+  fi
   if [ "$CONFIRM_ONLY" = 1 ]; then
     echo
     echo "A second walk on the same tree did not reproduce these first-walk failures, so they are not evidence about this PR — do not score or ground an axis on them:"
