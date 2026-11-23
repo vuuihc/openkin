@@ -8,7 +8,7 @@
 //   node walk.mjs --resolve-j15 DIR/seed.log [--spec path/to/journeys.json]  (print the J15 URL or skip; no browser)
 //   node walk.mjs --resolve-j15-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J15 steps as JSON; no browser)
 //   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J1's phone search/approve/deny leg, J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J6's default-agent change/reload/restore, J7's landing contract, J9's Mac switch, J11's phone switch, J12's thumb gestures and J15's question card; no browser)
-// Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
+// Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt), DIR/walk.json, and DIR/walk.steps.log — the step log is appended as each step begins, so a walk killed mid-step still names the step it died on (walk.json itself is only written after browser.close()).
 // Ops are documented in journeys.json `_doc`. One op is not listed there
 // because it belongs to one story: `history-back` is the browser's own Back
 // (`page.goBack`), for legs where the app draws a Back button of its own and
@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import { awaitOptionalVisible } from './optional-grace.mjs';
+import { createStepLog } from './walk-log.mjs';
 const require = createRequire(import.meta.url);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
@@ -4046,6 +4047,10 @@ async function fakeAgentVerdict() {
   if (path.basename(path.dirname(real)) !== FAKE_AGENT_DIRNAME) return 'the daemon would start a real claude CLI; only the fake agent may answer';
   return '';
 }
+// One file for the whole walk, truncated once here and appended to as each
+// step begins; a new group per journey/viewport keeps each screen's notes to
+// its own leg, so a wedge in J13 still shows J1-J12 in the file.
+const stepLog = createStepLog({ dir: out });
 for (const j of want) {
   const seed = (j === 'J1' || j === 'J4' || j === 'J5' || j === 'J7' || j === 'J10' || j === 'J13' || j === 'J15') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
   const j1 = j === 'J1' ? readJ1Target(seed) : null;
@@ -4125,7 +4130,9 @@ for (const j of want) {
       if (r.status() === 404 && p === '/api/projects/by-root') { soft.push('no project for ' + new URL(r.url()).searchParams.get('path')); return; }
       if (r.status() >= 400) bad.push(r.status() + ' ' + p);
     });
-    const log = []; let n = 0;
+    // The same lines the old array held, now on disk before each step starts:
+    // a wedged walk's last `start` with no `end` is the step that hung.
+    const log = stepLog.group(); let n = 0;
     // `["vp", "mac"]` scopes the steps that follow to one viewport and
     // `["vp", ""]` clears the scope. Some legs mutate the seeded fixture
     // irreversibly — the fake's `[seed] shift` / `[seed] rewrite` write once per
@@ -4134,7 +4141,7 @@ for (const j of want) {
     // product one. The scope keeps one real walk of the leg without pretending
     // the second width ran it.
     let vpOnly = '';
-    for (const rawStep of J.steps) {
+    for (const [stepNo, rawStep] of J.steps.entries()) {
       const preStep = j === 'J5' && j5 ? applyJ5Step(rawStep, j5) : (j === 'J7' || j === 'J10' || j === 'J13') && j7 ? applyJ7Step(rawStep, j7) : j === 'J15' && j15 ? applyJ15Step(rawStep, j15) : j === 'J4' && j4 ? applyJ4Step(rawStep, j4) : rawStep;
       const st = applyVpStep(preStep, vpName);
       const [op, a, b] = st;
@@ -4152,6 +4159,10 @@ for (const j of want) {
         continue;
       }
       if (vpOnly && vpOnly !== vpName) continue;
+      // Before the step's first await, so a kill inside it leaves this line as
+      // the last one on disk. vp-scope steps above continue without a line.
+      log.begin(`${j}/${vpName}`, stepNo + 1, op, a, b);
+      let stepEnd = 'done';
       try {
         if (op === 'goto') {
           const href = j === 'J1' && j1 ? applyJ1Target(a, j1) : a; // J7 is already substituted above.
@@ -5142,15 +5153,17 @@ for (const j of want) {
           } catch (_) {}
           screens.push({ journey: j, viewport: vpName, name, url: new URL(page.url()).pathname, lint: await lint(page, phone).catch(() => ({})) });
           log.push('skipped ' + j + ': ' + e.message);
+          stepEnd = 'skipped';
           break;
         }
         const msg = `${op} ${a}: ${String(e.message).split('\n')[0].slice(0, 120)}`; log.push(msg); hardFail.push(`${j}/${vpName}: ${msg}`);
-      }
+        stepEnd = 'failed';
+      } finally { log.end(stepEnd); }
     }
     if (errs.length) hardFail.push(`${j}/${vpName}: page errors: ${[...new Set(errs)].slice(0, 3).join(' | ')}`);
     if (bad.length) hardFail.push(`${j}/${vpName}: 4xx/5xx: ${[...new Set(bad)].slice(0, 3).join(', ')}`);
     if (soft.length) log.push('soft: ' + [...new Set(soft)].slice(0, 3).join(', '));
-    screens.filter((s) => s.journey === j && s.viewport === vpName).forEach((s) => { s.notes = log; });
+    screens.filter((s) => s.journey === j && s.viewport === vpName).forEach((s) => { s.notes = log.lines; });
     await ctx.close();
   }
 }
