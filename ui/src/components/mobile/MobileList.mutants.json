@@ -1,0 +1,9 @@
+[
+  {
+    "label": "R-phone-list-restore: content growth no longer retries the clamped restore",
+    "file": "ui/src/components/mobile/MobileList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/mobile/MobileList.dom.test.tsx -t \"retries the restore when the content grows\"",
+    "old": "    const observer = new ResizeObserver(() => {\n      restore();\n    });",
+    "new": "    const observer = new ResizeObserver(() => {\n      // mutant: content growth never retries the restore\n    });"
+  }
+]
