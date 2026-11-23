@@ -44,8 +44,8 @@
   {
     "label": "J4 presses the project row without a readiness wait, so a 3000 ms click budget starts against a list that may not have painted",
     "file": "rsi/runtime/ux/journeys.json",
-    "old": "        [\"wait\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg\"],\n        [\"click\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg\"],",
-    "new": "        [\"click\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg\"],",
+    "old": "        [\"shot\", \"projects\"],\n        [\"wait\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg\"],\n        [\"click\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg\"],",
+    "new": "        [\"shot\", \"projects\"],\n        [\"click\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg\"],",
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_roots_editor_and_reloads"
   },
   {
@@ -63,10 +63,24 @@
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_is_selected_by_the_list_a_sessions_change_touches"
   },
   {
-    "label": "J4 presses the project heading at its centre, where the row's hover strip covers it and the press navigates to /new (measured: state/shots/delete-pagesb2b, 86 lines per desktop viewport)",
+    "label": "J4 presses the project heading at its centre, where the open hover strip intercepts Playwright's hit test and the press times out before dispatch (measured: state/shots/delete-pagesb2b, J4-mac-02 stays on /sessions)",
     "file": "rsi/runtime/ux/journeys.json",
-    "old": "        [\"wait\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg\"],\n        [\"click\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg\"],",
-    "new": "        [\"wait\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg\"],\n        [\"click\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded])\"],",
+    "old": "        [\"shot\", \"projects\"],\n        [\"wait\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg\"],\n        [\"click\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg\"],",
+    "new": "        [\"shot\", \"projects\"],\n        [\"wait\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg\"],\n        [\"click\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded])\"],",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_roots_editor_and_reloads"
+  },
+  {
+    "label": "a later project press loses its readiness wait, so only the first of J4's nine presses is guarded against a cold list",
+    "file": "rsi/runtime/ux/journeys.json",
+    "old": "        [\"wait\", \"css=button[aria-label*='Project Gamma']:not([aria-expanded]) svg\"],\n        [\"click\", \"css=button[aria-label*='Project Gamma']:not([aria-expanded]) svg\"],",
+    "new": "        [\"click\", \"css=button[aria-label*='Project Gamma']:not([aria-expanded]) svg\"],",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_roots_editor_and_reloads"
+  },
+  {
+    "label": "the Beta press returns to the heading's centre, where the hover strip intercepts the hit test and the click times out before dispatch",
+    "file": "rsi/runtime/ux/journeys.json",
+    "old": "        [\"wait\", \"css=button[aria-label*='Project Beta']:not([aria-expanded]) svg\"],\n        [\"click\", \"css=button[aria-label*='Project Beta']:not([aria-expanded]) svg\"],",
+    "new": "        [\"wait\", \"css=button[aria-label*='Project Beta']:not([aria-expanded]) svg\"],\n        [\"click\", \"css=button[aria-label*='Project Beta']:not([aria-expanded])\"],",
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_roots_editor_and_reloads"
   }
 ]

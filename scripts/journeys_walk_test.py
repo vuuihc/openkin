@@ -3484,15 +3484,21 @@ J4_SAVE_EN = "Save folders"
 # The press lands on the heading's leading folder icon, not on the button's
 # own centre. A fine pointer floats five 24 px project buttons over the row's
 # tail (`SessionList.tsx`, `pointer-events-none` until the row is hovered); the
-# heading is `flex-1`, so its box runs under that strip and Playwright's
-# centre-of-the-element press lands inside the strip's first button (+ new
-# session in this project). Measured, not theorised: state/shots/delete-pagesb2b
-# holds J4/mac and J4/mac-wide at 86 lines each, every one chained from
-# "locator.click: Timeout 3000ms exceeded", and the shot after the press
-# (`J4-mac-02-project-cover.png`) shows /new with the strip open over a
-# truncated "[seed] Project" — the press reached the strip and navigated. The
-# icon's centre is far left of the strip, and the click still bubbles to the
-# heading's own handler, which is the control a person sees.
+# heading is `flex-1`, so its box runs under that strip. Hovering the row opens
+# the strip, and a centre-of-the-element press then meets the strip's first
+# button (+ new session in this project) in Playwright's hit test: Playwright
+# retries that hit test, never dispatches, and the 3000 ms click budget
+# (walk.mjs:4241) expires. Measured, not theorised:
+# state/shots/delete-pagesb2b holds "locator.click: Timeout 3000ms exceeded" at
+# every J4 heading press, and the shot after the first press
+# (`J4-mac-02-project-cover.png`) stays on /sessions with the strip open over
+# the truncated title — nothing was dispatched, so nothing navigated. The
+# element itself was present: walk.mjs:4202-4203 hard-fails a missing required
+# locator instantly with its own `missing required` message, which does not
+# appear in that walk. The icon's centre is far left of the strip, and the
+# click still bubbles to the heading's own handler, which is the control a
+# person sees.
+J4_PROJECTS = ("Alpha", "Beta", "Gamma")
 J4_ALPHA_LINK = "css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg"
 # A `goto` is a fresh document load; `/projects` redirects to the list now, so
 # either path proves the cover re-read the store rather than React state.
@@ -3816,36 +3822,57 @@ def _j4_roots_problems(steps: list) -> list[str]:
     def is_gone_editor(step: list) -> bool:
         return (step[0] == "gone" and J4_SAVE in str(step[1]) and J4_SAVE_EN in str(step[1]))
 
-    # The first press of the project heading, matched by prefix: the aim check
-    # below has to see a press that lost its icon, which an equality match on
-    # the aimed selector would skip in favour of a later press that kept it.
-    link = at(lambda step: step[0] == "click" and "aria-label*='Project Alpha']" in str(step[1]))
-    if link < 0:
+    # Every press of a project heading, matched by prefix: the aim check below
+    # has to see a press that lost its icon, which an equality match on the
+    # aimed selector would skip in favour of a later press that kept it.
+    headings = [
+        (index, step)
+        for index, step in enumerate(steps)
+        if step[0] == "click"
+        and any("aria-label*='Project %s']" % name in str(step[1]) for name in J4_PROJECTS)
+    ]
+    link = headings[0][0] if headings else -1
+    if not headings:
         problems.append("J4 never opens Project Alpha by name (click %s)" % J4_ALPHA_LINK)
-    elif not required(steps[link]):
-        problems.append("the Project Alpha link click is optional")
     else:
-        # Two separate things, both measured:
-        #  * the press must land left of the row's hover strip. A centre press on
-        #    the heading button hits the strip's first button and navigates to
-        #    /new (J4/mac and J4/mac-wide, 86 lines each, all chained from
-        #    "locator.click: Timeout 3000ms exceeded" in
-        #    state/shots/delete-pagesb2b; J4/phone stayed green because a coarse
-        #    pointer draws no strip);
+        # Two separate things, both measured, and both required at every press:
+        # each press follows a fresh `goto /sessions`, so every one meets the
+        # same cold list and the same hover strip.
+        #  * the press must land left of the row's hover strip. Hovering the row
+        #    opens the strip, and a centre press on the heading button then
+        #    meets its first button in Playwright's hit test, which retries and
+        #    times out without dispatching (walk.mjs:4241 is that 3000 ms
+        #    budget). Measured: state/shots/delete-pagesb2b logs
+        #    "locator.click: Timeout 3000ms exceeded" at every J4 heading press,
+        #    and the shot after the first press (J4-mac-02-project-cover.png)
+        #    stays on /sessions with the strip open over the truncated title.
+        #    The element was present — walk.mjs:4202-4203 hard-fails a missing
+        #    required locator instantly with its own `missing required` message,
+        #    absent from that walk. J4/phone stayed green because a coarse
+        #    pointer draws no strip;
         #  * the row must have painted before the 3000 ms click budget starts, so
         #    a cold list is a wait, not a hard fail. `wait` reads with
         #    RSI_UX_WAIT_MS (15000).
-        if not str(steps[link][1]).endswith(" svg"):
-            problems.append(
-                "J4 presses the Project Alpha heading at its centre, where the hover strip's "
-                "first button covers it (aim at the leading icon instead)"
+        for index, step in headings:
+            selector = str(step[1])
+            name = next(
+                name for name in J4_PROJECTS if "aria-label*='Project %s']" % name in selector
             )
-        ready = steps[link - 1] if link > 0 else None
-        if not (isinstance(ready, list) and ready[:1] == ["wait"] and ready[1] == J4_ALPHA_LINK):
-            problems.append(
-                "J4 presses the Project Alpha link without a preceding wait for the same selector "
-                "(a 3000 ms click budget against a list that may not have painted)"
-            )
+            if not required(step):
+                problems.append("the Project %s link click is optional" % name)
+            if not selector.endswith(" svg"):
+                problems.append(
+                    "J4 presses the Project %s heading at its centre, where the hover strip's "
+                    "first button intercepts the hit test and the click times out before "
+                    "dispatch (aim at the leading icon instead)" % name
+                )
+            ready = steps[index - 1] if index > 0 else None
+            if not (isinstance(ready, list) and ready[:1] == ["wait"] and ready[1] == selector):
+                problems.append(
+                    "J4 presses the Project %s link without a preceding wait for the same "
+                    "selector (a 3000 ms click budget against a list that may not have painted)"
+                    % name
+                )
     cover = at(lambda step: is_shot(step, "project-cover"))
     if cover < 0:
         problems.append("J4 takes no project-cover shot")
@@ -4359,12 +4386,14 @@ class WalkJ4ContractTest(unittest.TestCase):
         self.assertNotIn("J4", mobile[1], "a phone-list change now pays for J4's desktop legs")
 
     def test_j4_contract_rejects_a_press_behind_the_hover_strip(self) -> None:
-        # A press at the heading button's own centre lands inside the five-button
-        # hover strip that floats over the row's tail, which is what
-        # state/shots/delete-pagesb2b measured: J4/mac and J4/mac-wide, 86 lines
-        # each, all chained from "locator.click: Timeout 3000ms exceeded", and
-        # the shot after the press shows /new with the strip open over a
-        # truncated "[seed] Project".
+        # A press at the heading button's own centre meets the five-button hover
+        # strip the row opens over its tail, which is what
+        # state/shots/delete-pagesb2b measured: "locator.click: Timeout 3000ms
+        # exceeded" at every heading press (walk.mjs:4241 is the 3000 ms
+        # budget), so Playwright retried the hit test and never dispatched; the
+        # shot after the first press stays on /sessions with the strip open over
+        # the truncated title. A missing element would have hard-failed
+        # instantly at walk.mjs:4202-4203 instead.
         def press_the_centre(steps: list) -> None:
             at = next(i for i, step in enumerate(steps) if step[0] == "click" and step[1] == J4_ALPHA_LINK)
             steps[at] = ["click", J4_ALPHA_LINK[:-len(" svg")]]
