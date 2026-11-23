@@ -83,7 +83,6 @@ describe("the page's rename wiring", () => {
     for (const path of [
       "components/sessions/SessionList.tsx",
       "components/task/TaskHeader.tsx",
-      "components/cards/RunningTaskCard.tsx",
       "pages/TaskSessionHost.tsx",
       "pages/ProjectDetailPage.tsx",
     ]) {

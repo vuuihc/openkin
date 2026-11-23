@@ -91,6 +91,9 @@ vi.mock("../api/client", async (importOriginal) => {
 vi.mock("../hooks/useMachines", () => ({
   useMachines: () => ({ machines: [], loading: false, failed: false }),
 }));
+// The page renders exactly one bar, chosen by this hook. These suites walk
+// the phone bar, which is the header their `MobileHeader` mock stands in for.
+vi.mock("../hooks/useMinWidth", () => ({ useMinWidth: () => false }));
 vi.mock("../hooks/useSlowHint", () => ({ useSlowHint: () => false }));
 vi.mock("../components/mobile/MobileHeader", () => ({
   default: ({ title, trailing }: { title?: string; trailing?: ReactNode }) => (

@@ -266,6 +266,84 @@ t_screenshot_hold() {
   check "M9 a second run repeats nothing" [ "$(grep -c 'held for screenshots' "$T/state/needs-ceo.md")" = 1 ]
 }
 
+# --- CG: a prose body the merge gate would send back never becomes a PR (claim gate) -------------
+# The NAS ingest is the third entry point for the claim rule. #611 and #618 (2026-11-23) each paid a
+# full merge gate plus an independent review for a body-only defect; these cases pin the hold that
+# should have caught them before any PR existed.
+prose_job() { # T SLUG ITEM PATH â€” a docs result whose changed path is a prose-assertion path
+  local T="$1" slug="$2" item="$3" path="$4"
+  git -C "$T/ctrl" checkout -q -B "rsi/$slug" main
+  mkdir -p "$T/ctrl/$(dirname "$path")"
+  echo "note for $slug" > "$T/ctrl/$path"
+  git -C "$T/ctrl" add -A; git -C "$T/ctrl" commit -qm "docs: $slug"
+  job_record "$T" "$slug" "$item" "rsi/$slug" 1700000000 1700000000 >/dev/null
+  git -C "$T/ctrl" checkout -q main
+}
+
+t_claim_gate_holds_missing_check() {
+  local T; sandbox; T=$T
+  prose_job "$T" s1 R-T-CG-1 docs/plans/s1.md
+  printf 'RSI item: R-T-CG-1\n\nSummary\nA sentence with no proof.\n' > "$T/nas/work/jobs/s1/pr-body.md"
+  run_ingest "$T" > "$T/i1.log" 2>&1
+  check "CG a prose body with no claim check opens no PR" [ ! -s "$T/gh.log" ]
+  check "CG no live PR body is edited" [ ! -s "$T/gh-edit.log" ]
+  check "CG the hold carries the verdict" grep -q 'CLAIM_FAIL' "$T/state/nas/hold/s1.md"
+  check "CG the hold names the body and the publish command" bash -c "grep -q 'pr-body.md' '$T/state/nas/hold/s1.md' && grep -q 'gh pr create' '$T/state/nas/hold/s1.md'"
+  check "CG the CEO is told once" [ "$(grep -c 'held for claim check' "$T/state/needs-ceo.md")" = 1 ]
+  check "CG the remote job is consumed as held" [ "$(jget "$T/nas/work/jobs/s1/status.json" status)" = held ]
+  check "CG the branch survives on origin" test -n "$(git -C "$T/origin.git" rev-parse --verify -q refs/heads/rsi/s1)"
+  run_ingest "$T" > "$T/i2.log" 2>&1
+  check "CG a second run repeats nothing" [ "$(grep -c 'held for claim check' "$T/state/needs-ceo.md")" = 1 ]
+}
+
+t_claim_gate_publishes_valid_check() {
+  local T; sandbox; T=$T
+  prose_job "$T" s1 R-T-CG-2 docs/plans/s1.md
+  {
+    printf 'RSI item: R-T-CG-2\n\nSummary\nA sentence with a source pin.\n\n'
+    printf 'Claim check: grep -n "note for s1" docs/plans/s1.md\n'
+    printf 'Claim output:\n1:note for s1'
+  } > "$T/nas/work/jobs/s1/pr-body.md"       # no trailing newline: the publish-path appends must not join it
+  run_ingest "$T" > "$T/i1.log" 2>&1
+  check "CG a true claim check passes the gate" grep -q 'claim check ok s1' "$T/i1.log"
+  check "CG a true claim check publishes exactly one PR" [ "$(wc -l < "$T/gh.log" | tr -d ' ')" = 1 ]
+  check "CG no hold is written for a valid claim" [ ! -e "$T/state/nas/hold/s1.md" ]
+  check "CG the valid result is consumed as ingested" [ "$(jget "$T/nas/work/jobs/s1/status.json" status)" = ingested ]
+  # The Mac appends its self-check line after the gate; a body whose last line is the claimed output
+  # must not swallow it into the claim block, or the merge lane sends back the body the NAS passed.
+  check "CG the appended self-check line cannot join the claim block" bash -c \
+    "python3 '$NASDIR/../claim_check.py' '$T/wt/rsi-s1' '$T/state/nas/xfer/s1/pr-body.md' '$T/state/nas/xfer/s1/claim-changed.txt' | grep -q '^CLAIM_OK'"
+}
+
+t_claim_gate_existing_pr_keeps_body() {
+  local T; sandbox; T=$T
+  # The open PR's branch already exists on origin at its previous head; the NAS result is one commit on
+  # top. Advancing that head under the old body would let merge.sh claim-check a stale body on the new diff.
+  git -C "$T/ctrl" push -q origin main:refs/heads/rsi/s2
+  local prev; prev="$(git -C "$T/ctrl" rev-parse main)"
+  prose_job "$T" s2 R-T-CG-4 docs/plans/s2.md
+  printf 'RSI item: R-T-CG-4\n\nSummary\nNo proof.\n' > "$T/nas/work/jobs/s2/pr-body.md"
+  run_ingest "$T" FAKE_PR=1 FAKE_PR_HEAD="$prev" > "$T/i1.log" 2>&1
+  check "CG an open PR keeps its previous body" [ ! -s "$T/gh-edit.log" ]
+  check "CG an open PR keeps its previous head" [ "$(git -C "$T/origin.git" rev-parse refs/heads/rsi/s2)" = "$prev" ]
+  check "CG the hold names the open PR and its edit command" grep -q 'gh pr edit 1 --repo' "$T/state/nas/hold/s2.md"
+  check "CG the open-PR hold opens no second PR" [ ! -s "$T/gh.log" ]
+}
+
+t_claim_gate_no_verdict_holds() {
+  local T; sandbox; T=$T
+  prose_job "$T" s1 R-T-CG-3 docs/plans/s1.md
+  {
+    printf 'RSI item: R-T-CG-3\n\n'
+    printf 'Claim check: sleep 5\n'
+    printf 'Claim output:\nnever printed\n'
+  } > "$T/nas/work/jobs/s1/pr-body.md"
+  run_ingest "$T" NAS_CLAIM_TIMEOUT=1 > "$T/i1.log" 2>&1
+  check "CG an expired claim check opens no PR" [ ! -s "$T/gh.log" ]
+  check "CG an expired claim check is a no-verdict hold" grep -q 'NO_VERDICT' "$T/state/nas/hold/s1.md"
+  check "CG the expired result is consumed as held" [ "$(jget "$T/nas/work/jobs/s1/status.json" status)" = held ]
+}
+
 # --- T10: release only touches a claim this NAS run still owns (M3) -----------------------------
 t_release_ownership() {
   local T; sandbox; T=$T
@@ -321,6 +399,78 @@ t_worktree_ownership() {
   check "M4 uncommitted edits survive" grep -q dirty "$T2/wt/rsi-s2/docs/s2.md"
   check "M4 a dirty worktree publishes nothing" [ ! -s "$T2/gh.log" ]
   check "M4 the dirty worktree is reported" grep -q 'uncommitted changes' "$T2/i2.log"
+}
+
+# --- T18: a worktree that resolves to the control checkout is refused before any git mutation (M4) -
+# Live 2026-11-22 00:40: the control checkout (a symlink into the worktree root) physically pointed
+# at a registered lane's worktree directory, checked out on that lane's branch. A NAS result for
+# that slug passed every check in sync_worktree (.git present, branch equal, clean, HEAD an
+# ancestor of the bundle) and its last line would have run `git merge --ff-only` inside the control
+# checkout, swapping the running gate, walker, GOAL.md and live state for a NAS result while every
+# status line still read healthy. The guard resolves both paths with Python (macOS has no GNU
+# realpath) and refuses before the first git call; a resolution failure fails closed (same shape as
+# lane.sh's #563 guard).
+case_wt_resolving_to_control_tree_is_refused() {
+  local T; sandbox; T=$T
+  local head; head="$(job "$T" s1 R-T-18a 0)"
+  git -C "$T/ctrl" checkout -q rsi/s1          # control checkout on the lane branch, clean: all four pass
+  ln -s "$T/ctrl" "$T/wt/rsi-s1"               # the live topology: the worktree path IS the control tree
+  run_ingest "$T" > "$T/ingest.log" 2>&1
+  check "M4 a worktree resolving to the control checkout is refused" grep -q 'resolves to the control checkout' "$T/ingest.log"
+  check "M4 the control checkout HEAD is unchanged" [ "$(git -C "$T/ctrl" rev-parse HEAD)" = "$head" ]
+  check "M4 the control checkout stays on its branch" [ "$(git -C "$T/ctrl" symbolic-ref --short HEAD)" = rsi/s1 ]
+  check "M4 the refused result publishes nothing" [ ! -s "$T/gh.log" ]
+  check "M4 the refused result is retried, not acked" bash -c "! grep -q '^s1:done:' '$T/state/nas/acks.txt' 2>/dev/null"
+}
+
+# The old CUR_BR != $BR check would refuse this worktree for the wrong reason (detached, not rsi/s2).
+# The refusal must be the control-tree one, which pins that the guard runs before the branch check.
+case_control_tree_on_another_branch_is_still_refused() {
+  local T; sandbox; T=$T
+  job "$T" s2 R-T-18b 0 >/dev/null
+  git -C "$T/ctrl" checkout -q --detach main
+  local before; before="$(git -C "$T/ctrl" rev-parse HEAD)"
+  ln -s "$T/ctrl" "$T/wt/rsi-s2"
+  run_ingest "$T" > "$T/ingest.log" 2>&1
+  check "M4 the control tree is refused before the branch check" grep -q 'resolves to the control checkout' "$T/ingest.log"
+  check "M4 the refusal is not the worktree-branch message" bash -c "! grep -q 'not rsi/s2' '$T/ingest.log'"
+  check "M4 a detached control checkout is unchanged" [ "$(git -C "$T/ctrl" rev-parse HEAD)" = "$before" ]
+  check "M4 nothing is published from a detached control tree" [ ! -s "$T/gh.log" ]
+}
+
+# The negative control: a distinct worktree still fast-forwards and publishes, so the guard is not
+# an "always refuse" switch. The worktree starts at main, behind the bundle, so reaching HEAD proves
+# the fast-forward actually ran.
+case_distinct_worktree_still_syncs() {
+  local T; sandbox; T=$T
+  local head; head="$(job "$T" s3 R-T-18c 0)"
+  git -C "$T/ctrl" worktree add -q -B rsi/s3 "$T/wt/rsi-s3" main
+  run_ingest "$T" > "$T/ingest.log" 2>&1
+  check "M4 a distinct worktree is still fast-forwarded" [ "$(git -C "$T/wt/rsi-s3" rev-parse HEAD)" = "$head" ]
+  check "M4 a distinct worktree still publishes" grep -q 'ingested R-T-18c s3' "$T/ingest.log"
+  check "M4 the published result opens its PR" [ "$(wc -l < "$T/gh.log" | tr -d ' ')" = 1 ]
+}
+
+# A guard that cannot resolve one side must refuse, not proceed. os.path.realpath does not fail for a
+# path that merely does not exist (non-strict default), so the fail-closed branch is exercised through
+# the NAS_REALPATH_PY seam: a stub that fails only for the control-checkout argument, leaving the
+# worktree side resolvable. The worktree starts at main, behind the bundle, so an unguarded run would
+# fast-forward it, which the assertions then see.
+case_unresolvable_path_fails_closed() {
+  local T; sandbox; T=$T
+  job "$T" s4 R-T-18d 0 >/dev/null
+  git -C "$T/ctrl" worktree add -q -B rsi/s4 "$T/wt/rsi-s4" main
+  local before; before="$(git -C "$T/wt/rsi-s4" rev-parse HEAD)"
+  cat > "$T/bin/realpath-ctrl-fails" <<'EOS'
+#!/bin/bash
+case "${3:-}" in *ctrl*) exit 1;; esac
+exec python3 "$@"
+EOS
+  chmod +x "$T/bin/realpath-ctrl-fails"
+  run_ingest "$T" NAS_REALPATH_PY="$T/bin/realpath-ctrl-fails" > "$T/ingest.log" 2>&1
+  check "M4 an unresolvable side fails closed" grep -q 'cannot resolve' "$T/ingest.log"
+  check "M4 an unresolved worktree is not fast-forwarded" [ "$(git -C "$T/wt/rsi-s4" rev-parse HEAD)" = "$before" ]
+  check "M4 nothing is published when resolution fails" [ ! -s "$T/gh.log" ]
 }
 
 # --- T12: a self-check is green only when it ran to completion (M5) -----------------------------
@@ -717,8 +867,16 @@ if [ -n "${1:-}" ]; then "$1"; finish; exit $?; fi    # test-nas.sh <function> â
 t_ingest_twice
 t_worktree_recovery
 t_screenshot_hold
+t_claim_gate_holds_missing_check
+t_claim_gate_publishes_valid_check
+t_claim_gate_existing_pr_keeps_body
+t_claim_gate_no_verdict_holds
 t_release_ownership
 t_worktree_ownership
+case_wt_resolving_to_control_tree_is_refused
+case_control_tree_on_another_branch_is_still_refused
+case_distinct_worktree_still_syncs
+case_unresolvable_path_fails_closed
 t_selfcheck_completion
 t_shot_validation
 t_existing_pr

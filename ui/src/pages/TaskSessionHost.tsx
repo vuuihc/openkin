@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { useLocation, useNavigate } from "react-router-dom";
 import { usePendingResources, useTaskList, useTaskResource } from "../api/useLiveResources";
 import { useAgentRoles } from "../hooks/useAgentRoles";
+import { useMachines } from "../hooks/useMachines";
 import { useT } from "../i18n/react";
+import type { Machine } from "../lib/devices";
 import { rememberLastConversation } from "../lib/lastConversation";
+import { THIS_MACHINE } from "../lib/routineDevice";
 import { dropSessionCache, taskIdFromPathname, touchSessionCache } from "../lib/sessionCache";
 import { getViewedSessionIds, subscribeSessionViewed } from "../lib/sessionViewed";
 import { peekPendingSend } from "../lib/pendingSend";
@@ -22,6 +25,22 @@ import { subscribeWS } from "../store/appStore";
 import ErrorBoundary from "../components/ErrorBoundary";
 import SessionTabs, { type SessionTab } from "../components/layout/SessionTabs";
 import TaskDetailPage from "./TaskDetailPage";
+import { RemoteTaskRunView } from "./MachineTaskPage";
+
+/**
+ * The device a run lives on, when that is not this console's own machine.
+ *
+ * Empty and the literal "self" both mean here, and the machine list knows the
+ * third spelling — the Hub's own device id — and turns that into "here" too.
+ * A device this console cannot see still counts as remote: the run is not in
+ * this store either, and the read-only view says the machine is gone rather
+ * than opening a local page that would answer "not found".
+ */
+function remoteDeviceId(machines: Machine[], raw: string | undefined): string {
+  const id = (raw ?? "").trim();
+  if (!id || id === THIS_MACHINE) return "";
+  return machines.some((machine) => machine.isSelf && machine.id === id) ? "" : id;
+}
 
 /**
  * App-level keep-alive for recent task sessions (Chrome-tab style).
@@ -48,14 +67,21 @@ export default function TaskSessionHost() {
   // start for one list that only changes on the settings route — which
   // announces its save, so this stays current without a per-pane read.
   const agentRoles = useAgentRoles();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const activeId = taskIdFromPathname(pathname);
+  const { machines } = useMachines();
+  // `?device=` is how a run says which machine owns its transcript (TASTE 12).
+  // It is read here, not from the path, because the task detail route is the
+  // same for local and remote runs.
+  const queryDevice = useMemo(
+    () => (new URLSearchParams(search.split("#", 1)[0]).get("device") ?? "").trim(),
+    [search],
+  );
   // A cold start reopens the conversation that was last on screen, not the
-  // draft. This is the id `StartRoute` reads when `/` is opened.
-  useEffect(() => {
-    if (activeId) rememberLastConversation(activeId);
-  }, [activeId]);
+  // draft. This is the id `StartRoute` reads when `/` is opened. A remote run
+  // is not a conversation in this store, so it is not remembered as one; that
+  // write waits for the remote decision below.
   const [mountedIds, setMountedIds] = useState<string[]>([]);
   const [tabOrder, setTabOrder] = useState<string[]>(() => readSessionTabs());
   // The same live list the sidebar and /sessions read, keyed identically, so this
@@ -114,18 +140,30 @@ export default function TaskSessionHost() {
    * that. A cold entry has neither and still waits, honestly.
    */
   const [shownId, setShownId] = useState<string | null>(null);
-  // The active session can be older than the loaded page (the tab order
-  // persists across reloads, the list is the newest hundred), so its readiness
-  // comes from the detail subscription the pane already holds — one more reader
-  // of that lease, not another request.
-  const activeDetail = useTaskResource(activeId ?? "", Boolean(activeId));
   // The create answer seeds the live list through `applyTaskSnapshot`, so the
   // row is the anchor; a pane's own `gone` reads still outrank it, so a deleted
   // conversation cannot come back just because a stale list still names it.
   const activeRow = activeId ? tasksById.get(activeId) : undefined;
+  // The URL's device wins. Failing that, the list row already in hand names the
+  // machine that executed the task, so a row linking `/tasks/<id>` from another
+  // machine opens the read-only run instead of a local page that would 404.
+  // This is decided before `useTaskResource` so a remote id is never asked of
+  // this Hub's task table.
+  const remoteDevice = remoteDeviceId(machines, queryDevice || activeRow?.executing_device_id);
+  const remoteRun = Boolean(activeId && remoteDevice);
+  useEffect(() => {
+    if (activeId && !remoteRun) rememberLastConversation(activeId);
+  }, [activeId, remoteRun]);
+  // The active session can be older than the loaded page (the tab order
+  // persists across reloads, the list is the newest hundred), so its readiness
+  // comes from the detail subscription the pane already holds — one more reader
+  // of that lease, not another request.
+  const activeDetail = useTaskResource(activeId ?? "", Boolean(activeId) && !remoteRun);
   const activeHandoff = activeId ? peekPendingSend(activeId) : null;
   const activeReady =
-    Boolean(activeId) && (activeDetail.loaded || Boolean(activeRow) || Boolean(activeHandoff));
+    Boolean(activeId) &&
+    !remoteRun &&
+    (activeDetail.loaded || Boolean(activeRow) || Boolean(activeHandoff));
   useEffect(() => {
     if (!activeId) {
       setShownId(null);
@@ -133,12 +171,14 @@ export default function TaskSessionHost() {
     }
     if (activeReady) setShownId(activeId);
   }, [activeId, activeReady]);
-  // Active route must appear even before the touch effect commits.
+  // Active route must appear even before the touch effect commits. A remote run
+  // is not a conversation tab, so it never enters this cache.
   const ids =
-    activeId && !mountedIds.includes(activeId)
-      ? touchSessionCache(mountedIds, activeId)
-      : mountedIds;
-  const switching = Boolean(activeId) && !activeReady && Boolean(shownId) && shownId !== activeId;
+    remoteRun || !activeId || mountedIds.includes(activeId)
+      ? mountedIds
+      : touchSessionCache(mountedIds, activeId);
+  const switching =
+    !remoteRun && Boolean(activeId) && !activeReady && Boolean(shownId) && shownId !== activeId;
   // The pane kept on screen can be closed while the next one loads (its tab is
   // closed, or the task is deleted). It is then not drawn at all, so holding on
   // to it would hide the incoming pane too and leave the area blank. Fall back
@@ -147,9 +187,11 @@ export default function TaskSessionHost() {
   const shownMounted = shownId !== null && ids.includes(shownId);
   const visibleId = switching && shownMounted ? shownId : activeId;
 
-  // Opening a session route opens (or revisits) its tab and mounts it.
+  // Opening a session route opens (or revisits) its tab and mounts it. A run
+  // on another machine is not one of this machine's conversations, so it gets
+  // neither a tab nor a mounted local pane.
   useEffect(() => {
-    if (!activeId) return;
+    if (!activeId || remoteRun) return;
     setMountedIds((prev) => touchSessionCache(prev, activeId));
     setTabOrder((prev) => {
       const next = openSessionTab(prev, activeId);
@@ -158,7 +200,7 @@ export default function TaskSessionHost() {
       if (next !== prev) writeSessionTabs(next);
       return next;
     });
-  }, [activeId]);
+  }, [activeId, remoteRun]);
 
   // A deleted task leaves two dead entries behind: a mounted pane and a tab. The
   // pane would render "not found"; the tab would stay until it was clicked.
@@ -229,13 +271,20 @@ export default function TaskSessionHost() {
             : "hidden"
       }
     >
-      <SessionTabs
-        tabs={tabs}
-        activeId={activeId}
-        onSelect={selectTab}
-        onClose={closeTab}
-        onMove={moveTab}
-      />
+      {/* Session tabs are shell chrome, not reading chrome. Below 1600 the
+          strip sat inside the transcript's measured top offset and the reading
+          surface paid for it on every screen; the list column is visible at
+          820/1100 (and the header keeps its show-list control), so switching
+          stays one action away. The strip returns with the side rail. */}
+      <div className="hidden min-[1600px]:block">
+        <SessionTabs
+          tabs={tabs}
+          activeId={activeId}
+          onSelect={selectTab}
+          onClose={closeTab}
+          onMove={moveTab}
+        />
+      </div>
       <div
         className={show ? "relative flex flex-1 min-h-0 min-w-0 flex-col" : "hidden"}
         aria-hidden={!show}
@@ -252,32 +301,47 @@ export default function TaskSessionHost() {
             <div className="h-full w-1/3 animate-pulse bg-kin-blue" />
           </div>
         ) : null}
-        {ids.map((taskId) => {
-          const visible = taskId === visibleId;
-          // The keys follow what is on screen, not the address bar. During a
-          // switch the outgoing conversation is the one being read, so it owns
-          // `a`/`d`/⌘F until the new pane has content; the incoming pane is
-          // hidden and must not decide an approval nobody can see.
-          return (
-            <div
-              key={taskId}
-              className={visible ? "flex flex-1 min-h-0 min-w-0 flex-col" : "hidden"}
-              aria-hidden={!visible}
-            >
-              <ErrorBoundary>
-                <TaskDetailPage
-                  taskId={taskId}
-                  active={visible && show}
-                  // The list row this host already holds is enough to draw the
-                  // header and composer on a cold entry; the detail fills the
-                  // transcript when it arrives.
-                  fallbackTask={tasksById.get(taskId)}
-                  agentRoles={agentRoles}
-                />
-              </ErrorBoundary>
-            </div>
-          );
-        })}
+        {/* The run on another machine is the same task detail: it keeps its own
+            loading line (TASTE 15), so it is not wrapped in the switch bar. The
+            key is the visit: a previous run's late answer must not paint here. */}
+        {remoteRun && activeId ? (
+          <RemoteTaskRunView
+            key={`${remoteDevice}\u0000${activeId}`}
+            device={remoteDevice}
+            id={activeId}
+          />
+        ) : null}
+        {/* Local panes stay mounted while a remote run is open — switching back
+            keeps their scroll and expansion — but they are not drawn and not
+            reachable by the keyboard. */}
+        <div className={remoteRun ? "hidden" : "contents"} aria-hidden={remoteRun || undefined}>
+          {ids.map((taskId) => {
+            const visible = taskId === visibleId;
+            // The keys follow what is on screen, not the address bar. During a
+            // switch the outgoing conversation is the one being read, so it owns
+            // `a`/`d`/⌘F until the new pane has content; the incoming pane is
+            // hidden and must not decide an approval nobody can see.
+            return (
+              <div
+                key={taskId}
+                className={visible ? "flex flex-1 min-h-0 min-w-0 flex-col" : "hidden"}
+                aria-hidden={!visible}
+              >
+                <ErrorBoundary>
+                  <TaskDetailPage
+                    taskId={taskId}
+                    active={visible && show}
+                    // The list row this host already holds is enough to draw the
+                    // header and composer on a cold entry; the detail fills the
+                    // transcript when it arrives.
+                    fallbackTask={tasksById.get(taskId)}
+                    agentRoles={agentRoles}
+                  />
+                </ErrorBoundary>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

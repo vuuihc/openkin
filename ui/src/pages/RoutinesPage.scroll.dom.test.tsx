@@ -8,7 +8,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import RoutinesPage from "./RoutinesPage";
 import { setLocale } from "../i18n";
-import { listRoutineRuns, listRoutines, type Routine } from "../api/client";
+import { listRoutines, type Routine } from "../api/client";
 import { getKeyedScroll, setKeyedScroll } from "../lib/sessionScroll";
 import type { WSMessage } from "../api/contract";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,7 +55,6 @@ vi.mock("../api/client", () => ({
   getRoutine: vi.fn(),
   isAuthenticated: () => true,
   isTerminal: () => true,
-  listRoutineRuns: vi.fn(async () => ({ routines: [], runs: [], has_more: false })),
   listRoutines: vi.fn(async () => ({ routines: [], next_cursor: "", has_more: false })),
   listTasks: vi.fn(async () => []),
   markAllRoutineRunsRead: vi.fn(),
@@ -93,11 +92,6 @@ vi.mock("../lib/routineRecurrence", () => ({
   localTimeZone: () => "UTC",
   parseRoutineRule: () => null,
   serializeRoutineRule: () => null,
-}));
-
-vi.mock("../lib/routineHistory", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../lib/routineHistory")>()),
-  ROUTINE_HISTORY_MAX: 100,
 }));
 
 vi.mock("../components/Skeleton", async (importOriginal) => ({
@@ -185,6 +179,35 @@ function scroller(view: ReturnType<typeof renderApp>): HTMLElement {
   return view.container.firstElementChild as HTMLElement;
 }
 
+/**
+ * The real return path: the list is one route, the runs destination another.
+ * The existing cases never leave /routines; a reader leaves through 看运行,
+ * which pushes /sessions, and Back or the footer tab pops back to /routines.
+ * Both are route changes, so the page is genuinely gone in between.
+ */
+function renderWithRunsDestination(initial: string) {
+  const router = createMemoryRouter(
+    [
+      { path: "/routines", element: <RoutinesPage /> },
+      { path: "/sessions", element: <div data-testid="runs-destination">runs</div> },
+    ],
+    { initialEntries: [initial] },
+  );
+  const view = render(<RouterProvider router={router} />);
+  return { router, ...view };
+}
+
+/** Leave through the row's 看运行 link, the way the reader does. */
+async function openRunsDestination() {
+  fireEvent.click(screen.getAllByRole("button", { name: "routines.openRoutine" })[0]);
+  // The selected row carries one link and the desktop aside carries the same
+  // one. The aside is `hidden lg:block`, so a browser below lg does not show
+  // it, while jsdom applies no CSS and does; either link is the same
+  // destination.
+  fireEvent.click((await screen.findAllByRole("link", { name: "routines.viewRunsFor" }))[0]);
+  await screen.findByTestId("runs-destination");
+}
+
 function standardMachines() {
   return [
     { isSelf: true, id: "self-1", label: "Local node", online: true, roots: [] },
@@ -233,7 +256,6 @@ beforeEach(() => {
     next_cursor: "",
     has_more: false,
   });
-  vi.mocked(listRoutineRuns).mockResolvedValue({ routines: [], runs: [], has_more: false });
 });
 
 afterEach(() => {
@@ -363,5 +385,62 @@ describe("RoutinesPage keeps the list's place", () => {
     // saved list offset.
     expect(SOURCE).toContain("formScrolled.current = true;");
     expect(SOURCE).toContain("if (formScrolled.current) return;");
+  });
+
+  // The 2026-11-23 dogfood read this path as broken (scroll 600 → Back → 0);
+  // its branch retracted the entry (c9b0c8b9) because the walk assigned
+  // `scrollTop` and tapped in the same task, so no `scroll` event fired and
+  // nothing was saved. Measured on this tree it restores on every route-change
+  // return; these cases pin that, so a regression on the real path is caught
+  // here instead of by the next dogfood pass.
+  it("restores the list after returning from the routine runs destination", async () => {
+    const view = renderWithRunsDestination("/routines?device=dev-a");
+    await screen.findByText("Routine 0");
+    const list = scroller(view);
+    list.scrollTop = 480;
+    fireEvent.scroll(list);
+    expect(getKeyedScroll("routines:dev-a")).toBe(480);
+
+    await openRunsDestination();
+    await act(async () => {
+      await view.router.navigate(-1);
+    });
+    await screen.findByText("Routine 0");
+    await waitFor(() => expect(scroller(view).scrollTop).toBe(480));
+  });
+
+  it("restores the list when the tab returns instead of Back", async () => {
+    const view = renderWithRunsDestination("/routines?device=dev-a");
+    await screen.findByText("Routine 0");
+    const list = scroller(view);
+    list.scrollTop = 480;
+    fireEvent.scroll(list);
+    expect(getKeyedScroll("routines:dev-a")).toBe(480);
+
+    await openRunsDestination();
+    await act(async () => {
+      await view.router.navigate("/routines?device=dev-a");
+    });
+    await screen.findByText("Routine 0");
+    await waitFor(() => expect(scroller(view).scrollTop).toBe(480));
+  });
+
+  it("does not consume another machine's saved place on the return path", async () => {
+    setKeyedScroll("routines:dev-b", 300);
+    const view = renderWithRunsDestination("/routines?device=dev-a");
+    await screen.findByText("Routine 0");
+    const list = scroller(view);
+    list.scrollTop = 480;
+    fireEvent.scroll(list);
+    expect(getKeyedScroll("routines:dev-a")).toBe(480);
+
+    await openRunsDestination();
+    await act(async () => {
+      await view.router.navigate(-1);
+    });
+    await screen.findByText("Routine 0");
+    await waitFor(() => expect(scroller(view).scrollTop).toBe(480));
+    // B's place is still B's: the return applied A's, not a merged one.
+    expect(getKeyedScroll("routines:dev-b")).toBe(300);
   });
 });

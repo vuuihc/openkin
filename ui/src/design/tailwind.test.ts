@@ -235,6 +235,53 @@ describe("scale ladders through Tailwind", () => {
     expect(css).toContain("--spacing: 0.25rem");
   });
 
+  /**
+   * The comment above `.touch-lg` is the paragraph a future agent reads before
+   * deciding whether the 44px floor can be widened past `md`. Its width is
+   * therefore a claim about the shipped column, and it has already outlived one
+   * layout (it still said 248px when `w-list` was 304px). Read the configured
+   * step rather than restating the number here, so the prose and the shell
+   * cannot drift apart again. A historical figure is allowed only where the
+   * same sentence dates it as the old layout's measurement.
+   */
+  it("the touch-floor comment quotes the list column it is describing", async () => {
+    const loaded = (await jiti.import(join(UI, "tailwind.config.ts"))) as
+      Config | { default: Config };
+    const config = "default" in loaded ? loaded.default : loaded;
+    const widths =
+      (config.theme as { extend?: { width?: Record<string, string> } } | undefined)?.extend
+        ?.width ?? {};
+    const configured = widths.list;
+    expect(configured, "the width ladder has no `list` step").toBeDefined();
+    const listPx = Number(String(configured).replace(/px$/, ""));
+    expect(Number.isFinite(listPx), `the list step is not a px width: ${configured}`).toBe(true);
+
+    const css = readFileSync(join(BASE, "index.css"), "utf8");
+    const open = css.indexOf("/* Phone-only floor for the app's controls");
+    expect(open, "the touch-floor comment block is not in index.css").toBeGreaterThan(-1);
+    const close = css.indexOf("*/", open);
+    const block = css.slice(open, close + 2);
+
+    const claims = [...block.matchAll(/(\d{2,4})px\s+(?:sidebar|list column|column)/gi)];
+    expect(claims.length, "the comment no longer names the column it describes").toBeGreaterThan(0);
+
+    for (const claim of claims) {
+      const px = Number(claim[1]);
+      if (px === listPx) continue;
+      const before = block.slice(Math.max(0, (claim.index ?? 0) - 160), claim.index);
+      const after = block.slice(claim.index, (claim.index ?? 0) + 90);
+      const historical = /old|previous|旧/.test(before) && /20\d\d-\d\d-\d\d/.test(before + after);
+      expect(
+        historical,
+        `expected the touch-floor comment to quote the ${listPx}px list column, found ${px}px`,
+      ).toBe(true);
+    }
+    expect(
+      block,
+      `the touch-floor comment does not quote the configured ${listPx}px list column`,
+    ).toContain(`${listPx}px`);
+  });
+
   it("no longer emits the names the ladders replaced", async () => {
     const removed = [
       ["wide", "wider", "widest"].map((n) => "tracking-" + n),
@@ -464,6 +511,23 @@ describe("cascade foundation through the real stylesheet", () => {
         ".kin-btn:focus-visible, .kin-btn-primary:focus-visible, .kin-btn-secondary:focus-visible, .kin-btn-approve:focus-visible, .kin-btn-deny:focus-visible",
       ).text,
     ).toContain("outline: 2px solid var(--kin-focus-ring)");
+  });
+
+  it("floors a coarse tablet chip at 44px without changing the Mac's density", async () => {
+    // The `/new` draft's cover chip measured 75×27.9 at 820×1180 with a coarse
+    // pointer: the global floor stops at 768 and the chip's own `sm:min-h-0`
+    // drops `min-h-11` at ≥640. One chip opts in by class, so the 768–1023
+    // shell keeps desktop density everywhere else (index.css's `.touch-lg`
+    // comment records what a blanket floor does to a 304px list row). The
+    // doubled class beats `sm:` utilities regardless of emission order, the
+    // same reason `.kin-composer-input.kin-composer-input` is doubled.
+    const css = await stylesheet([]);
+    const chip = one(css, ".touch-floor.touch-floor");
+    expect(chip.layers).toEqual(["utilities"]);
+    expect(chip.atRules.join(" ")).toContain("pointer: coarse");
+    expect(chip.atRules.join(" ")).toContain("max-width: 1023.98px");
+    expect(chip.text).toContain("min-height: 44px");
+    expect(chip.text).toContain("min-width: 44px");
   });
 
   it("preserves existing utility overrides for safe areas and touch controls", async () => {

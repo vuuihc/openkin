@@ -247,12 +247,13 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
 
   /**
    * The routes that pin a composer to the bottom and mark it with
-   * `data-kin-bottom-chrome`: a conversation and an agent session's continue
-   * box. The draft is not one of them any more — its card sits in the page,
-   * under the greeting (KIN-START-001), so there is no band to clear.
+   * `data-kin-bottom-chrome`: a conversation, an agent session's continue box,
+   * and the draft. The draft is a band like the conversation's (amended
+   * KIN-START-001, 2026-11-21), so Start hands the same box to the same place
+   * at the same width; `draftActive` covers `/new` and the Mac's `/sessions`.
    */
   const measuredBottomBand =
-    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");
+    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/") || draftActive;
 
   /**
    * Leaving the new-chat screen.
@@ -468,7 +469,7 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
         e.stopPropagation();
         toggleTerminal();
       }
-      // ⌘1–⌘4 are the four areas. Same guards as ⌘F: a held key, an IME
+      // ⌘1–⌘3 are the three areas. Same guards as ⌘F: a held key, an IME
       // composition, a chord with another modifier, a floating layer, the
       // palette, or a page that already answered the key is not this shortcut.
       // The departure runs through the leave guard like every other one.

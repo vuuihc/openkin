@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -6,12 +7,15 @@ import {
   useState,
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
+  ApiError,
   archiveTask,
   ensureProject,
+  getOnePager,
   isTerminal,
   listAgentSessionsPage,
   listProjects,
@@ -42,6 +46,7 @@ import {
 } from "../../lib/draftChat";
 import { isImeKeyEvent } from "../../lib/ime";
 import { pendingCountsByTask } from "../../lib/pendingCounts";
+import { projectInstructions } from "../../lib/projectInstructions";
 import {
   archivedCwdFor,
   bucketKeyFor,
@@ -56,6 +61,7 @@ import {
   withPinnedBucket,
   type PhoneDeviceGroup,
   type PhoneProjectBucket,
+  type PhoneProjectRecord,
   type PhoneSessionRow,
 } from "../../lib/phoneSessionBuckets";
 import {
@@ -93,7 +99,8 @@ import {
 import { mergeTaskTail } from "../../lib/taskTail";
 import ActionSheet from "../ui/ActionSheet";
 import Button from "../ui/Button";
-import { SessionListSkeleton } from "../Skeleton";
+import InlineAlert from "../ui/InlineAlert";
+import { SessionListSkeleton, SkeletonLine } from "../Skeleton";
 import HighlightedText from "../HighlightedText";
 import {
   IconAlert,
@@ -105,6 +112,7 @@ import {
   IconFolderOpen,
   IconMachine,
   IconMore,
+  IconPencil,
   IconPin,
   IconPlus,
   IconRefresh,
@@ -118,6 +126,7 @@ import {
   type SessionStatusFilter,
 } from "../ui/SessionFilters";
 import { useAppStore } from "../../store/appStore";
+import ProjectSummaryEditor from "./ProjectSummaryEditor";
 import SessionRow from "./SessionRow";
 import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
 
@@ -135,7 +144,7 @@ import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
  * put and both shells read the same parameters. Project order is the existing
  * sidebar preference, which is why it appears in both shells' filter panel.
  */
-const LIST_STATE_KEYS = ["search", "status", "scope"] as const;
+const LIST_STATE_KEYS = ["search", "status", "scope", "routine"] as const;
 
 /**
  * Carry the list's own params through a navigation.
@@ -170,6 +179,16 @@ type SessionDrag = {
   offsetY: number;
 };
 
+/** One project's work-instructions read, cached under the project id. */
+type ProjectInstructionsEntry = {
+  /** The answer has landed at least once; cached text paints on re-expand. */
+  loaded: boolean;
+  loading: boolean;
+  /** The newest read failed; the block shows its sentence and Retry. */
+  failed: boolean;
+  markdown: string;
+};
+
 export default function SessionList({
   shell,
   activeTaskId = null,
@@ -183,6 +202,7 @@ export default function SessionList({
   const { locale } = useLocale();
   const pushToast = useAppStore((s) => s.pushToast);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
+  const wsStatus = useAppStore((s) => s.wsStatus);
   const { deleteOne, deleteMany } = useSessionDeletion();
   const navigate = useNavigate();
   const location = useLocation();
@@ -192,6 +212,10 @@ export default function SessionList({
   const searching = query.trim() !== "";
   const status = normalizeStatusFilter(params.get("status"));
   const scope = normalizeScopeFilter(params.get("scope"));
+  // One routine's runs, by id. The list never fetches routine names: a run's
+  // title is its routine's title, so the row already says which routine it is.
+  const routineId = (params.get("routine") ?? "").trim();
+  const routineFilter = routineId !== "";
 
   const [searchTerm, setSearchTerm] = useState(() => query.trim());
   const [returnRow, setReturnRow] = useState<string | null>(() => takeRowReturn());
@@ -205,7 +229,7 @@ export default function SessionList({
     return () => clearTimeout(timer);
   }, [query]);
 
-  const taskList = useTaskList(sessionListParams(searchTerm, status));
+  const taskList = useTaskList(sessionListParams(searchTerm, status, false, routineId));
   const pending = usePendingResources();
   const pendingByTask = useMemo(() => pendingCountsByTask(pending.data), [pending.data]);
   const { machines, loading: machinesLoading, failed: machinesFailed } = useMachines();
@@ -278,10 +302,25 @@ export default function SessionList({
   const dragStartTop = useRef<number | null>(null);
   const [prefsTick, setPrefsTick] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
+  // Work instructions are read lazily, once per project, when its row is
+  // expanded. Keyed by project id so an answer can only ever paint under the
+  // heading that asked for it.
+  const [projectInstructions, setProjectInstructions] = useState<
+    Record<string, ProjectInstructionsEntry>
+  >({});
+  // One generation per project id. A re-expand refreshes, and the newer read
+  // owns the cache; a late answer from the previous one is dropped rather than
+  // overwriting fresher text.
+  const instructionsGeneration = useRef(new Map<string, number>());
   const [projectMenu, setProjectMenu] = useState<{
     bucket: PhoneProjectBucket;
     archived: boolean;
+    /** The local project record behind the bucket, when it has one. */
+    summaryProjectId: string | null;
   } | null>(null);
+  // The one-line summary editor is the cover's editor, moved to the row. It
+  // opens over the list, so the list has to own which project it is for.
+  const [summaryProjectId, setSummaryProjectId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -291,7 +330,7 @@ export default function SessionList({
     selectionOriginId.current = null;
     setSelectionMode(false);
     setSelectedIds(new Set());
-  }, [query, status, scope]);
+  }, [query, status, scope, routineId]);
 
   // A focused move is one-shot and belongs to the mode change itself: the ref
   // is consumed in the commit that flips `selectionMode`, so a later list
@@ -393,7 +432,7 @@ export default function SessionList({
     setOlderArchivedTasks([]);
     setTaskMore(null);
     setArchiveMore(null);
-  }, [searchTerm, status]);
+  }, [searchTerm, status, routineId]);
 
   useEffect(() => {
     if (scope !== "archived") return;
@@ -412,13 +451,69 @@ export default function SessionList({
    *  never to apply it to someone else's filesystem. */
   const bucketIsLocal = (bucket: PhoneProjectBucket): boolean =>
     !bucket.deviceId || (selfDeviceId !== "" && bucket.deviceId === selfDeviceId);
+  const offline = wsStatus === "disconnected";
+  const readProjectInstructions = useCallback((projectId: string) => {
+    const generation = (instructionsGeneration.current.get(projectId) ?? 0) + 1;
+    instructionsGeneration.current.set(projectId, generation);
+    setProjectInstructions((current) => {
+      const cached = current[projectId];
+      return {
+        ...current,
+        // A cached answer keeps painting while the refresh is out; only the
+        // first read of a block shows its skeleton (TASTE 15).
+        [projectId]: {
+          loaded: cached?.loaded ?? false,
+          loading: true,
+          failed: false,
+          markdown: cached?.markdown ?? "",
+        },
+      };
+    });
+    getOnePager(projectId)
+      .then((onePager) => {
+        if (instructionsGeneration.current.get(projectId) !== generation) return;
+        setProjectInstructions((current) => ({
+          ...current,
+          [projectId]: {
+            loaded: true,
+            loading: false,
+            failed: false,
+            markdown: onePager.markdown,
+          },
+        }));
+      })
+      .catch((error: unknown) => {
+        if (instructionsGeneration.current.get(projectId) !== generation) return;
+        // A project with no ONE_PAGER.md yet has an empty section, not a failed
+        // read (the cover's rule): the block offers the write launcher.
+        if (error instanceof ApiError && error.status === 404) {
+          setProjectInstructions((current) => ({
+            ...current,
+            [projectId]: { loaded: true, loading: false, failed: false, markdown: "" },
+          }));
+          return;
+        }
+        setProjectInstructions((current) => {
+          const cached = current[projectId];
+          return {
+            ...current,
+            [projectId]: {
+              loaded: cached?.loaded ?? false,
+              loading: false,
+              failed: true,
+              markdown: cached?.markdown ?? "",
+            },
+          };
+        });
+      });
+  }, []);
   const lastLoadedTasks = useRef<readonly Task[]>([]);
   useEffect(() => {
     if (taskList.loaded) lastLoadedTasks.current = taskList.data;
   }, [taskList.loaded, taskList.data]);
   const liveTasks = taskList.loaded ? taskList.data : lastLoadedTasks.current;
   const archivedList = useTaskList(
-    sessionListParams(searchTerm, status, true),
+    sessionListParams(searchTerm, status, true, routineId),
     scope === "archived",
   );
   const lastLoadedArchivedTasks = useRef<readonly Task[]>([]);
@@ -440,21 +535,23 @@ export default function SessionList({
     [archivedTasks, olderArchivedTasks],
   );
   const tasks = useMemo(
-    () => sessionFeedTasks(liveRows, archivedRows, scope, status),
-    [liveRows, archivedRows, status, scope],
+    () => sessionFeedTasks(liveRows, archivedRows, scope, status, routineId),
+    [liveRows, archivedRows, status, scope, routineId],
   );
   const allSessions = useMemo(() => {
     if (olderSessions.length === 0) return sessions;
     const seen = new Set(sessions.map((session) => session.id));
     return [...sessions, ...olderSessions.filter((session) => !seen.has(session.id))];
   }, [sessions, olderSessions]);
-  const taskLimit = sessionListParams(searchTerm, status).limit;
-  const archiveLimit = sessionListParams(searchTerm, status, true).limit;
+  const taskLimit = sessionListParams(searchTerm, status, false, routineId).limit;
+  const archiveLimit = sessionListParams(searchTerm, status, true, routineId).limit;
   const hasMoreTasks = taskMore ?? (taskList.pageFull || liveTasks.length >= taskLimit);
   const hasMoreArchive =
     scope === "archived" &&
     (archiveMore ?? (archivedList.pageFull || archivedTasks.length >= archiveLimit));
-  const hasMoreSessions = Boolean(sessionCursor) && !status;
+  // Imported agent sessions carry no routine, so a routine filter hides them
+  // entirely; their paging has nothing left to page through.
+  const hasMoreSessions = Boolean(sessionCursor) && !status && !routineFilter;
 
   // Opening a conversation from anywhere else in the shell still has to bump
   // its project and clear its completion dot; the list owns that bookkeeping
@@ -476,19 +573,25 @@ export default function SessionList({
 
   const archivedCwds = useMemo(() => getArchivedProjects(), [prefsTick]);
   const pinnedProjects = useMemo(() => getPinnedProjects(), [prefsTick]);
-  // A project's record names it; the folder is only its address. Every root of
-  // every record is a heading, keyed the way buckets key a cwd, and the first
-  // record wins on a duplicate root so a heading never depends on iteration
-  // order. The records are this machine's own filesystem (the API has no device
-  // column), which is also why `seedProjects` files them under this machine.
-  const projectNameByCwd = useMemo(() => {
-    const byKey = new Map<string, string>();
+  // A project's record gives it one identity and one name, whatever root a
+  // conversation ran in. Every root of every record is a way in, keyed the way
+  // buckets key a cwd, and the first record wins on a duplicate root so the
+  // heading never depends on iteration order. The records are this machine's
+  // own filesystem (the API has no device column), which is also why
+  // `seedProjects` files them under this machine.
+  const projectByCwd = useMemo(() => {
+    const byKey = new Map<string, PhoneProjectRecord>();
     for (const project of projects) {
       const name = project.name.trim();
       if (!name) continue;
-      for (const root of project.roots ?? []) {
+      const roots = (project.roots ?? []).filter(
+        (root) => bucketKeyFor(root) !== UNASSIGNED_PROJECT,
+      );
+      if (roots.length === 0) continue;
+      const record: PhoneProjectRecord = { id: project.id, name, roots };
+      for (const root of roots) {
         const key = bucketKeyFor(root);
-        if (key !== UNASSIGNED_PROJECT && !byKey.has(key)) byKey.set(key, name);
+        if (!byKey.has(key)) byKey.set(key, record);
       }
     }
     return byKey;
@@ -508,7 +611,7 @@ export default function SessionList({
     () =>
       phoneProjectBuckets(
         tasks,
-        status ? [] : allSessions,
+        status || routineFilter ? [] : allSessions,
         selfDeviceId,
         {
           untitled: tr("sessions.untitled"),
@@ -519,7 +622,7 @@ export default function SessionList({
         scope,
         // Asked about the cwd rather than the bucket key: an archived remote
         // copy's key carries a device suffix that is not part of the address.
-        (cwd) => projectNameByCwd.get(bucketKeyFor(cwd)),
+        (cwd) => projectByCwd.get(bucketKeyFor(cwd)),
         orders,
         localTitles,
       ),
@@ -527,11 +630,12 @@ export default function SessionList({
       tasks,
       allSessions,
       status,
+      routineFilter,
       scope,
       selfDeviceId,
       locale,
       archivedCwds,
-      projectNameByCwd,
+      projectByCwd,
       orders,
       localTitles,
     ],
@@ -543,7 +647,8 @@ export default function SessionList({
   // has failed or has not answered, "no rows" is not evidence the project is
   // empty, and seeding would replace "nothing matches" or a load error with a
   // wall of zero-count headings.
-  const canSeed = scope === "active" && !status && taskList.loaded && !taskList.error;
+  const canSeed =
+    scope === "active" && !status && !routineFilter && taskList.loaded && !taskList.error;
   const seeded = useMemo(
     () => seedProjects(buckets, canSeed ? projects : [], archivedCwds, tr("sessions.noProject")),
     [buckets, projects, canSeed, archivedCwds, tr],
@@ -582,6 +687,7 @@ export default function SessionList({
           shell === "page" &&
           !searching &&
           !status &&
+          !routineFilter &&
           scope === "active" &&
           // A failed read has no "empty": the page says it could not load the
           // list, and a machine heading under that would claim the failure
@@ -615,6 +721,7 @@ export default function SessionList({
     shell,
     searching,
     status,
+    routineFilter,
     taskList.loaded,
     taskList.error,
     sessionsFailed,
@@ -658,8 +765,11 @@ export default function SessionList({
   // A reorder here would mean "reorder the current results", not the project:
   // the order is stored per bucket, so it is offered only where the bucket is
   // shown whole. The stored order still displays in the narrowed views.
-  const canReorder = scope === "active" && !searching && !status && !selectionMode;
-  const filtering = Boolean(status) || scope === "archived";
+  const canReorder =
+    scope === "active" && !searching && !status && !routineFilter && !selectionMode;
+  // "Nothing here" must describe the filter, not a page that ended: the same
+  // empty state covers status, the archive and a routine narrowing.
+  const filtering = Boolean(status) || scope === "archived" || routineFilter;
   const pendingQuery = query.trim() !== searchTerm;
   const archiveFailed = scope === "archived" && Boolean(archivedList.error);
   const archiveProjectsFailed = scope === "archived" && !archiveFailed && Boolean(taskList.error);
@@ -667,16 +777,16 @@ export default function SessionList({
   // Imported sessions are a second index. Its failure is actionable on its own:
   // when it is the only feed with rows, the page must say what failed rather
   // than draw "no chats yet" over it.
-  const importsFailed = !status && sessionsFailed;
+  const importsFailed = !status && !routineFilter && sessionsFailed;
   const importsFailedHard = importsFailed && !loading && listed.length === 0 && !loadFailed;
   // One retry for whatever this page is showing: the live list, and the archive
   // list when that scope is open. The button exists because the story promises
   // one (`KIN-CONTINUE-002`, step 6) and because waiting for an event to
   // repaint the list is not a next step a reader can take.
   const retryList = () => {
-    void liveResources.refreshTaskList(sessionListParams(searchTerm, status));
+    void liveResources.refreshTaskList(sessionListParams(searchTerm, status, false, routineId));
     if (scope === "archived") {
-      void liveResources.refreshTaskList(sessionListParams(searchTerm, status, true));
+      void liveResources.refreshTaskList(sessionListParams(searchTerm, status, true, routineId));
     }
     // The imported half is a second index with its own read; a Retry that only
     // refreshes tasks would leave the error it is answering in place.
@@ -730,6 +840,13 @@ export default function SessionList({
     setParams(nextParams, { replace: true });
   }
 
+  /** The routine chip's clear control: back to the full list, same entry. */
+  function changeRoutineFilter() {
+    const nextParams = new URLSearchParams(params);
+    nextParams.delete("routine");
+    setParams(nextParams, { replace: true });
+  }
+
   function foldIsOpen(stateKey: string, imported: boolean): boolean {
     return folds[stateKey] ?? !imported;
   }
@@ -741,6 +858,22 @@ export default function SessionList({
 
   function renderBucket(bucket: PhoneProjectBucket, stateKey: string) {
     const imported = isImportedBucket(bucket.key);
+    // The reading half of the project cover moves into the list. Only this
+    // machine's project record can answer a one-pager: a remote copy of the
+    // same path, the synthetic pinned / no-project buckets and the imported
+    // index have no cover here.
+    const instructionsProject =
+      bucket.cwd && !imported && bucketIsLocal(bucket)
+        ? (projects.find((project) =>
+            (project.roots ?? []).some((root) => bucketKeyFor(root) === bucket.key),
+          ) ?? null)
+        : null;
+    // The launcher lands on the same draft "New conversation in …" opens, with
+    // the edit request in the URL so even a new tab receives it.
+    const draftQuery = listStateQuery(params, { cwd: bucket.cwd });
+    const instructionsHref = instructionsProject
+      ? `${DRAFT_PATH}${draftQuery}${draftQuery.includes("?") ? "&" : "?"}q=${encodeURIComponent(tr("projects.instructionsPrompt"))}`
+      : null;
     return (
       <ProjectBucket
         key={stateKey}
@@ -798,8 +931,8 @@ export default function SessionList({
         onRestoreProject={
           scope === "archived" && bucketIsLocal(bucket) && archivedCwdFor(bucket.key, archivedCwds)
             ? () => {
-                const cwd = archivedCwdFor(bucket.key, archivedCwds);
-                if (cwd) unarchiveProject(cwd);
+                const stored = archivedCwdFor(bucket.key, archivedCwds);
+                if (stored) unarchiveProjectRoots(bucket);
               }
             : undefined
         }
@@ -812,7 +945,45 @@ export default function SessionList({
         onOpenProject={() => void openProject(bucket)}
         onNewSession={() => newSessionIn(bucket)}
         onArchiveProject={() => archiveProjectConfirmed(bucket)}
-        onProjectMenu={() => setProjectMenu({ bucket, archived: scope === "archived" })}
+        onProjectMenu={() =>
+          setProjectMenu({
+            bucket,
+            archived: scope === "archived",
+            summaryProjectId: instructionsProject?.id ?? null,
+          })
+        }
+        onEditSummary={
+          // The same record the row reads its work instructions from. A remote
+          // copy of the path and a folder with no record have no One-Pager
+          // here, so they get no pencil either.
+          instructionsProject ? () => setSummaryProjectId(instructionsProject.id) : undefined
+        }
+        offline={offline}
+        instructionsProjectId={instructionsProject?.id ?? null}
+        instructions={instructionsProject ? projectInstructions[instructionsProject.id] : undefined}
+        instructionsHref={instructionsHref}
+        onReadInstructions={readProjectInstructions}
+        onEditInstructions={(event) => {
+          if (!instructionsHref) return;
+          // Modifier clicks stay the browser's: the href itself carries the
+          // cwd and the request, so a new tab opens the same draft.
+          if (
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          )
+            return;
+          event.preventDefault();
+          runGuardedNavigation(() => {
+            setDraftMachine("");
+            setDraftCwd(bucket.cwd);
+            phonePush(navigate, location, instructionsHref, {
+              state: draftEntryState(listUrlFor(location.search)),
+            });
+          });
+        }}
       />
     );
   }
@@ -1022,7 +1193,7 @@ export default function SessionList({
         const oldest = liveRows[liveRows.length - 1]?.id;
         if (oldest) {
           const page = await listTasks({
-            ...sessionListParams(searchTerm, status),
+            ...sessionListParams(searchTerm, status, false, routineId),
             before: oldest,
           });
           if (requestGeneration.current !== generation) return;
@@ -1036,7 +1207,7 @@ export default function SessionList({
         const oldest = archivedRows[archivedRows.length - 1]?.id;
         if (oldest) {
           const page = await listTasks({
-            ...sessionListParams(searchTerm, status, true),
+            ...sessionListParams(searchTerm, status, true, routineId),
             before: oldest,
           });
           if (requestGeneration.current !== generation) return;
@@ -1046,7 +1217,7 @@ export default function SessionList({
           setArchiveMore(false);
         }
       }
-      if (sessionCursorRef.current && !status) {
+      if (sessionCursorRef.current && !status && !routineFilter) {
         const cursor = sessionCursorRef.current;
         const term = sessionListParams(searchTerm);
         const page = await listAgentSessionsPage({
@@ -1100,7 +1271,7 @@ export default function SessionList({
     if (!bucket.cwd) return;
     if (!bucketIsLocal(bucket)) return;
     if (!window.confirm(tr("nav.archiveConfirm", { project: bucket.label }))) return;
-    archiveProject(bucket.cwd);
+    for (const root of bucketRoots(bucket)) archiveProject(root);
   }
 
   function newSessionIn(bucket: PhoneProjectBucket) {
@@ -1112,7 +1283,7 @@ export default function SessionList({
       // path was clicked would edit the local project behind the reader's back.
       if (local) {
         touchProject(bucket.cwd);
-        if (scope === "archived") unarchiveProject(bucket.cwd);
+        if (scope === "archived") unarchiveProjectRoots(bucket);
       }
       // The cwd and its machine travel together: a remote path with no machine
       // recorded would quietly become a local path in the draft.
@@ -1339,6 +1510,8 @@ export default function SessionList({
       scope={scope}
       sortMode={sortMode}
       onFilterChange={changeFilter}
+      routineFilter={routineFilter}
+      onClearRoutine={changeRoutineFilter}
       onSortChange={(mode) => {
         setProjectSortMode(mode);
         setPrefsTick((n) => n + 1);
@@ -1474,6 +1647,17 @@ export default function SessionList({
                 label: tr("nav.newSessionIn", { project: projectMenu.bucket.label }),
                 onSelect: () => newSessionIn(projectMenu.bucket),
               },
+              // The cover's summary editor, moved to the row. Only this
+              // machine's project record has a One-Pager to write.
+              ...(projectMenu.summaryProjectId
+                ? [
+                    {
+                      id: "edit-summary",
+                      label: tr("nav.editSummary"),
+                      onSelect: () => setSummaryProjectId(projectMenu.summaryProjectId),
+                    },
+                  ]
+                : []),
               // Pin, cover and archive are this machine's project facts. A
               // remote copy is offered only the action that works there (a new
               // session, which keeps its machine) rather than rows that would
@@ -1527,7 +1711,7 @@ export default function SessionList({
                       onSelect: () => {
                         if (!projectMenu.bucket.cwd) return;
                         if (!bucketIsLocal(projectMenu.bucket)) return;
-                        if (projectMenu.archived) unarchiveProject(projectMenu.bucket.cwd);
+                        if (projectMenu.archived) unarchiveProjectRoots(projectMenu.bucket);
                         else archiveProjectConfirmed(projectMenu.bucket);
                       },
                     },
@@ -1538,12 +1722,22 @@ export default function SessionList({
     />
   );
 
+  const summaryEditor = (
+    <ProjectSummaryEditor
+      open={summaryProjectId !== null}
+      projectId={summaryProjectId}
+      offline={offline}
+      onClose={() => setSummaryProjectId(null)}
+    />
+  );
+
   if (shell === "sidebar") {
     return (
       <>
         {toolbar}
         <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">{body}</div>
         {projectSheet}
+        {summaryEditor}
       </>
     );
   }
@@ -1565,16 +1759,19 @@ export default function SessionList({
           end of the list can scroll clear of it. */}
       <div className="h-20" aria-hidden />
       {projectSheet}
+      {summaryEditor}
     </MobileScreen>
   );
 }
 
 /**
- * Project records can name one or more roots; each root is a heading.
+ * Project records can name one or more roots; the record is one heading.
  *
  * A project record is the local node's own (the API has no device id because
  * there is only one machine's filesystem behind it), which is why a seeded
- * heading is filed under this machine. A root the reader archived locally is
+ * heading is filed under this machine. The heading is keyed by the record's
+ * first root — the same key its conversations use — so a second root never
+ * draws a twin heading of its own. A record the reader archived locally is
  * skipped: the daemon still calls the project active, and re-adding it here
  * would resurrect the heading the archive was meant to hide.
  */
@@ -1588,22 +1785,50 @@ function seedProjects(
   const seen = new Set(buckets.map((bucket) => bucket.key));
   const extra: PhoneProjectBucket[] = [];
   for (const project of projects) {
+    const roots: string[] = [];
+    const rootKeys = new Set<string>();
     for (const root of project.roots ?? []) {
-      const key = bucketKeyFor(root);
-      if (!key || key === UNASSIGNED_PROJECT || archived.has(key) || seen.has(key)) continue;
-      seen.add(key);
-      extra.push({
-        key,
-        label: project.name.trim() || tailOf(root) || noProject,
-        cwd: root,
-        rows: [],
-        lastActivityAt: project.last_active_at ?? 0,
-        createdAt: project.created_at ?? 0,
-        hasActiveTask: false,
-      });
+      const rootKey = bucketKeyFor(root);
+      if (rootKey === UNASSIGNED_PROJECT || rootKeys.has(rootKey)) continue;
+      rootKeys.add(rootKey);
+      roots.push(root);
     }
+    const primary = roots[0];
+    if (primary === undefined) continue;
+    const key = bucketKeyFor(primary);
+    if (archived.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    extra.push({
+      key,
+      label: project.name.trim() || tailOf(primary) || noProject,
+      cwd: primary,
+      roots,
+      rows: [],
+      lastActivityAt: project.last_active_at ?? 0,
+      createdAt: project.created_at ?? 0,
+      hasActiveTask: false,
+    });
   }
   return [...buckets, ...extra];
+}
+
+/** Every root a heading stands for; a folder bucket is its own one root. */
+function bucketRoots(bucket: PhoneProjectBucket): string[] {
+  if (bucket.roots && bucket.roots.length > 0) return bucket.roots;
+  return bucket.cwd ? [bucket.cwd] : [];
+}
+
+/**
+ * Putting a merged heading back is one action.
+ *
+ * Archiving writes every root of the record, so restoring has to clear every
+ * one of them: clearing only the first leaves the record's other roots filed,
+ * and the heading comes back half hidden with no way to finish the job.
+ */
+function unarchiveProjectRoots(bucket: PhoneProjectBucket): void {
+  for (const cwd of bucketRoots(bucket)) {
+    unarchiveProject(cwd);
+  }
 }
 
 function tailOf(cwd: string): string {
@@ -1744,6 +1969,161 @@ function DraftRow({
   );
 }
 
+/**
+ * The project cover's "工作方式", compressed for the conversation list
+ * (KIN-PROJECT-003).
+ *
+ * The cover's block is a page card: a lead line, the body and a footnote. At
+ * the cover's width that is fine; in a 240px sidebar or on a 390px phone it
+ * spent the whole fold, and three expanded projects hid every conversation
+ * below them. Inside the list the lead and the footnote are therefore gone —
+ * the footnote stays only where it says something the body does not (the text
+ * was cut at the 400-code-point bound, or this is the cached copy offline) —
+ * the empty state is one line, and the body is clamped to two lines with the
+ * title as its disclosure. The region's name carries the project's name: a
+ * screen reader's landmark list otherwise shows several identical "工作方式"
+ * regions with no way to tell which project each belongs to. It is a
+ * `role="region"` div, not a `<section>`: the row is drawn inside the project
+ * bucket's `<section>`, and a nested section stops the bucket from reading as
+ * a leaf element to DOM queries and walkers.
+ */
+function ProjectInstructionsRow({
+  projectName,
+  loaded,
+  loading,
+  loadError,
+  markdown,
+  offline,
+  launcherHref,
+  onLauncherClick,
+  onRetry,
+}: {
+  projectName: string;
+  loaded: boolean;
+  loading: boolean;
+  loadError: string | null;
+  markdown: string;
+  offline: boolean;
+  launcherHref: string | null;
+  onLauncherClick: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
+  onRetry: () => void;
+}) {
+  const tr = useT();
+  const bodyId = useId();
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  const bodyRef = useRef<HTMLParagraphElement | null>(null);
+  const { text, truncated } = projectInstructions(markdown);
+  const disabled = offline || launcherHref === null;
+  const launcherLabel = text ? tr("projects.instructionsAsk") : tr("projects.instructionsWrite");
+  // Only offer the disclosure when the preview actually overflows. Measured on
+  // the closed clamp and kept once seen, so the control does not vanish when
+  // opening removes the clamp. A resize re-measures; a browser without
+  // ResizeObserver keeps the initial reading.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || expanded) return;
+    const measure = () => setClipped(body.scrollHeight > body.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [expanded, text]);
+  const caption = [
+    offline && text ? tr("projects.instructionsOffline") : "",
+    truncated ? tr("projects.instructionsTruncated") : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div
+      role="region"
+      aria-label={`${tr("projects.instructionsTitle")} · ${projectName}`}
+      className="rounded-lg bg-kin-panel px-3 py-1.5"
+    >
+      <div className="flex min-h-11 items-center justify-between gap-2">
+        <h3 className="min-w-0 text-caption font-medium uppercase tracking-label text-kin-secondary">
+          {text && !loadError && (clipped || expanded) ? (
+            <Button
+              variant="quiet"
+              aria-label={tr("projects.instructionsTitle")}
+              aria-expanded={expanded}
+              aria-controls={bodyId}
+              onClick={() => setExpanded((open) => !open)}
+              className="-my-1 min-h-9 gap-1 px-0 text-caption font-medium uppercase tracking-label text-kin-secondary! hover:bg-transparent!"
+            >
+              {/* One nowrap row inside the button: Astryx's content span is a
+                  block, so a bare label + block SVG stacks the chevron under
+                  the text and the row grows by a line at 820. */}
+              <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                {tr("projects.instructionsTitle")}
+                <IconChevronDown
+                  size={12}
+                  strokeWidth={2.25}
+                  className={
+                    expanded
+                      ? "shrink-0 rotate-180 transition-transform"
+                      : "shrink-0 transition-transform"
+                  }
+                />
+              </span>
+            </Button>
+          ) : (
+            tr("projects.instructionsTitle")
+          )}
+        </h3>
+        {loaded && !loadError ? (
+          disabled ? (
+            <span className="flex-none text-caption text-kin-muted">{launcherLabel}</span>
+          ) : (
+            <a
+              href={launcherHref}
+              onClick={onLauncherClick}
+              className="inline-flex min-h-11 flex-none items-center gap-1 text-caption text-kin-secondary hover:text-kin-text"
+            >
+              {launcherLabel}
+              <span aria-hidden>→</span>
+            </a>
+          )
+        ) : null}
+      </div>
+
+      {loadError ? (
+        <InlineAlert>
+          <p>{loadError}</p>
+          <Button variant="secondary" onClick={onRetry} className="mt-2 text-strong">
+            {tr("common.retry")}
+          </Button>
+        </InlineAlert>
+      ) : !loaded ? (
+        loading ? (
+          <SkeletonLine />
+        ) : null
+      ) : (
+        <>
+          {text ? (
+            <p
+              id={bodyId}
+              ref={bodyRef}
+              className={[
+                "whitespace-pre-wrap text-caption leading-prose text-kin-text",
+                expanded ? "" : "line-clamp-2",
+              ].join(" ")}
+            >
+              {text}
+            </p>
+          ) : (
+            <p className="text-caption text-kin-muted">{tr("projects.instructionsEmpty")}</p>
+          )}
+          {caption ? <p className="mt-1 text-caption text-kin-muted">{caption}</p> : null}
+        </>
+      )}
+    </div>
+  );
+}
+
 function ProjectBucket({
   bucket,
   machines,
@@ -1791,6 +2171,13 @@ function ProjectBucket({
   onNewSession,
   onArchiveProject,
   onProjectMenu,
+  onEditSummary,
+  instructionsProjectId,
+  instructions,
+  instructionsHref,
+  onReadInstructions,
+  onEditInstructions,
+  offline,
 }: {
   bucket: PhoneProjectBucket;
   machines: readonly Machine[];
@@ -1843,6 +2230,17 @@ function ProjectBucket({
   onNewSession: () => void;
   onArchiveProject: () => void;
   onProjectMenu: () => void;
+  /** Edit the one-line summary here; absent when the bucket has no local
+   *  project record (the One-Pager lives on this machine only). */
+  onEditSummary?: () => void;
+  /** The local project record this bucket is, or null when it has none. */
+  instructionsProjectId: string | null;
+  instructions?: ProjectInstructionsEntry;
+  /** The edit draft, or null when the bucket has no record to read. */
+  instructionsHref: string | null;
+  onReadInstructions: (projectId: string) => void;
+  onEditInstructions: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
+  offline: boolean;
 }) {
   const tr = useT();
   const headingRef = useRef<HTMLButtonElement | null>(null);
@@ -1871,6 +2269,12 @@ function ProjectBucket({
   // header gap, a finger keeps the roomier one it has always had.
   const dense = shell === "sidebar" && !coarse;
   const pinnedProject = pinnedProjects.some((cwd) => bucketKeyFor(cwd) === bucket.key);
+  // Reading is lazy: a collapsed bucket issues no one-pager read. Re-expanding
+  // paints the cached answer while this refresh is out.
+  useEffect(() => {
+    if (collapsed || !instructionsProjectId) return;
+    onReadInstructions(instructionsProjectId);
+  }, [collapsed, instructionsProjectId, onReadInstructions]);
 
   return (
     <section className="pb-1">
@@ -2012,6 +2416,13 @@ function ProjectBucket({
             >
               <IconFile size={12} />
             </ProjectIconButton>
+            {onEditSummary ? (
+              // The cover is being retired; its summary editor lives here,
+              // beside the cover icon it writes to.
+              <ProjectIconButton label={tr("nav.editSummary")} onClick={onEditSummary}>
+                <IconPencil size={12} />
+              </ProjectIconButton>
+            ) : null}
             {local && !archived ? (
               <>
                 <ProjectIconButton
@@ -2060,6 +2471,21 @@ function ProjectBucket({
           data-sidebar-indent={shell === "sidebar" ? "session" : undefined}
           className={shell === "sidebar" ? (dense ? "pl-3" : "pl-4") : undefined}
         >
+          {instructionsProjectId ? (
+            <div className="pb-2">
+              <ProjectInstructionsRow
+                projectName={bucket.label}
+                loaded={instructions?.loaded ?? false}
+                loading={instructions?.loading ?? true}
+                loadError={instructions?.failed ? tr("projects.summaryLoadFailed") : null}
+                markdown={instructions?.markdown ?? ""}
+                offline={offline}
+                launcherHref={instructionsHref}
+                onLauncherClick={onEditInstructions}
+                onRetry={() => onReadInstructions(instructionsProjectId)}
+              />
+            </div>
+          ) : null}
           {rows.map((row) => (
             <SessionRow
               key={row.key}

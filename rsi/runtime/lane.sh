@@ -89,14 +89,18 @@ You are the WORKER for RSI item $item in worktree \`$wt\` on branch \`$br\`. Mod
 - Test first. Run FOCUSED checks only (typecheck, lint on changed files, the tests you wrote/touched, \`go test\` for touched packages). The merge lane runs the full gate (\`gate.sh\`) and an independent review afterwards. Use \`VITEST_MAX_WORKERS=2\` for vitest; other lanes are running on the same machine.
 - Concurrency test ordering: set the shared state (the flag, channel or map the goroutine reads) before you start the goroutine. Never start the goroutine and then write the flag it reads — that order is the race the gate and the reviewer are looking for.
 - A new or changed Go test self-checks with \`go test -count=5 -race ./internal/<touched-package>/...\` on the touched package(s) before you finish. One green run of a concurrency test is not evidence; five runs under \`-race\` are what make it trustworthy.
-- If \`ui/\` changed: \`cd ui && npm run build\`, commit \`web/dist/index.html\` only (never \`web/dist/assets/\`). For visible UI also save 390×844 and 1100×760 before/after screenshots under \`$STATE/shots/$slug/\`.
+- If \`ui/\` changed: \`cd ui && npm run build\`, commit \`web/dist/index.html\` only (never \`web/dist/assets/\`). For visible UI also save 390×844, 820×1180 and 1100×760 before/after screenshots under \`$STATE/shots/$slug/\`.
+- Evidence, not a placeholder: the 820×1180 one must be the surface's real reading state (a conversation surface means a long answer containing a markdown table), never an empty or placeholder view — a blank 820 is a rework round, not evidence.
+- If \`ui/\` changed and you added or changed any user-visible string: put it in **both** \`ui/src/i18n/locales/en.ts\` and \`ui/src/i18n/locales/zh.ts\` in the same commit, and run \`cd ui && npx vitest run src/i18n/locales.test.ts\` (same keys, no blank values, same placeholders). When you replace existing copy, \`grep -rn\` the old sentence in \`ui/src/\` including \`*.test.*\`: an assertion on the old English is red CI that the gate charges to this PR.
 - Loop code (\`rsi/runtime/**\` or \`scripts/**\` ending \`.sh\`, \`.bash\`, \`.py\`, \`.mjs\`, \`.js\` or \`.ts\`; not \`rsi/runtime/{tests,runs,prompts}/**\`, \`rsi/runtime/ux/journeys/**\`, \`rsi/state/**\` or a deleted file): add or update an entry in a \`*.mutants.json\` manifest this branch adds or modifies for every changed file, with \`file\` set to that path, and that entry's test must fail while its mutant is applied. A manifest already on main does not cover your edit, so an already-covered file still needs a new entry. Make the mutant break the behaviour you changed, not an unrelated line. Run \`bash rsi/runtime/lane.sh --mutant-evidence-check "\$PWD"\` from your worktree before you finish: only \`MUTANT_EVIDENCE_OK\` (or \`MUTANT_EVIDENCE_SKIP\` when no loop code changed) proves the hand-off; a missing entry prints \`MUTANT_EVIDENCE_MISSING\` and a surviving mutant prints \`MUTANT_EVIDENCE_RED\`. The lane runs the same seam before pushing, and either verdict there fails the lane.
 - UI ratchet: \`python3 scripts/check-ui-inventory.py\` must not grow. If your change IS the sanctioned primitive/facade (its own raw \`<button>\`, \`createPortal\`, \`role="dialog"\`, \`useAnchoredPanel\` use is the point), run \`python3 scripts/check-ui-inventory.py --update\`, commit the baseline, and say so in the PR body (Risk section). Also run the focused UI suites your change touches plus the design-token test: \`cd ui && npx vitest run <the suites you touched> src/design/tokens.test.ts\` (e.g. focus ring must use \`outline-kin-focus-ring\`). The merge gate owns the full suite; a worker does not run it.
 - Commit everything with Conventional Commits and explicit paths. Do NOT push, do NOT open the PR, do NOT touch other worktrees.
-- Before you finish write the PR body to \`$STATE/lanes/$slug.pr-body.md\` with sections: Symptom · Change · Verification (commands + results) · Screenshots (paths, or "none: not visible") · Risk · \`RSI item: $item\`.
+- Before you finish write the PR body to \`$STATE/lanes/$slug.pr-body.md\` with sections: Symptom · Change · Verification (commands + results) · Claims · Screenshots (paths, or "none: not visible") · Risk · \`RSI item: $item\`.
+- Under Verification, the Claims block is one line per user-visible or behavioural claim: \`<path:line> · <test name> · <mutant or the check that would go red without the line>\`. A claim with no test is \`none: <reason of at least 20 characters>\`. A claim whose third field is a backticked command or a \`mutant\` label in this branch's \`*.mutants.json\` is run by the lane: it reverts the claimed file to \`origin/main\` and requires the named test in field 2 to go red. The claimed path is the implementation line the test exercises, not the test file itself. A claim it cannot resolve is NA; record why with \`red-first: none: <reason>\`, and a red that need not name a test carries \`red-first: any\`. The reviewer checks each line against the diff.
 - A PR that changes a prose-assertion path (\`docs/product/**\`, \`docs/plans/**\`, \`docs/adr/**\`, \`rsi/GOAL.md\`, \`rsi/DECISIONS.md\`, \`rsi/ASTRYX-PLAN.md\`, \`AGENTS.md\`, \`PRINCIPLE.md\`, \`SYSTEM_DESIGN.md\`) carries one \`Claim check:\` line at column 0 — one command that proves the sentence on this branch — and its literal output under \`Claim output:\`, or waives it with \`Claim check: none: <reason of at least 20 characters>\`.
 - The merge gate RUNS that claim command and compares the pasted output against it; a sentence whose claim check is missing or false is not delivery.
 - Run \`bash rsi/runtime/lane.sh --claim-check-check "\$PWD" "$STATE/lanes/$slug.pr-body.md"\` before you finish: only \`CLAIM_LANE_OK\` (or \`CLAIM_LANE_NA\` for a code-only diff, \`CLAIM_LANE_WAIVED\` for a reasoned waiver) proves the hand-off; fix a \`CLAIM_LANE_FAIL\` in the body (or the sentence) before finishing. The lane runs the same seam before pushing, and a FAIL there fails the lane.
+- Run \`bash rsi/runtime/lane.sh --red-first-check "\$PWD" "$STATE/lanes/$slug.pr-body.md"\` before you finish: only \`RED_FIRST_OK\` proves every claimed test goes red without the change (\`RED_FIRST_NA\` or \`RED_FIRST_WAIVED\` when no claim names a resolvable check); \`RED_FIRST_GREEN\` means the named test passes on \`origin/main\`, so the claim proves nothing and the lane stops before the push.
 - Final message: files changed, tests added (names), commands run with results, residual risk.
 HD
 }
@@ -252,6 +256,70 @@ claim_lane_check() { # <worktree> <body-file> — prints one CLAIM_LANE_* verdic
   return "$rc"
 }
 
+# The pre-push seam proves the worker's file; the post-PR seam proves what GitHub retained.
+# Probe with a missing body so claim_check.py alone decides NA, without running a local claim
+# command twice or giving code-only PRs a new network dependency. A prose PR must both pass the
+# merge gate's rule on its live text and match the intended body (ignoring trailing newlines).
+pr_body_check() { # <worktree> <pr-number> <local-body-file> — one PR_BODY_OK/FAIL verdict
+  local wt="$1" prn="$2" body="$3" tmp out rc attempt
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/pr-body.XXXXXX")" \
+    || { echo "PR_BODY_FAIL: cannot create a temp directory for the live body"; return 1; }
+  out="$(claim_lane_check "$wt" "$tmp/live" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] && [[ "$out" = CLAIM_LANE_NA:* ]]; then
+    rm -rf "$tmp"
+    echo "PR_BODY_OK: NA (code-only PR; no live body read)"
+    return 0
+  fi
+  # Only the missing-body verdict is expected here. A bad branch point must not turn into NA.
+  if [[ "$out" != 'CLAIM_LANE_FAIL: cannot read the PR body:'* ]]; then
+    rm -rf "$tmp"
+    printf 'PR_BODY_FAIL: %s\n' "$out"
+    return 1
+  fi
+  for attempt in 1 2; do
+    bounded_run 5 "$GH" pr view "$prn" --repo "$GH_REPO" --json body --jq .body \
+      > "$tmp/live" 2> "$tmp/read.err"; rc=$?
+    [ "$rc" -eq 0 ] && LC_ALL=C grep -q '[^[:space:]]' "$tmp/live" && break
+  done
+  if [ "$rc" -ne 0 ] || ! LC_ALL=C grep -q '[^[:space:]]' "$tmp/live"; then
+    rm -rf "$tmp"
+    echo "PR_BODY_FAIL: cannot read live PR #$prn body after 2 attempts (rc=$rc; empty or unreadable body)"
+    return 1
+  fi
+  out="$(claim_lane_check "$wt" "$tmp/live" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    rm -rf "$tmp"
+    printf 'PR_BODY_FAIL: %s\n' "${out#CLAIM_LANE_FAIL: }"
+    return 1
+  fi
+  if [ ! -r "$body" ] || [ "$(<"$tmp/live")" != "$(<"$body")" ]; then
+    rm -rf "$tmp"
+    echo "PR_BODY_FAIL: live PR #$prn body differs from the local handoff body"
+    return 1
+  fi
+  rm -rf "$tmp"
+  printf 'PR_BODY_OK: live body matches local; %s\n' "${out#CLAIM_LANE_}"
+}
+
+# --- red first: a claimed test must go red when its file is reverted -----------------------------
+# The 1d ledger ending 11-23 03:59 read 46 rounds / 44 merges = 1.05, and `test-green·not-red` was
+# 12 of those rounds: the Claims line named a test that was green on origin/main (`activity-pill`)
+# or the one test that stayed green (`local-main-only`). The Claims block was "a writing rule, not
+# a hard gate", so the worker learned it from a sendback after a full gate and a model review.
+# rsi/runtime/red_first.py is the rule; this seam runs it in the lane, before the push, against the
+# same changed-file list the merge gate computes. A claim the checker cannot resolve is NA, never
+# a FAIL (see red_first.py), so an honest PR the checker cannot read is not sent back here.
+red_first_check() { # <worktree> <body-file> — prints one RED_FIRST_* verdict; exits with the checker's code
+  local wt="$1" body="$2" out rc
+  [ -d "$wt" ] || { echo "RED_FIRST_FAIL: $wt · worktree not found"; return 1; }
+  # A seam that cannot read the branch point cannot revert anything: fail closed, not NA.
+  "$GIT" -C "$wt" rev-parse --verify -q origin/main >/dev/null 2>&1 \
+    || { echo "RED_FIRST_FAIL: $wt · origin/main is not resolvable"; return 1; }
+  out="$(python3 "$RSI_DIR/runtime/red_first.py" "$wt" "$body" 2>&1)"; rc=$?
+  printf '%s\n' "$out"
+  return "$rc"
+}
+
 if [ "$CMD" = _sendback-order ]; then sendback_order; exit 0; fi
 
 # Seams. --worker-contract-check prints the contract and exits before PAUSE, locks, fetch,
@@ -265,6 +333,14 @@ fi
 if [ "$CMD" = --claim-check-check ]; then
   [ "$#" -eq 3 ] || { echo "usage: lane.sh --claim-check-check <worktree> <body-file>" >&2; exit 2; }
   claim_lane_check "$2" "$3"; exit $?
+fi
+if [ "$CMD" = --red-first-check ]; then
+  [ "$#" -eq 3 ] || { echo "usage: lane.sh --red-first-check <worktree> <body-file>" >&2; exit 2; }
+  red_first_check "$2" "$3"; exit $?
+fi
+if [ "$CMD" = --pr-body-check ]; then
+  [ "$#" -eq 4 ] || { echo "usage: lane.sh --pr-body-check <worktree> <pr-number> <local-body-file>" >&2; exit 2; }
+  pr_body_check "$2" "$3" "$4"; exit $?
 fi
 if [ "$CMD" = --worker-contract-check ]; then
   [ "$#" -eq 5 ] || { echo "usage: lane.sh --worker-contract-check <item> <mode> <worktree> <branch>" >&2; exit 2; }
@@ -381,6 +457,32 @@ trap cleanup EXIT
 finish() { FINISHED=1; python3 "$LANES_PY" finish "$N" --status "$1" --pr "${2:-}" --note "${3:-}"; }
 
 WT="$WT_ROOT/rsi-$SLUG"; BR="rsi/$SLUG"; TAG="lane$N-$SLUG"
+
+# --- control-tree guard -----------------------------------------------------------------------
+# WT_ROOT holds every lane worktree, and the control checkout itself can be a symlink to a
+# directory under it. A slug that names that directory makes WT resolve to RSI_CTRL, and the
+# worktree add/merge block below would then do git work inside the control checkout: the gate,
+# the walker, GOAL.md and the live state directory become that lane's, and every later pulse runs
+# the wrong tree while every status line still reads healthy (same family as 2026-11-20, when one
+# stale line held the control tree 17 commits behind main for six hours). Resolve both paths with
+# Python — macOS has no GNU realpath — and refuse before the first git call. A resolution failure
+# fails closed; distinct paths, including a worktree that does not exist yet, still run.
+lane_real_path() { python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null; }
+WT_REAL="$(lane_real_path "$WT")" || WT_REAL=""
+CTRL_REAL="$(lane_real_path "$RSI_CTRL")" || CTRL_REAL=""
+if [ -z "$WT_REAL" ] || [ -z "$CTRL_REAL" ]; then
+  GUARD_NOTE="control-tree guard: cannot resolve worktree $WT or control checkout $RSI_CTRL; refusing to start"
+  echo "$GUARD_NOTE" >&2
+  finish blocked "" "$GUARD_NOTE"
+  exit 1
+fi
+if [ "$WT_REAL" = "$CTRL_REAL" ]; then
+  GUARD_NOTE="control-tree guard: worktree $WT resolves to the control checkout $CTRL_REAL (control checkout $RSI_CTRL); refusing to start"
+  echo "$GUARD_NOTE" >&2
+  finish blocked "" "$GUARD_NOTE"
+  exit 1
+fi
+
 echo "[$(date +%T)] lane $N start item=$ITEM slug=$SLUG mode=$MODE wt=$WT"
 $GIT -C "$RSI_CTRL" fetch -q origin main 2>/dev/null
 if [ "$MODE" = rework ] || [ -d "$WT/.git" ] || [ -f "$WT/.git" ]; then
@@ -480,11 +582,29 @@ fi
 # and clean: no push, no PR, and the worker fixes the body in its own session.
 if ! CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; then
   [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
+  # Keep the verdict and the command's own tail on disk, the way merge.sh's claim_check_gate
+  # keeps its evidence. A flattened note cannot tell a genuine red from a slow or truncated run,
+  # and only the failure branch writes here, so a later green hand-off never rewrites the record.
+  printf '%s\n' "${CLAIM_EV:-check produced no output}" > "$STATE/lanes/$N.claim.txt"
   CLAIM_NOTE="$(printf '%s' "$CLAIM_EV" | tr '\n' ' ' | sed 's/  */ /g')"
-  finish failed "" "claim check: ${CLAIM_NOTE:-check produced no output}"
+  finish failed "" "claim check: ${CLAIM_NOTE:-check produced no output} (evidence: $STATE/lanes/$N.claim.txt)"
   exit 1
 fi
 [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
+
+# A claimed test must be the test that goes red without the change. The worker runs this same seam
+# first (worker_contract); this pass is authoritative. On GREEN, OTHER or NO_VERDICT the branch
+# stays committed and unpushed, and the verdict names the claim the worker has to fix.
+if ! RED_EV="$(bash "$SELF" --red-first-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; then
+  [ -n "$RED_EV" ] && printf '%s\n' "$RED_EV"
+  # Same evidence discipline as the claim check above: the verdict and the command's own output,
+  # written only on failure so a later green hand-off never rewrites the record.
+  printf '%s\n' "${RED_EV:-check produced no output}" > "$STATE/lanes/$N.red-first.txt"
+  RED_NOTE="$(printf '%s' "$RED_EV" | tr '\n' ' ' | sed 's/  */ /g')"
+  finish failed "" "red first: ${RED_NOTE:-check produced no output} (evidence: $STATE/lanes/$N.red-first.txt)"
+  exit 1
+fi
+[ -n "$RED_EV" ] && printf '%s\n' "$RED_EV"
 
 # push + PR (normal push only)
 if ! $GIT -C "$WT" push -q -u origin "$BR" 2>"$STATE/lanes/$N.push.err"; then
@@ -506,11 +626,29 @@ if [ -z "$PRN" ]; then
 else
   PRURL="https://github.com/$GH_REPO/pull/$PRN"
   if [ -s "$STATUS_NOTE_FILE" ] && [ "$STATUS_NOTE_FILE" -nt "$HDR" ]; then
-    $GH pr edit "$PRN" --repo "$GH_REPO" --body-file "$STATUS_NOTE_FILE" >/dev/null 2>&1 || true
+    bounded_run 10 "$GH" pr edit "$PRN" --repo "$GH_REPO" --body-file "$STATUS_NOTE_FILE" \
+      >"$STATE/lanes/$N.pr-edit.log" 2>&1; PR_EDIT_RC=$?
+    if [ "$PR_EDIT_RC" -ne 0 ]; then
+      echo "PR body edit failed (rc=$PR_EDIT_RC); live read-back decides; see lanes/$N.pr-edit.log"
+    fi
   fi
   $GH pr comment "$PRN" --repo "$GH_REPO" --body "RSI lane $N pushed a rework for the merge lane's findings ($(date '+%F %H:%M %Z'))." >/dev/null 2>&1
 fi
 [ -n "$PRN" ] || { count_fail "lane $N PR" "$PRURL"; finish failed "" "pr create failed: $PRURL"; exit 1; }
+# Only the body the merge lane will read can authorize the handoff. The branch is already pushed;
+# on failure keep it committed, record the verdict, and leave the lane failed for a body repair.
+PR_BODY_EV="$(bounded_run "${RSI_PR_BODY_CHECK_SECS:-180}" bash "$SELF" --pr-body-check "$WT" "$PRN" "$STATUS_NOTE_FILE" 2>&1)"; PR_BODY_RC=$?
+if [ "$PR_BODY_RC" -ne 0 ]; then
+  if [ "$PR_BODY_RC" -eq 124 ]; then
+    PR_BODY_EV="PR_BODY_FAIL: live body check timed out (no verdict)"
+  fi
+  [ -n "$PR_BODY_EV" ] || PR_BODY_EV="PR_BODY_FAIL: live body check produced no verdict"
+  printf '%s\n' "$PR_BODY_EV"
+  PR_BODY_NOTE="$(printf '%s' "$PR_BODY_EV" | tr '\n' ' ' | sed 's/  */ /g')"
+  finish failed "" "pr body: ${PR_BODY_NOTE:-check produced no output}"
+  exit 1
+fi
+[ -n "$PR_BODY_EV" ] && printf '%s\n' "$PR_BODY_EV"
 [ "$MODE" = rework ] && mkdir -p "$STATE/sendback/done" && mv "$STATE/sendback/$SLUG.md" "$STATE/sendback/done/$SLUG-$(date +%H%M%S).md" 2>/dev/null
 
 if [ $TIMEDOUT -eq 1 ]; then count_timeout "lane $N ($SLUG)" "partial work pushed as PR #$PRN"; else count_ok; fi

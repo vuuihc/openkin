@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="1180" viewBox="0 0 820 1180">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="820" height="1180" fill="#ffffff"/><text x="12" y="17" font-size="11" fill="#555">KIN-QUALITY-001 · 平板 820×1180 · 失败 / 断线：一条说明，内容不消失</text>
+<text x="808" y="17" font-size="10" fill="#8a8a8a" text-anchor="end">banner 不计入 44 常驻 chrome</text><line x1="0" y1="26" x2="820" y2="26" stroke="#e6e6e6"/>
+<rect x="0" y="26" width="280" height="1154" fill="#fbfbfb"/><line x1="280" y1="26" x2="280" y2="1180" stroke="#e3e3e3"/><text x="18" y="122" font-size="10" fill="#6b6b6b">本机 · alpha</text>
+<text x="30" y="172" font-size="11" fill="#333">这段对话的标题（打开中）</text><text x="30" y="196" font-size="11" fill="#444">另一段对话</text><text x="18" y="1140" font-size="10" fill="#8a8a8a">列表保留缓存，行上标断线</text>
+<rect x="280" y="26" width="540" height="44" fill="#ffffff"/><line x1="280" y1="70" x2="820" y2="70" stroke="#e0e0e0"/>
+<text x="298" y="53" font-size="13" fill="#1a1a1a" font-weight="600">一段对话的标题，长到需要截断…</text><text x="584" y="52" font-size="10" fill="#666">项目名…</text><rect x="640" y="26" width="60" height="44" rx="8" fill="#ffffff" stroke="#d8d8d8"/>
+<text x="670" y="52" font-size="10.5" fill="#333" text-anchor="middle">文件 · 2</text><rect x="708" y="26" width="44" height="44" rx="8" fill="#ffffff" stroke="#d8d8d8"/>
+<text x="730" y="53" font-size="15" fill="#333" text-anchor="middle">⋯</text><rect x="280" y="70" width="540" height="44" fill="#fff8e8"/><line x1="280" y1="114" x2="820" y2="114" stroke="#eadfbf"/>
+<text x="298" y="94" font-size="11" fill="#7a5a12">连接已断 · 恢复后继续；内容与草稿都保留</text><rect x="764" y="70" width="44" height="44" rx="8" fill="#fff8e8" stroke="#e0b64a"/><text x="786" y="97" font-size="10" fill="#7a5a12" text-anchor="middle">重试</text>
+<text x="298" y="136" font-size="10.5" fill="#8a8a8a">Kin · 刚刚</text><text x="298" y="160" font-size="12" fill="#1f1f1f">已经整理完。断线不清空回答，也不把批准按钮藏起来。</text>
+<rect x="292" y="178" width="516" height="250" rx="10" fill="#fbfbfd" stroke="#d8d8d8"/><rect x="302" y="192" width="160" height="26" fill="#eef3ff"/>
+<text x="310" y="209" font-size="10.5" fill="#1f4f9e" font-weight="600">表头 · 项目</text><text x="470" y="209" font-size="10.5" fill="#1f4f9e" font-weight="600">状态</text>
+<text x="574" y="209" font-size="10.5" fill="#1f4f9e" font-weight="600">负责人</text><text x="680" y="209" font-size="10.5" fill="#1f4f9e" font-weight="600">下一步</text>
+<line x1="302" y1="218" x2="798" y2="218" stroke="#e0e0e0"/><text x="310" y="242" font-size="10.5" fill="#333">示例行 1 · 完整列名</text><text x="470" y="242" font-size="10.5" fill="#333">进行中</text>
+<text x="574" y="242" font-size="10.5" fill="#333">本机</text><text x="680" y="242" font-size="10.5" fill="#333">等待确认</text><line x1="302" y1="252" x2="798" y2="252" stroke="#efefef"/>
+<text x="310" y="276" font-size="10.5" fill="#333">示例行 2 · 需要确认</text><text x="470" y="276" font-size="10.5" fill="#333">待确认</text><text x="574" y="276" font-size="10.5" fill="#333">本机</text>
+<text x="680" y="276" font-size="10.5" fill="#333">回复后继续</text><line x1="302" y1="286" x2="798" y2="286" stroke="#efefef"/><text x="310" y="310" font-size="10.5" fill="#333">示例行 3 · 已完成</text>
+<text x="470" y="310" font-size="10.5" fill="#333">完成</text><text x="574" y="310" font-size="10.5" fill="#333">本机</text><text x="680" y="310" font-size="10.5" fill="#333">无</text>
+<line x1="302" y1="320" x2="798" y2="320" stroke="#efefef"/><text x="310" y="344" font-size="10.5" fill="#333">示例行 4 · 最后一行完整可见</text><text x="470" y="344" font-size="10.5" fill="#333">完成</text>
+<text x="574" y="344" font-size="10.5" fill="#333">本机</text><text x="680" y="344" font-size="10.5" fill="#333">无</text><line x1="302" y1="354" x2="798" y2="354" stroke="#e0e0e0"/>
+<text x="302" y="410" font-size="9" fill="#8a8a8a">恢复后此说明自行消失，不重复播报</text><rect x="292" y="452" width="516" height="150" rx="12" fill="#fff8e8" stroke="#e0b64a"/>
+<text x="308" y="478" font-size="11.5" fill="#7a5a12" font-weight="600">等待批准 · 仍然可处理</text><text x="308" y="502" font-size="10.5" fill="#5a4712">这一轮要执行一条命令，批准范围与原因照旧显示。</text>
+<rect x="308" y="520" width="120" height="44" rx="9" fill="#1f6feb"/><text x="368" y="547" font-size="11" fill="#ffffff" text-anchor="middle">允许</text>
+<rect x="438" y="520" width="120" height="44" rx="9" fill="#ffffff" stroke="#d8d8d8"/><text x="498" y="547" font-size="11" fill="#333" text-anchor="middle">拒绝</text>
+<text x="308" y="590" font-size="9.5" fill="#8a8a8a">断线不擦除批准/回答 affordance；焦点仍在原控件</text><rect x="280" y="1000" width="540" height="180" fill="#f7f7f9"/>
+<line x1="280" y1="1000" x2="820" y2="1000" stroke="#dedede"/><rect x="292" y="1014" width="516" height="86" rx="14" fill="#ffffff" stroke="#1f6feb"/>
+<text x="308" y="1040" font-size="11.5" fill="#333">草稿还在：确认第 2 行后继续吗？</text><text x="308" y="1068" font-size="10" fill="#8a8a8a">断线时草稿保留；发送进本地队列，队列可见</text>
+<rect x="728" y="1040" width="64" height="44" rx="10" fill="#ffffff" stroke="#d8d8d8"/><text x="760" y="1068" font-size="11" fill="#8a8a8a" text-anchor="middle">发送</text>
+<rect x="292" y="1100" width="66" height="44" rx="8" fill="#eef3ff"/><text x="300" y="1122" font-size="10.5" fill="#1f6feb">用量 ▾</text><text x="370" y="1122" font-size="10.5" fill="#555">模型 · 权限</text>
+<text x="804" y="1150" font-size="9.5" fill="#8a8a8a" text-anchor="end">一条 transient 说明，不是永久红块</text>
+</g>
+</svg>

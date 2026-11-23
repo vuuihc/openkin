@@ -7,6 +7,8 @@
 # launched_at and the claim carries the same stamp (under the scheduler flock), an existing worktree is only
 # fast-forwarded while the per-slug merge lock is held and cannot discard a newer HEAD, and the published
 # branch/PR head must already contain the NAS commit.
+# A worktree path that resolves to the control checkout is refused before the first git call, so a replayed
+# slug can never fast-forward the running loop's own tree.
 # Idempotent twice over: handled jobs are marked `ingested`/`held` on the NAS and their run identity is
 # recorded in state/nas/acks.txt, so a second pulse does no work and writes no second history/notice.
 # Every remote call is bounded (M8); the job list is read on fd 3 so ssh cannot drain it (M3).
@@ -19,10 +21,12 @@ SSH_BIN="${NAS_SSH:-ssh}"
 SCP_BIN="${NAS_SCP:-scp}"
 GH_BIN="${NAS_GH:-$GH}"
 DATE_BIN="${NAS_DATE:-date}"
+REALPATH_BIN="${NAS_REALPATH_PY:-python3}"   # test seam: stubbing it exercises the fail-closed branch
 SSH=("$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -n)
 SSH_T="${NAS_SSH_TIMEOUT:-90}"
 XFER_T="${NAS_XFER_TIMEOUT:-900}"
 GH_T="${NAS_GH_TIMEOUT:-180}"
+CLAIM_T="${NAS_CLAIM_TIMEOUT:-120}"   # bound on the prose claim check; expiry holds as NO_VERDICT
 WT_ROOT="${NAS_WT_ROOT:-$WT_ROOT}"
 PREP="${NAS_PREP:-$RSI_DIR/runtime/prep-worktree.sh}"
 HEAVY="${NAS_HEAVY:-$RSI_DIR/runtime/heavy.sh}"
@@ -275,6 +279,75 @@ hold_slug() { # SLUG ITEM J WHY [PRN] — visible UI with no shots: never publis
   echo "held $SLUG: $WHY"
 }
 
+# A prose body that fails the merge gate's claim rule is held before any PR exists. Same shape as
+# hold_slug: a new branch is pushed so the result survives for the local rework, an open PR keeps its
+# previous head, and no `gh pr create` / `gh pr edit` ever sees a body that would be sent back. The
+# phrase in needs-ceo.md is distinct from the screenshots hold so the two causes are counted apart.
+hold_claim() { # SLUG ITEM J WHY [PRN] [VERDICT] [PUSH_NOTE]
+  local SLUG="$1" ITEM="$2" J="$3" WHY="$4" PRN="${5:-}" VERDICT="${6:-}" PUSH_NOTE="${7:-}"
+  mkdir -p "$STATE/nas/hold"
+  {
+    echo "# $ITEM $SLUG held: $WHY"
+    echo "The body was not published: neither 'gh pr create' nor 'gh pr edit' ran. Body under test:"
+    echo "$J/pr-body.md."
+    if [ -n "$PRN" ]; then
+      echo "PR #$PRN keeps its previous head and the branch was not pushed: the merge lane would"
+      echo "claim-check the previous body against this commit's diff and could merge rejected prose."
+    elif [ -z "$PUSH_NOTE" ]; then
+      echo "The branch was pushed so the result survives for the local rework."
+    fi
+    if [ -n "$VERDICT" ]; then
+      echo "Verdict:"
+      printf '%s\n' "$VERDICT"
+    fi
+    [ -n "$PUSH_NOTE" ] && echo "Branch push: $PUSH_NOTE"
+    echo "If the body is the cause, name one command at column 0 as 'Claim check:' and paste its real"
+    echo "output under 'Claim output:' (or 'Claim check: none: <why no command can prove it>')."
+    echo "Then publish the result:"
+    echo "  git -C $CTRL push origin refs/nas/$SLUG:refs/heads/rsi/$SLUG"
+    if [ -n "$PRN" ]; then
+      echo "  gh pr edit $PRN --repo $GH_REPO --body-file $J/pr-body.md"
+    else
+      echo "  gh pr create --repo $GH_REPO --base main --head rsi/$SLUG --title '<title>' --body-file $J/pr-body.md"
+    fi
+  } > "$STATE/nas/hold/$SLUG.md"
+  echo "- $(date '+%F %H:%M') nas job $ITEM $SLUG held for claim check ($WHY): see rsi/state/nas/hold/$SLUG.md" >> "$STATE/needs-ceo.md"
+  echo "held $SLUG for claim check: $WHY"
+}
+
+# The prose claim rule, before the self-check and before any publish (R-nas-claim-gate). The live
+# lane (lane.sh) and the merge gate (merge.sh) already run runtime/claim_check.py; the NAS ingest
+# was the only entry point that could hand the merge lane a body with no claim at all — measured
+# 2026-11-23: #611 and #618 each cost a full gate plus an independent review for a body-only
+# defect (Watch 87: a guard in one entry point is not a guard for the other). It is the same rule
+# and the lane's exact changed-file computation. Fail closed on everything that is not a verdict:
+# a diff that cannot be read, a check that outlives its bound (124 -> NO_VERDICT), or any non-zero
+# rc holds the job instead of publishing. Sets CLAIM_WHY / CLAIM_OUT for the hold writer; returns
+# 0 to publish, 1 to hold.
+CLAIM_WHY=""; CLAIM_OUT=""
+claim_gate() { # SLUG J PRB WT REF
+  local SLUG="$1" J="$2" PRB="$3" WT="$4" REF="$5"
+  local RAW="$J/claim-changed.raw" LIST="$J/claim-changed.txt" RC
+  CLAIM_WHY=""; CLAIM_OUT=""
+  if ! with_timeout 60 "$GIT" -C "$CTRL" -c core.fileMode=false diff --no-renames --raw \
+      "origin/main...$REF" > "$RAW" 2>/dev/null; then
+    CLAIM_WHY="cannot diff the branch for the claim check"
+    return 1
+  fi
+  # lane.sh's exact computation: renames off, mode-only entries skipped, the path after the raw
+  # header's tab. A different list here could hold a PR the merge gate would pass, or pass one it
+  # would send back.
+  awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}' "$RAW" > "$LIST"
+  CLAIM_OUT="$(bounded_run "$CLAIM_T" python3 "$RSI_DIR/runtime/claim_check.py" "$WT" "$PRB" "$LIST" 2>&1)"
+  RC=$?
+  case "$RC" in
+    0) echo "claim check ok $SLUG"; return 0 ;;
+    124) CLAIM_WHY="NO_VERDICT: the claim check did not finish within ${CLAIM_T}s" ;;
+    *) CLAIM_WHY="the claim check exited $RC" ;;
+  esac
+  return 1
+}
+
 # The branch moved on (a merge or rework lane committed after the NAS job finished). Publishing would need
 # a force push; consuming would lose the NAS commit. Keep both and say so, once (M7).
 hold_diverged() { # SLUG ITEM REMOTE_SHA PRN
@@ -292,11 +365,33 @@ hold_diverged() { # SLUG ITEM REMOTE_SHA PRN
   echo "held $SLUG: branch diverged (remote $RSHA)"
 }
 
+# Resolve a path to its physical spelling (macOS has no GNU realpath). Prints nothing and returns
+# nonzero when the resolution cannot be made, so callers can fail closed instead of comparing guesses.
+real_path() { "$REALPATH_BIN" -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null; }
+
 # Materialise the lane worktree and prove it is at the bundle's commit (M4/M7). Runs under the per-slug
 # merge lock, never re-points an existing branch, and fast-forwards with `merge --ff-only`, which cannot
 # discard a HEAD that advanced after our checks. Prints why it refused and returns 1 to leave it alone.
 sync_worktree() { # SLUG WT BR REF EXPECT
-  local SLUG="$1" WT="$2" BR="$3" REF="$4" EXPECT="$5" CUR_BR CUR GOT
+  local SLUG="$1" WT="$2" BR="$3" REF="$4" EXPECT="$5" CUR_BR CUR GOT WT_REAL CTRL_REAL
+  # --- control-tree guard -----------------------------------------------------------------------
+  # The control checkout can itself resolve into the worktree root: on 2026-11-22 the control
+  # checkout was a symlink that physically pointed at a registered lane's worktree directory, with
+  # its HEAD on that lane's branch. For that slug every check below passes — .git present, branch
+  # equal, clean, HEAD an ancestor of the bundle — and the final `merge --ff-only` would then run
+  # inside the control checkout, swapping the running gate, walker, GOAL.md and live state for the
+  # NAS result while every status line still read healthy (same family as 2026-11-20, when one stale
+  # line held the control tree 17 commits behind main).
+  # Resolve both paths and refuse before the first git call. A resolution failure fails closed;
+  # distinct paths, including a worktree that does not exist yet, still sync.
+  WT_REAL="$(real_path "$WT")" || WT_REAL=""
+  CTRL_REAL="$(real_path "$CTRL")" || CTRL_REAL=""
+  if [ -z "$WT_REAL" ] || [ -z "$CTRL_REAL" ]; then
+    echo "control-tree guard: cannot resolve worktree $WT or control checkout $CTRL; refusing to sync"; return 1
+  fi
+  if [ "$WT_REAL" = "$CTRL_REAL" ]; then
+    echo "control-tree guard: worktree $WT resolves to the control checkout $CTRL ($CTRL_REAL); refusing to sync"; return 1
+  fi
   if lane_active "$SLUG"; then
     echo "a local lane is active on $SLUG; leaving its worktree alone"; return 1
   fi
@@ -437,6 +532,22 @@ while IFS=, read -r SLUG ST <&3; do
     continue
   fi
 
+  # Prose claim rule: never publish a body the merge lane would send back (R-nas-claim-gate). A new
+  # branch is pushed so the work survives for the local rework. An already-open PR keeps its previous
+  # head: merge.sh claim-checks the live body against the head's diff, so pushing this commit under the
+  # previous body would let it merge prose this gate just rejected.
+  if ! claim_gate "$SLUG" "$J" "$PRB" "$WT" "$REF"; then
+    PUSH_NOTE=""
+    if [ -z "$PRN" ]; then
+      with_timeout "$XFER_T" "$GIT" -C "$CTRL" push -q origin "$REF:refs/heads/$BR" 2>"$STATE/nas/push.err" \
+        || PUSH_NOTE="branch push failed: $(tail -c 200 "$STATE/nas/push.err")"
+    fi
+    hold_claim "$SLUG" "$ITEM" "$J" "$CLAIM_WHY" "$PRN" "$CLAIM_OUT" "$PUSH_NOTE"
+    mark_remote "$SLUG" "$IDENT" held
+    ack "$ACK_KEY"
+    continue
+  fi
+
   SC="green"
   if selfcheck_mac "$WT" "$J"; then
     echo "self-check green $SLUG"
@@ -445,8 +556,12 @@ while IFS=, read -r SLUG ST <&3; do
     echo "self-check failing $SLUG; handing over anyway"
   fi
   [ -s "$PRB" ] || printf 'RSI item: %s\n' "$ITEM" > "$PRB"
-  grep -q "RSI item:" "$PRB" || printf '\nRSI item: %s\n' "$ITEM" >> "$PRB"
-  printf '\nMac self-check after NAS hand-over: %s (tsc, UI inventory ratchet, full vitest).\n' "$SC" >> "$PRB"
+  # A body may end mid-line inside its Claim output block. Every append therefore starts with a
+  # blank line: claim_check.py reads the non-blank lines after `Claim output:` as claimed output,
+  # and an appended Mac line that joined that block would fail the merge lane on the very body the
+  # NAS gate just passed (found by the pre-landing review).
+  grep -q "RSI item:" "$PRB" || printf '\n\nRSI item: %s\n' "$ITEM" >> "$PRB"
+  printf '\n\nMac self-check after NAS hand-over: %s (tsc, UI inventory ratchet, full vitest).\n' "$SC" >> "$PRB"
 
   # Ownership must still hold at the moment of publishing, not only before the self-check (M3).
   if ! claim_owned "$SLUG" "$JOB_LAUNCH"; then

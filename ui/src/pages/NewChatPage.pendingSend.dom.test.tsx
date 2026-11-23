@@ -238,7 +238,9 @@ describe("starting a conversation", () => {
     // request is still in flight, yet there is no page skeleton: the header,
     // the composer, the same bubble and a waiting row are all drawn from the
     // create snapshot.
-    expect(screen.getByTestId("mobile-header").textContent).toContain("hello");
+    // The desktop width renders one bar, and it is not the phone header mock.
+    const handoffHeader = document.querySelector('[data-task-header="desktop"]');
+    expect(handoffHeader?.textContent).toContain("hello");
     expect(screen.getByTestId("send")).toBeTruthy();
     expect(screen.getByTestId("pending-handoff").textContent).toBe("hello");
     expect(screen.getByTestId("loading").textContent).toBe("true");

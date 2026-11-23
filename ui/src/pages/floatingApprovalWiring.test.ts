@@ -33,21 +33,22 @@ const tray = source("src/pages/TrayPage.tsx");
 describe("the floating approval's wiring", () => {
   it("asks for a measured offset only where a band exists", () => {
     expect(shell).toMatch(/expectsBottomChrome=\{measuredBottomBand\}/);
-    // The two screens that pin a composer: a conversation and an agent
-    // session's continue box. The draft's card sits in the page now
-    // (KIN-START-001), so there is no band there to clear. Bound to the
-    // assignment itself — a fourth clause (`|| detailRoute`) creeping back in
-    // is the regression this round fixed.
+    // The screens that pin a composer: a conversation, an agent session's
+    // continue box, and the draft. The draft is a band like the others
+    // (amended KIN-START-001, 2026-11-21), so its box is measured too. Bound
+    // to the assignment itself — a fourth clause (`|| detailRoute`) creeping
+    // back in is the regression this comparison exists to catch.
     const assignment = shell.match(/const measuredBottomBand =[\s\S]*?;\n/)?.[0] ?? "";
-    // Exactly the two known routes, no fourth clause: this comparison is the
-    // one thing a "just add /new back" edit cannot slip past.
+    // Exactly the known routes, no fourth clause: this comparison is the one
+    // thing a hand-edited condition cannot slip past.
     expect(assignment).toBe(
-      'const measuredBottomBand =\n    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");\n',
+      'const measuredBottomBand =\n    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/") || draftActive;\n',
     );
     expect(assignment).not.toBe("");
     expect(assignment).toMatch(/selectedTaskId !== null/);
     expect(assignment).toMatch(/startsWith\("\/agent-sessions\/"\)/);
-    expect(assignment).not.toMatch(/draftActive|artifacts|detailRoute/);
+    expect(assignment).toMatch(/draftActive/);
+    expect(assignment).not.toMatch(/artifacts|detailRoute/);
   });
 
   it("has no drawer left to paint over the card", () => {
@@ -72,10 +73,26 @@ describe("the floating approval's wiring", () => {
     // is pinned, not only the phone one.
     expect(floating).toMatch(/const stripOnly = raised \|\| panelOpen \|\| covered;/);
     // The third term is measured, not declared: `covered` comes from the
-    // overlap loop over the rows the transcript marks, so the card gives way
-    // only while a row is actually under it.
+    // overlap loop over the rows and reading content the page marks, so the
+    // card gives way only while something is actually under it.
     expect(floating).toMatch(/if \(hit !== covered\) setCovered\(hit\);/);
     expect(floating).toContain('"[data-kin-hit-row]"');
+    // Reading content is the same measured rule, and the pill itself is not a
+    // fallback that gets to stay: when its own box covers a cell the whole
+    // surface is unmounted (`hidden`), not `stripOnly`.
+    expect(floating).toContain('"[data-kin-reading]"');
+    expect(floating).toMatch(/if \(stripHit !== hidden\) setHidden\(stripHit\);/);
+    // …but only the visible surface: the hidden branch still renders the
+    // arrival live region, sr-only and outside the `aside`, so an approval
+    // that lands while the reader is on a table is announced. The label it
+    // carries is computed before the guard.
+    expect(floating).toMatch(
+      /if \(hidden && !raised && !panelOpen\) \{[\s\S]*?<ApprovalStatus className="sr-only">[\s\S]*?\n  \}/,
+    );
+    const labelAt = floating.indexOf("const stripLabel = [");
+    const hiddenAt = floating.indexOf("if (hidden && !raised && !panelOpen)");
+    expect(labelAt).toBeGreaterThan(-1);
+    expect(labelAt).toBeLessThan(hiddenAt);
     // The card body is guarded by `!stripOnly`, and the strip is the branch
     // that renders instead.
     const cardGuard = floating.indexOf("{!stripOnly && (");

@@ -29,7 +29,6 @@ export type RoutineListProps = {
   selectedId: string | null;
   /** The routine this visit just created, marked on arrival; not selection. */
   justCreatedId?: string | null;
-  unreadByRoutine: Record<string, number>;
   busy: Record<string, boolean>;
   creating: boolean;
   machineOffline: boolean;
@@ -43,8 +42,8 @@ export type RoutineListProps = {
   onDelete: (routine: Routine) => void;
   onLoadMore: () => void;
   /**
-   * Extra content under the selected row — the phone layout's run-history
-   * panel. The page owns that history; the list only leaves room for it.
+   * Extra content under the selected row — the phone layout's link to the one
+   * run list. The page owns that link; the list only leaves room for it.
    */
   renderRowExtra?: (routine: Routine) => ReactNode;
   tr: Translate;
@@ -67,7 +66,6 @@ export default function RoutineList({
   onClearFilters,
   selectedId,
   justCreatedId,
-  unreadByRoutine,
   busy,
   creating,
   machineOffline,
@@ -165,7 +163,6 @@ export default function RoutineList({
       ) : (
         <ul className="space-y-2.5">
           {routines.map((r) => {
-            const unread = unreadByRoutine[r.id] ?? 0;
             const selectedHere = selectedId === r.id;
             // The arrival cue is a separate affordance from selection: green
             // (made) rather than blue (open), and never `aria-pressed`. It
@@ -194,7 +191,7 @@ export default function RoutineList({
                     type="button"
                     onClick={() => onSelect(r)}
                     aria-pressed={selectedHere}
-                    aria-label={tr("routines.showRuns", {
+                    aria-label={tr("routines.openRoutine", {
                       title: r.title || r.prompt.slice(0, 48),
                     })}
                     className="min-w-0 flex-1 rounded-lg text-left"
@@ -212,11 +209,6 @@ export default function RoutineList({
                       >
                         {r.enabled ? tr("routines.enabled") : tr("routines.paused")}
                       </span>
-                      {unread > 0 && (
-                        <span className="shrink-0 whitespace-nowrap rounded-full bg-kin-blue/15 px-2 py-0.5 text-caption font-medium text-kin-blue-ink">
-                          {tr("routines.unreadCount", { count: unread })}
-                        </span>
-                      )}
                     </span>
                     <span className="mt-1 block truncate text-body text-kin-secondary">
                       {r.agent} ·{" "}

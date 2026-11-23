@@ -521,10 +521,12 @@ GATE_SCRIPTS = {
     "scripts/check.sh", "scripts/check-openapi.sh", "scripts/check-api-coverage.sh",
     "scripts/install-hub.sh", "scripts/install-hub.test.sh", "scripts/stories.py",
     "scripts/check-ui-inventory.py", "scripts/check-ui-inventory.test.py",
+    "scripts/check-removed-surfaces.py", "scripts/check-removed-surfaces.test.py",
+    "scripts/ux_spec_refs.py", "scripts/ux_spec_refs_test.py",
     "scripts/ui_inventory.py", "scripts/ui_lint_guard.py", "scripts/ui_lint_guard_test.py",
     "scripts/ui-lint-guard.sh", "scripts/journeys_seed.py", "scripts/journeys_smoke.py",
     "scripts/journeys-smoke.sh", "scripts/journeys_walk_test.py", "scripts/journeys_smoke_test.py",
-    "scripts/phone-console-startup.mjs",
+    "scripts/quality_001_reading_test.py", "scripts/phone-console-startup.mjs",
 }
 # A PR's Go package is internal/<pkg>/: a sibling file in it can change the package's behaviour.
 pr_pkgs = {"/".join(p.split("/")[:2]) + "/" for p in pr_files
@@ -615,6 +617,44 @@ carry_forward() { # <worktree> <incoming-paths> <pr-changed-paths> <gate-file> <
 # ------------------------------------------------------------------ queue-time carry
 pr_diff_hash() { # <worktree> — the review key (step 4's DH): the PR's own diff, dist + lockfile excluded
   $GIT -C "$1" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16
+}
+
+# The UX walk cache (state/merge/<slug>.uxverified) survives a main move only when nothing that can
+# change the rendered console moved. This key digests every ui/ path except the families that
+# provably cannot render: test/spec files, __tests__/ and test/ fixtures, mutant manifests and
+# markdown. Everything else — package.json, the lockfile, every source and style file — stays in,
+# so a path family this cannot positively classify still re-walks (the cache is only worth a walk
+# when the walk is provably still about this console).
+ux_carry_key() { # <worktree> <main-ref> — digest of everything under ui/ that can change the rendered console
+  local tree
+  tree="$($GIT -C "$1" ls-tree -r "$2" -- ui 2>/dev/null)" || { echo unreadable; return 0; }
+  printf '%s\n' "$tree" \
+    | grep -vE '(\.(test|spec)\.[^/]+$|/__tests__/|/test/|\.mutants\.json$|\.md$)' \
+    | shasum | cut -c1-16
+}
+
+ux_carry_verdict() { # <worktree> <main-ref> <uxverified-file> <pr-diff-hash>
+  # 0 = CARRY (UX_CARRY_KEY names the tree the cached walk is still evidence for); 1 = REGATE
+  # (UX_CARRY_REASON says which half moved). The land block reads this verdict and writes the same
+  # UX_CARRY_KEY at its PASS line, so the cached walk can never be keyed by one tree and looked up
+  # by another. Any unreadable or disagreeing field re-walks.
+  local wt="$1" ref="$2" uxv="$3" dh="$4" rec_dh="" rec_ver="" rec_key=""
+  UX_CARRY_KEY="$(ux_carry_key "$wt" "$ref")-$($GIT -C "$wt" rev-parse HEAD:ui/package-lock.json 2>/dev/null || echo none)"
+  [ -s "$uxv" ] && { read -r rec_dh rec_ver rec_key _ < "$uxv" 2>/dev/null || true; }
+  if [ -z "$rec_dh$rec_ver$rec_key" ]; then
+    UX_CARRY_REASON="no completed UX walk recorded for this PR"; return 1
+  fi
+  if [ "$rec_dh" != "$dh" ]; then
+    UX_CARRY_REASON="the PR diff moved (${rec_dh:-none} -> $dh)"; return 1
+  fi
+  if [ "$rec_ver" != PASS ]; then
+    UX_CARRY_REASON="the recorded walk is ${rec_ver:-unreadable}, not PASS"; return 1
+  fi
+  if [ "$rec_key" != "$UX_CARRY_KEY" ]; then
+    UX_CARRY_REASON="the rendered console's inputs moved (${rec_key:-none} -> $UX_CARRY_KEY)"; return 1
+  fi
+  UX_CARRY_REASON="PR diff and the rendered console's inputs are unchanged"
+  return 0
 }
 
 queue_carry() { # <wt> <old-head> <new-sha> <incoming> <pr-changed> <gate-file> <reviewed-file> <role>
@@ -870,6 +910,14 @@ batch_bisect_list() {
   if batch_union "$repo" "$base" "$rec" "${heads[@]}"; then
     ( cd "$repo" && bash "$RSI_DIR/runtime/gate.sh" --only "$step" "$repo" ) > "$rec.log" 2>&1; rc=$?
     if [ $rc -eq 0 ] && grep -q '^GATE_RESULT=PARTIAL$' "$rec.log"; then rm -f "$rec" "$rec.log"; return 0; fi
+    # A filtered run that could not judge (exit 3, ^GATE_RESULT=NO_VERDICT) failed on the machine,
+    # not on these members: attribute nobody, and stop this branch instead of recursing into a
+    # singleton CULPRIT that batch_run would send back to a worker.
+    if grep -q '^GATE_RESULT=NO_VERDICT' "$rec.log" 2>/dev/null; then
+      rm -f "$rec" "$rec.log"
+      echo "NO_VERDICT $step"
+      return 0
+    fi
   fi
   rm -f "$rec" "$rec.log"
   if [ $n -eq 1 ]; then echo "CULPRIT ${heads[0]}"; return 0; fi
@@ -924,14 +972,39 @@ batch_members_read() { # <members-file> -> fills BM_*; non-zero when malformed
   [ -n "$BM_BASE" ] || BM_BASE="$($GIT -C "$BATCH_REPO" rev-parse origin/main 2>/dev/null)"
   [ -n "$BM_BASE" ]
 }
-batch_gate_verdict() { # <log> <rc> -> PASS | FAIL:<steps> | PARTIAL | OTHER
+batch_gate_verdict() { # <log> <rc> -> PASS | NO_VERDICT:<reason> | FAIL:<steps> | PARTIAL | OTHER
   if [ "$2" -eq 0 ] && grep -qx 'GATE_RESULT=PASS' "$1" 2>/dev/null; then echo PASS; return 0; fi
+  # The gate refused to judge (exit 3, ENOSPC or another environment failure). That is not a
+  # union failure to bisect and send back: its own arm, so a --union batch falls back to the
+  # per-PR path instead of billing a member for the machine.
+  if grep -q '^GATE_RESULT=NO_VERDICT' "$1" 2>/dev/null; then
+    echo "NO_VERDICT:$(grep '^GATE_RESULT=NO_VERDICT' "$1" | head -1 | sed 's/^GATE_RESULT=NO_VERDICT:[[:space:]]*//')"
+    return 0
+  fi
   if grep -q '^GATE_RESULT=FAIL:' "$1" 2>/dev/null; then
     echo "FAIL:$(grep '^GATE_RESULT=FAIL:' "$1" | head -1 | sed 's/^GATE_RESULT=FAIL:[[:space:]]*//')"
     return 0
   fi
   grep -q '^GATE_RESULT=PARTIAL' "$1" 2>/dev/null && { echo PARTIAL; return 0; }
   echo OTHER
+}
+# A gate log whose first GATE_RESULT is NO_VERDICT is the machine refusing to judge (gate.sh
+# exit 3: a failed probe write, or ENOSPC in a step's own log). The verifier skips the cycle —
+# no sendback, no rework attempt — the way gate_lock_decision() skips contention. Prints the
+# one-line reason; 0 only for a no-verdict log, so a red test still takes the FAIL path.
+gate_no_verdict_reason() { # <log>
+  local first
+  [ -r "$1" ] || return 1
+  first="$(grep '^GATE_RESULT' "$1" 2>/dev/null | head -1)"
+  case "$first" in
+    'GATE_RESULT=NO_VERDICT'*) printf '%s\n' "${first#GATE_RESULT=NO_VERDICT}" | sed 's/^:[[:space:]]*//'; return 0 ;;
+  esac
+  return 1
+}
+# Leave the cycle the way gate_lock_decision() does: say why, write nothing, spend nothing.
+gate_no_verdict_skip() { # <pr> <slug> <reason>
+  say "#$1 $2: gate could not judge ($3) — retry next cycle, no attempt burned"
+  exit 0
 }
 batch_tree_equal() { # <repo> <tree-a> <tree-b> — the prefix proof's equality (dist is regenerated)
   [ "$2" = "$3" ] && return 0
@@ -970,6 +1043,9 @@ batch_run_gate() { # <id> <worktree> <log> -> prints the verdict; one flake re-r
   rm -rf "$STATE/.gate.lock"
   v="$(batch_gate_verdict "$gl" "$rc")"
   [ "$v" = PASS ] && { echo PASS; return 0; }
+  # A gate that could not judge is not a union failure: no retry, no bisect. Hand it back and
+  # let batch_run's fallback re-enter each member, where the per-PR verifier skips the cycle.
+  case "$v" in NO_VERDICT*) echo "$v"; return 0 ;; esac
   # The verifier's existing flake rule, once per batch: only failing tests outside the union's own
   # footprint (or known-flaky). A second failure is a real failure.
   if [ ! -e "$STATE/merge/$id.outside-retry" ] && outside_tests_only "$wt" "$gl" "" "$STATE/merge/$id.outside-reason.txt"; then
@@ -1099,6 +1175,13 @@ batch_run() { # <id> <members-file>
       [ -n "$step" ] || step=check
       say "batch $id: union gate failed at step '$step'; bisecting"
       bout="$(batch_bisect "$BATCH_WT" "$BM_BASE" "$step" ${BM_HEAD[@]+"${BM_HEAD[@]}"})"
+      # A bisect run that could not judge names no member: the machine failed, so no worker is
+      # billed for it. Fall back to single verification, where each member's own cycle skips.
+      if printf '%s\n' "$bout" | grep -q '^NO_VERDICT'; then
+        batch_needs_ceo "$id" "union gate failed at '$step' and a bisect run could not judge (the machine, not a member); all members fall back to single verification"
+        batch_fall_back "$id" "no-verdict bisect"
+        return 1
+      fi
       ncul="$(printf '%s\n' "$bout" | grep -c '^CULPRIT' || true)"
       if [ "${ncul:-0}" -ne 1 ]; then
         batch_needs_ceo "$id" "union gate failed at '$step' but no single member is attributable; all members fall back to single verification"
@@ -1172,7 +1255,7 @@ batch_run() { # <id> <members-file>
 }
 
 # ------------------------------------------------------------------ re-verification accounting
-reverify_reason() { # <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason>
+reverify_reason() { # <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason> [current-head]
   # Accounting only (retro 2026-11-20 §5.2): WHY a gate that already ran is paid for again. Writes
   # nothing and is read by no gate decision, lock or verdict — the gate-start line in step 4
   # appends its one word to state/merge/cycles.log, so a week of data says whether re-verification
@@ -1180,10 +1263,12 @@ reverify_reason() { # <prior-gate-sha> <prior-diff-key> <current-diff-key> <prio
   # intuition. <prior-reachable> is 1 only when the prior gate head is a proven ancestor of the
   # current head. Prints exactly one word:
   #   first-gate      no prior gate head: the denominator, not a re-verification
+  #   land-sync       the head moved under an unchanged diff with no incoming paths: a main sync bought it
   #   rework          the PR's own code changed, the branch was rewritten, or nothing else moved
   #   shared-surface  main moved a surface every PR depends on, so every PR re-gates
   #   main-moved      main moved a path this PR does not verify, yet the gate ran again
-  local prior_sha="$1" prior_key="$2" cur_key="$3" reachable="$4" incoming="$5" reason="$6"
+  # An unknown current head (a six-argument caller) falls through to rework, never to land-sync.
+  local prior_sha="$1" prior_key="$2" cur_key="$3" reachable="$4" incoming="$5" reason="$6" cur_head="${7:-}"
   if [ -z "$prior_sha" ]; then echo first-gate; return 0; fi
   # An empty prior key is not evidence: a missing review cache must fall through, not claim rework.
   if [ -n "$prior_key" ] && [ "$prior_key" != "$cur_key" ]; then echo rework; return 0; fi
@@ -1194,6 +1279,14 @@ reverify_reason() { # <prior-gate-sha> <prior-diff-key> <current-diff-key> <prio
         echo shared-surface ;;
       *) echo main-moved ;;
     esac
+    return 0
+  fi
+  # The branch head moved under an unchanged PR diff and no path came in: the land loop merged
+  # origin/main into the branch during a CI hold, so the gate is bought by that sync, not rework.
+  # Only a known, unchanged key and a known, different head prove it; anything less fails closed.
+  if [ -n "$prior_key" ] && [ "$prior_key" = "$cur_key" ] \
+     && [ -n "$cur_head" ] && [ "$cur_head" != "$prior_sha" ]; then
+    echo land-sync
     return 0
   fi
   echo rework
@@ -1655,11 +1748,11 @@ if [ "${1:-}" != "--one" ]; then
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the pure re-verification classifier the
   # gate-start accounting line writes. No state, no lock, no gate, no dispatch — one word out.
   if [ "${1:-}" = "--reverify-reason-check" ]; then
-    [ $# -ge 7 ] || {
-      echo "usage: merge.sh --reverify-reason-check <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason>" >&2
+    if [ $# -lt 7 ] || [ $# -gt 8 ]; then
+      echo "usage: merge.sh --reverify-reason-check <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason> [current-head]" >&2
       exit 2
-    }
-    reverify_reason "$2" "$3" "$4" "$5" "$6" "$7"; exit 0
+    fi
+    reverify_reason "$2" "$3" "$4" "$5" "$6" "$7" "${8:-}"; exit 0
   fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the same prior_gate_capture() step 1
   # reads the accounting inputs with, over files on disk. No state, lock, gate, review or dispatch.
@@ -1701,6 +1794,16 @@ if [ "${1:-}" != "--one" ]; then
     [ $GLRC -eq 0 ] && { echo "SKIP $GATE_LOCK_REASON"; exit 0; }
     echo "GATE $GATE_LOCK_REASON"; exit 1
   fi
+  # Hermetic seam for rsi/runtime/tests/test-gate-no-verdict.sh: the same skip decision the
+  # verifier applies to a gate log the gate refused to judge. No lock, fetch, gate, gh or review.
+  if [ "${1:-}" = "--no-verdict-check" ]; then
+    [ $# -ge 4 ] || { echo "usage: merge.sh --no-verdict-check <pr> <slug> <gate-log>" >&2; exit 2; }
+    if NVR="$(gate_no_verdict_reason "$4")"; then
+      echo "SKIP $NVR"
+      gate_no_verdict_skip "$2" "$3" "$NVR"
+    fi
+    echo "JUDGE"; exit 1
+  fi
   # Hermetic seam for rsi/runtime/tests/test-merge-ceo-ok.sh: run the same ceo_ok_verdict() the hold
   # block calls, against a marker file, a changed-path list and a PR number. No lock, fetch, gh.
   if [ "${1:-}" = "--ceo-ok-check" ]; then
@@ -1740,6 +1843,15 @@ if [ "${1:-}" != "--one" ]; then
       echo "CARRY $CARRY_REASON"; exit 0
     fi
     echo "REGATE $CARRY_REASON"; exit 1
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-ux-carry-key.sh: print the carry key and the verdict
+  # the UX-gate block reads, over temp repos on disk. No gh, fetch, gate, walk, review or dispatch.
+  if [ "${1:-}" = "--ux-carry-key-check" ]; then
+    # usage: merge.sh --ux-carry-key-check <worktree> <main-ref> [<uxverified-file> <pr-diff-hash>]
+    [ $# -ge 3 ] || { echo "usage: merge.sh --ux-carry-key-check <worktree> <main-ref> [<uxverified-file> <pr-diff-hash>]" >&2; exit 2; }
+    echo "KEY $(ux_carry_key "$2" "$3")"
+    if ux_carry_verdict "$2" "$3" "${4:-}" "${5:-}"; then echo "CARRY $UX_CARRY_KEY"; exit 0; fi
+    echo "REGATE $UX_CARRY_REASON"; exit 1
   fi
   # Hermetic seam for rsi/runtime/tests/test-loop-sendback-stale.sh: run the same sendback() the
   # land loop calls with a stubbed PR head. No lock, fetch, gate, review, merge or dispatch.
@@ -1789,6 +1901,12 @@ if [ "${1:-}" != "--one" ]; then
   if [ "${1:-}" = "--archive-check" ]; then
     archive_sendback "${2:?slug required}" merged "${3:?sha8 required}"
     exit 0
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-gate-no-verdict.sh: the one classifier a gate log
+  # goes through in a --union batch, so a NO_VERDICT log is never read as FAIL. No gate, gh or lock.
+  if [ "${1:-}" = "--batch-verdict-check" ]; then
+    [ $# -ge 3 ] || { echo "usage: merge.sh --batch-verdict-check <log> <rc>" >&2; exit 2; }
+    batch_gate_verdict "$2" "$3"; exit 0
   fi
   # Hermetic seams for rsi/runtime/tests/test-merge-batch.sh: the batch planner, union builder,
   # marker validity, prefix-tree proof and bisect, each callable alone. No gh, lock or dispatch.
@@ -1849,6 +1967,8 @@ if [ "${1:-}" != "--one" ]; then
     echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,body 2>/dev/null)"
   fi
   PRS="$(printf '%s' "$PRJ" | dispatch_rows)"
+  UNSEEN="$(printf '%s' "$PRJ" | python3 "$RSI_DIR/runtime/unseen-pr.py" --rows "$PRS" --state "$STATE" 2>/dev/null || true)"
+  [ -n "$UNSEEN" ] && while IFS= read -r l; do [ -n "$l" ] && say "$l"; done <<< "$UNSEEN"
   [ -z "$PRS" ] && { say "no open rsi PRs"; exit 0; }
   ACTIVE="$(python3 "$LANES_PY" slugs)"
   # One gate for ready disjoint PRs (RSI_BATCH_VERIFY=1): form and start the batch runner before
@@ -2113,7 +2233,7 @@ fi
 # 3. MANDATE 5 screenshots (cheap, before spending a gate/review): local shots dir, local PR body file, or the PR body itself (cloud PRs)
 if echo "$CH" | grep -qE '^ui/src/.*\.tsx$' && ! echo "$CH" | grep -qE '^ui/src/.*\.(test|spec)\.' ; then
   if [ -z "$(ls "$STATE/shots/$SLUG" 2>/dev/null)" ] && ! echo "$BODY" | grep -qiE 'screenshots?:.*(none|not visible|https?://|!\[)' ; then
-    echo "UI .tsx changed but no screenshots in $STATE/shots/$SLUG/ and no 'Screenshots:' line with a link/image or 'none: <reason>' in the PR body (MANDATE 5). Capture 390x844 and 1100x760 before/after, or state why nothing is visible." > "$STATE/merge/$SLUG.err"
+    echo "UI .tsx changed but no screenshots in $STATE/shots/$SLUG/ and no 'Screenshots:' line with a link/image or 'none: <reason>' in the PR body (MANDATE 5). Capture 390x844, 820x1180 and 1100x760 before/after, or state why nothing is visible." > "$STATE/merge/$SLUG.err"
     sendback "$SLUG" "$ITEM" "missing screenshots" "$STATE/merge/$SLUG.err" "hold-screenshots" - -; exit 0
   fi
 fi
@@ -2202,7 +2322,7 @@ if [ $NEED_GATE -eq 1 ]; then
   # The retrospective's accounting line (2026-11-20 §5.2): record WHY this gate is paid for, before
   # the lock, so a FAIL or a lock timeout still counts. Deliberately not folded into the verify=
   # line at the bottom: that one is never written on a FAIL and would bias the data to cheap passes.
-  RR="$(reverify_reason "$PRIOR_GATE_SHA" "$PRIOR_DIFF_KEY" "$DH" "$PRIOR_REACHABLE" "$QUEUE_INCOMING" "${QUEUE_CARRY_REASON:-}")"
+  RR="$(reverify_reason "$PRIOR_GATE_SHA" "$PRIOR_DIFF_KEY" "$DH" "$PRIOR_REACHABLE" "$QUEUE_INCOMING" "${QUEUE_CARRY_REASON:-}" "$SHA")"
   echo "$(date '+%F %H:%M') #$N $SLUG reverify_reason=$RR" >> "$STATE/merge/cycles.log"
   # The head and diff key this gate is about to run on: a FAIL writes no verified/reviewed PASS line,
   # so the next cycle's accounting reads them from here (prior_gate_capture).
@@ -2258,6 +2378,11 @@ if [ $NEED_GATE -eq 1 ]; then
       fi
     fi
     if [ $GRC -ne 0 ] || ! grep -q '^GATE_RESULT=PASS' "$GL"; then
+      # The machine could not run the gate (exit 3: failed probe write / ENOSPC in a step log).
+      # Not a verdict on the branch: retry next cycle, no sendback, no rework attempt burned.
+      if NVR="$(gate_no_verdict_reason "$GL")"; then
+        gate_no_verdict_skip "$N" "$SLUG" "$NVR"
+      fi
       GATE_OK=0; GATE_NOTE="$(grep '^GATE_RESULT' "$GL" | head -1)"
       outside_tests_only "$WT" "$GL" && GATE_OUTSIDE=1
       say "#$N $SLUG: gate FAIL: $GATE_NOTE$([ $GATE_OUTSIDE -eq 1 ] && echo ' (outside-footprint or known-flaky tests)')"
@@ -2385,10 +2510,10 @@ echo "$CH" | grep -E '^ui/src/.*\.(tsx|css)$' | grep -vqE '\.(test|spec)\.' && U
 echo "$CH" | grep -qE '^(ui/package(-lock)?\.json|ui/tailwind|ui/postcss)' && UI_TOUCH=1
 if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
   UXV="$STATE/merge/$SLUG.uxverified"
-  MAINUI="$($GIT -C "$WT" rev-parse origin/main:ui 2>/dev/null || $GIT -C "$WT" rev-parse origin/main)-$($GIT -C "$WT" rev-parse HEAD:ui/package-lock.json 2>/dev/null || echo none)"
-  if [ "$(cut -d' ' -f1 "$UXV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$UXV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f3 "$UXV" 2>/dev/null)" = "$MAINUI" ]; then
-    say "#$N $SLUG: UX gate carried over (PR diff and origin/main:ui unchanged)"
+  if ux_carry_verdict "$WT" origin/main "$UXV" "$DH"; then
+    say "#$N $SLUG: UX gate carried over ($UX_CARRY_REASON: $UX_CARRY_KEY)"
   else
+    say "#$N $SLUG: UX gate re-walks ($UX_CARRY_REASON)"
     # Reuse a strong UX review for this same head SHA (do not re-call Hydrogen/sol), but only
     # when the gate's own decision accepts the cached text: reusing an ungrounded below-threshold
     # score is #383 again (its FAIL sends the PR back, its PASS merges it) one tick after the gate
@@ -2409,10 +2534,18 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
     [ -s "$STATE/merge/$SLUG.strong-ux.txt" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong-ux")" = "$SHA" ] \
       && say "#$N $SLUG: cached strong UX review for ${SHA:0:8} fails the UX gate's own decision (grounding/threshold) — running the gate"
     say "#$N $SLUG: UX gate (journey walk + vision review)"
-    # Outer backstop, not the walk bound: ux-gate re-walks a red once (confirm),
-    # and that second walk has the same RSI_WALK_MAX_S ceiling, so the default
-    # leaves room for both (2 x 1800s) plus the vision dispatch.
-    GATE_MAX="${RSI_UX_GATE_MAX_S:-5400}"; case "$GATE_MAX" in ''|*[!0-9]*) GATE_MAX=5400;; esac
+    # Outer backstop, not a walk bound, and it must enclose the whole composition:
+    # each walk can spend RSI_HEAVY_WAIT_MAX queueing for the heavy slot and then
+    # RSI_WALK_MAX_S in the walker, ux-gate re-walks a red once (confirm), the
+    # vision review is dispatched up to twice (first ask + one grounding re-ask)
+    # at DISPATCH_MAX_SECS=1500 each (ux-gate.sh), and the pre-walk UI/go build,
+    # seed and daemon boot add ~900s. With the default bounds:
+    # 2 x (1800 + 1800) + 2 x 1500 + 900 = 11100s. A numeric RSI_UX_GATE_MAX_S
+    # still wins; a malformed one falls back to the same derived default.
+    HEAVY_WAIT_MAX="${RSI_HEAVY_WAIT_MAX:-1800}"; case "$HEAVY_WAIT_MAX" in ''|*[!0-9]*) HEAVY_WAIT_MAX=1800;; esac
+    WALK_MAX_S="${RSI_WALK_MAX_S:-1800}"; case "$WALK_MAX_S" in ''|*[!0-9]*) WALK_MAX_S=1800;; esac
+    GATE_DEFAULT=$(( 2 * (HEAVY_WAIT_MAX + WALK_MAX_S) + 2 * 1500 + 900 ))
+    GATE_MAX="${RSI_UX_GATE_MAX_S:-$GATE_DEFAULT}"; case "$GATE_MAX" in ''|*[!0-9]*) GATE_MAX=$GATE_DEFAULT;; esac
     # This attempt's evidence only: ux-gate clears confirm.json below its first walk, so an
     # earlier attempt on the same slug would otherwise leave it readable to the 124 branch if
     # this attempt expires during build/seed/walk, and the sendback would carry a past tree's red.
@@ -2459,7 +2592,7 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
     fi
     SC="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(" ".join("%s=%s"%kv for kv in d["scores"].items()), "mean=%s"%d["mean"])' "$STATE/ux/$SLUG/scores.json" 2>/dev/null)"
     if [ $urc -eq 0 ]; then
-      echo "$DH PASS $MAINUI" > "$UXV"
+      echo "$DH PASS $UX_CARRY_KEY" > "$UXV"
       $GH pr comment "$N" --repo "$GH_REPO" --body "RSI UX gate: PASS on ${SHA:0:8} ($SC). Journey screenshots are kept on the CEO machine (rsi/state/shots/$SLUG/journeys/). Rubric: rsi/UX-RUBRIC.md." >/dev/null 2>&1
     elif [ $urc -eq 1 ]; then
       say "#$N $SLUG: UX gate FAIL ($SC)"; sendback "$SLUG" "$ITEM" "UX gate failed ($SC)" "$STATE/merge/$SLUG.ux.txt" "ux-gate" "$(spec_rev "$WT")" "bash $RSI_DIR/runtime/ux-gate.sh $WT $SLUG $ITEM $N $DH $ROLE"

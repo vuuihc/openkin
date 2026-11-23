@@ -158,11 +158,14 @@ describe("RunConfigControl", () => {
     expect(faceRow).toBe(model.parentElement!.parentElement);
     expect(faceRow!.className).toContain("flex");
     expect(faceRow!.className).not.toContain("flex-col");
-    // On the phone's narrow row the one visible name is the model; the
-    // agent's name returns from `sm` up, where there is room for both.
+    // On a narrow card the one visible name is the model; the agent's name
+    // returns from the composer card's `@xl` width up, where there is room for
+    // both. The cut is the card's, not the viewport's: an iPad in portrait
+    // draws a 344–396px card inside a ≥640px window.
     const agent = within(face).getByText(agentName);
     expect(agent.className).toContain("hidden");
-    expect(agent.className).toContain("sm:block");
+    expect(agent.className).toContain("@xl:block");
+    expect(agent.className).not.toContain("sm:block");
     // One line: neither the values nor the row that holds them may wrap.
     expect(model.parentElement!.className).not.toContain("flex-wrap");
     expect(face.className).toContain("overflow-hidden");

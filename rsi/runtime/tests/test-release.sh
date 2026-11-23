@@ -164,6 +164,27 @@ for l in "$STATE/lanes/1.lock" "$STATE/lanes/2.lock" "$STATE/merge/x.lock"; do e
 run 0 "GO: lanes waiting on a model call hold no slot"
 rm -rf "$STATE/lanes" "$STATE/merge"
 
+# 7c. Two releases must not run at once. Two patrol rounds can pass the same gate seconds
+#     apart (2026-11-21, overlapping CEO rounds); the second must refuse before it reads
+#     anything, so the live node is restarted once. The lock is a live pid; a dead one is
+#     a crash leftover and must not block the next real release.
+mkdir -p "$STATE/.release.lock"; printf '%s\n' $$ > "$STATE/.release.lock/pid"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$T/not-a-checkout" KIN_API="$(API)" \
+  bash "$RELEASE" --node-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "release-lock: a held lock must skip with exit 0, got $rc"; }
+grep -q 'another release is running' <<<"$out" || fail "release-lock: the skip did not name the holder"
+case "$out" in *verdict=*) fail "release-lock: the second release ran the gate instead of refusing" ;; esac
+rm -rf "$STATE/.release.lock"
+pass "release: a second release refuses while the first holds the lock"
+
+mkdir -p "$STATE/.release.lock"; printf '99999998\n' > "$STATE/.release.lock/pid"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_REPO="$REPO" KIN_API="$(API)" RSI_RELEASE_MIN=99 \
+  bash "$RELEASE" --node-only --repo "$REPO" 2>&1)"; rc=$?
+[ "$rc" = 1 ] || { printf '%s\n' "$out" >&2; fail "release-lock: a stale lock must let the release reach its gate (got $rc)"; }
+grep -q 'clearing a stale release lock' <<<"$out" || fail "release-lock: the stale lock was not reported"
+[ -d "$STATE/.release.lock" ] && fail "release-lock: a HOLD release left the lock behind"
+pass "release: a dead pid is a stale lock, and a HOLD releases it"
+
 # 8. Unshipped is measured per target, so a half-release is retried, never counted done.
 printf 'node=%s\nhub=%s\n' "$HEAD_SHA" "$ROOT" > "$STATE/last_release"
 run 0 "GO: node at tip but hub baseline at the root still counts the work"
@@ -181,10 +202,12 @@ SECOND="$T/second"; git clone -q "$REPO" "$SECOND"
 git -C "$SECOND" checkout -q main
 git -C "$SECOND" remote set-url origin "$REPO"
 printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+LAST_OUT=""
 merge_run() { # merge_run <case> <want-exit>
   local name="$1" want="$2" out rc
   out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
     RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+  LAST_OUT="$out"
   [ "$rc" = "$want" ] || { printf '%s\n' "$out" >&2; fail "$name: expected exit $want, got $rc"; }
   pass "$name"
 }
@@ -193,6 +216,7 @@ git -C "$SECOND" reset -q --hard "$BASE2"
 merge_run "release: a lagging checkout is fast-forwarded" 0
 [ "$(git -C "$SECOND" rev-list --count origin/main..HEAD)" = 0 ] || fail "fast-forward left local commits"
 grep -q "^node=$HEAD_SHA" "$STATE/last_release" || fail "node marker not written after a release"
+[ -d "$STATE/.release.lock" ] && fail "release-lock: a finished release left its lock behind"
 
 # (b) local main has an unpublished docs commit -> merge commit, nothing rewritten.
 printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
@@ -212,6 +236,62 @@ merge_run "release: a conflict holds and rewrites nothing" 1
 [ "$(git -C "$SECOND" rev-parse HEAD)" = "$before" ] || fail "a conflicting release moved HEAD"
 [ -d "$SECOND/.git" ] && [ ! -f "$SECOND/.git/MERGE_HEAD" ] || fail "merge not aborted"
 git -C "$SECOND" status --porcelain | grep -q '^UU' && fail "conflict markers left behind"
+grep -q 'release: .*f6' <<<"$LAST_OUT" || fail "a conflicting release did not name the conflicting file: $LAST_OUT"
+
+# (c1) A local commit whose change is *already upstream* — it landed as a PR, so the local
+#      patch is redundant — can still conflict textually because upstream later touched the
+#      same lines. Nothing local can be lost, so the release must merge taking upstream's
+#      side and then prove the resulting tree equals origin/main. A dedicated fixture has
+#      its own upstream so both branches really reach this checkout.
+UP="$T/up"; mkdir -p "$UP"; git -C "$UP" init -q -b main
+( cd "$UP" && printf 'one\n' > file.txt && git add file.txt && git commit -q -m "chore: base"
+  printf 'one\ntwo\n' > file.txt && git commit -qam "feat: x (#11)"
+  printf 'one\ntwo\nthree\n' > file.txt && git commit -qam "feat: y (#12)" )
+UP_ROOT="$(git -C "$UP" rev-list --max-parents=0 HEAD)"
+DUP="$T/dup"; git clone -q "$UP" "$DUP"; git -C "$DUP" checkout -q main
+git -C "$DUP" reset -q --hard "$UP_ROOT"
+printf 'one\ntwo\n' > "$DUP/file.txt"; git -C "$DUP" add file.txt
+GIT_COMMITTER_DATE="2020-01-01T00:00:00 +0000" git -C "$DUP" commit -q -m "feat: x (local duplicate)"
+DUP_SHA="$(git -C "$DUP" rev-parse HEAD)"
+cherry_now="$(git -C "$DUP" cherry origin/main HEAD)"
+[ -n "$cherry_now" ] || fail "fixture: git cherry printed nothing for a patch-equivalent commit"
+printf '%s\n' "$cherry_now" | grep -q '^+' && fail "fixture: the local duplicate is not patch-equivalent to upstream"
+printf 'node=%s\nhub=%s\n' "$UP_ROOT" "$UP_ROOT" > "$STATE/last_release"
+out="$(env RSI_RELEASE_MIN=1 RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$DUP" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$DUP" --node-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "patch-equivalent: expected exit 0, got $rc"; }
+git -C "$DUP" diff --quiet origin/main HEAD || fail "patch-equivalent: merged tree differs from origin/main"
+git -C "$DUP" merge-base --is-ancestor "$DUP_SHA" HEAD || fail "patch-equivalent: the local commit is no longer an ancestor"
+grep -q '^node=' "$STATE/last_release" || fail "patch-equivalent: node marker not written"
+[ ! -f "$DUP/.git/MERGE_HEAD" ] || fail "patch-equivalent: MERGE_HEAD left behind"
+[ -z "$(git -C "$DUP" status --porcelain)" ] || fail "patch-equivalent: checkout left dirty"
+pass "release: a local commit already upstream merges onto origin/main"
+
+# (c2) The proof-of-equality guard cannot be skipped: a merge that reports success but
+#      leaves the tree unlike origin/main must stop, name the files that differ, and leave
+#      the checkout exactly as it was (no merge commit, clean tree) so the next release
+#      stops again instead of seeing origin/main as an ancestor and shipping the tree.
+REALGIT="$(command -v git)"
+git -C "$DUP" reset -q --hard "$DUP_SHA"
+WRAP2="$T/wrap-fake-merge"; mkdir -p "$WRAP2"
+cat > "$WRAP2/git" <<SH
+#!/bin/bash
+case " \$* " in
+  *" cherry "*) echo "- $DUP_SHA"; exit 0 ;;
+  *" merge "*"-X theirs"*) exit 0 ;;
+esac
+exec "$REALGIT" "\$@"
+SH
+chmod +x "$WRAP2/git"
+printf 'node=%s\nhub=%s\n' "$UP_ROOT" "$UP_ROOT" > "$STATE/last_release"
+out="$(env PATH="$WRAP2:$PATH" RSI_RELEASE_MIN=1 RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$DUP" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$DUP" --node-only 2>&1)"; rc=$?
+[ "$rc" = 1 ] || { printf '%s\n' "$out" >&2; fail "unproven merge: expected exit 1, got $rc"; }
+grep -q 'file.txt' <<<"$out" || fail "unproven merge: the abort did not name the differing file: $out"
+[ "$(git -C "$DUP" rev-parse HEAD)" = "$DUP_SHA" ] || fail "unproven merge: the failed proof moved HEAD"
+[ -z "$(git -C "$DUP" status --porcelain)" ] || fail "unproven merge: the failed proof left the checkout dirty"
+[ ! -f "$DUP/.git/MERGE_HEAD" ] || fail "unproven merge: MERGE_HEAD left behind"
+pass "release: a merge that leaves the tree different from origin/main stops and names the file"
 
 # (d) the node rebuild is told to detach: desktop-rebuild.sh ends by launching Electron
 #     and must not hold the release open until the desktop app exits.
@@ -481,6 +561,7 @@ grep -q '^released_at=' "$MARK" || fail "both-targets: no released_at line"
 run 10 "both-targets: the gate's reader sees 0 unshipped against it"
 grep -q '^unshipped=0 ' <<<"$LAST" || fail "both-targets: release-check still counts unshipped work: $LAST"
 pass "release: one run leaves both targets at the shipped SHA"
+[ -d "$STATE/.release.lock" ] && fail "both-targets: a finished release left its lock behind"
 
 # 17. The abort names the target, the SHA it expected and what the file actually says, so
 #     the next person can see the 2026-11-20 shape without re-running the release. This
@@ -494,5 +575,237 @@ grep -q 'hub' <<<"$out" || fail "readback-message: the abort does not name the t
 grep -q "$HUB_NOW" <<<"$out" || fail "readback-message: the abort does not name the SHA it expected"
 grep -q "$ROOT" <<<"$out" || fail "readback-message: the abort does not print the marker contents"
 pass "release: the failure message names the target and the file"
+[ -d "$STATE/.release.lock" ] && fail "readback-message: an aborted release left its lock behind"
+
+# 18. local_main_only — how many non-merge commits sit on the released checkout's local
+#     main and nowhere on origin/main. They ride the release (MANDATE allows it), so the
+#     number is reported, never gated on. Merge commits are excluded because the release
+#     itself creates them; a plain rev-list count would show a permanent non-zero number.
+mk_fixture_repo() { # mk_fixture_repo <dir> -> root sha on stdout
+  local d="$1"
+  mkdir -p "$d"; git -C "$d" init -q -b main
+  ( cd "$d" && echo base > base.txt && git add base.txt && git commit -q -m "chore: init"
+    for n in 1 2 3 4 5 6; do
+      echo "$n" > "f$n"; git add "f$n"; git commit -q -m "feat(x): change $n (#$((100 + n)))"
+    done )
+  git -C "$d" update-ref refs/remotes/origin/main HEAD
+  git -C "$d" rev-list --max-parents=0 HEAD
+}
+
+# (a) one local-only commit: reported, and the verdict is unchanged.
+L1="$T/lm1"; L1_ROOT="$(mk_fixture_repo "$L1")"
+printf 'node=%s\nhub=%s\n' "$L1_ROOT" "$L1_ROOT" > "$STATE/last_release"
+run 0 "local-main: GO with a clean local main (baseline)" RSI_REPO="$L1"
+grep -q '^local_main_only=0$' <<<"$LAST" || fail "local-main baseline: expected 0: $LAST"
+grep -q '^verdict=GO$' <<<"$LAST" || fail "local-main baseline: expected GO: $LAST"
+git -C "$L1" commit -q --allow-empty -m "docs: local only"
+run 0 "local_main_only_counts_a_local_commit" RSI_REPO="$L1"
+grep -q '^local_main_only=1$' <<<"$LAST" || fail "local_main_only_counts_a_local_commit: expected 1: $LAST"
+grep -q '^verdict=GO$' <<<"$LAST" || fail "local_main_only_counts_a_local_commit: verdict must stay GO: $LAST"
+
+# (b) the release's own --no-ff merges must not be counted.
+L2="$T/lm2"; L2_ROOT="$(mk_fixture_repo "$L2")"
+printf 'node=%s\nhub=%s\n' "$L2_ROOT" "$L2_ROOT" > "$STATE/last_release"
+git -C "$L2" commit -q --allow-empty -m "docs: local only"
+for n in 1 2; do
+  git -C "$L2" checkout -q -b "incoming$n" refs/remotes/origin/main
+  git -C "$L2" commit -q --allow-empty -m "chore: incoming $n"
+  git -C "$L2" update-ref refs/remotes/origin/main HEAD
+  git -C "$L2" checkout -q main
+  git -C "$L2" merge -q --no-ff --no-edit origin/main
+done
+run 0 "local_main_only_ignores_release_merges" RSI_REPO="$L2"
+grep -q '^local_main_only=1$' <<<"$LAST" || fail "local_main_only_ignores_release_merges: expected 1 with two --no-ff merges: $LAST"
+
+# (c) a checkout with no local main cannot be read: unknown, never 0, and the verdict and
+#     reason are exactly what the same fixture says without the feature.
+L3="$T/lm3"; mkdir -p "$L3"; git -C "$L3" init -q -b trunk
+( cd "$L3" && echo base > base.txt && git add base.txt && git commit -q -m "chore: init"
+  for n in 1 2 3 4 5 6; do
+    echo "$n" > "f$n"; git add "f$n"; git commit -q -m "feat(x): change $n (#$((100 + n)))"
+  done )
+git -C "$L3" update-ref refs/remotes/origin/main HEAD
+printf 'node=%s\n' "$(git -C "$L3" rev-parse HEAD~2)" > "$STATE/last_release"
+run 10 "local_main_only_is_unknown_when_unreadable" RSI_REPO="$L3"
+grep -q '^local_main_only=unknown$' <<<"$LAST" || fail "unreadable: expected unknown: $LAST"
+grep -q '^verdict=HOLD$' <<<"$LAST" || fail "unreadable: verdict changed: $LAST"
+grep -q '^reason=unshipped 2 < 5$' <<<"$LAST" || fail "unreadable: reason changed: $LAST"
+
+# (d) below the threshold the HOLD reason is untouched by the new number.
+L4="$T/lm4"; L4_ROOT="$(mk_fixture_repo "$L4")"
+printf 'node=%s\n' "$(git -C "$L4" rev-parse refs/remotes/origin/main~2)" > "$STATE/last_release"
+for n in 1 2 3; do git -C "$L4" commit -q --allow-empty -m "docs: local only $n"; done
+run 10 "local_main_only_never_changes_the_verdict" RSI_REPO="$L4"
+grep -q '^verdict=HOLD$' <<<"$LAST" || fail "verdict-gate: expected HOLD: $LAST"
+grep -q '^reason=unshipped 2 < 5$' <<<"$LAST" || fail "verdict-gate: reason must stay 'unshipped 2 < 5': $LAST"
+grep -q '^local_main_only=3$' <<<"$LAST" || fail "verdict-gate: expected 3 local-only commits: $LAST"
+
+# (e) --json carries the number, or null when it cannot be read.
+json_lmo() { python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+v = d["local_main_only"]
+print("null" if v is None else v)
+' <<<"$1" 2>/dev/null; }
+J="$(env RSI_RELEASE_STATE="$STATE" RSI_REPO="$L1" KIN_API="$(API)" bash "$CHECK" --json 2>&1)"
+[ "$(json_lmo "$J")" = 1 ] || fail "local_main_only_in_json: expected 1, got $J"
+J="$(env RSI_RELEASE_STATE="$STATE" RSI_REPO="$L3" KIN_API="$(API)" bash "$CHECK" --json 2>&1)"
+[ "$(json_lmo "$J")" = null ] || fail "local_main_only_in_json: expected null for an unreadable checkout, got $J"
+pass "local_main_only_in_json"
+
+# (f) the durable record carries it, and the unreviewed warning prints exactly once.
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+git -C "$SECOND" reset -q --hard "$BASE2"
+echo note3 >> "$SECOND/NOTES.md"; git -C "$SECOND" add NOTES.md
+git -C "$SECOND" commit -q -m "docs: local only for the release log"
+: > "$STATE/releases.log"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "release_logs_local_main_only: expected exit 0, got $rc"; }
+grep -q '^.*RELEASED .*local_main_only=1$' "$STATE/releases.log" \
+  || fail "release_logs_local_main_only: RELEASED record lacks local_main_only=1: $(cat "$STATE/releases.log")"
+[ "$(grep -c 'local main only' <<<"$out")" = 1 ] \
+  || fail "release_logs_local_main_only: expected exactly one warning line: $out"
+pass "release_logs_local_main_only"
+
+# (g) zero local-only commits: the record says 0 and there is no warning.
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+git -C "$SECOND" reset -q --hard origin/main
+: > "$STATE/releases.log"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "local_main_only_zero: expected exit 0, got $rc"; }
+grep -q '^.*RELEASED .*local_main_only=0$' "$STATE/releases.log" \
+  || fail "local_main_only_zero: RELEASED record lacks local_main_only=0: $(cat "$STATE/releases.log")"
+[ "$(grep -c 'local main only' <<<"$out")" = 0 ] \
+  || fail "local_main_only_zero: a clean local main must not warn: $out"
+pass "local_main_only_zero"
+
+# (h) a gate that omits local_main_only entirely (an older check, or a hand-run stub) must
+#     not reach the numeric comparison or the record as an empty value: unknown, exit 0,
+#     no warning. Deleting the empty->unknown coercion records `local_main_only=` and this
+#     case goes red.
+STUB_GATE="$T/gate-no-local-main.sh"
+cat > "$STUB_GATE" <<SH
+#!/bin/bash
+echo "unshipped=6 commits=6 min=5"
+echo "sessions=0 node=up"
+echo "verdict=GO"; exit 0
+SH
+chmod +x "$STUB_GATE"
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+git -C "$SECOND" reset -q --hard origin/main
+: > "$STATE/releases.log"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_CHECK="$STUB_GATE" RSI_RELEASE_NODE_CMD=true \
+  bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "local_main_only_unknown_when_the_gate_omits_it: expected exit 0, got $rc"; }
+grep -q '^.*RELEASED .*local_main_only=unknown$' "$STATE/releases.log" \
+  || fail "local_main_only_unknown_when_the_gate_omits_it: RELEASED record lacks local_main_only=unknown: $(cat "$STATE/releases.log")"
+[ "$(grep -c 'local main only' <<<"$out")" = 0 ] \
+  || fail "local_main_only_unknown_when_the_gate_omits_it: an unreadable count must not warn: $out"
+pass "local_main_only_unknown_when_the_gate_omits_it"
+
+# 19-22. One writer for state/last_release. A fill turn used to read the record at the start of
+#        a long turn and write it back at its end, so a release that landed in between was
+#        overwritten with the pre-release values (2026-11-23 07:02: the node and the Hub both
+#        shipped a newer commit while the record kept the SHA read before the release began; the
+#        repair needed a four-way proof by hand). The fill's gate reading now lives in
+#        state/release-gate, and release.sh refuses to ship on a record that changed under it.
+start_node '[]'
+MARK="$STATE/last_release"
+SHIP="$(git -C "$SECOND" rev-parse HEAD)"
+# The failure line carries the case's own PASS name, so a red-first proof can name the test.
+CASE=""
+case_fail() { fail "$CASE: $*"; }
+
+# (a) the gate stub reads a real GO and then rewrites the record the way the 07:02 fill did.
+CASE="release: a marker rewritten after the gate read aborts before the node rebuild"
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$MARK"
+GATE_REWRITE="$T/gate-rewrite.sh"
+cat > "$GATE_REWRITE" <<SH
+#!/bin/bash
+out="\$(RSI_REPO="\$RSI_REPO" bash "$CHECK")"; rc=\$?
+printf '%s\n' "\$out"
+if [ "\$rc" = 0 ]; then
+  { printf 'node=%s\nhub=%s\nreleased_at=2000-01-01 00:00:00 +0000\n' "$ROOT" "$ROOT"
+    printf 'gate_at=2026-11-23 07:02:00 +0800\n'; } > "$MARK"
+fi
+exit \$rc
+SH
+chmod +x "$GATE_REWRITE"
+RAN_GATE="$T/node-ran-after-gate-rewrite"; rm -f "$RAN_GATE"
+NODE_SENTINEL="$T/node-cmd-sentinel.sh"
+printf '#!/bin/bash\ntouch %s\n' "$RAN_GATE" > "$NODE_SENTINEL"; chmod +x "$NODE_SENTINEL"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_CHECK="$GATE_REWRITE" RSI_RELEASE_NODE_CMD="$NODE_SENTINEL" \
+  bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+[ "$rc" = 1 ] || { printf '%s\n' "$out" >&2; case_fail "expected exit 1, got $rc"; }
+[ -e "$RAN_GATE" ] && case_fail "the node was rebuilt after the record changed under the gate"
+grep -q 'last_release' <<<"$out" || { printf '%s\n' "$out" >&2; case_fail "the abort does not name the record"; }
+grep -q 'concurrent writer' <<<"$out" || { printf '%s\n' "$out" >&2; case_fail "the abort does not name the concurrent writer"; }
+case "$out" in *"node: shipped"*) case_fail "the run claimed the node shipped" ;; esac
+pass "$CASE"
+
+# (b) a foreign line lands during the node phase, after the build and before mark node. The
+#     record still carries it, does not claim this run's SHA, and no Hub phase starts.
+CASE="release: a marker changed mid-release aborts without claiming the node shipped"
+NODE_APPEND="$T/node-cmd-append.sh"
+cat > "$NODE_APPEND" <<SH
+#!/bin/bash
+printf 'gate_at=2026-11-23 07:02:00 +0800\n' >> "$MARK"
+SH
+chmod +x "$NODE_APPEND"
+BIN_MARK="$T/bin-mark"; mkdir -p "$BIN_MARK"
+cat > "$BIN_MARK/docker" <<SH
+#!/bin/bash
+: > "$T/docker-ran"
+exit 0
+SH
+cat > "$BIN_MARK/ssh" <<'SH'
+#!/bin/bash
+case "$*" in *"docker ps"*) echo "Up 1 minute (healthy)" ;; esac
+exit 0
+SH
+chmod +x "$BIN_MARK/docker" "$BIN_MARK/ssh"
+rm -f "$T/docker-ran"
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$MARK"
+: > "$STATE/releases.log"
+out="$(env PATH="$BIN_MARK:$PATH" RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD="$NODE_APPEND" bash "$RELEASE" --repo "$SECOND" 2>&1)"; rc=$?
+[ "$rc" = 1 ] || { printf '%s\n' "$out" >&2; case_fail "expected exit 1, got $rc"; }
+case "$out" in *"node: shipped"*) case_fail "the run claimed the node shipped" ;; esac
+grep -q 'node: shipped' "$STATE/releases.log" && case_fail "releases.log claims the node shipped"
+grep -q '^gate_at=' "$MARK" || { printf '%s\n' "$(cat "$MARK")" >&2; case_fail "the foreign line was lost from the record"; }
+grep -q "^node=$SHIP$" "$MARK" && case_fail "the record holds the shipped SHA after an aborted node phase"
+[ -e "$T/docker-ran" ] && case_fail "the Hub phase ran after the node phase aborted"
+pass "$CASE"
+
+# (c) mark() owns node=, hub= and released_at=, not the whole file: a key written before the
+#     run survives exactly once and the duplicate released_at lines collapse to this run's.
+CASE="release: mark keeps a foreign key written before the run"
+printf 'note=keep\nnode=%s\nhub=%s\nreleased_at=2000-01-01 00:00:00 +0000\nreleased_at=2000-01-02 00:00:00 +0000\n' \
+  "$ROOT" "$ROOT" > "$MARK"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; case_fail "expected exit 0, got $rc"; }
+[ "$(grep -c '^note=keep$' "$MARK")" = 1 ] || { printf '%s\n' "$(cat "$MARK")" >&2; case_fail "note=keep must survive exactly once"; }
+grep -q "^node=$SHIP$" "$MARK" || { printf '%s\n' "$(cat "$MARK")" >&2; case_fail "the node marker is not the shipped SHA"; }
+grep -q "^hub=$ROOT$" "$MARK" || { printf '%s\n' "$(cat "$MARK")" >&2; case_fail "a node-only run changed the hub value"; }
+[ "$(grep -c '^released_at=' "$MARK")" = 1 ] || { printf '%s\n' "$(cat "$MARK")" >&2; case_fail "expected exactly one released_at line"; }
+grep -q 'node: shipped' <<<"$out" || { printf '%s\n' "$out" >&2; case_fail "the read-back did not report the write"; }
+pass "$CASE"
+
+# (d) the fill's gate reading belongs in state/release-gate, never in the release record.
+CASE="release: the fill prompt writes its gate reading to state/release-gate"
+PROMPT="$HERE/../prompts/fill.md"
+grep -q 'release-gate' "$PROMPT" || case_fail "it does not name state/release-gate"
+grep -qi 'atomic' "$PROMPT" || case_fail "the gate reading is not written atomically"
+grep -q 'derived, never copied' "$PROMPT" || case_fail "the 'derived, never copied' rule was lost"
+grep -q 'never write or append to' "$PROMPT" || case_fail "it does not forbid writing the release record"
+grep -q 'after the existing' "$PROMPT" && case_fail "it still tells the fill to append to the release record"
+bad="$(grep -n 'last_release' "$PROMPT" | grep -v 'never write or append to' || true)"
+[ -z "$bad" ] || { printf '%s\n' "$bad" >&2; case_fail "last_release is named outside the prohibition"; }
+pass "$CASE"
 
 echo "all cases passed"

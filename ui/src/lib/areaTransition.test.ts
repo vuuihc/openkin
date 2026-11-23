@@ -30,7 +30,7 @@ function kind(from: string, to: string): TransitionKind {
 
 describe("routeTransition", () => {
   it("classifies an area root switch as area", () => {
-    expect(kind("/sessions", "/projects")).toBe("area");
+    expect(kind("/sessions", "/routines")).toBe("area");
     expect(kind("/projects", "/routines")).toBe("area");
     expect(kind("/routines", "/settings")).toBe("area");
   });
@@ -69,12 +69,14 @@ describe("routeTransition", () => {
     expect(kind("/new", "/tasks/t1")).toBe("push");
   });
 
-  it("treats inbox and approvals as in place", () => {
+  it("treats inbox, approvals and the retired projects root as in place", () => {
     // Both redirect to `/sessions`; animating them would flash a direction the
     // reader never travelled.
     expect(kind("/sessions", "/inbox?focus=x")).toBe("none");
     expect(kind("/sessions", "/approvals?focus=q")).toBe("none");
     expect(kind("/inbox?focus=x", "/approvals?focus=q")).toBe("none");
+    // KIN-CONTRACT-001: `/projects` redirects to the same collection.
+    expect(kind("/sessions", "/projects")).toBe("none");
   });
 
   it("crosses areas from a detail as area", () => {
@@ -136,8 +138,7 @@ describe("routeTransition", () => {
       "conversations.approvals": 0,
       "conversations.task": 1,
       "conversations.agentSession": 1,
-      "projects.collection": 0,
-      "projects.detail": 1,
+      "conversations.projectCover": 1,
       "routines.root": 0,
       "routines.machineTask": 1,
       "settings.root": 0,

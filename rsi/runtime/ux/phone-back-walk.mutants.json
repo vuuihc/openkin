@@ -1,0 +1,16 @@
+[
+  {
+    "label": "J1's contract stops requiring the search in the list URL after Back (R-phone-back-walk)",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "old": "          if (rowSearchAt < 0) {\n            errs.push(`J1 never proves the list URL still carries the search after Back (search search=${term})`);\n          }",
+    "new": "          // R-phone-back-walk: the search-in-URL requirement dropped on\n          // purpose. A walk that returns to /sessions with no ?search= then\n          // passes the contract while the search is gone.",
+    "test": "bash rsi/runtime/tests/test-walk-mutant.sh"
+  },
+  {
+    "label": "the runner stops accepting --walk-once J1, so the J1 mutant's test can never run (R-phone-back-walk)",
+    "file": "rsi/runtime/ux/walk-mutant-test.sh",
+    "old": "      J1|J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15) ;;",
+    "new": "      J3|J5|J7|J2|J8|J9|J10|J11|J12|J13|J15) ;;",
+    "test": "bash rsi/runtime/tests/test-walk-mutant.sh"
+  }
+]
