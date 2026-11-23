@@ -131,19 +131,16 @@ export function notifyHasDecisionActions(kind: NotifyKind): boolean {
 
 const KNOWN_PATHS = new Set(["/", "/sessions", "/routines", "/settings"]);
 const TASK_PATH = /^\/tasks\/[A-Za-z0-9_-]+\/?$/;
+/** The id class `TASK_PATH` accepts, used to build a path from a bare id. */
+const TASK_ID = /^[A-Za-z0-9_-]+$/;
 
 /**
- * Turn the event's link into a path this window may open.
- *
- * The node writes absolute links from `ui.base_url`, which can be the Hub URL
- * even when this shell is served the console from localhost. The shell only
- * ever passes a path to `mainWindow.show`, so the host is dropped rather than
- * compared: whatever origin the link names, only a known console route is
- * opened, and `javascript:`, `file:`, or a third-party path becomes the
- * conversation list — whose rows say what is waiting.
+ * The console path a link names, or null when it names nothing this window may
+ * open. `safeNotifyPath` wraps this with the list fallback; the resolver below
+ * needs to tell "the link names the list" apart from "there was no link".
  */
-export function safeNotifyPath(url: string, origin?: string): string {
-  if (!url.trim()) return "/sessions";
+function knownNotifyPath(url: string, origin?: string): string | null {
+  if (!url.trim()) return null;
   let base: URL | null = null;
   if (origin) {
     try {
@@ -156,12 +153,48 @@ export function safeNotifyPath(url: string, origin?: string): string {
   try {
     parsed = new URL(url, base ?? "http://kin.local");
   } catch {
-    return "/sessions";
+    return null;
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "/sessions";
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
   const path = parsed.pathname;
-  if (!KNOWN_PATHS.has(path) && !TASK_PATH.test(path)) return "/sessions";
+  if (!KNOWN_PATHS.has(path) && !TASK_PATH.test(path)) return null;
   return path + parsed.search;
+}
+
+/**
+ * Turn the event's link into a path this window may open.
+ *
+ * The node writes absolute links from `ui.base_url`, which can be the Hub URL
+ * even when this shell is served the console from localhost. The shell only
+ * ever passes a path to `mainWindow.show`, so the host is dropped rather than
+ * compared: whatever origin the link names, only a known console route is
+ * opened, and `javascript:`, `file:`, or a third-party path becomes the
+ * conversation list — whose rows say what is waiting.
+ *
+ * Link-only sanitizer: event callers want `notifyOpenPath`, which falls back to
+ * the task the event names before the list.
+ */
+export function safeNotifyPath(url: string, origin?: string): string {
+  return knownNotifyPath(url, origin) ?? "/sessions";
+}
+
+/**
+ * Where a tap on this event opens.
+ *
+ * A link the node did write always wins: the node chose that destination, and
+ * an explicit `/sessions` stays the list. Only a link that names no console
+ * destination — empty, unparseable, or an unknown route — falls back to the
+ * task the event names, because a banner that says "… — Completed" is a push
+ * of that conversation. The list remains the landing when the event names
+ * neither a path nor a task. `task_id` gets the same known-route treatment as
+ * a link: it must match the id class `/tasks/<id>` already accepts, so it can
+ * never escape that path.
+ */
+export function notifyOpenPath(ev: NotifyEvent, origin?: string): string {
+  const path = knownNotifyPath(ev.url, origin);
+  if (path !== null) return path;
+  if (ev.task_id && TASK_ID.test(ev.task_id)) return `/tasks/${ev.task_id}`;
+  return "/sessions";
 }
 
 /**

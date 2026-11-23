@@ -20,6 +20,11 @@ calls are the CEO's; report after, not before. This file is the contract. It may
    The 820 shot must show the surface's real reading state — for a conversation surface, a long
    answer containing a markdown table — never an empty or placeholder state.
 6. `rsi/state/NO_MERGE` absent. `gh pr checks` all green.
+7. A PR whose diff touches a repo-relative path an `## Open` entry in `docs/plans/gap-log.md`
+   cites carries `Gap-log: <text from the entry>` and moves that entry to `## 已修` in the same
+   PR (the file must be in the diff), or waives the citation with `Gap-log: none: <reason>`
+   (at least 20 characters; a bare `none` does not waive). The merge gate runs
+   `rsi/runtime/gap_log_check.py` before the reviewer and sends the PR back mechanically otherwise.
 
 ## Red lines (never, even if a model argues for it)
 - No force-push, no `reset --hard` outside `rsi-*` worktrees, no deleting branches or worktrees, no `--delete-branch`.
