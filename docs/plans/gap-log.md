@@ -34,6 +34,8 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
+- 2026-11-23 · 低 · 390×844 手机对话列表离开再回来会停在比离开时更靠上的位置：两次都在 `scrollTop` 400 离开（列表 h 1364 / c 783，最大可滚 581），回来一次是 374（`readings-phone-f4only.json` 的 `areaBefore` → `areaReturn`，该次 `afterBack` 是 `/sessions`）、一次是 284（`readings-phone-f4f5.json` 的 `sessionsBefore` → `sessionsReturn`）— 期望回来时 `scrollTop` 就是离开时的值（存 400 回 400，±0），像例行任务列表那样 600→600（`readings-phone-c1-f4b.json` 的 `scrolled` / `afterBack` / `afterTab`）；不要的做法：不要用「回到顶部」或把漂移后的落点再存回去来掩盖；照抄的同类：`ui/src/pages/RoutinesPage.tsx:327`（等 `loading` 结束后按记录值恢复，`:336` 再按内容高度取 min），对话列表的恢复在 `ui/src/components/mobile/MobileList.tsx:113`，只在 `scrollWhen` 变化时才重试（`ui/src/components/sessions/SessionList.tsx:1747` 的 `kin.listScroll`）；根因未定位：两份 JSON 只记 `scrollTop` 与列表尺寸、不记 sessionStorage，是列表尚未长回原高度被 clamp 还是浏览器自身的滚动恢复，尚未埋点区分。证据：`phone-13-f4-sessions-scrolled.png`、`phone-14-f4-sessions-return.png`、`readings-phone-f4only.json`、`readings-phone-f4f5.json`、`readings-phone-c1-f4b.json`（均在 `rsi/state/shots/dogfood-20261123-15/`）。
+
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
