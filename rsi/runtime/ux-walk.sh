@@ -151,8 +151,9 @@ no_heavy_guard() {
 # 2026-11-19 a walk ran 40 minutes and from outside nobody could tell slow from
 # dead. The ceiling turns that into an explicit "no verdict" (exit 2, never a
 # PASS and never a red against the PR's code). RSI_WALK_MAX_S is the test/ops
-# knob; the default (30 min) is ~4x the longest observed walk.
-WALK_MAX_S="${RSI_WALK_MAX_S:-1800}"; case "$WALK_MAX_S" in ''|*[!0-9]*) WALK_MAX_S=1800;; esac
+# knob; the default (45 min) is ~1.5x the longest observed walk: PR #610's
+# healthy 29.5-minute, 222-screen walk was killed by the old 30-minute default.
+WALK_MAX_S="${RSI_WALK_MAX_S:-2700}"; case "$WALK_MAX_S" in ''|*[!0-9]*) WALK_MAX_S=2700;; esac
 # The wait for the machine-wide heavy slot is its own bound, because it is its
 # own wait: on 2026-11-23 one bounded_run wrapped heavy.sh AND the walker, so
 # the queue spent the walker's budget. PR #610's healthy 29.5-minute walk was
