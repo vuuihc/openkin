@@ -322,15 +322,39 @@ SH
 # The report is the evidence a later reader needs to tell "the machine was killed" from "a test
 # failed": it used to be two bare PIDs. RSI_CHECK_JOB_STUB keeps the run inert and hermetic.
 test_check_sh_names_the_job_a_signal_interrupts() {
-  local check="$RUNTIME/../../scripts/check.sh" out="$T/out-int" rc pid i
+  local check="$RUNTIME/../../scripts/check.sh" out="$T/out-int" rc pid i st
   [ -x "$check" ] || fail "interrupt: no scripts/check.sh at $check"
   # gofmt exits at once (so it is a zombie or already reaped, never "still running"); every
   # other job sleeps past the signal.
   RSI_CHECK_JOB_STUB='if [ "$0" = gofmt ]; then exit 0; fi; sleep 30' \
     bash "$check" > "$out" 2>&1 &
   pid=$!
-  sleep 2
+  # Synchronise on the run, not on a guessed duration. gofmt is the first job check.sh waits
+  # for, so its `ok` line means gofmt was reaped (never reported as still running) and
+  # check.sh is now blocked on probe's 30s sleep. A fixed sleep raced the gate's parallel
+  # load: TERM too early named gofmt, too late was not a failure this test could see.
+  for ((i = 0; i < 100; i++)); do
+    grep -qxF 'ok   gofmt' "$out" 2>/dev/null && break
+    sleep 0.1
+  done
+  if ! grep -qxF 'ok   gofmt' "$out" 2>/dev/null; then
+    rsi_kill_tree "$pid"
+    fail "interrupt: gofmt did not report ok within 10s ($(tail -3 "$out" | tr '\n' ' '))"
+  fi
   kill -TERM "$pid" 2>/dev/null
+  # Bound the wait the same way. The handler prints its report, TERMs the recorded jobs and
+  # exits, so a run that outlives the deadline is wedged; kill it and fail with the log.
+  # `ps` is the liveness read (a zombie has exited too, just not yet reaped), the same
+  # distinction check.sh's own interrupt report uses.
+  for ((i = 0; i < 100; i++)); do
+    st="$(ps -o state= -p "$pid" 2>/dev/null | tr -d ' ')"
+    if [ -z "$st" ] || [ "${st#Z}" != "$st" ]; then break; fi
+    sleep 0.1
+  done
+  if [ -n "$st" ] && [ "${st#Z}" = "$st" ]; then
+    rsi_kill_tree "$pid"
+    fail "interrupt: check.sh did not exit within 10s of SIGTERM ($(tail -3 "$out" | tr '\n' ' '))"
+  fi
   wait "$pid"; rc=$?
   for i in $(pgrep -P "$pid" 2>/dev/null || true); do rsi_kill_tree "$i"; done
   [ "$rc" -eq 143 ] || fail "interrupt: exit $rc, want 143 ($(tail -3 "$out" | tr '\n' ' '))"
