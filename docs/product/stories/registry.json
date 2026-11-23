@@ -762,6 +762,25 @@
       "ownerPaths": [],
       "tests": [],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-CONTINUE-007",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J1",
+        "J2"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "在 820 的列表里一屏扫到那条对话",
+      "file": "docs/product/stories/KIN-CONTINUE-007.md",
+      "surface": "",
+      "ownerPaths": [],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }
