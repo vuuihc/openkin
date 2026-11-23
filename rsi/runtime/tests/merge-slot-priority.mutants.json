@@ -47,5 +47,40 @@
     "test": "bash rsi/runtime/tests/test-wiring.sh",
     "old": "  bash rsi/runtime/tests/test-merge-slot-priority.sh || return 1\n",
     "new": ""
+  },
+  {
+    "label": "the expiry comparison always fails, so a live cooldown is ignored and its verifier slot is spent again",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-skips-same-diff bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "  [ \"$exp\" -gt \"$now\" ] || return 1",
+    "new": "  false || return 1"
+  },
+  {
+    "label": "the cooldown diff is not compared, so a cooldown written for an older diff still rests the PR",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-new-diff-requeues bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "  [ -n \"$dh\" ] && [ \"$dh\" = \"$revdh\" ] || return 1",
+    "new": "  : # diff not compared"
+  },
+  {
+    "label": "a missing .reviewed is read as a match, so a PR with no review cache is stranded until expiry",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-unknown-verifies bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "  [ -n \"$dh\" ] && [ \"$dh\" = \"$revdh\" ] || return 1",
+    "new": "  [ -z \"$revdh\" ] || [ \"$dh\" = \"$revdh\" ] || return 1"
+  },
+  {
+    "label": "a cooled big still counts as a yield target, so the small gives the last general slot to a verifier the cooldown will not start",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-big-is-not-a-yield-target bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "    ux_cooldown_skip \"$slug\" && continue\n    if [ \"$tier\" = large ] &&",
+    "new": "    if [ \"$tier\" = large ] &&"
+  },
+  {
+    "label": "the batch path ignores the cooldown, so a cooled PR joins the union gate the batch then pays for",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-skips-batch-member bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "    ux_cooldown_skip \"$slug\" && continue\n    L=\"$STATE/merge/$slug.lock\"\n    if [ -d \"$L\" ] && kill -0",
+    "new": "    L=\"$STATE/merge/$slug.lock\"\n    if [ -d \"$L\" ] && kill -0"
   }
 ]

@@ -1518,6 +1518,30 @@ ceo_hold_skip() { # <slug> <labels-csv> <pr> -> 0 and a reason on stdout when th
   return 1
 }
 
+# A UX walk that could not run writes <slug>.uxcooldown = <expiry_epoch> <dh> <reason> (merge.sh's
+# gate bound and ux-gate.sh both). Nothing read it back, so the next dispatch started the same
+# verifier again: the gate cache hit, the walk was unavailable again, and a general slot was spent
+# every cycle on a PR that could not merge. Rest the row iff the cooldown is live AND names the
+# diff the review cache holds. Every other shape — no .reviewed, an empty DH, a malformed line, a
+# different DH — means the cooldown was written for a diff that no longer exists, so verify it:
+# stranding a PR costs more than one wasted slot. Fail open.
+UX_COOLDOWN_MSG=""
+ux_cooldown_skip() { # <slug> -> 0 and UX_COOLDOWN_MSG when the dispatcher must rest this PR
+  local slug="$1" f exp dh reason revdh now hhmm
+  f="$STATE/merge/$slug.uxcooldown"
+  [ -s "$f" ] || return 1
+  exp=""; dh=""; reason=""
+  read -r exp dh reason < "$f" 2>/dev/null || true
+  case "$exp" in ''|*[!0-9]*) return 1 ;; esac
+  now="$(date +%s)"
+  [ "$exp" -gt "$now" ] || return 1
+  revdh="$(cut -d' ' -f1 "$STATE/merge/$slug.reviewed" 2>/dev/null)"
+  [ -n "$dh" ] && [ "$dh" = "$revdh" ] || return 1
+  hhmm="$(date -r "$exp" +%H:%M 2>/dev/null || date -d "@$exp" +%H:%M 2>/dev/null || echo "epoch $exp")"
+  UX_COOLDOWN_MSG="UX cooldown until $hhmm (dh ${dh:0:8}), skip"
+  return 0
+}
+
 # gh `pr list` JSON (number,headRefName,isDraft,labels,title,files,body) -> TSV rows for the dispatcher
 # loop: number, slug, title, tier, labels. needs-ceo/hold is a CEO hold, not a permanent exclusion, so
 # the labels travel with the row and ceo_hold_skip() applies it (a marker naming this PR releases it).
@@ -1575,6 +1599,7 @@ slot_big_rows() { # rows on stdin; SLOT_ACTIVE = this pass's lane slugs
     printf '%s\n' "$SLOT_ACTIVE" | grep -qx "$slug" && continue
     [ -e "$STATE/sendback/$slug.md" ] && continue
     ceo_hold_skip "$slug" "$labels" "$n" >/dev/null && continue
+    ux_cooldown_skip "$slug" && continue
     if [ "$tier" = large ] && [ "$(awk '{print $2}' "$STATE/merge/$slug.reviewed" 2>/dev/null)" != PASS ] \
        && [ ! -s "$STATE/merge/$slug.strong" ] \
        && python3 "$RSI_DIR/runtime/escalate.py" --no-strong-available >/dev/null 2>&1 < /dev/null; then continue; fi
@@ -1693,6 +1718,7 @@ PY
     [ -e "$STATE/sendback/$slug.md" ] && continue
     labels="$(printf '%s\n' "$PRS" | awk -F'\t' -v n="$n" '$1==n{print $5; exit}')"
     ceo_hold_skip "$slug" "$labels" "$n" >/dev/null && continue
+    ux_cooldown_skip "$slug" && continue
     L="$STATE/merge/$slug.lock"
     if [ -d "$L" ] && kill -0 "$(cat "$L/pid" 2>/dev/null || echo 0)" 2>/dev/null; then continue; fi
     tier="$(printf '%s\n' "$PRS" | awk -F'\t' -v n="$n" '$1==n{print $4; exit}')"
@@ -2043,6 +2069,10 @@ if [ "${1:-}" != "--one" ]; then
     echo "$ACTIVE" | grep -qx "$SLUG" && { say "#$N $SLUG: lane active, skip"; continue; }
     [ -e "$STATE/sendback/$SLUG.md" ] && { rework_wait "$N" "$SLUG" "$STATE"; continue; }
     if r="$(ceo_hold_skip "$SLUG" "$LABELS" "$N")"; then say "#$N $SLUG: $r"; continue; fi
+    # Rest a PR whose UX walk is cooling down on this same diff: it cannot merge this cycle, and
+    # starting it again would only burn a general slot. A changed diff or an expired cooldown
+    # falls through, and the .queued_at write below is skipped so a rested PR accrues no wait.
+    if ux_cooldown_skip "$SLUG"; then say "#$N $SLUG: $UX_COOLDOWN_MSG"; continue; fi
     L="$STATE/merge/$SLUG.lock"
     if [ -d "$L" ]; then if kill -0 "$(cat "$L/pid" 2>/dev/null || echo 0)" 2>/dev/null; then continue; fi; rm -rf "$L"; fi
     # sol (ChatGPT allowance) exhausted: large-tier reviews need it and would only loop on 429. Wait for it;
