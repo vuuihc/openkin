@@ -291,8 +291,14 @@ export default function FloatingApproval({
         height: stripBox.current.height,
       };
     }
+    // Where the list is the screen (a phone tab root) a laid-out conversation
+    // row is the entry, so the pill yields to it too. A wide screen keeps its
+    // card: there the list is a column beside the conversation, and a sidebar
+    // row touching the pill's box (x360–364 at 768) is not what the pill floats
+    // over — yielding there would take the surface away on a conversation.
     const stripHit =
-      stripRect !== null && covers(stripRect, "[data-kin-reading], [data-session-row]");
+      stripRect !== null &&
+      covers(stripRect, raised ? "[data-kin-reading], [data-session-row]" : "[data-kin-reading]");
     if (stripHit !== hidden) setHidden(stripHit);
   }, [currentId, raised, panelOpen, bottom, covered, hidden]);
 
@@ -320,7 +326,10 @@ export default function FloatingApproval({
   // resized, and the evidence card folds, unfolds or grows a diff preview.
   // Scroll covers the first, resize the second, and a document observer
   // filtered to evidence subtrees the third — an unfiltered body observer
-  // would wake on every transcript token for no reason.
+  // would wake on every transcript token for no reason. The list's own rows
+  // are watched too: a cold `/sessions` load, a refetch or a cleared filter
+  // lands rows under the pill with no scroll and no resize, and a row the pill
+  // covers without re-measuring is the filed defect.
   useEffect(() => {
     if (!hasAny) return;
     let timer = 0;
@@ -336,9 +345,17 @@ export default function FloatingApproval({
       if (target instanceof Element && target.closest("[data-kin-evidence]")) return true;
       for (const node of [...record.addedNodes, ...record.removedNodes]) {
         if (!(node instanceof Element)) continue;
-        if (node.matches("[data-kin-evidence], [data-kin-hit-row], [data-kin-reading]"))
+        if (
+          node.matches(
+            "[data-kin-evidence], [data-kin-hit-row], [data-kin-reading], [data-session-row]",
+          )
+        )
           return true;
-        if (node.querySelector("[data-kin-evidence], [data-kin-hit-row], [data-kin-reading]")) {
+        if (
+          node.querySelector(
+            "[data-kin-evidence], [data-kin-hit-row], [data-kin-reading], [data-session-row]",
+          )
+        ) {
           return true;
         }
       }

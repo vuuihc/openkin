@@ -198,6 +198,68 @@ describe("FloatingApproval over a session row", () => {
     }
   });
 
+  it("re-measures when a conversation row arrives under the pill", async () => {
+    // The list loads cold: rows arrive after the pill was placed, with no scroll
+    // and no resize to wake the measurement. A row appended under the pill must
+    // still unmount the surface, or it eats the row's tap until the reader
+    // happens to scroll.
+    const { container } = setup({
+      raised: true,
+      expectsBottomChrome: false,
+      screenKey: "/sessions",
+    });
+    const aside = container.querySelector("aside") as HTMLElement;
+    expect(aside).not.toBeNull();
+    aside.getBoundingClientRect = () => domRect(STRIP);
+    const status = aside.querySelector("[role='status']") as HTMLElement;
+    status.getBoundingClientRect = () => domRect(STRIP);
+
+    const row = sessionRow(ROW_UNDER_STRIP);
+    try {
+      await waitFor(() => expect(container.querySelector("aside")).toBeNull());
+      expect(container.querySelector("[role='status']")?.classList.contains("sr-only")).toBe(true);
+    } finally {
+      row.remove();
+    }
+  });
+
+  it("keeps a conversation's surface when a wide sidebar's row touches the pill", () => {
+    // 768–771px: the persistent list is a 304px column beside the transcript,
+    // so its row ends at x=364 while the pill starts at x=360. Those 4px are
+    // the sidebar's, not the screen's: a conversation keeps its card/strip, and
+    // yielding the whole surface there would take it away from a reader who is
+    // not looking at the list.
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: 768,
+    });
+    // The pill's own dock (`md:right-6 md:bottom-6`, 24rem wide, 52px tall):
+    // x360–744, y768–820 in this viewport. The list's row reaches x=364.
+    const PILL: Box = { top: 768, bottom: 820, left: 360, right: 744 };
+    const row = sessionRow({ top: 760, bottom: 804, left: 64, right: 364 });
+    try {
+      const { container, props, rerender } = setup({
+        raised: false,
+        screenKey: "/tasks/task-1",
+      });
+      const aside = container.querySelector("aside") as HTMLElement;
+      expect(aside).not.toBeNull();
+      aside.getBoundingClientRect = () => domRect(PILL);
+      const status = aside.querySelector("[role='status']") as HTMLElement;
+      status.getBoundingClientRect = () => domRect(PILL);
+      rerender(<FloatingApproval {...props} screenKey="/tasks/task-1?remeasure" />);
+
+      // The row is beside the conversation, not what the pill floats over:
+      // the card and its strip stay.
+      expect(container.querySelector("aside")).not.toBeNull();
+      expect(screen.getByRole("button", { name: new RegExp(t("chat.approve")) })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Fix the tests" })).toBeTruthy();
+    } finally {
+      row.remove();
+    }
+  });
+
   it("brings the pill back when the row scrolls clear", async () => {
     // Yielding is a measurement, not a latch: the list scrolls, and once no
     // row is under the pill it is the way in again.

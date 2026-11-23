@@ -3,8 +3,22 @@
     "label": "R-phone-approval-entry: the pill stops yielding to a conversation row",
     "file": "ui/src/components/cards/FloatingApproval.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.dom.test.tsx",
-    "old": "stripRect !== null && covers(stripRect, \"[data-kin-reading], [data-session-row]\")",
-    "new": "stripRect !== null && covers(stripRect, \"[data-kin-reading]\")"
+    "old": "covers(stripRect, raised ? \"[data-kin-reading], [data-session-row]\" : \"[data-kin-reading]\")",
+    "new": "covers(stripRect, \"[data-kin-reading]\")"
+  },
+  {
+    "label": "R-phone-approval-entry: a wide sidebar's row yields the pill on a conversation",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.dom.test.tsx",
+    "old": "covers(stripRect, raised ? \"[data-kin-reading], [data-session-row]\" : \"[data-kin-reading]\")",
+    "new": "covers(stripRect, \"[data-kin-reading], [data-session-row]\")"
+  },
+  {
+    "label": "R-phone-approval-entry: the pill ignores a row that arrives under it",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.dom.test.tsx",
+    "old": "        if (\n          node.matches(\n            \"[data-kin-evidence], [data-kin-hit-row], [data-kin-reading], [data-session-row]\",\n          )\n        )\n          return true;",
+    "new": "        if (node.matches(\"[data-kin-evidence], [data-kin-hit-row], [data-kin-reading]\"))\n          return true;"
   },
   {
     "label": "R-phone-approval-entry: the yield is gated off on a phone tab root",
