@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the injected floor stops at the shipped arm, so it measures nothing new",
+    "file": "rsi/runtime/ux/measure-list-shell.mjs",
+    "test": "node rsi/runtime/ux/measure-list-shell.mjs --self-test",
+    "old": "const WIDENED_FLOOR_ARM = 1023.98;",
+    "new": "const WIDENED_FLOOR_ARM = 767.98;"
+  },
+  {
+    "label": "the injected floor loses the buttons arm, so the row is never floored",
+    "file": "rsi/runtime/ux/measure-list-shell.mjs",
+    "test": "node rsi/runtime/ux/measure-list-shell.mjs --self-test",
+    "old": "  .touch-lg button:not([data-touch-mini]),\n  .touch-lg select,",
+    "new": "  .touch-lg select,"
+  }
+]
