@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="16"/>
+<rect width="1100" height="34" fill="#f6f6f8" rx="16"/>
+<rect y="20" width="1100" height="14" fill="#f6f6f8"/>
+<text x="16" y="22" font-size="11" fill="#555">状态板 · 安装状态（探测）组 · Mac 1100×760</text>
+<text x="1084" y="22" font-size="11" fill="#777" text-anchor="end">四种检测状态，行与时间戳各自成立</text>
+
+<!-- A: detecting -->
+<rect x="16" y="56" width="520" height="330" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="38" cy="80" r="9" fill="#eef3ff"/>
+<text x="38" y="84" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">1</text>
+<text x="56" y="85" font-size="14" fill="#1a1a1a" font-weight="600">安装状态</text>
+<text x="56" y="101" font-size="10.5" fill="#6b6b6b">自动读取，不改变任何东西</text>
+<rect x="420" y="66" width="96" height="30" rx="8" fill="#f0f0f0"/>
+<text x="468" y="85" font-size="11" fill="#999" text-anchor="middle">检测中…</text>
+<line x1="16" y1="116" x2="536" y2="116" stroke="#e3e3e3"/>
+<circle cx="36" cy="140" r="4" fill="#1f6feb"/>
+<text x="48" y="144" font-size="12.5" fill="#1a1a1a" font-weight="600">Claude Code</text>
+<text x="516" y="144" font-size="10.5" fill="#1a1a1a" text-anchor="end">上次检测 14:02</text>
+<text x="48" y="160" font-size="10.5" fill="#8a8a92">可用 · 2.1.0 · 可列出会话</text>
+<line x1="16" y1="174" x2="536" y2="174" stroke="#f0f0f2"/>
+<circle cx="36" cy="198" r="4" fill="#d08a00"/>
+<text x="48" y="202" font-size="12.5" fill="#1a1a1a" font-weight="600">Codex</text>
+<text x="516" y="202" font-size="10.5" fill="#1a1a1a" text-anchor="end">上次检测 14:02</text>
+<text x="48" y="218" font-size="10.5" fill="#8a8a92">需要登录 · 0.9.4 · 可列出会话</text>
+<line x1="16" y1="232" x2="536" y2="232" stroke="#f0f0f2"/>
+<circle cx="36" cy="256" r="4" fill="#9a9aa2"/>
+<text x="48" y="260" font-size="12.5" fill="#1a1a1a" font-weight="600">Gemini CLI</text>
+<text x="516" y="260" font-size="10.5" fill="#1a1a1a" text-anchor="end">上次检测 14:02</text>
+<text x="48" y="276" font-size="10.5" fill="#8a8a92">未检测到 · 未安装</text>
+<text x="36" y="312" font-size="10" fill="#999">旧结果留在屏上；完成前不换行状态、不换时间</text>
+<text x="36" y="330" font-size="10" fill="#999">按钮禁用但保留焦点；探测不发导入请求</text>
+<text x="36" y="356" font-size="10" fill="#1f6feb">完成后：状态、原因、能力与「上次检测」一起更新</text>
+
+<!-- B: failed, last kept -->
+<rect x="564" y="56" width="520" height="330" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="586" cy="80" r="9" fill="#eef3ff"/>
+<text x="586" y="84" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">1</text>
+<text x="604" y="85" font-size="14" fill="#1a1a1a" font-weight="600">安装状态</text>
+<text x="604" y="101" font-size="10.5" fill="#6b6b6b">自动读取，不改变任何东西</text>
+<rect x="968" y="66" width="96" height="30" rx="8" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="1016" y="85" font-size="11" fill="#1a1a1a" text-anchor="middle">重试检测</text>
+<rect x="580" y="112" width="488" height="34" rx="8" fill="#fff1f0" stroke="#f3c2bd"/>
+<text x="592" y="128" font-size="11" fill="#b42318">本次检测失败：daemon 未响应</text>
+<text x="592" y="141" font-size="9.5" fill="#8a4a44">保留 14:02 的结果，不清空行；下次按下再试</text>
+<circle cx="586" cy="174" r="4" fill="#1f6feb"/>
+<text x="598" y="178" font-size="12.5" fill="#1a1a1a" font-weight="600">Claude Code</text>
+<text x="1064" y="178" font-size="10.5" fill="#1a1a1a" text-anchor="end">上次检测 14:02</text>
+<text x="598" y="194" font-size="10.5" fill="#8a8a92">可用 · 2.1.0 · 可列出会话</text>
+<line x1="564" y1="208" x2="1084" y2="208" stroke="#f0f0f2"/>
+<circle cx="586" cy="232" r="4" fill="#d08a00"/>
+<text x="598" y="236" font-size="12.5" fill="#1a1a1a" font-weight="600">Codex</text>
+<text x="1064" y="236" font-size="10.5" fill="#1a1a1a" text-anchor="end">上次检测 14:02</text>
+<text x="598" y="252" font-size="10.5" fill="#8a8a92">需要登录 · 0.9.4 · 可列出会话</text>
+<line x1="564" y1="266" x2="1084" y2="266" stroke="#f0f0f2"/>
+<circle cx="586" cy="290" r="4" fill="#9a9aa2"/>
+<text x="598" y="294" font-size="12.5" fill="#1a1a1a" font-weight="600">Gemini CLI</text>
+<text x="1064" y="294" font-size="10.5" fill="#1a1a1a" text-anchor="end">上次检测 14:02</text>
+<text x="598" y="310" font-size="10.5" fill="#8a8a92">未检测到 · 未安装</text>
+<text x="580" y="340" font-size="10" fill="#999">失败只说探测组；导入与角色两组照常可用</text>
+<text x="580" y="360" font-size="10" fill="#999">行不变灰、不消失——旧状态靠时间戳自证是旧的</text>
+
+<!-- C: never checked -->
+<rect x="16" y="394" width="520" height="330" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="38" cy="418" r="9" fill="#eef3ff"/>
+<text x="38" y="422" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">1</text>
+<text x="56" y="423" font-size="14" fill="#1a1a1a" font-weight="600">安装状态</text>
+<text x="56" y="439" font-size="10.5" fill="#6b6b6b">自动读取，不改变任何东西</text>
+<rect x="420" y="404" width="96" height="30" rx="8" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="468" y="423" font-size="11" fill="#1a1a1a" text-anchor="middle">刷新检测</text>
+<line x1="16" y1="454" x2="536" y2="454" stroke="#e3e3e3"/>
+<circle cx="36" cy="478" r="4" fill="#9a9aa2"/>
+<text x="48" y="482" font-size="12.5" fill="#1a1a1a" font-weight="600">Claude Code</text>
+<text x="516" y="482" font-size="10.5" fill="#8a8a92" text-anchor="end">上次检测：从未</text>
+<text x="48" y="498" font-size="10.5" fill="#8a8a92">未检测到 · 还没有结果</text>
+<line x1="16" y1="512" x2="536" y2="512" stroke="#f0f0f2"/>
+<circle cx="36" cy="536" r="4" fill="#9a9aa2"/>
+<text x="48" y="540" font-size="12.5" fill="#1a1a1a" font-weight="600">Codex</text>
+<text x="516" y="540" font-size="10.5" fill="#8a8a92" text-anchor="end">上次检测：从未</text>
+<text x="48" y="556" font-size="10.5" fill="#8a8a92">未检测到 · 还没有结果</text>
+<line x1="16" y1="570" x2="536" y2="570" stroke="#f0f0f2"/>
+<circle cx="36" cy="594" r="4" fill="#9a9aa2"/>
+<text x="48" y="598" font-size="12.5" fill="#1a1a1a" font-weight="600">Gemini CLI</text>
+<text x="516" y="598" font-size="10.5" fill="#8a8a92" text-anchor="end">上次检测：从未</text>
+<text x="48" y="614" font-size="10.5" fill="#8a8a92">未检测到 · 还没有结果</text>
+<text x="36" y="650" font-size="10" fill="#999">「从未」是默认值，不是失败，也不是「不可用」</text>
+<text x="36" y="670" font-size="10" fill="#999">行仍显示 daemon 元数据里的 provider 与能力</text>
+<text x="36" y="696" font-size="10" fill="#1f6feb">「还没有检测结果」是空组文案；这里是逐行的「从未」</text>
+
+<!-- D: first read failed -->
+<rect x="564" y="394" width="520" height="330" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="586" cy="418" r="9" fill="#eef3ff"/>
+<text x="586" y="422" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">1</text>
+<text x="604" y="423" font-size="14" fill="#1a1a1a" font-weight="600">安装状态</text>
+<text x="604" y="439" font-size="10.5" fill="#6b6b6b">自动读取，不改变任何东西</text>
+<rect x="968" y="404" width="96" height="30" rx="8" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="1016" y="423" font-size="11" fill="#1a1a1a" text-anchor="middle">重试</text>
+<line x1="564" y1="454" x2="1084" y2="454" stroke="#e3e3e3"/>
+<circle cx="824" cy="510" r="18" fill="#f6f6f8" stroke="#e3e3e3"/>
+<text x="824" y="516" font-size="15" fill="#b26a00" text-anchor="middle">!</text>
+<text x="824" y="556" font-size="15" fill="#1a1a1a" font-weight="600" text-anchor="middle">还没读到检测结果</text>
+<text x="824" y="576" font-size="11" fill="#6b6b6b" text-anchor="middle">daemon 没有回应，或这一屏是第一次打开</text>
+<rect x="744" y="592" width="160" height="32" rx="8" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="824" y="613" font-size="11.5" fill="#1a1a1a" text-anchor="middle">重试</text>
+<text x="580" y="660" font-size="10" fill="#999">不用上次的猜测冒充新结果；没有「上次」就不写时间</text>
+<text x="580" y="680" font-size="10" fill="#999">骨架不抢焦点；读完焦点仍在页首标题</text>
+<text x="580" y="700" font-size="10" fill="#1f6feb">首读失败与探测失败是两件事：一个有旧结果，一个没有</text>
+
+<text x="16" y="748" font-size="10" fill="#8a8a92">状态来源：合同 KIN-AGENTS-002.md:61（上次检测/从未）、:62（首读失败）、:84（失败保留上次）、:95（时间戳而非到达顺序）。</text>
+</g>
+</svg>

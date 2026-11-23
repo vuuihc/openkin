@@ -1,0 +1,30 @@
+[
+  {
+    "label": "a newer head never skips, so a fixed sendback opens a rework lane",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-lane-autofill.sh",
+    "old": "[ \"$head_ct\" -gt \"$sb_ct\" ]",
+    "new": "[ \"$head_ct\" -lt \"$sb_ct\" ]"
+  },
+  {
+    "label": "a stale sendback breaks the pass, so the next live rework waits a pulse",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-lane-autofill.sh",
+    "old": "      echo \"rework $slug: head ${head:0:8} is newer than the sendback, archived to $arch (no rework lane)\"\n      continue",
+    "new": "      echo \"rework $slug: head ${head:0:8} is newer than the sendback, archived to $arch (no rework lane)\"\n      break"
+  },
+  {
+    "label": "an unreadable head is treated as stale, so a git outage archives a real rework",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-lane-autofill.sh",
+    "old": "    case \"$head_ct\" in ''|*[!0-9]*) head_ct=\"\" ;; esac",
+    "new": "    case \"$head_ct\" in ''|*[!0-9]*) head_ct=\"$((sb_ct + 1))\" ;; esac"
+  },
+  {
+    "label": "the archive copies instead of moving, so the sendback is claimed on the next pass",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-lane-autofill.sh",
+    "old": "      mv \"$sb\" \"$arch\"",
+    "new": "      cp \"$sb\" \"$arch\""
+  }
+]

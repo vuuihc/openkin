@@ -384,9 +384,9 @@ class FakeAgentHoldTest(FakeAgentCase):
         self.assertLess(time.monotonic() - immediate, 2.0, "RSI_FAKE_HOLD_SECS=0 must not sleep")
         self.assertNotIn('"type":"result"', done.stdout)
 
-        # A malformed value falls back to the 600s default, and an oversized
-        # one clamps to 900: both are far longer than this window, so "still
-        # alive" is the observable proof that neither became 0.
+        # A malformed value falls back to the walk-sized default, and an
+        # oversized one clamps to the cap: both are far longer than this window,
+        # so "still alive" is the observable proof that neither became 0.
         for label, value in (("malformed", "soon"), ("oversized", "99999")):
             with self.subTest(value=label):
                 proc = self.start(HOLD_PROMPT, RSI_FAKE_HOLD_SECS=value)
@@ -397,6 +397,40 @@ class FakeAgentHoldTest(FakeAgentCase):
                     "".join(self.collect(proc, 0.2)),
                     "the hold branch must not print a result",
                 )
+
+    def test_hold_bound_outlives_a_whole_walk(self) -> None:
+        """J5 must find the seeded turn still running, not a finished one.
+
+        The walk's own ceiling is RSI_WALK_MAX_S (default 1800s) and J5 opens
+        its row menu near the end of it: on 2026-11-23 the gate reached J5 24.5
+        minutes after the seed, and the old 600s default (capped at 900s) had
+        already released the turn. The row then honestly read 失败 and its menu
+        had no 运行中 line — a J5 red no UI change can fix. `--hold-seconds`
+        reads the effective bound back without sleeping for it.
+        """
+
+        def effective(value: str | None = None) -> int:
+            env = fake_env()
+            env.pop("RSI_FAKE_HOLD_SECS", None)
+            if value is not None:
+                env["RSI_FAKE_HOLD_SECS"] = value
+            done = subprocess.run(
+                [FAKE, "--hold-seconds"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=15,
+            )
+            self.assertEqual(done.returncode, 0, done.stderr)
+            return int(done.stdout.strip())
+
+        self.assertGreater(
+            effective(), 1800, "the default hold must outlive the walk's 1800s ceiling"
+        )
+        self.assertEqual(effective("2400"), 2400, "a caller's value is honoured")
+        self.assertEqual(effective("99999"), 3600, "an oversized value clamps to the cap")
+        self.assertEqual(effective("soon"), effective(), "a malformed value keeps the default")
 
 
 class FakeAgentWorkspaceWriteTest(FakeAgentCase):
