@@ -78,19 +78,27 @@ describe("the floating approval's wiring", () => {
     expect(floating).toMatch(/if \(hit !== covered\) setCovered\(hit\);/);
     expect(floating).toContain('"[data-kin-hit-row]"');
     // Reading content is the same measured rule, and the pill itself is not a
-    // fallback that gets to stay: when its own box covers a cell the whole
-    // surface is unmounted (`hidden`), not `stripOnly`.
-    expect(floating).toContain('"[data-kin-reading]"');
+    // fallback that gets to stay: when its own box covers a cell — or a
+    // conversation row on the list — the whole surface is unmounted (`hidden`),
+    // not `stripOnly`. The pill is for screens with no conversation list; where
+    // the list is the screen, the row is the entry. Session rows already carry
+    // `data-session-row`, so the yield is one selector over both kinds.
+    expect(floating).toContain('"[data-kin-reading], [data-session-row]"');
     expect(floating).toMatch(/if \(stripHit !== hidden\) setHidden\(stripHit\);/);
+    // The yield has to be measured on a phone tab root too: the card is not
+    // mounted there (`raised`), but the strip is, so `raised` must not
+    // short-circuit the measurement.
+    expect(floating).toMatch(/if \(!currentId \|\| panelOpen\) return;/);
+    expect(floating).not.toMatch(/if \(!currentId \|\| raised \|\| panelOpen\) return;/);
     // …but only the visible surface: the hidden branch still renders the
     // arrival live region, sr-only and outside the `aside`, so an approval
-    // that lands while the reader is on a table is announced. The label it
-    // carries is computed before the guard.
+    // that lands while the reader is on a table or the list is announced. The
+    // label it carries is computed before the guard.
     expect(floating).toMatch(
-      /if \(hidden && !raised && !panelOpen\) \{[\s\S]*?<ApprovalStatus className="sr-only">[\s\S]*?\n  \}/,
+      /if \(hidden && !panelOpen\) \{[\s\S]*?<ApprovalStatus className="sr-only">[\s\S]*?\n  \}/,
     );
     const labelAt = floating.indexOf("const stripLabel = [");
-    const hiddenAt = floating.indexOf("if (hidden && !raised && !panelOpen)");
+    const hiddenAt = floating.indexOf("if (hidden && !panelOpen)");
     expect(labelAt).toBeGreaterThan(-1);
     expect(labelAt).toBeLessThan(hiddenAt);
     // The card body is guarded by `!stripOnly`, and the strip is the branch
