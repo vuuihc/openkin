@@ -654,15 +654,20 @@ pr_diff_hash() { # <worktree> — the review key (step 4's DH): the PR's own dif
 # when the walk is provably still about this console). It also digests the walker's own spec and
 # code: #644 added J4 to the sessions row while #630's PASS was cached, and a ui/-only key carried
 # that PASS over a journey the cached walk never ran.
+# The walker-spec family: every path whose movement changes what a cached UX walk proves. The
+# carry key digests exactly this set, and the dispatcher's spec-mover hold reads the same list, so
+# a PR that moves one of these files is the PR whose merge will re-walk the console. One
+# definition, two readers — a second literal list would drift, and #644 (journeys.json) moved the
+# spec while #630's walk was being re-derived against the old one.
+UX_SPEC_PATHS="rsi/runtime/ux/journeys.json rsi/runtime/ux/journeys rsi/runtime/ux/walk.mjs rsi/runtime/ux/optional-grace.mjs rsi/runtime/ux/walk-log.mjs"
 ux_carry_key() { # <worktree> <main-ref> — digest of the console tree and the walker that walked it
-  local tree spec walker
+  local tree spec
   tree="$($GIT -C "$1" ls-tree -r "$2" -- ui 2>/dev/null)" || { echo unreadable; return 0; }
-  spec="$($GIT -C "$1" ls-tree -r "$2" -- rsi/runtime/ux/journeys.json rsi/runtime/ux/journeys 2>/dev/null)"
-  walker="$($GIT -C "$1" ls-tree -r "$2" -- rsi/runtime/ux/walk.mjs rsi/runtime/ux/optional-grace.mjs rsi/runtime/ux/walk-log.mjs 2>/dev/null)"
+  spec="$($GIT -C "$1" ls-tree -r "$2" -- $UX_SPEC_PATHS 2>/dev/null)"
   {
     printf '%s\n' "$tree" \
       | grep -vE '(\.(test|spec)\.[^/]+$|/__tests__/|/test/|\.mutants\.json$|\.md$)'
-    printf '%s\n%s\n' "$spec" "$walker"
+    printf '%s\n' "$spec"
   } | shasum | cut -c1-16
 }
 
@@ -1531,21 +1536,74 @@ ceo_hold_skip() { # <slug> <labels-csv> <pr> -> 0 and a reason on stdout when th
 # diff the review cache holds. Every other shape — no .reviewed, an empty DH, a malformed line, a
 # different DH — means the cooldown was written for a diff that no longer exists, so verify it:
 # stranding a PR costs more than one wasted slot. Fail open.
+#
+# R-uxcooldown-hold adds one more reason to rest, for a cooldown that has EXPIRED on the same diff:
+# while an open PR changes the walker spec (UX_SPEC_PATHS, the family ux_carry_key() digests), the
+# walk this row would pay for is about to be re-derived against a different spec. #630 spent a
+# 30-minute first walk and a 25-minute confirm walk re-proving J4 on the one heavy slot while #644
+# (journeys.json) queued 33 minutes behind it, because the cooldown expired before #644 landed.
+# The hold is bounded by RSI_UX_HOLD_MAX_MIN (default 180 minutes, 0 disables), never rests a PR
+# against itself, and needs a readable `files` list — the light gh fallback has none, so it fails
+# open to a verify.
+UX_HOLD_MAX_MIN="${RSI_UX_HOLD_MAX_MIN:-180}"
+case "$UX_HOLD_MAX_MIN" in ''|*[!0-9]*) UX_HOLD_MAX_MIN=180 ;; esac
+UX_SPEC_MOVERS="${UX_SPEC_MOVERS:-}"   # per pass: one `<n>\t<slug>` line per open walker-spec PR
 UX_COOLDOWN_MSG=""
 ux_cooldown_skip() { # <slug> -> 0 and UX_COOLDOWN_MSG when the dispatcher must rest this PR
-  local slug="$1" f exp dh reason revdh now hhmm
+  local slug="$1" f exp dh reason revdh now hhmm mover
   f="$STATE/merge/$slug.uxcooldown"
   [ -s "$f" ] || return 1
   exp=""; dh=""; reason=""
   read -r exp dh reason < "$f" 2>/dev/null || true
   case "$exp" in ''|*[!0-9]*) return 1 ;; esac
   now="$(date +%s)"
-  [ "$exp" -gt "$now" ] || return 1
   revdh="$(cut -d' ' -f1 "$STATE/merge/$slug.reviewed" 2>/dev/null)"
+  # Both reasons rest only a marker that names the diff the review cache holds.
   [ -n "$dh" ] && [ "$dh" = "$revdh" ] || return 1
-  hhmm="$(date -r "$exp" +%H:%M 2>/dev/null || date -d "@$exp" +%H:%M 2>/dev/null || echo "epoch $exp")"
-  UX_COOLDOWN_MSG="UX cooldown until $hhmm (dh ${dh:0:8}), skip"
+  if [ "$exp" -gt "$now" ]; then
+    hhmm="$(date -r "$exp" +%H:%M 2>/dev/null || date -d "@$exp" +%H:%M 2>/dev/null || echo "epoch $exp")"
+    UX_COOLDOWN_MSG="UX cooldown until $hhmm (dh ${dh:0:8}), skip"
+    return 0
+  fi
+  # Expired on this diff: rest it while another open PR is about to move the walker spec, inside
+  # the bound. UX_SPEC_MOVERS is sorted by PR number, so the first line that is not this PR is the
+  # mover the message names; the rest still hold it.
+  [ "$UX_HOLD_MAX_MIN" -gt 0 ] || return 1
+  [ $((now - exp)) -lt $((UX_HOLD_MAX_MIN * 60)) ] || return 1
+  mover="$(printf '%s\n' "$UX_SPEC_MOVERS" | awk -F'\t' -v s="$slug" '$1 ~ /^[0-9]+$/ && $2 != "" && $2 != s' | sort -n | head -1)"
+  [ -n "$mover" ] || return 1
+  UX_COOLDOWN_MSG="UX cooldown held for #${mover%%$'\t'*} ${mover#*$'\t'} (walker spec moves), skip"
   return 0
+}
+
+# Open, non-draft rsi/* PRs in this pass whose files touch the walker-spec family. Computed once
+# per pass from the same `gh pr list` payload the dispatcher already fetched, so the loop, the
+# batch path and the yield candidate set read one set. A payload without `files` (the light
+# fallback query) or an unreadable one yields no movers: the hold stays off and every row verifies
+# as today.
+ux_spec_movers() { # <pr-json> -> one `<n>\t<slug>` line per mover, lowest number first
+  printf '%s' "${1:-[]}" | UX_SPEC_PATHS="$UX_SPEC_PATHS" python3 -c '
+import json, os, sys
+spec = [p for p in os.environ.get("UX_SPEC_PATHS", "").split() if p]
+try:
+    prs = json.load(sys.stdin)
+except Exception:
+    prs = []
+if not isinstance(prs, list): prs = []
+movers = set()
+for p in prs:
+    if not isinstance(p, dict): continue
+    n = p.get("number"); h = p.get("headRefName") or ""
+    if not isinstance(n, int) or not h.startswith("rsi/") or p.get("isDraft"): continue
+    files = p.get("files")
+    if not isinstance(files, list): continue
+    for f in files:
+        path = f.get("path") if isinstance(f, dict) else f
+        if isinstance(path, str) and any(path == s or path.startswith(s + "/") for s in spec):
+            movers.add((n, h[4:])); break
+for n, slug in sorted(movers):
+    print("%d\t%s" % (n, slug))
+'
 }
 
 # gh `pr list` JSON (number,headRefName,isDraft,labels,title,files,body) -> TSV rows for the dispatcher
@@ -1781,7 +1839,8 @@ if [ "${1:-}" != "--one" ]; then
   # slot picker over the same TSV rows on stdin, the same live locks, .tier/.queued_at files and
   # yield candidates (the loop's pre-slot skips), and the same slot_claim() the loop calls. Prints
   # one START/SKIP line per row and simulates a start in memory. No gh, git, lane or dispatch call,
-  # and no lock or .tier write.
+  # and no lock or .tier write. The spec-mover hold reads UX_SPEC_MOVERS from the environment:
+  # this seam has no gh payload, so that is its test hook.
   if [ "${1:-}" = "--slot-select-check" ]; then
     SLOT_ROWS="$(cat)"
     SLOT_ACTIVE="$(python3 "$LANES_PY" slugs 2>/dev/null || true)"
@@ -2063,6 +2122,9 @@ if [ "${1:-}" != "--one" ]; then
   [ -n "$UNSEEN" ] && while IFS= read -r l; do [ -n "$l" ] && say "$l"; done <<< "$UNSEEN"
   [ -z "$PRS" ] && { say "no open rsi PRs"; exit 0; }
   ACTIVE="$(python3 "$LANES_PY" slugs)"
+  # The walker-spec movers, once per pass, from the same payload the loop and the batch read. Set
+  # before both so the loop, the batch path and the yield candidate set cannot disagree.
+  UX_SPEC_MOVERS="$(ux_spec_movers "$PRJ")"
   # One gate for ready disjoint PRs (RSI_BATCH_VERIFY=1): form and start the batch runner before
   # the loop claims slots, so the batched slugs are started once, by the runner, not as singles.
   { batch_enabled && [ $DRY -eq 0 ]; } && dispatch_try_batch "$PRJ"
@@ -2076,8 +2138,9 @@ if [ "${1:-}" != "--one" ]; then
     [ -e "$STATE/sendback/$SLUG.md" ] && { rework_wait "$N" "$SLUG" "$STATE"; continue; }
     if r="$(ceo_hold_skip "$SLUG" "$LABELS" "$N")"; then say "#$N $SLUG: $r"; continue; fi
     # Rest a PR whose UX walk is cooling down on this same diff: it cannot merge this cycle, and
-    # starting it again would only burn a general slot. A changed diff or an expired cooldown
-    # falls through, and the .queued_at write below is skipped so a rested PR accrues no wait.
+    # starting it again would only burn a general slot. A changed diff falls through; a cooldown
+    # that expired recently also rests while an open PR moves the walker spec (the hold). The
+    # .queued_at write below is skipped so a rested PR accrues no wait.
     if ux_cooldown_skip "$SLUG"; then say "#$N $SLUG: $UX_COOLDOWN_MSG"; continue; fi
     L="$STATE/merge/$SLUG.lock"
     if [ -d "$L" ]; then if kill -0 "$(cat "$L/pid" 2>/dev/null || echo 0)" 2>/dev/null; then continue; fi; rm -rf "$L"; fi
