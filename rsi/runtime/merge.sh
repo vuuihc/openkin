@@ -273,10 +273,10 @@ oid() { case "${1:-}" in ""|*[!0-9a-fA-F]*) return 1 ;; esac; }
 # The journey spec the UX gate walked, as a 12-hex revision of the WHOLE spec: the index and
 # every per-journey file under rsi/runtime/ux/journeys/, so the sendback header names a revision
 # that moves when any journey body moves. That is provenance, not cache invalidation: the UX PASS
-# cache already keys on the PR diff plus origin/main:ui. #251's false red was a walker/spec
-# mismatch: the sendback named neither, so the retro could not tell it from a real defect. Never
-# fails: the header line must always be writable, and an empty file list prints "-" rather than
-# hashing nothing.
+# cache already keys on the PR diff plus origin/main:ui, the journey spec and the walker code.
+# #251's false red was a walker/spec mismatch: the sendback named neither, so the retro could not
+# tell it from a real defect. Never fails: the header line must always be writable, and an empty
+# file list prints "-" rather than hashing nothing.
 spec_rev() { # <worktree> -> 12-hex revision of the split spec, or -
   local wt="${1:-}" files rev o ids ok
   if [ -n "$wt" ] && [ -d "$wt" ]; then
@@ -657,8 +657,8 @@ pr_diff_hash() { # <worktree> — the review key (step 4's DH): the PR's own dif
 ux_carry_key() { # <worktree> <main-ref> — digest of the console tree and the walker that walked it
   local tree spec walker
   tree="$($GIT -C "$1" ls-tree -r "$2" -- ui 2>/dev/null)" || { echo unreadable; return 0; }
-  spec="$($GIT -C "$1" ls-tree -r "$2" -- rsi/runtime/ux/journeys.json 2>/dev/null)"
-  walker="$($GIT -C "$1" ls-tree -r "$2" -- rsi/runtime/ux/walk.mjs 2>/dev/null)"
+  spec="$($GIT -C "$1" ls-tree -r "$2" -- rsi/runtime/ux/journeys.json rsi/runtime/ux/journeys 2>/dev/null)"
+  walker="$($GIT -C "$1" ls-tree -r "$2" -- rsi/runtime/ux/walk.mjs rsi/runtime/ux/optional-grace.mjs rsi/runtime/ux/walk-log.mjs 2>/dev/null)"
   {
     printf '%s\n' "$tree" \
       | grep -vE '(\.(test|spec)\.[^/]+$|/__tests__/|/test/|\.mutants\.json$|\.md$)'
