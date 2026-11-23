@@ -52,11 +52,7 @@ vi.mock("../../hooks/useAgentRoles", () => ({
   useAgentRoles: () => [],
 }));
 
-import {
-  attachAgentSession,
-  getAgentSession,
-  getAgentSessionHistory,
-} from "../../api/client";
+import { attachAgentSession, getAgentSession, getAgentSessionHistory } from "../../api/client";
 import AgentSessionSheet from "./AgentSessionSheet";
 
 type HistoryCall = { tail?: boolean; before?: string; limit?: number };
@@ -239,9 +235,7 @@ describe("AgentSessionSheet", () => {
     const box = await screen.findByRole("textbox");
     await userEvent.type(box, "a draft for later");
     expect((box as HTMLTextAreaElement).value).toBe("a draft for later");
-    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/You are offline/)).toBeTruthy();
   });
 });

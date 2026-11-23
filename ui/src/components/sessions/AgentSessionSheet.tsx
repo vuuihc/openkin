@@ -18,10 +18,7 @@ import {
   agentSessionTurnStart,
   countAgentSessionUserTurns,
 } from "../../lib/agentSessionHistory";
-import {
-  canContinueAgentSession,
-  displayAgentSessionTitle,
-} from "../../lib/agentSessionTitle";
+import { canContinueAgentSession, displayAgentSessionTitle } from "../../lib/agentSessionTitle";
 import { runGuardedNavigation } from "../../lib/leaveGuard";
 import { currentPhoneLocation, phonePush } from "../../lib/phoneNavigation";
 import { useAppStore } from "../../store/appStore";
@@ -218,9 +215,7 @@ export default function AgentSessionSheet({
   );
   const canContinue = canContinueAgentSession(view);
   const missingContinueCwd =
-    !view.linked &&
-    !view.cwd.trim() &&
-    view.capabilities?.includes("session_attach") === true;
+    !view.linked && !view.cwd.trim() && view.capabilities?.includes("session_attach") === true;
 
   const attach = async (text: string) => {
     const prompt = text.trim();

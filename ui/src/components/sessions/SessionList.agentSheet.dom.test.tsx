@@ -6,11 +6,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import SessionList from "./SessionList";
 import { setLocale } from "../../i18n";
 import type { Machine } from "../../lib/devices";
-import {
-  type AgentSession,
-  type Project,
-  type Task,
-} from "../../api/client";
+import { type AgentSession, type Project, type Task } from "../../api/client";
 
 /**
  * The imported session row opens the list's own sheet, not the page.
