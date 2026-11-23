@@ -21,6 +21,15 @@ function paths(tree: unknown, prefix = ""): string[] {
   return out;
 }
 
+/** Every string leaf of a catalogue, with its dotted path. */
+function leaves(tree: unknown, prefix = ""): Array<[string, string]> {
+  if (typeof tree === "string") return [[prefix, tree]];
+  if (tree === null || typeof tree !== "object") return [];
+  return Object.entries(tree as Record<string, unknown>).flatMap(([key, value]) =>
+    leaves(value, prefix ? `${prefix}.${key}` : key),
+  );
+}
+
 describe("locale catalogs", () => {
   it("have the same keys in both languages", () => {
     const zhPaths = paths(zh).sort();
@@ -51,13 +60,6 @@ describe("locale catalogs", () => {
     // Key parity cannot see this one: a template translated with a renamed
     // placeholder (`{stat}`) has a row in both catalogs and renders the braces
     // literally, because `t()` only replaces the names it is given.
-    const leaves = (tree: unknown, prefix = ""): Array<[string, string]> => {
-      if (typeof tree === "string") return [[prefix, tree]];
-      if (tree === null || typeof tree !== "object") return [];
-      return Object.entries(tree as Record<string, unknown>).flatMap(([key, value]) =>
-        leaves(value, prefix ? `${prefix}.${key}` : key),
-      );
-    };
     const tokens = (value: string) =>
       [...value.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
     const zhLeaves = new Map(leaves(zh));
@@ -126,6 +128,24 @@ describe("conversation vocabulary", () => {
     // really is a task and keeps its name.
     expect(zh.nav.routines).toBe("例行任务");
     expect(en.nav.routines).toBe("Routines");
+  });
+});
+
+/**
+ * The routines catalog had three names for one thing on one screen: 例行任务 in
+ * the heading, the list section and the row menu, the English `Routine` in the
+ * search box and the load-more row, and 例程 in the empty-filter hint. The
+ * search box's copy is also its accessible name, so the drift reached screen
+ * readers as well as pixels.
+ */
+describe("routines vocabulary", () => {
+  it("keeps one name for a routine in the zh routines copy", () => {
+    expect(zh.routines.searchPlaceholder).toBe("搜索例行任务");
+    expect(zh.routines.loadMore).toBe("加载更多例行任务");
+    const bad = leaves(zh.routines, "routines")
+      .filter(([, value]) => /Routine|例程/.test(value))
+      .map(([path]) => path);
+    expect({ bad }).toEqual({ bad: [] });
   });
 });
 
