@@ -146,6 +146,49 @@ test_claim_check_output_absent_from_real_output_is_sent_back() {
   pass "$CASE"
 }
 
+# --- 3c. colour is presentation: a plain claim matches a colourised run --------------------------
+# Measured 2026-11-23: 15 lane/merge claims of the shape `Test Files  2 passed (2) | Tests  49
+# passed (49)` failed only because vitest wrote the summary with SGR codes inside the words, so
+# the line a person sees could never appear in the bytes the command wrote. Each false FAIL
+# discarded a finished delivery; this case pins the normalization that stops it.
+test_claim_check_passes_when_the_output_is_coloured() {
+  new_case claim-coloured-output
+  paths "docs/plans/claim-check.md"
+  body "Claim check: printf '\\033[2m Test Files \\033[22m \\033[1m\\033[32m2 passed\\033[39m\\033[22m \\033[90m(2)\\033[39m\\n'" \
+       "Claim output:" \
+       "Test Files  2 passed (2)"
+  run_check
+  [ "$RC" -eq 0 ] || fail "$CASE: exit $RC, want 0 — colour is presentation ($OUT)"
+  case "$OUT" in CLAIM_OK:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_OK" ;; esac
+  pass "$CASE"
+}
+
+# --- 3d. joining two printed lines with ` | ` is formatting, not an invention -------------------
+test_claim_check_passes_when_two_printed_lines_are_joined() {
+  new_case claim-joined-output
+  paths "docs/plans/claim-check.md"
+  body "Claim check: printf 'Test Files  2 passed (2)\\n      Tests  49 passed (49)\\n'" \
+       "Claim output:" \
+       "Test Files  2 passed (2) | Tests  49 passed (49)"
+  run_check
+  [ "$RC" -eq 0 ] || fail "$CASE: exit $RC, want 0 — a join of two real lines is not a lie ($OUT)"
+  case "$OUT" in CLAIM_OK:*) ;; *) fail "$CASE: output is '$OUT', want CLAIM_OK" ;; esac
+  pass "$CASE"
+}
+
+# --- 3e. the join is not a loophole: one invented fragment still fails --------------------------
+test_claim_check_fails_when_a_joined_fragment_was_never_printed() {
+  new_case claim-invented-fragment
+  paths "docs/plans/claim-check.md"
+  body "Claim check: printf 'Test Files  2 passed (2)\\n      Tests  49 passed (49)\\n'" \
+       "Claim output:" \
+       "Test Files  2 passed (2) | Tests  99 passed (99)"
+  run_check
+  [ "$RC" -eq 1 ] || fail "$CASE: exit $RC, want 1 — an invented fragment is still invented ($OUT)"
+  case "$OUT" in *"not in the command's real output"*) ;; *) fail "$CASE: wrong verdict: $OUT" ;; esac
+  pass "$CASE"
+}
+
 # --- 3b. a claim with no `Claim output:` block was never compared, so it is not delivered -------
 test_claim_check_without_claim_output_is_sent_back() {
   new_case no-output
@@ -523,6 +566,9 @@ run() { # <function> [<case name>] — RSI_TEST_ONLY accepts either spelling
 run test_prose_pr_without_claim_check_is_sent_back
 run test_claim_check_command_that_fails_is_sent_back
 run test_claim_check_output_absent_from_real_output_is_sent_back
+run test_claim_check_passes_when_the_output_is_coloured claim-coloured-output
+run test_claim_check_passes_when_two_printed_lines_are_joined claim-joined-output
+run test_claim_check_fails_when_a_joined_fragment_was_never_printed claim-invented-fragment
 run test_claim_check_without_claim_output_is_sent_back
 run test_claim_check_passes_when_the_command_output_matches
 run test_code_only_pr_is_not_applicable

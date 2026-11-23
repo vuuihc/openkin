@@ -117,5 +117,26 @@
     "test": "RSI_TEST_ONLY=claim-check-zero-no-retry-with-output bash rsi/runtime/tests/test-claim-check.sh",
     "old": "    if error is not None:\n        return fail(error)\n    if not collapse(actual):",
     "new": "    if error is not None:\n        return fail(error)\n    if not collapse(actual) or returncode == 0:  # mutant: retry a printed zero-exit mismatch"
+  },
+  {
+    "label": "compare the command's colourised bytes, not what it printed",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=claim-coloured-output bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "    return collapse(ANSI_RE.sub(\"\", text))",
+    "new": "    return collapse(text)  # mutant: keep ANSI escape codes in the comparison"
+  },
+  {
+    "label": "require a joined claim to appear whole",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=claim-joined-output bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "    parts = [normalize(part) for part in line.split(\"|\") if part.strip()]",
+    "new": "    parts = []  # mutant: a `|`-joined line must appear whole"
+  },
+  {
+    "label": "accept a joined claim on one matching fragment",
+    "file": "rsi/runtime/claim_check.py",
+    "test": "RSI_TEST_ONLY=claim-invented-fragment bash rsi/runtime/tests/test-claim-check.sh",
+    "old": "    return len(parts) > 1 and all(part in haystack for part in parts)",
+    "new": "    return len(parts) > 1 and any(part in haystack for part in parts)  # mutant: one fragment is enough"
   }
 ]
