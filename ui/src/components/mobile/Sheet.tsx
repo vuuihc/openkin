@@ -57,6 +57,13 @@ export type SheetProps = {
    */
   anyWidth?: boolean;
   /**
+   * Show the pull-down grabber. A fine-pointer host has no pull gesture, so a
+   * sheet that stays visible at desktop widths opts out rather than showing a
+   * touch handle over a mouse-driven dialog. The title stays the drag handle
+   * for a touch screen at any width.
+   */
+  grip?: boolean;
+  /**
    * A centred desktop dialog at wide widths while keeping the bottom sheet on
    * a phone. It dismisses through the same history entry as every other
    * sheet, so layout and navigation retain one lifecycle.
@@ -144,6 +151,7 @@ export default function Sheet({
   className = "",
   bodyClassName = "",
   anyWidth = false,
+  grip = true,
   dialog = false,
   onCloseComplete,
 }: SheetProps) {
@@ -547,12 +555,14 @@ export default function Sheet({
         }}
       >
         <div ref={gripRef} className="flex-none" style={{ touchAction: "none" }}>
-          <div className="flex h-6 items-center justify-center">
-            <div
-              aria-hidden="true"
-              className="h-[5px] w-9 rounded-full bg-[var(--kin-hairline-strong)]"
-            />
-          </div>
+          {grip ? (
+            <div data-sheet-grip="" className="flex h-6 items-center justify-center">
+              <div
+                aria-hidden="true"
+                className="h-[5px] w-9 rounded-full bg-[var(--kin-hairline-strong)]"
+              />
+            </div>
+          ) : null}
           {title ? (
             <div className="flex-none px-4 pb-2 pt-1 text-center">
               <h2 className="truncate text-subtitle font-semibold">{title}</h2>

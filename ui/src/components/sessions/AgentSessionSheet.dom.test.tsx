@@ -49,10 +49,11 @@ vi.mock("../../api/client", async (importOriginal) => {
 });
 
 vi.mock("../../hooks/useAgentRoles", () => ({
-  useAgentRoles: () => [],
+  useAgentRoles: vi.fn(() => []),
 }));
 
 import { attachAgentSession, getAgentSession, getAgentSessionHistory } from "../../api/client";
+import { useAgentRoles } from "../../hooks/useAgentRoles";
 import AgentSessionSheet from "./AgentSessionSheet";
 
 type HistoryCall = { tail?: boolean; before?: string; limit?: number };
@@ -147,7 +148,22 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
+
+/** jsdom has no matchMedia; the pull-down grabber follows the pointer. */
+function pointer(kind: "fine" | "coarse") {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(pointer: coarse)" ? kind === "coarse" : false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
 
 describe("AgentSessionSheet", () => {
   it("the sheet names the agent and shows the session's recent turns", async () => {
@@ -237,5 +253,63 @@ describe("AgentSessionSheet", () => {
     expect((box as HTMLTextAreaElement).value).toBe("a draft for later");
     expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/You are offline/)).toBeTruthy();
+  });
+
+  it("names the agent once when the transcript opens on its turn", async () => {
+    // The sheet's own header already says who the session belongs to. When the
+    // oldest visible turn is that agent's, ChatStream's own speaker header
+    // would print the same avatar and name directly below it. One final
+    // assistant turn is the smallest transcript that opens on the agent.
+    vi.mocked(getAgentSessionHistory).mockResolvedValue({
+      items: [item("a1", "assistant", "answer 1")],
+      prev_cursor: "",
+    });
+
+    renderSheet();
+
+    await screen.findByText("answer 1");
+    expect(screen.getAllByText("Claude Code")).toHaveLength(1);
+  });
+
+  it("reads no agent roles while the sheet is closed", async () => {
+    // The sheet stays mounted between opens so a reopen keeps the turns it
+    // already read. The role read belongs to the open surface: a closed sheet
+    // must not make the shell's startup call settings.
+    vi.mocked(getAgentSessionHistory).mockResolvedValue({ items: [], prev_cursor: "" });
+    const roles = vi.mocked(useAgentRoles);
+    roles.mockClear();
+    const { rerender } = render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AgentSessionSheet open={false} session={session} onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    expect(roles).not.toHaveBeenCalled();
+
+    rerender(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AgentSessionSheet open session={session} onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    expect(roles).toHaveBeenCalled();
+  });
+
+  it("no pull-down grabber for a mouse", async () => {
+    pointer("fine");
+    vi.mocked(getAgentSessionHistory).mockResolvedValue({ items: [], prev_cursor: "" });
+
+    renderSheet();
+
+    await screen.findByRole("dialog", { name: /a long session/ });
+    expect(document.querySelector("[data-sheet-grip]")).toBeNull();
+  });
+
+  it("keeps the pull-down grabber for a finger", async () => {
+    pointer("coarse");
+    vi.mocked(getAgentSessionHistory).mockResolvedValue({ items: [], prev_cursor: "" });
+
+    renderSheet();
+
+    await screen.findByRole("dialog", { name: /a long session/ });
+    expect(document.querySelector("[data-sheet-grip]")).not.toBeNull();
   });
 });

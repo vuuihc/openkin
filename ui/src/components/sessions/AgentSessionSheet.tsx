@@ -103,6 +103,39 @@ export type AgentSessionSheetProps = {
   onClose: () => void;
 };
 
+/**
+ * The sheet's composer and the roles it offers.
+ *
+ * A component of its own so the role read belongs to the open surface: the
+ * sheet stays mounted between opens to keep the turns it already read, and a
+ * hook called at the sheet's top level would read settings on every console
+ * start even with no sheet on screen.
+ */
+function ContinueComposer({
+  agentName,
+  busy,
+  offline,
+  onSubmit,
+}: {
+  agentName: string;
+  busy: boolean;
+  offline: boolean;
+  onSubmit: (text: string) => Promise<void>;
+}) {
+  const tr = useT();
+  const roles = useAgentRoles();
+  return (
+    <Composer
+      busy={busy}
+      disabled={busy}
+      blockSend={offline}
+      roles={roles}
+      placeholder={tr("agentSession.continuePlaceholder", { agent: agentName })}
+      onSubmit={onSubmit}
+    />
+  );
+}
+
 export default function AgentSessionSheet({
   open,
   session,
@@ -117,7 +150,6 @@ export default function AgentSessionSheet({
   const openRef = useRef(open);
   openRef.current = open;
   const coarse = useCoarsePointer();
-  const agentRoles = useAgentRoles(open);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const [fresh, setFresh] = useState<AgentSession | null>(null);
   const [items, setItems] = useState<AgentSessionHistoryItem[]>([]);
@@ -279,13 +311,11 @@ export default function AgentSessionSheet({
       {offline ? (
         <p className="text-caption text-kin-muted">{tr("agentSession.continueOffline")}</p>
       ) : null}
-      <Composer
+      <ContinueComposer
         key={view.id}
+        agentName={agentName}
         busy={attachBusy}
-        disabled={attachBusy}
-        blockSend={offline}
-        roles={agentRoles}
-        placeholder={tr("agentSession.continuePlaceholder", { agent: agentName })}
+        offline={offline}
         onSubmit={attach}
       />
     </div>
@@ -300,6 +330,7 @@ export default function AgentSessionSheet({
       onCloseComplete={closeComplete}
       title={title}
       anyWidth
+      grip={coarse}
       bodyClassName="pb-2"
       footer={footer}
     >
@@ -367,6 +398,7 @@ export default function AgentSessionSheet({
           events={historyEvents}
           loadingSpeaker={view.agent_id}
           hostSpeaker={view.agent_id}
+          hideFirstSpeaker
         />
       ) : null}
     </Sheet>
