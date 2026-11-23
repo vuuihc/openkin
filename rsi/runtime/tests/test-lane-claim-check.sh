@@ -438,7 +438,10 @@ case_claim_check_retry_body_fixed_mid_handoff() {
   fixed_body "$T/retryfixed.fixed"
   rm -f "$ATTEMPTS"   # the flipper must see the lane's new record, never a sibling case's
   flip_body_on_attempt "$CTRL/rsi/state/lanes/1.pr-body.md" "$T/retryfixed.fixed" & local flipper=$!
-  claim_fail_handoff "$BODY"
+  # 3 s, not the 1 s production default: the flipper polls at 50 ms but is a separate process, and
+  # a descheduled flipper under the parallel gate would make attempt 2 read the old body (a false
+  # red). The default pause is still covered by the still-failing case.
+  claim_fail_handoff "$BODY" 3
   wait "$flipper" 2>/dev/null || true
   [ "$PH_RC" -eq 0 ] \
     || fail "retryfixed: hand-off exit $PH_RC, want 0 (the late body fix must continue the hand-off): $(cat "$T/ph-finish.log")"
@@ -485,7 +488,7 @@ case_claim_check_retry_zero_disables() {
   body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
        "99:Prose claim check: a line the command never printed"
   fixed_body "$T/retryzero.fixed"
-  rm -f "$ATTEMPTS"
+  rm -f "$ATTEMPTS" "$CTRL/rsi/state/lanes/1.claim.txt"  # a sibling case's record must not stand in
   flip_body_on_attempt "$CTRL/rsi/state/lanes/1.pr-body.md" "$T/retryzero.fixed" & local flipper=$!
   claim_fail_handoff "$BODY" 0
   wait "$flipper" 2>/dev/null || true
@@ -497,6 +500,8 @@ case_claim_check_retry_zero_disables() {
     || fail "retryzero: the single attempt is not the FAIL: $(cat "$ATTEMPTS")"
   [ -f "$CTRL/rsi/state/lanes/1.claim.txt" ] \
     || fail "retryzero: the disabled retry lost the failure record"
+  grep -q 'CLAIM_LANE_FAIL' "$CTRL/rsi/state/lanes/1.claim.txt" \
+    || fail "retryzero: .claim.txt does not hold this case's FAIL: $(cat "$CTRL/rsi/state/lanes/1.claim.txt")"
   ! git -C "$T/retryzero.git" rev-parse --verify -q refs/heads/rsi/handoff >/dev/null \
     || fail "retryzero: the disabled retry still pushed"
 }
