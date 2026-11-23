@@ -266,6 +266,84 @@ t_screenshot_hold() {
   check "M9 a second run repeats nothing" [ "$(grep -c 'held for screenshots' "$T/state/needs-ceo.md")" = 1 ]
 }
 
+# --- CG: a prose body the merge gate would send back never becomes a PR (claim gate) -------------
+# The NAS ingest is the third entry point for the claim rule. #611 and #618 (2026-11-23) each paid a
+# full merge gate plus an independent review for a body-only defect; these cases pin the hold that
+# should have caught them before any PR existed.
+prose_job() { # T SLUG ITEM PATH â€” a docs result whose changed path is a prose-assertion path
+  local T="$1" slug="$2" item="$3" path="$4"
+  git -C "$T/ctrl" checkout -q -B "rsi/$slug" main
+  mkdir -p "$T/ctrl/$(dirname "$path")"
+  echo "note for $slug" > "$T/ctrl/$path"
+  git -C "$T/ctrl" add -A; git -C "$T/ctrl" commit -qm "docs: $slug"
+  job_record "$T" "$slug" "$item" "rsi/$slug" 1700000000 1700000000 >/dev/null
+  git -C "$T/ctrl" checkout -q main
+}
+
+t_claim_gate_holds_missing_check() {
+  local T; sandbox; T=$T
+  prose_job "$T" s1 R-T-CG-1 docs/plans/s1.md
+  printf 'RSI item: R-T-CG-1\n\nSummary\nA sentence with no proof.\n' > "$T/nas/work/jobs/s1/pr-body.md"
+  run_ingest "$T" > "$T/i1.log" 2>&1
+  check "CG a prose body with no claim check opens no PR" [ ! -s "$T/gh.log" ]
+  check "CG no live PR body is edited" [ ! -s "$T/gh-edit.log" ]
+  check "CG the hold carries the verdict" grep -q 'CLAIM_FAIL' "$T/state/nas/hold/s1.md"
+  check "CG the hold names the body and the publish command" bash -c "grep -q 'pr-body.md' '$T/state/nas/hold/s1.md' && grep -q 'gh pr create' '$T/state/nas/hold/s1.md'"
+  check "CG the CEO is told once" [ "$(grep -c 'held for claim check' "$T/state/needs-ceo.md")" = 1 ]
+  check "CG the remote job is consumed as held" [ "$(jget "$T/nas/work/jobs/s1/status.json" status)" = held ]
+  check "CG the branch survives on origin" test -n "$(git -C "$T/origin.git" rev-parse --verify -q refs/heads/rsi/s1)"
+  run_ingest "$T" > "$T/i2.log" 2>&1
+  check "CG a second run repeats nothing" [ "$(grep -c 'held for claim check' "$T/state/needs-ceo.md")" = 1 ]
+}
+
+t_claim_gate_publishes_valid_check() {
+  local T; sandbox; T=$T
+  prose_job "$T" s1 R-T-CG-2 docs/plans/s1.md
+  {
+    printf 'RSI item: R-T-CG-2\n\nSummary\nA sentence with a source pin.\n\n'
+    printf 'Claim check: grep -n "note for s1" docs/plans/s1.md\n'
+    printf 'Claim output:\n1:note for s1'
+  } > "$T/nas/work/jobs/s1/pr-body.md"       # no trailing newline: the publish-path appends must not join it
+  run_ingest "$T" > "$T/i1.log" 2>&1
+  check "CG a true claim check passes the gate" grep -q 'claim check ok s1' "$T/i1.log"
+  check "CG a true claim check publishes exactly one PR" [ "$(wc -l < "$T/gh.log" | tr -d ' ')" = 1 ]
+  check "CG no hold is written for a valid claim" [ ! -e "$T/state/nas/hold/s1.md" ]
+  check "CG the valid result is consumed as ingested" [ "$(jget "$T/nas/work/jobs/s1/status.json" status)" = ingested ]
+  # The Mac appends its self-check line after the gate; a body whose last line is the claimed output
+  # must not swallow it into the claim block, or the merge lane sends back the body the NAS passed.
+  check "CG the appended self-check line cannot join the claim block" bash -c \
+    "python3 '$NASDIR/../claim_check.py' '$T/wt/rsi-s1' '$T/state/nas/xfer/s1/pr-body.md' '$T/state/nas/xfer/s1/claim-changed.txt' | grep -q '^CLAIM_OK'"
+}
+
+t_claim_gate_existing_pr_keeps_body() {
+  local T; sandbox; T=$T
+  # The open PR's branch already exists on origin at its previous head; the NAS result is one commit on
+  # top. Advancing that head under the old body would let merge.sh claim-check a stale body on the new diff.
+  git -C "$T/ctrl" push -q origin main:refs/heads/rsi/s2
+  local prev; prev="$(git -C "$T/ctrl" rev-parse main)"
+  prose_job "$T" s2 R-T-CG-4 docs/plans/s2.md
+  printf 'RSI item: R-T-CG-4\n\nSummary\nNo proof.\n' > "$T/nas/work/jobs/s2/pr-body.md"
+  run_ingest "$T" FAKE_PR=1 FAKE_PR_HEAD="$prev" > "$T/i1.log" 2>&1
+  check "CG an open PR keeps its previous body" [ ! -s "$T/gh-edit.log" ]
+  check "CG an open PR keeps its previous head" [ "$(git -C "$T/origin.git" rev-parse refs/heads/rsi/s2)" = "$prev" ]
+  check "CG the hold names the open PR and its edit command" grep -q 'gh pr edit 1 --repo' "$T/state/nas/hold/s2.md"
+  check "CG the open-PR hold opens no second PR" [ ! -s "$T/gh.log" ]
+}
+
+t_claim_gate_no_verdict_holds() {
+  local T; sandbox; T=$T
+  prose_job "$T" s1 R-T-CG-3 docs/plans/s1.md
+  {
+    printf 'RSI item: R-T-CG-3\n\n'
+    printf 'Claim check: sleep 5\n'
+    printf 'Claim output:\nnever printed\n'
+  } > "$T/nas/work/jobs/s1/pr-body.md"
+  run_ingest "$T" NAS_CLAIM_TIMEOUT=1 > "$T/i1.log" 2>&1
+  check "CG an expired claim check opens no PR" [ ! -s "$T/gh.log" ]
+  check "CG an expired claim check is a no-verdict hold" grep -q 'NO_VERDICT' "$T/state/nas/hold/s1.md"
+  check "CG the expired result is consumed as held" [ "$(jget "$T/nas/work/jobs/s1/status.json" status)" = held ]
+}
+
 # --- T10: release only touches a claim this NAS run still owns (M3) -----------------------------
 t_release_ownership() {
   local T; sandbox; T=$T
@@ -789,6 +867,10 @@ if [ -n "${1:-}" ]; then "$1"; finish; exit $?; fi    # test-nas.sh <function> â
 t_ingest_twice
 t_worktree_recovery
 t_screenshot_hold
+t_claim_gate_holds_missing_check
+t_claim_gate_publishes_valid_check
+t_claim_gate_existing_pr_keeps_body
+t_claim_gate_no_verdict_holds
 t_release_ownership
 t_worktree_ownership
 case_wt_resolving_to_control_tree_is_refused
