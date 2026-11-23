@@ -1121,7 +1121,7 @@ jsdom 的「无列表行」路径上验证。
 的 390×844 / 1100×760 真 daemon 前后截图。
 
 ## 2026-11-19 · 一次走查的红不是缺陷，5 次独立复现才是
-seen: 1
+seen: 2
 
 发生了什么：2026-11-19T16:05 的一次 Mac J9 走查里，`scroll-kept` 在
 `[seed] Morning planning` → `[seed] Failed migration` → 切回之后落在 2618，要求 320±48，
@@ -1149,6 +1149,16 @@ seen: 1
 证据：ux-walk.sh J9 run 3 · SHA 0407766f · PASS scroll-kept 320 (max 1065), shell same element
 证据：ux-walk.sh J9 run 4 · SHA 0407766f · PASS scroll-kept 320 (max 1065), shell same element
 证据：ux-walk.sh J9 run 5 · SHA 0407766f · PASS scroll-kept 320 (max 1071), shell same element
+
+2026-11-23 再次出现：同一份 390 走查把「例行任务列表返回后丢失滚动」写成缺陷，原因写的是同一任务里
+先程序化写 `scrollTop = 600` 再点走；当日用真实手势重测同一份代码，Back 600→600、页脚 tab 900→900，
+没有丢。假前提进了 #623，花掉一轮返工；#624 钉的恢复行为本来就被
+`ui/src/pages/RoutinesPage.scroll.dom.test.tsx:267/296/314/356` 覆盖。读数来源要写清楚：
+`rsi/runtime/ux/walk.mjs:4473` 在程序化滚动后只等 300 ms，而保存靠 `scroll` 监听器
+（`ui/src/pages/RoutinesPage.tsx:313-317`），同一任务里的点击可以在它跑到之前卸载页面。规则加一句：
+写「因为 X」必须给出一个能把 X 与其它解释分开的观测，程序化读数不能当真实手势读数用。
+
+证据：#623（返工 `a9a135c3`）· #624 · 真实手势重测 `rsi/state/sendback/done/dogfood-20261123-09-110925.md:29`
 
 ## 2026-11-20 · 走查选择器静默丢参数时，绿色不是证据
 seen: 1
