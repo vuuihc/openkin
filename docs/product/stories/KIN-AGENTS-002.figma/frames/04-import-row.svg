@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="980" viewBox="0 0 1100 980">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="980" fill="#ffffff" rx="16"/>
+<rect width="1100" height="34" fill="#f6f6f8" rx="16"/>
+<rect y="20" width="1100" height="14" fill="#f6f6f8"/>
+<text x="16" y="22" font-size="11" fill="#555">状态板 · 导入会话组 · 1100×980</text>
+<text x="1084" y="22" font-size="11" fill="#777" text-anchor="end">按钮出现 / 不存在 / 禁用，各有各的理由</text>
+
+<!-- A: capability missing -->
+<rect x="16" y="56" width="520" height="280" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="38" cy="80" r="9" fill="#eef3ff"/>
+<text x="38" y="84" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">2</text>
+<text x="56" y="85" font-size="14" fill="#1a1a1a" font-weight="600">导入会话</text>
+<text x="56" y="101" font-size="10.5" fill="#6b6b6b">只在按下时发生，只写会话索引</text>
+<line x1="16" y1="116" x2="536" y2="116" stroke="#e3e3e3"/>
+<text x="36" y="144" font-size="12.5" fill="#1a1a1a" font-weight="600">Gemini CLI</text>
+<text x="36" y="160" font-size="10.5" fill="#8a8a92">这台机器的 Gemini CLI · 未检测到</text>
+<rect x="36" y="170" width="104" height="18" rx="4" fill="#fff" stroke="#f0b27a"/>
+<text x="88" y="183" font-size="10" fill="#b26a00" text-anchor="middle">可列出 · 不支持</text>
+<text x="516" y="150" font-size="11" fill="#b42318" text-anchor="end">不支持列出会话</text>
+<text x="516" y="166" font-size="9.5" fill="#8a8a92" text-anchor="end">原因：适配器未提供 session_list</text>
+<text x="36" y="214" font-size="10" fill="#999">按钮不存在，而不是灰着不解释——灰按钮会被读成「等一下就能按」。</text>
+<text x="36" y="234" font-size="10" fill="#999">这一行仍在状态组里，说明它为什么不能导入。</text>
+<text x="36" y="260" font-size="10" fill="#1f6feb">合同 :51「能力不支持时该行没有导入按钮并写原因」</text>
+
+<!-- B: importable -->
+<rect x="564" y="56" width="520" height="280" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="586" cy="80" r="9" fill="#eef3ff"/>
+<text x="586" y="84" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">2</text>
+<text x="604" y="85" font-size="14" fill="#1a1a1a" font-weight="600">导入会话</text>
+<text x="604" y="101" font-size="10.5" fill="#6b6b6b">只在按下时发生，只写会话索引</text>
+<line x1="564" y1="116" x2="1084" y2="116" stroke="#e3e3e3"/>
+<text x="584" y="144" font-size="12.5" fill="#1a1a1a" font-weight="600">Claude Code</text>
+<text x="584" y="160" font-size="10.5" fill="#8a8a92">这台机器的 Claude Code · 可列出会话</text>
+<rect x="986" y="132" width="82" height="28" rx="7" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="1027" y="150" font-size="11" fill="#1a1a1a" text-anchor="middle">导入</text>
+<text x="584" y="184" font-size="9.5" fill="#999">无障碍名：导入（Claude Code）的会话</text>
+<line x1="564" y1="196" x2="1084" y2="196" stroke="#f0f0f2"/>
+<rect x="584" y="208" width="130" height="30" rx="8" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="649" y="227" font-size="10.5" fill="#1a1a1a" text-anchor="middle">立即导入会话</text>
+<text x="726" y="227" font-size="9.5" fill="#8a8a92">所有已配对机器，不只是本机</text>
+<text x="584" y="258" font-size="10" fill="#999">行内「导入」只请求这一台机器的这个 provider。</text>
+<text x="584" y="276" font-size="10" fill="#1f6feb">按下即确认，没有第二步对话框；Esc 不触发导入（合同 :74）。</text>
+
+<!-- C: importing -->
+<rect x="16" y="348" width="520" height="280" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="38" cy="372" r="9" fill="#eef3ff"/>
+<text x="38" y="376" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">2</text>
+<text x="56" y="377" font-size="14" fill="#1a1a1a" font-weight="600">导入会话</text>
+<text x="56" y="393" font-size="10.5" fill="#6b6b6b">只在按下时发生，只写会话索引</text>
+<line x1="16" y1="408" x2="536" y2="408" stroke="#e3e3e3"/>
+<text x="36" y="436" font-size="12.5" fill="#1a1a1a" font-weight="600">Claude Code</text>
+<text x="36" y="452" font-size="10.5" fill="#8a8a92">正在索引这台机器的会话</text>
+<rect x="438" y="424" width="82" height="28" rx="7" fill="#f0f0f0"/>
+<text x="479" y="442" font-size="10.5" fill="#999" text-anchor="middle">导入中…</text>
+<line x1="16" y1="466" x2="536" y2="466" stroke="#f0f0f2"/>
+<text x="36" y="492" font-size="12.5" fill="#1a1a1a" font-weight="600">Codex</text>
+<text x="36" y="508" font-size="10.5" fill="#8a8a92">等这次导入结束</text>
+<rect x="438" y="480" width="82" height="28" rx="7" fill="#f0f0f0"/>
+<text x="479" y="498" font-size="10.5" fill="#bbb" text-anchor="middle">导入</text>
+<rect x="36" y="528" width="130" height="30" rx="8" fill="#f0f0f0"/>
+<text x="101" y="547" font-size="10.5" fill="#999" text-anchor="middle">立即导入会话</text>
+<text x="36" y="584" font-size="10" fill="#999">一次导入进行中时，页面与侧栏的其余导入按钮一起禁用。</text>
+<text x="36" y="604" font-size="10" fill="#1f6feb">进行中的按钮禁用但保持焦点；完成后焦点回到触发按钮（合同 :85）。</text>
+
+<!-- D: offline -->
+<rect x="564" y="348" width="520" height="280" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="586" cy="372" r="9" fill="#eef3ff"/>
+<text x="586" y="376" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">2</text>
+<text x="604" y="377" font-size="14" fill="#1a1a1a" font-weight="600">导入会话</text>
+<text x="604" y="393" font-size="10.5" fill="#6b6b6b">只在按下时发生，只写会话索引</text>
+<rect x="580" y="404" width="488" height="30" rx="8" fill="#fff8ea" stroke="#f0d9a8"/>
+<text x="592" y="423" font-size="10.5" fill="#8a5a00">离线 · 显示上次结果 14:02，不假装是新数据</text>
+<text x="584" y="462" font-size="12.5" fill="#1a1a1a" font-weight="600">Claude Code</text>
+<text x="584" y="478" font-size="10.5" fill="#8a8a92">这台机器的 Claude Code · 可列出会话</text>
+<rect x="966" y="450" width="102" height="28" rx="7" fill="#f0f0f0"/>
+<text x="1017" y="468" font-size="9.5" fill="#999" text-anchor="middle">离线，连上再导入</text>
+<line x1="564" y1="494" x2="1084" y2="494" stroke="#f0f0f2"/>
+<text x="584" y="520" font-size="12.5" fill="#1a1a1a" font-weight="600">安全审阅（角色）</text>
+<text x="584" y="536" font-size="10.5" fill="#8a8a92">只读；编辑器仍能看到已保存的值</text>
+<text x="584" y="572" font-size="10" fill="#999">三组都标离线：探测与导入禁用并写原因，角色只读（合同 :40、:117）。</text>
+<text x="584" y="592" font-size="10" fill="#1f6feb">断线保留上次结果并标时间；不把整页变空。</text>
+
+<!-- E: partial failure -->
+<rect x="16" y="640" width="520" height="280" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="38" cy="664" r="9" fill="#eef3ff"/>
+<text x="38" y="668" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">2</text>
+<text x="56" y="669" font-size="14" fill="#1a1a1a" font-weight="600">导入会话</text>
+<text x="56" y="685" font-size="10.5" fill="#6b6b6b">只在按下时发生，只写会话索引</text>
+<line x1="16" y1="700" x2="536" y2="700" stroke="#e3e3e3"/>
+<rect x="32" y="712" width="488" height="56" rx="8" fill="#fff8ea" stroke="#f0d9a8"/>
+<text x="44" y="730" font-size="11" fill="#8a5a00">已索引 12 个会话；2 项未同步</text>
+<text x="44" y="746" font-size="9.5" fill="#8a6a30">Codex · 需要登录；Gemini CLI · 不支持列出会话</text>
+<text x="504" y="736" font-size="10.5" fill="#1f6feb" text-anchor="end">重试</text>
+<text x="36" y="794" font-size="10" fill="#999">部分失败点名来源与原因；已索引的会话保留。</text>
+<text x="36" y="814" font-size="10" fill="#999">导入失败不删已有索引，也不清空列表（合同 :84、:152）。</text>
+<text x="36" y="840" font-size="10" fill="#1f6feb">失败只说导入组；角色编辑器仍可用。</text>
+
+<!-- F: no providers -->
+<rect x="564" y="640" width="520" height="280" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="586" cy="664" r="9" fill="#eef3ff"/>
+<text x="586" y="668" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">2</text>
+<text x="604" y="669" font-size="14" fill="#1a1a1a" font-weight="600">导入会话</text>
+<text x="604" y="685" font-size="10.5" fill="#6b6b6b">只在按下时发生，只写会话索引</text>
+<line x1="564" y1="700" x2="1084" y2="700" stroke="#e3e3e3"/>
+<text x="824" y="748" font-size="14" fill="#1a1a1a" font-weight="600" text-anchor="middle">先检测到 Agent 才能导入</text>
+<text x="824" y="768" font-size="10.5" fill="#6b6b6b" text-anchor="middle">这一组没有可导入的行；角色组仍可用</text>
+<rect x="744" y="784" width="160" height="30" rx="8" fill="#f0f0f0"/>
+<text x="824" y="803" font-size="10.5" fill="#999" text-anchor="middle">立即导入会话</text>
+<text x="584" y="846" font-size="10" fill="#999">组底按钮禁用并写原因；不是把整组藏起来。</text>
+<text x="584" y="866" font-size="10" fill="#1f6feb">角色组在同一个 tab 底部，照样能新增与保存（合同 :51）。</text>
+
+<text x="16" y="952" font-size="10" fill="#8a8a92">状态来源：合同 KIN-AGENTS-002.md:51（能力缺失/无 provider）、:73（离线）、:83（导入中/部分失败）、:84（失败保留索引）、:151（其余按钮禁用）。</text>
+</g>
+</svg>
