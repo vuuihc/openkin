@@ -1018,6 +1018,11 @@ export default function SessionList({
           // here, so they get no pencil either.
           instructionsProject ? () => setSummaryProjectId(instructionsProject.id) : undefined
         }
+        onEditRoots={
+          // The folder list is the same local record's, so the folder button
+          // follows the pencil's rule exactly: no record, no editor.
+          instructionsProject ? () => setRootsProjectId(instructionsProject.id) : undefined
+        }
         offline={offline}
         instructionsProjectId={instructionsProject?.id ?? null}
         instructions={instructionsProject ? projectInstructions[instructionsProject.id] : undefined}
@@ -2286,6 +2291,7 @@ function ProjectBucket({
   onArchiveProject,
   onProjectMenu,
   onEditSummary,
+  onEditRoots,
   instructionsProjectId,
   instructions,
   instructionsHref,
@@ -2347,6 +2353,9 @@ function ProjectBucket({
   /** Edit the one-line summary here; absent when the bucket has no local
    *  project record (the One-Pager lives on this machine only). */
   onEditSummary?: () => void;
+  /** Edit the working folders here; absent for the same reason as the
+   *  summary pencil — the ordered `roots` list is the local record's. */
+  onEditRoots?: () => void;
   /** The local project record this bucket is, or null when it has none. */
   instructionsProjectId: string | null;
   instructions?: ProjectInstructionsEntry;
@@ -2535,6 +2544,13 @@ function ProjectBucket({
               // beside the cover icon it writes to.
               <ProjectIconButton label={tr("nav.editSummary")} onClick={onEditSummary}>
                 <IconPencil size={12} />
+              </ProjectIconButton>
+            ) : null}
+            {onEditRoots ? (
+              // Its folder editor sits beside it: the same record, the same
+              // rule for when this machine owns the list.
+              <ProjectIconButton label={tr("projects.rootsEdit")} onClick={onEditRoots}>
+                <IconFolderOpen size={12} />
               </ProjectIconButton>
             ) : null}
             {local && !archived ? (

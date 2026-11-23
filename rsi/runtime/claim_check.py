@@ -17,11 +17,16 @@ The rule this enforces:
       rsi/GOAL.md:48:the sentence the PR asserts
 
   Every non-empty line under `Claim output:` must appear in the command's real
-  stdout+stderr, compared as a substring after runs of whitespace collapse to
-  one space. Surrounding noise in the real output is tolerated; an invented
-  line is not. The LAST `Claim check:` at column 0 wins, so a brief quoted
-  earlier in the body cannot satisfy the check. `Claim check: none: <reason>`
-  with at least 20 characters waives it; a bare `none` does not.
+  stdout+stderr, compared as a substring after two presentation normalizations
+  on both sides: ANSI colour escapes are dropped and runs of whitespace
+  collapse to one space. A line that still does not appear as a whole is split
+  on `|`, and every fragment must appear too (see claimed_line_found): a body
+  may join two facts the tool printed on separate lines, but an invented
+  fragment fails. Surrounding noise in the real output is tolerated; an
+  invented line is not. The LAST `Claim check:` at column 0 wins, so a brief
+  quoted earlier in the body cannot satisfy the check.
+  `Claim check: none: <reason>` with at least 20 characters waives it; a bare
+  `none` does not.
 
 A waiver is not a free pass. It says no command can prove the sentence, not
 that the branch's own citations are exempt: before the waiver is accepted,
@@ -243,6 +248,38 @@ def collapse(text):
     return " ".join(text.split())
 
 
+ANSI_RE = re.compile(
+    r"\x1b\[[0-9;?]*[ -/]*[@-~]"            # CSI: colours, cursor moves (vitest writes these)
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"    # OSC: title / hyperlink, BEL- or ST-terminated
+    r"|\x1b[@-Z\\-_]"                       # two-character escapes
+)
+
+
+def normalize(text):
+    """collapse() after dropping ANSI escapes: colour is presentation, not proof.
+
+    vitest writes its summary with SGR codes inside the words
+    ("\\x1b[2m Test Files \\x1b[22m \\x1b[1m\\x1b[32m2 passed\\x1b[39m\\x1b[22m"), so a body quoting
+    the line a person sees could never match the bytes the command wrote. Measured 2026-11-23:
+    15 lane/merge claims failed on exactly that shape, each discarding a finished delivery.
+    """
+    return collapse(ANSI_RE.sub("", text))
+
+
+def claimed_line_found(line, haystack):
+    """True when the claimed line's evidence is in the command's normalized output.
+
+    The whole line is the strict case and is tried first. A line that joins facts the tool
+    printed on separate lines ("Test Files  2 passed (2) | Tests  49 passed (49)") is then
+    split on `|`, and every fragment must be present: joining is formatting, inventing is not.
+    A single-fragment line never takes this path, so `A | B` cannot pass on `A` alone.
+    """
+    if normalize(line) in haystack:
+        return True
+    parts = [normalize(part) for part in line.split("|") if part.strip()]
+    return len(parts) > 1 and all(part in haystack for part in parts)
+
+
 def last_marker(lines, prefix):
     """Index of the last column-0 line starting with prefix, or None."""
     for i in range(len(lines) - 1, -1, -1):
@@ -423,8 +460,8 @@ def main(argv):
             % (returncode, command, tail(actual))
         )
 
-    haystack = collapse(actual)
-    missing = [line for line in claimed if collapse(line) not in haystack]
+    haystack = normalize(actual)
+    missing = [line for line in claimed if not claimed_line_found(line, haystack)]
     if missing:
         # Keep the command's exit code and the tail of what it really printed. Without them a
         # mismatch is indistinguishable from a slow or truncated run, and the reader has to
