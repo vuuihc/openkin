@@ -5,6 +5,7 @@ import {
   NotifyDeduper,
   notifyKey,
   notifyHasDecisionActions,
+  notifyOpenPath,
   parseNotifyEvent,
   safeNotifyPath,
   shouldAnnounceNotify,
@@ -219,6 +220,43 @@ describe("opening the event's link", () => {
     assert.equal(approvalPath("appr-1", "01ABC"), "/tasks/01ABC?focus=appr-1");
     assert.equal(approvalPath("appr-1"), "/sessions");
   });
+
+  const taskEvent = {
+    kind: "task" as const,
+    id: "01ABC",
+    url: "",
+    title: "",
+    body: "",
+    task_id: "01ABC",
+  };
+
+  it("opens the task an event names when its link is missing or unusable", () => {
+    // The banner text can be right while the link is not: the task id is the
+    // destination the event names, so the list must not win over it.
+    assert.equal(notifyOpenPath(taskEvent), "/tasks/01ABC");
+    assert.equal(notifyOpenPath({ ...taskEvent, url: "javascript:alert(1)" }), "/tasks/01ABC");
+    assert.equal(notifyOpenPath({ ...taskEvent, url: "https://evil.example/admin" }), "/tasks/01ABC");
+  });
+
+  it("keeps a destination the node did write, even when the event names a task", () => {
+    // The link is the node's own answer; only a link that names no destination
+    // is replaced by the task id.
+    assert.equal(notifyOpenPath({ ...taskEvent, url: "/sessions" }), "/sessions");
+    assert.equal(notifyOpenPath({ ...taskEvent, url: "/routines" }), "/routines");
+    assert.equal(
+      notifyOpenPath({ ...taskEvent, url: "/tasks/01ABC?focus=appr-1" }),
+      "/tasks/01ABC?focus=appr-1",
+    );
+  });
+
+  it("never turns a task id into anything but a task path", () => {
+    // The id arrives on the bus, so it gets the same "known route" treatment
+    // as a link: anything that could escape /tasks/ is not a task id.
+    for (const taskId of ["../settings", "a/b", "a b", "javascript:alert(1)", ""]) {
+      assert.equal(notifyOpenPath({ ...taskEvent, task_id: taskId }), "/sessions", taskId);
+    }
+    assert.equal(notifyOpenPath({ ...taskEvent, task_id: undefined }), "/sessions");
+  });
 });
 
 describe("approval actions", () => {
@@ -318,6 +356,88 @@ describe("showing a notification", () => {
     // The node wrote the Hub origin; this shell is on localhost. Only the path
     // is opened, so the tap still names the approval.
     assert.deepEqual(opened, ["/tasks/01ABC?focus=appr-1"]);
+  });
+
+  it("opens the task a banner names when its link is missing", () => {
+    // The reported tap: the banner named a task, the event carried no link,
+    // and the list opened instead of that task.
+    const { notifier, created, opened } = fakeNotifier({
+      origin: () => "http://127.0.0.1:7777",
+    });
+    notifier.onNotify({
+      kind: "task",
+      id: "01ABC",
+      url: "",
+      title: "Write the report — Completed",
+      body: "Completed",
+      task_id: "01ABC",
+    });
+
+    created[0]?.emitClick();
+    assert.deepEqual(opened, ["/tasks/01ABC"]);
+  });
+
+  it("still opens the list for an event that names neither a task nor a path", () => {
+    // The fallback is the security floor, not the bug: an event that names no
+    // destination must land where the waiting counts are.
+    const { notifier, created, opened } = fakeNotifier();
+    notifier.onNotify({
+      kind: "task",
+      id: "01ABC",
+      url: "",
+      title: "Something finished",
+      body: "",
+    });
+
+    created[0]?.emitClick();
+    assert.deepEqual(opened, ["/sessions"]);
+  });
+
+  it("keeps a link the node did write, even when the event also names a task", () => {
+    const { notifier, created, opened } = fakeNotifier();
+    notifier.onNotify({
+      kind: "routine",
+      id: "r1",
+      url: "/routines",
+      title: "Routine report",
+      body: "",
+      task_id: "01ABC",
+    });
+    notifier.onNotify({
+      kind: "approval",
+      id: "appr-1",
+      url: "/tasks/01ABC?focus=appr-1",
+      title: "Approval needed",
+      body: "",
+      task_id: "01ABC",
+    });
+
+    created[0]?.emitClick();
+    created[1]?.emitClick();
+    assert.deepEqual(opened, ["/routines", "/tasks/01ABC?focus=appr-1"]);
+  });
+
+  it("names the path it opened in the shell log", (t) => {
+    // The tap report could not tell which layer lost the path because the log
+    // line did not carry it. One resolution feeds the click and the log.
+    const log = t.mock.method(console, "log");
+    const { notifier } = fakeNotifier({
+      origin: () => "http://127.0.0.1:7777",
+    });
+    notifier.onNotify({
+      kind: "task",
+      id: "01ABC",
+      url: "https://kin.example.com/tasks/01ABC",
+      title: "Write the report — Completed",
+      body: "Completed",
+      task_id: "01ABC",
+    });
+
+    const lines = log.mock.calls.map((call) => String(call.arguments[0]));
+    assert.ok(
+      lines.some((line) => line.includes("path=/tasks/01ABC")),
+      `the shell log does not name the path it opened: ${lines.join(" | ")}`,
+    );
   });
 
   it("stays quiet only for the task already on screen", () => {
