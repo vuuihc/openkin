@@ -409,7 +409,9 @@ describe("a changed row tapped on a tablet", () => {
     expect(panes(container)?.getAttribute("data-panes")).toBe("split");
     expect(row.getAttribute("data-selected")).toBe("true");
     expect(hasClass(container.querySelector('[data-pane="viewer"]'), "hidden")).toBe(false);
-    await waitFor(() => expect(screen.getByTestId("code-viewer").textContent).toBe(`${CWD}/notes.md`));
+    await waitFor(() =>
+      expect(screen.getByTestId("code-viewer").textContent).toBe(`${CWD}/notes.md`),
+    );
   });
 
   it("brings the file pane to the front when the panel is narrower than the split", async () => {
