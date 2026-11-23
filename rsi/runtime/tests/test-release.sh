@@ -464,11 +464,11 @@ SH
 chmod +x "$STUB3"
 out="$(env PATH="$WRAP3:$PATH" RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
   RSI_RELEASE_NODE_CMD="$STUB3" bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
-[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; case_fail "expected exit 0, got $rc"; }
-[ -s "$BUILT" ] || case_fail "the node stub did not run"
-[ "$(cat "$BUILT")" != "$HEAD_SHA" ] || case_fail "origin did not advance mid-release"
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "mid-release: expected exit 0, got $rc"; }
+[ -s "$BUILT" ] || fail "mid-release: the node stub did not run"
+[ "$(cat "$BUILT")" != "$HEAD_SHA" ] || fail "mid-release: origin did not advance mid-release"
 grep -q "^node=$(cat "$BUILT")$" "$STATE/last_release" \
-  || case_fail "the marker must name the commit the node built"
+  || fail "mid-release: the marker must name the commit the node built"
 pass "release: the marker records the commit the node built when origin moved mid-release"
 
 # 14. A marker write that does not land must stop the release. mark() used to write the
