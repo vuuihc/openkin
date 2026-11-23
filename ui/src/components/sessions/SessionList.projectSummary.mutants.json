@@ -1,0 +1,16 @@
+[
+  {
+    "label": "a bucket with no local project record still gets the summary editor",
+    "file": "ui/src/components/sessions/SessionList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectSummary.dom.test.tsx",
+    "old": "        ? (projects.find((project) =>\n            (project.roots ?? []).some((root) => bucketKeyFor(root) === bucket.key),\n          ) ?? null)",
+    "new": "        ? (projects.find((project) =>\n            (project.roots ?? []).some((root) => bucketKeyFor(root) === bucket.key),\n          ) ?? ({ id: bucket.key } as Project))"
+  },
+  {
+    "label": "a 409 save is reported as a plain failure and never offers their version",
+    "file": "ui/src/components/sessions/ProjectSummaryEditor.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectSummary.dom.test.tsx",
+    "old": "      if (error instanceof ApiError && error.status === 409) {",
+    "new": "      if (false && error instanceof ApiError && error.status === 409) {"
+  }
+]
