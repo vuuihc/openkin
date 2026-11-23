@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<title>KIN-CONTINUE-007 · 820 列表一屏十条 · Figma 审阅</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1a1a1a;
+    --muted: #666a73;
+    --line: #dedee3;
+    --bg: #f1f1f4;
+    --page: #fbfbfd;
+    --card: #ffffff;
+    --accent: #1f6feb;
+    --accent-soft: #eef3ff;
+    --warn: #b42318;
+    --warn-soft: #fff1f0;
+    --ok: #137a3f;
+    --ok-soft: #eef8f1;
+    --gutter: clamp(16px, 5vw, 24px);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7;
+      --muted: #a1a1aa;
+      --line: #35353a;
+      --bg: #0b0b0d;
+      --page: #141416;
+      --card: #1d1d20;
+      --accent: #6ea8fe;
+      --accent-soft: #17243a;
+      --warn: #ff8a80;
+      --warn-soft: #2a1717;
+      --ok: #6dd58c;
+      --ok-soft: #13251b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  code { padding: 1px 5px; border-radius: 5px; background: var(--bg); font-size: .92em; overflow-wrap: anywhere; }
+  .page { max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom)); background: var(--page); }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 26px; line-height: 1.28; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 2px; font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill { display: inline-flex; align-items: center; height: 25px; padding: 0 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.draft { color: var(--muted); background: var(--bg); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 16px; }
+  .banner { margin-top: 12px; border-left: 4px solid var(--warn); background: var(--warn-soft); }
+  .banner p { margin: 0; font-size: 16px; }
+  .banner strong { color: var(--warn); }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 16px; }
+  .howto li { margin: 5px 0; }
+  .note { color: var(--muted); font-size: 14px; }
+  .howto .note { margin: 4px 0 0; }
+  .toc {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 8px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 8px var(--gutter);
+    overflow-x: auto;
+    background: var(--page);
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none; display: inline-flex; align-items: center;
+    min-height: 44px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink);
+    font-size: 13px; text-decoration: none; white-space: nowrap;
+  }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 0 0 6px; font-size: 17px; line-height: 1.4; }
+  h4 { margin: 16px 0 8px; font-size: 16px; line-height: 1.4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .bullets { font-size: 16px; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 16px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 13px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card h3 { font-size: 16px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 16px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  .delta { margin-top: 12px; }
+  .delta table { width: 100%; border-collapse: collapse; font-size: 16px; }
+  .delta th, .delta td { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .delta th { color: var(--muted); font-size: 13px; font-weight: 600; }
+  .delta td { overflow-wrap: anywhere; }
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a {
+    display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 12px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none;
+  }
+  .screen { margin: 16px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+  .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll {
+    overflow-x: auto; overflow-y: hidden;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: #fff;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-phone .frame-scroll { max-width: 390px; margin: 0 auto; }
+  .fig-phone img { width: 100%; }
+  .fig-wide img { width: 1100px; }
+  .fig-820 img { width: 820px; }
+  .fig-board img { width: 1000px; }
+  .frame figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li {
+    display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); font-size: 16px;
+  }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+  .state-list { display: grid; gap: 8px; margin-top: 10px; }
+  .state { padding: 11px 13px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 16px; }
+  .state b { display: block; margin-bottom: 2px; font-size: 16px; }
+  .state span { color: var(--muted); }
+  .decision { margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 14px; }
+  .decision h3 { font-size: 17px; }
+  .decision p { font-size: 16px; }
+  .decision .rec { margin: 6px 0; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 15px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+  .decision.open { border-left-color: var(--warn); background: var(--warn-soft); }
+  .decision.open .rec strong { color: var(--warn); }
+  .reply { margin-top: 10px; }
+  .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 14px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .sign { border-left: 4px solid var(--ok); }
+  .sign p { margin: 6px 0; }
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+  a:focus-visible, .screen-index a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+    .toc { border-radius: 0; }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 380px) {
+    .flow li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 约 5 分钟 · 3 个决定（D4–D6）；D1–D3 已定</div>
+    <h1>KIN-CONTINUE-007 · 820 列表一屏十条<span>一行标题 + 一行元数据 · 设备/项目默认折叠</span></h1>
+    <p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-CONTINUE-007.md</code></p>
+    <p class="meta">2026-11-24 · 5 屏（820 两张、1100 一张、390 一张、状态板一张）· 6 个状态</p>
+    <div class="tags">
+      <span class="pill warn">待签字</span>
+      <span class="pill plain">旅程 J1、J2</span>
+      <span class="pill plain">面：Mac / 手机</span>
+      <span class="pill draft">draft</span>
+    </div>
+  </header>
+
+  <section class="card banner" aria-label="边界">
+    <p><strong>合同仍是 draft，本页只摆布局决策。</strong>820 不是一个新面：它是竖着的 iPad——桌面壳的 304px 左栏、粗指针、1180 高。默认折叠与 44px 地板两条要你拍板；签字后由实现这条故事的 lane 建测试，本页不写产品代码。</p>
+  </section>
+
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>当我坐在竖着的 iPad 前、或把 Mac 窗口收窄到只剩 304px 左栏，想接着问昨天那段对话，我想一屏就扫到十条对话——每条一行标题、一行元数据，项目默认折叠、工作方式收成一行——以便不用先滚动、先折叠、先猜被截断的标题。</p>
+  </section>
+
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：为什么这条不是 CONTINUE-004 的补丁，也不是扁平化。</li>
+      <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
+      <li><strong>最后看决定</strong>：D1–D3 已定不用回；D4–D6 各写推荐与代价，页尾有回复模板。</li>
+    </ol>
+    <p class="note">宽帧在卡片内左右滑动，页面本身不横滚。手机上正文不小于 16px。</p>
+  </section>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">它属于「接着问一段对话」这一格；只改列表的扫读密度与默认折叠，不做行操作、不做新建、不做层级拍平。</p>
+    <div class="card mece">
+      <div class="mece-row">
+        <div class="name">接着问一段对话<div class="who">KIN-CONTINUE-001 / 002 / 003 / 004 / 006 · 本页补 007</div></div>
+        <span class="pill here">本条所在</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">新建一段对话<div class="who">KIN-START-001</div></div>
+        <span class="pill draft">不碰</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">看它改了什么<div class="who">KIN-RESULT-001 / 002 / 003</div></div>
+        <span class="pill draft">不碰</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">管理对话与项目<div class="who">KIN-MANAGE-001、KIN-PROJECT-001 / 002 / 003</div></div>
+        <span class="pill draft">不碰</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">设置与环境<div class="who">KIN-SETTINGS-001 / 002、KIN-AGENTS-001</div></div>
+        <span class="pill draft">不碰</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">离开时被叫回来<div class="who">KIN-NOTIFY-001</div></div>
+        <span class="pill draft">不碰</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">让它按时跑<div class="who">KIN-ROUTINE-001</div></div>
+        <span class="pill draft">不碰</span>
+      </div>
+      <div class="mece-row here">
+        <div class="name"><strong>820 列表：一屏十条，标题与元数据各一行</strong><div class="who">KIN-CONTINUE-007 · 这条</div></div>
+        <span class="pill here">本页</span>
+      </div>
+    </div>
+    <ul class="bullets">
+      <li><strong>为什么单独一条：</strong>KIN-CONTINUE-004 的「不做」把这件事写成「下一条故事」（<code>KIN-CONTINUE-004.md:38</code>）；<code>ui/src/index.css:273-276</code> 把 44px 地板在 768–1023.98 的去留交给「签了字的故事」。这是一个数得出来的布局合同，不该藏在别的故事里。</li>
+      <li><strong>为什么不并进相邻故事：</strong>004 已经 covered（设备排序、每设备新建、搜索放大镜），START-001 是新建表单，MANAGE-001 是行操作。把行式、折叠默认和地板塞回任一条都会重开一份已签合同。</li>
+      <li><strong>设备只是差异维度：</strong>Mac 与手机共用同一个 <code>SessionList</code>（<code>IA.md:34</code>）；820 是这个组件在粗指针、304px 列下的样子，不是第三个面。</li>
+      <li><strong>不在这一条：</strong>设备/项目拍平（没有故事，先不做）；行操作与多选归 KIN-MANAGE-001；搜索、筛选、归档归 002 / 003 / 004；新建归 004 / START-001；项目封面归 PROJECT 001–003；模型名与 diff 计数没有故事。</li>
+      <li><strong>job map 覆盖：</strong>八步都写在合同里。界面覆盖定义（01）、定位（01/02）、准备（02）、确认（05 的元数据）、修改（05 的状态）；执行、监控、收尾由 01/02 的流程和状态板共同覆盖。</li>
+      <li><strong>大小自检：</strong>① 只属于一条意图；② 一次交付：行式 + 折叠默认 + 工作方式披露 + 地板，一个 PR 可测；③ 五个面/状态都有帧；④ 判据是「一屏 ≥10 行」这个可数的数，不是感觉。</li>
+    </ul>
+  </section>
+
+  <section id="before-after">
+    <h2>现在 → 之后</h2>
+    <div class="two">
+      <div class="card now">
+        <h3>现在（2026-11-24 实测）</h3>
+        <ul>
+          <li>820×1180 粗指针的默认列表只露出 <strong>8 条</strong>对话（设备写「此设备 10」），另 2 条在折叠线以下。</li>
+          <li>标题与设备名、例行标记、时间挤在同一行：304px 下标题只剩 <strong>97.7px</strong>，截图读作「[seed] A…」。</li>
+          <li>项目默认全开（<code>SessionList.tsx:853</code>），每个项目还带一块工作方式，截图中 Alpha 约 95px、Beta 约 80px。</li>
+          <li>44px 地板停在 767.98px；820 的 <code>shippedFloorMatches</code> 为 false。</li>
+        </ul>
+      </div>
+      <div class="card after">
+        <h3>之后（本条）</h3>
+        <ul>
+          <li>一屏至少 <strong>10 条</strong>完整对话行；追加的项目不再把它们挤下去。</li>
+          <li>每条第一行标题（单行截断），第二行 agent · 时间 · 一个状态。</li>
+          <li>设备展开；项目默认折叠，只开最近一条对话所在的那个；工作方式是一行披露行。</li>
+          <li>44px 地板按粗指针扩到 1023.98px；镜像内的项目名与标题宽度不变（126.5 / 97.7px）。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <h2>界面与用户流程</h2>
+    <p class="note">每一屏先看 Figma 帧，再读下面六段流程。帧是设计源；宽帧在卡片内左右滑动，点「打开原图」可以全尺寸看。</p>
+
+    <div class="screen-index" aria-label="界面索引">
+      <a href="#screen-1">01 · 820 · 默认列表</a>
+      <a href="#screen-2">02 · 820 · 一个项目展开</a>
+      <a href="#screen-3">03 · Mac · 1100 左栏</a>
+      <a href="#screen-4">04 · 手机 · 390 列表</a>
+      <a href="#screen-5">05 · 行状态板</a>
+    </div>
+
+    <article class="screen" id="screen-1">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">01 · 820×1180 · 粗指针 · 默认</div>
+          <h3>默认列表：设备展开、项目折叠、十条对话同屏</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-820">
+        <div class="frame-scroll" role="region" aria-label="820 默认列表的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-007.figma/frames/01-820-list-default.svg" alt="820 默认列表：左侧 304px 列里设备标题下只有项目 Alpha 展开，工作方式是一行披露行，下面十条对话每行两行文字；Beta 与 Gamma 只剩一行标题；右侧是对话详情。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>820×1180 · 左右滑动看完整 · 左栏是主体</span>
+          <a href="KIN-CONTINUE-007.figma/frames/01-820-list-default.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>竖着拿起 iPad，打开 Kin，落在 <code>/sessions</code>；左栏 304px，两台设备、四个项目、十条以上对话。</span></li>
+        <li><b>动作</b><span>不点任何东西，先扫设备标题与项目标题；需要时点项目 Alpha 的工作方式披露行。</span></li>
+        <li><b>立刻看到</b><span>设备标题一行；Alpha 展开并露出十条两行对话；Beta、Gamma 各一行标题；工作方式默认一行「工作方式 · 展开」；一屏十条完整行。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>首次加载出设备标题骨架；项目读失败保留设备标题并给该组「重试」；断线顶部横幅、已加载项目与行不清空；没有项目时写「还没有对话」并指向头部新建。</span></li>
+        <li><b>键盘与焦点</b><span>Tab 顺序：头部新建 → 搜索 → 设备新建 → 项目折叠箭头 → 打开项目的行；项目名不是停点，箭头才是；焦点环用 focus-ring token。</span></li>
+        <li><b>离开再回来</b><span>折叠状态按项目记住，上次展开的仍是它；滚动锚点保留，不因一次返回跳回顶部。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-2">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">02 · 820×1180 · 粗指针 · 一个项目展开</div>
+          <h3>打开另一个项目：只开一个，工作方式可展开</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-820">
+        <div class="frame-scroll" role="region" aria-label="820 打开项目 Beta 的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-007.figma/frames/02-820-project-expanded.svg" alt="820 打开项目 Beta：Alpha 与 Gamma 各一行折叠标题；Beta 的工作方式是展开后的两句正文；下面是五行两行式对话，标题与元数据各一行。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>820×1180 · 左右滑动看完整</span>
+          <a href="KIN-CONTINUE-007.figma/frames/02-820-project-expanded.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>Alpha 正展开，想看的对话在 Beta。</span></li>
+        <li><b>动作</b><span>点 Beta 的折叠箭头；需要时再点 Beta 的工作方式披露行。</span></li>
+        <li><b>立刻看到</b><span>Beta 在原地展开、Alpha 收起；工作方式展开后只多两句正文；行仍是两行一条，滚动位置不跳。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>工作方式读失败不影响行；Beta 没有行时写「还没有对话」；断线时已加载的 Beta 行仍可打开；加载中不显示空态。</span></li>
+        <li><b>键盘与焦点</b><span>箭头 Enter/Space 展开；展开后焦点留在箭头上，下一次 Tab 进入 Beta 第一行；披露行带 <code>aria-expanded</code>。</span></li>
+        <li><b>离开再回来</b><span>打开的是 Beta 被记住；刷新后 Beta 仍展开，Alpha 仍折叠。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-3">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">03 · Mac · 1100×760</div>
+          <h3>Mac 左栏：同一个 304px 列、同一条两行式</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 1100 左栏的 Figma 帧" tabindex="0" data-start="330">
+          <img src="KIN-CONTINUE-007.figma/frames/03-mac-1100-list.svg" alt="Mac 1100×760：304px 左栏里项目 Alpha 展开，工作方式收起，十条两行式对话；Beta 与 Gamma 各一行折叠标题；右侧是对话详情与输入框。左栏在左侧，左右滑动可回看。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整（左栏在左侧）</span>
+          <a href="KIN-CONTINUE-007.figma/frames/03-mac-1100-list.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>Mac 1100×760，左栏 304px，鼠标指针。</span></li>
+        <li><b>动作</b><span>扫左栏；悬停一行时行尾动作浮出；点行打开右侧详情。</span></li>
+        <li><b>立刻看到</b><span>同样的两行式；项目默认折叠、Alpha 展开；工作方式收起；十条行在 760 高度内可见；悬停动作仍只在悬停/聚焦时出现。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>读失败保留左栏外壳与「重试」；断线横幅在顶部、行不清空；空项目写「还没有对话」；工作方式读失败只影响披露行。</span></li>
+        <li><b>键盘与焦点</b><span>行可 Tab，Enter 打开；行尾动作在聚焦时可达；Esc 不收起项目；返回时焦点回到原行。</span></li>
+        <li><b>离开再回来</b><span>折叠、工作方式、滚动与焦点都保留；右侧详情切换不重画左栏（TASTE 15）。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-4">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">04 · 手机 · 390×844</div>
+          <h3>手机列表：同一行式，不新增控件</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机 390 列表的 Figma 帧" tabindex="0">
+          <img src="KIN-CONTINUE-007.figma/frames/04-phone-390-list.svg" alt="手机 390×844：头部「对话」、新建与放大镜保持不变；设备标题下项目 Alpha 展开，工作方式一行收起，九条两行式对话；Beta 与 Gamma 折叠；底栏四个入口不变。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-CONTINUE-007.figma/frames/04-phone-390-list.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>手机 390×844，从底部「对话」进来；头部新建、放大镜、每设备新建都在（KIN-CONTINUE-004）。</span></li>
+        <li><b>动作</b><span>扫行；点一行；或点某个项目的折叠箭头。</span></li>
+        <li><b>立刻看到</b><span>同样的两行式；行更宽、标题很少截断；项目默认折叠、最近项目展开；底栏与头部一个控件都没变。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>空列表仍指向头部新建；读失败保留头部与放大镜并给重试；离线设备行可读、新建禁用并写原因；断线顶部横幅。</span></li>
+        <li><b>键盘与焦点</b><span>外接键盘 Tab 顺序不变：头部新建 → 放大镜 → 设备新建 → 项目箭头 → 行；行是 44px。</span></li>
+        <li><b>离开再回来</b><span>折叠与滚动保留；从对话返回停在原行；搜索词与展开态按 CONTINUE-002/004 的记忆规则恢复。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-5">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">05 · 行状态板 · 1000×720</div>
+          <h3>一行六态：标题、元数据、截断、当前、未读/归档、离线</h3>
+        </div>
+        <span class="pill plain">Figma 板</span>
+      </div>
+      <figure class="frame fig-board">
+        <div class="frame-scroll" role="region" aria-label="行状态板的 Figma 板" tabindex="0">
+          <img src="KIN-CONTINUE-007.figma/frames/05-row-states.svg" alt="行状态板：六种行状态与右侧的一行构成说明；每行 44px，标题一行、元数据一行，离线设备的新建禁用并写原因。" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1000×720 · 状态板 · 左右滑动或打开原图</span>
+          <a href="KIN-CONTINUE-007.figma/frames/05-row-states.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>列表里有普通行、当前行、长标题行、未读/归档行，以及一台离线设备。</span></li>
+        <li><b>动作</b><span>逐行读第一行与第二行；点当前行；看离线设备的入口。</span></li>
+        <li><b>立刻看到</b><span>第一行永远是标题；第二行是 agent · 时间 · 一个状态；长标题只在第一行截断；当前行有底色与焦点环；未读与归档有文字，不只靠颜色；离线新建禁用并写原因。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>时间读不到时第二行留空；状态未知不画绿点；断线不伪造时间；失败行可在行内重试（本故事只要求不伪造）。</span></li>
+        <li><b>键盘与焦点</b><span>每行一个停点；焦点行可见；行内动作不抢行本身的 Enter。</span></li>
+        <li><b>离开再回来</b><span>当前行与未读状态在返回后保持；归档行只在归档范围出现。</span></li>
+      </ol>
+    </article>
+  </section>
+
+  <section id="states">
+    <h2>状态</h2>
+    <p class="note">状态也是 Figma 帧的一部分；先看状态板（第 05 屏），再看下面的检查表。</p>
+    <div class="state-list">
+      <div class="state"><b>空</b><span>项目头仍在，写「还没有对话」；头部新建与每设备新建都在；不画假行。</span></div>
+      <div class="state"><b>加载</b><span>首次加载出设备标题骨架；行不占位、不显示空行；已有内容时不整页换骨架（TASTE 15）。</span></div>
+      <div class="state"><b>失败</b><span>该组给一行「读取失败，重试」，其他项目不受影响；工作方式失败只影响披露行。</span></div>
+      <div class="state"><b>断线</b><span>顶部横幅，已加载的项目与行不清空；相对时间不伪造；行仍可打开已缓存内容。</span></div>
+      <div class="state"><b>锁定 / 禁用</b><span>离线设备的新建 <code>aria-disabled</code> 并就地写「离线，连上后可在本机新建」；行仍可读。</span></div>
+      <div class="state"><b>运行中 / 等待批准</b><span>第二行的状态标记写「运行中」或「待批准 N」；不只靠颜色，读屏能听到数字。</span></div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>要你拍板的</h2>
+    <p class="note">每条都写推荐和代价；只回不同意的编号就行。D1–D3 是仓库已经定过的，不再问。</p>
+    <div class="decision settled">
+      <h3>D1 一个列表组件，Mac 与手机共用</h3>
+      <p class="rec"><strong>已定：</strong>同一个 <code>SessionList</code>，宽度只决定容器与溢出方式（<code>IA.md:34</code>、TASTE 1）。本条只在同一个组件里加行式与折叠默认。</p>
+      <p class="tradeoff"><strong>代价：</strong>304px 列必须同时服务鼠标与手指，密度按指针区分，不能靠写第二个组件绕开。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D2 设备 → 项目 → 对话 三级不变</h3>
+      <p class="rec"><strong>已定：</strong>层级由 <code>IA.md:22-30</code> 钉死；本条只折叠，不拍平。</p>
+      <p class="tradeoff"><strong>代价：</strong>比扁平列表多两层标题的垂直开销；用默认折叠与一行披露把它补回来。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D3 列表仍是唯一的对话列表</h3>
+      <p class="rec"><strong>已定：</strong>归档与搜索是同一份列表的范围，不开第二份（TASTE 1、<code>IA.md:34-40</code>）。</p>
+      <p class="tradeoff"><strong>代价：</strong>没有「最近对话」第二列表可以牺牲层级换密度。</p>
+    </div>
+    <div class="decision open">
+      <h3>D4 44px 地板在 768–1023.98 的去留</h3>
+      <p class="rec"><strong>推荐：</strong>只把粗指针那条臂从 767.98 扩到 1023.98（<code>pointer: coarse</code>），宽度臂不动。2026-11-24 的测量里 820 的 <code>shippedFloorMatches</code> 是 false、注入后是 true，而项目名与标题宽度不变（126.5 / 97.7px）——扩展几乎不改今天的外观，它买的是「没写尺寸的控件也不会掉到 44px 以下」；AGENTS.md 规则 16 要求 820 的 44×44 来自粗指针检查，不是宽度断点。</p>
+      <p class="tradeoff"><strong>代价：</strong>768–1023.98 的粗指针上每个 <code>.touch-lg</code> 控件都拿到 44px 地板；今天 820 的箭头与菜单本就显式 44×44，所以外观几乎不变，但将来任何一个漏写尺寸的控件会因此变高、可能减少一屏条数。窄窗口里的鼠标仍用紧凑密度。</p>
+    </div>
+    <div class="decision open">
+      <h3>D5 「默认折叠」到底折叠什么</h3>
+      <p class="rec"><strong>推荐：</strong>设备保持展开；项目默认折叠，只打开「最近一条对话所在的项目」；展开项目的「工作方式」收成一行披露行。存过的折叠状态优先，返回时恢复。</p>
+      <p class="tradeoff"><strong>代价：</strong>默认只看见一个项目的对话，比较另外两个项目要各点一次；换来一屏十条不被项目数吃掉，代价是失去「一眼看全所有项目」的概览。</p>
+    </div>
+    <div class="decision open">
+      <h3>D6 元数据行放什么、拿掉什么</h3>
+      <p class="rec"><strong>推荐：</strong>第二行只放 agent 名 · 相对时间 · 一个状态（运行中 / 待批准 N / 例行 / 已完成）。拿掉行尾的设备名（设备已是分组标题）与单独的例行 chip；不加入模型名与 diff 计数。TASTE 2：对话只叫「对话」，agent 只出现一次。</p>
+      <p class="tradeoff"><strong>代价：</strong>行内不再直接写设备名；想看模型或 diff 要打开对话。换来 97.7px 的标题变成完整一行、状态一眼可读。</p>
+    </div>
+  </section>
+
+  <section id="reply">
+    <h2>回复模板</h2>
+    <div class="card reply">
+      <p class="note">长按下面这段复制，改掉不同意的；都同意就回「全部同意」。</p>
+      <pre>D4 同意
+D5 同意
+D6 同意
+（D1–D3 已定，不用回；不同意哪条就只写那条和你的改法）</pre>
+    </div>
+  </section>
+
+  <section id="sign">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p>你回「全部同意」后，我把 <code>KIN-CONTINUE-007.md</code> 改成 <code>approved</code>；实现这条故事的 lane 再建测试文件、跑 820/1100/390 截图。</p>
+      <p class="note">Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-CONTINUE-007.figma/</code> 里的 SVG 帧和本页的流程。</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>设计源：<code>KIN-CONTINUE-007.figma/frames/</code>（SVG 帧）</p>
+    <p>审阅编排：<code>KIN-CONTINUE-007.review.html</code>（本页）</p>
+    <p>合同：<code>KIN-CONTINUE-007.md</code></p>
+    <p>Figma 审阅版 · figma-flow-v1</p>
+  </footer>
+
+</main>
+<script>
+  // 宽帧默认露出主区；仍可左右滑回侧栏。无脚本时从左侧开始，不影响阅读。
+  // 帧是 SVG，脚本执行时它还没占位；等 load 之后设，scrollLeft 才不会被 0 宽度钳住。
+  const startWideFrames = () => {
+    for (const el of document.querySelectorAll('.frame-scroll[data-start]')) {
+      el.scrollLeft = Number(el.dataset.start) || 0;
+    }
+  };
+  if (document.readyState === 'complete') startWideFrames();
+  else window.addEventListener('load', startWideFrames);
+</script>
+</body>
+</html>

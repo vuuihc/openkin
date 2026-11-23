@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="1180" viewBox="0 0 820 1180">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="820" height="1180" fill="#ffffff"/>
+<text x="410" y="20" font-size="10.5" fill="#6b6b6b" text-anchor="middle">820×1180 · 粗指针（竖着的 iPad）· 默认：设备展开，项目只开最近一个，一行标题 + 一行元数据</text>
+
+<!-- rail -->
+<rect x="0" y="30" width="64" height="1150" fill="#f6f6f8"/>
+<rect x="16" y="46" width="32" height="32" rx="10" fill="#1f6feb"/>
+<text x="32" y="67" font-size="13" fill="#ffffff" text-anchor="middle">K</text>
+<rect x="16" y="96" width="32" height="32" rx="10" fill="#e8eefc"/>
+<text x="32" y="117" font-size="12" fill="#1f6feb" text-anchor="middle">◫</text>
+<circle cx="42" cy="102" r="7" fill="#b42318"/>
+<text x="42" y="105" font-size="8" fill="#ffffff" text-anchor="middle">3</text>
+<text x="32" y="160" font-size="14" fill="#6b6b6b" text-anchor="middle">◷</text>
+<text x="32" y="204" font-size="14" fill="#6b6b6b" text-anchor="middle">▦</text>
+<text x="32" y="1130" font-size="14" fill="#6b6b6b" text-anchor="middle">⚙</text>
+
+<!-- list column -->
+<rect x="64" y="30" width="304" height="1150" fill="#fbfbfd"/>
+<line x1="368" y1="30" x2="368" y2="1180" stroke="#e2e2e6"/>
+<text x="80" y="62" font-size="16" font-weight="600" fill="#1a1a1a">对话</text>
+<rect x="268" y="40" width="88" height="36" rx="10" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="312" y="63" font-size="11.5" fill="#1a1a1a" text-anchor="middle">＋ 新建对话</text>
+<rect x="76" y="86" width="280" height="34" rx="9" fill="#ffffff" stroke="#dddddd"/>
+<text x="90" y="108" font-size="11" fill="#8a8a91">搜索对话</text>
+
+<text x="80" y="148" font-size="10" fill="#8a8a91">▽ 筛选</text>
+
+<circle cx="84" cy="176" r="4" fill="#137a3f"/>
+<text x="96" y="180" font-size="11" font-weight="600" fill="#3a3f47">此设备</text>
+<text x="352" y="180" font-size="10" fill="#8a8a91" text-anchor="end">10</text>
+
+<path d="M84 206 l6 6 l6 -6" fill="none" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round"/>
+<text x="104" y="215" font-size="11.5" font-weight="600" fill="#1a1a1a">项目 Alpha</text>
+<text x="250" y="215" font-size="9.5" fill="#8a8a91">2 段对话</text>
+<path d="M332 208 l0 6 l5 -3 z" fill="#1f6feb"/>
+<rect x="80" y="226" width="272" height="34" rx="8" fill="#f1f1f4"/>
+<text x="94" y="240" font-size="10" fill="#3a3f47">工作方式</text>
+<text x="338" y="240" font-size="9.5" fill="#1f6feb" text-anchor="end">▸ 展开</text>
+<text x="94" y="253" font-size="9" fill="#8a8a91">默认收起：一行披露，不再占两行正文</text>
+
+<rect x="80" y="268" width="272" height="44" rx="9" fill="#eef3ff"/>
+<text x="94" y="286" font-size="11.5" font-weight="600" fill="#1a1a1a">整理发布说明</text>
+<text x="94" y="302" font-size="9.5" fill="#5a5f68">Claude Code · 1 分钟前</text>
+<circle cx="340" cy="284" r="4" fill="#1f6feb"/>
+<rect x="80" y="312" width="272" height="44" rx="9" fill="#ffffff"/>
+<text x="94" y="330" font-size="11.5" font-weight="600" fill="#1a1a1a">把截图归档</text>
+<text x="94" y="346" font-size="9.5" fill="#5a5f68">Claude Code · 12 分钟前 · 待批准 1</text>
+<rect x="80" y="356" width="272" height="44" rx="9" fill="#ffffff"/>
+<text x="94" y="374" font-size="11.5" font-weight="600" fill="#1a1a1a">检查昨天的构建</text>
+<text x="94" y="390" font-size="9.5" fill="#5a5f68">Codex · 1 小时前 · 已完成</text>
+<rect x="80" y="400" width="272" height="44" rx="9" fill="#ffffff"/>
+<text x="94" y="418" font-size="11.5" font-weight="600" fill="#1a1a1a">给发布说明配图</text>
+<text x="94" y="434" font-size="9.5" fill="#5a5f68">Claude Code · 昨天</text>
+<rect x="80" y="444" width="272" height="44" rx="9" fill="#ffffff"/>
+<text x="94" y="462" font-size="11.5" font-weight="600" fill="#1a1a1a">核对构建日志</text>
+<text x="94" y="478" font-size="9.5" fill="#5a5f68">Codex · 昨天 · 例行</text>
+<rect x="80" y="488" width="272" height="44" rx="9" fill="#ffffff"/>
+<text x="94" y="506" font-size="11.5" font-weight="600" fill="#1a1a1a">周报草稿</text>
+<text x="94" y="522" font-size="9.5" fill="#5a5f68">Claude Code · 昨天</text>
+<rect x="80" y="532" width="272" height="44" rx="9" fill="#ffffff"/>
+<text x="94" y="550" font-size="11.5" font-weight="600" fill="#1a1a1a">发布说明里的表格</text>
+<text x="94" y="566" font-size="9.5" fill="#5a5f68">Claude Code · 周一 · 待批准 2</text>
+<rect x="80" y="576" width="272" height="44" rx="9" fill="#ffffff"/>
+<text x="94" y="594" font-size="11.5" font-weight="600" fill="#1a1a1a">归档旧截图</text>
+<text x="94" y="610" font-size="9.5" fill="#5a5f68">Codex · 周一 · 例行</text>
+<rect x="80" y="620" width="272" height="44" rx="9" fill="#ffffff"/>
+<text x="94" y="638" font-size="11.5" font-weight="600" fill="#1a1a1a">检查依赖更新</text>
+<text x="94" y="654" font-size="9.5" fill="#5a5f68">Claude Code · 3 天前</text>
+<rect x="80" y="664" width="272" height="44" rx="9" fill="#ffffff"/>
+<text x="94" y="682" font-size="11.5" font-weight="600" fill="#1a1a1a">整理 README 示例</text>
+<text x="94" y="698" font-size="9.5" fill="#5a5f68">Codex · 上周 · 已完成</text>
+
+<path d="M84 726 l6 6 l6 -6" fill="none" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round"/>
+<text x="104" y="735" font-size="11.5" font-weight="600" fill="#1a1a1a">项目 Beta</text>
+<text x="250" y="735" font-size="9.5" fill="#8a8a91">5 段对话</text>
+<text x="352" y="735" font-size="9.5" fill="#6b6b6b" text-anchor="end">▸ 已折叠</text>
+<path d="M84 762 l6 6 l6 -6" fill="none" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round"/>
+<text x="104" y="771" font-size="11.5" font-weight="600" fill="#1a1a1a">项目 Gamma</text>
+<text x="250" y="771" font-size="9.5" fill="#8a8a91">3 段对话</text>
+<text x="352" y="771" font-size="9.5" fill="#6b6b6b" text-anchor="end">▸ 已折叠</text>
+
+<rect x="80" y="800" width="272" height="52" rx="8" fill="#fff8e6" stroke="#e2a33a" stroke-dasharray="4 3"/>
+<text x="94" y="820" font-size="10" font-weight="600" fill="#8a5a00">一屏 10 条完整行</text>
+<text x="94" y="837" font-size="9" fill="#5a5f68">项目标题与元数据都只占一行；</text>
+<text x="94" y="850" font-size="9" fill="#5a5f68">折叠让三个项目不再挤掉对话。</text>
+
+<line x1="64" y1="1082" x2="368" y2="1082" stroke="#e2e2e6"/>
+<text x="80" y="1110" font-size="10.5" fill="#555">▣ 收件箱 3</text>
+<text x="220" y="1110" font-size="10.5" fill="#555">▤ 已归档</text>
+<text x="80" y="1140" font-size="10.5" fill="#555">↧ 导入 Agent 会话</text>
+
+<!-- detail pane -->
+<rect x="368" y="30" width="452" height="1150" fill="#ffffff"/>
+<text x="392" y="66" font-size="14" font-weight="600" fill="#1a1a1a">整理发布说明</text>
+<text x="392" y="84" font-size="10" fill="#8a8a91">Claude Code · 正在运行</text>
+<rect x="392" y="118" width="380" height="52" rx="10" fill="#f1f1f4"/>
+<text x="406" y="140" font-size="11" fill="#1a1a1a">把本周的发布说明整理成一页，</text>
+<text x="406" y="158" font-size="11" fill="#1a1a1a">标出需要确认的三项。</text>
+<rect x="392" y="186" width="340" height="52" rx="10" fill="#ffffff" stroke="#dddddd"/>
+<text x="406" y="208" font-size="10.5" fill="#555">读取 3 个文件</text>
+<text x="406" y="226" font-size="9.5" fill="#8a8a91">已完成</text>
+<rect x="392" y="1060" width="404" height="70" rx="12" fill="#ffffff" stroke="#1f6feb"/>
+<text x="406" y="1086" font-size="10.5" fill="#8a8a91">继续问…</text>
+<text x="406" y="1116" font-size="10" fill="#555">Claude Code · 只读</text>
+<text x="782" y="1116" font-size="10" fill="#1f6feb" text-anchor="end">运行设置 ▾</text>
+<text x="392" y="970" font-size="10.5" fill="#6b6b6b">右侧详情不属于本条：不新增控件，</text>
+<text x="392" y="988" font-size="10.5" fill="#6b6b6b">只保证左栏一屏能扫到十条对话。</text>
+<rect x="0.5" y="0.5" width="819" height="1179" fill="none" stroke="#bbbbbb"/>
+</g>
+</svg>
