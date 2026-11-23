@@ -261,11 +261,18 @@
      a phone held sideways, where the width arm alone would stop applying.
 
      It stops at `md`, and that boundary is load-bearing. At ≥768px the console
-     switches to its desktop layout — a 248px sidebar with hover-revealed row
-     buttons — and a 44px floor there is not "more tappable", it is a different
-     layout: five floored buttons in a 230px row leave the truncating project
-     name 0px wide (measured). So a landscape phone or an iPad gets the desktop
-     layout at desktop density, and only the sub-`md` shell gets the floor. */
+     switches to its desktop layout — a 304px list column (`w-list`) with the
+     row's actions revealed on hover. The old 248px column (measured 2026-10-23)
+     lost its project name when five floored buttons shared a 230px row; that was
+     the old layout, not this one. At the configured 304px the project header
+     draws two 44px controls (the fold chevron and the project menu) beside a
+     172px heading whose name keeps 126.5px, and the row's 44px trigger leaves
+     its conversation title 97.7px. Widening this rule's width arm over
+     768–1023.98 changes neither name (measured 2026-11-23,
+     `rsi/runtime/ux/measure-list-shell.mjs`). Whether the floor belongs in that
+     band is a layout decision for the signed story (row 13 `R-list-scan`,
+     GOAL P17), not something this comment settles; until it lands, the floor
+     stays sub-`md`. */
   /* The mirror of `.touch-hide`, and it needs both halves: hidden is the
      default, flex is the touch case. Some actions only exist behind a hover
      (`opacity-0 group-hover:…`), so a touch screen has no way to reach them at
@@ -297,8 +304,9 @@
      portrait widths: the console draws its desktop two-column shell at ≥768,
      so a hover-only 24px row icon would otherwise be drawn on a touch screen
      that has no hover and no 44px floor. Hiding it costs no width, and the
-     action lives in the row/project menu; flooring the row instead is what
-     `:263-268` records as the crush. */
+     action lives in the row/project menu; the crush that flooring the row
+     caused in the old 248px layout is recorded at `:263-275` (and no longer
+     reproduces at the shipped 304px). */
   @media (max-width: 639.98px), ((pointer: coarse) and (max-width: 1023.98px)) {
     .touch-hide {
       display: none;
