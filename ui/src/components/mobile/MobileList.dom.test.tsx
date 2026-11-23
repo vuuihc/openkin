@@ -65,7 +65,8 @@ function grow(rows: number) {
   contentHeight = rows * ROW_HEIGHT;
   for (const observer of observers) {
     // A fixed-height scroll viewport does not resize when its content grows.
-    if (![...observer.targets].some((target) => !target.hasAttribute("data-phone-scroll"))) continue;
+    if (![...observer.targets].some((target) => !target.hasAttribute("data-phone-scroll")))
+      continue;
     observer.callback([], observer as unknown as ResizeObserver);
   }
 }
