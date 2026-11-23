@@ -52,11 +52,47 @@ trap 'rm -rf "$LOG_DIR"' EXIT
 NAMES=()
 PIDS=()
 
+# Name the jobs a killed run took down. The gate used to record only anonymous PIDs
+# (`line 402: 95876 Terminated: 15`), which cannot say which job the kill interrupted; on
+# 2026-11-23 that ambiguity turned a machine-side SIGTERM into `FAIL: check` and a rework
+# round for PR #640 that found nothing to fix. A zombie (finished, not yet reaped) is not
+# running, so `ps` state is the liveness read here, not `kill -0`.
+interrupt_report() { # signal
+  local i p st names=""
+  for ((i = 0; i < ${#PIDS[@]}; i++)); do
+    p="${PIDS[$i]}"
+    [ -n "$p" ] || continue
+    st="$(ps -o state= -p "$p" 2>/dev/null | tr -d ' ')"
+    if [ -n "$st" ] && [ "${st#Z}" = "$st" ]; then
+      names="${names:+$names }${NAMES[$i]}"
+    fi
+  done
+  printf 'check.sh: interrupted by SIG%s; jobs still running: %s\n' "$1" "${names:-none}" >&2
+}
+on_interrupt() { # signal
+  local i
+  interrupt_report "$1"
+  for ((i = 0; i < ${#PIDS[@]}; i++)); do
+    [ -n "${PIDS[$i]:-}" ] && kill -TERM "${PIDS[$i]}" 2>/dev/null
+  done
+  exit 143
+}
+trap 'on_interrupt TERM' TERM
+trap 'on_interrupt INT' INT
+
+# RSI_CHECK_JOB_STUB replaces every job body with one shell command, handed the job name as
+# $0. Hermetic suites use it to exercise this script's own interrupt reporting
+# (rsi/runtime/tests/test-gate-no-verdict.sh): a real run takes minutes and would recurse into
+# itself from inside a job.
 start() { # name function
   local name="$1"
   shift
   NAMES+=("$name")
-  ( "$@" ) >"$LOG_DIR/$name.log" 2>&1 &
+  if [ -n "${RSI_CHECK_JOB_STUB:-}" ]; then
+    ( bash -c "$RSI_CHECK_JOB_STUB" "$name" ) >"$LOG_DIR/$name.log" 2>&1 &
+  else
+    ( "$@" ) >"$LOG_DIR/$name.log" 2>&1 &
+  fi
   PIDS+=($!)
 }
 

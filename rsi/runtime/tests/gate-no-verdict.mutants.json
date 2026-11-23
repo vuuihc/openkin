@@ -61,5 +61,26 @@
     "test": "bash rsi/runtime/tests/test-wiring.sh",
     "old": "  bash rsi/runtime/tests/test-gate-no-verdict.sh || return 1\n",
     "new": ""
+  },
+  {
+    "label": "a step harness killed by a signal is printed as GATE_RESULT=FAIL, so the branch is billed for the machine",
+    "file": "rsi/runtime/gate.sh",
+    "test": "RSI_TEST_ONLY=test_gate_step_sigterm_is_no_verdict bash rsi/runtime/tests/test-gate-no-verdict.sh",
+    "old": "    # A step harness that died by a signal never reached a summary, so \"no line says FAIL\" is\n    # the only evidence it had: it did not judge the branch. 2026-11-23 #640: check.sh was\n    # SIGTERM'd at 15m20s while two start() jobs were still running; the gate printed\n    # `FAIL: check`, the branch was sent back for rework, and the rework found nothing to fix.\n    # A red test exits 1 through the harness (its own `FAIL <job>` lines), never 128+N, so this\n    # arm cannot excuse a real failure. Exit 3 = no verdict; merge.sh retries, no sendback.\n    if [ \"$rc\" -ge 128 ]; then\n      echo \"env: $n was killed by signal $((rc - 128)) before it could judge\"\n      echo \"GATE_RESULT=NO_VERDICT: $n killed by signal $((rc - 128)) before a verdict\"\n      exit 3\n    fi\n",
+    "new": ""
+  },
+  {
+    "label": "the interrupt report names the job's pid instead of the job, so the evidence cannot say what was killed",
+    "file": "scripts/check.sh",
+    "test": "RSI_TEST_ONLY=test_check_sh_names_the_job_a_signal_interrupts bash rsi/runtime/tests/test-gate-no-verdict.sh",
+    "old": "      names=\"${names:+$names }${NAMES[$i]}\"\n",
+    "new": "      names=\"${names:+$names }${PIDS[$i]}\"\n"
+  },
+  {
+    "label": "the TERM trap is never installed, so a killed run dies silently and leaves bare PIDs as the only record",
+    "file": "scripts/check.sh",
+    "test": "RSI_TEST_ONLY=test_check_sh_names_the_job_a_signal_interrupts bash rsi/runtime/tests/test-gate-no-verdict.sh",
+    "old": "trap 'on_interrupt TERM' TERM\n",
+    "new": ""
   }
 ]

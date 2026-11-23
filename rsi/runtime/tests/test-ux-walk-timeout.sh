@@ -370,4 +370,31 @@ NEED_DEFAULT=$(( 2 * (1800 + W_DEF) + 2 * DISPATCH_S ))
   || fail "$CASE15: gate default ${DEF_DEFAULT}s does not enclose two ${W_DEF}s walks plus two ${DISPATCH_S}s dispatches (want >= ${NEED_DEFAULT}s)"
 pass "$CASE15"
 
+# 16. A wedged walk must leave the step it died on. The walker used to hold every
+#     step line in an array and write walk.json only after browser.close(), so a
+#     kill discarded all of them (2026-11-23 #626: 21 minutes parked, both log
+#     files 0 bytes, one whole slot re-spent on a nameless retry). The module
+#     suite proves the writer; these reads prove the walker wires it to the out
+#     dir and begins a step before dispatch. The file is walk.steps.log, not
+#     walk.log, which is already this script's capture of the walker's stdout.
+CASE16="step log: the step loop never begins a line before dispatch"
+WALKER_MJS="$REPO/rsi/runtime/ux/walk.mjs"
+node "$REPO/rsi/runtime/ux/walk-log.test.mjs" >/dev/null 2>&1 \
+  || fail "$CASE16 (the walk-log module suite is red: node rsi/runtime/ux/walk-log.test.mjs)"
+grep -qF "import { createStepLog } from './walk-log.mjs';" "$WALKER_MJS" \
+  || fail "$CASE16 (walk.mjs does not import the step-log factory)"
+grep -qF 'const stepLog = createStepLog({ dir: out });' "$WALKER_MJS" \
+  || fail "$CASE16 (the walker's log is not created for the walk's out dir)"
+SINK_LINE="$(grep -nF 'const stepLog = createStepLog({ dir: out });' "$WALKER_MJS" | head -1 | cut -d: -f1)"
+JOURNEY_LINE="$(grep -nF 'for (const j of want) {' "$WALKER_MJS" | head -1 | cut -d: -f1)"
+[ -n "$SINK_LINE" ] && [ -n "$JOURNEY_LINE" ] && [ "$SINK_LINE" -lt "$JOURNEY_LINE" ] \
+  || fail "$CASE16 (the file is created per journey, so each leg truncates the previous one)"
+grep -qF 'const log = stepLog.group();' "$WALKER_MJS" \
+  || fail "$CASE16 (a journey/viewport does not get its own in-memory group)"
+grep -qF 'log.begin(' "$WALKER_MJS" \
+  || fail "$CASE16"
+grep -qF 's.notes = log.lines;' "$WALKER_MJS" \
+  || fail "$CASE16 (screens no longer carry the same lines the file holds)"
+pass "step log: each step names itself on disk before dispatch, and screens carry those lines"
+
 echo "all cases passed"

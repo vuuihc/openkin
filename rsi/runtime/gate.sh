@@ -23,8 +23,10 @@ needs_node_stamp() {
 fail=0; why=""
 step() { # name cmd...
   local n="$1"; shift
+  local rc=0
   echo "--- $n"
   if "$@" > "$RUNS/gate-$$-$n.log" 2>&1; then echo "ok: $n"; else
+    rc=$?   # before any other command: `local` would reset $? to 0
     local envreason
     # A step the machine could not run is not a red test. ENOSPC in the step's own log is the
     # evidence (a df threshold is not: APFS counts purgeable space as free and cp still fails).
@@ -32,6 +34,17 @@ step() { # name cmd...
     if envreason="$(gate_env_failure_in_log "$n" "$RUNS/gate-$$-$n.log")"; then
       echo "env: $n could not run ($envreason)"
       echo "GATE_RESULT=NO_VERDICT: $envreason"
+      exit 3
+    fi
+    # A step harness that died by a signal never reached a summary, so "no line says FAIL" is
+    # the only evidence it had: it did not judge the branch. 2026-11-23 #640: check.sh was
+    # SIGTERM'd at 15m20s while two start() jobs were still running; the gate printed
+    # `FAIL: check`, the branch was sent back for rework, and the rework found nothing to fix.
+    # A red test exits 1 through the harness (its own `FAIL <job>` lines), never 128+N, so this
+    # arm cannot excuse a real failure. Exit 3 = no verdict; merge.sh retries, no sendback.
+    if [ "$rc" -ge 128 ]; then
+      echo "env: $n was killed by signal $((rc - 128)) before it could judge"
+      echo "GATE_RESULT=NO_VERDICT: $n killed by signal $((rc - 128)) before a verdict"
       exit 3
     fi
     echo "FAIL: $n (see $RUNS/gate-$$-$n.log)"
