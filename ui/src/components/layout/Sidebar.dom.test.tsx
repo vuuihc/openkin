@@ -447,9 +447,7 @@ describe("the Mac sidebar list", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "cover" }));
 
-    await waitFor(() =>
-      expect(screen.getByTestId("location").textContent).toContain("/sessions"),
-    );
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toContain("/sessions"));
     expect(screen.getByTestId("location").textContent).toContain("project=p-cover");
     expect(screen.getByTestId("location").textContent).toContain("search=cov");
   });
