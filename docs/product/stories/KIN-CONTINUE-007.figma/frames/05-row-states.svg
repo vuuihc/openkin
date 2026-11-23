@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="720" viewBox="0 0 1000 720">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1000" height="720" fill="#ffffff"/>
+<text x="24" y="28" font-size="11" fill="#6b6b6b">行状态板 · 每行 44px：第一行标题单行截断，第二行元数据固定四段以内</text>
+
+<!-- 1 -->
+<text x="24" y="66" font-size="11" font-weight="600" fill="#1a1a1a">01 · 只有标题与时间（无状态）</text>
+<rect x="24" y="80" width="420" height="44" rx="9" fill="#ffffff" stroke="#e2e2e6"/>
+<text x="38" y="98" font-size="12" font-weight="600" fill="#1a1a1a">整理发布说明</text>
+<text x="38" y="114" font-size="9.5" fill="#6b6b6b">Claude Code · 昨天</text>
+<text x="470" y="90" font-size="9" fill="#1f6feb">① 标题行</text>
+<text x="470" y="124" font-size="9" fill="#1f6feb">② 元数据行</text>
+
+<!-- 2 -->
+<text x="24" y="166" font-size="11" font-weight="600" fill="#1a1a1a">02 · 标题 + 元数据（默认：agent · 时间 · 状态）</text>
+<rect x="24" y="180" width="420" height="44" rx="9" fill="#ffffff" stroke="#e2e2e6"/>
+<text x="38" y="198" font-size="12" font-weight="600" fill="#1a1a1a">把截图归档</text>
+<text x="38" y="214" font-size="9.5" fill="#6b6b6b">Claude Code · 12 分钟前 · 待批准 1</text>
+<circle cx="426" cy="196" r="4" fill="#e2a33a"/>
+
+<!-- 3 -->
+<text x="24" y="266" font-size="11" font-weight="600" fill="#1a1a1a">03 · 长标题：标题行截断，元数据行完整</text>
+<rect x="24" y="280" width="420" height="44" rx="9" fill="#ffffff" stroke="#e2e2e6"/>
+<text x="38" y="298" font-size="12" font-weight="600" fill="#1a1a1a">把这次发布里所有还没确认的条目…</text>
+<text x="38" y="314" font-size="9.5" fill="#6b6b6b">Codex · 周一 · 待批准 2</text>
+<text x="450" y="298" font-size="9" fill="#b42318">…</text>
+
+<!-- 4 -->
+<text x="24" y="366" font-size="11" font-weight="600" fill="#1a1a1a">04 · 当前行：底色 + 可见焦点环，元数据不变</text>
+<rect x="24" y="380" width="420" height="44" rx="9" fill="#eef3ff" stroke="#1f6feb" stroke-width="2"/>
+<text x="38" y="398" font-size="12" font-weight="600" fill="#1a1a1a">核对构建日志</text>
+<text x="38" y="414" font-size="9.5" fill="#5a5f68">Codex · 昨天 · 例行</text>
+
+<!-- 5 -->
+<text x="24" y="466" font-size="11" font-weight="600" fill="#1a1a1a">05 · 未读 / 归档：点与文字标记，不只靠颜色</text>
+<rect x="24" y="480" width="420" height="44" rx="9" fill="#ffffff" stroke="#e2e2e6"/>
+<circle cx="38" cy="496" r="4" fill="#1f6feb"/>
+<text x="50" y="500" font-size="12" font-weight="600" fill="#1a1a1a">周报草稿</text>
+<text x="50" y="516" font-size="9.5" fill="#6b6b6b">Claude Code · 昨天 · 未读</text>
+<rect x="24" y="532" width="420" height="44" rx="9" fill="#ffffff" stroke="#e2e2e6"/>
+<circle cx="38" cy="548" r="4" fill="#b8b8be"/>
+<text x="50" y="552" font-size="12" font-weight="600" fill="#8a8a91">归档的发布说明</text>
+<text x="50" y="568" font-size="9.5" fill="#8a8a91">Claude Code · 上周 · 已归档</text>
+
+<!-- 6 -->
+<text x="24" y="612" font-size="11" font-weight="600" fill="#1a1a1a">06 · 离线设备：标题灰点、新建禁用并写原因，已有行可读</text>
+<circle cx="32" cy="636" r="4" fill="#b8b8be"/>
+<text x="44" y="640" font-size="11" font-weight="600" fill="#8a8a91">机器 B · 离线</text>
+<rect x="390" y="622" width="44" height="44" rx="12" fill="#f6f6f8" stroke="#dddddd"/>
+<text x="412" y="650" font-size="18" fill="#b8b8be" text-anchor="middle">＋</text>
+<text x="44" y="662" font-size="9.5" fill="#8a8a91">离线，连上后可在本机新建</text>
+<rect x="24" y="676" width="420" height="36" rx="9" fill="#ffffff" stroke="#e2e2e6"/>
+<text x="38" y="699" font-size="11" fill="#5a5f68">历史对话仍可打开（只读）</text>
+
+<!-- right column: anatomy -->
+<rect x="520" y="52" width="456" height="260" rx="12" fill="#fbfbfd" stroke="#e2e2e6"/>
+<text x="540" y="78" font-size="12" font-weight="600" fill="#1a1a1a">一行的构成</text>
+<text x="540" y="104" font-size="10.5" fill="#3a3f47">① 标题行：对话标题，单行，末尾省略号。</text>
+<text x="540" y="124" font-size="10.5" fill="#3a3f47">② 元数据行：agent 名 · 相对时间 · 一个状态。</text>
+<text x="540" y="144" font-size="10.5" fill="#3a3f47">状态只有四种：运行中 / 待批准 N / 例行 / 已完成。</text>
+<text x="540" y="164" font-size="10.5" fill="#3a3f47">不放进来的：设备名（已是分组标题）、</text>
+<text x="540" y="184" font-size="10.5" fill="#3a3f47">模型名、diff 计数、筛选 chip。</text>
+<text x="540" y="214" font-size="10.5" fill="#6b6b6b">行高：44px（粗指针与细指针都不低于 44）。</text>
+<text x="540" y="234" font-size="10.5" fill="#6b6b6b">标题与元数据各占一行，谁都不与动作挤同一行。</text>
+<text x="540" y="262" font-size="10.5" fill="#1f6feb">TASTE 2：对话只叫「对话」；agent 只出现一次。</text>
+<text x="540" y="286" font-size="10.5" fill="#1f6feb">TASTE 11：44px 点按区，状态不只靠颜色。</text>
+
+<rect x="520" y="332" width="456" height="132" rx="12" fill="#fff8e6" stroke="#e2a33a" stroke-dasharray="4 3"/>
+<text x="540" y="358" font-size="11" font-weight="600" fill="#8a5a00">离线 / 断线</text>
+<text x="540" y="380" font-size="10.5" fill="#3a3f47">设备标题：灰点 + 「离线」；新建按钮 aria-disabled，</text>
+<text x="540" y="400" font-size="10.5" fill="#3a3f47">就地写「离线，连上后可在本机新建」。</text>
+<text x="540" y="420" font-size="10.5" fill="#3a3f47">已有行仍可打开（历史只读）；断线时顶部横幅，</text>
+<text x="540" y="440" font-size="10.5" fill="#3a3f47">行不清空、元数据不伪造时间。</text>
+
+<rect x="520" y="484" width="456" height="104" rx="12" fill="#eef3ff" stroke="#1f6feb"/>
+<text x="540" y="510" font-size="11" font-weight="600" fill="#1f6feb">为什么不是纯标题</text>
+<text x="540" y="532" font-size="10.5" fill="#3a3f47">只剩标题时，两个人同时开着三条相似对话就分不出</text>
+<text x="540" y="552" font-size="10.5" fill="#3a3f47">哪条是谁的、多久以前；一行元数据换回时间和状态，</text>
+<text x="540" y="572" font-size="10.5" fill="#3a3f47">代价是行高从 36 增到 44，靠折叠补回一屏条数。</text>
+
+<text x="520" y="612" font-size="9.5" fill="#8a8a91">线框仅示意；无真实对话、主机名或设备 id。</text>
+<rect x="0.5" y="0.5" width="999" height="719" fill="none" stroke="#bbbbbb"/>
+</g>
+</svg>
