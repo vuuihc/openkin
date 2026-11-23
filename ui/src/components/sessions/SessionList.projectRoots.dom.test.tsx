@@ -246,7 +246,9 @@ describe("the project row's working-folders editor", () => {
     await waitFor(() =>
       expect(writeRoots).toHaveBeenCalledWith("p1", { roots: [ALPHA, BETA, GAMMA] }),
     );
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Working folders" })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Working folders" })).toBeNull(),
+    );
     // The row redrew from the saved record: reopening shows the new list.
     const reopened = await openFromCoarseMenu();
     expect(within(reopened).getByText(GAMMA)).toBeTruthy();
@@ -363,7 +365,9 @@ describe("the project row's working-folders editor", () => {
     expect(within(rows[0]!).getByText("Default")).toBeTruthy();
 
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Working folders" })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Working folders" })).toBeNull(),
+    );
     await waitFor(() => expect(document.activeElement).toBe(trigger));
     expect(locationText()).toBe("/sessions");
   });
@@ -385,6 +389,8 @@ describe("the project row's working-folders editor", () => {
 
     confirm.mockReturnValue(true);
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Working folders" })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Working folders" })).toBeNull(),
+    );
   });
 });
