@@ -25,6 +25,15 @@
 #    Age order keeps every rework inside the 3-attempt circuit breaker; the loop still continues
 #    past a skipped sendback so the same pass can reach the newer one.
 #
+# 4. A sendback whose fix is already on a newer head must not open a rework lane. A rework that
+#    pushed and died before the merge lane archived the sendback (or a person pushing the fix by
+#    hand) leaves a branch head newer than the sendback; claiming it re-edits work that is already
+#    done and burns the loop's scarcest slot (2026-11-23 12:23: a sendback written 12:05 opened a
+#    lane although 1bd56a7d was already pushed; the CEO stopped it at 49 s). This is merge.sh's own
+#    rule (merge.sh:93-101) on the autofill side: archive the sendback, say which head superseded
+#    it, and `continue` so the pass still reaches the next one. Every unreadable input fails open
+#    (a git outage must not stall a real rework) and a tie is not stale (%ct is whole seconds).
+#
 # Hermetic: temp RSI_CTRL (common.sh derives STATE from it), stubbed lanes.py/volc-budget.py and
 # PR state, no network, no model calls, no real gh. npm/go/node/curl are booby traps: autofill must
 # not need them. The claim cases use a local bare origin so the real fetch/diff finds a diff.
@@ -42,9 +51,12 @@ SLUG="waiver-guard"
 SLUG2="waiver-two"
 CASE=""; RC=0
 ONLY="${RSI_TEST_ONLY:-}"
+# The running case's name, so a red run names the test on its FAIL line: the lane's red-first
+# seam requires the claimed test's name to appear on a line that itself marks a failure.
+TEST_NAME=""
 
 ok() { echo "PASS $1"; }
-fail() { echo "FAIL $*" >&2; exit 1; }
+fail() { echo "FAIL ${TEST_NAME:+$TEST_NAME: }$*" >&2; exit 1; }
 st() { echo "$RSI_CTRL/rsi/state"; }
 claim_log() { echo "$T/claim-$CASE.log"; }
 out() { tr '\n' ' ' < "$T/$CASE.out"; }
@@ -103,15 +115,20 @@ PY
 
 make_repo() {
   git init -q -b main "$RSI_CTRL" || fail "$CASE: git init failed"
+  # Branch heads carry a fixed old committer date. Autofill's stale-head guard compares a head's
+  # %ct with the sendback's mtime, and in production a sendback is written after the push it
+  # reviews; every sendback here is written after this fixture, so the default shape is "live".
+  # Clocks are not involved: a case that needs a newer head sets GIT_COMMITTER_DATE explicitly.
+  local d="@1767225600 +0000"
   echo one > "$RSI_CTRL/file.txt"
   git -C "$RSI_CTRL" add file.txt
-  git -C "$RSI_CTRL" commit -qm init
+  GIT_AUTHOR_DATE="$d" GIT_COMMITTER_DATE="$d" git -C "$RSI_CTRL" commit -qm init
   git init -q --bare "$T/origin-$CASE.git"
   git -C "$RSI_CTRL" remote add origin "$T/origin-$CASE.git"
   git -C "$RSI_CTRL" push -q origin main
   git -C "$RSI_CTRL" checkout -qb "rsi/$SLUG"
   echo two >> "$RSI_CTRL/file.txt"
-  git -C "$RSI_CTRL" commit -qam change
+  GIT_AUTHOR_DATE="$d" GIT_COMMITTER_DATE="$d" git -C "$RSI_CTRL" commit -qam change
   git -C "$RSI_CTRL" push -q origin "rsi/$SLUG"
   # A second, independent rework branch: only test_waiver_continues_to_next_sendback writes its
   # sendback, but every repo case may carry it harmlessly.
@@ -119,8 +136,22 @@ make_repo() {
   git -C "$RSI_CTRL" checkout -q -b "rsi/$SLUG2"
   echo three > "$RSI_CTRL/other.txt"
   git -C "$RSI_CTRL" add other.txt
-  git -C "$RSI_CTRL" commit -qm change-two
+  GIT_AUTHOR_DATE="$d" GIT_COMMITTER_DATE="$d" git -C "$RSI_CTRL" commit -qm change-two
   git -C "$RSI_CTRL" push -q origin "rsi/$SLUG2"
+}
+
+# push_newer_head <slug> — commit on rsi/<slug> with a %ct strictly after the sendback's mtime and
+# push it, so autofill sees a head that already carries the fix.
+push_newer_head() {
+  local slug="$1" sb_ct
+  sb_ct="$(python3 -c 'import os,sys;print(int(os.stat(sys.argv[1]).st_mtime))' "$(st)/sendback/$slug.md")"
+  git -C "$RSI_CTRL" checkout -q "rsi/$slug"
+  echo "fix for $slug" >> "$RSI_CTRL/file.txt"
+  git -C "$RSI_CTRL" add file.txt
+  GIT_AUTHOR_DATE="@$((sb_ct + 5)) +0000" GIT_COMMITTER_DATE="@$((sb_ct + 5)) +0000" \
+    git -C "$RSI_CTRL" commit -qm "already-fixed: $slug"
+  git -C "$RSI_CTRL" push -q origin "rsi/$slug"
+  git -C "$RSI_CTRL" rev-parse "rsi/$slug"
 }
 
 write_sb() { write_sb_for "$SLUG" "$1"; }
@@ -316,6 +347,111 @@ test_unknown_pr_state_fails_open() {
     || fail "unknown_state_claims: the log line does not explain the fail-open ($(out))"
 }
 
+# --- stale-head cases --------------------------------------------------------------------------
+# A rework that pushed its fix and died before the merge lane archived the sendback leaves a
+# sendback whose fix is already on the branch. merge.sh suppresses that sendback from its side
+# (merge.sh:93-101); autofill used to claim it anyway and the worker spent a round re-editing a
+# paragraph that was already fixed (2026-11-23 12:23: a sendback written 12:05 opened a lane
+# although 1bd56a7d was pushed; the CEO stopped it at 49 s). A newer head archives the sendback
+# and `continue`s; every unreadable input fails open; a tie is not stale.
+
+# The motivating case: head strictly newer than the sendback -> archived, no claim.
+test_head_newer_than_sendback_archives_without_rework() {
+  new_case stale_head_archive repo
+  write_sb 'gate+review'
+  cp "$(st)/sendback/$SLUG.md" "$T/$CASE.before"
+  local head; head="$(push_newer_head "$SLUG")"
+  run_autofill
+  [ "$RC" -eq 0 ] || fail "stale_head_archive: autofill exited $RC ($(out))"
+  [ ! -e "$(claim_log)" ] \
+    || fail "stale_head_archive: claimed a lane for a fixed sendback: $(cat "$(claim_log)")"
+  [ ! -e "$(st)/sendback/$SLUG.md" ] || fail "stale_head_archive: the sendback is still in the queue"
+  local done_f; done_f="$(ls "$(st)/sendback/done/$SLUG-stale-head-"*.md 2>/dev/null | head -1)"
+  [ -n "$done_f" ] || fail "stale_head_archive: no sendback/done/$SLUG-stale-head-*.md"
+  cmp -s "$T/$CASE.before" "$done_f" \
+    || fail "stale_head_archive: the archived copy differs from the sendback"
+  [ "$(grep -c . "$T/$CASE.out")" = 1 ] \
+    || fail "stale_head_archive: expected one explanation line, got: $(out)"
+  grep -q "$SLUG" "$T/$CASE.out" || fail "stale_head_archive: the line does not name the slug ($(out))"
+  grep -q "${head:0:8}" "$T/$CASE.out" \
+    || fail "stale_head_archive: the line does not name the head ${head:0:8} ($(out))"
+}
+
+# The control: a live sendback is newer than the head and must still open its lane. Without this,
+# a blanket skip would pass the case above.
+test_sendback_newer_than_head_still_claims() {
+  new_case sendback_newer repo
+  write_sb 'gate+review'
+  # Strictly newer than the pinned branch date: the sendback arrived after the push it reviews.
+  touch -t 202612310000 "$(st)/sendback/$SLUG.md"
+  run_autofill
+  [ "$RC" -eq 0 ] || fail "sendback_newer: autofill exited $RC ($(out))"
+  [ "$(grep -c . "$(claim_log)" 2>/dev/null || true)" = 1 ] \
+    || fail "sendback_newer: expected one claim, got: $(cat "$(claim_log)" 2>/dev/null)"
+  grep -q -- "--slug $SLUG " "$(claim_log)" || fail "sendback_newer: claim lacks --slug $SLUG"
+  grep -q -- "--mode rework" "$(claim_log)" || fail "sendback_newer: claim is not a rework"
+  [ -s "$(st)/sendback/$SLUG.md" ] || fail "sendback_newer: archived a live sendback"
+  ! ls "$(st)/sendback/done/" 2>/dev/null | grep -q "stale-head" \
+    || fail "sendback_newer: wrote a stale-head archive for a live sendback"
+}
+
+# An unreadable head is not evidence the fix landed: fail open, claim as today, archive nothing.
+# Phase one is a git that cannot answer `log --format=%ct` while the ref, fetch and diff still
+# work (a partial/corrupt object, a git that died); phase two is a missing origin/<branch>.
+test_unreadable_head_claims_as_before() {
+  new_case unreadable_head repo
+  write_sb 'gate+review'
+  cat > "$T/git-no-ct.sh" <<'SH'
+#!/bin/bash
+for a in "$@"; do [ "$a" = "--format=%ct" ] && exit 128; done
+exec git "$@"
+SH
+  chmod +x "$T/git-no-ct.sh"
+  export GIT="$T/git-no-ct.sh"
+  run_autofill
+  unset GIT
+  [ "$RC" -eq 0 ] || fail "unreadable_head: autofill exited $RC ($(out))"
+  [ "$(grep -c . "$(claim_log)" 2>/dev/null || true)" = 1 ] \
+    || fail "unreadable_head: an unreadable head stopped the rework: $(cat "$(claim_log)" 2>/dev/null)"
+  grep -q -- "--slug $SLUG " "$(claim_log)" || fail "unreadable_head: claim lacks --slug $SLUG"
+  [ -s "$(st)/sendback/$SLUG.md" ] || fail "unreadable_head: archived on an unreadable head"
+  [ "$(grep -c . "$T/$CASE.out")" -le 1 ] \
+    || fail "unreadable_head: expected at most one log line, got: $(out)"
+
+  # A missing branch is unreadable too: today's path skips at the diff, and the guard must not
+  # have archived the sendback on its way there.
+  new_case unreadable_head_missing_ref repo
+  write_sb 'gate+review'
+  git -C "$T/origin-$CASE.git" update-ref -d "refs/heads/rsi/$SLUG"
+  git -C "$RSI_CTRL" update-ref -d "refs/remotes/origin/rsi/$SLUG"
+  run_autofill
+  [ "$RC" -eq 0 ] || fail "unreadable_head_missing_ref: autofill exited $RC ($(out))"
+  [ ! -e "$(claim_log)" ] \
+    || fail "unreadable_head_missing_ref: claimed with no branch to review: $(cat "$(claim_log)")"
+  [ -s "$(st)/sendback/$SLUG.md" ] \
+    || fail "unreadable_head_missing_ref: archived a sendback with no readable head"
+  ! ls "$(st)/sendback/done/" 2>/dev/null | grep -q "stale-head" \
+    || fail "unreadable_head_missing_ref: wrote a stale-head archive"
+}
+
+# The skip must be `continue`, not `break`: a stale sendback seen first must not stop the pass
+# from claiming the next, live rework (the stall class this suite already pins for waivers).
+test_stale_head_continue_reaches_next_sendback() {
+  new_case stale_then_next repo
+  write_sb_for "$SLUG" 'gate+review'      # older: seen first
+  push_newer_head "$SLUG" >/dev/null
+  write_sb_for "$SLUG2" 'gate+review'     # newer: no fix on its branch
+  run_autofill
+  [ "$RC" -eq 0 ] || fail "stale_then_next: autofill exited $RC ($(out))"
+  [ "$(grep -c . "$(claim_log)" 2>/dev/null || true)" = 1 ] \
+    || fail "stale_then_next: expected one claim, got: $(cat "$(claim_log)" 2>/dev/null)"
+  grep -q -- "--slug $SLUG2 " "$(claim_log)" \
+    || fail "stale_then_next: the stale sendback stopped the pass before $SLUG2 ($(out))"
+  ! grep -q -- "--slug $SLUG " "$(claim_log)" \
+    || fail "stale_then_next: claimed the stale slug: $(cat "$(claim_log)")"
+  [ ! -e "$(st)/sendback/$SLUG.md" ] || fail "stale_then_next: the stale sendback is still queued"
+}
+
 # Autofill fills one idle slot per pass, so the order it walks the queue decides which rework gets
 # the slot. The glob sorted by name, not age: on 2026-11-19 the newer `panel-topmost` (sorts first)
 # was claimed at 18:44 while the older `stale-console` had waited since 15:21. Oldest first, and the
@@ -464,6 +600,7 @@ SH
 run() {
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   RAN=$((RAN+1))
+  TEST_NAME="$1"
   "$1" || exit 1
   ok "$1"
 }
@@ -479,6 +616,10 @@ run test_merged_pr_sendback_is_archived
 run test_closed_pr_sendback_is_archived
 run test_open_pr_sendback_still_claims
 run test_unknown_pr_state_fails_open
+run test_head_newer_than_sendback_archives_without_rework
+run test_sendback_newer_than_head_still_claims
+run test_unreadable_head_claims_as_before
+run test_stale_head_continue_reaches_next_sendback
 run test_oldest_sendback_is_claimed_first
 run test_missing_sendback_does_not_hide_the_queue
 run test_rework_dispatch_survives_the_fill_debounce

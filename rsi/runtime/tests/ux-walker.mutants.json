@@ -33,5 +33,40 @@
     "test": "bash rsi/runtime/tests/test-ux-walker.sh",
     "old": "  KIN_CLAUDE_BIN=\"$FAKE_AGENT_DIR/claude\"; export KIN_CLAUDE_BIN",
     "new": "  :"
+  },
+  {
+    "label": "generated dist is no longer console noise: web/dist/ leaves the predicate (and the web/ prefix that also covers it), so docs+dist select all 17 journeys again",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "const consoleNoise = (f) => f.startsWith('web/dist/') || f.startsWith('web/') || f.includes('__tests__/')\n  || f.startsWith('docs/') || f.startsWith('rsi/') || f.startsWith('scripts/')\n  || /\\.(test\\.[A-Za-z0-9]+|test\\.py|spec\\.[A-Za-z0-9]+|mutants\\.json)$/.test(f) || f.endsWith('.md');",
+    "new": "const consoleNoise = (f) => f.includes('__tests__/')\n  || f.startsWith('docs/') || f.startsWith('rsi/') || f.startsWith('scripts/')\n  || /\\.(test\\.[A-Za-z0-9]+|test\\.py|spec\\.[A-Za-z0-9]+|mutants\\.json)$/.test(f) || f.endsWith('.md');"
+  },
+  {
+    "label": "the console-noise filter is moved after the map (removed): docs and generated dist still select every journey",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "    const files = listed.filter((f) => !consoleNoise(f));",
+    "new": "    const files = listed;"
+  },
+  {
+    "label": "ui/ treated as console noise: an unmapped ui surface stops contributing, and a list of surfaces refuses instead of walking every journey",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "const consoleNoise = (f) => f.startsWith('web/dist/') || f.startsWith('web/') || f.includes('__tests__/')",
+    "new": "const consoleNoise = (f) => f.startsWith('ui/') || f.startsWith('web/dist/') || f.startsWith('web/') || f.includes('__tests__/')"
+  },
+  {
+    "label": "the locales copy directory treated as console noise: a copy-only diff stops selecting the paths row's J1-J16",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "const consoleNoise = (f) => f.startsWith('web/dist/') || f.startsWith('web/') || f.includes('__tests__/')",
+    "new": "const consoleNoise = (f) => f.startsWith('ui/src/i18n/locales/') || f.startsWith('web/dist/') || f.startsWith('web/') || f.includes('__tests__/')"
+  },
+  {
+    "label": "the all-noise refusal is removed: a --files list of only generated and docs paths selects all 17 and claims a walk no file can reach",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "    if (listed.length && !files.length) {",
+    "new": "    if (false) {"
   }
 ]

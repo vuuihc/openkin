@@ -1589,6 +1589,23 @@ class WalkJ9ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("scroll-kept", out)
 
+    def test_j9_contract_rejects_the_retired_area_shot(self) -> None:
+        # The shot's name is the reviewer's only index into the evidence: it
+        # must name the page it photographs. The Projects area retired in
+        # KIN-CONTRACT-001 and the walk now clicks [data-area="routines"], so a
+        # shot still called `area-projects` sends every reader to a page that
+        # no longer exists.
+        def rename_the_area_shot(steps: list) -> None:
+            at = self.at(
+                steps,
+                lambda step: step[0] == "shot" and step[1] in ("area-routines", "area-projects"),
+            )
+            steps[at][1] = "area-projects"
+
+        code, out = self.check(self.copy_with(rename_the_area_shot))
+        self.assertEqual(code, 1, out)
+        self.assertIn("J9 takes no `area-routines` shot", out)
+
     def test_j9_pins_the_composer_element(self) -> None:
         """TASTE 15: the composer is part of the shell that must not repaint.
 
