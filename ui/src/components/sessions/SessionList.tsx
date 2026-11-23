@@ -141,12 +141,13 @@ import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
  * row's overflow — hover controls in the sidebar, swipe and a long press that
  * open the same row menu on the page — never which features the list has.
  *
- * The query, status and scope live in the URL (`?search=`, `?status=`, `?scope=`),
- * so switching width cannot change what the list is showing: the route stays
- * put and both shells read the same parameters. Project order is the existing
- * sidebar preference, which is why it appears in both shells' filter panel.
+ * The query, status, scope and project live in the URL (`?search=`, `?status=`,
+ * `?scope=`, `?project=`), so switching width cannot change what the list is
+ * showing: the route stays put and both shells read the same parameters.
+ * Project order is the existing sidebar preference, which is why it appears in
+ * both shells' filter panel.
  */
-const LIST_STATE_KEYS = ["search", "status", "scope", "routine"] as const;
+const LIST_STATE_KEYS = ["search", "status", "scope", "routine", "project"] as const;
 
 /**
  * Carry the list's own params through a navigation.
@@ -218,6 +219,12 @@ export default function SessionList({
   // title is its routine's title, so the row already says which routine it is.
   const routineId = (params.get("routine") ?? "").trim();
   const routineFilter = routineId !== "";
+  // One project's conversations, by id (`?project=`). The task header's
+  // project label lands here. The feed has no project_id filter, so the
+  // narrowing happens over the loaded rows in the browser; the chip is the way
+  // back.
+  const projectId = (params.get("project") ?? "").trim();
+  const projectFilter = projectId !== "";
 
   const [searchTerm, setSearchTerm] = useState(() => query.trim());
   const [returnRow, setReturnRow] = useState<string | null>(() => takeRowReturn());
@@ -660,15 +667,43 @@ export default function SessionList({
     [buckets, projects, canSeed, archivedCwds, tr],
   );
   const filtered = useMemo(() => filterProjectBuckets(seeded, query), [seeded, query]);
+  // The project record the id names, and the bucket keys its roots file
+  // under. A record can claim several roots and the list merges them into one
+  // heading keyed by the first, so the keys are what "this project's
+  // conversations" means — never the name, and never an id on a row (rows
+  // carry a cwd, not a project id).
+  const projectRecord = useMemo(
+    () => (projectFilter ? (projects.find((project) => project.id === projectId) ?? null) : null),
+    [projectFilter, projectId, projects],
+  );
+  const projectBucketKeys = useMemo(() => {
+    if (!projectFilter) return null;
+    const keys = new Set<string>();
+    for (const root of projectRecord?.roots ?? []) {
+      const key = bucketKeyFor(root);
+      if (key !== UNASSIGNED_PROJECT) keys.add(key);
+    }
+    return keys;
+  }, [projectFilter, projectRecord]);
+  // The record's roots are what "this project" means; a bucket is kept only
+  // when its key is one of them. Never a name match: two projects can share a
+  // display name, and the id is the identity. An id with no record matches
+  // nothing, and the chip's fallback label plus its clear control are what
+  // make that state recoverable rather than silent.
+  const narrowed = useMemo(
+    () =>
+      projectBucketKeys ? filtered.filter((bucket) => projectBucketKeys.has(bucket.key)) : filtered,
+    [filtered, projectBucketKeys],
+  );
   const listed = useMemo(
     () =>
       withPinnedBucket(
-        filtered,
+        narrowed,
         scope === "archived" ? EMPTY_IDS : pinnedIds,
         tr("sessions.pinned"),
         orders,
       ),
-    [filtered, pinnedIds, scope, tr, orders],
+    [narrowed, pinnedIds, scope, tr, orders],
   );
   useEffect(() => {
     if (!returnRow) return;
@@ -694,6 +729,7 @@ export default function SessionList({
           !searching &&
           !status &&
           !routineFilter &&
+          !projectFilter &&
           scope === "active" &&
           // A failed read has no "empty": the page says it could not load the
           // list, and a machine heading under that would claim the failure
@@ -772,10 +808,18 @@ export default function SessionList({
   // the order is stored per bucket, so it is offered only where the bucket is
   // shown whole. The stored order still displays in the narrowed views.
   const canReorder =
-    scope === "active" && !searching && !status && !routineFilter && !selectionMode;
+    scope === "active" &&
+    !searching &&
+    !status &&
+    !routineFilter &&
+    !projectFilter &&
+    !selectionMode;
   // "Nothing here" must describe the filter, not a page that ended: the same
-  // empty state covers status, the archive and a routine narrowing.
-  const filtering = Boolean(status) || scope === "archived" || routineFilter;
+  // empty state covers status, the archive and a routine or project narrowing.
+  const filtering = Boolean(status) || scope === "archived" || routineFilter || projectFilter;
+  // The narrowed list has read one page, not the project's whole history: with
+  // pages still out, "no chats match" would describe the page, not the filter.
+  const projectPagesRemain = projectFilter && (hasMoreTasks || hasMoreArchive || hasMoreSessions);
   const pendingQuery = query.trim() !== searchTerm;
   const archiveFailed = scope === "archived" && Boolean(archivedList.error);
   const archiveProjectsFailed = scope === "archived" && !archiveFailed && Boolean(taskList.error);
@@ -783,7 +827,9 @@ export default function SessionList({
   // Imported sessions are a second index. Its failure is actionable on its own:
   // when it is the only feed with rows, the page must say what failed rather
   // than draw "no chats yet" over it.
-  const importsFailed = !status && !routineFilter && sessionsFailed;
+  // Imported sessions carry no project, so a project narrowing never shows
+  // them; their index failing is not this project's state.
+  const importsFailed = !status && !routineFilter && !projectFilter && sessionsFailed;
   const importsFailedHard = importsFailed && !loading && listed.length === 0 && !loadFailed;
   // One retry for whatever this page is showing: the live list, and the archive
   // list when that scope is open. The button exists because the story promises
@@ -850,6 +896,13 @@ export default function SessionList({
   function changeRoutineFilter() {
     const nextParams = new URLSearchParams(params);
     nextParams.delete("routine");
+    setParams(nextParams, { replace: true });
+  }
+
+  /** The project chip's clear control: back to the full list, same entry. */
+  function changeProjectFilter() {
+    const nextParams = new URLSearchParams(params);
+    nextParams.delete("project");
     setParams(nextParams, { replace: true });
   }
 
@@ -1526,6 +1579,8 @@ export default function SessionList({
       onFilterChange={changeFilter}
       routineFilter={routineFilter}
       onClearRoutine={changeRoutineFilter}
+      projectFilter={projectFilter ? projectRecord?.name.trim() || projectId : ""}
+      onClearProject={changeProjectFilter}
       onSortChange={(mode) => {
         setProjectSortMode(mode);
         setPrefsTick((n) => n + 1);
@@ -1565,6 +1620,7 @@ export default function SessionList({
         !loadFailed &&
         !importsFailedHard &&
         !(pendingQuery && listed.length === 0) &&
+        !projectPagesRemain &&
         listed.length === 0 && (
           <MobileEmpty icon={emptyView.icon} title={emptyView.title} hint={emptyView.hint} />
         )}

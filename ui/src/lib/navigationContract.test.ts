@@ -82,7 +82,11 @@ describe("navigation contract", () => {
       "D8",
       "/projects",
       "/projects/:id",
+      // The heading still opens the cover; the task header's project label is
+      // the link that narrows the list, and a chip names it (R-delete-pagesb2c).
       "项目封面的父级是对话列表",
+      "任务头的项目名",
+      "筛选条上留一枚写着项目名的可清除 chip",
     ]) {
       expect(ia).toContain(phrase);
     }
