@@ -72,6 +72,17 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
     generation, visit or flow id and are dropped or retargeted when the
     screen, machine or draft that asked is no longer current; test with two
     concurrent flows and one late answer.
+16. **Touch targets follow the pointer, not the width.** A control reachable at
+    ≥768px takes its 44×44 floor from a coarse-pointer check
+    (`useCoarsePointer()` or an equivalent coarse-scoped utility), never from a
+    `max-width` breakpoint or a global floor that stops at 768; new or resized
+    controls are measured at 820×1180 coarse and their coarse branch is pinned
+    by a mutant.
+17. **A prose claim names its evidence.** Every prose deliverable (GOAL section,
+    ADR, PLAN, story contract) cites the `path:line` or named section it
+    asserts plus the command or test that backs it; a claim that cannot name
+    its source — including numbers copied from a phased record — is not
+    delivered.
 
 ## Development workflow
 
