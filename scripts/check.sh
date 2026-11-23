@@ -214,6 +214,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-runtime-modes.sh || return 1
   bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
   bash rsi/runtime/tests/test-gate-carry.sh || return 1
+  bash rsi/runtime/tests/test-ux-carry-key.sh || return 1
   bash rsi/runtime/tests/test-verifier-ci-hold.sh || return 1
   bash rsi/runtime/tests/test-merge-sync-skip.sh || return 1
   bash rsi/runtime/tests/test-merge-sync-abort.sh || return 1
