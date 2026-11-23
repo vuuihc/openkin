@@ -188,6 +188,14 @@ type Props = {
    * every open: closing the bar must leave it closed.
    */
   findSeed?: string;
+  /**
+   * A host surface (the imported-session sheet) already names the host agent
+   * above the transcript. When the oldest visible turn is that agent's, its
+   * own speaker header would print the same avatar and name directly below
+   * the host's; opt in to drop that first identity. Later turns and delegated
+   * speakers keep their attribution.
+   */
+  hideFirstSpeaker?: boolean;
 };
 
 export default function ChatStream({
@@ -219,6 +227,7 @@ export default function ChatStream({
   onFindOpenChange,
   findShortcut = true,
   findSeed,
+  hideFirstSpeaker = false,
 }: Props) {
   const { locale } = useLocale();
   const tr = useT();
@@ -552,6 +561,7 @@ export default function ChatStream({
             model={turn.model}
             items={turn.items}
             hostSpeaker={hostSpeaker}
+            hideIdentity={hideFirstSpeaker && turnIdx === 0 && turn.speaker === hostSpeaker}
             pendingSlots={pendingSlots}
             loading={loading}
             allItems={items}
@@ -714,6 +724,7 @@ function AgentTurn({
   model,
   items,
   hostSpeaker,
+  hideIdentity = false,
   pendingSlots,
   loading,
   allItems,
@@ -737,6 +748,8 @@ function AgentTurn({
   items: ChatItem[];
   /** The session's host agent, which is what a step's attribution compares to. */
   hostSpeaker: string;
+  /** See ChatStream's `hideFirstSpeaker`: drop this turn's avatar and name. */
+  hideIdentity?: boolean;
   /** Pending cards by id: an asking event inside this column draws its own. */
   pendingSlots?: Record<string, ReactNode>;
   loading: boolean;
@@ -767,22 +780,30 @@ function AgentTurn({
 
   return (
     <div className="flex gap-2.5 items-start">
-      <div
-        className={`w-[28px] h-[28px] flex-none rounded-lg flex items-center justify-center text-caption font-bold ${meta.className}`}
-        title={agentIdentityTitle(meta.label, model)}
-      >
-        {meta.initials}
-      </div>
-      <div className="flex-1 min-w-0 flex flex-col gap-2.5 pt-0.5">
-        <div className="flex items-start gap-2">
-          <AgentIdentity name={meta.label} model={model} />
-          {hasPartial && (
-            <span className="mt-px inline-flex items-center gap-1.5 text-caption text-kin-muted">
-              <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
-              {tr("chat.streaming")}
-            </span>
-          )}
+      {hideIdentity ? (
+        // The host above already carried the avatar; keep its column so the
+        // message text stays on the same left edge as every later turn.
+        <div className="w-[28px] flex-none" aria-hidden="true" />
+      ) : (
+        <div
+          className={`w-[28px] h-[28px] flex-none rounded-lg flex items-center justify-center text-caption font-bold ${meta.className}`}
+          title={agentIdentityTitle(meta.label, model)}
+        >
+          {meta.initials}
         </div>
+      )}
+      <div className="flex-1 min-w-0 flex flex-col gap-2.5 pt-0.5">
+        {hideIdentity ? null : (
+          <div className="flex items-start gap-2">
+            <AgentIdentity name={meta.label} model={model} />
+            {hasPartial && (
+              <span className="mt-px inline-flex items-center gap-1.5 text-caption text-kin-muted">
+                <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
+                {tr("chat.streaming")}
+              </span>
+            )}
+          </div>
+        )}
 
         {items.map((item) => {
           switch (item.kind) {

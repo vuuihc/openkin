@@ -239,8 +239,7 @@ SH
 
 # 9. A bisect run that cannot judge (exit 3) attributes nothing. At a singleton the old read
 # printed CULPRIT and batch_run sent that member back for the machine's own failure.
-test_bisect_no_verdict_is_not_a_culprit() {
-  local repo="$T/repo-bisect" ctrl="$T/ctrl-bisect" base h1 h2 out
+test_bisect_no_verdict_is_not_a_culprit() {  local repo="$T/repo-bisect" ctrl="$T/ctrl-bisect" base h1 h2 out
   rm -rf "$repo" "$ctrl"; mkdir -p "$repo/scripts" "$ctrl/rsi/runtime"
   # gate.sh is invoked from the runtime under merge.sh's RSI_CTRL; stage only the files a --only
   # check run sources, so this stays hermetic without copying runtime/runs.
@@ -282,6 +281,95 @@ SH
   return 0
 }
 
+# 10. A step harness killed by a signal never judged the branch. #640 was SIGTERM'd at 15m20s
+# (two start() jobs still running, no failing test anywhere in the log) and the gate called it
+# `FAIL: check`; the branch paid a rework round that found nothing to fix. Signal death of the
+# harness is no verdict; a red test exits 1 through the harness, so this arm cannot excuse one.
+test_gate_step_sigterm_is_no_verdict() {
+  local repo="$T/repo-sig" out="$T/out-sig" rc
+  rm -rf "$repo"; mkdir -p "$repo/scripts"
+  cat > "$repo/scripts/check.sh" <<'SH'
+#!/bin/bash
+# The exact shape of state/sendback/done/claim-seam-retry-213549.md: two jobs reported ok, then
+# the harness itself is killed with no summary and no failing test.
+echo "ok   gofmt"
+echo "ok   vet"
+kill -TERM $$
+sleep 5
+SH
+  chmod +x "$repo/scripts/check.sh"
+  echo base > "$repo/README.md"
+  $GIT init -q -b main "$repo" || fail "step-sig: git init"
+  $GIT -C "$repo" add -A || fail "step-sig: git add"
+  $GIT -C "$repo" commit -qm base || fail "step-sig: git commit"
+  $GIT -C "$repo" update-ref refs/remotes/origin/main HEAD || fail "step-sig: origin/main"
+  ( cd "$repo" && RSI_CTRL="$T/ctrl" bash "$GATE" "$repo" ) > "$out" 2>&1
+  rc=$?
+  [ "$rc" -eq 3 ] || fail "step-sig: exit $rc, want 3 ($(tr '\n' ' ' < "$out"))"
+  [ "$(grep -c '^GATE_RESULT=NO_VERDICT: ' "$out")" -eq 1 ] \
+    || fail "step-sig: want exactly one 'GATE_RESULT=NO_VERDICT: ' line: $(tr '\n' ' ' < "$out")"
+  grep -q '^GATE_RESULT=NO_VERDICT: .*check' "$out" \
+    || fail "step-sig: the no-verdict reason does not name the step"
+  grep -q 'killed by signal 15' "$out" \
+    || fail "step-sig: the no-verdict reason does not name the signal"
+  if grep -qE '^GATE_RESULT=(PASS|FAIL)' "$out"; then
+    fail "step-sig: printed a PASS/FAIL verdict on a step that never judged"
+  fi
+  return 0
+}
+
+# 11. check.sh names what a kill interrupted, and does not name a job that already answered.
+# The report is the evidence a later reader needs to tell "the machine was killed" from "a test
+# failed": it used to be two bare PIDs. RSI_CHECK_JOB_STUB keeps the run inert and hermetic.
+test_check_sh_names_the_job_a_signal_interrupts() {
+  local check="$RUNTIME/../../scripts/check.sh" out="$T/out-int" rc pid i st
+  [ -x "$check" ] || fail "interrupt: no scripts/check.sh at $check"
+  # gofmt exits at once (so it is a zombie or already reaped, never "still running"); every
+  # other job sleeps past the signal.
+  RSI_CHECK_JOB_STUB='if [ "$0" = gofmt ]; then exit 0; fi; sleep 30' \
+    bash "$check" > "$out" 2>&1 &
+  pid=$!
+  # Synchronise on the run, not on a guessed duration. gofmt is the first job check.sh waits
+  # for, so its `ok` line means gofmt was reaped (never reported as still running) and
+  # check.sh is now blocked on probe's 30s sleep. A fixed sleep raced the gate's parallel
+  # load: TERM too early named gofmt, too late was not a failure this test could see.
+  for ((i = 0; i < 100; i++)); do
+    grep -qxF 'ok   gofmt' "$out" 2>/dev/null && break
+    sleep 0.1
+  done
+  if ! grep -qxF 'ok   gofmt' "$out" 2>/dev/null; then
+    rsi_kill_tree "$pid"
+    fail "interrupt: gofmt did not report ok within 10s ($(tail -3 "$out" | tr '\n' ' '))"
+  fi
+  kill -TERM "$pid" 2>/dev/null
+  # Bound the wait the same way. The handler prints its report, TERMs the recorded jobs and
+  # exits, so a run that outlives the deadline is wedged; kill it and fail with the log.
+  # `ps` is the liveness read (a zombie has exited too, just not yet reaped), the same
+  # distinction check.sh's own interrupt report uses.
+  for ((i = 0; i < 100; i++)); do
+    st="$(ps -o state= -p "$pid" 2>/dev/null | tr -d ' ')"
+    if [ -z "$st" ] || [ "${st#Z}" != "$st" ]; then break; fi
+    sleep 0.1
+  done
+  if [ -n "$st" ] && [ "${st#Z}" = "$st" ]; then
+    rsi_kill_tree "$pid"
+    fail "interrupt: check.sh did not exit within 10s of SIGTERM ($(tail -3 "$out" | tr '\n' ' '))"
+  fi
+  wait "$pid"; rc=$?
+  for i in $(pgrep -P "$pid" 2>/dev/null || true); do rsi_kill_tree "$i"; done
+  [ "$rc" -eq 143 ] || fail "interrupt: exit $rc, want 143 ($(tail -3 "$out" | tr '\n' ' '))"
+  grep -q 'interrupted by SIGTERM; jobs still running:' "$out" \
+    || fail "interrupt: no report naming the interrupted jobs ($(tail -3 "$out" | tr '\n' ' '))"
+  grep -q 'jobs still running: .*\bprobe\b' "$out" \
+    || fail "interrupt: the report does not name the job that was running ($(tail -3 "$out" | tr '\n' ' '))"
+  if grep -q 'jobs still running: .*\bgofmt\b' "$out"; then
+    fail "interrupt: named a job that had already finished ($(tail -3 "$out" | tr '\n' ' '))"
+  fi
+  grep -q 'jobs still running: none' "$out" \
+    && fail "interrupt: reported no in-flight job while jobs were running"
+  return 0
+}
+
 run() {
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   "$1" || exit 1
@@ -296,5 +384,7 @@ run test_batch_gate_verdict_reads_no_verdict_not_fail
 run test_merge_no_verdict_path_writes_no_sendback
 run test_gate_step_enospc_prints_no_verdict
 run test_gate_step_red_test_still_fails
+run test_gate_step_sigterm_is_no_verdict
+run test_check_sh_names_the_job_a_signal_interrupts
 run test_bisect_no_verdict_is_not_a_culprit
 echo ALL-PASS

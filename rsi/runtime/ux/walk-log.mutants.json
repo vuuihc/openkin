@@ -1,0 +1,58 @@
+[
+  {
+    "label": "the wedge case accepts an earlier step as the last line, so a file naming the wrong step would pass (R-walk-log-live)",
+    "file": "rsi/runtime/ux/walk-log.test.mjs",
+    "old": "  assert.equal(lastLine(dir), 'J4/mac step 2 start wait css=[data-testid=reply-body]');",
+    "new": "  assert.equal(lastLine(dir), 'J4/mac step 1 start wait css=[data-testid=reply-body]');",
+    "test": "node rsi/runtime/ux/walk-log.test.mjs"
+  },
+  {
+    "label": "the step log only reaches memory, so a wedged walk leaves an empty file (R-walk-log-live)",
+    "file": "rsi/runtime/ux/walk-log.mjs",
+    "old": "    try { fs.appendFileSync(filePath, text + '\\n'); }",
+    "new": "    try { void 0; }",
+    "test": "node rsi/runtime/ux/walk-log.test.mjs"
+  },
+  {
+    "label": "begin keeps the step name in memory only, so the step a walk dies on is never on disk (R-walk-log-live)",
+    "file": "rsi/runtime/ux/walk-log.mjs",
+    "old": "      append(`${current.where} step ${current.index} start",
+    "new": "      lines.push(`${current.where} step ${current.index} start",
+    "test": "node rsi/runtime/ux/walk-log.test.mjs"
+  },
+  {
+    "label": "an outcome pushed through the old log.push call sites stays off disk, so the file stops being the file walk.json repeats (R-walk-log-live)",
+    "file": "rsi/runtime/ux/walk-log.mjs",
+    "old": "    push(...items) { items.forEach((item) => append(String(item))); },",
+    "new": "    push(...items) { items.forEach((item) => lines.push(String(item))); },",
+    "test": "node rsi/runtime/ux/walk-log.test.mjs"
+  },
+  {
+    "label": "each leg truncates the file, so a wedge in a later leg erases the steps that ran before it (R-walk-log-live)",
+    "file": "rsi/runtime/ux/walk-log.mjs",
+    "old": "  const group = () => {\n    const lines = [];",
+    "new": "  const group = () => {\n    try { if (filePath != null) fs.writeFileSync(filePath, ''); } catch (_) {}\n    const lines = [];",
+    "test": "node rsi/runtime/ux/walk-log.test.mjs"
+  },
+  {
+    "label": "the walker creates the step log per journey, so each leg truncates the previous one (R-walk-log-live)",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "old": "const stepLog = createStepLog({ dir: out });",
+    "new": "const stepLog = { group: () => createStepLog({ dir: out }) };",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh"
+  },
+  {
+    "label": "screens keep an empty notes array instead of the lines the file holds, so walk.json loses the step evidence (R-walk-log-live)",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "old": "s.notes = log.lines;",
+    "new": "s.notes = [];",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh"
+  },
+  {
+    "label": "the walker's step loop dispatches without naming the step, so a hang is still nameless (R-walk-log-live)",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "old": "      log.begin(`${j}/${vpName}`, stepNo + 1, op, a, b);",
+    "new": "      void 0;",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh"
+  }
+]

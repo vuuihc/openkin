@@ -34,11 +34,11 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
-- 2026-11-23 · 中 · 390×844 手机上，从滚动过的对话列表打开一条对话、再用浏览器返回，列表回到顶部而不是离开时的位置（存 400 返回 0；同一列表经页脚去例行任务再回来则精确回到 434），`sessionStorage['kin.listScroll']` 在点击后 120 ms 已被写成 "0" — 期望两条返回路径（打开对话后浏览器返回 / 经页脚去例行任务再回来）都回到记录的 scrollTop（±0）；离开列表去详情时不得用已经坍缩的容器读出的位置覆盖读者选过的位置。不要的做法：卸载清理里无条件 `write(true)`，此时滚动容器的 scrollTop 已经被 clamp 成 0。照抄的同类：`ui/src/pages/RoutinesPage.tsx:313`（只在 scroll 事件里保存，从不在卸载时写，实测 600→600 精确恢复）。证据：`phone-21-c1-scrolled-400.png`、`phone-22-c1-back-return.png`、`phone-23-c1-tab-return.png`、`readings-retry.json`、`readings-phone-390.json`（`readings-retry.json` 的 `leg1Saved.saved=400` / `leg1Returned.top=0`、`leg2Saved.saved=434` / `leg2Returned.top=434`；独立复测在点击后 120 ms 读到 `saved:"0"`）。根因位置：`ui/src/components/mobile/MobileList.tsx:121`。
-
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
+
+- 2026-11-23 · 中 · 390×844 手机上，从滚动过的对话列表打开一条对话、再用浏览器返回，列表回到顶部而不是离开时的位置（存 400 返回 0；同一列表经页脚去例行任务再回来则精确回到 434），`sessionStorage['kin.listScroll']` 在点击后 120 ms 已被写成 "0" — 期望两条返回路径（打开对话后浏览器返回 / 经页脚去例行任务再回来）都回到记录的 scrollTop（±0）；离开列表去详情时不得用已经坍缩的容器读出的位置覆盖读者选过的位置。不要的做法：卸载清理里无条件 `write(true)`，此时滚动容器的 scrollTop 已经被 clamp 成 0。照抄的同类：`ui/src/pages/RoutinesPage.tsx:313`（只在 scroll 事件里保存，从不在卸载时写，实测 600→600 精确恢复）。证据：`phone-21-c1-scrolled-400.png`、`phone-22-c1-back-return.png`、`phone-23-c1-tab-return.png`、`readings-retry.json`、`readings-phone-390.json`（`readings-retry.json` 的 `leg1Saved.saved=400` / `leg1Returned.top=0`、`leg2Saved.saved=434` / `leg2Returned.top=434`；独立复测在点击后 120 ms 读到 `saved:"0"`）。根因位置：`ui/src/components/mobile/MobileList.tsx:121`。落地 d8b1afcf（#650）：卸载时不再重读已 clamp 的容器——写入用的是滚动处理器记下的位置（`ui/src/components/mobile/MobileList.tsx:124` 的 `lastTopRef`，`:114` 的写入），恢复成功时回填同一 ref（`:80`）；`MobileList.dom.test.tsx` 5 passed，`MobileList.mutants.json` 2/2 变红。
 
 - 2026-11-23 · 低 · 390×844 手机对话列表离开再回来会停在比离开时更靠上的位置 — `501ff4e6`（R-phone-list-restore，本 PR）：原测存 400 返回 374 / 284；根因是行数信号已经稳定、内容高度随后才增长，旧恢复被 clamp 后只等 `scrollWhen` 再变，因而不再重试。`ui/src/components/mobile/MobileList.tsx:145` 观察内容 wrapper 并共用恢复尝试，原来的可达判断与读者输入取消规则保持不变，卸载时断开 observer。`ui/src/components/mobile/MobileList.dom.test.tsx` 的 `retries the restore when the content grows without the caller's row signal moving` 在旧实现因 0 ≠ SAVED 变红，修复后与 `does not move a reader who scrolled after a clamped restore`、原 remount 用例一起通过；命令 `cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/mobile/MobileList.dom.test.tsx`，禁用增长重试的 `MobileList.mutants.json` 变异体也变红。原实机证据保留在 `rsi/state/shots/dogfood-20261123-15/` 的 `readings-phone-f4only.json` / `readings-phone-f4f5.json`。
 
