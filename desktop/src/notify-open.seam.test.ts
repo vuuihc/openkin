@@ -191,7 +191,10 @@ describe("a notification click reaches the window", () => {
   });
 
   it("a banner with no link still opens the task it names", () => {
-    // The whole chain, with the event that produced the reported symptom.
+    // The whole chain for a latent empty-link event: no shipped producer
+    // writes `url: ""`, so this pins the fallback rather than the reported
+    // tap, which stays unexplained (leading candidate: a banner created
+    // before a relaunch and clicked after it).
     const { boot, win, created, notifier } = shell();
     boot.start();
     boot.settle("ready");

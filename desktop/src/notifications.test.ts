@@ -359,8 +359,11 @@ describe("showing a notification", () => {
   });
 
   it("opens the task a banner names when its link is missing", () => {
-    // The reported tap: the banner named a task, the event carried no link,
-    // and the list opened instead of that task.
+    // A latent empty/unusable-link hole, not the reported tap: every link the
+    // node writes is a console route the shell already opens, so the chain is
+    // whole for shipped events. The reported tap stays unexplained; the
+    // leading candidate is a banner created before a relaunch and clicked
+    // after it.
     const { notifier, created, opened } = fakeNotifier({
       origin: () => "http://127.0.0.1:7777",
     });

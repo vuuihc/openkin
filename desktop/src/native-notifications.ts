@@ -170,6 +170,9 @@ function knownNotifyPath(url: string, origin?: string): string | null {
  * compared: whatever origin the link names, only a known console route is
  * opened, and `javascript:`, `file:`, or a third-party path becomes the
  * conversation list — whose rows say what is waiting.
+ *
+ * Link-only sanitizer: event callers want `notifyOpenPath`, which falls back to
+ * the task the event names before the list.
  */
 export function safeNotifyPath(url: string, origin?: string): string {
   return knownNotifyPath(url, origin) ?? "/sessions";
