@@ -250,10 +250,14 @@ make test
   no assets).
 - Use a focused `go test ./internal/<package> -run <TestName>` during iteration,
   but do not substitute it for the relevant full suite at handoff.
-- `./scripts/check.sh` runs the checks that match the working tree — changed Go
-  packages, `go vet`, `gofmt`, desktop tests, `tsc`, `bash -n` — in parallel
-  with one summary; `--all` widens the Go tests to `./...`. Prefer it to a
-  hand-typed sequence of the commands above.
+- `./scripts/check.sh` runs, in parallel with one summary, the checks CI does
+  not run on every push: changed-package `gofmt`, the probe, API contract and
+  coverage, syntax, story and shell suites, and the browser-free UI contracts.
+  `--list` prints the 14 job names it would start; `--all` starts all 22,
+  adding `go vet`, `go test ./...`, the console suite and `tsc`, the desktop
+  suite and typecheck, the inventory ratchet and the added-file lint guard.
+  Prefer it to a hand-typed sequence of the commands above, and rely on the
+  PR's CI checks for the jobs the default run leaves out.
 - `./scripts/mutants.py <manifest.json>` applies each mutant, requires its test
   to fail, restores the file and proves the restore byte for byte. Use it for
   red verification instead of hand-applying replacements.

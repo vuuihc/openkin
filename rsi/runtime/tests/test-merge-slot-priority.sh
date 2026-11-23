@@ -11,9 +11,12 @@
 #
 # Exercises merge.sh --slot-select-check: the same slot_claim() the dispatcher loop calls, over the
 # same TSV rows on stdin and the same live locks and .tier/.queued_at files. It exits before any
-# gh, git, lane or dispatch call and writes no lock or .tier. Hermetic: mktemp dirs, no network,
+# gh, git, lane or dispatch call and writes no lock or .tier. The cooldown cases drive the real
+# dispatcher through the RSI_PR_LIST_CMD / RSI_START_LOG seams (the shape test-merge-batch.sh
+# uses), and the yield case stays on --slot-select-check. Hermetic: mktemp dirs, no network,
 # no gh, no model. The PAUSE flag in the temp control tree keeps an unwired seam (the red run)
-# from falling through to the real dispatcher.
+# from falling through to the real dispatcher; the dispatcher cases deliberately omit it, because
+# PAUSE exits the dispatcher before it reads a row.
 # Prints "PASS <case>" per case and exits non-zero on the first failure.
 # Set RSI_TEST_ONLY=<case name> to run one case (used to show the red run per case).
 set -u
@@ -172,6 +175,153 @@ one_predicate_two_callers() {
   [ "$loop" -eq 1 ] || fail "one-predicate-two-callers: dispatcher calls slot_claim $loop times, want 1"
 }
 
+# ---------------------------------------------------------------------------------------------
+# UX cooldown (R-slot-cooldown): after a walk that could not run, merge.sh writes
+# state/merge/<slug>.uxcooldown = <expiry_epoch> <diff-hash> <reason>, and nothing used to read it,
+# so every dispatch cycle paid a verifier for a PR that could not merge. The dispatcher now rests
+# such a row — iff the cooldown is live AND names the diff the review cache holds — and says one
+# line naming when the PR returns. Everything else fails open: a missing .reviewed, an empty or
+# different DH, or a malformed line means "verify it", because one wasted slot costs less than a
+# stranded PR.
+#
+# These cases drive the REAL dispatcher through the same seams as test-merge-batch.sh
+# (RSI_CTRL copy, RSI_PR_LIST_CMD, RSI_START_LOG, RSI_PR_STATE_CMD), with no PAUSE file: PAUSE
+# exits the dispatcher before it reads a row. Case 5 uses the --slot-select-check seam instead,
+# because it is about the yield candidate set; case 6 runs the batch path with RSI_BATCH_VERIFY=1.
+# Hermetic: mktemp dirs, no network, no gh, no model, no lane.
+
+reset_dispatch() { # fresh control tree and state, and NO PAUSE
+  rm -rf "$CTRL"; mkdir -p "$CTRL/rsi"
+  cp -R "$RSI/runtime" "$CTRL/rsi/runtime"
+  mkdir -p "$S" "$CTRL/rsi/state/sendback"
+  : > "$T/start.log"
+}
+# pr_json <n> <slug> <title> <path> <additions> — one fixture PR carrying the fields the
+# dispatcher and batch formation read (headRefOid + statusCheckRollup included; batch needs them).
+pr_json() {
+  printf '{"number":%s,"headRefName":"rsi/%s","isDraft":false,"labels":[],"title":"%s","body":"RSI item: R-%s","headRefOid":"%s","statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}],"files":[{"path":"%s","additions":%s,"deletions":0}]}' \
+    "$1" "$2" "$3" "$2" "$(printf '%s' "$2" | shasum | cut -c1-40)" "$4" "$5"
+}
+one_pr_json() { printf '[\n'; pr_json "$@"; printf '\n]\n'; }   # gh pr list returns an array
+run_dispatch() { # [1 to enable batch formation]
+  RSI_CTRL="$CTRL" RSI_PR_LIST_CMD="cat $T/pr.json" RSI_START_LOG="$T/start.log" \
+    RSI_BATCH_VERIFY="${1:-0}" RSI_PR_STATE_CMD='echo OPEN' bash "$MERGE" > "$T/dispatch.out" 2>&1
+  RC=$?; OUT="$(cat "$T/dispatch.out")"
+}
+cooldown() { # <slug> <dh> <expiry-epoch> — the exact format merge.sh/ux-gate.sh write
+  printf '%s %s ux gate exceeded 900s\n' "$3" "$2" > "$S/$1.uxcooldown"
+}
+reviewed() { printf '%s PASS deadbeef reviewer\n' "$2" > "$S/$1.reviewed"; }
+started_pr() {
+  grep -qx "one $2 $3" "$T/start.log" || fail "$1: dispatcher did not start $3 ($(cat "$T/start.log"); $OUT)"
+}
+not_started_pr() {
+  grep -qx "one $2 $3" "$T/start.log" && fail "$1: dispatcher started $3 though it must rest ($(cat "$T/start.log"))"
+  return 0
+}
+# The dispatcher's own one-line reason, naming the slug, a return time and the rested diff.
+said_skip() {
+  grep -qE "^\[[0-9:]+\] #$2 $3: UX cooldown until [0-9]{2}:[0-9]{2} \(dh $4\), skip$" "$T/dispatch.out" \
+    || fail "$1: no one-line cooldown skip naming '$3', its return time and the diff ($OUT)"
+}
+not_said_skip() {
+  grep -q 'UX cooldown' "$T/dispatch.out" && fail "$1: a cooldown skip line appeared though the row must verify ($OUT)"
+  return 0
+}
+
+# Future expiry + the cooldown's DH equals .reviewed's DH: rest the row, say when it returns, and
+# do not let it accrue queue-wait minutes (that number feeds the slot yield).
+cooldown_skips_same_diff() {
+  reset_dispatch
+  one_pr_json 301 small-docs "docs: fix a typo" docs/notes.md 3 > "$T/pr.json"
+  reviewed small-docs aaaa1111
+  cooldown small-docs aaaa1111 "$(( $(date +%s) + 1800 ))"
+  run_dispatch
+  [ "$RC" -eq 0 ] || fail "cooldown-skips-same-diff: dispatcher rc=$RC ($OUT)"
+  not_started_pr cooldown-skips-same-diff 301 small-docs
+  said_skip cooldown-skips-same-diff 301 small-docs aaaa1111
+  [ -e "$S/small-docs.queued_at" ] && fail "cooldown-skips-same-diff: a rested PR accrued queue-wait time"
+  return 0
+}
+
+# The expiry passed: the cooldown is over, verify it again.
+cooldown_expired_requeues() {
+  reset_dispatch
+  one_pr_json 301 small-docs "docs: fix a typo" docs/notes.md 3 > "$T/pr.json"
+  reviewed small-docs aaaa1111
+  cooldown small-docs aaaa1111 "$(( $(date +%s) - 60 ))"
+  run_dispatch
+  started_pr cooldown-expired-requeues 301 small-docs
+  not_said_skip cooldown-expired-requeues
+}
+
+# The cooldown was written for an older diff: the PR changed, so the walk must be retried.
+cooldown_new_diff_requeues() {
+  reset_dispatch
+  one_pr_json 301 small-docs "docs: fix a typo" docs/notes.md 3 > "$T/pr.json"
+  reviewed small-docs aaaa1111
+  cooldown small-docs bbbb2222 "$(( $(date +%s) + 1800 ))"
+  run_dispatch
+  started_pr cooldown-new-diff-requeues 301 small-docs
+  not_said_skip cooldown-new-diff-requeues
+}
+
+# Fail-open control: a missing .reviewed cache (the cooldown cannot be tied to a diff), then a
+# malformed cooldown line, both mean "verify it". A missing cache must never strand a PR.
+cooldown_unknown_verifies() {
+  reset_dispatch
+  one_pr_json 301 small-docs "docs: fix a typo" docs/notes.md 3 > "$T/pr.json"
+  cooldown small-docs aaaa1111 "$(( $(date +%s) + 1800 ))"
+  run_dispatch
+  started_pr cooldown-unknown-verifies 301 small-docs
+  not_said_skip cooldown-unknown-verifies
+  reset_dispatch
+  one_pr_json 301 small-docs "docs: fix a typo" docs/notes.md 3 > "$T/pr.json"
+  reviewed small-docs aaaa1111
+  printf 'soon aaaa1111 ux gate exceeded 900s\n' > "$S/small-docs.uxcooldown"
+  run_dispatch
+  started_pr cooldown-unknown-verifies 301 small-docs
+  not_said_skip cooldown-unknown-verifies
+}
+
+# A cooled big is not a yield target: slot_big_rows must exclude it, or the small yields the last
+# general slot to a verifier the cooldown will not start and the reserved slot sits idle.
+cooldown_big_is_not_a_yield_target() {
+  reset; lock big-run large; lock small-run small; queued big-auth large 11; write_rows large
+  reviewed big-auth dddd4444
+  cooldown big-auth dddd4444 "$(( $(date +%s) + 1800 ))"
+  run_slots
+  started cooldown-big-is-not-a-yield-target small-docs
+  not_yielded cooldown-big-is-not-a-yield-target small-docs
+  not_started cooldown-big-is-not-a-yield-target big-auth
+}
+
+# With RSI_BATCH_VERIFY=1 the row loop is a second entry point: a cooled PR must not join the
+# batch (the batch runner would pay a union gate for it), while its ready neighbours still do.
+cooldown_skips_batch_member() {
+  reset_dispatch
+  {
+    printf '[\n'
+    pr_json 201 p-cool "docs: cooled docs" docs/cool.md 3; printf ',\n'
+    pr_json 202 p-two "feat: two" internal/two/b.go 450; printf ',\n'
+    pr_json 203 p-three "docs: three" docs/three.md 3
+    printf '\n]\n'
+  } > "$T/pr.json"
+  reviewed p-cool d1; reviewed p-two d2; reviewed p-three d3
+  cooldown p-cool d1 "$(( $(date +%s) + 1800 ))"
+  run_dispatch 1
+  local members
+  members="$(ls "$S"/batch-*.members 2>/dev/null | head -1)"
+  [ -n "$members" ] || fail "cooldown-skips-batch-member: no batch formed from the two ready PRs ($OUT)"
+  grep -q '^MEMBER [0-9]*	p-two	' "$members" || fail "cooldown-skips-batch-member: p-two is not a member ($(cat "$members"); $OUT)"
+  grep -q '^MEMBER [0-9]*	p-three	' "$members" || fail "cooldown-skips-batch-member: p-three is not a member ($(cat "$members"); $OUT)"
+  grep -q 'p-cool' "$members" && fail "cooldown-skips-batch-member: the cooled PR joined the batch ($(cat "$members"))"
+  grep -q '^batch .*p-cool' "$T/start.log" && fail "cooldown-skips-batch-member: a batch start names the cooled PR ($(cat "$T/start.log"))"
+  grep -qx 'one 201 p-cool' "$T/start.log" && fail "cooldown-skips-batch-member: the cooled PR got a single verifier ($(cat "$T/start.log"))"
+  said_skip cooldown-skips-batch-member 201 p-cool d1
+  return 0
+}
+
 run() { # <case name> <function>
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   "$2" || exit 1
@@ -187,4 +337,10 @@ run zero-disables-yield zero_disables_yield
 run absent-tier-counts-as-big absent_tier_counts_as_big
 run malformed-threshold-falls-back malformed_threshold_falls_back
 run one-predicate-two-callers one_predicate_two_callers
+run cooldown-skips-same-diff cooldown_skips_same_diff
+run cooldown-expired-requeues cooldown_expired_requeues
+run cooldown-new-diff-requeues cooldown_new_diff_requeues
+run cooldown-unknown-verifies cooldown_unknown_verifies
+run cooldown-big-is-not-a-yield-target cooldown_big_is_not_a_yield_target
+run cooldown-skips-batch-member cooldown_skips_batch_member
 echo ALL-PASS
