@@ -206,6 +206,33 @@ claim_check_gate() { # <pr-number> <slug> <item> <worktree> <body-file> <changed
   esac
   return 0
 }
+# The gap-log close guard (R-gap-log-close-guard): a PR whose diff touches a repo-relative path an
+# `## Open` entry in docs/plans/gap-log.md cites must move that entry to `## 已修` in the same PR,
+# or state one sentence saying the citation is unrelated. Three fix PRs in two days left their own
+# entry under `## Open` and each cost a second docs-only PR (#611, #615, #632), so the refusal is
+# mechanical: runtime/gap_log_check.py owns the rule and this runs before the reviewer is paid for.
+# A waiver is recorded as gap_log=waived in cycles.log, exactly like claim_check=waived.
+gap_log_gate() { # <pr-number> <slug> <item> <worktree> <body-file> <changed-files-file> -> 0 pass/NA/waived, 1 sent back
+  local n="$1" slug="$2" item="$3" wt="$4" bodyf="$5" pathsf="$6" out rc det
+  out="$(python3 "$RSI_DIR/runtime/gap_log_check.py" "$wt" "$bodyf" "$pathsf" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    det="$STATE/merge/$slug.gap-log.txt"
+    printf '%s\n' "$out" > "$det"
+    # Provenance per write_sendback's contract: source=mech-gap-log, spec="-", cmd=the command
+    # the worker must run (so the rework lane can reproduce the check without opening this script).
+    sendback_mech "$slug" "$item" "gap-log close" "$det" "mech-gap-log" - \
+      "python3 rsi/runtime/gap_log_check.py <worktree> <body-file> <changed-files-file>"
+    say "#$n $slug: gap-log close failed — sent back before the reviewer"
+    return 1
+  fi
+  case "${out%%$'\n'*}" in
+    GAP_LOG_WAIVED:*)
+      echo "$(date '+%F %H:%M') #$n $slug gap_log=waived" >> "$STATE/merge/cycles.log"
+      say "#$n $slug: gap-log close waived ($(printf '%s\n' "$out" | head -1))" ;;
+    *) say "#$n $slug: gap-log close ok" ;;
+  esac
+  return 0
+}
 
 # ------------------------------------------------- generated files (pure functions of the tree)
 # A merge of origin/main can conflict in files nobody wrote by hand: the embedded console entry,
@@ -1753,6 +1780,20 @@ if [ "${1:-}" != "--one" ]; then
     [ $# -ge 7 ] || { echo "usage: merge.sh --claim-gate-check <pr-number> <slug> <item> <worktree> <body-file> <changed-files-file>" >&2; exit 2; }
     claim_check_gate "$2" "$3" "$4" "$5" "$6" "$7"; exit $?
   fi
+  # Hermetic seam for rsi/runtime/tests/test-gap-log-guard.sh: the gap-log close rule on a
+  # throwaway worktree and two files on disk, the same script the verifier runs. No state, lock,
+  # gh or model; the exit code is the check's own (0 pass/not-applicable/waived, 1 failed).
+  if [ "${1:-}" = "--gap-log-check" ]; then
+    [ $# -ge 4 ] || { echo "usage: merge.sh --gap-log-check <worktree> <body-file> <changed-files-file>" >&2; exit 2; }
+    python3 "$RSI_DIR/runtime/gap_log_check.py" "$2" "$3" "$4"; exit $?
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-gap-log-guard.sh: the same gap_log_gate() the
+  # verifier calls, sendback included, against a temp control tree whose PR state stub says OPEN.
+  # No lock, fetch, gate, review or dispatch.
+  if [ "${1:-}" = "--gap-log-gate-check" ]; then
+    [ $# -ge 7 ] || { echo "usage: merge.sh --gap-log-gate-check <pr-number> <slug> <item> <worktree> <body-file> <changed-files-file>" >&2; exit 2; }
+    gap_log_gate "$2" "$3" "$4" "$5" "$6" "$7"; exit $?
+  fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the queue-time carry step 1 applies
   # after sync_main, with lists of paths on disk. No locks, fetch, gate, review, merge or dispatch.
   if [ "${1:-}" = "--queue-carry-check" ]; then
@@ -2302,6 +2343,12 @@ if [ $NEED_REV -eq 1 ]; then
     CLAIM_BODY="$STATE/merge/$SLUG.body"; CLAIM_PATHS="$STATE/merge/$SLUG.changed"
     printf '%s\n' "$BODY" > "$CLAIM_BODY"; printf '%s\n' "$CH" > "$CLAIM_PATHS"
     claim_check_gate "$N" "$SLUG" "$ITEM" "$WT" "$CLAIM_BODY" "$CLAIM_PATHS"; CLAIM_RC=$?
+    if [ $CLAIM_RC -eq 0 ]; then
+      # The gap-log close guard (R-gap-log-close-guard), the same rule shape as the claim check:
+      # a PR that touches a path an ## Open gap-log entry cites closes the entry in this same PR
+      # or waives the citation in one sentence, before the reviewer is paid for.
+      gap_log_gate "$N" "$SLUG" "$ITEM" "$WT" "$CLAIM_BODY" "$CLAIM_PATHS"; CLAIM_RC=$?
+    fi
     rm -f "$CLAIM_BODY" "$CLAIM_PATHS"
     [ $CLAIM_RC -ne 0 ] && exit 0
   else

@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the resolver ignores the task a banner names",
+    "file": "desktop/src/native-notifications.ts",
+    "test": "cd desktop && node --test src/notifications.test.ts src/notify-open.seam.test.ts",
+    "old": "  if (ev.task_id && TASK_ID.test(ev.task_id)) return `/tasks/${ev.task_id}`;",
+    "new": ""
+  },
+  {
+    "label": "the resolver overrides a link the node did write",
+    "file": "desktop/src/native-notifications.ts",
+    "test": "cd desktop && node --test src/notifications.test.ts",
+    "old": "  const path = knownNotifyPath(ev.url, origin);\n  if (path !== null) return path;",
+    "new": "  const path = knownNotifyPath(ev.url, origin);\n  if (ev.task_id && TASK_ID.test(ev.task_id)) return `/tasks/${ev.task_id}`;\n  if (path !== null) return path;"
+  },
+  {
+    "label": "the resolver trusts any task id",
+    "file": "desktop/src/native-notifications.ts",
+    "test": "cd desktop && node --test src/notifications.test.ts",
+    "old": "  if (ev.task_id && TASK_ID.test(ev.task_id)) return `/tasks/${ev.task_id}`;",
+    "new": "  if (ev.task_id) return `/tasks/${ev.task_id}`;"
+  },
+  {
+    "label": "the shell log drops the path it opened",
+    "file": "desktop/src/notifications.ts",
+    "test": "cd desktop && node --test src/notifications.test.ts",
+    "old": "      `[kin-desktop] notification: ${ev.kind} ${ev.id} — ${ev.title} path=${path}`,",
+    "new": "      `[kin-desktop] notification: ${ev.kind} ${ev.id} — ${ev.title}`,"
+  }
+]

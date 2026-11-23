@@ -260,6 +260,9 @@ job_shell_test() {
   bash rsi/runtime/tests/test-utf8-truncation.sh || return 1
   bash rsi/runtime/tests/test-fill-claim-check.sh || return 1
   bash rsi/runtime/tests/test-claim-check.sh || return 1
+  # A fix PR must move its own gap-log entry to ## 已修 in the same PR, and the merge gate
+  # refuses it otherwise (R-gap-log-close-guard; #611/#615/#632 each paid a docs-only PR).
+  bash rsi/runtime/tests/test-gap-log-guard.sh || return 1
   # A claimed test must go red when its file is reverted to origin/main (red-first lane seam).
   bash rsi/runtime/tests/test-red-first.sh || return 1
   bash rsi/runtime/tests/test-reviewer-misses.sh || return 1

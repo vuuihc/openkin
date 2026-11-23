@@ -127,6 +127,7 @@ import {
   type SessionStatusFilter,
 } from "../ui/SessionFilters";
 import { useAppStore } from "../../store/appStore";
+import ProjectRootsEditor from "./ProjectRootsEditor";
 import ProjectSummaryEditor from "./ProjectSummaryEditor";
 import SessionRow from "./SessionRow";
 import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
@@ -317,14 +318,15 @@ export default function SessionList({
     bucket: PhoneProjectBucket;
     archived: boolean;
     /** The local project record behind the bucket, when it has one. */
-    summaryProjectId: string | null;
+    recordProjectId: string | null;
   } | null>(null);
-  // The one-line summary editor is the cover's editor, moved to the row. It
-  // opens over the list, so the list has to own which project it is for.
+  // The cover's two editors, moved to the row. They open over the list, so
+  // the list has to own which project each one is for.
   const [summaryProjectId, setSummaryProjectId] = useState<string | null>(null);
   // An imported agent session opens over the list. The row's own snapshot
   // heads the sheet before its read lands, so the tapped row is the state.
   const [agentSheet, setAgentSheet] = useState<AgentSession | null>(null);
+  const [rootsProjectId, setRootsProjectId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -953,7 +955,7 @@ export default function SessionList({
           setProjectMenu({
             bucket,
             archived: scope === "archived",
-            summaryProjectId: instructionsProject?.id ?? null,
+            recordProjectId: instructionsProject?.id ?? null,
           })
         }
         onEditSummary={
@@ -1654,14 +1656,19 @@ export default function SessionList({
                 label: tr("nav.newSessionIn", { project: projectMenu.bucket.label }),
                 onSelect: () => newSessionIn(projectMenu.bucket),
               },
-              // The cover's summary editor, moved to the row. Only this
-              // machine's project record has a One-Pager to write.
-              ...(projectMenu.summaryProjectId
+              // The cover's summary and folder editors, moved to the row. Only
+              // this machine's project record owns either one.
+              ...(projectMenu.recordProjectId
                 ? [
                     {
                       id: "edit-summary",
                       label: tr("nav.editSummary"),
-                      onSelect: () => setSummaryProjectId(projectMenu.summaryProjectId),
+                      onSelect: () => setSummaryProjectId(projectMenu.recordProjectId),
+                    },
+                    {
+                      id: "edit-roots",
+                      label: tr("projects.rootsEdit"),
+                      onSelect: () => setRootsProjectId(projectMenu.recordProjectId),
                     },
                   ]
                 : []),
@@ -1751,6 +1758,22 @@ export default function SessionList({
     />
   );
 
+  const rootsEditor = (
+    <ProjectRootsEditor
+      open={rootsProjectId !== null}
+      project={projects.find((project) => project.id === rootsProjectId) ?? null}
+      offline={offline}
+      machines={machines}
+      machinesLoading={machinesLoading}
+      onProjectChange={(updated) =>
+        setProjects((current) =>
+          current.map((project) => (project.id === updated.id ? updated : project)),
+        )
+      }
+      onClose={() => setRootsProjectId(null)}
+    />
+  );
+
   if (shell === "sidebar") {
     return (
       <>
@@ -1759,6 +1782,7 @@ export default function SessionList({
         {projectSheet}
         {summaryEditor}
         {agentSessionSheet}
+        {rootsEditor}
       </>
     );
   }
@@ -1782,6 +1806,7 @@ export default function SessionList({
       {projectSheet}
       {summaryEditor}
       {agentSessionSheet}
+      {rootsEditor}
     </MobileScreen>
   );
 }
