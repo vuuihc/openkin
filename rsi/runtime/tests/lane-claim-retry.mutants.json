@@ -26,5 +26,12 @@
     "test": "RSI_TEST_ONLY=claim-check-retry-still-failing-stays-failed bash rsi/runtime/tests/test-lane-claim-check.sh",
     "old": "  if [ \"$CLAIM_RETRY_OK\" -eq 0 ]; then",
     "new": "  if [ \"$CLAIM_RETRY_OK\" -eq 2 ]; then"
+  },
+  {
+    "label": "the worker contract drops the format-before-body step, so the lane's format commit can stale the line numbers the body claims",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=worker-contract-names-the-seam bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "- Run \\`bash rsi/runtime/format-changed.sh --write --commit\\` as the last step before writing the hand-off body",
+    "new": "- Write the hand-off body as the last step (the format step moved into the lane)"
   }
 ]

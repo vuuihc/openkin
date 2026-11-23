@@ -234,6 +234,8 @@ case_worker_contract_names_the_seam() {
     || fail "contract: the worker contract does not name the OK verdict"
   grep -qF '.pr-body.md' <<<"$out" \
     || fail "contract: the worker contract does not name the body file"
+  grep -qF 'format-changed.sh --write --commit' <<<"$out" \
+    || fail "contract: the worker contract does not tell the worker to format before writing the body"
 }
 
 # The lane must run the seam itself under a guard that fails the lane, after the mutant-evidence
@@ -419,12 +421,14 @@ case_claim_fail_evidence_wiring() {
     || fail "wiring: the evidence write (line $claim) does not precede finish failed (line $fin)"
 }
 
-# R-claim-seam-retry: 2026-11-23 12:37, lane 1 recorded `failed` with CLAIM_LANE_FAIL (claimed
-# 240/256/277 vs real 235/251/272) while the body it left already printed CLAIM_LANE_OK by hand.
-# A worker's final write landed after the seam's single read, so the round's own record was older
-# than its artifact and the fill would have dispatched the same 21-minute rework again. The lane
-# re-reads the hand-off body once, after a short bounded pause, and decides from the verdict that
-# matches the bytes it is about to hand off. A genuine failure still fails.
+# R-claim-seam-retry: 2026-11-23, lane 1 recorded `failed` with CLAIM_LANE_FAIL (claimed
+# 240/256/277 vs real 235/251/272). The body was written at 12:21:48 and the worker exited at
+# 12:23:32; the lane's own format commit 786e847d (12:23:35) then rewrote AgentSessionSheet.tsx
+# by net -5 lines, moving exactly those claims, so the body was stale before the seam read it at
+# 12:23:36 and a re-read of the same tree could not help. The real fix is the worker contract's
+# format-before-body step; the retry below is a general guard for a body rewritten between the
+# seam's read and the record, proven here with a write after the first read. A genuine failure
+# still fails.
 case_claim_check_retry_body_fixed_mid_handoff() {
   new_repo retryfixed
   change docs/plans/gap-log.md '- a sentence the claim can prove'
