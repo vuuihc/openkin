@@ -35,10 +35,11 @@ if (!HTMLDialogElement.prototype.close) {
  *
  * The cover page is being retired, and its two editors have to live where a
  * person already chooses a project: the conversation list's project row. This
- * is the folder half — one row in the coarse `⋯` sheet, one folder button in
- * the fine-pointer hover cluster — and it writes the whole ordered `roots`
- * list through the same route and the same failure contract as the cover's
- * block, never the cover page and never a partial merge.
+ * is the folder half on the coarse row — one row in the `⋯` sheet — and it
+ * writes the whole ordered `roots` list through the same route and the same
+ * failure contract as the cover's block, never the cover page and never a
+ * partial merge. The Mac's hover-cluster trigger and its dialog face are the
+ * next slice.
  *
  * The eligibility rule is the row's own local-record rule: only this machine's
  * project record owns the folder list here, so a folder with no record offers
@@ -180,12 +181,6 @@ async function openFromCoarseMenu(): Promise<HTMLElement> {
   return await screen.findByRole("dialog", { name: "Working folders" });
 }
 
-async function openFromFineRow(): Promise<HTMLElement> {
-  await userEvent.hover(await screen.findByRole("button", { name: "alpha" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Edit folders" }));
-  return await screen.findByRole("dialog", { name: "Working folders" });
-}
-
 /** Pick a folder through the machine + cwd pickers, as the cover's block does. */
 async function addFolder(dialog: HTMLElement, path: string): Promise<void> {
   await userEvent.click(within(dialog).getByRole("button", { name: /Add folder/ }));
@@ -224,7 +219,7 @@ beforeEach(() => {
     },
   ];
   fixtures.sessions = [];
-  pointer("fine");
+  pointer("coarse");
 });
 
 describe("the project row's working-folders editor", () => {
@@ -333,50 +328,20 @@ describe("the project row's working-folders editor", () => {
   it("a bucket with no local project record offers no working-folders entry", async () => {
     fixtures.projects = [];
     pointer("coarse");
-    const coarseList = list();
+    list();
 
     await userEvent.click(await screen.findByRole("button", { name: "Project actions" }));
     // The sheet opened — it still offers the actions that work without a
     // record — and it has no folder row.
     expect(await screen.findByRole("button", { name: "New conversation in alpha" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit folders" })).toBeNull();
-    coarseList.unmount();
-
-    localStorage.clear();
-    collapseProject(ALPHA);
-    pointer("fine");
-    list();
-    await screen.findByRole("button", { name: "alpha" });
-    // The fine cluster is CSS-revealed, so its absence here is a decision in
-    // the tree, not a hover state.
-    expect(screen.queryByRole("button", { name: "Edit folders" })).toBeNull();
-  });
-
-  it("the editor is the same on a fine pointer and returns focus", async () => {
-    list();
-
-    await userEvent.hover(await screen.findByRole("button", { name: "alpha" }));
-    const trigger = await screen.findByRole("button", { name: "Edit folders" });
-    await userEvent.click(trigger);
-
-    const dialog = await screen.findByRole("dialog", { name: "Working folders" });
-    const rows = folderRows(dialog);
-    expect(rows[0]!.textContent).toContain(ALPHA);
-    expect(within(rows[0]!).getByText("Default")).toBeTruthy();
-
-    await userEvent.keyboard("{Escape}");
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Working folders" })).toBeNull(),
-    );
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
-    expect(locationText()).toBe("/sessions");
   });
 
   it("closing with unsaved folders asks before discarding", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     list();
 
-    const dialog = await openFromFineRow();
+    const dialog = await openFromCoarseMenu();
     await userEvent.click(within(dialog).getByRole("button", { name: "Make default" }));
 
     await userEvent.keyboard("{Escape}");
