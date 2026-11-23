@@ -323,6 +323,45 @@ export default function AgentSessionSheet({
     <p className="text-caption text-kin-muted">{tr("agentSession.continueUnavailable")}</p>
   ) : undefined;
 
+  // The agent and its status stay in the sheet's fixed header: the transcript
+  // scrolls under them, so the × never leaves the screen.
+  const agentRow = (
+    <div className="flex items-start gap-2">
+      <span
+        className={[
+          "mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-lg text-caption font-semibold",
+          avatar.className,
+        ].join(" ")}
+        role="img"
+        aria-label={avatar.label}
+      >
+        {avatar.initials}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-body font-medium text-kin-text">{agentName}</p>
+        <p className="mt-0.5 truncate text-caption text-kin-muted">
+          {view.status} ·{" "}
+          {view.linked
+            ? tr("agentSession.connected")
+            : canContinue
+              ? tr("agentSession.available")
+              : tr("agentSession.readOnly")}
+        </p>
+      </div>
+      {/* A sheet's scrim closes it, but a reader on a tablet should not have
+          to know that: the same control every other panel carries. The floor
+          follows the pointer, not the width (AGENTS 16). */}
+      <Button
+        variant="quiet"
+        onClick={onClose}
+        aria-label={tr("common.close")}
+        className={`${coarse ? "h-11 w-11" : "h-7 w-7"} flex-none p-0`}
+      >
+        <IconX size={16} className="text-kin-muted" />
+      </Button>
+    </div>
+  );
+
   return (
     <Sheet
       open={open}
@@ -331,44 +370,10 @@ export default function AgentSessionSheet({
       title={title}
       anyWidth
       grip={coarse}
+      header={agentRow}
       bodyClassName="pb-2"
       footer={footer}
     >
-      <div className="flex items-start gap-2 pb-2">
-        <span
-          className={[
-            "mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-lg text-caption font-semibold",
-            avatar.className,
-          ].join(" ")}
-          role="img"
-          aria-label={avatar.label}
-        >
-          {avatar.initials}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-body font-medium text-kin-text">{agentName}</p>
-          <p className="mt-0.5 truncate text-caption text-kin-muted">
-            {view.status} ·{" "}
-            {view.linked
-              ? tr("agentSession.connected")
-              : canContinue
-                ? tr("agentSession.available")
-                : tr("agentSession.readOnly")}
-          </p>
-        </div>
-        {/* A sheet's scrim closes it, but a reader on a tablet should not have
-            to know that: the same control every other panel carries. The floor
-            follows the pointer, not the width (AGENTS 16). */}
-        <Button
-          variant="quiet"
-          onClick={onClose}
-          aria-label={tr("common.close")}
-          className={`${coarse ? "h-11 w-11" : "h-7 w-7"} flex-none p-0`}
-        >
-          <IconX size={16} className="text-kin-muted" />
-        </Button>
-      </div>
-
       {historyError ? (
         <InlineAlert className="mb-2">
           <div className="flex flex-wrap items-center gap-2">

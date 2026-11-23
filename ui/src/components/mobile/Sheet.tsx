@@ -45,6 +45,12 @@ export type SheetProps = {
   /** Accessible name and the visible heading. Omit for a body-only sheet. */
   title?: string;
   subtitle?: ReactNode;
+  /**
+   * A fixed row under the title, above the scroll body. Content that names the
+   * surface (an agent, its status, its own close control) belongs here: the
+   * body scrolls beneath it, so those controls never leave the screen.
+   */
+  header?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   /** Extra classes on the panel (a wider max-height, a test hook). */
@@ -146,6 +152,7 @@ export default function Sheet({
   onClose,
   title,
   subtitle,
+  header,
   children,
   footer,
   className = "",
@@ -572,6 +579,11 @@ export default function Sheet({
             </div>
           ) : null}
         </div>
+        {header ? (
+          <div data-sheet-header="" className="flex-none px-4 pb-2">
+            {header}
+          </div>
+        ) : null}
         <div
           ref={bodyRef}
           data-sheet-body=""

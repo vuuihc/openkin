@@ -24,7 +24,14 @@
     "label": "a disconnected sheet still sends",
     "file": "ui/src/components/sessions/AgentSessionSheet.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/AgentSessionSheet.dom.test.tsx",
-    "old": "        blockSend={offline}",
-    "new": "        blockSend={false}"
+    "old": "      blockSend={offline}",
+    "new": "      blockSend={false}"
+  },
+  {
+    "label": "the agent header scrolls inside the transcript again",
+    "file": "ui/src/components/mobile/Sheet.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/AgentSessionSheet.dom.test.tsx -t \"keeps the agent header and close out of the scrolling transcript\"",
+    "old": "        {header ? (\n          <div data-sheet-header=\"\" className=\"flex-none px-4 pb-2\">\n            {header}\n          </div>\n        ) : null}\n        <div\n          ref={bodyRef}\n          data-sheet-body=\"\"\n          className={[\"min-h-0 flex-1 overflow-y-auto kin-scroll px-4 pb-1\", bodyClassName].join(\n            \" \",\n          )}\n        >\n          {children}",
+    "new": "        <div\n          ref={bodyRef}\n          data-sheet-body=\"\"\n          className={[\"min-h-0 flex-1 overflow-y-auto kin-scroll px-4 pb-1\", bodyClassName].join(\n            \" \",\n          )}\n        >\n          {header}\n          {children}"
   }
 ]

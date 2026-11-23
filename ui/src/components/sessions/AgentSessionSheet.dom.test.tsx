@@ -271,6 +271,30 @@ describe("AgentSessionSheet", () => {
     expect(screen.getAllByText("Claude Code")).toHaveLength(1);
   });
 
+  it("keeps the agent header and close out of the scrolling transcript", async () => {
+    // The transcript is the sheet's scroll body. The agent row and its × are
+    // the surface's fixed header, so a long answer scrolls under them instead
+    // of carrying the only close control off the screen.
+    vi.mocked(getAgentSessionHistory).mockResolvedValue({
+      items: [item("u1", "user", "question 1"), item("a1", "assistant", "answer 1")],
+      prev_cursor: "",
+    });
+
+    renderSheet();
+
+    const dialog = await screen.findByRole("dialog", { name: /a long session/ });
+    const header = dialog.querySelector("[data-sheet-header]");
+    const body = dialog.querySelector("[data-sheet-body]");
+    const close = screen.getByRole("button", { name: "Close" });
+    expect(header).not.toBeNull();
+    expect(body).not.toBeNull();
+    expect(header?.contains(close)).toBe(true);
+    expect(body?.contains(close)).toBe(false);
+    // The status names the surface beside the agent, not inside the transcript.
+    expect(header?.textContent).toContain("native resume available");
+    expect(body?.textContent).not.toContain("native resume available");
+  });
+
   it("reads no agent roles while the sheet is closed", async () => {
     // The sheet stays mounted between opens so a reopen keeps the turns it
     // already read. The role read belongs to the open surface: a closed sheet
