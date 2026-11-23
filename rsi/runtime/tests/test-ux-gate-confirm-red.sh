@@ -282,12 +282,15 @@ test_confirm_unreadable_json_fails_closed() {
   [ "$(walks)" = 2 ] || fail "confirm-unreadable: $(walks) walks, want exactly 2"
 }
 
-# A flaky first sample must not hide a real second failure: the confirm walk's own new line
-# is billed, and the first-walk line is recorded as flaked.
+# A flaky first sample must not hide a real second failure: a line only the confirm walk
+# produced is a variant, and a second confirm sample that reproduces it bills it (R-ux-confirm-
+# variant; the one-sample half is pinned by test-ux-gate-confirm-variant.sh case 1). The
+# first-walk line that did not come back is recorded as flaked.
 test_confirm_new_failure_is_kept() {
   new_case confirm_new
   fixture 1 '{"hardFail":["J9/mac: A"],"screens":[]}'
   fixture 2 '{"hardFail":["J9/mac: B"],"screens":[]}'
+  fixture 3 '{"hardFail":["J9/mac: B"],"screens":[]}'
   run_gate
   [ "$RC" -eq 1 ] || fail "confirm-new: exit $RC, want 1"
   hard_section | grep -Fqx 'J9/mac: B' || fail "confirm-new: the new confirm failure is not billed: $(hard_section | tr '\n' ' ')"
@@ -505,12 +508,14 @@ UX_VERDICT: FAIL"
   grep -Fq 'density: seed-1-1.png' "$BODY" || fail "flaked-only-grounded: the confirm evidence line is not billed"
 }
 
-# A confirm-only run can still carry a NEW hard failure from the confirm walk: the first
-# red flaked, but the tree has a real second defect. A below-3 finding that quotes that
-# failure in plain text is grounded — the gate must send the PR back (exit 1), not call
-# the finding ungrounded, re-ask and exit 2. The fixture is the indented shape the walker
-# actually writes (JSON.stringify(..., null, 1)), because the compact stub JSON this suite
-# otherwise uses is exactly what hid the quoted-source-line bug.
+# A confirm walk can still carry a NEW hard failure: the first red flaked, but the tree has a
+# real second defect. A below-3 finding that quotes that failure in plain text is grounded —
+# the gate must send the PR back (exit 1), not call the finding ungrounded, re-ask and exit 2.
+# The fixture is the indented shape the walker actually writes (JSON.stringify(..., null, 1)),
+# because the compact stub JSON this suite otherwise uses is exactly what hid the quoted-
+# source-line bug. Since R-ux-confirm-variant the line is a variant and convicts only when the
+# second sample reproduces it (fixture 3); a conviction then keeps the run out of the
+# confirm-only state, which is the invariant §1c now enforces.
 test_confirm_only_new_hard_failure_is_grounded() {
   new_case confirm_only_new_hard
   fixture 1 '{"hardFail":["J9/mac: A"],"screens":[]}'
@@ -520,6 +525,7 @@ test_confirm_only_new_hard_failure_is_grounded() {
  ],
  "screens": []
 }'
+  fixture 3 '{"hardFail":["J2/mac: the wait box never appears after send"],"screens":[]}'
   rev_fixture 1 "density: J2/mac: the wait box never appears after send — the pending wait box is missing at 390.
 UX_SCORES: clarity=4 density=2 consistency=4 feedback=4 keyboard=4
 UX_VERDICT: FAIL"
@@ -528,7 +534,9 @@ UX_VERDICT: FAIL"
   [ "$(reviews)" = 1 ] || fail "confirm-only-new-hard: $(reviews) reviews, want 1 (no re-ask)"
   [ ! -e "$UXD/unavailable.txt" ] || fail "confirm-only-new-hard: a grounded confirm finding was recorded as unavailable"
   hard_section | grep -Fqx 'J2/mac: the wait box never appears after send' || fail "confirm-only-new-hard: the new confirm failure is not billed"
-  prompt_has 1 "are not evidence about this PR" || fail "confirm-only-new-hard: the run was not in the confirm-only state"
+  if prompt_has 1 "are not evidence about this PR"; then
+    fail "confirm-only-new-hard: a run with a conviction was put in the confirm-only state"
+  fi
 }
 
 # 2026-11-22: #574's strong UX review scored consistency=2 because the 例行运行 clear chip's

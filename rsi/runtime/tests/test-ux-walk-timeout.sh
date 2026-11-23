@@ -6,7 +6,7 @@
 # ux-walk.sh -> heavy.sh -> node was unbounded at every step, so from outside the
 # lane nobody could tell slow from dead. The bound is now RSI_WALK_MAX_S (default
 # 2700s) around the walker, with an outer RSI_UX_GATE_MAX_S in merge.sh (derived
-# default 12900s: two walks at slot wait + walker, two vision dispatches and the
+# default 17400s: three walks at slot wait + walker, two vision dispatches and the
 # pre-walk build) that maps exit 124 to "unavailable + cooldown, no sendback, not merged".
 #
 # This suite drives the build-free --timeout-probe seam in ux-walk.sh: no UI
@@ -32,7 +32,7 @@
 #      walker's bound only after the slot is held; an expired slot wait is its
 #      own message, never "walker exceeded"; RSI_NO_HEAVY still fails closed
 #      before any slot or walk; and a fast non-zero walker exit keeps its status.
-#   14. merge.sh's outer gate backstop encloses that composition: two walks at
+#   14. merge.sh's outer gate backstop encloses that composition: three walks at
 #      slot wait + walker ceiling, two vision dispatches and the pre-walk build,
 #      so a busy machine cannot make the outer bound fire before either inner one.
 #   15. the default walk ceiling encloses the measured walk and both scripts use
@@ -326,13 +326,14 @@ pass "slot wait: a fast non-zero walker exit keeps its own status"
 
 # 14. the outer backstop must enclose the composition it wraps. Since the walk's
 #     slot wait became its own bound, each walk's worst case is RSI_HEAVY_WAIT_MAX
-#     + RSI_WALK_MAX_S; ux-gate can walk twice (first + confirm) and dispatch the
-#     vision review twice (ask + grounding re-ask, DISPATCH_MAX_SECS each). The
+#     + RSI_WALK_MAX_S; ux-gate can walk three times (first + confirm + a
+#     one-sample variant's second sample) and dispatch the vision review twice
+#     (ask + grounding re-ask, DISPATCH_MAX_SECS each). The
 #     stale 5400s default was below that, so on a busy machine the outer bound
 #     fired first: a green gate became unavailable + cooldown, and a red whose
 #     confirm was still queueing became a preserved-red sendback — the false red
 #     this suite exists to remove. Read the live expression, do not restate it.
-CASE14="outer bound: the gate default encloses two slot waits, two walkers and two vision dispatches"
+CASE14="outer bound: the gate default encloses three slot waits, three walkers and two vision dispatches"
 DEF_EXPR="$(sed -n 's/^.*GATE_DEFAULT=\$((\(.*\)))$/\1/p' "$MERGE" | head -1)"
 [ -n "$DEF_EXPR" ] \
   || fail "$CASE14: merge.sh does not derive the gate default from the walk's slot wait and walker ceiling"
@@ -340,9 +341,9 @@ DEF_1800="$(HEAVY_WAIT_MAX=1800 WALK_MAX_S=1800; printf '%s\n' "$(( $DEF_EXPR ))
 DISPATCH_S="$(sed -n 's/.*DISPATCH_MAX_SECS=\([0-9][0-9]*\).*/\1/p' "$REPO/rsi/runtime/ux-gate.sh" | head -1)"
 [ -n "$DISPATCH_S" ] \
   || fail "$CASE14: cannot read ux-gate's DISPATCH_MAX_SECS"
-NEED=$(( 2 * (1800 + 1800) + 2 * DISPATCH_S ))
+NEED=$(( 3 * (1800 + 1800) + 2 * DISPATCH_S ))
 [ "$DEF_1800" -ge "$NEED" ] \
-  || fail "$CASE14: default ${DEF_1800}s does not enclose two walks at 1800s slot + 1800s walker plus two ${DISPATCH_S}s dispatches (want >= ${NEED}s)"
+  || fail "$CASE14: default ${DEF_1800}s does not enclose three walks at 1800s slot + 1800s walker plus two ${DISPATCH_S}s dispatches (want >= ${NEED}s)"
 DEF_3600="$(HEAVY_WAIT_MAX=1800 WALK_MAX_S=3600; printf '%s\n' "$(( $DEF_EXPR ))")"
 [ "$DEF_3600" -gt "$DEF_1800" ] \
   || fail "$CASE14: a raised RSI_WALK_MAX_S does not raise the default (still ${DEF_3600}s)"
@@ -365,9 +366,9 @@ M_DEF="$(sed -n 's/.*WALK_MAX_S="${RSI_WALK_MAX_S:-\([0-9][0-9]*\)}".*/\1/p' "$M
 [ "$W_DEF" = "$M_DEF" ] || fail "$CASE15: walk default ${W_DEF}s != merge default ${M_DEF}s"
 [ "$W_DEF" -ge 2700 ] || fail "$CASE15: default ${W_DEF}s does not enclose the measured 29.5-minute walk (want >= 2700)"
 DEF_DEFAULT="$(HEAVY_WAIT_MAX=1800 WALK_MAX_S="$W_DEF"; printf '%s\n' "$(( $DEF_EXPR ))")"
-NEED_DEFAULT=$(( 2 * (1800 + W_DEF) + 2 * DISPATCH_S ))
+NEED_DEFAULT=$(( 3 * (1800 + W_DEF) + 2 * DISPATCH_S ))
 [ "$DEF_DEFAULT" -ge "$NEED_DEFAULT" ] \
-  || fail "$CASE15: gate default ${DEF_DEFAULT}s does not enclose two ${W_DEF}s walks plus two ${DISPATCH_S}s dispatches (want >= ${NEED_DEFAULT}s)"
+  || fail "$CASE15: gate default ${DEF_DEFAULT}s does not enclose three ${W_DEF}s walks plus two ${DISPATCH_S}s dispatches (want >= ${NEED_DEFAULT}s)"
 pass "$CASE15"
 
 # 16. A wedged walk must leave the step it died on. The walker used to hold every
