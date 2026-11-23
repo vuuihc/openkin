@@ -762,6 +762,7 @@ const zh = {
     continueTitle: "使用 {agent} 继续",
     continueDescription: "直接调用本机 {agent}，保留原会话上下文；不需要绑定云端 Provider。",
     continueUnavailable: "这个源会话没有记录工作目录，当前只能查看历史，无法从原 Agent 继续。",
+    continueOffline: "当前离线，显示上次读取的内容；连接恢复前无法发送。",
     continuePrompt: "发送给 {agent} 的下一条消息",
     continuePlaceholder: "给 {agent} 发送下一条消息…",
     continue: "直接发送并继续",

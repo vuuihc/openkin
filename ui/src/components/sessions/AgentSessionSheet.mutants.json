@@ -1,0 +1,30 @@
+[
+  {
+    "label": "an imported row leaves the list for the old page again",
+    "file": "ui/src/components/sessions/SessionList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.agentSheet.dom.test.tsx",
+    "old": "        setAgentSheet(row.session!);\n        return;",
+    "new": "        setAgentSheet(null);\n        return;"
+  },
+  {
+    "label": "the composer attaches without the typed prompt",
+    "file": "ui/src/components/sessions/AgentSessionSheet.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/AgentSessionSheet.dom.test.tsx",
+    "old": "      const result = await attachAgentSession(view.id, { prompt });",
+    "new": "      const result = await attachAgentSession(view.id, { prompt: \"\" });"
+  },
+  {
+    "label": "the sheet reads every turn instead of the newest three",
+    "file": "ui/src/components/sessions/AgentSessionSheet.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/AgentSessionSheet.dom.test.tsx",
+    "old": "const HISTORY_INITIAL_TURNS = 3;",
+    "new": "const HISTORY_INITIAL_TURNS = 50;"
+  },
+  {
+    "label": "a disconnected sheet still sends",
+    "file": "ui/src/components/sessions/AgentSessionSheet.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/AgentSessionSheet.dom.test.tsx",
+    "old": "        blockSend={offline}",
+    "new": "        blockSend={false}"
+  }
+]

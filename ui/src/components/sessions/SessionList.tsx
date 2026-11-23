@@ -97,6 +97,7 @@ import {
   type TaskOrder,
 } from "../../lib/taskOrder";
 import { mergeTaskTail } from "../../lib/taskTail";
+import AgentSessionSheet from "./AgentSessionSheet";
 import ActionSheet from "../ui/ActionSheet";
 import Button from "../ui/Button";
 import InlineAlert from "../ui/InlineAlert";
@@ -321,6 +322,9 @@ export default function SessionList({
   // The one-line summary editor is the cover's editor, moved to the row. It
   // opens over the list, so the list has to own which project it is for.
   const [summaryProjectId, setSummaryProjectId] = useState<string | null>(null);
+  // An imported agent session opens over the list. The row's own snapshot
+  // heads the sheet before its read lands, so the tapped row is the state.
+  const [agentSheet, setAgentSheet] = useState<AgentSession | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -994,9 +998,12 @@ export default function SessionList({
     // the row's parent is the list; `phonePush` keeps that true.
     runGuardedNavigation(() => {
       rememberRowReturn(row.task?.id ?? row.session!.id);
+      // An imported agent session is a surface of this list, not a departure
+      // from it: open the sheet over the row so Back and the list's place stay
+      // where the reader left them. The full page remains the deep-link and
+      // cold-entry route.
       if (!row.task) {
-        const to = `/agent-sessions/${encodeURIComponent(row.session!.id)}${listStateQuery(params)}`;
-        phonePush(navigate, location, to);
+        setAgentSheet(row.session!);
         return;
       }
       if (isTerminal(row.task.status)) markSessionViewed(row.task.id);
@@ -1731,6 +1738,19 @@ export default function SessionList({
     />
   );
 
+  // `onClose` clears the row at once. The sheet's own cleanup gives its
+  // history entry back and only then runs the caller's `onCloseComplete`,
+  // which is where a successful attach navigates: navigating from `onClose`
+  // would strand that entry under the task it opened.
+  const agentSessionSheet = (
+    <AgentSessionSheet
+      open={agentSheet !== null}
+      session={agentSheet}
+      offline={offline}
+      onClose={() => setAgentSheet(null)}
+    />
+  );
+
   if (shell === "sidebar") {
     return (
       <>
@@ -1738,6 +1758,7 @@ export default function SessionList({
         <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">{body}</div>
         {projectSheet}
         {summaryEditor}
+        {agentSessionSheet}
       </>
     );
   }
@@ -1760,6 +1781,7 @@ export default function SessionList({
       <div className="h-20" aria-hidden />
       {projectSheet}
       {summaryEditor}
+      {agentSessionSheet}
     </MobileScreen>
   );
 }
