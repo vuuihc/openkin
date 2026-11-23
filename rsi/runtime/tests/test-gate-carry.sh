@@ -522,9 +522,10 @@ test_queue_ui_leaf_safety_failure_regates() {
 
 # --- reverify_reason: WHY a gate that already ran is paid for again -----------------------------
 
-# rr <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason>
+# rr <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason> [current-head]
 # — the pure classifier the gate-start accounting line writes into state/merge/cycles.log. It labels
-# the re-verification only; no gate, lock or verdict reads it back.
+# the re-verification only; no gate, lock or verdict reads it back. The optional current head lets a
+# head moved by a main sync read as land-sync; an omitted head fails closed to rework.
 rr() { RSI_CTRL="$T/ctrl" bash "$MERGE" --reverify-reason-check "$@"; }
 
 # pc <pr> <verified-file> <reviewed-file> <gate-head-file> — the capture step 1 feeds the accounting
@@ -571,7 +572,20 @@ test_reverify_reason_main_moved_when_the_carry_refused() {
 
 # Same head, same diff, no incoming paths: the earlier gate/verifier did not finish or did not pass.
 test_reverify_reason_rework_when_nothing_else_moved() {
-  want_rr rework aaaa1111 cccc3333 cccc3333 1 "" "origin/main did not move under the PR"
+  want_rr rework aaaa1111 cccc3333 cccc3333 1 "" "origin/main did not move under the PR" aaaa1111
+}
+
+# The land loop merged origin/main into the branch during a CI hold: the head moved, the PR's own
+# diff key did not, and no path came in. The gate a main sync bought is not a rework.
+test_reverify_reason_land_sync_after_a_main_sync() {
+  want_rr land-sync aaaa1111 cccc3333 cccc3333 1 "" "origin/main did not move under the PR" bbbb2222
+}
+
+# land-sync needs both halves of the evidence: a moved head is not enough when the diff key moved
+# (the PR's own code changed) or the prior gate head is no longer an ancestor (rewritten branch).
+test_reverify_reason_land_sync_requires_an_unchanged_diff_key() {
+  want_rr rework aaaa1111 bbbb2222 cccc3333 1 "" "origin/main did not move under the PR" cccc3333
+  want_rr rework aaaa1111 cccc3333 cccc3333 0 "" "origin/main did not move under the PR" cccc3333
 }
 
 # An empty prior review key is not evidence of a rework: it must not outrank the main-move rules.
@@ -588,7 +602,9 @@ test_reverify_reason_after_a_gate_fail_is_rework() {
   printf '4242 aaaa1111 dddd4444\n' > "$gh"
   out="$(pc 4242 "$v" "$rv" "$gh")" || fail "prior-gate capture exited non-zero"
   [ "$out" = "aaaa1111 dddd4444" ] || fail "gate-fail capture -> '$out', want 'aaaa1111 dddd4444'"
-  want_rr rework "${out%% *}" "${out#* }" eeee5555 1 "" "origin/main did not move under the PR"
+  # Six arguments: the current head is unknown, so act on the diff key alone. An unknown head must
+  # never be read as "the head moved": fail closed to rework, not land-sync.
+  want_rr rework "${out%% *}" "${out#* }" "${out#* }" 1 "" "origin/main did not move under the PR"
 }
 
 # A reused slug must not inherit a dead PR's gate head.
@@ -634,6 +650,8 @@ test_reverify_reason_is_written_at_gate_start() {
     || fail "the NEED_GATE block does not append reverify_reason= to cycles.log"
   sed -n "${gate},${lock}p" "$MERGE" | grep -qF 'reverify_reason "$PRIOR_GATE_SHA"' \
     || fail "the NEED_GATE block does not call reverify_reason with the captured prior gate"
+  sed -n "${gate},${lock}p" "$MERGE" | grep -F 'reverify_reason ' | grep -qF '"$SHA"' \
+    || fail "the NEED_GATE block does not pass the head it is about to gate (\$SHA) as the current head"
   sed -n "${gate},${lock}p" "$MERGE" | grep -qF -- '$SLUG.gate-head' \
     || fail "the NEED_GATE block does not write the gate-head marker before mklock"
 }
@@ -674,6 +692,8 @@ run test_reverify_reason_shared_surface_when_a_script_the_gate_runs_moved
 run test_reverify_reason_shared_surface_when_the_pr_touches_ui
 run test_reverify_reason_main_moved_when_the_carry_refused
 run test_reverify_reason_rework_when_nothing_else_moved
+run test_reverify_reason_land_sync_after_a_main_sync
+run test_reverify_reason_land_sync_requires_an_unchanged_diff_key
 run test_reverify_reason_ignores_an_empty_prior_diff_key
 run test_reverify_reason_after_a_gate_fail_is_rework
 run test_prior_gate_capture_ignores_another_prs_marker
