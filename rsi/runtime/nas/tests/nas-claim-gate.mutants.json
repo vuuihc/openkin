@@ -26,5 +26,12 @@
     "test": "bash rsi/runtime/nas/tests/test-nas.sh t_claim_gate_publishes_valid_check",
     "old": "  printf '\\n\\nMac self-check after NAS hand-over: %s (tsc, UI inventory ratchet, full vitest).\\n' \"$SC\" >> \"$PRB\"",
     "new": "  printf '\\nMac self-check after NAS hand-over: %s (tsc, UI inventory ratchet, full vitest).\\n' \"$SC\" >> \"$PRB\""
+  },
+  {
+    "label": "an open-PR claim hold advances the PR head under the previous body",
+    "file": "rsi/runtime/nas/ingest-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh t_claim_gate_existing_pr_keeps_body",
+    "old": "    if [ -z \"$PRN\" ]; then\n      with_timeout \"$XFER_T\" \"$GIT\" -C \"$CTRL\" push -q origin \"$REF:refs/heads/$BR\" 2>\"$STATE/nas/push.err\" \\",
+    "new": "    if [ -n \"$PRN\" ] || [ -z \"$PRN\" ]; then\n      with_timeout \"$XFER_T\" \"$GIT\" -C \"$CTRL\" push -q origin \"$REF:refs/heads/$BR\" 2>\"$STATE/nas/push.err\" \\"
   }
 ]

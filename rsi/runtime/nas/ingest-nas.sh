@@ -280,16 +280,22 @@ hold_slug() { # SLUG ITEM J WHY [PRN] — visible UI with no shots: never publis
 }
 
 # A prose body that fails the merge gate's claim rule is held before any PR exists. Same shape as
-# hold_slug: the branch is pushed so the result survives for the local rework, and no `gh pr create`
-# / `gh pr edit` ever sees a body that would be sent back. The phrase in needs-ceo.md is distinct
-# from the screenshots hold so the two causes are counted apart.
+# hold_slug: a new branch is pushed so the result survives for the local rework, an open PR keeps its
+# previous head, and no `gh pr create` / `gh pr edit` ever sees a body that would be sent back. The
+# phrase in needs-ceo.md is distinct from the screenshots hold so the two causes are counted apart.
 hold_claim() { # SLUG ITEM J WHY [PRN] [VERDICT] [PUSH_NOTE]
   local SLUG="$1" ITEM="$2" J="$3" WHY="$4" PRN="${5:-}" VERDICT="${6:-}" PUSH_NOTE="${7:-}"
   mkdir -p "$STATE/nas/hold"
   {
     echo "# $ITEM $SLUG held: $WHY"
-    echo "The result was not published: neither 'gh pr create' nor 'gh pr edit' ran, and a live"
-    echo "PR keeps its previous body. Body under test: $J/pr-body.md."
+    echo "The body was not published: neither 'gh pr create' nor 'gh pr edit' ran. Body under test:"
+    echo "$J/pr-body.md."
+    if [ -n "$PRN" ]; then
+      echo "PR #$PRN keeps its previous head and the branch was not pushed: the merge lane would"
+      echo "claim-check the previous body against this commit's diff and could merge rejected prose."
+    elif [ -z "$PUSH_NOTE" ]; then
+      echo "The branch was pushed so the result survives for the local rework."
+    fi
     if [ -n "$VERDICT" ]; then
       echo "Verdict:"
       printf '%s\n' "$VERDICT"
@@ -526,12 +532,16 @@ while IFS=, read -r SLUG ST <&3; do
     continue
   fi
 
-  # Prose claim rule: never publish a body the merge lane would send back (R-nas-claim-gate). The
-  # branch is pushed anyway so the work survives for the local rework; only the body publish is held.
+  # Prose claim rule: never publish a body the merge lane would send back (R-nas-claim-gate). A new
+  # branch is pushed so the work survives for the local rework. An already-open PR keeps its previous
+  # head: merge.sh claim-checks the live body against the head's diff, so pushing this commit under the
+  # previous body would let it merge prose this gate just rejected.
   if ! claim_gate "$SLUG" "$J" "$PRB" "$WT" "$REF"; then
     PUSH_NOTE=""
-    with_timeout "$XFER_T" "$GIT" -C "$CTRL" push -q origin "$REF:refs/heads/$BR" 2>"$STATE/nas/push.err" \
-      || PUSH_NOTE="branch push failed: $(tail -c 200 "$STATE/nas/push.err")"
+    if [ -z "$PRN" ]; then
+      with_timeout "$XFER_T" "$GIT" -C "$CTRL" push -q origin "$REF:refs/heads/$BR" 2>"$STATE/nas/push.err" \
+        || PUSH_NOTE="branch push failed: $(tail -c 200 "$STATE/nas/push.err")"
+    fi
     hold_claim "$SLUG" "$ITEM" "$J" "$CLAIM_WHY" "$PRN" "$CLAIM_OUT" "$PUSH_NOTE"
     mark_remote "$SLUG" "$IDENT" held
     ack "$ACK_KEY"

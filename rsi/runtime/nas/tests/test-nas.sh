@@ -317,11 +317,15 @@ t_claim_gate_publishes_valid_check() {
 
 t_claim_gate_existing_pr_keeps_body() {
   local T; sandbox; T=$T
+  # The open PR's branch already exists on origin at its previous head; the NAS result is one commit on
+  # top. Advancing that head under the old body would let merge.sh claim-check a stale body on the new diff.
+  git -C "$T/ctrl" push -q origin main:refs/heads/rsi/s2
+  local prev; prev="$(git -C "$T/ctrl" rev-parse main)"
   prose_job "$T" s2 R-T-CG-4 docs/plans/s2.md
-  local head; head="$(git -C "$T/ctrl" rev-parse rsi/s2)"
   printf 'RSI item: R-T-CG-4\n\nSummary\nNo proof.\n' > "$T/nas/work/jobs/s2/pr-body.md"
-  run_ingest "$T" FAKE_PR=1 FAKE_PR_HEAD="$head" > "$T/i1.log" 2>&1
+  run_ingest "$T" FAKE_PR=1 FAKE_PR_HEAD="$prev" > "$T/i1.log" 2>&1
   check "CG an open PR keeps its previous body" [ ! -s "$T/gh-edit.log" ]
+  check "CG an open PR keeps its previous head" [ "$(git -C "$T/origin.git" rev-parse refs/heads/rsi/s2)" = "$prev" ]
   check "CG the hold names the open PR and its edit command" grep -q 'gh pr edit 1 --repo' "$T/state/nas/hold/s2.md"
   check "CG the open-PR hold opens no second PR" [ ! -s "$T/gh.log" ]
 }
