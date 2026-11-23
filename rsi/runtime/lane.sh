@@ -409,6 +409,27 @@ if [ "$CMD" = autofill ]; then
     esac
     idle="$(python3 "$LANES_PY" idle --ignore-pressure | head -1)"; [ -z "$idle" ] && { echo "no idle lane for rework $slug"; break; }
     br="rsi/$slug"; $GIT -C "$RSI_CTRL" fetch -q origin "$br" 2>/dev/null
+    # A rework that pushed its fix and died before the merge lane archived the sendback leaves a
+    # sendback whose fix is already on the branch; claiming it re-edits work that is already done
+    # and burns the loop's scarcest slot (2026-11-23 12:23: a sendback written 12:05 opened a lane
+    # although 1bd56a7d was already pushed; the CEO stopped it at 49 s). This is merge.sh's own
+    # rule (merge.sh:93-101) on the autofill side: when the head moved past the sendback, archive
+    # it and continue — not break — so the pass still reaches the next sendback. Fail open on
+    # every unreadable input (missing origin/$br, empty %ct, unreadable mtime, non-numeric either
+    # side): a git outage must never stall a real rework. A tie is not stale: %ct is whole seconds
+    # and a same-second push is normal.
+    head_ct="$($GIT -C "$RSI_CTRL" log -1 --format=%ct "origin/$br" 2>/dev/null || true)"
+    sb_ct="$(python3 -c 'import os,sys;print(int(os.stat(sys.argv[1]).st_mtime))' "$sb" 2>/dev/null || true)"
+    case "$head_ct" in ''|*[!0-9]*) head_ct="" ;; esac
+    case "$sb_ct" in ''|*[!0-9]*) sb_ct="" ;; esac
+    if [ -n "$head_ct" ] && [ -n "$sb_ct" ] && [ "$head_ct" -gt "$sb_ct" ]; then
+      head="$($GIT -C "$RSI_CTRL" rev-parse --verify "origin/$br" 2>/dev/null || true)"
+      arch="$STATE/sendback/done/$slug-stale-head-$(date +%H%M%S).md"
+      mkdir -p "$STATE/sendback/done"
+      mv "$sb" "$arch"
+      echo "rework $slug: head ${head:0:8} is newer than the sendback, archived to $arch (no rework lane)"
+      continue
+    fi
     paths="$($GIT -C "$RSI_CTRL" -c core.fileMode=false diff --no-renames --raw "origin/main...origin/$br" 2>/dev/null | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}' | grep -vx "web/dist/index.html" | head -40)"
     [ -z "$paths" ] && { echo "rework $slug: no diff vs main, skipping"; continue; }
     paths_arr=()
