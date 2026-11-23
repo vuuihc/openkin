@@ -1,0 +1,44 @@
+[
+  {
+    "label": "readd-ui-test: a CI-covered job is started by the default gate again",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "start gofmt job_gofmt\n",
+    "new": "start gofmt job_gofmt\nstart ui-test job_ui_test\n"
+  },
+  {
+    "label": "drop-shell-test: a local-only job is dropped from the default gate",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "start shell-test job_shell_test\n",
+    "new": ""
+  },
+  {
+    "label": "ci-loses-go-test: CI stops running the Go suite the default gate now relies on",
+    "file": ".github/workflows/ci.yml",
+    "test": "bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "        run: go test ./...\n",
+    "new": "        run: go test ./internal/...\n"
+  },
+  {
+    "label": "build-drops-tsc: the console build stops typechecking, so dropping ui-tsc loses it locally",
+    "file": "ui/package.json",
+    "test": "bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "\"build\": \"tsc --noEmit && vite build\"",
+    "new": "\"build\": \"vite build\""
+  },
+  {
+    "label": "stale-helper-header: prep-worktree.sh again promises desktop checks the default gate skips",
+    "file": "rsi/runtime/prep-worktree.sh",
+    "test": "bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "# (scripts/check.sh --all also runs desktop tsc/tests; the default run leaves them to CI.)",
+    "new": "# (scripts/check.sh also runs desktop tsc/tests.)"
+  },
+  {
+    "label": "inventory-outside-all: the inventory case stops requiring the marked --all block",
+    "file": "scripts/check-ui-inventory.test.py",
+    "test": "python3 -B scripts/check-ui-inventory.test.py",
+    "old": "        self.assertRegex(\n            block.group(1), r\"(?m)^[ \\t]+start ui-inventory job_ui_inventory$\"\n        )",
+    "new": "        self.assertRegex(script, r\"(?m)^start ui-inventory job_ui_inventory$\")"
+  }
+]
