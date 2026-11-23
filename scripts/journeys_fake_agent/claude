@@ -60,13 +60,38 @@
 #
 # One prompt never answers. A prompt containing "[seed] hold" prints the init
 # line and one assistant message, then stays alive for RSI_FAKE_HOLD_SECS
-# (default 600, clamped 0..900, a malformed value falls back to the default)
+# (default 2400, clamped 0..3600, a malformed value falls back to the default)
 # without ever printing a result. The task therefore stays `running`, not
 # `waiting_approval`: scripts/journeys_seed.py uses it for the one conversation
-# whose row menu J5 opens while the turn is still working. It exits as soon as
-# its parent (the daemon) is gone, so a torn-down walk leaves no sleeper, and
-# the cap bounds even a parent that never dies.
+# whose row menu J5 opens while the turn is still working. The default must
+# outlive a whole walk, not only its first minutes: the walk's own ceiling is
+# RSI_WALK_MAX_S (default 1800s), J5 runs near the end of it, and on 2026-11-23
+# the gate reached J5 24.5 minutes after the seed — the old 600s default had
+# already released the turn, so the row honestly read 失败 and its menu had no
+# 运行中 line. It exits as soon as its parent (the daemon) is gone, so a
+# torn-down walk leaves no sleeper, and the cap bounds even a parent that never
+# dies. `--hold-seconds` prints the effective bound without sleeping, so a test
+# can prove the default instead of waiting 25 minutes for a walk to show it.
 set -u
+
+# The hold bound, readable without sleeping it off. The J5 fixture must still be
+# working when J5 opens its row menu near the end of a walk, so the default is
+# the walk's own ceiling (RSI_WALK_MAX_S, default 1800s) plus a margin; a caller
+# may name a larger value, and the cap bounds even a parent that never dies.
+hold_seconds() {
+  _raw="${RSI_FAKE_HOLD_SECS:-2400}"
+  case "$_raw" in
+    '' | *[!0-9]*) printf '%s\n' 2400 ;;
+    *)
+      # Compare by length first so an arbitrarily large number is never parsed
+      # by `test -gt`; 3600 is the hard cap, and "3600" is four digits.
+      if [ "${#_raw}" -gt 4 ] || [ "$_raw" -gt 3600 ]; then printf '%s\n' 3600
+      else printf '%s\n' "$_raw"; fi
+      ;;
+  esac
+}
+# A self-check, not a prompt: print the bound the hold branch would use and stop.
+if [ "${1:-}" = "--hold-seconds" ]; then hold_seconds; exit 0; fi
 
 prompt=""
 while [ "$#" -gt 0 ]; do
@@ -244,15 +269,7 @@ esac
 
 case "$prompt" in
   *"[seed] hold"*)
-    raw="${RSI_FAKE_HOLD_SECS:-600}"
-    case "$raw" in
-      '' | *[!0-9]*) secs=600 ;;
-      *)
-        # Compare by length first so an arbitrarily large number is never
-        # parsed by `test -gt`; 900 is the hard cap, and "900" is three digits.
-        if [ "${#raw}" -gt 3 ] || [ "$raw" -gt 900 ]; then secs=900; else secs="$raw"; fi
-        ;;
-    esac
+    secs="$(hold_seconds)"
     # One assistant line so the transcript is not empty while the row works.
     # No tool_use: this task must never ask for an approval card.
     cat <<'EOF'
