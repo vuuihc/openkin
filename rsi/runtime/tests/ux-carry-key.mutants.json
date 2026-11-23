@@ -3,15 +3,15 @@
     "label": "the carry key digests the whole ui/ tree again, so a test-only main move throws the walk away",
     "file": "rsi/runtime/merge.sh",
     "test": "RSI_TEST_ONLY=test_a_test_only_main_move_carries bash rsi/runtime/tests/test-ux-carry-key.sh",
-    "old": "    | grep -vE '(\\.(test|spec)\\.[^/]+$|/__tests__/|/test/|\\.mutants\\.json$|\\.md$)' \\\n    | shasum | cut -c1-16",
-    "new": "    | shasum | cut -c1-16"
+    "old": "      | grep -vE '(\\.(test|spec)\\.[^/]+$|/__tests__/|/test/|\\.mutants\\.json$|\\.md$)'\n",
+    "new": "      | cat\n"
   },
   {
     "label": "the key drops stylesheets, so a css main move carries a walk it should re-buy",
     "file": "rsi/runtime/merge.sh",
     "test": "RSI_TEST_ONLY=test_a_css_move_regates bash rsi/runtime/tests/test-ux-carry-key.sh",
-    "old": "    | grep -vE '(\\.(test|spec)\\.[^/]+$|/__tests__/|/test/|\\.mutants\\.json$|\\.md$)' \\\n",
-    "new": "    | grep -vE '\\.(tsx|css)$' \\\n"
+    "old": "      | grep -vE '(\\.(test|spec)\\.[^/]+$|/__tests__/|/test/|\\.mutants\\.json$|\\.md$)'\n",
+    "new": "      | grep -vE '\\.(tsx|css)$'\n"
   },
   {
     "label": "the verdict ignores the recorded key, so a re-walked tree is carried on its diff hash alone",
@@ -40,5 +40,19 @@
     "test": "RSI_TEST_ONLY=test_the_gate_names_this_suite bash rsi/runtime/tests/test-ux-carry-key.sh",
     "old": "  bash rsi/runtime/tests/test-ux-carry-key.sh || return 1\n",
     "new": ""
+  },
+  {
+    "label": "the key ignores the journey spec, so a walk from before J4 was added to sessions still carries",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_a_journey_spec_move_regates bash rsi/runtime/tests/test-ux-carry-key.sh",
+    "old": "  spec=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- rsi/runtime/ux/journeys.json 2>/dev/null)\"\n",
+    "new": "  spec=\"\"\n"
+  },
+  {
+    "label": "the key ignores the walker code, so a learned wait or step does not invalidate a cached PASS",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_a_walker_code_move_regates bash rsi/runtime/tests/test-ux-carry-key.sh",
+    "old": "  walker=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- rsi/runtime/ux/walk.mjs 2>/dev/null)\"\n",
+    "new": "  walker=\"\"\n"
   }
 ]

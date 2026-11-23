@@ -647,17 +647,23 @@ pr_diff_hash() { # <worktree> — the review key (step 4's DH): the PR's own dif
 }
 
 # The UX walk cache (state/merge/<slug>.uxverified) survives a main move only when nothing that can
-# change the rendered console moved. This key digests every ui/ path except the families that
+# change what the walk proves moved. This key digests every ui/ path except the families that
 # provably cannot render: test/spec files, __tests__/ and test/ fixtures, mutant manifests and
 # markdown. Everything else — package.json, the lockfile, every source and style file — stays in,
 # so a path family this cannot positively classify still re-walks (the cache is only worth a walk
-# when the walk is provably still about this console).
-ux_carry_key() { # <worktree> <main-ref> — digest of everything under ui/ that can change the rendered console
-  local tree
+# when the walk is provably still about this console). It also digests the walker's own spec and
+# code: #644 added J4 to the sessions row while #630's PASS was cached, and a ui/-only key carried
+# that PASS over a journey the cached walk never ran.
+ux_carry_key() { # <worktree> <main-ref> — digest of the console tree and the walker that walked it
+  local tree spec walker
   tree="$($GIT -C "$1" ls-tree -r "$2" -- ui 2>/dev/null)" || { echo unreadable; return 0; }
-  printf '%s\n' "$tree" \
-    | grep -vE '(\.(test|spec)\.[^/]+$|/__tests__/|/test/|\.mutants\.json$|\.md$)' \
-    | shasum | cut -c1-16
+  spec="$($GIT -C "$1" ls-tree -r "$2" -- rsi/runtime/ux/journeys.json 2>/dev/null)"
+  walker="$($GIT -C "$1" ls-tree -r "$2" -- rsi/runtime/ux/walk.mjs 2>/dev/null)"
+  {
+    printf '%s\n' "$tree" \
+      | grep -vE '(\.(test|spec)\.[^/]+$|/__tests__/|/test/|\.mutants\.json$|\.md$)'
+    printf '%s\n%s\n' "$spec" "$walker"
+  } | shasum | cut -c1-16
 }
 
 ux_carry_verdict() { # <worktree> <main-ref> <uxverified-file> <pr-diff-hash>
