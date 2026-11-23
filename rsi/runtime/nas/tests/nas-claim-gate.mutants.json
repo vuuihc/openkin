@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the NAS ingest publishes a prose body the claim check rejected",
+    "file": "rsi/runtime/nas/ingest-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh t_claim_gate_holds_missing_check",
+    "old": "  CLAIM_OUT=\"$(bounded_run \"$CLAIM_T\" python3 \"$RSI_DIR/runtime/claim_check.py\" \"$WT\" \"$PRB\" \"$LIST\" 2>&1)\"\n  RC=$?",
+    "new": "  CLAIM_OUT=\"$(bounded_run \"$CLAIM_T\" python3 \"$RSI_DIR/runtime/claim_check.py\" \"$WT\" \"$PRB\" \"$LIST\" 2>&1)\"\n  RC=0"
+  },
+  {
+    "label": "an expired claim check is not reported as NO_VERDICT",
+    "file": "rsi/runtime/nas/ingest-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh t_claim_gate_no_verdict_holds",
+    "old": "    124) CLAIM_WHY=\"NO_VERDICT: the claim check did not finish within ${CLAIM_T}s\" ;;",
+    "new": "    123) CLAIM_WHY=\"NO_VERDICT: the claim check did not finish within ${CLAIM_T}s\" ;;"
+  },
+  {
+    "label": "the claim-gate fixture stops changing a prose-assertion path, so the rule never applies",
+    "file": "rsi/runtime/nas/tests/test-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh t_claim_gate_holds_missing_check",
+    "old": "  echo \"note for $slug\" > \"$T/ctrl/$path\"",
+    "new": "  path=\"docs/$slug.md\"; mkdir -p \"$T/ctrl/docs\"; echo \"note for $slug\" > \"$T/ctrl/$path\""
+  },
+  {
+    "label": "the Mac self-check line is appended without a blank separator and joins the claim block",
+    "file": "rsi/runtime/nas/ingest-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh t_claim_gate_publishes_valid_check",
+    "old": "  printf '\\n\\nMac self-check after NAS hand-over: %s (tsc, UI inventory ratchet, full vitest).\\n' \"$SC\" >> \"$PRB\"",
+    "new": "  printf '\\nMac self-check after NAS hand-over: %s (tsc, UI inventory ratchet, full vitest).\\n' \"$SC\" >> \"$PRB\""
+  }
+]
