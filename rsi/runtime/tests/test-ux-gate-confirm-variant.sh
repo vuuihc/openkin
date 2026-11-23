@@ -82,7 +82,8 @@ SH
 chmod +x "$WALK_STUB"
 
 # Reviewer stub: a passing review, so a FAIL can only come from the walk half. Each prompt is
-# copied to $PROMPT_DIR/<n>.md so a case can prove which state the reviewer was handed.
+# copied to $PROMPT_DIR/<n>.md so a case can prove which state the reviewer was handed. Call N
+# reads an answer from $FIX/N.review when one exists (the re-ask case), else passes.
 REVIEW_STUB="$T/bin/review.sh"
 cat > "$REVIEW_STUB" <<'SH'
 #!/bin/bash
@@ -90,6 +91,7 @@ set -u
 printf '%s\n' "$1" >> "$REVIEW_LOG"
 n="$(wc -l < "$REVIEW_LOG" | tr -d ' ')"
 cp "$1" "$PROMPT_DIR/$n.md"
+if [ -s "$FIX/$n.review" ]; then cat "$FIX/$n.review"; exit 0; fi
 printf 'looks fine\n'
 printf 'UX_SCORES: clarity=4 density=4 consistency=4 feedback=4 keyboard=4\n'
 printf 'UX_VERDICT: PASS\n'
@@ -108,6 +110,7 @@ new_case() {
   : > "$LOG"; : > "$RLOG"
 }
 fixture() { printf '%s\n' "$2" > "$FIX/$1.json"; }
+review_fixture() { printf '%s\n' "$2" > "$FIX/$1.review"; }
 red_json() { printf '{"hardFail":["%s"],"screens":[]}\n' "$1"; }
 hard_section() {
   awk '/^walk hard failures:$/ { on=1; next } on && /^$/ { exit } on { print }' "$BODY"
@@ -121,6 +124,7 @@ run_gate() {
   RC=$?
 }
 walks() { wc -l < "$LOG" | tr -d ' '; }
+reviews() { wc -l < "$RLOG" | tr -d ' '; }
 prompt_has() { grep -Fq "$2" "$PDIR/$1.md"; }
 field() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); v=d[sys.argv[2]]; print("true" if v is True else "false" if v is False else v)' "$CONF_JSON" "$1"; }
 expect_field() { # <name> <want>
@@ -163,6 +167,10 @@ test_variant_line_needs_second_sample() {
     || fail "variant-once: the variant line is not under confirm.txt's variant heading: $(tr '\n' ' ' < "$UXD/confirm.txt")"
   # CONFIRM_ONLY is on: the reviewer is told the first-walk reds are not evidence.
   prompt_has 1 "not evidence about this PR" || fail "variant-once: the run is not in the confirm-only state"
+  # The variant section of confirm.txt is a different list: printing it here would hand the
+  # reviewer the one-sample line under "did not reproduce", i.e. call the gate's own evidence
+  # a flake it already ruled in. Only the flaked first-walk lines belong there.
+  prompt_has 1 "$Y" && fail "variant-once: the one-sample variant is presented as a flake"
   record_invariant
 }
 
@@ -230,6 +238,28 @@ test_reproduced_red_still_convicts_on_first_confirm() {
   record_invariant
 }
 
+# Case 4b: the confirm-only re-ask repeats the first-walk failure list, so it too must stop at
+# the variant heading. The first answer scores an axis below 3 without naming evidence, which
+# makes the gate re-ask; a reverted awk would print the one-sample variant there and invite the
+# reviewer to ground a score in a line the gate itself keeps as evidence. The second answer
+# passes, so a leaked variant is the only way this case can fail.
+test_variant_not_presented_in_the_reask() {
+  new_case variant_reask
+  fixture 1 "$(red_json "$X")"
+  fixture 2 "$(red_json "$Y")"
+  review_fixture 1 "density: the confirm screen looks cramped
+UX_SCORES: clarity=4 density=2 consistency=4 feedback=4 keyboard=4
+UX_VERDICT: FAIL"
+  run_gate
+  [ "$RC" -eq 0 ] || fail "variant-reask: exit $RC, want 0 (the second answer accepts the confirm evidence): $(tail -3 "$T/$CASE.out" | tr '\n' ' ')"
+  [ "$(walks)" = 3 ] || fail "variant-reask: $(walks) walks, want 3"
+  [ "$(reviews)" = 2 ] || fail "variant-reask: $(reviews) reviews, want 2 (one re-ask)"
+  prompt_has 2 "grounds that score only in failures the confirm walk could not reproduce" \
+    || fail "variant-reask: the re-ask is not the confirm-only branch"
+  if prompt_has 2 "$Y"; then fail "variant-reask: the re-ask presents the one-sample variant as a flake"; fi
+  if prompt_has 2 "variant (seen in one confirm sample only"; then fail "variant-reask: the re-ask carries the variant heading"; fi
+}
+
 # Case 5: the invariant the brief names — CONFIRM_ONLY must never coexist with a conviction.
 # Checked on the artifacts cases 1-4 wrote, so it cannot drift from what the gate produced.
 test_confirm_only_never_with_a_conviction() {
@@ -291,6 +321,7 @@ run test_variant_line_needs_second_sample
 run test_variant_line_seen_twice_convicts
 run test_second_sample_unavailable_keeps_the_red
 run test_reproduced_red_still_convicts_on_first_confirm
+run test_variant_not_presented_in_the_reask
 run test_confirm_only_never_with_a_conviction
 run test_no_extra_walk_when_confirm_is_clean
 [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"

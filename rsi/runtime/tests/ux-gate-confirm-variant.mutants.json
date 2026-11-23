@@ -14,6 +14,20 @@
     "new": "else:\n    variant_convicted = []\n    variant = list(pending)"
   },
   {
+    "label": "the reviewer prompt's flaked list runs past the variant heading, so a one-sample variant is presented as an unreproduced first-walk failure",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_variant_line_needs_second_sample bash rsi/runtime/tests/test-ux-gate-confirm-variant.sh",
+    "old": "    # The flaked lines only: confirm.txt's variant section (1b1) is a different list and must\n    # not be read as an unreproduced first-walk failure.\n    awk 'NR > 1 && /^variant \\(/ { exit } NR > 1' \"$UXD/confirm.txt\" 2>/dev/null",
+    "new": "    # The flaked lines only: confirm.txt's variant section (1b1) is a different list and must\n    # not be read as an unreproduced first-walk failure.\n    tail -n +2 \"$UXD/confirm.txt\" 2>/dev/null"
+  },
+  {
+    "label": "the confirm-only re-ask runs past the variant heading, so it invites a below-3 score grounded in a one-sample variant the gate keeps as evidence",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_variant_not_presented_in_the_reask bash rsi/runtime/tests/test-ux-gate-confirm-variant.sh",
+    "old": "      echo \"These are the first-walk failures the second walk on the same tree did not reproduce:\"; awk 'NR > 1 && /^variant \\(/ { exit } NR > 1' \"$UXD/confirm.txt\" 2>/dev/null",
+    "new": "      echo \"These are the first-walk failures the second walk on the same tree did not reproduce:\"; tail -n +2 \"$UXD/confirm.txt\" 2>/dev/null"
+  },
+  {
     "label": "the variant suite is unwired from the gate, so its pass proves nothing",
     "file": "scripts/check.sh",
     "test": "bash rsi/runtime/tests/test-wiring.sh",
