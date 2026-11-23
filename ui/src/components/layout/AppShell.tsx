@@ -235,8 +235,7 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
    * `/tasks/:id` and `/agent-sessions/:id` are the remaining ones. Both draw
    * their own header inside the page, and Back is the way out of one.
    */
-  const detailRoute =
-    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");
+  const detailRoute = selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");
 
   /** Detail routes whose page renders `MobileHeader` (and its own top inset). */
   const pageOwnsTopInset = selectedTaskId !== null;

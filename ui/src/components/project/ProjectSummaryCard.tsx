@@ -55,9 +55,7 @@ export default function ProjectSummaryCard({
           // this link used to open is retired). Every departure asks the
           // page's leave guard, so an edited draft is not thrown away, and
           // modifier clicks keep the browser's new-tab behaviour.
-          onClick={(event) =>
-            onGuardedLinkClick(event, navigate, location, projectChatsPath)
-          }
+          onClick={(event) => onGuardedLinkClick(event, navigate, location, projectChatsPath)}
           className="inline-flex min-h-11 touch-floor flex-none items-center rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-body text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text sm:min-h-0"
         >
           {tr("newChat.openOnePager")}

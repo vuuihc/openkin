@@ -51,7 +51,7 @@ describe("the project row's data wiring (KIN-CONTRACT-001)", () => {
     // TASTE 15: a refresh paints the cached text instead of a skeleton, and a
     // late answer for a superseded read must not overwrite the newer one.
     expect(LIST).toContain("loaded: cached?.loaded ?? false,");
-    expect(LIST).toContain("markdown: cached?.markdown ?? \"\",");
+    expect(LIST).toContain('markdown: cached?.markdown ?? "",');
     expect(LIST).toContain(
       "if (instructionsGeneration.current.get(projectId) !== generation) return;",
     );
@@ -64,7 +64,9 @@ describe("the project row's data wiring (KIN-CONTRACT-001)", () => {
 
   it("saves the summary against the version it read, and composes on a conflict", () => {
     expect(SUMMARY).toContain("from.updatedAt || undefined");
-    expect(SUMMARY).toContain("setBase({ markdown: onePager.markdown, updatedAt: onePager.updated_at })");
+    expect(SUMMARY).toContain(
+      "setBase({ markdown: onePager.markdown, updatedAt: onePager.updated_at })",
+    );
     // The overwrite keeps the sections this editor does not own.
     expect(SUMMARY).toContain(
       "setBase({ markdown: conflict.markdown, updatedAt: conflict.updated_at })",
@@ -73,7 +75,9 @@ describe("the project row's data wiring (KIN-CONTRACT-001)", () => {
   });
 
   it("disables both editors' writes while the machine is disconnected", () => {
-    expect(SUMMARY).toContain("if (loaded && !saving && !offline && !conflict) void save(draft, base);");
+    expect(SUMMARY).toContain(
+      "if (loaded && !saving && !offline && !conflict) void save(draft, base);",
+    );
     expect(SUMMARY).toContain("disabled={!loaded || saving || offline}");
     expect(ROOTS).toContain("const locked = offline || forbidden || gone;");
     expect(ROOTS).toContain("if (!saving && !locked) void save();");
