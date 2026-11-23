@@ -16,6 +16,22 @@ tier() { printf '%b' "$3" | python3 "$H/review-tier.py" --title "$1" --item "$2"
 [ "$(tier 'refactor: x' T1 '300\t10\tui/src/a.tsx\n0\t30\tui/src/a.test.tsx\n')" = "medium reviewer" ] && ok tests-modified-medium || bad tests-modified-medium
 [ "$(tier 'feat: deps' X1 '10\t1\tui/package.json\n')" = "large reviewer-alt" ] && ok deps-large || bad deps-large
 [ "$(tier 'feat: routes' X1 '50\t1\tui/src/lib/areaRoutes.ts\n')" = "medium reviewer" ] && ok routing-not-small || bad routing-not-small
+# A story's design artifacts and any long prose are docs: no runtime surface, so length is not a risk
+# signal. #629 (6 Figma frames + 1 review page, 1346 lines) read as `large` and spent the only big merge
+# slot 51 minutes across two gates (2026-11-23 14:51-15:09, gate log gate-merge-agents-detect-page-145119).
+# These four accumulate their failures instead of exiting on the first one, so a revert of one rule still
+# names every case it breaks (red-first reads the failing case's name).
+docrc=0
+case_tier() { # <name> <want> <title> <item> <numstat> — print PASS/FAIL for one tier expectation
+  local got; got="$(tier "$3" "$4" "$5")"
+  if [ "$got" = "$2" ]; then ok "$1"; else echo "FAIL $1: want '$2', got '$got'" >&2; docrc=1; fi
+}
+case_tier docs-artifact-small 'small reviewer' 'docs(stories): draw the KIN-AGENTS-002 review page' '' '696\t0\tdocs/product/stories/KIN-AGENTS-002.review.html\n127\t0\tdocs/product/stories/KIN-AGENTS-002.figma/frames/01-mac-default.svg\n'
+case_tier long-docs-small 'small reviewer' 'docs(adr): long decision record' '' '900\t0\tdocs/adr/2026-11-23-long.md\n'
+# The exemption is docs-only: a mixed diff and a big non-docs .html still pay the size rule.
+case_tier mixed-docs-large 'large reviewer-alt' 'docs+code: long prose beside a control' '' '900\t0\tdocs/product/IA.md\n10\t0\tui/src/a.tsx\n'
+case_tier non-docs-html-large 'large reviewer-alt' 'feat: big standalone page' X1 '900\t0\tprototype/window.html\n'
+[ "$docrc" -eq 0 ] || exit 1
 printf 'Findings:\n1. **major** `ui/src/a.tsx:42` - drops the handler.\n\n2. nit: `ui/src/b.tsx:3` naming.\nFIXLIST:\n- ui/src/a.tsx:42 | major | drops handler | pass it through\nVERDICT: FAIL\n' > "$T/r.txt"
 python3 "$H/fixlist.py" "$T/r.txt" | grep -q 'ui/src/a.tsx:42.*pass it through' && ok fixlist-block || bad fixlist-block
 printf '1. **major** `ui/src/a.tsx:42` - drops the handler.\n\n2. nit: `ui/src/b.tsx:3` naming.\nVERDICT: FAIL\n' > "$T/r2.txt"
