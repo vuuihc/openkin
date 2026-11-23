@@ -3494,8 +3494,9 @@ J4_SAVE_EN = "Save folders"
 # (`J4-mac-02-project-cover.png`) stays on /sessions with the strip open over
 # the truncated title — nothing was dispatched, so nothing navigated. The
 # element itself was present: walk.mjs:4202-4203 hard-fails a missing required
-# locator instantly with its own `missing required` message, which does not
-# appear in that walk. The icon's centre is far left of the strip, and the
+# locator instantly with its own `missing required` message, and no
+# `missing required` line names the project heading in that walk. The icon's
+# centre is far left of the strip, and the
 # click still bubbles to the heading's own handler, which is the control a
 # person sees.
 J4_PROJECTS = ("Alpha", "Beta", "Gamma")
@@ -3848,7 +3849,8 @@ def _j4_roots_problems(steps: list) -> list[str]:
         #    stays on /sessions with the strip open over the truncated title.
         #    The element was present — walk.mjs:4202-4203 hard-fails a missing
         #    required locator instantly with its own `missing required` message,
-        #    absent from that walk. J4/phone stayed green because a coarse
+        #    and no `missing required` line names the project heading in that
+        #    walk. J4/phone stayed green because a coarse
         #    pointer draws no strip;
         #  * the row must have painted before the 3000 ms click budget starts, so
         #    a cold list is a wait, not a hard fail. `wait` reads with
