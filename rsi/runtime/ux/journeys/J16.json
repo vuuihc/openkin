@@ -126,6 +126,57 @@
       "reading",
       "incoming",
       "require-new-activity"
+    ],
+    [
+      "click",
+      "css=button[aria-label='文件'], button[aria-label='Files']"
+    ],
+    [
+      "search",
+      "\\?panel=files$"
+    ],
+    [
+      "wait",
+      "css=[data-panes] button[title$=\"notes.md\"]"
+    ],
+    [
+      "click",
+      "css=[data-panes] button[title$=\"notes.md\"]"
+    ],
+    [
+      "wait",
+      "css=[data-pane='viewer']"
+    ],
+    [
+      "wait",
+      "text=Seeded for the journey walk."
+    ],
+    [
+      "wait",
+      "css=[data-panes] button[title$=\"notes.md\"][data-selected]"
+    ],
+    [
+      "shot",
+      "files-open-820"
+    ],
+    [
+      "back"
+    ],
+    [
+      "search",
+      "\\?panel=files$"
+    ],
+    [
+      "wait",
+      "css=[data-panes] button[title$=\"notes.md\"]"
+    ],
+    [
+      "gone",
+      "text=Seeded for the journey walk."
+    ],
+    [
+      "shot",
+      "files-back-list-820"
     ]
   ]
 }

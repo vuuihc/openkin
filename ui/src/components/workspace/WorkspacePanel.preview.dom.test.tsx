@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ApiError } from "../../api/client";
 import { t } from "../../i18n";
@@ -48,6 +48,20 @@ const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplement
 
 function changedFile(name: string): ChangedFile {
   return { path: `${CWD}/${name}`, action: "write", tool: "claude-code", seq: 1 };
+}
+
+// jsdom has no layout, and the panel asks its own container how wide it is
+// rather than the viewport. `clientWidth` is 0 here, so a case that cares says
+// what its container measures — the same stub `WorkspacePanel.paths` uses.
+function stubContainerWidth(width: number) {
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get: () => width,
+  });
+}
+
+function restoreContainerWidth() {
+  delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
 }
 
 function openFile(
@@ -354,5 +368,69 @@ describe("a read that failed", () => {
     expect(await screen.findByRole("alert")).toBeTruthy();
     // The refusal happens before any request, so a retry could only repeat it.
     expect(screen.queryByRole("button", { name: t("workspace.viewer.retry") })).toBeNull();
+  });
+});
+
+/**
+ * F3 on a tablet: the changed-file row is the way into the diff. Measured
+ * 2026-11-24 at 820×1180 coarse, the panel is a 756px full-bleed overlay, so
+ * the two-pane split draws; narrower containers (the 380px column beside a
+ * conversation, a split window) stack and must bring the file to the front.
+ * Both cases tap the row *inside the panel*: the transcript's round card draws
+ * its own `notes.md` row behind the overlay, and a selector that picks that one
+ * measures a control the reader cannot reach.
+ */
+describe("a changed row tapped on a tablet", () => {
+  afterEach(() => restoreContainerWidth());
+
+  const panes = (container: HTMLElement) => container.querySelector("[data-panes]");
+  const hasClass = (el: Element | null | undefined, token: string) =>
+    (el?.className ?? "").split(/\s+/).includes(token);
+
+  it("keeps both panes and selects the file in the 756px split", async () => {
+    stubContainerWidth(756);
+    readTaskSourceFile.mockResolvedValue({ path: "notes.md", content: "hi", binary: false });
+    const { container } = render(
+      <WorkspacePanel
+        taskId="task-1"
+        cwd={CWD}
+        changedFiles={[changedFile("notes.md")]}
+        events={[]}
+      />,
+    );
+
+    const row = screen.getByTitle(`${CWD}/notes.md`);
+    expect(panes(container)?.getAttribute("data-panes")).toBe("split");
+
+    fireEvent.click(row);
+
+    await waitFor(() => expect(readTaskSourceFile).toHaveBeenCalledWith("task-1", "notes.md"));
+    // The tap is a selection, not a pane switch: the list stays beside the diff.
+    expect(panes(container)?.getAttribute("data-panes")).toBe("split");
+    expect(row.getAttribute("data-selected")).toBe("true");
+    expect(hasClass(container.querySelector('[data-pane="viewer"]'), "hidden")).toBe(false);
+    await waitFor(() => expect(screen.getByTestId("code-viewer").textContent).toBe(`${CWD}/notes.md`));
+  });
+
+  it("brings the file pane to the front when the panel is narrower than the split", async () => {
+    stubContainerWidth(620);
+    readTaskSourceFile.mockResolvedValue({ path: "notes.md", content: "hi", binary: false });
+    const { container } = render(
+      <WorkspacePanel
+        taskId="task-1"
+        cwd={CWD}
+        changedFiles={[changedFile("notes.md")]}
+        events={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle(`${CWD}/notes.md`));
+
+    await waitFor(() => expect(readTaskSourceFile).toHaveBeenCalledWith("task-1", "notes.md"));
+    expect(panes(container)?.getAttribute("data-panes")).toBe("stacked");
+    expect(panes(container)?.getAttribute("data-phone-view")).toBe("file");
+    expect(hasClass(container.querySelector("aside"), "hidden")).toBe(true);
+    expect(hasClass(container.querySelector('[data-pane="viewer"]'), "hidden")).toBe(false);
+    expect(screen.getByRole("button", { name: t("workspace.backToFiles") })).toBeTruthy();
   });
 });
