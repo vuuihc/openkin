@@ -21,6 +21,13 @@
     "new": "false"
   },
   {
+    "label": "a fine pointer gets the bottom sheet instead of a dialog",
+    "file": "ui/src/components/sessions/ProjectRootsEditor.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectRoots.dom.test.tsx",
+    "old": "  return coarse ? (",
+    "new": "  return true ? ("
+  },
+  {
     "label": "the hold shrinks back under the walk ceiling, so J5 finds a finished turn",
     "file": "scripts/journeys_fake_agent/claude",
     "test": "python3 -B scripts/journeys_fake_agent_test.py FakeAgentHoldTest.test_hold_bound_outlives_a_whole_walk",

@@ -35,11 +35,11 @@ if (!HTMLDialogElement.prototype.close) {
  *
  * The cover page is being retired, and its two editors have to live where a
  * person already chooses a project: the conversation list's project row. This
- * is the folder half on the coarse row — one row in the `⋯` sheet — and it
+ * is the folder half on both pointers — one row in the coarse `⋯` sheet, a
+ * hover-cluster button on a Mac opening the same editor as a dialog — and it
  * writes the whole ordered `roots` list through the same route and the same
  * failure contract as the cover's block, never the cover page and never a
- * partial merge. The Mac's hover-cluster trigger and its dialog face are the
- * next slice.
+ * partial merge.
  *
  * The eligibility rule is the row's own local-record rule: only this machine's
  * project record owns the folder list here, so a folder with no record offers
@@ -251,6 +251,38 @@ describe("the project row's working-folders editor", () => {
     expect(locationText()).toBe("/sessions");
   });
 
+  it("a fine pointer opens the working-folders editor from the hover cluster as a dialog", async () => {
+    pointer("fine");
+    list();
+
+    // The trigger is the row's own hover cluster, not the coarse `⋯` menu:
+    // the menu button does not exist on a fine pointer at all.
+    const trigger = await screen.findByRole("button", { name: "Edit folders" });
+    expect(screen.queryByRole("button", { name: "Project actions" })).toBeNull();
+
+    await userEvent.click(trigger);
+
+    const dialog = await screen.findByRole("dialog", { name: "Working folders" });
+    // The Mac gets the desktop dialog, not the phone's bottom sheet.
+    expect(dialog.tagName).toBe("DIALOG");
+    const rows = folderRows(dialog);
+    expect(rows[0]!.textContent).toContain(ALPHA);
+    expect(within(rows[0]!).getByText("Default")).toBeTruthy();
+    expect(rows[1]!.textContent).toContain(BETA);
+
+    await addFolder(dialog, GAMMA);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save folders" }));
+
+    await waitFor(() =>
+      expect(writeRoots).toHaveBeenCalledWith("p1", { roots: [ALPHA, BETA, GAMMA] }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Working folders" })).toBeNull(),
+    );
+    // Closing returns focus to the button it was opened from.
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
   it("make default saves the whole list with that folder first", async () => {
     pointer("coarse");
     list();
@@ -333,6 +365,18 @@ describe("the project row's working-folders editor", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Project actions" }));
     // The sheet opened — it still offers the actions that work without a
     // record — and it has no folder row.
+    expect(await screen.findByRole("button", { name: "New conversation in alpha" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit folders" })).toBeNull();
+  });
+
+  it("a fine pointer with no local project record offers no working-folders entry", async () => {
+    fixtures.projects = [];
+    pointer("fine");
+    list();
+
+    // The hover cluster is there (a new conversation still works without a
+    // record), but the folder list belongs to the local record, so its
+    // button is absent exactly as the coarse menu's row is.
     expect(await screen.findByRole("button", { name: "New conversation in alpha" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit folders" })).toBeNull();
   });
