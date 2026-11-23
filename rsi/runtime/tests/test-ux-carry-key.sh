@@ -1,9 +1,11 @@
 #!/bin/bash
 # test-ux-carry-key.sh — a cached UX walk survives a main move that cannot change the rendered
 # console: a move touching nothing under ui/, or only test/spec/fixture/mutant/markdown files.
-# It is thrown away when a rendered input, the PR's lockfile half, the PR diff or the recorded
-# evidence moved. The key is what the merge lane stores in state/merge/<slug>.uxverified, so a
-# narrower key here is the whole point: one test-only main move used to cost a ~20 min walk.
+# It is thrown away when a rendered input, the walker's spec or code, the PR's lockfile half, the
+# PR diff or the recorded evidence moved. The key is what the merge lane stores in
+# state/merge/<slug>.uxverified, so a narrower key here is the whole point: one test-only main move
+# used to cost a ~20 min walk. The walker half is deliberately wide: a spec that adds a journey
+# changes what a PASS proves, even when the console tree did not move (#644 / #630).
 #
 # Hermetic: temp git repos under mktemp -d. No network, no npm, no python beyond the stdlib.
 # Exercises merge.sh --ux-carry-key-check, which prints the KEY the UX-gate block reads and runs
@@ -29,8 +31,13 @@ new_repo() {
   R="$T/$1"; rm -rf "$R"; mkdir -p "$R"
   g init -q -b main || fail "git init"
   g config user.name tester; g config user.email owner@example.com; g config commit.gpgsign false
-  mkdir -p "$R/ui/src/pages" "$R/docs"
+  mkdir -p "$R/ui/src/pages" "$R/docs" "$R/rsi/runtime/ux/journeys"
   printf 'page\n' > "$R/ui/src/pages/X.tsx"
+  printf '{}\n' > "$R/rsi/runtime/ux/journeys.json"
+  printf '{"id": "J2"}\n' > "$R/rsi/runtime/ux/journeys/J2.json"
+  printf 'walker\n' > "$R/rsi/runtime/ux/walk.mjs"
+  printf 'grace\n' > "$R/rsi/runtime/ux/optional-grace.mjs"
+  printf 'log\n' > "$R/rsi/runtime/ux/walk-log.mjs"
   printf 'test\n' > "$R/ui/src/pages/X.dom.test.tsx"
   printf 'css\n' > "$R/ui/src/index.css"
   printf '{}\n' > "$R/ui/package.json"
@@ -148,6 +155,57 @@ test_a_non_ui_move_carries() {
   expect_carry
 }
 
+# #644 added J4 to the sessions row while #630's cached PASS was in flight. A walk is evidence for
+# the journeys its spec names, so a spec move must buy a new walk even when ui/ did not move.
+test_a_journey_spec_move_regates() {
+  new_repo c8
+  K0="$(key_now origin/main)"
+  record_walk c8 origin/main DH8
+  main_move rsi/runtime/ux/journeys.json '{"paths": []}'
+  K1="$(key_now origin/main)"
+  [ "$K0" != "$K1" ] || fail "a journeys.json move left the carry key unchanged"
+  seam origin/main "$V" DH8
+  expect_regate
+}
+
+# 15 of 17 journey bodies live in their own file under journeys/, not in the index; a body-only
+# main move must buy a new walk even though journeys.json did not move.
+test_a_journey_body_move_regates() {
+  new_repo c10
+  K0="$(key_now origin/main)"
+  record_walk c10 origin/main DH10
+  main_move rsi/runtime/ux/journeys/J2.json '{"id": "J2", "steps": []}'
+  K1="$(key_now origin/main)"
+  [ "$K0" != "$K1" ] || fail "a journeys/J2.json move left the carry key unchanged"
+  seam origin/main "$V" DH10
+  expect_regate
+}
+
+# The walker is the other half: a step or wait it learns changes what a PASS proves.
+test_a_walker_code_move_regates() {
+  new_repo c9
+  K0="$(key_now origin/main)"
+  record_walk c9 origin/main DH9
+  main_move rsi/runtime/ux/walk.mjs 'walker v2'
+  K1="$(key_now origin/main)"
+  [ "$K0" != "$K1" ] || fail "a walk.mjs move left the carry key unchanged"
+  seam origin/main "$V" DH9
+  expect_regate
+}
+
+# walk.mjs imports the optional-step wait and the step log; a change to either changes what a PASS
+# proves even though walk.mjs itself did not move.
+test_a_walker_module_move_regates() {
+  new_repo c11
+  K0="$(key_now origin/main)"
+  record_walk c11 origin/main DH11
+  main_move rsi/runtime/ux/optional-grace.mjs 'export const awaitOptionalVisible = () => true;'
+  K1="$(key_now origin/main)"
+  [ "$K0" != "$K1" ] || fail "an optional-grace.mjs move left the carry key unchanged"
+  seam origin/main "$V" DH11
+  expect_regate
+}
+
 # The dependency graph moved: a lockfile can change what the console renders, and it is half of
 # the key exactly as before this row. The PR syncs main, so its own half moves too; evidence that
 # names the ui/ digest without the PR's lockfile half is not a match either.
@@ -199,6 +257,10 @@ run test_a_rendered_tsx_move_regates
 run test_a_css_move_regates
 run test_a_mutants_json_move_carries
 run test_a_non_ui_move_carries
+run test_a_journey_spec_move_regates
+run test_a_journey_body_move_regates
+run test_a_walker_code_move_regates
+run test_a_walker_module_move_regates
 run test_a_main_lockfile_move_regates
 run test_a_changed_pr_diff_or_missing_evidence_regates
 run test_the_gate_names_this_suite
