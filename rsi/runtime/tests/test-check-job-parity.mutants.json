@@ -1,0 +1,30 @@
+[
+  {
+    "label": "readd-ui-test: a CI-covered job is started by the default gate again",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "start gofmt job_gofmt\n",
+    "new": "start gofmt job_gofmt\nstart ui-test job_ui_test\n"
+  },
+  {
+    "label": "drop-shell-test: a local-only job is dropped from the default gate",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "start shell-test job_shell_test\n",
+    "new": ""
+  },
+  {
+    "label": "ci-loses-go-test: CI stops running the Go suite the default gate now relies on",
+    "file": ".github/workflows/ci.yml",
+    "test": "bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "        run: go test ./...\n",
+    "new": "        run: go test ./internal/...\n"
+  },
+  {
+    "label": "build-drops-tsc: the console build stops typechecking, so dropping ui-tsc loses it locally",
+    "file": "ui/package.json",
+    "test": "bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "\"build\": \"tsc --noEmit && vite build\"",
+    "new": "\"build\": \"vite build\""
+  }
+]
