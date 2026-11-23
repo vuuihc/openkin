@@ -51,6 +51,7 @@ const en: MessageTree = {
     openCoverLocalOnly: "One-Pager cover (this machine only)",
     openCover: "One-Pager cover",
     projectActions: "Project actions",
+    editSummary: "Edit one-line summary",
     searchSessions: "Search chats",
     searchEmpty: "No sessions match “{query}”",
     searchHint: "Searching all sessions",
