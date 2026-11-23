@@ -1,0 +1,23 @@
+[
+  {
+    "label": "a variant convicts on its first confirm sample again, so walker noise bills a rework round (the #656 shape)",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_variant_line_needs_second_sample bash rsi/runtime/tests/test-ux-gate-confirm-variant.sh",
+    "old": "if vsample == \"ok\":\n    variant_convicted = [l for l in pending if l in seen2]\n    variant = [l for l in pending if l not in seen2]",
+    "new": "if vsample == \"ok\":\n    variant_convicted = list(pending)\n    variant = []"
+  },
+  {
+    "label": "an unavailable second sample is treated as not reproduced, so a red is silently freed instead of failing closed",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_second_sample_unavailable_keeps_the_red bash rsi/runtime/tests/test-ux-gate-confirm-variant.sh",
+    "old": "else:\n    # fail closed: an unavailable second sample keeps the variant conviction\n    variant_convicted = list(pending)\n    variant = []",
+    "new": "else:\n    variant_convicted = []\n    variant = list(pending)"
+  },
+  {
+    "label": "the variant suite is unwired from the gate, so its pass proves nothing",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-ux-gate-confirm-variant.sh || return 1",
+    "new": ""
+  }
+]
