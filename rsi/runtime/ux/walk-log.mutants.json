@@ -1,5 +1,12 @@
 [
   {
+    "label": "the wedge case accepts an earlier step as the last line, so a file naming the wrong step would pass (R-walk-log-live)",
+    "file": "rsi/runtime/ux/walk-log.test.mjs",
+    "old": "  assert.equal(lastLine(dir), 'J4/mac step 2 start wait css=[data-testid=reply-body]');",
+    "new": "  assert.equal(lastLine(dir), 'J4/mac step 1 start wait css=[data-testid=reply-body]');",
+    "test": "node rsi/runtime/ux/walk-log.test.mjs"
+  },
+  {
     "label": "the step log only reaches memory, so a wedged walk leaves an empty file (R-walk-log-live)",
     "file": "rsi/runtime/ux/walk-log.mjs",
     "old": "    try { fs.appendFileSync(filePath, text + '\\n'); }",
