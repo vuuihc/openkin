@@ -52,8 +52,8 @@
     "label": "the expiry comparison always fails, so a live cooldown is ignored and its verifier slot is spent again",
     "file": "rsi/runtime/merge.sh",
     "test": "RSI_TEST_ONLY=cooldown-skips-same-diff bash rsi/runtime/tests/test-merge-slot-priority.sh",
-    "old": "  [ \"$exp\" -gt \"$now\" ] || return 1",
-    "new": "  false || return 1"
+    "old": "  if [ \"$exp\" -gt \"$now\" ]; then",
+    "new": "  if false; then"
   },
   {
     "label": "the cooldown diff is not compared, so a cooldown written for an older diff still rests the PR",
@@ -82,5 +82,68 @@
     "test": "RSI_TEST_ONLY=cooldown-skips-batch-member bash rsi/runtime/tests/test-merge-slot-priority.sh",
     "old": "    ux_cooldown_skip \"$slug\" && continue\n    L=\"$STATE/merge/$slug.lock\"\n    if [ -d \"$L\" ] && kill -0",
     "new": "    L=\"$STATE/merge/$slug.lock\"\n    if [ -d \"$L\" ] && kill -0"
+  },
+  {
+    "label": "the spec-mover hold never rests a row, so a cooled PR re-walks a spec an open PR is about to move",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-held-for-spec-mover bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "  [ -n \"$mover\" ] || return 1",
+    "new": "  return 1"
+  },
+  {
+    "label": "the mover set is ignored, so a recently expired cooldown rests a row with no open PR moving the spec",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-hold-ends-when-mover-merges bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "  [ -n \"$mover\" ] || return 1",
+    "new": "  : # mover not required"
+  },
+  {
+    "label": "the cooldown diff is not compared, so an expired marker written for another diff holds the PR",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-hold-fails-open-on-new-diff bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "  [ -n \"$dh\" ] && [ \"$dh\" = \"$revdh\" ] || return 1",
+    "new": "  : # diff not compared"
+  },
+  {
+    "label": "the hold's age bound is dropped, so a long-expired cooldown rests the row indefinitely",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-hold-bounded bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "  [ $((now - exp)) -lt $((UX_HOLD_MAX_MIN * 60)) ] || return 1",
+    "new": "  : # bound ignored"
+  },
+  {
+    "label": "a spec mover holds itself, so the PR that moves the walker never re-walks its own diff",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-hold-skips-self bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "$1 ~ /^[0-9]+$/ && $2 != \"\" && $2 != s",
+    "new": "$1 ~ /^[0-9]+$/ && $2 != \"\""
+  },
+  {
+    "label": "the batch path ignores the hold, so a held PR joins the union gate the batch then pays for",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-hold-not-a-batch-member bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "    ux_cooldown_skip \"$slug\" && continue\n    L=\"$STATE/merge/$slug.lock\"\n    if [ -d \"$L\" ] && kill -0",
+    "new": "    L=\"$STATE/merge/$slug.lock\"\n    if [ -d \"$L\" ] && kill -0"
+  },
+  {
+    "label": "the dispatcher never computes the mover set, so every hold sees an empty list and no row rests",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-held-for-spec-mover bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "  UX_SPEC_MOVERS=\"$(ux_spec_movers \"$PRJ\")\"",
+    "new": "  UX_SPEC_MOVERS=\"\""
+  },
+  {
+    "label": "the walker-spec family is empty, so no open PR is ever a mover and no cooled row rests",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-held-for-spec-mover bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "UX_SPEC_PATHS=\"rsi/runtime/ux/journeys.json rsi/runtime/ux/journeys rsi/runtime/ux/walk.mjs rsi/runtime/ux/optional-grace.mjs rsi/runtime/ux/walk-log.mjs\"",
+    "new": "UX_SPEC_PATHS=\"\""
+  },
+  {
+    "label": "the yield candidate set ignores the hold, so a small gives the last general slot to a verifier the hold will not start",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=cooldown-hold-not-a-yield-target bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "old": "    ux_cooldown_skip \"$slug\" && continue\n    if [ \"$tier\" = large ] &&",
+    "new": "    if [ \"$tier\" = large ] &&"
   }
 ]
