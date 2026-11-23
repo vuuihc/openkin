@@ -112,6 +112,7 @@ import {
   IconFolderOpen,
   IconMachine,
   IconMore,
+  IconPencil,
   IconPin,
   IconPlus,
   IconRefresh,
@@ -125,6 +126,7 @@ import {
   type SessionStatusFilter,
 } from "../ui/SessionFilters";
 import { useAppStore } from "../../store/appStore";
+import ProjectSummaryEditor from "./ProjectSummaryEditor";
 import SessionRow from "./SessionRow";
 import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
 
@@ -313,7 +315,12 @@ export default function SessionList({
   const [projectMenu, setProjectMenu] = useState<{
     bucket: PhoneProjectBucket;
     archived: boolean;
+    /** The local project record behind the bucket, when it has one. */
+    summaryProjectId: string | null;
   } | null>(null);
+  // The one-line summary editor is the cover's editor, moved to the row. It
+  // opens over the list, so the list has to own which project it is for.
+  const [summaryProjectId, setSummaryProjectId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -938,7 +945,19 @@ export default function SessionList({
         onOpenProject={() => void openProject(bucket)}
         onNewSession={() => newSessionIn(bucket)}
         onArchiveProject={() => archiveProjectConfirmed(bucket)}
-        onProjectMenu={() => setProjectMenu({ bucket, archived: scope === "archived" })}
+        onProjectMenu={() =>
+          setProjectMenu({
+            bucket,
+            archived: scope === "archived",
+            summaryProjectId: instructionsProject?.id ?? null,
+          })
+        }
+        onEditSummary={
+          // The same record the row reads its work instructions from. A remote
+          // copy of the path and a folder with no record have no One-Pager
+          // here, so they get no pencil either.
+          instructionsProject ? () => setSummaryProjectId(instructionsProject.id) : undefined
+        }
         offline={offline}
         instructionsProjectId={instructionsProject?.id ?? null}
         instructions={instructionsProject ? projectInstructions[instructionsProject.id] : undefined}
@@ -1628,6 +1647,17 @@ export default function SessionList({
                 label: tr("nav.newSessionIn", { project: projectMenu.bucket.label }),
                 onSelect: () => newSessionIn(projectMenu.bucket),
               },
+              // The cover's summary editor, moved to the row. Only this
+              // machine's project record has a One-Pager to write.
+              ...(projectMenu.summaryProjectId
+                ? [
+                    {
+                      id: "edit-summary",
+                      label: tr("nav.editSummary"),
+                      onSelect: () => setSummaryProjectId(projectMenu.summaryProjectId),
+                    },
+                  ]
+                : []),
               // Pin, cover and archive are this machine's project facts. A
               // remote copy is offered only the action that works there (a new
               // session, which keeps its machine) rather than rows that would
@@ -1692,12 +1722,22 @@ export default function SessionList({
     />
   );
 
+  const summaryEditor = (
+    <ProjectSummaryEditor
+      open={summaryProjectId !== null}
+      projectId={summaryProjectId}
+      offline={offline}
+      onClose={() => setSummaryProjectId(null)}
+    />
+  );
+
   if (shell === "sidebar") {
     return (
       <>
         {toolbar}
         <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">{body}</div>
         {projectSheet}
+        {summaryEditor}
       </>
     );
   }
@@ -1719,6 +1759,7 @@ export default function SessionList({
           end of the list can scroll clear of it. */}
       <div className="h-20" aria-hidden />
       {projectSheet}
+      {summaryEditor}
     </MobileScreen>
   );
 }
@@ -2130,6 +2171,7 @@ function ProjectBucket({
   onNewSession,
   onArchiveProject,
   onProjectMenu,
+  onEditSummary,
   instructionsProjectId,
   instructions,
   instructionsHref,
@@ -2188,6 +2230,9 @@ function ProjectBucket({
   onNewSession: () => void;
   onArchiveProject: () => void;
   onProjectMenu: () => void;
+  /** Edit the one-line summary here; absent when the bucket has no local
+   *  project record (the One-Pager lives on this machine only). */
+  onEditSummary?: () => void;
   /** The local project record this bucket is, or null when it has none. */
   instructionsProjectId: string | null;
   instructions?: ProjectInstructionsEntry;
@@ -2371,6 +2416,13 @@ function ProjectBucket({
             >
               <IconFile size={12} />
             </ProjectIconButton>
+            {onEditSummary ? (
+              // The cover is being retired; its summary editor lives here,
+              // beside the cover icon it writes to.
+              <ProjectIconButton label={tr("nav.editSummary")} onClick={onEditSummary}>
+                <IconPencil size={12} />
+              </ProjectIconButton>
+            ) : null}
             {local && !archived ? (
               <>
                 <ProjectIconButton
