@@ -3480,7 +3480,20 @@ J4_SAVE_EN = "Save folders"
 # KIN-CONTRACT-001: the collection is gone, so the cover opens from the
 # conversation list's project heading. The collapse chevron beside it also
 # carries the project name, but it is the aria-expanded one.
-J4_ALPHA_LINK = "css=button[aria-label*='Project Alpha']:not([aria-expanded])"
+#
+# The press lands on the heading's leading folder icon, not on the button's
+# own centre. A fine pointer floats five 24 px project buttons over the row's
+# tail (`SessionList.tsx`, `pointer-events-none` until the row is hovered); the
+# heading is `flex-1`, so its box runs under that strip and Playwright's
+# centre-of-the-element press lands inside the strip's first button (+ new
+# session in this project). Measured, not theorised: state/shots/delete-pagesb2b
+# holds J4/mac and J4/mac-wide at 86 lines each, every one chained from
+# "locator.click: Timeout 3000ms exceeded", and the shot after the press
+# (`J4-mac-02-project-cover.png`) shows /new with the strip open over a
+# truncated "[seed] Project" — the press reached the strip and navigated. The
+# icon's centre is far left of the strip, and the click still bubbles to the
+# heading's own handler, which is the control a person sees.
+J4_ALPHA_LINK = "css=button[aria-label*='Project Alpha']:not([aria-expanded]) svg"
 # A `goto` is a fresh document load; `/projects` redirects to the list now, so
 # either path proves the cover re-read the store rather than React state.
 J4_LIST_PATHS = ("/projects", "/sessions")
@@ -3803,24 +3816,35 @@ def _j4_roots_problems(steps: list) -> list[str]:
     def is_gone_editor(step: list) -> bool:
         return (step[0] == "gone" and J4_SAVE in str(step[1]) and J4_SAVE_EN in str(step[1]))
 
-    link = at(lambda step: step[0] == "click" and step[1] == J4_ALPHA_LINK)
+    # The first press of the project heading, matched by prefix: the aim check
+    # below has to see a press that lost its icon, which an equality match on
+    # the aimed selector would skip in favour of a later press that kept it.
+    link = at(lambda step: step[0] == "click" and "aria-label*='Project Alpha']" in str(step[1]))
     if link < 0:
         problems.append("J4 never opens Project Alpha by name (click %s)" % J4_ALPHA_LINK)
     elif not required(steps[link]):
         problems.append("the Project Alpha link click is optional")
     else:
-        # The click's own budget is 3000 ms (walk.mjs) while the readiness reads
-        # around it get RSI_UX_WAIT_MS (15000). The list draws the project row
-        # after the whole sessions surface loads, so on a busy Mac the click met
-        # an unpainted row: state/shots/delete-pagesb2b holds J4/mac and
-        # J4/mac-wide, 86 lines each, every one chained from the first line
-        # "locator.click: Timeout 3000ms exceeded", while J4/phone stayed green.
-        # The wait spends the click's paint budget out of the 15000 ms pot.
+        # Two separate things, both measured:
+        #  * the press must land left of the row's hover strip. A centre press on
+        #    the heading button hits the strip's first button and navigates to
+        #    /new (J4/mac and J4/mac-wide, 86 lines each, all chained from
+        #    "locator.click: Timeout 3000ms exceeded" in
+        #    state/shots/delete-pagesb2b; J4/phone stayed green because a coarse
+        #    pointer draws no strip);
+        #  * the row must have painted before the 3000 ms click budget starts, so
+        #    a cold list is a wait, not a hard fail. `wait` reads with
+        #    RSI_UX_WAIT_MS (15000).
+        if not str(steps[link][1]).endswith(" svg"):
+            problems.append(
+                "J4 presses the Project Alpha heading at its centre, where the hover strip's "
+                "first button covers it (aim at the leading icon instead)"
+            )
         ready = steps[link - 1] if link > 0 else None
         if not (isinstance(ready, list) and ready[:1] == ["wait"] and ready[1] == J4_ALPHA_LINK):
             problems.append(
                 "J4 presses the Project Alpha link without a preceding wait for the same selector "
-                "(a 3000 ms click on a list still painting)"
+                "(a 3000 ms click budget against a list that may not have painted)"
             )
     cover = at(lambda step: is_shot(step, "project-cover"))
     if cover < 0:
@@ -4334,12 +4358,24 @@ class WalkJ4ContractTest(unittest.TestCase):
         self.assertIsNotNone(mobile, "no paths row owns ui/src/components/mobile/")
         self.assertNotIn("J4", mobile[1], "a phone-list change now pays for J4's desktop legs")
 
+    def test_j4_contract_rejects_a_press_behind_the_hover_strip(self) -> None:
+        # A press at the heading button's own centre lands inside the five-button
+        # hover strip that floats over the row's tail, which is what
+        # state/shots/delete-pagesb2b measured: J4/mac and J4/mac-wide, 86 lines
+        # each, all chained from "locator.click: Timeout 3000ms exceeded", and
+        # the shot after the press shows /new with the strip open over a
+        # truncated "[seed] Project".
+        def press_the_centre(steps: list) -> None:
+            at = next(i for i, step in enumerate(steps) if step[0] == "click" and step[1] == J4_ALPHA_LINK)
+            steps[at] = ["click", J4_ALPHA_LINK[:-len(" svg")]]
+
+        problems = self.problems_after(press_the_centre)
+        self.assertTrue(any("hover strip" in problem for problem in problems), problems)
+
     def test_j4_contract_rejects_a_press_before_the_list_paints(self) -> None:
         # The click's own budget is 3000 ms while the readiness reads around it
-        # get RSI_UX_WAIT_MS (15000). state/shots/delete-pagesb2b holds J4/mac and
-        # J4/mac-wide, 86 lines each, every one chained from
-        # "locator.click: Timeout 3000ms exceeded" on a list still painting,
-        # while J4/phone stayed green on the same tree.
+        # get RSI_UX_WAIT_MS (15000), so a cold sessions list must be waited for
+        # rather than charged to the press.
         def drop_the_wait(steps: list) -> None:
             steps[:] = [
                 step
