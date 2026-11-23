@@ -14,6 +14,8 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 MERGE_WORKERS="${RSI_MERGE_WORKERS:-2}"          # verifier slots for any PR
 SMALL_SLOTS="${RSI_MERGE_SMALL_SLOTS:-1}"        # extra slot only small-safe PRs may use: a 3-line refactor never queues behind two big reviews
+SLOT_YIELD_MIN="${RSI_SLOT_YIELD_MIN:-10}"; case "$SLOT_YIELD_MIN" in ''|*[!0-9]*) SLOT_YIELD_MIN=10 ;; esac
+                                                 # a small PR yields the last general slot to a big/medium PR queued this long (0 disables)
 REWORK_STALL_MIN="${RSI_REWORK_STALL_MIN:-20}"   # a sendback no lane picks up for this long is escalated, not waited on
 unset SB_FIXLIST SB_GATEFAILS
 say() { echo "[$(date +%T)] $*"; }
@@ -615,6 +617,44 @@ carry_forward() { # <worktree> <incoming-paths> <pr-changed-paths> <gate-file> <
 # ------------------------------------------------------------------ queue-time carry
 pr_diff_hash() { # <worktree> — the review key (step 4's DH): the PR's own diff, dist + lockfile excluded
   $GIT -C "$1" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16
+}
+
+# The UX walk cache (state/merge/<slug>.uxverified) survives a main move only when nothing that can
+# change the rendered console moved. This key digests every ui/ path except the families that
+# provably cannot render: test/spec files, __tests__/ and test/ fixtures, mutant manifests and
+# markdown. Everything else — package.json, the lockfile, every source and style file — stays in,
+# so a path family this cannot positively classify still re-walks (the cache is only worth a walk
+# when the walk is provably still about this console).
+ux_carry_key() { # <worktree> <main-ref> — digest of everything under ui/ that can change the rendered console
+  local tree
+  tree="$($GIT -C "$1" ls-tree -r "$2" -- ui 2>/dev/null)" || { echo unreadable; return 0; }
+  printf '%s\n' "$tree" \
+    | grep -vE '(\.(test|spec)\.[^/]+$|/__tests__/|/test/|\.mutants\.json$|\.md$)' \
+    | shasum | cut -c1-16
+}
+
+ux_carry_verdict() { # <worktree> <main-ref> <uxverified-file> <pr-diff-hash>
+  # 0 = CARRY (UX_CARRY_KEY names the tree the cached walk is still evidence for); 1 = REGATE
+  # (UX_CARRY_REASON says which half moved). The land block reads this verdict and writes the same
+  # UX_CARRY_KEY at its PASS line, so the cached walk can never be keyed by one tree and looked up
+  # by another. Any unreadable or disagreeing field re-walks.
+  local wt="$1" ref="$2" uxv="$3" dh="$4" rec_dh="" rec_ver="" rec_key=""
+  UX_CARRY_KEY="$(ux_carry_key "$wt" "$ref")-$($GIT -C "$wt" rev-parse HEAD:ui/package-lock.json 2>/dev/null || echo none)"
+  [ -s "$uxv" ] && { read -r rec_dh rec_ver rec_key _ < "$uxv" 2>/dev/null || true; }
+  if [ -z "$rec_dh$rec_ver$rec_key" ]; then
+    UX_CARRY_REASON="no completed UX walk recorded for this PR"; return 1
+  fi
+  if [ "$rec_dh" != "$dh" ]; then
+    UX_CARRY_REASON="the PR diff moved (${rec_dh:-none} -> $dh)"; return 1
+  fi
+  if [ "$rec_ver" != PASS ]; then
+    UX_CARRY_REASON="the recorded walk is ${rec_ver:-unreadable}, not PASS"; return 1
+  fi
+  if [ "$rec_key" != "$UX_CARRY_KEY" ]; then
+    UX_CARRY_REASON="the rendered console's inputs moved (${rec_key:-none} -> $UX_CARRY_KEY)"; return 1
+  fi
+  UX_CARRY_REASON="PR diff and the rendered console's inputs are unchanged"
+  return 0
 }
 
 queue_carry() { # <wt> <old-head> <new-sha> <incoming> <pr-changed> <gate-file> <reviewed-file> <role>
@@ -1483,6 +1523,97 @@ for _,n,slug,title,tier,labs in sorted(rows):   # small-safe first, then PR numb
     print("%d\t%s\t%s\t%s\t%s" % (n,slug,title,tier,labs))'
 }
 
+# ------------------------------------------------------------------ verifier slot picker
+# One predicate, two callers: the dispatcher loop and --slot-select-check. MERGE_WORKERS general
+# slots plus SMALL_SLOTS reserved. big/medium PRs use the general slots; small-safe PRs may use any
+# free slot but never the last one a big PR could take, so neither starves. On top of that, a small
+# that is about to take the LAST free general slot yields it to a big/medium PR that has already
+# waited SLOT_YIELD_MIN minutes — but only when that big can actually start, so the reserved slot
+# never sits idle. 2026-11-21: a docs typo fix arrived while #5xx waited 12m for the last slot,
+# took it, and the big PR then queued behind a 20-30m verifier it had already outwaited.
+
+# Slugs of the big/medium rows in a TSV row stream that this pass would actually try to start. A
+# stale queued_at left by a PR that has since merged or closed must not make the reserved slot
+# idle, so the yield only considers PRs that are still rows in this pass — and only rows the loop
+# reaches slot_claim() for: an active lane, a pending sendback, a CEO hold or a large PR whose
+# strong reviewer is unavailable still keeps its old .queued_at but never starts, so yielding to it
+# would idle the reserved slot for as long as the hold or the sol-quota outage lasts. The predicates
+# below are the loop's own, in its order, so the candidate set cannot drift from what it will start.
+SLOT_ACTIVE=""; SLOT_BIG_ROWS=""
+slot_big_rows() { # rows on stdin; SLOT_ACTIVE = this pass's lane slugs
+  local n slug _title tier labels
+  while IFS=$'\t' read -r n slug _title tier labels; do
+    [ -z "$n" ] && continue
+    [ "$tier" = small ] && continue
+    printf '%s\n' "$SLOT_ACTIVE" | grep -qx "$slug" && continue
+    [ -e "$STATE/sendback/$slug.md" ] && continue
+    ceo_hold_skip "$slug" "$labels" "$n" >/dev/null && continue
+    if [ "$tier" = large ] && [ "$(awk '{print $2}' "$STATE/merge/$slug.reviewed" 2>/dev/null)" != PASS ] \
+       && [ ! -s "$STATE/merge/$slug.strong" ] \
+       && python3 "$RSI_DIR/runtime/escalate.py" --no-strong-available >/dev/null 2>&1 < /dev/null; then continue; fi
+    printf '%s\n' "$slug"
+  done
+}
+
+# Count the live verifier locks and how many of them are big/medium (an absent .tier is a big).
+slot_running() {
+  local l rs; running=0; running_big=0
+  for l in "$STATE"/merge/*.lock; do
+    [ -d "$l" ] && kill -0 "$(cat "$l/pid" 2>/dev/null || echo 0)" 2>/dev/null || continue
+    running=$((running+1)); rs="$(basename "$l" .lock)"
+    [ "$(cat "$STATE/merge/$rs.tier" 2>/dev/null)" = small ] || running_big=$((running_big+1))
+  done
+}
+
+# The oldest candidate big/medium PR that has waited SLOT_YIELD_MIN minutes and is not already
+# running. Nothing on disk records a queued PR's tier until its verifier starts, so an absent
+# .tier is a big — the dispatcher's own unknown = large default.
+slot_waiting_big() { # -> 0 and SLOT_YIELD_SLUG/SLOT_YIELD_AGE when such a PR is waiting
+  local f slug ts now best="" best_ts="" since
+  now="$(date +%s)"
+  for f in "$STATE"/merge/*.queued_at; do
+    [ -f "$f" ] || continue
+    slug="$(basename "$f" .queued_at)"
+    printf '%s\n' "$SLOT_BIG_ROWS" | grep -qxF "$slug" || continue
+    [ "$(cat "$STATE/merge/$slug.tier" 2>/dev/null)" = small ] && continue
+    [ -d "$STATE/merge/$slug.lock" ] && kill -0 "$(cat "$STATE/merge/$slug.lock/pid" 2>/dev/null || echo 0)" 2>/dev/null && continue
+    ts="$(cat "$f" 2>/dev/null)"; case "$ts" in ''|*[!0-9]*) continue ;; esac
+    since=$(( (now - ts) / 60 ))
+    [ "$since" -ge "$SLOT_YIELD_MIN" ] || continue
+    if [ -z "$best" ] || [ "$ts" -lt "$best_ts" ]; then best="$slug"; best_ts="$ts"; fi
+  done
+  [ -n "$best" ] || return 1
+  SLOT_YIELD_SLUG="$best"; SLOT_YIELD_AGE=$(( (now - best_ts) / 60 ))
+}
+
+# True when a small PR must give up the last free general slot: exactly one slot is left, a
+# big/medium PR can start under the general-slot rule, and such a PR has waited long enough.
+slot_yield_to_big() {
+  SLOT_YIELD_SLUG=""; SLOT_YIELD_AGE=0
+  [ "$SLOT_YIELD_MIN" -gt 0 ] || return 1
+  [ "$running" -eq $((MERGE_WORKERS + SMALL_SLOTS - 1)) ] || return 1
+  [ "$running_big" -lt "$MERGE_WORKERS" ] || return 1
+  slot_waiting_big
+}
+
+# 0 = start, 1 = wait; sets SLOT_MSG to the dispatcher's one-line reason.
+slot_claim() { # <tier>
+  local tier="$1"; SLOT_MSG=""
+  if [ "$tier" = small ]; then
+    if [ $((running - running_big)) -ge $((MERGE_WORKERS + SMALL_SLOTS - 1)) ] || [ $running -ge $((MERGE_WORKERS + SMALL_SLOTS)) ]; then
+      SLOT_MSG="[small]: small slots busy"; return 1
+    fi
+    if slot_yield_to_big; then
+      SLOT_MSG="[small]: yields the last general slot to $SLOT_YIELD_SLUG (queued ${SLOT_YIELD_AGE}m)"; return 1
+    fi
+  else
+    if [ "$running_big" -ge "$MERGE_WORKERS" ] || [ "$running" -ge $((MERGE_WORKERS + SMALL_SLOTS)) ]; then
+      SLOT_MSG="[$tier]: all $MERGE_WORKERS general verifier slots busy"; return 1
+    fi
+  fi
+  return 0
+}
+
 # ------------------------------------------------------------------ dispatcher: form one batch
 # Called once before the per-PR start loop when RSI_BATCH_VERIFY=1. Every skip below is the loop's
 # own rule (active lane, pending sendback, CEO hold, live lock); batch_plan then applies the
@@ -1587,6 +1718,27 @@ if [ "${1:-}" != "--one" ]; then
   # the same dispatch_rows() the loop calls — over gh `pr list` JSON on stdin, with the
   # needs-ceo/hold labels applied because a held PR is not a candidate. No gh, fetch or state write.
   if [ "${1:-}" = "--pr-select-check" ]; then dispatch_rows --candidate-labels; exit $?; fi
+  # Hermetic seam for rsi/runtime/tests/test-merge-slot-priority.sh: the dispatcher's verifier
+  # slot picker over the same TSV rows on stdin, the same live locks, .tier/.queued_at files and
+  # yield candidates (the loop's pre-slot skips), and the same slot_claim() the loop calls. Prints
+  # one START/SKIP line per row and simulates a start in memory. No gh, git, lane or dispatch call,
+  # and no lock or .tier write.
+  if [ "${1:-}" = "--slot-select-check" ]; then
+    SLOT_ROWS="$(cat)"
+    SLOT_ACTIVE="$(python3 "$LANES_PY" slugs 2>/dev/null || true)"
+    SLOT_BIG_ROWS="$(printf '%s\n' "$SLOT_ROWS" | slot_big_rows)"
+    slot_running
+    while IFS=$'\t' read -r n slug _title tier _labels; do
+      [ -z "$n" ] && continue
+      if slot_claim "$tier"; then
+        printf 'START\t%s\t%s\n' "$n" "$slug"
+        running=$((running+1)); [ "$tier" = small ] || running_big=$((running_big+1))
+      else
+        printf 'SKIP\t%s\t%s\t%s\n' "$n" "$slug" "$SLOT_MSG"
+      fi
+    done <<< "$SLOT_ROWS"
+    exit 0
+  fi
   # Hermetic seam for rsi/runtime/tests/test-claim-check.sh: the prose claim check on a throwaway
   # worktree and two files on disk, the same script the verifier runs. No state, lock, gh or model;
   # the exit code is the check's own (0 pass/not-applicable/waived, 1 failed).
@@ -1711,6 +1863,15 @@ if [ "${1:-}" != "--one" ]; then
     fi
     echo "REGATE $CARRY_REASON"; exit 1
   fi
+  # Hermetic seam for rsi/runtime/tests/test-ux-carry-key.sh: print the carry key and the verdict
+  # the UX-gate block reads, over temp repos on disk. No gh, fetch, gate, walk, review or dispatch.
+  if [ "${1:-}" = "--ux-carry-key-check" ]; then
+    # usage: merge.sh --ux-carry-key-check <worktree> <main-ref> [<uxverified-file> <pr-diff-hash>]
+    [ $# -ge 3 ] || { echo "usage: merge.sh --ux-carry-key-check <worktree> <main-ref> [<uxverified-file> <pr-diff-hash>]" >&2; exit 2; }
+    echo "KEY $(ux_carry_key "$2" "$3")"
+    if ux_carry_verdict "$2" "$3" "${4:-}" "${5:-}"; then echo "CARRY $UX_CARRY_KEY"; exit 0; fi
+    echo "REGATE $UX_CARRY_REASON"; exit 1
+  fi
   # Hermetic seam for rsi/runtime/tests/test-loop-sendback-stale.sh: run the same sendback() the
   # land loop calls with a stubbed PR head. No lock, fetch, gate, review, merge or dispatch.
   if [ "${1:-}" = "--stale-check" ]; then
@@ -1832,11 +1993,9 @@ if [ "${1:-}" != "--one" ]; then
   # One gate for ready disjoint PRs (RSI_BATCH_VERIFY=1): form and start the batch runner before
   # the loop claims slots, so the batched slugs are started once, by the runner, not as singles.
   { batch_enabled && [ $DRY -eq 0 ]; } && dispatch_try_batch "$PRJ"
-  running=0; running_big=0
-  for l in "$STATE"/merge/*.lock; do
-    [ -d "$l" ] && kill -0 "$(cat "$l/pid" 2>/dev/null || echo 0)" 2>/dev/null || continue
-    running=$((running+1)); rs="$(basename "$l" .lock)"; [ "$(cat "$STATE/merge/$rs.tier" 2>/dev/null)" = small ] || running_big=$((running_big+1))
-  done
+  SLOT_ACTIVE="$ACTIVE"
+  SLOT_BIG_ROWS="$(printf '%s\n' "$PRS" | slot_big_rows)"
+  slot_running
   while IFS=$'\t' read -r -u 3 N SLUG TITLE TIER LABELS; do
     [ -z "$N" ] && continue
     if [ -n "$BATCH_SLUGS" ] && printf ' %s ' "$BATCH_SLUGS" | grep -q " $SLUG "; then say "#$N $SLUG: in batch $BATCH_ID, skip"; continue; fi
@@ -1851,10 +2010,9 @@ if [ "${1:-}" != "--one" ]; then
     if [ "$TIER" = large ] && [ "$(awk '{print $2}' "$STATE/merge/$SLUG.reviewed" 2>/dev/null)" != PASS ] && [ ! -s "$STATE/merge/$SLUG.strong" ] && python3 "$RSI_DIR/runtime/escalate.py" --no-strong-available >/dev/null 2>&1; then
       say "#$N $SLUG [large]: waiting for a strong reviewer (Hydrogen/sol quota)"; continue; fi
     [ -e "$STATE/merge/$SLUG.queued_at" ] || date +%s > "$STATE/merge/$SLUG.queued_at"   # first time it was eligible: queue-wait metric
-    # Slot policy: MERGE_WORKERS general slots + SMALL_SLOTS reserved. big/medium PRs use the general slots; small-safe PRs may use any
-    # free slot but never the last one a big PR could take (small concurrency <= MERGE_WORKERS + SMALL_SLOTS - 1), so neither starves.
-    if [ "$TIER" = small ]; then [ $((running - running_big)) -ge $((MERGE_WORKERS + SMALL_SLOTS - 1)) ] || [ $running -ge $((MERGE_WORKERS + SMALL_SLOTS)) ] && { say "#$N $SLUG [small]: small slots busy"; continue; }
-    else [ $running_big -ge "$MERGE_WORKERS" ] || [ $running -ge $((MERGE_WORKERS + SMALL_SLOTS)) ] && { say "#$N $SLUG [$TIER]: all $MERGE_WORKERS general verifier slots busy"; continue; }; fi
+    # The slot picker is slot_claim(), shared with --slot-select-check so the seam and the live
+    # picker cannot disagree. SLOT_MSG carries the one-line reason.
+    if ! slot_claim "$TIER"; then say "#$N $SLUG $SLOT_MSG"; continue; fi
     [ $DRY -eq 1 ] && { say "#$N $SLUG: would verify (dry-run)"; running=$((running+1)); continue; }
     mkdir "$L" 2>/dev/null || continue; echo $$ > "$L/pid"   # claimed; the worker rewrites its own pid
     echo "$TIER" > "$STATE/merge/$SLUG.tier"; [ "$TIER" = small ] || running_big=$((running_big+1))
@@ -2372,10 +2530,10 @@ echo "$CH" | grep -E '^ui/src/.*\.(tsx|css)$' | grep -vqE '\.(test|spec)\.' && U
 echo "$CH" | grep -qE '^(ui/package(-lock)?\.json|ui/tailwind|ui/postcss)' && UI_TOUCH=1
 if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
   UXV="$STATE/merge/$SLUG.uxverified"
-  MAINUI="$($GIT -C "$WT" rev-parse origin/main:ui 2>/dev/null || $GIT -C "$WT" rev-parse origin/main)-$($GIT -C "$WT" rev-parse HEAD:ui/package-lock.json 2>/dev/null || echo none)"
-  if [ "$(cut -d' ' -f1 "$UXV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$UXV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f3 "$UXV" 2>/dev/null)" = "$MAINUI" ]; then
-    say "#$N $SLUG: UX gate carried over (PR diff and origin/main:ui unchanged)"
+  if ux_carry_verdict "$WT" origin/main "$UXV" "$DH"; then
+    say "#$N $SLUG: UX gate carried over ($UX_CARRY_REASON: $UX_CARRY_KEY)"
   else
+    say "#$N $SLUG: UX gate re-walks ($UX_CARRY_REASON)"
     # Reuse a strong UX review for this same head SHA (do not re-call Hydrogen/sol), but only
     # when the gate's own decision accepts the cached text: reusing an ungrounded below-threshold
     # score is #383 again (its FAIL sends the PR back, its PASS merges it) one tick after the gate
@@ -2454,7 +2612,7 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
     fi
     SC="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(" ".join("%s=%s"%kv for kv in d["scores"].items()), "mean=%s"%d["mean"])' "$STATE/ux/$SLUG/scores.json" 2>/dev/null)"
     if [ $urc -eq 0 ]; then
-      echo "$DH PASS $MAINUI" > "$UXV"
+      echo "$DH PASS $UX_CARRY_KEY" > "$UXV"
       $GH pr comment "$N" --repo "$GH_REPO" --body "RSI UX gate: PASS on ${SHA:0:8} ($SC). Journey screenshots are kept on the CEO machine (rsi/state/shots/$SLUG/journeys/). Rubric: rsi/UX-RUBRIC.md." >/dev/null 2>&1
     elif [ $urc -eq 1 ]; then
       say "#$N $SLUG: UX gate FAIL ($SC)"; sendback "$SLUG" "$ITEM" "UX gate failed ($SC)" "$STATE/merge/$SLUG.ux.txt" "ux-gate" "$(spec_rev "$WT")" "bash $RSI_DIR/runtime/ux-gate.sh $WT $SLUG $ITEM $N $DH $ROLE"

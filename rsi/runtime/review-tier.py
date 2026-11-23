@@ -7,7 +7,10 @@ Input is a numstat ("add<TAB>del<TAB>path" per line) or the `files` array of `gh
 Prints one line:  <tier> <role> <size> <reasons...>
 
   small   pure refactor/extract (or <= 400 changed lines), no deps/migrations/auth/persist/permission, no routing-contract
-          files, tests only ADDED (no test file deleted or with removed lines), not a foundation/shell/nav slice
+          files, tests only ADDED (no test file deleted or with removed lines), not a foundation/shell/nav slice;
+          docs and their design artifacts (a story's Figma frames and review page under docs/) carry no runtime
+          surface, so a long one is docs-only small and never pays the size rule (2026-11-23: #629, 1346 lines of
+          SVG/HTML, gated as `large` and held the only big slot for 51 minutes)
           -> role `reviewer`, ONE DeepSeek max review; escalation signals other than rework>=2 are ignored (RSI_REVIEW_TIER=small).
           If DeepSeek ends `VERDICT: UNSURE`, merge.sh runs the sol second reviewer once.
   medium  not small, <= 500 lines, nothing risky   -> role `reviewer` (DeepSeek, normal escalation signals)
@@ -24,6 +27,10 @@ ROUTING = re.compile(r"(route|router|navigation|areamodel|areas?\.ts|phonenav|ph
 TEST = re.compile(r"(\.(test|spec)\.[a-z]+$|__tests__/|/tests?/|_test\.go$)")
 SHELLISH = re.compile(r"^(F\d|S\d|N\d|Q3a)")
 DOC = re.compile(r"\.(md|txt)$")
+# A story's design artifacts (Figma frames, the review page) sit beside its .md contract and carry no
+# runtime surface. Without this they fell through to the size rule: #629 (6 frames + 1 review page,
+# 1346 lines) classified `large` and spent the single big merge slot 51 minutes across two gates.
+DOC_ARTIFACT = re.compile(r"^docs/.*\.(html|svg|png|jpg|jpeg|webp)$")
 
 
 def item_info(item):
@@ -41,18 +48,20 @@ def classify(title, item, attempts, rows):
     sl = item_info(item) if item else None
     kind_refactor = bool(re.match(r"^refactor(\(|:)", title or "", re.I)) or bool(sl and re.match(r"extract", sl["title"], re.I)) \
         or bool(re.search(r"\bextract\b", title or "", re.I))
+    docs_only = bool(paths) and all(DOC.search(p) or DOC_ARTIFACT.search(p) for p in paths)
     why_large = []
     if attempts >= 2: why_large.append("rework-round-%d" % attempts)
     if item and SHELLISH.match(item): why_large.append("foundation/shell/nav:%s" % item)
     risky = [p for p in paths if RISKY.search(p)]
     if risky: why_large.append("risky:%s" % risky[0])
-    if size > 500 and not (kind_refactor and size <= 800): why_large.append("size:%d" % size)
+    # Prose and design artifacts have no runtime surface to break, so length is not a risk signal for
+    # them. Rework, foundation and risky-path signals above still escalate a docs PR.
+    if size > 500 and not docs_only and not (kind_refactor and size <= 800): why_large.append("size:%d" % size)
     if why_large:
         return "large", "reviewer-alt", size, why_large
     # small-safe checks
     routing = [p for p in paths if ROUTING.search(p) and not TEST.search(p)]
     tests_touched_badly = [p for a, d, p in rows if TEST.search(p) and d > 0]
-    docs_only = bool(paths) and all(DOC.search(p) for p in paths)
     reasons = []
     if docs_only: reasons.append("docs-only")
     elif kind_refactor and size <= 800: reasons.append("refactor/extract")

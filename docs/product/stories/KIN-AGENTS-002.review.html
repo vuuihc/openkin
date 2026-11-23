@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f6feb'/%3E%3Cpath d='M8 10h7v2H8zm0 5h12v2H8zm0 5h9v2H8zm13-9h3v3h-3zm0 5h3v3h-3z' fill='white'/%3E%3C/svg%3E">
+<title>KIN-AGENTS-002 · 探测、导入、角色的边界 · Figma 审阅</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1a1a1a;
+    --muted: #666a73;
+    --line: #dedee3;
+    --bg: #f1f1f4;
+    --page: #fbfbfd;
+    --card: #ffffff;
+    --accent: #1f6feb;
+    --accent-soft: #eef3ff;
+    --warn: #b42318;
+    --warn-soft: #fff1f0;
+    --ok: #137a3f;
+    --ok-soft: #eef8f1;
+    --gutter: clamp(16px, 5vw, 24px);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7;
+      --muted: #a1a1aa;
+      --line: #35353a;
+      --bg: #0b0b0d;
+      --page: #141416;
+      --card: #1d1d20;
+      --accent: #6ea8fe;
+      --accent-soft: #17243a;
+      --warn: #ff8a80;
+      --warn-soft: #2a1717;
+      --ok: #6dd58c;
+      --ok-soft: #13251b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  code { padding: 1px 5px; border-radius: 5px; background: var(--bg); font-size: .9em; overflow-wrap: anywhere; }
+  .page { max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom)); background: var(--page); }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 26px; line-height: 1.28; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 2px; font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill { display: inline-flex; align-items: center; height: 25px; padding: 0 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.draft { color: var(--muted); background: var(--bg); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 15.5px; }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 14.5px; }
+  .howto li { margin: 5px 0; }
+  .note { color: var(--muted); font-size: 13.5px; }
+  .howto .note { margin: 4px 0 0; }
+  .toc {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 8px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 8px var(--gutter);
+    overflow-x: auto;
+    background: var(--page);
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none; display: inline-flex; align-items: center;
+    min-height: 44px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink);
+    font-size: 13px; text-decoration: none; white-space: nowrap;
+  }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 0 0 6px; font-size: 16px; line-height: 1.4; }
+  h4 { margin: 16px 0 8px; font-size: 15px; line-height: 1.4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .bullets { font-size: 14.5px; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 12.5px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card h3 { font-size: 15px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  table.data { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .table-wrap { margin: 10px 0; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 4px 12px; }
+  table.data th, table.data td { text-align: left; vertical-align: top; padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line); }
+  table.data th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+  table.data tr:last-child td { border-bottom: 0; }
+  table.data td:first-child { font-weight: 600; }
+  table.data code { font-size: .92em; }
+  table.data .ref { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a {
+    display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 12px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none;
+  }
+  .screen { margin: 16px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+  .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll {
+    overflow-x: auto; overflow-y: hidden;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: #fff;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-phone .frame-scroll { max-width: 390px; margin: 0 auto; }
+  .fig-phone img { width: 100%; }
+  .fig-wide img { width: 1100px; }
+  .frame figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li {
+    display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); font-size: 14.5px;
+  }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+  .flow .src { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+  .decision { margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 14px; }
+  .decision h3 { font-size: 16px; }
+  .decision p { font-size: 14.5px; }
+  .decision .rec { margin: 6px 0; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 13.5px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+  .reply { margin-top: 10px; }
+  .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 13.5px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .sign { border-left: 4px solid var(--muted); }
+  .sign p { margin: 6px 0; }
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+  a:focus-visible, .screen-index a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+    .toc { border-radius: 0; }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 620px) {
+    table.data, table.data thead, table.data tbody, table.data tr, table.data th, table.data td { display: block; width: 100%; }
+    table.data thead { display: none; }
+    table.data tr { padding: 9px 0; border-bottom: 1px solid var(--line); }
+    table.data tr:last-child { border-bottom: 0; }
+    table.data td { border: 0; padding: 2px 0; }
+    table.data td[data-label]::before { content: attr(data-label) " · "; color: var(--muted); font-size: 12px; }
+    table.data .ref { white-space: normal; }
+  }
+  @media (max-width: 380px) {
+    .flow li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 约 6 分钟 · 3 个待定 · 5 条已定</div>
+    <h1>KIN-AGENTS-002 · 探测、导入、角色的边界 <small>Figma 设计稿</small></h1>
+    <p class="meta"><strong>draft — awaiting the owner's sign</strong> · 面：Mac / 手机 · 对照 <code>KIN-AGENTS-002.md</code></p>
+    <p class="meta">归属面 <code>/settings?tab=agents</code> · 旅程 J6 · 2026 年 11 月 23 日 · 6 屏</p>
+    <div class="tags">
+      <span class="pill draft">draft — awaiting the owner's sign</span>
+      <span class="pill plain">旅程 J6</span>
+      <span class="pill plain">/settings?tab=agents</span>
+      <span class="pill plain">Mac / 手机</span>
+    </div>
+  </header>
+
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>当我打开设置 → agents，想弄清这台机器能跑什么、把一段旧会话带进来、或设一个角色默认，我想一眼看出哪一块是自动读的、哪一块只在我按下时发生、哪一块只是保存在本地，以便我不会把「检查安装」当成「导入」，也不会因为以后重做检测而丢掉导入和角色。</p>
+  </section>
+
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：这是同一个 tab 里的三件事，不是三个页面。顺序（安装状态 → 导入会话 → 角色默认）本身就是边界。</li>
+      <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程。帧讲样子，流程讲发生什么；对不上就是没画完。</li>
+      <li><strong>最后回决定</strong>：3 条待定各自写了推荐和代价；5 条已定不用回。页尾有可复制的回复模板。</li>
+    </ol>
+    <p class="note">本页是合同 part b 的审阅物。合同仍是 <code>draft</code>；本页不改合同、不改 <code>registry.json</code>、不改 <code>COVERAGE.md</code>。CEO 读完并回复后，下一轮才把状态改成 <code>approved</code>。页里的 <code>KIN-AGENTS-002.md:NN</code> 与单独出现的 <code>:NN</code> 都相对 <code>docs/product/stories/</code>；代码引用是从仓库根写起的完整路径。</p>
+  </section>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">设置页回答「默认用哪个」；这一屏回答「哪块自动读、哪块只在我按下时发生、哪块只是保存」。两者都归「设置与环境」。</p>
+    <div class="card mece">
+      <div class="mece-row">
+        <div class="name">接着问一段对话<div class="who">KIN-CONTINUE-001</div></div>
+        <span class="pill ok">已交付</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">新建一段对话<div class="who">KIN-START-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">看它改了什么<div class="who">KIN-RESULT-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">整理对话与项目<div class="who">KIN-MANAGE-001 · KIN-PROJECT-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row here">
+        <div class="name"><strong>设置与环境 · agents tab 的三组边界</strong><div class="who">KIN-AGENTS-001（完整 agent 列表）· KIN-AGENTS-002（本页）</div></div>
+        <span class="pill here">本页</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">让它按时跑<div class="who">KIN-ROUTINE-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">被叫回来<div class="who">KIN-NOTIFY-001</div></div>
+        <span class="pill ok">已签字</span>
+      </div>
+    </div>
+
+    <h3>三组，三个问题，三种写权限</h3>
+    <p class="note">同一个 tab 里正好三组，顺序固定。每组标题下一句规则，规则句就是这一组的写权限说明。</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>组</th><th>一句话规则</th><th>读什么</th><th>写什么</th><th>什么时候写</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td data-label="组">安装状态（探测）</td>
+            <td data-label="规则">自动读取，不改变任何东西</td>
+            <td data-label="读">本机 provider、状态、原因、能力徽标、上次检测时间（<code>/api/agent-providers</code>、<code>/api/agents</code>）</td>
+            <td data-label="写">不写</td>
+            <td data-label="时机">永不</td>
+          </tr>
+          <tr>
+            <td data-label="组">导入会话</td>
+            <td data-label="规则">只在按下时发生，只写会话索引</td>
+            <td data-label="读">同一份 provider 与能力元数据，但自己读，不依赖探测组的渲染</td>
+            <td data-label="写">只写会话索引</td>
+            <td data-label="时机">只在按下行内「导入」或组底「立即导入会话」时</td>
+          </tr>
+          <tr>
+            <td data-label="组">角色默认</td>
+            <td data-label="规则">保存后在新对话里用，不改变安装</td>
+            <td data-label="读">daemon 设置键 <code>agent_roles</code></td>
+            <td data-label="写">同一个键，随页面的一次保存落盘</td>
+            <td data-label="时机">按下「保存会话设置」时</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">合同：三组顺序与规则句 <code>KIN-AGENTS-002.md:37</code>、<code>:39</code>；探测范围 <code>:25</code>；导入范围 <code>:26</code>；角色范围 <code>:27</code>；导入组自读元数据 <code>:28</code>；最小状态行 <code>:29</code>。代码：刷新按钮 <code>ui/src/components/settings/LocalAgentSettingsSection.tsx:56-65</code>；行内导入 <code>:123-132</code>；组底导入 <code>:167-176</code>；角色区 <code>:181-187</code>；共享进行中标志 <code>ui/src/hooks/useAgentSessionImport.ts:39-45</code>（侧栏经 <code>ui/src/components/layout/AppShell.tsx:326</code>、<code>:622-623</code> 接到同一个 hook；侧栏菜单项在 <code>ui/src/components/layout/Sidebar.tsx:113-129</code>）；保存载荷 <code>ui/src/pages/SettingsPage.tsx:465</code>；角色键 <code>ui/src/lib/agentRoles.ts:10-11</code>。</p>
+
+    <h3>这个切法不包含什么</h3>
+    <ul class="bullets">
+      <li><strong>不删 <code>agents</code> tab，也不把导入或角色搬走。</strong>删 tab 是删能力，不是删半成品检测（<code>KIN-CONTRACT-001.md:40</code>、<code>KIN-AGENTS-002.md:134</code>）。</li>
+      <li><strong>不重做整个安装检测。</strong>本故事只画边界；检测重做是 <code>R-agents-detect</code> 的后续，不在这条里改检测算法（<code>KIN-AGENTS-002.md:13</code>、<code>:134</code>）。</li>
+      <li><strong>不新增数据表、后端接口或状态机。</strong>用现有的 <code>/api/agent-providers</code>、<code>/api/agents</code>、设置保存与导入接口（<code>KIN-AGENTS-002.md:139</code>，PRINCIPLE §5.5）。</li>
+      <li><strong>不长成第二张 agent 管理表。</strong>完整列表、安装、更新、卸载、登录、smoke 与用量仍归 operations console（<code>KIN-AGENTS-002.md:29</code>、<code>:138</code>；<code>KIN-AGENTS-001.md:24</code>、<code>:26</code>）。</li>
+      <li><strong>不改侧栏与 operations 的导入按钮。</strong>它们归 <code>KIN-AGENTS-001</code>；本故事只要求它们与这里的导入共享同一个动作与进行中标志（<code>KIN-AGENTS-002.md:140</code>）。</li>
+    </ul>
+
+    <h3>四条大小自检</h3>
+    <ul class="bullets">
+      <li><strong>一个动作：</strong>分清三组、按一次导入、存一个角色；没有第二步向导。</li>
+      <li><strong>两端都成立：</strong>Mac 1100×760 与手机 390×844 各一帧，另有四张状态板。</li>
+      <li><strong>装得下测试：</strong>14 条验收（<code>KIN-AGENTS-002.md:147-161</code>）全部落在两个既有测试文件里，不新建测试目录。</li>
+      <li><strong>一次交付：</strong>不新增表、接口或页面；删掉探测半之后，导入与角色仍在原地址、原按钮、原测试（<code>KIN-AGENTS-002.md:28</code>）。</li>
+    </ul>
+    <p class="note">八步覆盖：1 定义 → 01/02；2 定位 → 02/04；3 准备 → 03；4 确认 → 04；5 执行 → 03/05；6 监控 → 06；7 修改 → 05；8 收尾 → 06 与状态表。设备只是差异维度：Mac 与手机共享同一套顺序、规则句与写权限，差异只在呈现（见「状态与面」最后一节）。</p>
+  </section>
+
+  <section id="before-after">
+    <h2>现在 → 之后</h2>
+    <div class="two">
+      <div class="card now">
+        <h3>现在</h3>
+        <ul>
+          <li>「刷新检测」在组标题右侧，行里有状态、原因与能力徽标（<code>:17</code>）。</li>
+          <li>导入有三处入口：行内、组底、侧栏；三处共用同一个 hook 与进行中标志（<code>:18</code>）。</li>
+          <li>角色在同一个 tab 底部就地编辑，随页面保存（<code>:19</code>）。</li>
+          <li>打开设置时，tab 还没打开也会先读一次 provider（<code>:21</code>）。</li>
+          <li>行里没有「上次检测时间」，也没有文案说明「导入不会自动发生、角色不跟着检测走」（<code>:21</code>）。</li>
+        </ul>
+      </div>
+      <div class="card after">
+        <h3>之后</h3>
+        <ul>
+          <li>每行写「上次检测：时间或从未」；探测失败保留上次结果并说明（<code>:25</code>、<code>:61</code>）。</li>
+          <li>导入只在按下时发生、只写会话索引；一次进行中其余按钮一起禁用（<code>:26</code>、<code>:73</code>）。</li>
+          <li>角色是共享的提示词前缀，保存后 composer 的 <code>/</code> 菜单立即可用（<code>:27</code>、<code>:83</code>）。</li>
+          <li>删探测半不删导入与角色；两组保留原地址、原按钮、原测试（<code>:28</code>）。</li>
+          <li>状态行只保留解释「为什么这行不能导入」的最小信息（<code>:29</code>）。</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">左边全部来自合同「现在」一节（<code>KIN-AGENTS-002.md:15-21</code>），右边全部来自「范围」与「每一步的预期」，没有新增行为。</p>
+  </section>
+
+  <section id="screens">
+    <h2>界面与用户流程</h2>
+    <p class="note">每一屏先看 Figma 帧，再读下面六段流程。帧是设计源；宽帧在卡片内左右滑动，点「打开原图」可以全尺寸看。手机帧按 390 宽画，页面本身不横滚。</p>
+
+    <div class="screen-index" aria-label="界面索引">
+      <a href="#screen-1">01 · Mac · 三组默认</a>
+      <a href="#screen-2">02 · 手机 · 三组默认</a>
+      <a href="#screen-3">03 · 检测的四种状态</a>
+      <a href="#screen-4">04 · 导入行的四种状态</a>
+      <a href="#screen-5">05 · 角色默认</a>
+      <a href="#screen-6">06 · 迟到的回答</a>
+    </div>
+
+    <article class="screen" id="screen-1">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">01 · Mac · 1100×760</div>
+          <h3>设置 · Agents · 三组按顺序</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 设置 Agents tab 的 Figma 帧" tabindex="0" data-start="260">
+          <img src="KIN-AGENTS-002.figma/frames/01-mac-default.svg" alt="Mac 设置 Agents tab：安装状态、导入会话、角色默认三组自上而下；状态行有可用、需要登录、未检测到，每行带能力徽标与上次检测时间；可导入的行尾有导入按钮" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-AGENTS-002.figma/frames/01-mac-default.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>/settings?tab=agents，三个组按「安装状态 → 导入会话 → 角色默认」排列。<span class="src">合同 :37</span></span></li>
+        <li><b>动作</b><span>读屏，先分清哪组自动读、哪组只在按下时发生、哪组只是保存。<span class="src">合同 :38</span></span></li>
+        <li><b>立刻看到</b><span>每组标题下一句规则：状态「自动读取，不改变任何东西」；导入「只在按下时发生，只写会话索引」；角色「保存后在新对话里用，不改变安装」。<span class="src">合同 :39</span></span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>空组各自写「还没有检测结果」「还没有可导入的会话」「还没有角色」；一组失败不把整页变空；断线时三组都标离线，探测与导入禁用并写原因，角色只读。<span class="src">合同 :40</span></span></li>
+        <li><b>键盘与焦点</b><span>Tab 顺序按组；禁用的按钮保留在 Tab 序里并带原因；焦点不自动落进导入按钮。<span class="src">合同 :41</span></span></li>
+        <li><b>离开再回来</b><span>回到同一 tab；组的顺序与展开状态不变。<span class="src">合同 :42</span></span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-2">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">02 · 手机 · 390×844</div>
+          <h3>手机 · 同样的三组，单列</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机设置 Agents tab 的 Figma 帧" tabindex="0">
+          <img src="KIN-AGENTS-002.figma/frames/02-phone-default.svg" alt="手机设置 Agents tab：安装状态、导入会话、角色默认三组单列堆叠；三句规则常显；行内导入按钮 44px；能力徽标单独一行" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧 · 规则不截断，按钮 ≥44px</span>
+          <a href="KIN-AGENTS-002.figma/frames/02-phone-default.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>手机设置 → Agents；同样顺序单列堆叠，行内导入按钮保持至少 44px，三句规则常显不截断。<span class="src">合同 :126</span></span></li>
+        <li><b>动作</b><span>找「刷新检测」「导入」「添加角色」。<span class="src">合同 :49</span></span></li>
+        <li><b>立刻看到</b><span>探测按钮在状态组标题右侧；行内「导入」只在 <code>session_list</code> 可用的行出现；「立即导入会话」在导入组底部；「添加角色」在角色组标题右侧。<span class="src">合同 :50</span></span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>能力不支持时该行没有导入按钮并写原因；还没有 provider 时导入组写「先检测到 Agent 才能导入」，角色组仍可用。<span class="src">合同 :51</span></span></li>
+        <li><b>键盘与焦点</b><span>主动作都可 Tab 到；行内导入的无障碍名写「导入（provider 名）的会话」，不是一排同样的「导入」。<span class="src">合同 :52</span></span></li>
+        <li><b>离开再回来</b><span>回 tab 时焦点在页首标题，不自动落到任何会写数据的按钮。<span class="src">合同 :53</span></span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-3">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">03 · 状态板 · 1100×760</div>
+          <h3>检测：检测中 / 失败保留 / 从未 / 首读失败</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="检测组四种状态的 Figma 状态板" tabindex="0">
+          <img src="KIN-AGENTS-002.figma/frames/03-detection-states.svg" alt="检测组状态板：检测中保留旧结果、探测失败保留上次结果并说明、每行上次检测为从未、首读失败写还没读到检测结果并给重试" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · 状态板 · 左右滑动或打开原图</span>
+          <a href="KIN-AGENTS-002.figma/frames/03-detection-states.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>打开 <code>?tab=agents</code>，或从别的 tab 切回来。<span class="src">合同 :59</span></span></li>
+        <li><b>动作</b><span>什么都不按，先读。<span class="src">合同 :60</span></span></li>
+        <li><b>立刻看到</b><span>每行有状态、原因、能力徽标与「上次检测：（时间或「从未」）」；导入按钮的可用性直接由这份元数据决定。<span class="src">合同 :61</span></span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>打开只读本机 daemon 元数据（<code>/api/agent-providers</code>、<code>/api/agents</code>），不读 secure store、不调第三方、不启动导入；首读失败写「还没读到检测结果」并给重试，不用上次的猜测冒充新结果。<span class="src">合同 :62</span></span></li>
+        <li><b>键盘与焦点</b><span>读屏期间骨架不抢焦点；读完后焦点仍在页首。检测中按钮禁用但保持焦点，完成后焦点回到触发按钮。<span class="src">合同 :63</span>、<code>:85</code></span></li>
+        <li><b>离开再回来</b><span>上次结果与时间戳保留；离开不触发重新探测。<span class="src">合同 :64</span></span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-4">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">04 · 状态板 · 1100×980</div>
+          <h3>导入：能力缺失 / 可导入 / 导入中 / 离线 / 部分失败 / 无 provider</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="导入组六种行状态的 Figma 状态板" tabindex="0">
+          <img src="KIN-AGENTS-002.figma/frames/04-import-row.svg" alt="导入组状态板：能力缺失的行没有导入按钮并写原因、可导入的行有导入、导入中其余按钮禁用、离线写离线连上再导入、部分失败点名来源、没有 provider 时写先检测到 Agent 才能导入" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×980 · 状态板 · 左右滑动或打开原图</span>
+          <a href="KIN-AGENTS-002.figma/frames/04-import-row.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>一个可导入的 provider 行，或「立即导入会话」。<span class="src">合同 :70</span></span></li>
+        <li><b>动作</b><span>读按钮的范围与后果，然后按下或不按。<span class="src">合同 :71</span></span></li>
+        <li><b>立刻看到</b><span>按下前就写明：一次性把会话索引进 Kin、不改源历史、不自动重复；行内写「这台机器的（provider 名）」，组底写「所有已配对机器」。<span class="src">合同 :72</span></span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>能力不满足时按钮不存在，而不是灰着不解释；离线时按钮禁用并写「离线，连上再导入」；一次导入进行中时其余导入按钮一起禁用。<span class="src">合同 :73</span></span></li>
+        <li><b>键盘与焦点</b><span>按下就是确认，没有第二步对话框；Esc 不触发导入。<span class="src">合同 :74</span></span></li>
+        <li><b>离开再回来</b><span>没按就不发生导入；提示文案不因离开而改变。<span class="src">合同 :75</span></span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-5">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">05 · 状态板 · 1100×900</div>
+          <h3>角色：已保存 / 未保存 / 保存失败 / 半写行</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="角色默认组四种状态的 Figma 状态板" tabindex="0">
+          <img src="KIN-AGENTS-002.figma/frames/05-roles.svg" alt="角色组状态板：已保存时 composer 的斜杠菜单立即可用、未保存时有提示且保存按钮可用、保存失败保留草稿并说明、半写的行在保存时丢弃" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×900 · 状态板 · 左右滑动或打开原图</span>
+          <a href="KIN-AGENTS-002.figma/frames/05-roles.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>角色组或状态组。<span class="src">合同 :103</span></span></li>
+        <li><b>动作</b><span>改一个角色的名字或提示词、删一个角色、再按一次「刷新检测」，或对同一 provider 再导入一次。<span class="src">合同 :104</span></span></li>
+        <li><b>立刻看到</b><span>角色行就地编辑，保存后生效；删除后 composer 的 <code>/</code> 菜单少一项；重新检测只更新状态与时间；再次导入仍只在按下时发生。<span class="src">合同 :105</span></span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>保存失败保留编辑并说明；断线时只读；导入失败时角色编辑器仍可用。<span class="src">合同 :106</span></span></li>
+        <li><b>键盘与焦点</b><span>角色行可 Tab 进入；删除按钮有名字；Esc 退出编辑但不回滚已保存的值。<span class="src">合同 :107</span></span></li>
+        <li><b>离开再回来</b><span>已保存的角色与状态保留；未保存的编辑不落盘。<span class="src">合同 :108</span></span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-6">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">06 · 状态板 · 1100×760</div>
+          <h3>迟到的回答不覆盖新的屏幕</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="迟到回答与超时的 Figma 状态板" tabindex="0">
+          <img src="KIN-AGENTS-002.figma/frames/06-late-answer.svg" alt="迟到回答状态板：旧读返回被代际序号丢弃、导入中离开再回来仍显示导入中、超时写没有结果、重进同一屏不重复发起导入" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · 状态板 · 左右滑动或打开原图</span>
+          <a href="KIN-AGENTS-002.figma/frames/06-late-answer.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>探测或导入还在进行，人切走或又按了一次。<span class="src">合同 :92</span></span></li>
+        <li><b>动作</b><span>切回 tab，或再按一次。<span class="src">合同 :93</span></span></li>
+        <li><b>立刻看到</b><span>只有最新一次读或导入的结果上屏；旧回答被丢弃，不把旧状态盖在新状态上。<span class="src">合同 :94</span></span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>每次读带代际序号（设置页已有 <code>loadSeq</code> 与 <code>agentCatalogSeq</code> 模式）；超时写「没有结果」而不是猜成功；断线保留上次结果并标时间。<span class="src">合同 :95</span></span></li>
+        <li><b>键盘与焦点</b><span>迟到的结果不抢焦点，不用 live region 反复播报。<span class="src">合同 :96</span></span></li>
+        <li><b>离开再回来</b><span>同一屏重进不重复发起导入；探测结果按时间戳而不是按到达顺序。<span class="src">合同 :97</span></span></li>
+      </ol>
+    </article>
+  </section>
+
+  <section id="states">
+    <h2>状态与面</h2>
+    <p class="note">每个状态都来自合同的一行；没有画到的状态不算交付。下面按组列，最后是 Mac 与手机的差异。</p>
+
+    <h3>安装状态（探测）</h3>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>状态</th><th>屏幕上写什么</th><th>合同行</th></tr></thead>
+        <tbody>
+          <tr><td data-label="状态">默认 · 可用</td><td data-label="屏幕">状态「可用」+ 版本 + 能力徽标 + 上次检测时间</td><td class="ref" data-label="合同">:25、:39</td></tr>
+          <tr><td data-label="状态">检测中…</td><td data-label="屏幕">按钮写「检测中…」并禁用；旧结果留在屏上</td><td class="ref" data-label="合同">:25、:83、:85</td></tr>
+          <tr><td data-label="状态">完成</td><td data-label="屏幕">状态、原因、能力与「上次检测」一起更新</td><td class="ref" data-label="合同">:25、:83</td></tr>
+          <tr><td data-label="状态">探测失败</td><td data-label="屏幕">保留上次结果，组头写失败原因；不清空行</td><td class="ref" data-label="合同">:25、:84、:159</td></tr>
+          <tr><td data-label="状态">首读失败</td><td data-label="屏幕">「还没读到检测结果」+ 重试；不冒充新结果</td><td class="ref" data-label="合同">:62</td></tr>
+          <tr><td data-label="状态">从未检测</td><td data-label="屏幕">每行「上次检测：从未」；这是默认值，不是失败</td><td class="ref" data-label="合同">:61</td></tr>
+          <tr><td data-label="状态">空：没有 provider</td><td data-label="屏幕">空组写「还没有检测结果」</td><td class="ref" data-label="合同">:40、:51</td></tr>
+          <tr><td data-label="状态">离线</td><td data-label="屏幕">组标离线；探测禁用并写原因；时间戳保留</td><td class="ref" data-label="合同">:40、:117</td></tr>
+          <tr><td data-label="状态">迟到的回答</td><td data-label="屏幕">按代际序号丢弃，不上屏、不抢焦点</td><td class="ref" data-label="合同">:94-96</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>导入会话</h3>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>状态</th><th>屏幕上写什么</th><th>合同行</th></tr></thead>
+        <tbody>
+          <tr><td data-label="状态">可导入</td><td data-label="屏幕">行尾「导入」；无障碍名「导入（provider 名）的会话」</td><td class="ref" data-label="合同">:50、:52</td></tr>
+          <tr><td data-label="状态">能力缺失</td><td data-label="屏幕">没有按钮，写「不支持列出会话」与原因</td><td class="ref" data-label="合同">:51、:73</td></tr>
+          <tr><td data-label="状态">空：没有 provider</td><td data-label="屏幕">「先检测到 Agent 才能导入」；角色组仍可用</td><td class="ref" data-label="合同">:51</td></tr>
+          <tr><td data-label="状态">空：没有可导入的会话</td><td data-label="屏幕">「还没有可导入的会话」</td><td class="ref" data-label="合同">:40</td></tr>
+          <tr><td data-label="状态">导入中…</td><td data-label="屏幕">按钮「导入中…」；页面与侧栏其余导入按钮一起禁用</td><td class="ref" data-label="合同">:73、:83、:151、:154</td></tr>
+          <tr><td data-label="状态">成功</td><td data-label="屏幕">提示索引了几个会话</td><td class="ref" data-label="合同">:83、:150</td></tr>
+          <tr><td data-label="状态">部分失败</td><td data-label="屏幕">点名来源与原因；已索引的保留</td><td class="ref" data-label="合同">:83</td></tr>
+          <tr><td data-label="状态">失败</td><td data-label="屏幕">不删已有索引，给重试；不清空列表</td><td class="ref" data-label="合同">:84、:152</td></tr>
+          <tr><td data-label="状态">离线</td><td data-label="屏幕">按钮禁用并写「离线，连上再导入」</td><td class="ref" data-label="合同">:73</td></tr>
+          <tr><td data-label="状态">迟到的回答</td><td data-label="屏幕">旧导入结果不上屏；重进不重复发起</td><td class="ref" data-label="合同">:94、:97</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>角色默认</h3>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>状态</th><th>屏幕上写什么</th><th>合同行</th></tr></thead>
+        <tbody>
+          <tr><td data-label="状态">已保存</td><td data-label="屏幕">角色行渲染出来；composer 的 <code>/</code> 菜单立即可用</td><td class="ref" data-label="合同">:27、:83、:156</td></tr>
+          <tr><td data-label="状态">空：还没有角色</td><td data-label="屏幕">「还没有角色」+「添加角色」；角色组仍可用</td><td class="ref" data-label="合同">:40、:51</td></tr>
+          <tr><td data-label="状态">编辑中（未保存）</td><td data-label="屏幕">行就地编辑；提示未保存；离开不保留</td><td class="ref" data-label="合同">:27、:108</td></tr>
+          <tr><td data-label="状态">保存成功</td><td data-label="屏幕">角色与会话设置一次落盘；<code>/</code> 菜单更新</td><td class="ref" data-label="合同">:83、:105</td></tr>
+          <tr><td data-label="状态">保存失败</td><td data-label="屏幕">保留草稿并说明；已保存的值仍有效</td><td class="ref" data-label="合同">:84、:106</td></tr>
+          <tr><td data-label="状态">半写行</td><td data-label="屏幕">保存时丢弃没有名字或没有提示词的行</td><td class="ref" data-label="合同">:27</td></tr>
+          <tr><td data-label="状态">删除</td><td data-label="屏幕">composer 的 <code>/</code> 菜单少一项；删除按钮带名字</td><td class="ref" data-label="合同">:105、:107</td></tr>
+          <tr><td data-label="状态">断线</td><td data-label="屏幕">只读；不探测、不导入；已保存的值仍显示</td><td class="ref" data-label="合同">:40、:106</td></tr>
+          <tr><td data-label="状态">Esc 退出编辑</td><td data-label="屏幕">退出编辑但不回滚已保存的值</td><td class="ref" data-label="合同">:107</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Mac 与手机</h3>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>面</th><th>这一面怎么呈现</th><th>为什么不同</th><th>合同行</th></tr></thead>
+        <tbody>
+          <tr>
+            <td data-label="面">Mac</td>
+            <td data-label="呈现">设置页单列里三组自上而下；状态行紧凑，导入按钮在行尾；角色组在底部；组标题右侧是各自唯一的主动作</td>
+            <td data-label="为什么">宽度够，三组同屏可读；边界靠顺序与标题，不靠折叠</td>
+            <td class="ref" data-label="合同">:125</td>
+          </tr>
+          <tr>
+            <td data-label="面">手机</td>
+            <td data-label="呈现">同样顺序单列堆叠；行内导入按钮至少 44px；三句规则常显不截断；角色编辑全宽</td>
+            <td data-label="为什么">一屏一件事；顺序和规则句是唯一能防误按的东西，不能收进提示或省略号</td>
+            <td class="ref" data-label="合同">:126</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>要你拍板的</h2>
+    <p class="note">3 条待定，每条都有推荐和代价；只回不同意的编号就行。5 条已定来自合同，不再重复问。</p>
+
+    <div class="decision">
+      <h3>D1 探测失败时，行留在屏上还是清空？</h3>
+      <p class="rec"><strong>推荐：</strong>行留在屏上，状态不变，失败写在组头的一条横条里，时间戳停在旧值。合同已经要求「失败保留上次结果并说明」（<code>:25</code>、<code>:84</code>、<code>:159</code>），但没说失败提示放在哪；放在组头，行里的状态与能力徽标就不用逐行改写。</p>
+      <p class="tradeoff"><strong>代价：</strong>旧状态看起来像新的，只能靠「上次检测 14:02」自证。若把行变灰，又会与「未检测到」混淆——两种都得靠文字，横条至少把原因集中在一处。</p>
+    </div>
+
+    <div class="decision">
+      <h3>D2 导入组的 provider 元数据由谁读？</h3>
+      <p class="rec"><strong>推荐：</strong>页面读一次，两个组各自渲染；探测组的「刷新检测」重发这一次读，导入组保留自己的读取入口。合同要求导入组不依赖探测组的渲染（<code>:28</code>、<code>:160</code>），所以删掉探测半之后，导入组仍能自己拿到 provider 与能力。</p>
+      <p class="tradeoff"><strong>代价：</strong>共用一次读时，刷新会同时改变导入按钮的可用性，两组可能有一瞬间不一致；拆成两次读则多一次请求，还可能读到不同版本。推荐把「一次读」作为默认，把「导入组独立入口」作为删探测半时的退路。</p>
+    </div>
+
+    <div class="decision">
+      <h3>D3 手机上行内「导入」放行尾还是收进菜单？</h3>
+      <p class="rec"><strong>推荐：</strong>行尾常显，至少 44px；能力徽标换到单独一行。合同要求三句规则常显、行内按钮至少 44px（<code>:126</code>），并要求「这台机器的（provider 名）」写清楚（<code>:72</code>）。现有代码已经把能力徽标在窄屏换到独立一行（<code>ui/src/components/settings/LocalAgentSettingsSection.tsx:133-150</code>），沿用它即可。</p>
+      <p class="tradeoff"><strong>代价：</strong>每行更高，手机一屏看到的行更少；收进菜单能省高度，但会把「按下才发生」的动作藏起来，正好撞上这条故事要说的边界。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>S1 三组的顺序就是边界</h3>
+      <p class="rec"><strong>已定：</strong>安装状态 → 导入会话 → 角色默认，顺序固定，不靠折叠表达（<code>KIN-AGENTS-002.md:37</code>、<code>:39</code>）。</p>
+      <p class="tradeoff"><strong>代价：</strong>角色组在最底下，改角色要多滚一点；但把角色提到前面会让「自动读」和「只是保存」混在一起。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>S2 导入只在按下时发生</h3>
+      <p class="rec"><strong>已定：</strong>不自动导入、不自动接入；导入只写会话索引，不改源历史（<code>:26</code>、<code>:135</code>；<code>KIN-AGENTS-001.md:125</code>）。</p>
+      <p class="tradeoff"><strong>代价：</strong>换了机器或新装了 agent，要自己按一次；少一次点击，也就少一次「它怎么自己多出来了」。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>S3 角色是共享的提示词前缀</h3>
+      <p class="rec"><strong>已定：</strong>存在 daemon 设置键 <code>agent_roles</code> 里，同一 daemon 的设备共享；不新增表、不同步、不改变模型或权限（<code>:27</code>、<code>:141</code>；<code>internal/api/api.go:1788-1792</code>）。</p>
+      <p class="tradeoff"><strong>代价：</strong>两台 daemon 的角色不共享；角色只是文字，不会替人选中模型或权限。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>S4 半写的角色行保存时丢弃</h3>
+      <p class="rec"><strong>已定：</strong>没有名字或没有提示词的行，保存时被丢掉；已有覆盖在 <code>ui/src/lib/agentRoles.test.ts:95-108</code>（<code>does not persist a row that would insert nothing</code>）。</p>
+      <p class="tradeoff"><strong>代价：</strong>只填了一半的行会静默消失；编辑器需要提示「保存时丢弃」，不能让用户以为它被存下了。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>S5 「上次检测」用现有的时间戳</h3>
+      <p class="rec"><strong>已定：</strong>直接显示 <code>AgentProvider.last_scanned_at</code>（<code>ui/src/api/client.ts:559</code>，daemon 在每次扫描时写入口径见 <code>internal/server/agents.go:57</code>、<code>:105</code>）；没有值就写「从未」。合同要求显示时间但不要求新字段，且不允许新增后端接口（<code>KIN-AGENTS-002.md:61</code>、<code>:139</code>）。</p>
+      <p class="tradeoff"><strong>代价：</strong>它表示「这台 daemon 上次读 provider 的时间」，不是「provider 自己刚刚变了」；跨时区或重启后要按本机时间格式化。</p>
+    </div>
+  </section>
+
+  <section id="reply">
+    <h2>回复模板</h2>
+    <div class="card reply">
+      <p class="note">只需回待定的三条；同意就写「同意」，不同意就写一句理由。S1–S5 已定，不用回。</p>
+      <pre>D1 同意：行留在屏上，失败写在组头横条，时间戳停在旧值
+D2 同意：页面读一次、两组各自渲染，导入组保留独立读取入口
+D3 同意：行尾常显 44px，能力徽标单独一行
+（按实际条数增删；S1–S5 已定，不用回）</pre>
+    </div>
+  </section>
+
+  <section id="sign">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p><strong>未签字。</strong><code>KIN-AGENTS-002.md</code> 仍是 <code>draft</code>。本页是签字前要读的设计页；CEO 回复后，下一轮才把合同状态改成 <code>approved</code>。</p>
+      <p>本页与帧由 part b 交付；合同、<code>registry.json</code> 与 <code>COVERAGE.md</code> 在这一轮都不改。</p>
+      <p class="note">帧或流程再改会重新发这一页；设计源始终是 <code>KIN-AGENTS-002.figma/</code> 里的 SVG 帧和本页的流程。</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>设计源：<code>KIN-AGENTS-002.figma/frames/</code>（6 个 SVG 帧）</p>
+    <p>审阅编排：<code>KIN-AGENTS-002.review.html</code>（本页）</p>
+    <p>合同：<code>KIN-AGENTS-002.md</code>（draft）</p>
+    <p>Figma 审阅版 · figma-flow-v1 · 无 CDN、无外部资源</p>
+  </footer>
+
+</main>
+<script>
+  for (const el of document.querySelectorAll('.frame-scroll[data-start]')) {
+    el.scrollLeft = Number(el.dataset.start) || 0;
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff" rx="24"/>
+<rect width="390" height="24" fill="#f6f6f8" rx="24"/>
+<rect y="14" width="390" height="10" fill="#f6f6f8"/>
+<text x="16" y="17" font-size="11" fill="#555">9:41</text>
+<text x="374" y="17" font-size="11" fill="#555" text-anchor="end">手机 390×844 · 设置 · 默认</text>
+
+<text x="16" y="58" font-size="20" fill="#1a1a1a" font-weight="600">设置</text>
+<text x="16" y="78" font-size="11.5" fill="#6b6b6b">Agents · 这台机器</text>
+<text x="16" y="108" font-size="12" fill="#6b6b6b">模型</text>
+<text x="80" y="108" font-size="12" fill="#1a1a1a" font-weight="600">Agents</text>
+<rect x="76" y="115" width="46" height="2" fill="#1f6feb"/>
+<text x="150" y="108" font-size="12" fill="#6b6b6b">通知</text>
+<line x1="10" y1="124" x2="380" y2="124" stroke="#e3e3e3"/>
+
+<!-- group 1 -->
+<rect x="10" y="134" width="370" height="272" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="28" cy="156" r="8" fill="#eef3ff"/>
+<text x="28" y="160" font-size="10" fill="#1f6feb" font-weight="600" text-anchor="middle">1</text>
+<text x="44" y="161" font-size="14" fill="#1a1a1a" font-weight="600">安装状态</text>
+<text x="44" y="177" font-size="10.5" fill="#6b6b6b">自动读取，不改变任何东西</text>
+<rect x="270" y="142" width="100" height="32" rx="8" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="320" y="162" font-size="11" fill="#1a1a1a" text-anchor="middle">刷新检测</text>
+<line x1="10" y1="186" x2="380" y2="186" stroke="#e3e3e3"/>
+
+<circle cx="26" cy="204" r="4" fill="#1f6feb"/>
+<text x="38" y="208" font-size="12.5" fill="#1a1a1a" font-weight="600">Claude Code</text>
+<text x="374" y="208" font-size="11" fill="#2f9e5f" text-anchor="end">可用</text>
+<text x="26" y="224" font-size="10.5" fill="#8a8a92">claude-code · 2.1.0</text>
+<rect x="26" y="232" width="50" height="18" rx="4" fill="#fff" stroke="#e3e3e3"/>
+<text x="51" y="245" font-size="9.5" fill="#6b6b6b" text-anchor="middle">可列出</text>
+<rect x="82" y="232" width="62" height="18" rx="4" fill="#fff" stroke="#e3e3e3"/>
+<text x="113" y="245" font-size="9.5" fill="#6b6b6b" text-anchor="middle">可读历史</text>
+<text x="26" y="266" font-size="10.5" fill="#1a1a1a">上次检测：14:02</text>
+<line x1="10" y1="276" x2="380" y2="276" stroke="#f0f0f2"/>
+
+<circle cx="26" cy="294" r="4" fill="#d08a00"/>
+<text x="38" y="298" font-size="12.5" fill="#1a1a1a" font-weight="600">Codex</text>
+<text x="374" y="298" font-size="11" fill="#b26a00" text-anchor="end">需要登录</text>
+<text x="26" y="314" font-size="10.5" fill="#8a8a92">codex · 0.9.4</text>
+<rect x="26" y="322" width="50" height="18" rx="4" fill="#fff" stroke="#e3e3e3"/>
+<text x="51" y="335" font-size="9.5" fill="#6b6b6b" text-anchor="middle">可列出</text>
+<rect x="82" y="322" width="62" height="18" rx="4" fill="#fff" stroke="#e3e3e3"/>
+<text x="113" y="335" font-size="9.5" fill="#6b6b6b" text-anchor="middle">可读历史</text>
+<rect x="300" y="284" width="74" height="44" rx="8" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="337" y="311" font-size="11" fill="#1a1a1a" text-anchor="middle">导入</text>
+<text x="26" y="356" font-size="10.5" fill="#1a1a1a">上次检测：14:02</text>
+<line x1="10" y1="366" x2="380" y2="366" stroke="#f0f0f2"/>
+
+<circle cx="26" cy="384" r="4" fill="#9a9aa2"/>
+<text x="38" y="388" font-size="12.5" fill="#1a1a1a" font-weight="600">Gemini CLI</text>
+<text x="374" y="388" font-size="11" fill="#6b6b6b" text-anchor="end">未检测到</text>
+<text x="26" y="402" font-size="10" fill="#999">上次检测：14:02 · 行内导入在可导入的行尾，44px 命中区</text>
+
+<!-- group 2 -->
+<rect x="10" y="418" width="370" height="232" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="28" cy="440" r="8" fill="#eef3ff"/>
+<text x="28" y="444" font-size="10" fill="#1f6feb" font-weight="600" text-anchor="middle">2</text>
+<text x="44" y="445" font-size="14" fill="#1a1a1a" font-weight="600">导入会话</text>
+<text x="44" y="461" font-size="10.5" fill="#6b6b6b">只在按下时发生，只写会话索引</text>
+<line x1="10" y1="470" x2="380" y2="470" stroke="#e3e3e3"/>
+
+<text x="26" y="492" font-size="12.5" fill="#1a1a1a" font-weight="600">Claude Code</text>
+<text x="26" y="508" font-size="10.5" fill="#8a8a92">这台机器的 Claude Code</text>
+<rect x="300" y="480" width="74" height="44" rx="8" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="337" y="507" font-size="11" fill="#1a1a1a" text-anchor="middle">导入</text>
+<line x1="10" y1="532" x2="380" y2="532" stroke="#f0f0f2"/>
+<text x="26" y="554" font-size="12.5" fill="#1a1a1a" font-weight="600">Codex</text>
+<text x="26" y="570" font-size="10.5" fill="#8a8a92">这台机器的 Codex</text>
+<rect x="300" y="542" width="74" height="44" rx="8" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="337" y="569" font-size="11" fill="#1a1a1a" text-anchor="middle">导入</text>
+<rect x="26" y="596" width="338" height="36" rx="8" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="195" y="619" font-size="12" fill="#1a1a1a" text-anchor="middle">立即导入会话（所有已配对机器）</text>
+<text x="26" y="642" font-size="10" fill="#999">不改源历史 · 一次导入进行中时其余按钮一起禁用</text>
+
+<!-- group 3 -->
+<rect x="10" y="662" width="370" height="170" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="28" cy="684" r="8" fill="#eef3ff"/>
+<text x="28" y="688" font-size="10" fill="#1f6feb" font-weight="600" text-anchor="middle">3</text>
+<text x="44" y="689" font-size="14" fill="#1a1a1a" font-weight="600">角色默认</text>
+<text x="44" y="705" font-size="10.5" fill="#6b6b6b">保存后在新对话里用，不改变安装</text>
+<rect x="292" y="670" width="78" height="28" rx="7" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="331" y="688" font-size="10.5" fill="#1a1a1a" text-anchor="middle">添加角色</text>
+<line x1="10" y1="714" x2="380" y2="714" stroke="#e3e3e3"/>
+<text x="26" y="736" font-size="12.5" fill="#1a1a1a" font-weight="600">安全审阅</text>
+<text x="374" y="736" font-size="10.5" fill="#b42318" text-anchor="end">删除</text>
+<text x="26" y="752" font-size="10.5" fill="#6b6b6b">以安全工程师的角度审阅这段改动，先列出攻击面…</text>
+<rect x="26" y="766" width="338" height="36" rx="8" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="195" y="789" font-size="12" fill="#1a1a1a" text-anchor="middle">保存会话设置</text>
+<text x="26" y="818" font-size="9.5" fill="#999">一次保存同时落盘角色与会话设置；草稿不随离开保留</text>
+<text x="195" y="836" font-size="9.5" fill="#aaa" text-anchor="middle">三句规则常显，不截断；顺序与 Mac 相同</text>
+</g>
+</svg>
