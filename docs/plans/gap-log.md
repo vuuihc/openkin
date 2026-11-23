@@ -34,6 +34,8 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
+- 2026-11-23 · 低 · 390×844 手机对话列表离开再回来会停在比离开时更靠上的位置：记录值 400 / 434，两次回来都是 374（约一行）— 期望回来时 `scrollTop` 就是离开时的值（存 434 回 434，±0），像例行任务列表那样 600→600；不要的做法：不要用「回到顶部」或把漂移后的落点再存回去来掩盖（现在存储里的值仍是离开时的 434，这是对的）；照抄的同类：`ui/src/pages/RoutinesPage.tsx:327`（等 `loading` 结束后按记录值恢复，`:336` 再按内容高度取 min；本 pass 实测 600→600），对话列表的恢复则在 `ui/src/components/mobile/MobileList.tsx:113` 于更短的列表高度上写入记录值，只有 `scrollWhen` 变化才重试（`ui/src/components/sessions/SessionList.tsx:1747` 的 `kin.listScroll`）。读数（真实滚轮手势，非程序化赋值）：滚到 400 / 434 时 sessionStorage `kin.listScroll` 分别为 400 / 434；点「例行任务」再点「对话」回来 `scrollTop` 两次都是 374，列表 h 1364 / c 783。证据：`phone-13-f4-sessions-scrolled.png`、`phone-14-f4-sessions-return.png`、`readings-phone-f4only.json`（均在 `rsi/state/shots/dogfood-20261123-15/`）。
+
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
