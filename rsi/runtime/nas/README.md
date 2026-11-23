@@ -89,6 +89,20 @@ The hold writes `rsi/state/nas/hold/<slug>.md` with the exact capture-and-publis
 already-open PR keeps its previous head, because pushing would publish visible UI with no captures. Workers
 are told to write `Screenshots: pending …` rather than claiming "none".
 
+## Claim check for prose deliveries
+
+A result that changes a prose-assertion path (`rsi/GOAL.md`, `rsi/DECISIONS.md`, `rsi/ASTRYX-PLAN.md`,
+`AGENTS.md`, `PRINCIPLE.md`, `SYSTEM_DESIGN.md`, `docs/adr/`, `docs/plans/`, `docs/product/`) runs the
+merge gate's own rule before the self-check: `rsi/runtime/claim_check.py`, the single file `lane.sh` and
+`merge.sh` already call, against the lane's exact `origin/main...<bundle>` changed-file computation. The
+check is bounded by `NAS_CLAIM_TIMEOUT` (120 s). A missing or false `Claim check:`, a diff that cannot be
+read, a non-zero rc, or an expired bound (recorded as `NO_VERDICT`) writes
+`rsi/state/nas/hold/<slug>.md`, marks the job `held` and appends one `held for claim check` line to
+`needs-ceo.md`; no PR is opened and no live PR body is overwritten. A new branch is pushed so the result
+survives for the local rework; an already-open PR keeps its previous head, because pushing would let the
+merge lane claim-check the previous body against a diff it never verified.
+The cloud brief tells the worker to run the same check in its own session.
+
 ## Operate
 
 - Ingest now: `rsi/runtime/nas/ingest-nas.sh` (the pulse runs it first on every round).

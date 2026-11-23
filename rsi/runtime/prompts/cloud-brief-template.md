@@ -6,7 +6,12 @@
 - Repo: https://github.com/vuuihc/openkin (public). Base: `main` (fetch first). Work on branch `rsi/<slug>` (create it from current origin/main).
 - Open the PR to `vuuihc/openkin`, base `main`, head `rsi/<slug>`. Do NOT merge it, do NOT force-push, do NOT push to main, do NOT touch other branches. An automated merge lane gates, reviews (another model) and squash-merges; it may push sync-merge commits or rework requests to your branch, so keep it pushable.
 - The PR body MUST contain: a line `RSI item: <ITEM ID>`; sections Summary / What the user sees now / Tests (names + results) / Risk; and `Screenshots:` with image links for 390x844, 820x1180 and 1100x760 before/after, OR `Screenshots: none: <reason nothing is visible>`.
-- If the deliverable is a sentence rather than behaviour (a `GOAL`, an ADR, a `PLAN` or a story contract), the PR body names the exact `path:line` that sentence asserts and carries `Claim check:` with one command and its literal output; a missing or false claim check is not delivery.
+- If the deliverable is a sentence rather than behaviour (a `GOAL`, an ADR, a `PLAN`, a `README` or a story contract), the PR body names the exact `path:line` the sentence asserts and carries one `Claim check:` line at column 0 with a command, plus its real output under `Claim output:`. Run the same rule yourself before you finish — save the body to `/tmp/body.md`, then:
+  ```
+  git diff --no-renames --raw origin/main...HEAD | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}' > /tmp/changed
+  python3 rsi/runtime/claim_check.py . /tmp/body.md /tmp/changed
+  ```
+  Do not finish until it prints `CLAIM_OK`, `CLAIM_NA` (code-only diff) or `CLAIM_WAIVED`. A missing, false or unverifiable claim is not delivery: the NAS ingest now holds the job before any PR exists, and the merge lane sends it back. On a docs row the claim command is a source pin (`rg -n '<sentence fragment>' <path>`), never a test suite — a browser-bound or flaky suite fails the claim for the wrong reason.
 
 ## Goal (user terms)
 <2-4 sentences>
