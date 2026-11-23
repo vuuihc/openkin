@@ -5,8 +5,8 @@
 # Measured 2026-11-19: one UI PR's walk ran 40 minutes; merge.sh -> ux-gate.sh ->
 # ux-walk.sh -> heavy.sh -> node was unbounded at every step, so from outside the
 # lane nobody could tell slow from dead. The bound is now RSI_WALK_MAX_S (default
-# 1800s) around the walker, with an outer RSI_UX_GATE_MAX_S in merge.sh (derived
-# default 11100s: two walks at slot wait + walker, two vision dispatches and the
+# 2700s) around the walker, with an outer RSI_UX_GATE_MAX_S in merge.sh (derived
+# default 12900s: two walks at slot wait + walker, two vision dispatches and the
 # pre-walk build) that maps exit 124 to "unavailable + cooldown, no sendback, not merged".
 #
 # This suite drives the build-free --timeout-probe seam in ux-walk.sh: no UI
@@ -35,6 +35,8 @@
 #   14. merge.sh's outer gate backstop encloses that composition: two walks at
 #      slot wait + walker ceiling, two vision dispatches and the pre-walk build,
 #      so a busy machine cannot make the outer bound fire before either inner one.
+#   15. the default walk ceiling encloses the measured walk and both scripts use
+#      the same number, so raising one cannot leave the other at 30 minutes.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
@@ -350,5 +352,22 @@ grep -qF 'GATE_MAX="${RSI_UX_GATE_MAX_S:-$GATE_DEFAULT}"' "$MERGE" \
 grep -qF 'GATE_MAX=$GATE_DEFAULT;;' "$MERGE" \
   || fail "$CASE14: a non-numeric RSI_UX_GATE_MAX_S falls back to a constant"
 pass "$CASE14"
+
+# 15. A default ceiling is only safe while it encloses the measured walk, and only
+#     coherent while both scripts use it. PR #610's walk took 29.5 minutes (222
+#     screens); the then-default 1800s killed it, and the merge lane spent another
+#     30-minute slot to learn nothing. Read both defaults from the files: a later
+#     edit that raises only one puts the outer backstop below the inner ceiling.
+CASE15="default walk ceiling encloses the measured 29.5-minute walk and both scripts agree"
+W_DEF="$(sed -n 's/.*WALK_MAX_S="${RSI_WALK_MAX_S:-\([0-9][0-9]*\)}".*/\1/p' "$WALK" | head -1)"
+M_DEF="$(sed -n 's/.*WALK_MAX_S="${RSI_WALK_MAX_S:-\([0-9][0-9]*\)}".*/\1/p' "$MERGE" | head -1)"
+[ -n "$W_DEF" ] && [ -n "$M_DEF" ] || fail "$CASE15: cannot read both defaults (walk='${W_DEF}' merge='${M_DEF}')"
+[ "$W_DEF" = "$M_DEF" ] || fail "$CASE15: walk default ${W_DEF}s != merge default ${M_DEF}s"
+[ "$W_DEF" -ge 2700 ] || fail "$CASE15: default ${W_DEF}s does not enclose the measured 29.5-minute walk (want >= 2700)"
+DEF_DEFAULT="$(HEAVY_WAIT_MAX=1800 WALK_MAX_S="$W_DEF"; printf '%s\n' "$(( $DEF_EXPR ))")"
+NEED_DEFAULT=$(( 2 * (1800 + W_DEF) + 2 * DISPATCH_S ))
+[ "$DEF_DEFAULT" -ge "$NEED_DEFAULT" ] \
+  || fail "$CASE15: gate default ${DEF_DEFAULT}s does not enclose two ${W_DEF}s walks plus two ${DISPATCH_S}s dispatches (want >= ${NEED_DEFAULT}s)"
+pass "$CASE15"
 
 echo "all cases passed"
