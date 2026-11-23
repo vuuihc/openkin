@@ -34,6 +34,8 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
+- 2026-11-24 · 中 · 390×844 手机上有审批在等时，浮在列表底部的「等待处理」条压住列表最后一行（种子里的导入会话）：列表滚到最大值 774 时该行中心 y=630 落在条带 y=610–662 内，行标题被盖住，点行中心命中的是条带里的标题 SPAN，会打开等待审批的那条对话而不是这一行 — 期望浮动表面永不覆盖可点的列表行：条带与任一可见的会话行相交时像卡片一样让位（不显示），或列表在条带显示时为底部留出净空；验收（可写成测试）：390、存在等待审批、列表滚到底时，最后一行的中心 `elementFromPoint` 命中该行自身（或条带不显示），点它打开该行自己的会话面（这里是导入会话的 Sheet）。不要的做法：相交判定只查 `[data-kin-reading]`，把列表行留给读者自己躲开——条带没有关闭控件，读者躲不开。照抄的同类：`ui/src/components/cards/FloatingApproval.tsx:223`（卡片同时让 `[data-kin-hit-row]` 与 `[data-kin-reading]`）；条带自己的判定在 `:254` 只查了 `[data-kin-reading]`，而会话行当前没有任何 `data-kin-hit-row` 标记（`rg -n 'data-kin-hit-row' ui/src/components/sessions ui/src/components/mobile` 无输出）。证据：`phone-p10-imported-bottom.png`、`readings9.json`（8 个真实滚轮位置都没有可命中点）、`probe10` 输出（行 y=630、条带 y=610 h=52 w=366、列表 top=max=774）。
+
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
