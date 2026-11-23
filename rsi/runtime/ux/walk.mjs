@@ -3611,6 +3611,19 @@ if (resolveJ5) {
 // is refused (exit 2, one line): silently filtering it down leaves a green walk
 // that names a journey nobody ran (2026-11-20, `--journeys J9,J99` walked only
 // J9 and `--journeys J99` walked nothing, both exit 0).
+
+// Paths a diff can change without changing what the console renders: the generated
+// dist (built from ui/), tests and mutants, documentation, and loop plumbing. Same
+// vocabulary as ux-gate.sh's 1b0 attribution pass (its skipped/not_surface), so the
+// walk selects journeys for the files the gate attributes reds to; a copy, not an
+// import, because the walker runs from a worktree with that worktree's own spec.
+// web/dist/ is named beside web/ deliberately, like the gate's skipped(): narrowing
+// the directory prefix later must not silently make the generated entry chunk a
+// surface. Everything else keeps the rule below — an unmapped surface, including a
+// new ui/ component, still contributes every journey.
+const consoleNoise = (f) => f.startsWith('web/dist/') || f.startsWith('web/') || f.includes('__tests__/')
+  || f.startsWith('docs/') || f.startsWith('rsi/') || f.startsWith('scripts/')
+  || /\.(test\.[A-Za-z0-9]+|test\.py|spec\.[A-Za-z0-9]+|mutants\.json)$/.test(f) || f.endsWith('.md');
 function selectJourneys(spec, journeysArg, filesArg) {
   const known = Object.keys(spec.journeys || {});
   const check = (ids, where) => {
@@ -3623,8 +3636,19 @@ function selectJourneys(spec, journeysArg, filesArg) {
     return ids;
   };
   if (journeysArg) return check(journeysArg.split(',').map((id) => id.trim()).filter(Boolean));
-  if (filesArg) { // map changed files -> journeys
-    const files = fs.readFileSync(filesArg, 'utf8').split('\n').filter(Boolean); const set = new Set();
+  if (filesArg) { // map changed files -> journeys, ignoring paths that cannot change the console
+    const listed = fs.readFileSync(filesArg, 'utf8').split('\n').filter(Boolean);
+    const files = listed.filter((f) => !consoleNoise(f));
+    // A list whose every path is console noise reaches no journey. Refusing (one
+    // line, exit 2) beats a green walk that claims journeys no file can have
+    // changed — the same reason an unknown id is refused above. The gate cannot
+    // send one (merge.sh's batch_walk_trigger needs a non-test ui/src change), so
+    // this pins the predicate, not a product path.
+    if (listed.length && !files.length) {
+      throw new Error('selection refused: --files names only files that cannot change the console ('
+        + listed.length + ' generated, docs, test or loop-plumbing paths)');
+    }
+    const set = new Set();
     for (const f of files) { const hit = spec.paths.find(([re]) => new RegExp('^(' + re + ')').test(f) || re.split('|').some((p) => f.startsWith(p))); (hit ? hit[1] : known).forEach((j) => set.add(j)); }
     return check([...set], 'in the paths table');
   }
