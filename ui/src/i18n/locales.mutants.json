@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the zh routines search box calls a routine Routine again (R-routines-copy)",
+    "file": "ui/src/i18n/locales/zh.ts",
+    "old": "    searchPlaceholder: \"搜索例行任务\",",
+    "new": "    searchPlaceholder: \"搜索 Routine\",",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run src/i18n/locales.test.ts"
+  }
+]

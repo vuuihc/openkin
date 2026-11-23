@@ -617,6 +617,44 @@ pr_diff_hash() { # <worktree> — the review key (step 4's DH): the PR's own dif
   $GIT -C "$1" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16
 }
 
+# The UX walk cache (state/merge/<slug>.uxverified) survives a main move only when nothing that can
+# change the rendered console moved. This key digests every ui/ path except the families that
+# provably cannot render: test/spec files, __tests__/ and test/ fixtures, mutant manifests and
+# markdown. Everything else — package.json, the lockfile, every source and style file — stays in,
+# so a path family this cannot positively classify still re-walks (the cache is only worth a walk
+# when the walk is provably still about this console).
+ux_carry_key() { # <worktree> <main-ref> — digest of everything under ui/ that can change the rendered console
+  local tree
+  tree="$($GIT -C "$1" ls-tree -r "$2" -- ui 2>/dev/null)" || { echo unreadable; return 0; }
+  printf '%s\n' "$tree" \
+    | grep -vE '(\.(test|spec)\.[^/]+$|/__tests__/|/test/|\.mutants\.json$|\.md$)' \
+    | shasum | cut -c1-16
+}
+
+ux_carry_verdict() { # <worktree> <main-ref> <uxverified-file> <pr-diff-hash>
+  # 0 = CARRY (UX_CARRY_KEY names the tree the cached walk is still evidence for); 1 = REGATE
+  # (UX_CARRY_REASON says which half moved). The land block reads this verdict and writes the same
+  # UX_CARRY_KEY at its PASS line, so the cached walk can never be keyed by one tree and looked up
+  # by another. Any unreadable or disagreeing field re-walks.
+  local wt="$1" ref="$2" uxv="$3" dh="$4" rec_dh="" rec_ver="" rec_key=""
+  UX_CARRY_KEY="$(ux_carry_key "$wt" "$ref")-$($GIT -C "$wt" rev-parse HEAD:ui/package-lock.json 2>/dev/null || echo none)"
+  [ -s "$uxv" ] && { read -r rec_dh rec_ver rec_key _ < "$uxv" 2>/dev/null || true; }
+  if [ -z "$rec_dh$rec_ver$rec_key" ]; then
+    UX_CARRY_REASON="no completed UX walk recorded for this PR"; return 1
+  fi
+  if [ "$rec_dh" != "$dh" ]; then
+    UX_CARRY_REASON="the PR diff moved (${rec_dh:-none} -> $dh)"; return 1
+  fi
+  if [ "$rec_ver" != PASS ]; then
+    UX_CARRY_REASON="the recorded walk is ${rec_ver:-unreadable}, not PASS"; return 1
+  fi
+  if [ "$rec_key" != "$UX_CARRY_KEY" ]; then
+    UX_CARRY_REASON="the rendered console's inputs moved (${rec_key:-none} -> $UX_CARRY_KEY)"; return 1
+  fi
+  UX_CARRY_REASON="PR diff and the rendered console's inputs are unchanged"
+  return 0
+}
+
 queue_carry() { # <wt> <old-head> <new-sha> <incoming> <pr-changed> <gate-file> <reviewed-file> <role>
   # Step 1 just merged origin/main into a verified PR. Run the same predicate the land-time carry
   # uses: a move that is disjoint from the PR's own files and the shared surfaces keeps the gate
@@ -1711,6 +1749,15 @@ if [ "${1:-}" != "--one" ]; then
     fi
     echo "REGATE $CARRY_REASON"; exit 1
   fi
+  # Hermetic seam for rsi/runtime/tests/test-ux-carry-key.sh: print the carry key and the verdict
+  # the UX-gate block reads, over temp repos on disk. No gh, fetch, gate, walk, review or dispatch.
+  if [ "${1:-}" = "--ux-carry-key-check" ]; then
+    # usage: merge.sh --ux-carry-key-check <worktree> <main-ref> [<uxverified-file> <pr-diff-hash>]
+    [ $# -ge 3 ] || { echo "usage: merge.sh --ux-carry-key-check <worktree> <main-ref> [<uxverified-file> <pr-diff-hash>]" >&2; exit 2; }
+    echo "KEY $(ux_carry_key "$2" "$3")"
+    if ux_carry_verdict "$2" "$3" "${4:-}" "${5:-}"; then echo "CARRY $UX_CARRY_KEY"; exit 0; fi
+    echo "REGATE $UX_CARRY_REASON"; exit 1
+  fi
   # Hermetic seam for rsi/runtime/tests/test-loop-sendback-stale.sh: run the same sendback() the
   # land loop calls with a stubbed PR head. No lock, fetch, gate, review, merge or dispatch.
   if [ "${1:-}" = "--stale-check" ]; then
@@ -2372,10 +2419,10 @@ echo "$CH" | grep -E '^ui/src/.*\.(tsx|css)$' | grep -vqE '\.(test|spec)\.' && U
 echo "$CH" | grep -qE '^(ui/package(-lock)?\.json|ui/tailwind|ui/postcss)' && UI_TOUCH=1
 if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
   UXV="$STATE/merge/$SLUG.uxverified"
-  MAINUI="$($GIT -C "$WT" rev-parse origin/main:ui 2>/dev/null || $GIT -C "$WT" rev-parse origin/main)-$($GIT -C "$WT" rev-parse HEAD:ui/package-lock.json 2>/dev/null || echo none)"
-  if [ "$(cut -d' ' -f1 "$UXV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$UXV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f3 "$UXV" 2>/dev/null)" = "$MAINUI" ]; then
-    say "#$N $SLUG: UX gate carried over (PR diff and origin/main:ui unchanged)"
+  if ux_carry_verdict "$WT" origin/main "$UXV" "$DH"; then
+    say "#$N $SLUG: UX gate carried over ($UX_CARRY_REASON: $UX_CARRY_KEY)"
   else
+    say "#$N $SLUG: UX gate re-walks ($UX_CARRY_REASON)"
     # Reuse a strong UX review for this same head SHA (do not re-call Hydrogen/sol), but only
     # when the gate's own decision accepts the cached text: reusing an ungrounded below-threshold
     # score is #383 again (its FAIL sends the PR back, its PASS merges it) one tick after the gate
@@ -2396,10 +2443,18 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
     [ -s "$STATE/merge/$SLUG.strong-ux.txt" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong-ux")" = "$SHA" ] \
       && say "#$N $SLUG: cached strong UX review for ${SHA:0:8} fails the UX gate's own decision (grounding/threshold) — running the gate"
     say "#$N $SLUG: UX gate (journey walk + vision review)"
-    # Outer backstop, not the walk bound: ux-gate re-walks a red once (confirm),
-    # and that second walk has the same RSI_WALK_MAX_S ceiling, so the default
-    # leaves room for both (2 x 1800s) plus the vision dispatch.
-    GATE_MAX="${RSI_UX_GATE_MAX_S:-5400}"; case "$GATE_MAX" in ''|*[!0-9]*) GATE_MAX=5400;; esac
+    # Outer backstop, not a walk bound, and it must enclose the whole composition:
+    # each walk can spend RSI_HEAVY_WAIT_MAX queueing for the heavy slot and then
+    # RSI_WALK_MAX_S in the walker, ux-gate re-walks a red once (confirm), the
+    # vision review is dispatched up to twice (first ask + one grounding re-ask)
+    # at DISPATCH_MAX_SECS=1500 each (ux-gate.sh), and the pre-walk UI/go build,
+    # seed and daemon boot add ~900s. With the default bounds:
+    # 2 x (1800 + 1800) + 2 x 1500 + 900 = 11100s. A numeric RSI_UX_GATE_MAX_S
+    # still wins; a malformed one falls back to the same derived default.
+    HEAVY_WAIT_MAX="${RSI_HEAVY_WAIT_MAX:-1800}"; case "$HEAVY_WAIT_MAX" in ''|*[!0-9]*) HEAVY_WAIT_MAX=1800;; esac
+    WALK_MAX_S="${RSI_WALK_MAX_S:-1800}"; case "$WALK_MAX_S" in ''|*[!0-9]*) WALK_MAX_S=1800;; esac
+    GATE_DEFAULT=$(( 2 * (HEAVY_WAIT_MAX + WALK_MAX_S) + 2 * 1500 + 900 ))
+    GATE_MAX="${RSI_UX_GATE_MAX_S:-$GATE_DEFAULT}"; case "$GATE_MAX" in ''|*[!0-9]*) GATE_MAX=$GATE_DEFAULT;; esac
     # This attempt's evidence only: ux-gate clears confirm.json below its first walk, so an
     # earlier attempt on the same slug would otherwise leave it readable to the 124 branch if
     # this attempt expires during build/seed/walk, and the sendback would carry a past tree's red.
@@ -2446,7 +2501,7 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
     fi
     SC="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(" ".join("%s=%s"%kv for kv in d["scores"].items()), "mean=%s"%d["mean"])' "$STATE/ux/$SLUG/scores.json" 2>/dev/null)"
     if [ $urc -eq 0 ]; then
-      echo "$DH PASS $MAINUI" > "$UXV"
+      echo "$DH PASS $UX_CARRY_KEY" > "$UXV"
       $GH pr comment "$N" --repo "$GH_REPO" --body "RSI UX gate: PASS on ${SHA:0:8} ($SC). Journey screenshots are kept on the CEO machine (rsi/state/shots/$SLUG/journeys/). Rubric: rsi/UX-RUBRIC.md." >/dev/null 2>&1
     elif [ $urc -eq 1 ]; then
       say "#$N $SLUG: UX gate FAIL ($SC)"; sendback "$SLUG" "$ITEM" "UX gate failed ($SC)" "$STATE/merge/$SLUG.ux.txt" "ux-gate" "$(spec_rev "$WT")" "bash $RSI_DIR/runtime/ux-gate.sh $WT $SLUG $ITEM $N $DH $ROLE"
