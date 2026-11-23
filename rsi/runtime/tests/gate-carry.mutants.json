@@ -1,0 +1,23 @@
+[
+  {
+    "label": "an unknown current head reads as a moved head, so a gate with no head evidence claims land-sync",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_reverify_reason_after_a_gate_fail_is_rework bash rsi/runtime/tests/test-gate-carry.sh",
+    "old": "  if [ -n \"$prior_key\" ] && [ \"$prior_key\" = \"$cur_key\" ] \\\n     && [ -n \"$cur_head\" ] && [ \"$cur_head\" != \"$prior_sha\" ]; then",
+    "new": "  if [ -n \"$prior_key\" ] && [ \"$prior_key\" = \"$cur_key\" ] \\\n     && [ \"$cur_head\" != \"$prior_sha\" ]; then"
+  },
+  {
+    "label": "the classifier seam drops the current head, so a main sync is logged as rework",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_reverify_reason_land_sync_after_a_main_sync bash rsi/runtime/tests/test-gate-carry.sh",
+    "old": "    reverify_reason \"$2\" \"$3\" \"$4\" \"$5\" \"$6\" \"$7\" \"${8:-}\"; exit 0",
+    "new": "    reverify_reason \"$2\" \"$3\" \"$4\" \"$5\" \"$6\" \"$7\" \"\"; exit 0"
+  },
+  {
+    "label": "the gate-start call site passes an empty current head, so a main sync is logged as rework",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_reverify_reason_is_written_at_gate_start bash rsi/runtime/tests/test-gate-carry.sh",
+    "old": "\"${QUEUE_CARRY_REASON:-}\" \"$SHA\")\"",
+    "new": "\"${QUEUE_CARRY_REASON:-}\" \"\")\""
+  }
+]

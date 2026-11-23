@@ -21,11 +21,11 @@
     "new": ""
   },
   {
-    "label": "the contract drops the sentence that makes the Claims block a writing rule rather than a gate",
+    "label": "the contract again lets a claimed test go unproven",
     "file": "rsi/runtime/lane.sh",
     "test": "RSI_TEST_ONLY=claims-block-rule bash rsi/runtime/tests/test-lane-worker-contract.sh",
-    "old": " The reviewer checks each line against the diff; this is a writing rule, not a hard gate.",
-    "new": ""
+    "old": "is run by the lane: it reverts the claimed file to \\`origin/main\\` and requires the named test in field 2 to go red.",
+    "new": "is not checked by anyone."
   },
   {
     "label": "the 820 screenshot is again accepted as an empty or placeholder view",

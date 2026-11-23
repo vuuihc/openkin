@@ -158,9 +158,15 @@ PY
   # full sentence makes this case go red when the Claims waiver is deleted.
   grep -Fq 'A claim with no test is `none: <reason of at least 20 characters>`' <<<"$text" \
     || bad "claims-block-rule: the none: waiver and its 20-character minimum are not stated"
-  # It is a writing rule the reviewer applies; it is not a second hard gate.
-  grep -Fq 'this is a writing rule, not a hard gate' <<<"$text" \
-    || bad "claims-block-rule: the contract does not say the Claims rule is not a hard gate"
+  # The Claims rule is a lane gate now: a resolvable claim's own check is run against the
+  # reverted file, and the command to run it sits beside the claim-check one. Anchor on the
+  # rendered sentence, not on `red-first` alone: the run line also carries that word.
+  grep -Fq 'is run by the lane: it reverts the claimed file to `origin/main` and requires the named test in field 2 to go red' <<<"$text" \
+    || bad "claims-block-rule: the contract does not say the lane runs a resolvable claim against origin/main"
+  grep -Fq 'The claimed path is the implementation line the test exercises, not the test file itself.' <<<"$text" \
+    || bad "claims-block-rule: the contract does not say the claim cites the implementation, not the test"
+  grep -Fq -- '--red-first-check' <<<"$text" \
+    || bad "claims-block-rule: the contract does not name the red-first seam to run"
   if grep -F 'Claims' <<<"$text" | grep -Eq '\bmust\b|fails the lane'; then
     bad "claims-block-rule: the Claims block introduces hard-gate wording"
   fi
