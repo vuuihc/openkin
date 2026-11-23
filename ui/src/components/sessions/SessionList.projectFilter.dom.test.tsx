@@ -150,7 +150,11 @@ beforeEach(() => {
   setLocale("en");
   localStorage.clear();
   sessionStorage.clear();
-  readOnePager.mockResolvedValue({ project_id: "p-alpha", markdown: "", updated_at: 1 } as OnePager);
+  readOnePager.mockResolvedValue({
+    project_id: "p-alpha",
+    markdown: "",
+    updated_at: 1,
+  } as OnePager);
   fixtures.tasks = [task("alpha-work", "/work/alpha"), task("beta-work", "/work/beta")];
   fixtures.projects = [
     project("p-alpha", "Project Alpha", "/work/alpha"),

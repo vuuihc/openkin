@@ -693,9 +693,7 @@ export default function SessionList({
   // make that state recoverable rather than silent.
   const narrowed = useMemo(
     () =>
-      projectBucketKeys
-        ? filtered.filter((bucket) => projectBucketKeys.has(bucket.key))
-        : filtered,
+      projectBucketKeys ? filtered.filter((bucket) => projectBucketKeys.has(bucket.key)) : filtered,
     [filtered, projectBucketKeys],
   );
   const listed = useMemo(
@@ -811,14 +809,18 @@ export default function SessionList({
   // the order is stored per bucket, so it is offered only where the bucket is
   // shown whole. The stored order still displays in the narrowed views.
   const canReorder =
-    scope === "active" && !searching && !status && !routineFilter && !projectFilter && !selectionMode;
+    scope === "active" &&
+    !searching &&
+    !status &&
+    !routineFilter &&
+    !projectFilter &&
+    !selectionMode;
   // "Nothing here" must describe the filter, not a page that ended: the same
   // empty state covers status, the archive and a routine or project narrowing.
   const filtering = Boolean(status) || scope === "archived" || routineFilter || projectFilter;
   // The narrowed list has read one page, not the project's whole history: with
   // pages still out, "no chats match" would describe the page, not the filter.
-  const projectPagesRemain =
-    projectFilter && (hasMoreTasks || hasMoreArchive || hasMoreSessions);
+  const projectPagesRemain = projectFilter && (hasMoreTasks || hasMoreArchive || hasMoreSessions);
   const pendingQuery = query.trim() !== searchTerm;
   const archiveFailed = scope === "archived" && Boolean(archivedList.error);
   const archiveProjectsFailed = scope === "archived" && !archiveFailed && Boolean(taskList.error);
@@ -1312,9 +1314,14 @@ export default function SessionList({
     // history instead of stepping through project filters.
     const openNarrowed = (projectId: string) =>
       runGuardedNavigation(() =>
-        phonePush(navigate, location, `/sessions${listStateQuery(params, { project: projectId })}`, {
-          replace: true,
-        }),
+        phonePush(
+          navigate,
+          location,
+          `/sessions${listStateQuery(params, { project: projectId })}`,
+          {
+            replace: true,
+          },
+        ),
       );
     const known = projects.find((project) =>
       (project.roots ?? []).some((root) => bucketKeyFor(root) === bucket.key),
@@ -1578,7 +1585,7 @@ export default function SessionList({
       onFilterChange={changeFilter}
       routineFilter={routineFilter}
       onClearRoutine={changeRoutineFilter}
-      projectFilter={projectFilter ? (projectRecord?.name.trim() || projectId) : ""}
+      projectFilter={projectFilter ? projectRecord?.name.trim() || projectId : ""}
       onClearProject={changeProjectFilter}
       onSortChange={(mode) => {
         setProjectSortMode(mode);

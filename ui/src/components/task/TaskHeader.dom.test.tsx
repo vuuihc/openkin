@@ -205,7 +205,9 @@ describe("TaskHeader", () => {
   it("desktop: project name is a link when task.project_id is set", () => {
     setup({ task: { ...task, project_id: "project 1/2" } });
     const link = screen.getByRole("link", { name: "openkin" });
-    expect(link.getAttribute("href")).toBe(`/sessions?project=${encodeURIComponent("project 1/2")}`);
+    expect(link.getAttribute("href")).toBe(
+      `/sessions?project=${encodeURIComponent("project 1/2")}`,
+    );
   });
 
   it("desktop: project name is plain text without a project_id", () => {
