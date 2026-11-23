@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="16"/>
+<rect width="1100" height="34" fill="#f6f6f8" rx="16"/>
+<rect y="20" width="1100" height="14" fill="#f6f6f8"/>
+<text x="16" y="22" font-size="11" fill="#555">状态板 · 迟到的回答 · 1100×760</text>
+<text x="1084" y="22" font-size="11" fill="#777" text-anchor="end">只有最新一次读或导入的结果上屏</text>
+
+<!-- A: stale answer discarded -->
+<rect x="16" y="56" width="520" height="330" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="38" cy="80" r="9" fill="#eef3ff"/>
+<text x="38" y="84" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">1</text>
+<text x="56" y="85" font-size="14" fill="#1a1a1a" font-weight="600">安装状态</text>
+<text x="56" y="101" font-size="10.5" fill="#6b6b6b">自动读取，不改变任何东西</text>
+<line x1="16" y1="116" x2="536" y2="116" stroke="#e3e3e3"/>
+<text x="36" y="140" font-size="9.5" fill="#8a8a92">14:02:10</text>
+<text x="96" y="140" font-size="10.5" fill="#1a1a1a">读 #1 发出</text>
+<text x="36" y="160" font-size="9.5" fill="#8a8a92">14:02:11</text>
+<text x="96" y="160" font-size="10.5" fill="#1a1a1a">人又按了一次「刷新检测」→ 读 #2 发出</text>
+<text x="36" y="180" font-size="9.5" fill="#8a8a92">14:02:12</text>
+<text x="96" y="180" font-size="10.5" fill="#137a3f">读 #2 返回，上屏</text>
+<text x="36" y="200" font-size="9.5" fill="#8a8a92">14:02:14</text>
+<text x="96" y="200" font-size="10.5" fill="#b42318">读 #1 返回，seq 已旧 → 丢弃</text>
+<line x1="16" y1="214" x2="536" y2="214" stroke="#f0f0f2"/>
+<text x="36" y="240" font-size="12.5" fill="#1a1a1a" font-weight="600">Claude Code</text>
+<text x="516" y="240" font-size="10.5" fill="#1a1a1a" text-anchor="end">上次检测 14:02:12</text>
+<text x="36" y="256" font-size="10.5" fill="#8a8a92">可用 · 2.1.0（来自读 #2，不是读 #1）</text>
+<text x="36" y="290" font-size="10" fill="#999">屏幕只认 seq：旧回答即使晚到，也写不进状态与时间。</text>
+<text x="36" y="310" font-size="10" fill="#999">设置页已有 loadSeq 与 agentCatalogSeq 两个序号。</text>
+<text x="36" y="336" font-size="10" fill="#1f6feb">合同 :94「只有最新一次读或导入的结果上屏」、:95「按代际序号」</text>
+<text x="36" y="358" font-size="10" fill="#999">迟到的结果不抢焦点，不用 live region 反复播报。</text>
+
+<!-- B: import in flight, leave and return -->
+<rect x="564" y="56" width="520" height="330" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="586" cy="80" r="9" fill="#eef3ff"/>
+<text x="586" y="84" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">2</text>
+<text x="604" y="85" font-size="14" fill="#1a1a1a" font-weight="600">导入会话</text>
+<text x="604" y="101" font-size="10.5" fill="#6b6b6b">只在按下时发生，只写会话索引</text>
+<line x1="564" y1="116" x2="1084" y2="116" stroke="#e3e3e3"/>
+<rect x="580" y="126" width="150" height="34" rx="8" fill="#f0f0f0"/>
+<text x="655" y="148" font-size="10.5" fill="#999" text-anchor="middle">导入中…</text>
+<text x="744" y="148" font-size="10" fill="#8a8a92">按下后离开 tab → 回来仍是「导入中…」</text>
+<text x="584" y="190" font-size="10.5" fill="#1a1a1a">不假装完成：没有结果就不写「已索引」。</text>
+<text x="584" y="210" font-size="10.5" fill="#1a1a1a">回来后按钮仍禁用，页面与侧栏共享同一个进行中标志。</text>
+<text x="584" y="244" font-size="10" fill="#999">完成或失败的结果在回来时按真实状态显示。</text>
+<text x="584" y="264" font-size="10" fill="#999">结果与时间戳保留；已完成的动作不重跑。</text>
+<text x="584" y="290" font-size="10" fill="#1f6feb">合同 :86「进行中的动作离开后不假装完成」、:117「回来仍能看到它完成或失败的结果」</text>
+<text x="584" y="312" font-size="10" fill="#999">离开再回来不重复发起导入（合同 :97）。</text>
+<text x="584" y="338" font-size="10" fill="#999">焦点回到触发入口：Mac 左栏、手机底栏。</text>
+<text x="584" y="360" font-size="10" fill="#999">不落在隐藏控件上（合同 :118）。</text>
+
+<!-- C: timeout -->
+<rect x="16" y="394" width="520" height="330" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="38" cy="418" r="9" fill="#eef3ff"/>
+<text x="38" y="422" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">1</text>
+<text x="56" y="423" font-size="14" fill="#1a1a1a" font-weight="600">安装状态</text>
+<text x="56" y="439" font-size="10.5" fill="#6b6b6b">自动读取，不改变任何东西</text>
+<rect x="420" y="404" width="96" height="30" rx="8" fill="#ffffff" stroke="#c9c9cf"/>
+<text x="468" y="423" font-size="11" fill="#1a1a1a" text-anchor="middle">重试检测</text>
+<rect x="32" y="454" width="488" height="34" rx="8" fill="#fff8ea" stroke="#f0d9a8"/>
+<text x="44" y="470" font-size="11" fill="#8a5a00">这次检测没有结果（超时）</text>
+<text x="44" y="483" font-size="9.5" fill="#8a6a30">保留 14:02 的结果并标时间；不猜成功</text>
+<text x="36" y="520" font-size="12.5" fill="#1a1a1a" font-weight="600">Claude Code</text>
+<text x="516" y="520" font-size="10.5" fill="#1a1a1a" text-anchor="end">上次检测 14:02</text>
+<text x="36" y="536" font-size="10.5" fill="#8a8a92">可用 · 2.1.0（上次结果）</text>
+<text x="36" y="570" font-size="10" fill="#999">超时是「没有结果」，不是「失败」也不是「成功」。</text>
+<text x="36" y="590" font-size="10" fill="#999">时间戳说明屏上的值是旧的；不让它冒充新值。</text>
+<text x="36" y="616" font-size="10" fill="#1f6feb">合同 :95「超时写「没有结果」而不是猜成功」、:97「按时间戳而不是到达顺序」</text>
+<text x="36" y="644" font-size="10" fill="#999">断线保留上次结果并标时间；不把整组清空。</text>
+<text x="36" y="670" font-size="10" fill="#999">探测失败与导入失败只说各自的组，互不阻塞。</text>
+
+<!-- D: re-enter does not re-import -->
+<rect x="564" y="394" width="520" height="330" rx="12" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="586" cy="418" r="9" fill="#eef3ff"/>
+<text x="586" y="422" font-size="11" fill="#1f6feb" font-weight="600" text-anchor="middle">2</text>
+<text x="604" y="423" font-size="14" fill="#1a1a1a" font-weight="600">导入会话</text>
+<text x="604" y="439" font-size="10.5" fill="#6b6b6b">只在按下时发生，只写会话索引</text>
+<line x1="564" y1="454" x2="1084" y2="454" stroke="#e3e3e3"/>
+<text x="584" y="482" font-size="10.5" fill="#1a1a1a">一次导入还在跑时，重进同一屏：</text>
+<text x="584" y="504" font-size="10.5" fill="#137a3f">仍显示同一个「导入中…」，不发第二次请求。</text>
+<text x="584" y="526" font-size="10.5" fill="#137a3f">侧栏与 operations 的按钮也一起禁用。</text>
+<text x="584" y="560" font-size="10" fill="#999">导入没有自动重试，也不会因为重进而补跑。</text>
+<text x="584" y="580" font-size="10" fill="#999">没按就不发生导入；提示文案不因离开而改变。</text>
+<text x="584" y="606" font-size="10" fill="#1f6feb">合同 :97「同一屏重进不重复发起导入」、:75「没按就不发生导入」</text>
+<text x="584" y="634" font-size="10" fill="#999">角色组不跟着探测或导入刷新：三组各管各的。</text>
+<text x="584" y="654" font-size="10" fill="#999">重进只重发这一屏的读，不重发写。</text>
+<text x="584" y="680" font-size="10" fill="#999">旧读的返回被 seq 丢弃，屏幕保留新读的时间戳。</text>
+
+<text x="16" y="748" font-size="10" fill="#8a8a92">状态来源：合同 KIN-AGENTS-002.md:92-97（监控）、:114-119（收尾）；代际序号模式见 ui/src/pages/SettingsPage.tsx:354、:370-410。</text>
+</g>
+</svg>
