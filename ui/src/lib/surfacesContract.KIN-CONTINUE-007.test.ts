@@ -78,6 +78,21 @@ describe("KIN-CONTINUE-007 signature", () => {
     }
   });
 
+  it("names exactly the four acceptance test files the implementation must add", () => {
+    // The 验收 table is the contract the implementation is measured against; a renamed or
+    // dropped row would otherwise let the delivery choose its own proof.
+    const table = story.slice(story.indexOf("## 验收"), story.indexOf("## 证据"));
+    const named = [...table.matchAll(/\|.*?`(ui\/src\/[^`]+)`/g)]
+      .map((m) => m[1])
+      .filter((p) => /\.(test|dom\.test)\.(ts|tsx)$/.test(p));
+    expect([...new Set(named)].sort()).toEqual([
+      "ui/src/components/layout/Sidebar.dom.test.tsx",
+      "ui/src/components/sessions/SessionList.listScan.dom.test.tsx",
+      "ui/src/components/sessions/SessionRow.coarse.dom.test.tsx",
+      "ui/src/lib/sessionListFolds.test.ts",
+    ]);
+  });
+
   it("keeps the bounds the signature fixes where the implementation reads them", () => {
     // The acceptance number, not a mood: one 820 screenful shows ten complete rows.
     expect(story).toContain("一屏至少 10 条对话行完整可见");
