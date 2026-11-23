@@ -21,7 +21,7 @@
  * bound of D4 (AGENTS.md rule 16). DOM-free: `node:fs` plus this file's own
  * location, no cwd, no React.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const root = new URL("../../../", import.meta.url);
@@ -53,9 +53,17 @@ function signCall(log: string): string {
 }
 
 describe("KIN-CONTINUE-007 signature", () => {
-  it("records the story as approved in both the contract and the registry", () => {
-    expect(story).toMatch(/^状态：approved$/m);
-    expect(registry.stories.find((s) => s.id === "KIN-CONTINUE-007")?.state).toBe("approved");
+  it("records the story as signed in both the contract and the registry", () => {
+    // `approved` → `covered` is the story's own documented delivery step (its changelog and
+    // README step 6), so the reachable signed states are asserted as a set rather than pinning
+    // the pre-delivery one; `failing` stays signed because a red check does not unsign a call.
+    const signed = ["approved", "covered", "failing"];
+    const storyState = story.match(/^状态：(.+)$/m)?.[1];
+    const registryState = registry.stories.find((s) => s.id === "KIN-CONTINUE-007")?.state;
+    expect(storyState, "the contract records no 状态 line").toBeDefined();
+    expect(signed, `contract state ${storyState}`).toContain(storyState);
+    expect(signed, `registry state ${registryState}`).toContain(registryState);
+    expect(registryState, "the contract and the registry disagree").toBe(storyState);
   });
 
   it("records the CEO call in rsi/DECISIONS.md, as the mandate requires", () => {
@@ -99,5 +107,25 @@ describe("KIN-CONTINUE-007 signature", () => {
     // D4: the coarse-pointer arm runs to 1023.98px, never a width breakpoint (AGENTS.md 16).
     expect(story).toContain("1023.98");
     expect(story).toContain("pointer: coarse");
+  });
+
+  it("ships its Figma-first review page, every referenced frame on disk", () => {
+    // The review page is the signable artifact (AUTHORING §6): `stories.py` checks the marker,
+    // the phrase and the MECE cut, but nothing checks the frames one by one — a deleted or
+    // renamed SVG would leave a broken picture on the page that signed the story, all green.
+    expect(review).toContain('<meta name="kin-review-format" content="figma-flow-v1">');
+    expect(review).toContain("用户流程");
+    const frames = [
+      ...new Set(
+        [...review.matchAll(/KIN-CONTINUE-007\.figma\/frames\/([^"'\s>]+\.svg)/g)].map((m) => m[1]),
+      ),
+    ];
+    expect(frames.length, "the review page references no frames").toBeGreaterThan(0);
+    for (const frame of frames) {
+      expect(
+        existsSync(new URL(`docs/product/stories/KIN-CONTINUE-007.figma/frames/${frame}`, root)),
+        `${frame} is referenced by the review page but is missing on disk`,
+      ).toBe(true);
+    }
   });
 });
