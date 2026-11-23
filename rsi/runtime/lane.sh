@@ -95,6 +95,7 @@ You are the WORKER for RSI item $item in worktree \`$wt\` on branch \`$br\`. Mod
 - Loop code (\`rsi/runtime/**\` or \`scripts/**\` ending \`.sh\`, \`.bash\`, \`.py\`, \`.mjs\`, \`.js\` or \`.ts\`; not \`rsi/runtime/{tests,runs,prompts}/**\`, \`rsi/runtime/ux/journeys/**\`, \`rsi/state/**\` or a deleted file): add or update an entry in a \`*.mutants.json\` manifest this branch adds or modifies for every changed file, with \`file\` set to that path, and that entry's test must fail while its mutant is applied. A manifest already on main does not cover your edit, so an already-covered file still needs a new entry. Make the mutant break the behaviour you changed, not an unrelated line. Run \`bash rsi/runtime/lane.sh --mutant-evidence-check "\$PWD"\` from your worktree before you finish: only \`MUTANT_EVIDENCE_OK\` (or \`MUTANT_EVIDENCE_SKIP\` when no loop code changed) proves the hand-off; a missing entry prints \`MUTANT_EVIDENCE_MISSING\` and a surviving mutant prints \`MUTANT_EVIDENCE_RED\`. The lane runs the same seam before pushing, and either verdict there fails the lane.
 - UI ratchet: \`python3 scripts/check-ui-inventory.py\` must not grow. If your change IS the sanctioned primitive/facade (its own raw \`<button>\`, \`createPortal\`, \`role="dialog"\`, \`useAnchoredPanel\` use is the point), run \`python3 scripts/check-ui-inventory.py --update\`, commit the baseline, and say so in the PR body (Risk section). Also run the focused UI suites your change touches plus the design-token test: \`cd ui && npx vitest run <the suites you touched> src/design/tokens.test.ts\` (e.g. focus ring must use \`outline-kin-focus-ring\`). The merge gate owns the full suite; a worker does not run it.
 - Commit everything with Conventional Commits and explicit paths. Do NOT push, do NOT open the PR, do NOT touch other worktrees.
+- Run \`bash rsi/runtime/format-changed.sh --write --commit\` as the last step before writing the hand-off body: the lane repeats that format commit after you exit, so a rewrite it makes moves the line numbers the body claims (2026-11-23: 786e847d shifted AgentSessionSheet.tsx 240/256/277 → 235/251/272 after the body was written, and the claim seam failed the round).
 - Before you finish write the PR body to \`$STATE/lanes/$slug.pr-body.md\` with sections: Symptom · Change · Verification (commands + results) · Claims · Screenshots (paths, or "none: not visible") · Risk · \`RSI item: $item\`.
 - Under Verification, the Claims block is one line per user-visible or behavioural claim: \`<path:line> · <test name> · <mutant or the check that would go red without the line>\`. A claim with no test is \`none: <reason of at least 20 characters>\`. A claim whose third field is a backticked command or a \`mutant\` label in this branch's \`*.mutants.json\` is run by the lane: it reverts the claimed file to \`origin/main\` and requires the named test in field 2 to go red. The claimed path is the implementation line the test exercises, not the test file itself. A claim it cannot resolve is NA; record why with \`red-first: none: <reason>\`, and a red that need not name a test carries \`red-first: any\`. The reviewer checks each line against the diff.
 - A PR that changes a prose-assertion path (\`docs/product/**\`, \`docs/plans/**\`, \`docs/adr/**\`, \`rsi/GOAL.md\`, \`rsi/DECISIONS.md\`, \`rsi/ASTRYX-PLAN.md\`, \`AGENTS.md\`, \`PRINCIPLE.md\`, \`SYSTEM_DESIGN.md\`) carries one \`Claim check:\` line at column 0 — one command that proves the sentence on this branch — and its literal output under \`Claim output:\`, or waives it with \`Claim check: none: <reason of at least 20 characters>\`.
@@ -601,15 +602,43 @@ fi
 # worker runs this same seam first (worker_contract); this pass is authoritative, and
 # rsi/runtime/claim_check.py is the merge gate's own rule. On a FAIL the branch stays committed
 # and clean: no push, no PR, and the worker fixes the body in its own session.
+CLAIM_RETRY_NOTE=""
 if ! CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; then
   [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
-  # Keep the verdict and the command's own tail on disk, the way merge.sh's claim_check_gate
-  # keeps its evidence. A flattened note cannot tell a genuine red from a slow or truncated run,
-  # and only the failure branch writes here, so a later green hand-off never rewrites the record.
-  printf '%s\n' "${CLAIM_EV:-check produced no output}" > "$STATE/lanes/$N.claim.txt"
-  CLAIM_NOTE="$(printf '%s' "$CLAIM_EV" | tr '\n' ' ' | sed 's/  */ /g')"
-  finish failed "" "claim check: ${CLAIM_NOTE:-check produced no output} (evidence: $STATE/lanes/$N.claim.txt)"
-  exit 1
+  # The retry is a general guard, not a fix for the 2026-11-23 incident: there the body was
+  # written at 12:21:48, the worker exited at 12:23:32, and the lane's own format commit
+  # 786e847d (12:23:35) shifted the claimed lines, so the seam read a stale body at 12:23:36 and
+  # a re-read of the same tree could not help (the worker contract now formats before the body).
+  # The guard still earns its keep when a body is rewritten between the seam's read and the
+  # record: re-read once after a short bounded pause so the record describes the bytes being
+  # handed off. claim_lane_check() executes the worker-authored claim command, so the second run
+  # repeats any side effects; only the final verdict reaches .claim.txt, whose one-writer
+  # contract is unchanged. A genuine body problem still fails: two runs, one sleep, no loop.
+  CLAIM_ATTEMPTS="$STATE/lanes/$N.claim-attempts.txt"
+  printf 'attempt 1: %s\n' "$(printf '%s' "${CLAIM_EV:-check produced no output}" | head -1)" > "$CLAIM_ATTEMPTS"
+  CLAIM_RETRY_SECS_USE="${RSI_CLAIM_RETRY_SECS:-1}"
+  case "$CLAIM_RETRY_SECS_USE" in ''|*[!0-9]*) CLAIM_RETRY_SECS_USE=1 ;; esac
+  [ "$CLAIM_RETRY_SECS_USE" -gt 5 ] && CLAIM_RETRY_SECS_USE=5
+  CLAIM_RETRY_OK=0
+  if [ "$CLAIM_RETRY_SECS_USE" -gt 0 ]; then
+    # The pause is bounded twice: by the clamp above and by bounded_run's own watchdog.
+    bounded_run "$((CLAIM_RETRY_SECS_USE + 2))" sleep "$CLAIM_RETRY_SECS_USE" >/dev/null 2>&1 || true
+    # Re-read the body from disk; never reuse the first verdict.
+    CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; CLAIM_RC=$?
+    printf 'attempt 2: %s\n' "$(printf '%s' "${CLAIM_EV:-check produced no output}" | head -1)" >> "$CLAIM_ATTEMPTS"
+    [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
+    [ "$CLAIM_RC" -eq 0 ] && CLAIM_RETRY_OK=1
+  fi
+  if [ "$CLAIM_RETRY_OK" -eq 0 ]; then
+    # Keep the verdict and the command's own tail on disk, the way merge.sh's claim_check_gate
+    # keeps its evidence. A flattened note cannot tell a genuine red from a slow or truncated run,
+    # and only the failure branch writes here, so a later green hand-off never rewrites the record.
+    printf '%s\n' "${CLAIM_EV:-check produced no output}" > "$STATE/lanes/$N.claim.txt"
+    CLAIM_NOTE="$(printf '%s' "$CLAIM_EV" | tr '\n' ' ' | sed 's/  */ /g')"
+    finish failed "" "claim check: ${CLAIM_NOTE:-check produced no output} (evidence: $STATE/lanes/$N.claim.txt)"
+    exit 1
+  fi
+  CLAIM_RETRY_NOTE="claim check passed on re-read (attempt 1 failed; evidence $CLAIM_ATTEMPTS)"
 fi
 [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
 
@@ -674,7 +703,7 @@ fi
 
 if [ $TIMEDOUT -eq 1 ]; then count_timeout "lane $N ($SLUG)" "partial work pushed as PR #$PRN"; else count_ok; fi
 scorecard_row "$ITEM $SLUG (lane $N, $MODE)" "$M_WORKER" "pending (merge lane)" "PR opened (${W_MIN}m, \$${COST:-?})$([ $TIMEDOUT -eq 1 ] && echo ', worker hit watchdog')" "[#$PRN]($PRURL)" "pending" "-"
-finish done "$PRN" "PR #$PRN ${W_MIN}m \$${COST:-?} swept=$SWEPT_N"
+finish done "$PRN" "PR #$PRN ${W_MIN}m \$${COST:-?} swept=$SWEPT_N${CLAIM_RETRY_NOTE:+ · $CLAIM_RETRY_NOTE}"
 echo "[$(date +%T)] lane $N done PR #$PRN"
 rm -rf "$LK"; trap - EXIT
 
