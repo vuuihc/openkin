@@ -34,6 +34,8 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
+- 2026-11-24 · 中 · 390×844 手机上有审批在等时，浮在列表底部的「等待处理」条压住列表最后一行（种子里的导入会话）：列表滚到最大值（598）时导入会话行 y=608 h=44，条带浮层（aside，inset-x-3）y=610 h=52 w=366；行中心 y=630 落在条带内，行宽 0.1 / 0.3 / 0.5 三个采样点的 `elementFromPoint` 都命中条带标题 SPAN，行标题被盖住，点行中心会打开等待审批的那条对话而不是这一行；行右侧的时间戳仍在行内、可以点到 — 期望浮动表面永不覆盖可点的列表行，且手机 tab 根上的条带保持可见：**列表在条带显示时为底部留出净空**。取舍已定（`rsi/DECISIONS.md:102`，2026-11-18：tab 根显示条带、决策卡留在推入的对话；条带是 tab 根上唯一的待审批入口），因此不走「相交时隐藏条带」——那会移除该面唯一的待审批入口，并要改 `hidden && !raised && !panelOpen` 这条被 `ui/src/pages/floatingApprovalWiring.test.ts:64` 钉住的结构；验收（可写成测试）：390、存在等待审批、列表滚到底时，条带矩形与任一可见会话行都不相交，最后一行的中心 `elementFromPoint` 命中该行自身，点它打开该行自己的会话面（这里是导入会话的 Sheet）。不要的做法：在手机 tab 根上让条带一相交就隐藏（移除该面唯一的待审批入口，反转 `rsi/DECISIONS.md:102`），或把遮挡留给读者自己处理（条带没有关闭控件，行标题与行中心都被盖住，点中心打开的是另一条对话）。接缝：条带在手机 tab 根上刻意不测量——`measureOverlap` 在 `raised` 时直接返回（`ui/src/components/cards/FloatingApproval.tsx:167`），`/sessions` 是手机 tab 根（`ui/src/lib/phoneNavigation.ts:273`），`raised = !wide && onPhoneTab`（`ui/src/components/layout/AppShell.tsx:781`），且 `raised` 时 `hidden` 被忽略（`FloatingApproval.tsx:520`）；所以「照抄卡片（`:223`）给条带的判定（`:254`）加 `[data-kin-hit-row]`」在这一面是空操作，修复要么落在列表的底部净空，要么是一次有意的 `raised` 语义变更。证据：`phone-p10-imported-bottom.png`、`readings10.json`（行 y=608 h=44、条带 y=610 h=52 w=366、列表 top=max=598、三个采样点全部命中条带标题 SPAN）、`readings9.json`（`found: 1, chosen: null`：最多 8 次真实滚轮位置都没有找到可命中的行内点，脚本 `probe9.mjs`）。
+
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
