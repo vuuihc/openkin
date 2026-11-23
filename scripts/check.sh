@@ -341,10 +341,10 @@ job_stories() {
   python3 scripts/stories.py
 }
 
-# The inventory ratchet and the tests that prove the checker can fail. Always
-# runs: even a scripts-only change must not let a new raw control land, and the
-# checked-in baseline needs no ui/ change or local RSI state. `-B` avoids
-# __pycache__ in the tree.
+# The inventory ratchet and the tests that prove the checker can fail. Started
+# only by --all: CI runs the ratchet on every push, so the default gate leaves it
+# there, while a complete local run must not let a new raw control land without a
+# ui/ change or local RSI state. `-B` avoids __pycache__ in the tree.
 job_ui_inventory() {
   python3 -B scripts/check-ui-inventory.test.py || return 1
   python3 -B scripts/check-ui-inventory.py
@@ -369,8 +369,9 @@ job_ux_spec_refs() {
   python3 -B scripts/ux_spec_refs.py
 }
 
-# The added-file bans and their own tests. Always runs: a disabled rule must
-# still turn this job red, even when `ui-test` sees nothing.
+# The added-file bans and their own tests. Started only by --all: CI runs both on
+# every push, so the default gate leaves them there, while a complete local run
+# still turns this job red when a disabled rule passes `ui-test`.
 job_ui_lint_guard() {
   python3 -B -m unittest scripts/ui_lint_guard_test.py || return 1
   ./scripts/ui-lint-guard.sh

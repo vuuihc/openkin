@@ -171,6 +171,11 @@ import json, sys
 script = json.load(open(sys.argv[1], encoding="utf-8"))["scripts"]["build"]
 sys.exit(0 if script.startswith("tsc --noEmit") else 1)
 PY
+# The helper header a worker reads must not promise the checks the default run now
+# leaves to CI: prep-worktree.sh told them check.sh runs desktop tsc/tests.
+grep -qF 'check.sh --all also runs desktop tsc/tests' \
+  "$REPO/rsi/runtime/prep-worktree.sh" \
+  || fail "gate-premises: prep-worktree.sh no longer qualifies the desktop checks with --all"
 echo "PASS gate-premises"
 
 # --- case 5: the checker reports drift ------------------------------------------------------

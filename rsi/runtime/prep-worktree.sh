@@ -1,7 +1,7 @@
 #!/bin/bash
 # prep-worktree.sh <worktree> — make ui/ and desktop/ node_modules available fast: APFS-clone (cp -c) from a worktree
 # whose install is fresh and whose package-lock.json is identical; fall back to `npm ci`. Idempotent.
-# (scripts/check.sh also runs desktop tsc/tests.)
+# (scripts/check.sh --all also runs desktop tsc/tests; the default run leaves them to CI.)
 # "Installed" is decided by node-stamp.sh, not `[ -d node_modules ]`: that test also accepted a symlink
 # into another worktree and an install made before the current lockfile, and skipped the repair for both.
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"

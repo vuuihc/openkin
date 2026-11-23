@@ -348,9 +348,24 @@ class CheckerTest(unittest.TestCase):
         self.assertNotEqual(self.run_inventory_job(1, 0).returncode, 0)
         self.assertNotEqual(self.run_inventory_job(0, 1).returncode, 0)
 
-    def test_check_script_runs_inventory_guard_unconditionally(self) -> None:
+    def test_check_script_starts_inventory_job_only_in_all_block(self) -> None:
+        # CI runs the ratchet and its own test on every push (.github/workflows/
+        # ci.yml), so the default gate leaves them out (R-gate-ci-dedupe). --all
+        # must still start them, from inside the marked block so the default
+        # list cannot pick them up again.
         script = (SCRIPTS / "check.sh").read_text(encoding="utf-8")
-        self.assertRegex(script, r"(?m)^start ui-inventory job_ui_inventory$")
+        block = re.search(
+            r"(?ms)^# BEGIN all-only jobs\n(.*?)^# END all-only jobs$", script
+        )
+        self.assertIsNotNone(block, "check.sh has no all-only jobs block")
+        assert block is not None
+        self.assertRegex(
+            block.group(1), r"(?m)^[ \t]+start ui-inventory job_ui_inventory$"
+        )
+        self.assertNotRegex(
+            script.replace(block.group(0), ""),
+            r"(?m)^[ \t]*start ui-inventory job_ui_inventory$",
+        )
         body = re.search(r"(?ms)^job_ui_inventory\(\) \{(.*?)^\}", script)
         self.assertIsNotNone(body, "check.sh has no job_ui_inventory")
         assert body is not None
