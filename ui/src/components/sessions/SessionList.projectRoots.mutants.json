@@ -1,0 +1,23 @@
+[
+  {
+    "label": "a bucket with no local project record still gets the working-folders editor",
+    "file": "ui/src/components/sessions/SessionList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectRoots.dom.test.tsx",
+    "old": "        ? (projects.find((project) =>\n            (project.roots ?? []).some((root) => bucketKeyFor(root) === bucket.key),\n          ) ?? null)",
+    "new": "        ? (projects.find((project) =>\n            (project.roots ?? []).some((root) => bucketKeyFor(root) === bucket.key),\n          ) ?? ({ id: bucket.key } as Project))"
+  },
+  {
+    "label": "the last working folder can be removed",
+    "file": "ui/src/components/sessions/ProjectRootsEditor.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectRoots.dom.test.tsx",
+    "old": "const lastFolder = draft.length === 1;",
+    "new": "const lastFolder = false;"
+  },
+  {
+    "label": "a 403 save is reported as a generic failure",
+    "file": "ui/src/components/sessions/ProjectRootsEditor.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectRoots.dom.test.tsx",
+    "old": "e.status === 403",
+    "new": "false"
+  }
+]

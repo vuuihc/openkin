@@ -126,6 +126,7 @@ import {
   type SessionStatusFilter,
 } from "../ui/SessionFilters";
 import { useAppStore } from "../../store/appStore";
+import ProjectRootsEditor from "./ProjectRootsEditor";
 import ProjectSummaryEditor from "./ProjectSummaryEditor";
 import SessionRow from "./SessionRow";
 import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
@@ -316,11 +317,12 @@ export default function SessionList({
     bucket: PhoneProjectBucket;
     archived: boolean;
     /** The local project record behind the bucket, when it has one. */
-    summaryProjectId: string | null;
+    recordProjectId: string | null;
   } | null>(null);
-  // The one-line summary editor is the cover's editor, moved to the row. It
-  // opens over the list, so the list has to own which project it is for.
+  // The cover's two editors, moved to the row. They open over the list, so
+  // the list has to own which project each one is for.
   const [summaryProjectId, setSummaryProjectId] = useState<string | null>(null);
+  const [rootsProjectId, setRootsProjectId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -949,7 +951,7 @@ export default function SessionList({
           setProjectMenu({
             bucket,
             archived: scope === "archived",
-            summaryProjectId: instructionsProject?.id ?? null,
+            recordProjectId: instructionsProject?.id ?? null,
           })
         }
         onEditSummary={
@@ -957,6 +959,10 @@ export default function SessionList({
           // copy of the path and a folder with no record have no One-Pager
           // here, so they get no pencil either.
           instructionsProject ? () => setSummaryProjectId(instructionsProject.id) : undefined
+        }
+        onEditRoots={
+          // The folder list is the same record's, so it follows the same rule.
+          instructionsProject ? () => setRootsProjectId(instructionsProject.id) : undefined
         }
         offline={offline}
         instructionsProjectId={instructionsProject?.id ?? null}
@@ -1647,14 +1653,19 @@ export default function SessionList({
                 label: tr("nav.newSessionIn", { project: projectMenu.bucket.label }),
                 onSelect: () => newSessionIn(projectMenu.bucket),
               },
-              // The cover's summary editor, moved to the row. Only this
-              // machine's project record has a One-Pager to write.
-              ...(projectMenu.summaryProjectId
+              // The cover's summary and folder editors, moved to the row. Only
+              // this machine's project record owns either one.
+              ...(projectMenu.recordProjectId
                 ? [
                     {
                       id: "edit-summary",
                       label: tr("nav.editSummary"),
-                      onSelect: () => setSummaryProjectId(projectMenu.summaryProjectId),
+                      onSelect: () => setSummaryProjectId(projectMenu.recordProjectId),
+                    },
+                    {
+                      id: "edit-roots",
+                      label: tr("projects.rootsEdit"),
+                      onSelect: () => setRootsProjectId(projectMenu.recordProjectId),
                     },
                   ]
                 : []),
@@ -1731,6 +1742,22 @@ export default function SessionList({
     />
   );
 
+  const rootsEditor = (
+    <ProjectRootsEditor
+      open={rootsProjectId !== null}
+      project={projects.find((project) => project.id === rootsProjectId) ?? null}
+      offline={offline}
+      machines={machines}
+      machinesLoading={machinesLoading}
+      onProjectChange={(updated) =>
+        setProjects((current) =>
+          current.map((project) => (project.id === updated.id ? updated : project)),
+        )
+      }
+      onClose={() => setRootsProjectId(null)}
+    />
+  );
+
   if (shell === "sidebar") {
     return (
       <>
@@ -1738,6 +1765,7 @@ export default function SessionList({
         <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">{body}</div>
         {projectSheet}
         {summaryEditor}
+        {rootsEditor}
       </>
     );
   }
@@ -1760,6 +1788,7 @@ export default function SessionList({
       <div className="h-20" aria-hidden />
       {projectSheet}
       {summaryEditor}
+      {rootsEditor}
     </MobileScreen>
   );
 }
@@ -2172,6 +2201,7 @@ function ProjectBucket({
   onArchiveProject,
   onProjectMenu,
   onEditSummary,
+  onEditRoots,
   instructionsProjectId,
   instructions,
   instructionsHref,
@@ -2233,6 +2263,8 @@ function ProjectBucket({
   /** Edit the one-line summary here; absent when the bucket has no local
    *  project record (the One-Pager lives on this machine only). */
   onEditSummary?: () => void;
+  /** Edit the working folders here; absent for the same reason. */
+  onEditRoots?: () => void;
   /** The local project record this bucket is, or null when it has none. */
   instructionsProjectId: string | null;
   instructions?: ProjectInstructionsEntry;
@@ -2421,6 +2453,13 @@ function ProjectBucket({
               // beside the cover icon it writes to.
               <ProjectIconButton label={tr("nav.editSummary")} onClick={onEditSummary}>
                 <IconPencil size={12} />
+              </ProjectIconButton>
+            ) : null}
+            {onEditRoots ? (
+              // Its folder editor sits beside it: the same record, the same
+              // rule for when this machine owns the list.
+              <ProjectIconButton label={tr("projects.rootsEdit")} onClick={onEditRoots}>
+                <IconFolderOpen size={12} />
               </ProjectIconButton>
             ) : null}
             {local && !archived ? (
