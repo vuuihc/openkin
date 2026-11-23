@@ -2,19 +2,49 @@
 # Run the checks that match a change set, in parallel, with one summary.
 #
 # Usage:
-#   ./scripts/check.sh            # changed Go packages, vet, gofmt, desktop, tsc, console
-#   ./scripts/check.sh --all      # go test ./... instead of changed packages
+#   ./scripts/check.sh            # the checks CI does not run, scoped to the change set
+#   ./scripts/check.sh --all      # every check, including the eight CI runs on every push
+#   ./scripts/check.sh --list     # print the job names this run would start, then exit
+#
+# CI (.github/workflows/ci.yml) already runs vet, go test ./..., the console suite and
+# typecheck, the desktop suite and typecheck, the inventory ratchet and the added-file
+# lint guard on every push, and the merge gate requires green PR checks, so the default
+# run leaves that duplicate work out (R-gate-ci-dedupe); --all is the complete local run.
+# gate.sh still runs its own lint, changed-file test, build and ratchet steps.
 #
 # Each job writes its own log; a failing job prints the tail. Exit status is
 # nonzero if any job failed, so this is safe to use at a commit gate.
 set -uo pipefail
 export GOMAXPROCS="${GOMAXPROCS:-2}" GO_TEST_P="${GO_TEST_P:-2}" VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}"
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
 cd "$ROOT"
 
 ALL=0
-[[ "${1:-}" == "--all" ]] && ALL=1
+LIST=0
+for arg in "$@"; do
+  case "$arg" in
+    --all) ALL=1 ;;
+    --list) LIST=1 ;;
+    *) echo "check.sh: unknown argument: $arg" >&2; exit 2 ;;
+  esac
+done
+
+# --list prints the names the start lines below would start, in start order, and exits
+# before any job (or temp dir) is created. It reads those lines from this file, so the
+# printed list cannot drift from what a run starts; the block between the markers is
+# the --all-only set and is skipped unless --all was given.
+if [[ "$LIST" == "1" ]]; then
+  awk -v all="$ALL" '
+    /^# BEGIN all-only jobs/ { block = 1; next }
+    /^# END all-only jobs/   { block = 0; next }
+    /^[[:space:]]*start [A-Za-z0-9._-]+ job_[A-Za-z0-9_]+$/ {
+      if (!block || all == 1) print $2
+    }
+  ' "$SELF" || exit 1
+  exit 0
+fi
 
 LOG_DIR="$(mktemp -d /tmp/kin-check.XXXXXX)"
 trap 'rm -rf "$LOG_DIR"' EXIT
@@ -214,6 +244,9 @@ job_shell_test() {
   bash rsi/runtime/tests/test-runtime-modes.sh || return 1
   bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
   bash rsi/runtime/tests/test-gate-carry.sh || return 1
+  # The default gate starts only the jobs CI does not run; this pins the split and the
+  # premises that make dropping the rest safe (R-gate-ci-dedupe).
+  bash rsi/runtime/tests/test-check-job-parity.sh || return 1
   bash rsi/runtime/tests/test-ux-carry-key.sh || return 1
   bash rsi/runtime/tests/test-verifier-ci-hold.sh || return 1
   bash rsi/runtime/tests/test-merge-sync-skip.sh || return 1
@@ -308,10 +341,10 @@ job_stories() {
   python3 scripts/stories.py
 }
 
-# The inventory ratchet and the tests that prove the checker can fail. Always
-# runs: even a scripts-only change must not let a new raw control land, and the
-# checked-in baseline needs no ui/ change or local RSI state. `-B` avoids
-# __pycache__ in the tree.
+# The inventory ratchet and the tests that prove the checker can fail. Started
+# only by --all: CI runs the ratchet on every push, so the default gate leaves it
+# there, while a complete local run must not let a new raw control land without a
+# ui/ change or local RSI state. `-B` avoids __pycache__ in the tree.
 job_ui_inventory() {
   python3 -B scripts/check-ui-inventory.test.py || return 1
   python3 -B scripts/check-ui-inventory.py
@@ -336,8 +369,9 @@ job_ux_spec_refs() {
   python3 -B scripts/ux_spec_refs.py
 }
 
-# The added-file bans and their own tests. Always runs: a disabled rule must
-# still turn this job red, even when `ui-test` sees nothing.
+# The added-file bans and their own tests. Started only by --all: CI runs both on
+# every push, so the default gate leaves them there, while a complete local run
+# still turns this job red when a disabled rule passes `ui-test`.
 job_ui_lint_guard() {
   python3 -B -m unittest scripts/ui_lint_guard_test.py || return 1
   ./scripts/ui-lint-guard.sh
@@ -374,27 +408,40 @@ job_quality_reading_contract() {
 }
 
 start gofmt job_gofmt
-start vet job_vet
-start gotest job_gotest
 start probe job_probe
-start desktop-test job_desktop_test
-start desktop-tsc job_desktop_tsc
-start ui-test job_ui_test
-start ui-tsc job_ui_tsc
 start api-contract job_api_contract
 start api-coverage job_api_coverage
 start shell-syntax job_shell_syntax
 start shell-test job_shell_test
 start python-syntax job_python_syntax
 start stories job_stories
-start ui-inventory job_ui_inventory
 start removed-surfaces job_removed_surfaces
 start ux-spec-refs job_ux_spec_refs
-start ui-lint-guard job_ui_lint_guard
 start walk-contract job_walk_contract
 start phone-baseline-contract job_phone_baseline_contract
 start journeys-smoke job_journeys_smoke
 start quality-reading-contract job_quality_reading_contract
+
+# The eight jobs CI already runs on every push (.github/workflows/ci.yml): `go vet
+# ./...` and `go test ./...` (build job), `npm test` + `npx tsc --noEmit` (build job's
+# UI step), `npm test` + `npm run typecheck` (desktop job), the inventory ratchet with
+# its test, and the added-file lint guard with its test (build job). The merge gate
+# requires green PR checks (rsi/MANDATE.md), so starting them again locally only
+# lengthens every gate without adding evidence (R-gate-ci-dedupe). --all starts them
+# for a complete one-command local run; gate.sh keeps its own lint, changed-file test,
+# build and ratchet steps.
+# BEGIN all-only jobs
+if [[ "$ALL" == "1" ]]; then
+  start vet job_vet
+  start gotest job_gotest
+  start desktop-test job_desktop_test
+  start desktop-tsc job_desktop_tsc
+  start ui-test job_ui_test
+  start ui-tsc job_ui_tsc
+  start ui-inventory job_ui_inventory
+  start ui-lint-guard job_ui_lint_guard
+fi
+# END all-only jobs
 
 FAILED=()
 for i in "${!PIDS[@]}"; do
