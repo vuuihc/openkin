@@ -38,6 +38,12 @@ in the release minute therefore still reads unshipped. Only the local origin/mai
 ref is read — the patrol updates it — and when there is no usable marker or ref the
 script falls back to the merged.log count; --json names the source that answered.
 
+Every stamp this file compares against is written on the loop's own day: rsi/runtime/
+common.sh exports TZ=Asia/Singapore, and merged.log, merge/cycles.log and GOAL.md's phase
+target are all +08. NOW is that wall clock, so `today`, the 24h/7d edges and
+phase_hours_left are the same numbers on a +08 shell, the patrol's EST shell or the NAS.
+--json names it as day_tz and the default `merges:` line prints (day=+08).
+
 Sources
   state/last_release  `<target>=<sha>` per release target (node, hub)
   state/merged.log    one line per landed PR (time, PR, slug, item, sha)
@@ -57,14 +63,20 @@ import statistics
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 RSI = Path(__file__).resolve().parents[1]  # rsi/
 REPO = Path(__file__).resolve().parents[2]  # repo root
 GOAL = RSI / "GOAL.md"
 STATE = RSI / "state"
-NOW = datetime.now()
+# The loop's day is +08: every stamp below is written under `export TZ=Asia/Singapore`
+# (rsi/runtime/common.sh:3). NOW is that wall clock with the offset dropped, because the
+# parsed log stamps are naive; a fixed offset keeps this file runnable on a fresh clone or
+# a NAS container with no zoneinfo/tzdata, and avoids the deprecated datetime.utcnow().
+LOOP_TZ = timezone(timedelta(hours=8))
+DAY_TZ = "+08"
+NOW = datetime.now(LOOP_TZ).replace(tzinfo=None)
 
 STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})")
 LATENCY = re.compile(r"open_to_merge=(\d+)m")
@@ -414,6 +426,7 @@ def main():
 
     data = {
         "merges_24h": len(m24), "merges_7d": len(m7), "merges_today": len(mtoday),
+        "day_tz": DAY_TZ,
         "p50_open_to_merge_m": pct(lat, 0.5), "p90_open_to_merge_m": pct(lat, 0.9),
         "latency_n": len(lat),
         "last_release_sha": rel_sha,
@@ -439,7 +452,8 @@ def main():
 
     p50 = f"{data['p50_open_to_merge_m']}m" if data["p50_open_to_merge_m"] is not None else "-"
     p90 = f"{data['p90_open_to_merge_m']}m" if data["p90_open_to_merge_m"] is not None else "-"
-    print(f"merges: 24h={data['merges_24h']} 7d={data['merges_7d']} today={data['merges_today']}")
+    print(f"merges: 24h={data['merges_24h']} 7d={data['merges_7d']} "
+          f"today={data['merges_today']} (day={data['day_tz']})")
     print(f"open->merge: p50={p50} p90={p90} (n={data['latency_n']}, 24h)")
     print(f"release: last {rel_sha} at {data['last_release_at']}, unshipped={unshipped}/5")
     if target:
