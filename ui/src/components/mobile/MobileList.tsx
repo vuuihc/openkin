@@ -51,6 +51,13 @@ export function MobileScreen({
   const savedRef = useRef(0);
   const settledRef = useRef(true);
   const recordedRef = useRef(false);
+  /**
+   * The last offset the scroll handler saw. The unmount writes this instead of
+   * rereading the node: a route change detaches or collapses the container
+   * before the passive cleanup runs, so `scrollTop` is the clamp (usually 0) by
+   * then, not the place the reader left.
+   */
+  const lastTopRef = useRef(0);
 
   /**
    * One restore attempt. `settled` is only spent when the saved offset is
@@ -70,6 +77,7 @@ export function MobileScreen({
       settledRef.current = true;
       // The saved value is on screen again; recording it back is a no-op.
       recordedRef.current = true;
+      lastTopRef.current = node.scrollTop;
     }
   }, [scrollKey]);
 
@@ -88,6 +96,7 @@ export function MobileScreen({
     savedRef.current = saved;
     settledRef.current = saved <= 0;
     recordedRef.current = false;
+    lastTopRef.current = 0;
 
     // A reader who starts scrolling while the data is still arriving has
     // chosen a new position; stop restoring rather than fight them. The touch
@@ -102,7 +111,7 @@ export function MobileScreen({
       if (!force && now - lastWrite < 300) return;
       lastWrite = now;
       try {
-        sessionStorage.setItem(scrollKey, String(node.scrollTop));
+        sessionStorage.setItem(scrollKey, String(lastTopRef.current));
       } catch {
         // No storage: nothing to remember.
       }
@@ -110,14 +119,19 @@ export function MobileScreen({
     const save = () => {
       if (!settledRef.current) return;
       recordedRef.current = true;
+      // Read the node here, while the scroll is real, and never again: an
+      // unmount-time reread sees the route change's clamp instead.
+      lastTopRef.current = node.scrollTop;
       write(false);
     };
     node.addEventListener("pointerdown", yieldToReader, { passive: true });
     node.addEventListener("wheel", yieldToReader, { passive: true });
     node.addEventListener("scroll", save, { passive: true });
     return () => {
-      // The unmount is the last chance to record; do not spend it on a
-      // position the restore never reached.
+      // The unmount is the last chance to record the tail of the throttle
+      // window: write the offset the scroll handler last saw, not a fresh read
+      // of a container the route change has already collapsed. Do not spend it
+      // on a position the restore never reached.
       if (recordedRef.current) write(true);
       node.removeEventListener("pointerdown", yieldToReader);
       node.removeEventListener("wheel", yieldToReader);
