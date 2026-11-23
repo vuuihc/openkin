@@ -29,10 +29,17 @@ afterEach(() => {
 });
 
 describe("sessionStatusDotClass", () => {
-  it("blue pulse while running / queued / waiting", () => {
+  it("blue pulse while running / queued", () => {
     expect(sessionStatusDotClass("running", false)).toBe("bg-kin-blue animate-pulse");
     expect(sessionStatusDotClass("queued", false)).toBe("bg-kin-blue animate-pulse");
-    expect(sessionStatusDotClass("waiting_approval", false)).toBe("bg-kin-blue animate-pulse");
+  });
+
+  it("waiting_approval is the needs-you dot, not the running pulse", () => {
+    // On the phone the list's own row is the entry to a waiting approval (the
+    // floating pill yields to it), so the row itself has to say "needs me":
+    // steady orange, distinct from a run that is merely in progress.
+    expect(sessionStatusDotClass("waiting_approval", false)).toBe("bg-kin-orange");
+    expect(sessionStatusDotClass("waiting_approval", true)).toBe("bg-kin-orange");
   });
 
   it("green when succeeded and not yet viewed", () => {

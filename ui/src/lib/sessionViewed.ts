@@ -103,7 +103,8 @@ export function getViewedSessionIds(): string[] {
 
 /**
  * Status-dot class for a sidebar session row.
- * - running / queued / waiting: blue pulse
+ * - waiting_approval: steady orange — the row is the entry
+ * - running / queued: blue pulse
  * - failed: red
  * - succeeded (unviewed): green
  * - succeeded (viewed) / canceled: none
@@ -114,6 +115,10 @@ export function sessionStatusDotClass(status: string, viewed: boolean): string |
   if (status === "succeeded") {
     return viewed ? null : "bg-kin-green";
   }
-  // running | queued | waiting_approval | …
+  // A request that needs the reader is not a run in progress. The floating
+  // pill yields to a row it would cover (FloatingApproval), so on the
+  // conversation list the row is the way in and has to say so itself.
+  if (status === "waiting_approval") return "bg-kin-orange";
+  // running | queued | …
   return "bg-kin-blue animate-pulse";
 }
