@@ -230,11 +230,11 @@ case_usage_error_exits_two() {
 case_wiring_runs_the_suite() {
   want wiring-runs-the-suite || return 0
   bash "$RSI/runtime/tests/test-wiring.sh" >/dev/null 2>&1 \
-    || fail "wiring: test-wiring.sh fails (name this suite in scripts/check.sh job_shell_test)"
+    || fail "wiring-runs-the-suite: test-wiring.sh fails (name this suite in scripts/check.sh job_shell_test)"
   grep -q 'followups-lint.py --stale --state {{STATE}} --repo {{CTRL}}' "$RSI/runtime/prompts/fill.md" \
-    || fail "wiring: fill.md never names followups-lint.py to the planner"
+    || fail "wiring-runs-the-suite: fill.md never names followups-lint.py to the planner"
   grep -q 'must still be read, not skipped' "$RSI/runtime/prompts/fill.md" \
-    || fail "wiring: fill.md does not say a cited line must be read"
+    || fail "wiring-runs-the-suite: fill.md does not say a cited line must be read"
   pass wiring-runs-the-suite
 }
 
