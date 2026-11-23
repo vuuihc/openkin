@@ -218,6 +218,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-merge-sync-skip.sh || return 1
   bash rsi/runtime/tests/test-merge-sync-abort.sh || return 1
   bash rsi/runtime/tests/test-merge-pr-select.sh || return 1
+  bash rsi/runtime/tests/test-merge-slot-priority.sh || return 1
   bash rsi/runtime/tests/test-merge-rework-stalled.sh || return 1
   bash rsi/runtime/tests/test-merge-batch.sh || return 1
   bash rsi/runtime/tests/test-merge-ceo-ok.sh || return 1
