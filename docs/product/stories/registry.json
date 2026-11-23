@@ -744,6 +744,24 @@
         "ui/src/pages/RoutinesPage.dom.test.tsx"
       ],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-AGENTS-002",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J6"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "看清安装探测与会话/角色导入的边界",
+      "file": "docs/product/stories/KIN-AGENTS-002.md",
+      "surface": "设置 → agents tab（安装状态 / 会话导入 / 角色默认）",
+      "ownerPaths": [],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }

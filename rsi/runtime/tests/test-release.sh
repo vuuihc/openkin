@@ -706,4 +706,106 @@ grep -q '^.*RELEASED .*local_main_only=unknown$' "$STATE/releases.log" \
   || fail "local_main_only_unknown_when_the_gate_omits_it: an unreadable count must not warn: $out"
 pass "local_main_only_unknown_when_the_gate_omits_it"
 
+# 19-22. One writer for state/last_release. A fill turn used to read the record at the start of
+#        a long turn and write it back at its end, so a release that landed in between was
+#        overwritten with the pre-release values (2026-11-23 07:02: the node and the Hub both
+#        shipped a newer commit while the record kept the SHA read before the release began; the
+#        repair needed a four-way proof by hand). The fill's gate reading now lives in
+#        state/release-gate, and release.sh refuses to ship on a record that changed under it.
+start_node '[]'
+MARK="$STATE/last_release"
+SHIP="$(git -C "$SECOND" rev-parse HEAD)"
+# The failure line carries the case's own PASS name, so a red-first proof can name the test.
+CASE=""
+case_fail() { fail "$CASE: $*"; }
+
+# (a) the gate stub reads a real GO and then rewrites the record the way the 07:02 fill did.
+CASE="release: a marker rewritten after the gate read aborts before the node rebuild"
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$MARK"
+GATE_REWRITE="$T/gate-rewrite.sh"
+cat > "$GATE_REWRITE" <<SH
+#!/bin/bash
+out="\$(RSI_REPO="\$RSI_REPO" bash "$CHECK")"; rc=\$?
+printf '%s\n' "\$out"
+if [ "\$rc" = 0 ]; then
+  { printf 'node=%s\nhub=%s\nreleased_at=2000-01-01 00:00:00 +0000\n' "$ROOT" "$ROOT"
+    printf 'gate_at=2026-11-23 07:02:00 +0800\n'; } > "$MARK"
+fi
+exit \$rc
+SH
+chmod +x "$GATE_REWRITE"
+RAN_GATE="$T/node-ran-after-gate-rewrite"; rm -f "$RAN_GATE"
+NODE_SENTINEL="$T/node-cmd-sentinel.sh"
+printf '#!/bin/bash\ntouch %s\n' "$RAN_GATE" > "$NODE_SENTINEL"; chmod +x "$NODE_SENTINEL"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_CHECK="$GATE_REWRITE" RSI_RELEASE_NODE_CMD="$NODE_SENTINEL" \
+  bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+[ "$rc" = 1 ] || { printf '%s\n' "$out" >&2; case_fail "expected exit 1, got $rc"; }
+[ -e "$RAN_GATE" ] && case_fail "the node was rebuilt after the record changed under the gate"
+grep -q 'last_release' <<<"$out" || { printf '%s\n' "$out" >&2; case_fail "the abort does not name the record"; }
+grep -q 'concurrent writer' <<<"$out" || { printf '%s\n' "$out" >&2; case_fail "the abort does not name the concurrent writer"; }
+case "$out" in *"node: shipped"*) case_fail "the run claimed the node shipped" ;; esac
+pass "$CASE"
+
+# (b) a foreign line lands during the node phase, after the build and before mark node. The
+#     record still carries it, does not claim this run's SHA, and no Hub phase starts.
+CASE="release: a marker changed mid-release aborts without claiming the node shipped"
+NODE_APPEND="$T/node-cmd-append.sh"
+cat > "$NODE_APPEND" <<SH
+#!/bin/bash
+printf 'gate_at=2026-11-23 07:02:00 +0800\n' >> "$MARK"
+SH
+chmod +x "$NODE_APPEND"
+BIN_MARK="$T/bin-mark"; mkdir -p "$BIN_MARK"
+cat > "$BIN_MARK/docker" <<SH
+#!/bin/bash
+: > "$T/docker-ran"
+exit 0
+SH
+cat > "$BIN_MARK/ssh" <<'SH'
+#!/bin/bash
+case "$*" in *"docker ps"*) echo "Up 1 minute (healthy)" ;; esac
+exit 0
+SH
+chmod +x "$BIN_MARK/docker" "$BIN_MARK/ssh"
+rm -f "$T/docker-ran"
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$MARK"
+: > "$STATE/releases.log"
+out="$(env PATH="$BIN_MARK:$PATH" RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD="$NODE_APPEND" bash "$RELEASE" --repo "$SECOND" 2>&1)"; rc=$?
+[ "$rc" = 1 ] || { printf '%s\n' "$out" >&2; case_fail "expected exit 1, got $rc"; }
+case "$out" in *"node: shipped"*) case_fail "the run claimed the node shipped" ;; esac
+grep -q 'node: shipped' "$STATE/releases.log" && case_fail "releases.log claims the node shipped"
+grep -q '^gate_at=' "$MARK" || { printf '%s\n' "$(cat "$MARK")" >&2; case_fail "the foreign line was lost from the record"; }
+grep -q "^node=$SHIP$" "$MARK" && case_fail "the record holds the shipped SHA after an aborted node phase"
+[ -e "$T/docker-ran" ] && case_fail "the Hub phase ran after the node phase aborted"
+pass "$CASE"
+
+# (c) mark() owns node=, hub= and released_at=, not the whole file: a key written before the
+#     run survives exactly once and the duplicate released_at lines collapse to this run's.
+CASE="release: mark keeps a foreign key written before the run"
+printf 'note=keep\nnode=%s\nhub=%s\nreleased_at=2000-01-01 00:00:00 +0000\nreleased_at=2000-01-02 00:00:00 +0000\n' \
+  "$ROOT" "$ROOT" > "$MARK"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; case_fail "expected exit 0, got $rc"; }
+[ "$(grep -c '^note=keep$' "$MARK")" = 1 ] || { printf '%s\n' "$(cat "$MARK")" >&2; case_fail "note=keep must survive exactly once"; }
+grep -q "^node=$SHIP$" "$MARK" || { printf '%s\n' "$(cat "$MARK")" >&2; case_fail "the node marker is not the shipped SHA"; }
+grep -q "^hub=$ROOT$" "$MARK" || { printf '%s\n' "$(cat "$MARK")" >&2; case_fail "a node-only run changed the hub value"; }
+[ "$(grep -c '^released_at=' "$MARK")" = 1 ] || { printf '%s\n' "$(cat "$MARK")" >&2; case_fail "expected exactly one released_at line"; }
+grep -q 'node: shipped' <<<"$out" || { printf '%s\n' "$out" >&2; case_fail "the read-back did not report the write"; }
+pass "$CASE"
+
+# (d) the fill's gate reading belongs in state/release-gate, never in the release record.
+CASE="release: the fill prompt writes its gate reading to state/release-gate"
+PROMPT="$HERE/../prompts/fill.md"
+grep -q 'release-gate' "$PROMPT" || case_fail "it does not name state/release-gate"
+grep -qi 'atomic' "$PROMPT" || case_fail "the gate reading is not written atomically"
+grep -q 'derived, never copied' "$PROMPT" || case_fail "the 'derived, never copied' rule was lost"
+grep -q 'never write or append to' "$PROMPT" || case_fail "it does not forbid writing the release record"
+grep -q 'after the existing' "$PROMPT" && case_fail "it still tells the fill to append to the release record"
+bad="$(grep -n 'last_release' "$PROMPT" | grep -v 'never write or append to' || true)"
+[ -z "$bad" ] || { printf '%s\n' "$bad" >&2; case_fail "last_release is named outside the prohibition"; }
+pass "$CASE"
+
 echo "all cases passed"
