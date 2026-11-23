@@ -263,8 +263,15 @@ describe("the project row's working-folders editor", () => {
     await userEvent.click(trigger);
 
     const dialog = await screen.findByRole("dialog", { name: "Working folders" });
-    // The Mac gets the desktop dialog, not the phone's bottom sheet.
-    expect(dialog.tagName).toBe("DIALOG");
+    // The Mac gets the sheet's centred desktop face, and — the part that
+    // matters — the editor does not sit inside a native modal `<dialog>`: the
+    // add row's machine menu and folder browser portal to `document.body`, and
+    // a modal dialog would make everything outside itself inert.
+    expect(dialog.tagName).toBe("DIV");
+    expect(dialog.closest("dialog")).toBeNull();
+    const surface = dialog.closest("[data-kin-sheet]");
+    expect(surface?.className).toContain("md:items-center");
+    expect(surface?.className).not.toContain("md:hidden");
     const rows = folderRows(dialog);
     expect(rows[0]!.textContent).toContain(ALPHA);
     expect(within(rows[0]!).getByText("Default")).toBeTruthy();

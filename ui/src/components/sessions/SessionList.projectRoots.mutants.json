@@ -21,11 +21,11 @@
     "new": "false"
   },
   {
-    "label": "a fine pointer gets the bottom sheet instead of a dialog",
+    "label": "a fine pointer loses the desktop dialog face and gets the phone-only sheet",
     "file": "ui/src/components/sessions/ProjectRootsEditor.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectRoots.dom.test.tsx",
-    "old": "  return coarse ? (",
-    "new": "  return true ? ("
+    "old": "      dialog={!coarse}",
+    "new": "      dialog={false}"
   },
   {
     "label": "the hold shrinks back under the walk ceiling, so J5 finds a finished turn",

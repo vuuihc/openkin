@@ -21,7 +21,6 @@ import MachinePicker from "../chat/MachinePicker";
 import CwdPicker from "../chat/CwdPicker";
 import Sheet, { useSheetLayer } from "../mobile/Sheet";
 import Button from "../ui/Button";
-import Dialog from "../ui/Dialog";
 
 /**
  * The project's working folders, edited from the project row.
@@ -30,8 +29,9 @@ import Dialog from "../ui/Dialog";
  * ordered `roots` list, the same `PATCH /api/projects/:id` that replaces it as
  * a whole, and the same failure contract. The row is where a person already
  * chooses a project, so the editor opens over the list — a bottom sheet on a
- * coarse pointer (an 820 tablet included), a dialog from the Mac's hover
- * cluster on a fine one — and never navigates to `/projects/:id`.
+ * coarse pointer (an 820 tablet included), a centred desktop dialog face from
+ * the Mac's hover cluster on a fine one — and never navigates to
+ * `/projects/:id`.
  *
  * The draft is the unit of change: the list on screen does not move until the
  * daemon has accepted the whole ordered list, a failed save keeps the draft and
@@ -459,31 +459,23 @@ export default function ProjectRootsEditor({
   // would keep a second draft (and its folder browser) alive under the list.
   const body = isOpen ? editorBody : null;
 
-  // One face at a time. The phone (and a coarse tablet at any width) gets the
-  // bottom sheet; a Mac gets the dialog. Both are named by the same label and
-  // share the same body, footer and dirty-close guard.
-  return coarse ? (
+  // One sheet, two shapes. The phone (and a coarse tablet at any width) gets
+  // the bottom sheet; a Mac gets the same sheet's centred desktop face from
+  // `md` up. It must stay a sheet and not a native modal `<dialog>`: the add
+  // row's machine menu and folder browser portal to `document.body`, and a
+  // modal dialog makes everything outside itself inert. Both shapes are named
+  // by the same label and share the same body, footer and dirty-close guard.
+  return (
     <Sheet
       open={isOpen}
       onClose={requestClose}
       title={tr("projects.rootsTitle")}
-      anyWidth
+      anyWidth={coarse}
+      dialog={!coarse}
       footer={isOpen ? footer : undefined}
       bodyClassName="pb-2"
     >
       {body}
     </Sheet>
-  ) : (
-    <Dialog
-      open={isOpen}
-      onOpenChange={(next) => {
-        if (!next) requestClose();
-      }}
-      label={tr("projects.rootsTitle")}
-      purpose="form"
-      footer={isOpen ? footer : undefined}
-    >
-      {body}
-    </Dialog>
   );
 }
