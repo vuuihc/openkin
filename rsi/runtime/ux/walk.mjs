@@ -1049,6 +1049,15 @@ function checkJ9Contract(spec) {
   const draftFills = switchAt < 0 ? fills : fills.filter((i) => i < switchAt && !sentAfter(i));
   const draftFillAt = draftFills.length ? draftFills[draftFills.length - 1] : -1;
   const draft = draftFillAt >= 0 ? String(steps[draftFillAt][2]) : '';
+  // The draft fill re-renders the pane, so a scroll taken before it can be
+  // undone before the conversation is left: on 2026-11-24 #656 the transcript
+  // sat at 2201 where `scroll-kept` wanted 320±48, the confirm re-walk could
+  // not reproduce it (85/85 flaked), and a green PR was one 45-minute UX gate
+  // away from a sendback. The position the walk leaves behind must be the one
+  // after the last text entry, not before it.
+  if (scrollAt >= 0 && draftFillAt >= 0 && scrollAt < draftFillAt) {
+    errs.push("J9 scrolls the transcript before typing the unsent draft; the fill can move the position, so scroll after the draft (R-ux-j9-scroll-settle)");
+  }
   if (fills.length === 0) {
     errs.push('J9 never types an unsent draft into the composer');
   } else if (draftFillAt < 0) {

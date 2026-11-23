@@ -1547,6 +1547,12 @@ class WalkJ9ContractTest(unittest.TestCase):
         self.assertIn(["node", "css=#root .touch-lg", "shell"], steps)
         self.assertIn(["scroll-kept", "css=[role=region][tabindex='-1']", "320"], steps)
         self.assertIn(["value", "textarea", self.DRAFT], steps)
+        # The scroll must be taken after the draft fill: the fill re-renders the
+        # pane and can move the transcript, and a position taken before it is
+        # what `scroll-kept` would then convict.
+        scroll = self.at(steps, lambda step: step[0] == "scroll")
+        draft = self.at(steps, lambda step: step[0] == "fill" and step[2] == self.DRAFT)
+        self.assertLess(draft, scroll, "J9 must scroll after the draft fill")
         names = [step[1] for step in steps if step[0] == "shot"]
         self.assertLess(names.index("switch-chat"), names.index("switch-back"), names)
         # A diff to the shell or the conversation pane must select J9.
@@ -1588,6 +1594,26 @@ class WalkJ9ContractTest(unittest.TestCase):
         code, out = self.check(self.copy_with(drop_the_scroll_kept))
         self.assertEqual(code, 1, out)
         self.assertIn("scroll-kept", out)
+
+    def test_j9_contract_rejects_a_scroll_before_the_draft(self) -> None:
+        """The scroll must be taken after the last text entry before the switch.
+
+        A draft fill re-renders the conversation pane. A scroll taken before it
+        can be undone before the walk leaves, so `scroll-kept` then convicts a
+        green PR at the walker's own last offset (2026-11-24 #656: transcript at
+        2201 where 320±48 was asked, confirm flaked 85/85). The deep form of
+        this test is `test_j9_walks_the_switch`; this one keeps the rejection
+        named when the rule is removed.
+        """
+        def scroll_before_the_draft(steps: list) -> None:
+            at = self.at(steps, lambda step: step[0] == "scroll")
+            step = steps.pop(at)
+            fill = self.at(steps, lambda s: s[0] == "fill" and s[2] == self.DRAFT)
+            steps.insert(fill, step)
+
+        code, out = self.check(self.copy_with(scroll_before_the_draft))
+        self.assertEqual(code, 1, out)
+        self.assertIn("scrolls the transcript before typing the unsent draft", out)
 
     def test_j9_contract_rejects_the_retired_area_shot(self) -> None:
         # The shot's name is the reviewer's only index into the evidence: it
