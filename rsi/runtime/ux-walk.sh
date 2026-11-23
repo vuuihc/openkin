@@ -3,6 +3,8 @@
 # seeds it when scripts/journeys_seed.py exists, walks the journeys with rsi/runtime/ux/walk.mjs, tears the daemon down.
 # exit 0 walked | 2 could not run (reason in <outdir>/UNAVAILABLE). The walk itself holds the machine-wide
 # heavy slot (heavy.sh), like the go build and npm build shims it uses; the seed and daemon are light.
+# The slot wait and the walk each have their own bound, so a busy machine's queue is never
+# recorded as a walker overrun (2026-11-23, PR #610).
 #   UX_KIN_BIN=/path/to/kin   use a prebuilt binary instead of building the worktree (baseline / tests)
 #   --walker-for <worktree>   print the walker that worktree would run and exit; build-free seam for
 #                             rsi/runtime/tests/test-ux-walker.sh
@@ -10,6 +12,11 @@
 #                             build-free seam for the same suite
 #   --select-args <journey...|@files>   print the selection the walk would pass ("--journeys J9,J11",
 #                             "--files <path>", or nothing) and exit; build-free seam for the same suite
+#   --timeout-probe <outdir> <cmd...>   run cmd under RSI_WALK_MAX_S only; build-free seam for the
+#                             rsi/runtime/tests/test-ux-walk-timeout.sh bounded_run cases
+#   --walk-probe <outdir> <cmd...>      run cmd through the real walk's two-stage composition (heavy
+#                             slot first, then the walker's ceiling); build-free seam for that suite's
+#                             slot-wait cases
 set -u
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
@@ -133,12 +140,51 @@ fi
 
 WT="$1"; OUT="$2"; mkdir -p "$OUT"
 unavail() { echo "$*" > "$OUT/UNAVAILABLE"; echo "[ux-walk] unavailable: $*" >&2; exit 2; }
+# RSI_NO_HEAVY=1 means "read code, do not build/test" (reviewers). The walk is
+# a heavy step: running it next to the gate's own build is exactly what starved
+# the transcript on 2026-11-18, so fail closed and never green. One writer for
+# the real walk and the --walk-probe seam, so neither can reach heavy.sh first.
+no_heavy_guard() {
+  [ -z "${RSI_NO_HEAVY:-}" ] || unavail "the walk is a heavy step and needs the machine-wide slot; unset RSI_NO_HEAVY"
+}
 # The walker is the one call in the merge lane that could wait forever; on
 # 2026-11-19 a walk ran 40 minutes and from outside nobody could tell slow from
 # dead. The ceiling turns that into an explicit "no verdict" (exit 2, never a
 # PASS and never a red against the PR's code). RSI_WALK_MAX_S is the test/ops
 # knob; the default (30 min) is ~4x the longest observed walk.
 WALK_MAX_S="${RSI_WALK_MAX_S:-1800}"; case "$WALK_MAX_S" in ''|*[!0-9]*) WALK_MAX_S=1800;; esac
+# The wait for the machine-wide heavy slot is its own bound, because it is its
+# own wait: on 2026-11-23 one bounded_run wrapped heavy.sh AND the walker, so
+# the queue spent the walker's budget. PR #610's healthy 29.5-minute walk was
+# killed at 1800 s and recorded as "walker exceeded 1800s"; the merge lane
+# re-walked the PR as unavailable, and the next reader could not tell a busy
+# machine from a hung walker. heavy.sh still runs the command anyway when its
+# wait expires (every other caller relies on that); the walk passes
+# RSI_HEAVY_WAIT_STRICT, which makes an expired wait fail closed before the
+# walker starts, and the report below names the slot. Validated like
+# WALK_MAX_S: a non-number is the default.
+HEAVY_WAIT_MAX="${RSI_HEAVY_WAIT_MAX:-1800}"; case "$HEAVY_WAIT_MAX" in ''|*[!0-9]*) HEAVY_WAIT_MAX=1800;; esac
+# The walk's two waits, bounded separately and reported separately. The slot
+# wait happens inside heavy.sh (bounded there by RSI_HEAVY_WAIT_MAX); only once
+# the slot is held does the walker start under RSI_WALK_MAX_S. The real walk and
+# the --walk-probe seam both run through this one function, so a later edit
+# cannot reintroduce the wrapped order for one of them. heavy.sh releases the
+# slot on exit, after the walker's tree is gone.
+walk_bounded() { # outdir cmd...
+  local out="$1" rc; shift
+  RSI_HEAVY_WAIT_MAX="$HEAVY_WAIT_MAX" RSI_HEAVY_WAIT_STRICT=1 \
+    bash "$RSI_DIR/runtime/heavy.sh" \
+    bash -c 'source "$1" || exit 2; secs="$2"; shift 2; bounded_run "$secs" "$@"' \
+      _ "$RSI_DIR/runtime/common.sh" "$WALK_MAX_S" "$@" \
+    > "$out/walk.log" 2>&1
+  rc=$?
+  case "$rc" in
+    124) unavail "walker exceeded ${WALK_MAX_S}s (RSI_WALK_MAX_S)" ;;
+    125) unavail "gave up after ${HEAVY_WAIT_MAX}s waiting for the machine-wide heavy slot (RSI_HEAVY_WAIT_MAX)" ;;
+    2) unavail "walker could not run: $(tail -c 300 "$out/walk.log")" ;;
+  esac
+  return "$rc"
+}
 # Build-free seam for the timeout proof: --timeout-probe <outdir> <cmd...>.
 if [ "${1:-}" = "--timeout-probe" ]; then
   [ -n "${2:-}" ] && [ "$#" -ge 3 ] || { echo "usage: ux-walk.sh --timeout-probe <outdir> <cmd...>" >&2; exit 2; }
@@ -147,14 +193,23 @@ if [ "${1:-}" = "--timeout-probe" ]; then
   [ "$rc" -eq 124 ] && unavail "walker exceeded ${WALK_MAX_S}s (RSI_WALK_MAX_S)"
   exit "$rc"
 fi
+# Build-free seam for the slot-then-walker composition: --walk-probe <outdir>
+# <cmd...>. It calls walk_bounded exactly as the real walk does; the suite
+# injects a stub heavy.sh through a control tree, so no browser, daemon or
+# build is involved.
+if [ "${1:-}" = "--walk-probe" ]; then
+  [ -n "${2:-}" ] && [ "$#" -ge 3 ] || { echo "usage: ux-walk.sh --walk-probe <outdir> <cmd...>" >&2; exit 2; }
+  shift 2
+  no_heavy_guard
+  walk_bounded "$OUT" "$@"; exit $?
+fi
 # Validate the selection before the build or the daemon, so a usage error costs
 # nothing; the value is resolved once and only used to write ARGS below.
 SEL_ARGS="$(select_args "${@:3}")" || exit 2
 TMP="$(mktemp -d)"; PID=""; trap '[ -n "$PID" ] && kill -KILL "$PID" 2>/dev/null; rm -rf "$TMP"' EXIT
-# RSI_NO_HEAVY=1 means "read code, do not build/test" (reviewers). The walk is
-# a heavy step: running it next to the gate's own build is exactly what starved
-# the transcript on 2026-11-18, so fail closed and never green.
-[ -n "${RSI_NO_HEAVY:-}" ] && unavail "the walk is a heavy step and needs the machine-wide slot; unset RSI_NO_HEAVY"
+# RSI_NO_HEAVY=1 means "read code, do not build/test" (reviewers). Checked before
+# any build so a reviewer's walk costs nothing; the same guard runs in the seam.
+no_heavy_guard
 BIN="${UX_KIN_BIN:-}"
 if [ -z "$BIN" ]; then
   dist_ready "$WT" || { ( cd "$WT/ui" && npm run build >/dev/null 2>&1 ) || unavail "ui build failed in $WT"; }
@@ -228,7 +283,5 @@ esac
 # Same selection as the seam above: one writer, so the walker and the spec
 # cannot come from different trees.
 WALKER="$(walker_for "$WT")"
-bounded_run "$WALK_MAX_S" bash "$RSI_DIR/runtime/heavy.sh" node "$WALKER" "${ARGS[@]}" > "$OUT/walk.log" 2>&1; rc=$?
-[ $rc -eq 124 ] && unavail "walker exceeded ${WALK_MAX_S}s (RSI_WALK_MAX_S)"
-[ $rc -eq 2 ] && unavail "walker could not run: $(tail -c 300 "$OUT/walk.log")"
+walk_bounded "$OUT" node "$WALKER" "${ARGS[@]}"
 cat "$OUT/walk.log"; exit 0
