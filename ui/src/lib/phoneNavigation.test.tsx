@@ -9,7 +9,14 @@ import {
   type NavigateFunction,
 } from "react-router-dom";
 import { useEffect } from "react";
-import { notePhoneLocation, phonePush, phoneTabUrl, resetPhoneNavigation } from "./phoneNavigation";
+import {
+  listUrlFor,
+  notePhoneLocation,
+  phonePush,
+  phoneTabUrl,
+  resetPhoneNavigation,
+  returnListUrl,
+} from "./phoneNavigation";
 import { synthesizePhoneParent } from "./phoneDeepLinkParent";
 
 /**
@@ -374,5 +381,19 @@ describe("evidence that must not be trusted", () => {
     // pushed above it. The old list record at depth 0 did not survive.
     expect(window.history.state.idx).toBe(1);
     mounted.unmount();
+  });
+});
+
+describe("the list URL a return carries", () => {
+  it("keeps the project narrowing alongside the other list filters", () => {
+    // A draft opened from a narrowed list carries this URL back to the list
+    // (`draftEntryState`), and a conversation's return rebuilds it the same
+    // way. A missing key would drop `?project=` and land on the full list.
+    const search =
+      "?q=prefill&project=p-alpha&routine=r1&scope=archived&status=running&search=note";
+    const narrowed =
+      "/sessions?search=note&status=running&scope=archived&routine=r1&project=p-alpha";
+    expect(listUrlFor(search)).toBe(narrowed);
+    expect(returnListUrl({ pathname: "/sessions", search })).toBe(narrowed);
   });
 });
