@@ -193,4 +193,35 @@ describe("the keyed scroll body", () => {
     // A touch that never scrolled is not a new position to remember.
     expect(stored()).toBe(String(SAVED));
   });
+
+  it("keeps the reader's place when the container is clamped before the unmount", () => {
+    const first = mount(10);
+    first.body.scrollTop = SAVED;
+    fireEvent.scroll(first.body);
+
+    // A route change detaches the container before the passive cleanup runs, so
+    // the offset is gone without a scroll event: the node reports the clamp (0)
+    // by the time the unmount write would read it.
+    scrollTop = 0;
+
+    first.view.unmount();
+    // The unmount must record what the reader scrolled to, not what the node
+    // says after the route change already collapsed it.
+    expect(stored()).toBe(String(SAVED));
+  });
+
+  it("records a scroll that landed inside the throttle window when the list unmounts", () => {
+    const first = mount(10);
+    // The first scroll opens the throttle window at the top of the list.
+    fireEvent.scroll(first.body);
+    first.body.scrollTop = 300;
+    // The second one lands inside the 300 ms window, so storage still holds the
+    // first value and only the cleanup can record where the reader stopped.
+    fireEvent.scroll(first.body);
+    expect(stored()).not.toBe("300");
+
+    scrollTop = 0;
+    first.view.unmount();
+    expect(stored()).toBe("300");
+  });
 });
