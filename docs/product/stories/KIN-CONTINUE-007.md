@@ -1,6 +1,6 @@
 # KIN-CONTINUE-007 · 在 820 的列表里一屏扫到那条对话
 
-状态：draft
+状态：approved
 优先级：P0
 旅程：J1、J2
 归属面：`IA.md`「列表层级」
@@ -176,3 +176,4 @@
 ## 变更记录
 
 - 2026-11-24 创建（draft）。把 `KIN-CONTINUE-004` 的「下一条故事」与 `ui/src/index.css:273-276` 的待决交给本页；CEO 签字前不改产品代码。
+- 2026-11-24 · CEO 代签 `approved`（D4–D6 按审阅页推荐；记录见 `rsi/DECISIONS.md`）。实现这条故事的 PR 建三份测试、跑 820/1100/390 截图，并把本条翻 `covered`。
