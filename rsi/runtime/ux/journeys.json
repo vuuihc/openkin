@@ -15,6 +15,7 @@
       "steps": [
         ["goto", "/sessions"],
         ["shot", "projects"],
+        ["wait", "css=button[aria-label*='Project Alpha']:not([aria-expanded])"],
         ["click", "css=button[aria-label*='Project Alpha']:not([aria-expanded])"],
         ["shot", "project-cover"],
         ["wait", "css=section:has(h2:has-text('工作方式')), section:has(h2:has-text('How to work here'))"],
@@ -211,7 +212,8 @@
     ["ui/src/lib/phoneNavigation|ui/src/lib/placeReturn", ["J10", "J11"]],
     ["ui/src/components/CommandPalette", ["J1", "J14"]],
     ["ui/src/pages/NewChat|ui/src/pages/StartRoute", ["J3", "J14"]],
-    ["ui/src/pages/Sessions|ui/src/components/sessions/|ui/src/components/mobile/", ["J1", "J2", "J5", "J8", "J11", "J12", "J14"]],
+    ["ui/src/pages/Sessions|ui/src/components/sessions/", ["J1", "J2", "J4", "J5", "J8", "J11", "J12", "J14"]],
+    ["ui/src/components/mobile/", ["J1", "J2", "J5", "J8", "J11", "J12", "J14"]],
     ["ui/src/pages/TaskDetail|ui/src/pages/TaskSession|ui/src/components/chat/|ui/src/components/task/|ui/src/components/cards/|ui/src/components/workspace/", ["J1", "J2", "J7", "J8", "J9", "J10", "J11", "J12", "J13", "J14", "J15", "J16", "J17"]],
     ["ui/src/pages/Project|ui/src/lib/project", ["J4"]],
     ["ui/src/pages/Routine|ui/src/pages/MachineTask|ui/src/components/routine/", ["J4"]],

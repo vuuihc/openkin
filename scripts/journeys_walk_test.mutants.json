@@ -40,5 +40,26 @@
     "old": "if (skipRowAt >= 0) errs.push('J2 step ' + JSON.stringify(steps[skipRowAt]) + ' is optional; the seeded row click must be mandatory or a skip leaves every later step on /sessions');",
     "new": "if (skipRowAt >= 0) void 0;",
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ2ContractTest.test_j2_contract_rejects_an_optional_seeded_row_click"
+  },
+  {
+    "label": "J4 presses the project row without waiting for it, so a 3000 ms click on a list still painting reds both desktop viewports (measured: state/shots/delete-pagesb2b, 86 lines each)",
+    "file": "rsi/runtime/ux/journeys.json",
+    "old": "        [\"wait\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded])\"],\n        [\"click\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded])\"],",
+    "new": "        [\"click\", \"css=button[aria-label*='Project Alpha']:not([aria-expanded])\"],",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_roots_editor_and_reloads"
+  },
+  {
+    "label": "the sessions row stops naming J4, so a list change no longer selects the journey that presses the project row (#584's hole)",
+    "file": "rsi/runtime/ux/journeys.json",
+    "old": "[\"ui/src/pages/Sessions|ui/src/components/sessions/\", [\"J1\", \"J2\", \"J4\", \"J5\", \"J8\", \"J11\", \"J12\", \"J14\"]],",
+    "new": "[\"ui/src/pages/Sessions|ui/src/components/sessions/\", [\"J1\", \"J2\", \"J5\", \"J8\", \"J11\", \"J12\", \"J14\"]],",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_is_selected_by_the_list_a_sessions_change_touches"
+  },
+  {
+    "label": "the mobile row is folded back into the sessions row, so every phone-list change pays for J4's three viewports",
+    "file": "rsi/runtime/ux/journeys.json",
+    "old": "    [\"ui/src/pages/Sessions|ui/src/components/sessions/\", [\"J1\", \"J2\", \"J4\", \"J5\", \"J8\", \"J11\", \"J12\", \"J14\"]],\n    [\"ui/src/components/mobile/\", [\"J1\", \"J2\", \"J5\", \"J8\", \"J11\", \"J12\", \"J14\"]],",
+    "new": "    [\"ui/src/pages/Sessions|ui/src/components/sessions/|ui/src/components/mobile/\", [\"J1\", \"J2\", \"J4\", \"J5\", \"J8\", \"J11\", \"J12\", \"J14\"]],",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_is_selected_by_the_list_a_sessions_change_touches"
   }
 ]

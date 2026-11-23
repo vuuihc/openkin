@@ -2856,7 +2856,8 @@ class WalkJ14ContractTest(unittest.TestCase):
         spec = load_spec()
         needles = (
             "ui/src/components/CommandPalette",
-            "ui/src/pages/Sessions|ui/src/components/sessions/|ui/src/components/mobile/",
+            "ui/src/pages/Sessions|ui/src/components/sessions/",
+            "ui/src/components/mobile/",
             "ui/src/pages/TaskDetail|ui/src/pages/TaskSession|ui/src/components/chat/"
             "|ui/src/components/task/|ui/src/components/cards/|ui/src/components/workspace/",
         )
@@ -2864,7 +2865,7 @@ class WalkJ14ContractTest(unittest.TestCase):
             row = next((row for row in spec["paths"] if row[0] == needle), None)
             self.assertIsNotNone(row, needle)
             self.assertIn("J14", row[1], needle)
-        for needle in needles[:2]:
+        for needle in needles[:3]:
             def drop_j14(spec: dict, needle: str = needle) -> None:
                 row = next(row for row in spec["paths"] if row[0] == needle)
                 row[1] = [journey for journey in row[1] if journey != "J14"]
@@ -3101,7 +3102,8 @@ class WalkJ1ContractTest(unittest.TestCase):
         # decisions rot without the gate ever walking them.
         spec = load_spec()
         needles = (
-            "ui/src/pages/Sessions|ui/src/components/sessions/|ui/src/components/mobile/",
+            "ui/src/pages/Sessions|ui/src/components/sessions/",
+            "ui/src/components/mobile/",
             "ui/src/pages/TaskDetail|ui/src/pages/TaskSession|ui/src/components/chat/"
             "|ui/src/components/task/|ui/src/components/cards/|ui/src/components/workspace/",
         )
@@ -3806,6 +3808,20 @@ def _j4_roots_problems(steps: list) -> list[str]:
         problems.append("J4 never opens Project Alpha by name (click %s)" % J4_ALPHA_LINK)
     elif not required(steps[link]):
         problems.append("the Project Alpha link click is optional")
+    else:
+        # The click's own budget is 3000 ms (walk.mjs) while the readiness reads
+        # around it get RSI_UX_WAIT_MS (15000). The list draws the project row
+        # after the whole sessions surface loads, so on a busy Mac the click met
+        # an unpainted row: state/shots/delete-pagesb2b holds J4/mac and
+        # J4/mac-wide, 86 lines each, every one chained from the first line
+        # "locator.click: Timeout 3000ms exceeded", while J4/phone stayed green.
+        # The wait spends the click's paint budget out of the 15000 ms pot.
+        ready = steps[link - 1] if link > 0 else None
+        if not (isinstance(ready, list) and ready[:1] == ["wait"] and ready[1] == J4_ALPHA_LINK):
+            problems.append(
+                "J4 presses the Project Alpha link without a preceding wait for the same selector "
+                "(a 3000 ms click on a list still painting)"
+            )
     cover = at(lambda step: is_shot(step, "project-cover"))
     if cover < 0:
         problems.append("J4 takes no project-cover shot")
@@ -4299,6 +4315,40 @@ class WalkJ4ContractTest(unittest.TestCase):
 
         problems = self.problems_after(drop_editor)
         self.assertTrue(any("folder editor" in problem for problem in problems), problems)
+
+    def test_j4_is_selected_by_the_list_a_sessions_change_touches(self) -> None:
+        # J4's first step presses a project row's title on /sessions, and that row
+        # lives in ui/src/components/sessions/SessionList.tsx. Until 2026-11-23 the
+        # sessions row did not name J4, so #584's rewrite of that step met no walk:
+        # the PR selected J1 J2 J5 J8 J11 J12 J14 (state/shots/delete-pagesb2b2).
+        spec = load_spec()
+        row = next(
+            (row for row in spec["paths"] if row[0] == "ui/src/pages/Sessions|ui/src/components/sessions/"),
+            None,
+        )
+        self.assertIsNotNone(row, "no paths row owns ui/src/components/sessions/")
+        self.assertIn("J4", row[1], "a sessions change does not select the journey that presses the project row")
+        # The phone list keeps its own row: J4 walks three viewports, and a
+        # mobile-only change is J1/J2's surface, not the desktop cover leg's.
+        mobile = next((row for row in spec["paths"] if row[0] == "ui/src/components/mobile/"), None)
+        self.assertIsNotNone(mobile, "no paths row owns ui/src/components/mobile/")
+        self.assertNotIn("J4", mobile[1], "a phone-list change now pays for J4's desktop legs")
+
+    def test_j4_contract_rejects_a_press_before_the_list_paints(self) -> None:
+        # The click's own budget is 3000 ms while the readiness reads around it
+        # get RSI_UX_WAIT_MS (15000). state/shots/delete-pagesb2b holds J4/mac and
+        # J4/mac-wide, 86 lines each, every one chained from
+        # "locator.click: Timeout 3000ms exceeded" on a list still painting,
+        # while J4/phone stayed green on the same tree.
+        def drop_the_wait(steps: list) -> None:
+            steps[:] = [
+                step
+                for step in steps
+                if not (step[0] == "wait" and step[1] == J4_ALPHA_LINK)
+            ]
+
+        problems = self.problems_after(drop_the_wait)
+        self.assertTrue(any("without a preceding wait" in problem for problem in problems), problems)
 
     def test_j4_contract_rejects_a_route_change_instead_of_a_reload(self) -> None:
         # A client-side return to the cover reads the state the editor just
