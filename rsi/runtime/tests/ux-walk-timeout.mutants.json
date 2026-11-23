@@ -68,5 +68,26 @@
     "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
     "old": "    rm -f \"$STATE/ux/$SLUG/confirm.json\" \"$STATE/ux/$SLUG/confirm.hard\"",
     "new": "    :"
+  },
+  {
+    "label": "wrapped order restored: the walker ceiling starts at heavy.sh, so the slot wait spends the walker budget",
+    "file": "rsi/runtime/ux-walk.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "  RSI_HEAVY_WAIT_MAX=\"$HEAVY_WAIT_MAX\" RSI_HEAVY_WAIT_STRICT=1 \\\n    bash \"$RSI_DIR/runtime/heavy.sh\" \\",
+    "new": "  bounded_run \"$WALK_MAX_S\" \\\n    bash \"$RSI_DIR/runtime/heavy.sh\" \\"
+  },
+  {
+    "label": "slot expiry borrows the walker message: a queue wait is recorded as walker exceeded",
+    "file": "rsi/runtime/ux-walk.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "    125) unavail \"gave up after ${HEAVY_WAIT_MAX}s waiting for the machine-wide heavy slot (RSI_HEAVY_WAIT_MAX)\" ;;",
+    "new": "    125) unavail \"walker exceeded ${WALK_MAX_S}s (RSI_WALK_MAX_S)\" ;;"
+  },
+  {
+    "label": "strict slot wait ignored: an expired slot wait runs the walker anyway, without the slot",
+    "file": "rsi/runtime/heavy.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "    if [ -n \"${RSI_HEAVY_WAIT_STRICT:-}\" ]; then\n      echo \"[heavy] waited ${waited}s for the machine-wide build/test slot; running nothing (RSI_HEAVY_WAIT_STRICT)\" >&2\n      exit 125\n    fi",
+    "new": "    if false; then\n      echo \"[heavy] waited ${waited}s for the machine-wide build/test slot; running nothing (RSI_HEAVY_WAIT_STRICT)\" >&2\n      exit 125\n    fi"
   }
 ]
