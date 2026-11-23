@@ -34,7 +34,7 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
-- 2026-11-23 · 低 · 中文界面的「例行任务」页把同一个东西又叫英文 Routine：搜索框写「搜索 Routine」，列表底部写「加载更多 Routine」，而同页标题、筛选与空状态都说「例行任务」 — 期望：zh 文案统一用品类中文名，`routines.searchPlaceholder` 改为「搜索例行任务」、`routines.loadMore` 改为「加载更多例行任务」（或统一为「例行」），zh locale 里不再出现独立的英文 `Routine`；能写成一条测试：zh 的这两个键不含 `Routine` 且含「例行」。不要的做法：不要只改其中一处让两处继续混用，也不要把 `Routine` 当作品牌词保留——同页其他文案（标题、筛选、空状态、行菜单）已经统一为「例行任务」。照抄的同类：`ui/src/i18n/locales/zh.ts:675`（`openRoutines: "去例行任务"`）、`ui/src/i18n/locales/zh.ts:1740`（`本机还有 {count} 个例行任务。`）、`ui/src/i18n/locales/zh.ts:1855`（`选一条例行任务，查看或编辑它。`）。证据：`rsi/state/shots/dogfood-20261123-09/phone-21-c1-routines-scrolled-600.png`、`phone-23-c1-routines-back.png`（搜索框「搜索 Routine」与卡片「走查例行 N」同屏）。
+- 2026-11-23 · 低 · 中文界面的「例行任务」页把同一个东西叫出三个名字：搜索框写「搜索 Routine」，列表底部写「加载更多 Routine」，筛选无结果的空状态写「没有符合条件的例程」 — 期望：zh 文案统一用品类中文名，`routines.searchPlaceholder` 改为「搜索例行任务」、`routines.loadMore` 改为「加载更多例行任务」、`routines.filterEmpty` 改为「没有符合条件的例行任务」（或统一为「例行」），zh locale 里不再出现独立的英文 `Routine`，也不再出现「例程」；能写成一条测试：zh 的这三个键不含 `Routine`、不含「例程」且含「例行」。不要的做法：不要只改其中一两处让其余继续混用，也不要把 `Routine` 当作品牌词保留——同页已经说对的是 `routines.title`（`ui/src/i18n/locales/zh.ts:1739`「例行任务」）、`routines.listSection`（`:1746`「我的例行任务」）与 `routines.emptyList`（`:1757`「尚未配置例行任务。打开项目添加一个。」），而 `routines.filterEmpty`（`:1754`「没有符合条件的例程」）又在同一页换成「例程」，本次一并收口。照抄的同类：`ui/src/i18n/locales/zh.ts:676`（`openRoutines: "去例行任务"`）、`:1741`（`本机还有 {count} 个例行任务。`）、`:1856`（`选一条例行任务，查看或编辑它。`）。证据：`rsi/state/shots/dogfood-20261123-09/phone-21-c1-routines-scrolled-600.png`、`phone-23-c1-routines-back.png`（搜索框「搜索 Routine」与卡片「走查例行 N」同屏）。
 
 ## 已修
 
