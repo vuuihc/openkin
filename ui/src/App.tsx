@@ -9,7 +9,6 @@ import NotificationTaps from "./components/NotificationTaps";
 import AppShell from "./components/layout/AppShell";
 import AreaRoute from "./components/layout/AreaRoute";
 import ToastHost from "./components/ToastHost";
-import ProjectDetailPage from "./pages/ProjectDetailPage";
 import { designSystemRoute } from "./pages/DesignSystemPage";
 import NewChatPage from "./pages/NewChatPage";
 import SessionsRoute from "./pages/SessionsRoute";
@@ -55,6 +54,25 @@ function MachineTaskRedirect() {
     params.append(key, value);
   }
   return <Navigate to={`/tasks/${encodeURIComponent(id)}?${params.toString()}`} replace />;
+}
+
+/**
+ * A project link lands on the conversation list, narrowed to that project.
+ *
+ * KIN-CONTRACT-001 retired the cover as a destination: a bookmark, a banner or
+ * the task header's project label all arrive here and the list keeps showing
+ * only this project's conversations. The list's own state travels with the
+ * redirect, so a bookmark that also carried a search or status keeps it. The
+ * cover's private view params (`tab`, `panel`, `file`) described a page that is
+ * gone, so they are dropped rather than handed to the list as noise.
+ */
+function ProjectFilterRedirect() {
+  const { id = "" } = useParams();
+  const { search } = useLocation();
+  const params = new URLSearchParams(search.split("#", 1)[0]);
+  for (const key of ["tab", "panel", "file"]) params.delete(key);
+  params.set("project", id);
+  return <Navigate to={`/sessions?${params.toString()}`} replace />;
 }
 
 export default function App() {
@@ -225,10 +243,11 @@ export default function App() {
                   collection: the project level is the conversation list's own
                   headings. A bookmark or notification that names `/projects`
                   lands on that list, the same way `/inbox` and `/approvals`
-                  do. The project cover at `/projects/:id` stays as the list's
-                  detail. `App.areaRoutes.test.ts` pins both. */}
+                  do. The old project address keeps working too, as a redirect
+                  into the narrowed list rather than a second page.
+                  `App.areaRoutes.test.ts` pins both. */}
               <Route path="/projects" element={<Navigate to="/sessions" replace />} />
-              <Route path="/projects/:id" element={<ProjectDetailPage />} />
+              <Route path="/projects/:id" element={<ProjectFilterRedirect />} />
               {/* Agent operations live in Settings → Operations, so the old
                   full-page destinations redirect there: a bookmark, banner or
                   notification from before E4a still lands on the panel. */}

@@ -205,7 +205,7 @@ describe("TaskHeader", () => {
   it("desktop: project name is a link when task.project_id is set", () => {
     setup({ task: { ...task, project_id: "project 1/2" } });
     const link = screen.getByRole("link", { name: "openkin" });
-    expect(link.getAttribute("href")).toBe(`/projects/${encodeURIComponent("project 1/2")}`);
+    expect(link.getAttribute("href")).toBe(`/sessions?project=${encodeURIComponent("project 1/2")}`);
   });
 
   it("desktop: project name is plain text without a project_id", () => {
@@ -229,8 +229,8 @@ describe("TaskHeader", () => {
     setup({ task: { ...task, project_id: "project-1" } });
     const link = screen.getByRole("link", { name: "openkin" });
 
-    // Same accessible name and destination; only the hit box grew.
-    expect(link.getAttribute("href")).toBe(`/projects/${encodeURIComponent("project-1")}`);
+    // Same accessible name and hit box; the destination is the narrowed list.
+    expect(link.getAttribute("href")).toBe(`/sessions?project=${encodeURIComponent("project-1")}`);
     expect(link.getAttribute("title")).toBe("openkin");
     const classes = link.className.split(/\s+/);
     expect(classes).toContain("min-h-11");

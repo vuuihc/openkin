@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import App from "./App";
 import { setLocale } from "./i18n";
 import { useAppStore } from "./store/appStore";
@@ -85,6 +85,24 @@ function renderAt(path: string) {
   return render(createElement(MemoryRouter, { initialEntries: [path] }, createElement(App)));
 }
 
+function LocationProbe() {
+  const location = useLocation();
+  return createElement(
+    "output",
+    { "data-testid": "location" },
+    `${location.pathname}${location.search}`,
+  );
+}
+
+function BackControl() {
+  const navigate = useNavigate();
+  return createElement("button", { type: "button", onClick: () => navigate(-1) }, "back");
+}
+
+function locationText(): string {
+  return screen.getByTestId("location").textContent ?? "";
+}
+
 beforeEach(() => {
   // The product's default locale is zh; these assertions read the English
   // catalogue, so the test says which one it is reading.
@@ -112,12 +130,31 @@ describe("area routes", () => {
     expect(screen.queryByRole("heading", { name: "Projects" })).toBeNull();
   });
 
-  // The collection route must not swallow the detail route: `/projects/:id`
-  // is still the project cover.
-  it("keeps /projects/:id on the project detail page", () => {
-    renderAt("/projects/p1");
-    expect(screen.getByText("project detail page")).toBeTruthy();
+  // KIN-CONTRACT-001 retired the cover as a destination. A saved
+  // `/projects/:id` bookmark lands on the list narrowed to that project, and
+  // the list's own state (search, status) travels with it. The redirect
+  // replaces, so Back skips the retired address instead of bouncing through
+  // it again.
+  it("sends /projects/:id to the list narrowed to that project", async () => {
+    render(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ["/sessions", "/projects/p1?search=build&status=failed&tab=overview"] },
+        createElement(LocationProbe),
+        createElement(App),
+        createElement(BackControl),
+      ),
+    );
+
+    await waitFor(() =>
+      expect(locationText()).toBe("/sessions?search=build&status=failed&project=p1"),
+    );
+    expect(screen.queryByText("project detail page")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Projects" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    await waitFor(() => expect(locationText()).toBe("/sessions"));
+    expect(screen.queryByText("project detail page")).toBeNull();
   });
 
   // E4a: the operations tab now hosts the agent console, so the old

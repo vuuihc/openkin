@@ -121,6 +121,8 @@ const zh = {
     routineRun: "例行",
     routineFiltered: "例行运行",
     clearRoutineFilter: "清除例行筛选",
+    projectFiltered: "项目：{name}",
+    clearProjectFilter: "清除项目筛选",
     filterActiveCount: "已应用 {count} 项筛选",
     archiveEmpty: "还没有归档内容",
     archiveEmptyHint: "收起的对话和被移出侧栏的项目都会留在这里，随时可以恢复，不会删除任何内容。",
