@@ -23,7 +23,10 @@
 # to walk only J9 (the third positional won alone) and `--journeys J9,J99` used
 # to filter the unknown id away and exit 0, so a green run could name a journey
 # nobody walked. The selection cases pin the join, the --files meaning and the
-# walker's named refusals, all before --base, playwright or Chrome.
+# walker's named refusals, all before --base, playwright or Chrome. They also pin
+# which changed paths can select a journey at all: generated dist, documentation
+# and test files select none, so a UI PR no longer walks all 17 and dies at the
+# walk bound, while an unmapped ui surface stays fail-closed to every journey.
 #
 # Hermetic: bash, python3 and coreutils in temp dirs; npm/go/node are booby
 # traps (exit 97), so a seam that fell through to the build or walk path
@@ -155,7 +158,7 @@ grep -q '<worktree>' "$T/seam5.err" || fail "$case_name: usage does not name the
 grep -q 'booby trap' "$T/seam5.err" && fail "$case_name: reached a build/walk command"
 pass "$case_name"
 
-# --- 6-12: a selection names journeys it can honour, or it refuses --------------
+# --- 6-16: a selection names journeys it can honour, or it refuses --------------
 # Two silent under-runs were possible on 2026-11-20: `ux-walk.sh "$PWD" "$OUT"
 # J9 J11` read only the third positional and walked J9, and `--journeys
 # J9,J99` filtered the unknown id away and exited 0 having walked only J9 (an
@@ -209,6 +212,78 @@ want="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1],
   "$UXDIR/journeys.json")"
 [ "$out" = "$want" ] \
   || fail "$case_name: the default is no longer every journey in spec order: $out"
+pass "$case_name"
+
+# --- 13-16: files that cannot change the console select no journey -------------
+# A UI PR commits web/dist/index.html (AGENTS.md, "UI conventions") and usually
+# docs/product/IA.md. Neither is mapped in journeys.json, whose unmatched
+# fallback is every journey, so one UI PR selected all 17 and the walk was killed
+# at RSI_WALK_MAX_S with no verdict (measured on a UI PR whose diff carried both
+# files: 17 selected, killed at the 1800 s bound at J13, and the 7 journeys the
+# sessions row maps were thrown away). The rule mirrors ux-gate.sh's 1b0
+# attribution pass: generated, test and documentation paths are not surfaces.
+# An unmapped *ui* path stays fail-closed to every journey, and a copy-only
+# locales diff keeps the journeys its paths row names — the noise predicate is
+# not a second paths table.
+#
+# The fail-closed case runs first: the suite stops at the first failure, so each
+# mutant in ux-walker.mutants.json reds the case it is named for.
+case_name="select still walks every journey for an unmapped ui surface"
+printf '%s\n' \
+  'docs/product/IA.md' \
+  'ui/src/components/sessions/ProjectRootsEditor.tsx' \
+  'ui/src/components/sessions/SessionList.projectRoots.dom.test.tsx' \
+  'ui/src/components/sessions/SessionList.projectRoots.mutants.json' \
+  'ui/src/components/sessions/SessionList.tsx' \
+  'web/dist/index.html' \
+  'ui/src/components/brandnew/Widget.tsx' > "$T/pr626-plus-new.txt"
+out="$(select_walk --files "$T/pr626-plus-new.txt")"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/select.err"))"
+got="$(printf '%s\n' "$out" | sort | tr '\n' ' ')"
+want="$(python3 -c 'import json,sys; print(" ".join(sorted(json.load(open(sys.argv[1], encoding="utf-8"))["journeys"])) + " ")' \
+  "$UXDIR/journeys.json")"
+[ "$got" = "$want" ] || fail "$case_name: got '$got', wanted every journey '$want'"
+pass "$case_name"
+
+case_name="select ignores generated, docs and test files"
+printf '%s\n' \
+  'docs/product/IA.md' \
+  'ui/src/components/sessions/ProjectRootsEditor.tsx' \
+  'ui/src/components/sessions/SessionList.projectRoots.dom.test.tsx' \
+  'ui/src/components/sessions/SessionList.projectRoots.mutants.json' \
+  'ui/src/components/sessions/SessionList.tsx' \
+  'web/dist/index.html' > "$T/pr626.txt"
+out="$(select_walk --files "$T/pr626.txt")"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/select.err"))"
+got="$(printf '%s\n' "$out" | sort | tr '\n' ' ')"
+[ "$got" = 'J1 J11 J12 J14 J2 J5 J8 ' ] \
+  || fail "$case_name: got '$got', wanted the sessions row's 7 journeys"
+printf '%s\n' "$out" | grep -qx 'J13' \
+  && fail "$case_name: J13 was selected although no file in the list can reach it"
+printf '%s\n' "$out" | grep -qx 'J17' \
+  && fail "$case_name: J17 was selected although no file in the list can reach it"
+pass "$case_name"
+
+case_name="select keeps a copy-only locales change walking the map's journeys"
+printf 'ui/src/i18n/locales/zh.ts\n' > "$T/locales-only.txt"
+out="$(select_walk --files "$T/locales-only.txt")"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/select.err"))"
+got="$(printf '%s\n' "$out" | sort | tr '\n' ' ')"
+[ "$got" = 'J1 J10 J11 J12 J13 J14 J15 J16 J2 J3 J4 J5 J6 J7 J8 J9 ' ] \
+  || fail "$case_name: got '$got', wanted the locales row's J1-J16"
+printf '%s\n' "$out" | grep -qx 'J17' \
+  && fail "$case_name: J17 came from the no-match fallback, not the locales row"
+pass "$case_name"
+
+case_name="select refuses a list of only non-console files"
+printf 'docs/product/IA.md\nweb/dist/index.html\n' > "$T/noise-only.txt"
+out="$(select_walk --files "$T/noise-only.txt")"; rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2"
+[ -z "$out" ] || fail "$case_name: printed ids for a diff that cannot reach the console: $out"
+[ "$(width "$T/select.err")" = 1 ] \
+  || fail "$case_name: stderr is not one line: $(cat "$T/select.err")"
+grep -q 'cannot change the console' "$T/select.err" \
+  || fail "$case_name: the refusal does not name the reason: $(cat "$T/select.err")"
 pass "$case_name"
 
 case_name="walk_args_join_positionals"
@@ -467,15 +542,16 @@ pass "$case_name"
 # no longer occurs (which would silently retire a proof).
 case_name="test_mutant_manifest_changes_the_selection"
 [ -f "$MANIFEST" ] || fail "$case_name: no rsi/runtime/tests/ux-walker.mutants.json"
-python3 - "$MANIFEST" "$UXWALK" <<'PY' || exit 1
+python3 - "$MANIFEST" "$REPO" <<'PY' || exit 1
 import json
+import os
 import sys
 
-manifest, walk_sh = sys.argv[1], sys.argv[2]
+manifest, repo = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest, encoding="utf-8"))
 if not isinstance(entries, list) or not entries:
     raise SystemExit("manifest must be a non-empty list of entries, got %r" % (entries,))
-text = open(walk_sh, encoding="utf-8").read()
+files = {}
 for index, entry in enumerate(entries):
     if not isinstance(entry, dict):
         raise SystemExit("entry %d is not an object" % index)
@@ -483,16 +559,19 @@ for index, entry in enumerate(entries):
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
             raise SystemExit("%s is missing a non-empty %r" % (label, key))
-    if entry["file"] != "rsi/runtime/ux-walk.sh":
-        raise SystemExit("%s mutates %r, not ux-walk.sh" % (label, entry["file"]))
+    target = entry["file"]
+    if target not in ("rsi/runtime/ux-walk.sh", "rsi/runtime/ux/walk.mjs"):
+        raise SystemExit("%s mutates %r, not the walker or its shell wrapper" % (label, target))
     if entry["old"] == entry["new"]:
         raise SystemExit("%s: `new` is identical to `old`; the mutant changes nothing" % label)
-    count = text.count(entry["old"])
+    if target not in files:
+        files[target] = open(os.path.join(repo, target), encoding="utf-8").read()
+    count = files[target].count(entry["old"])
     if count != 1:
-        raise SystemExit("%s: `old` occurs %d times in ux-walk.sh, not once" % (label, count))
+        raise SystemExit("%s: `old` occurs %d times in %s, not once" % (label, count, target))
     if "test-ux-walker.sh" not in entry["test"]:
         raise SystemExit("%s: `test` does not run rsi/runtime/tests/test-ux-walker.sh" % label)
-print("manifest ok: %d entries, each changes ux-walk.sh exactly once" % len(entries))
+print("manifest ok: %d entries, each changes its file exactly once" % len(entries))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
