@@ -117,7 +117,7 @@ export default function AgentSessionSheet({
   const openRef = useRef(open);
   openRef.current = open;
   const coarse = useCoarsePointer();
-  const agentRoles = useAgentRoles();
+  const agentRoles = useAgentRoles(open);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const [fresh, setFresh] = useState<AgentSession | null>(null);
   const [items, setItems] = useState<AgentSessionHistoryItem[]>([]);

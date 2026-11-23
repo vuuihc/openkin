@@ -120,6 +120,21 @@ describe("useAgentRoles", () => {
     expect(result.current?.map((role) => role.id)).toEqual(["fresh"]);
   });
 
+  it("reads nothing while the surface it belongs to is closed", async () => {
+    // The imported-session sheet stays mounted behind a closed scrim so its
+    // exit animation can finish; a closed sheet must not read settings on the
+    // shell's startup, which is what made the shell look like it acted alone.
+    const { result, rerender } = renderHook(({ open }) => useAgentRoles(open), {
+      initialProps: { open: false },
+    });
+    expect(client.getSettings).not.toHaveBeenCalled();
+    expect(result.current).toBeNull();
+
+    rerender({ open: true });
+    await waitFor(() => expect(result.current?.map((role) => role.id)).toEqual(["review"]));
+    expect(client.getSettings).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the last list when a re-read fails", async () => {
     const { result } = renderHook(() => useAgentRoles());
     await waitFor(() => expect(result.current).toHaveLength(1));

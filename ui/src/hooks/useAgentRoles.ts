@@ -16,14 +16,20 @@ import { AGENT_ROLES_CHANGED_EVENT, parseAgentRoles, type AgentRole } from "../l
  * No answer yet is `null`, not an empty list: a failed read leaves the list
  * unknown, and the composer says so rather than telling someone to re-add
  * roles the daemon still has. A successful empty answer is an empty array.
+ *
+ * `enabled` is for a host that stays mounted while its surface does not, like
+ * the imported-session sheet the conversation list keeps behind a closed
+ * scrim: a closed sheet reads nothing, so the shell's own startup makes no
+ * settings call until someone opens it.
  */
-export function useAgentRoles(): AgentRole[] | null {
+export function useAgentRoles(enabled = true): AgentRole[] | null {
   // `null` is "no answer yet", not "no roles". The composer must not tell
   // someone their saved roles do not exist while the daemon is unreachable or
   // still thinking; a successful empty answer is an empty array.
   const [roles, setRoles] = useState<AgentRole[] | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     let live = true;
     // Which read the newest question belongs to. A mount read that is slow can
     // answer after a save's re-read, and landing it would put the pre-save list
@@ -43,7 +49,7 @@ export function useAgentRoles(): AgentRole[] | null {
       live = false;
       window.removeEventListener(AGENT_ROLES_CHANGED_EVENT, load);
     };
-  }, []);
+  }, [enabled]);
 
   return roles;
 }
