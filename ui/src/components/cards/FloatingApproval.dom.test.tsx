@@ -224,18 +224,18 @@ describe("FloatingApproval over a session row", () => {
   });
 
   it("keeps a conversation's surface when a wide sidebar's row touches the pill", () => {
-    // 768–771px: the persistent list is a 304px column beside the transcript,
-    // so its row ends at x=364 while the pill starts at x=360. Those 4px are
-    // the sidebar's, not the screen's: a conversation keeps its card/strip, and
-    // yielding the whole surface there would take it away from a reader who is
-    // not looking at the list.
+    // 768–771px: the persistent list is a column beside the transcript, so the
+    // pill's box (left 360) and a sidebar row's (reported right edge 364) can
+    // share an x-band. That row is the sidebar's, not the screen's: a
+    // conversation keeps its card/strip, and yielding the whole surface there
+    // would take it away from a reader who is not looking at the list.
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
       writable: true,
       value: 768,
     });
     // The pill's own dock (`md:right-6 md:bottom-6`, 24rem wide, 52px tall):
-    // x360–744, y768–820 in this viewport. The list's row reaches x=364.
+    // x360–744, y768–820 in this viewport. The reported row reaches x=364.
     const PILL: Box = { top: 768, bottom: 820, left: 360, right: 744 };
     const row = sessionRow({ top: 760, bottom: 804, left: 64, right: 364 });
     try {

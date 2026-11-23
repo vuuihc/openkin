@@ -294,8 +294,8 @@ export default function FloatingApproval({
     // Where the list is the screen (a phone tab root) a laid-out conversation
     // row is the entry, so the pill yields to it too. A wide screen keeps its
     // card: there the list is a column beside the conversation, and a sidebar
-    // row touching the pill's box (x360–364 at 768) is not what the pill floats
-    // over — yielding there would take the surface away on a conversation.
+    // row sharing the pill's x-band (reported at 360–364 at 768) is not what
+    // the pill floats over — yielding there would take the surface away.
     const stripHit =
       stripRect !== null &&
       covers(stripRect, raised ? "[data-kin-reading], [data-session-row]" : "[data-kin-reading]");
