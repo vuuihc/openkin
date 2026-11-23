@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, type ReactNode } from "react";
 import { MobileChevron } from "./MobileHeader";
 
 /**
@@ -41,14 +41,37 @@ export function MobileScreen({
    * The restore has to retry after the data lands, and the scroll container's
    * own box never changes when rows arrive — its parents are fixed height — so
    * a ResizeObserver on it would never fire. The caller already knows when the
-   * rows changed; this is that signal.
+   * rows changed; this is that signal. The content wrapper also observes late
+   * height changes after the row count has settled.
    */
   scrollWhen?: unknown;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const savedRef = useRef(0);
   const settledRef = useRef(true);
   const recordedRef = useRef(false);
+
+  /**
+   * One restore attempt. `settled` is only spent when the saved offset is
+   * actually reachable: setting `scrollTop` short of the content clamps it, and
+   * settling there would freeze a half restored position.
+   *
+   * Shared by the caller's signal and the content-growth observer so both use
+   * the same reachability rule.
+   */
+  const restore = useCallback(() => {
+    if (!scrollKey || settledRef.current) return;
+    const node = ref.current;
+    if (!node) return;
+    node.scrollTop = savedRef.current;
+    const reachable = savedRef.current <= Math.max(0, node.scrollHeight - node.clientHeight);
+    if (reachable) {
+      settledRef.current = true;
+      // The saved value is on screen again; recording it back is a no-op.
+      recordedRef.current = true;
+    }
+  }, [scrollKey]);
 
   // Listeners and recording: installed once per key, whether or not there is a
   // position to restore — a fresh tab is exactly the case that needs a writer.
@@ -102,22 +125,28 @@ export function MobileScreen({
     };
   }, [scrollKey]);
 
-  // Restore, and retry whenever the content version moves. `settled` is only
-  // spent when the saved offset is actually reachable: setting `scrollTop`
-  // short of the content clamps it, and settling there would freeze a half
-  // restored position.
+  // Restore, and retry whenever the caller's signal moves.
   useLayoutEffect(() => {
-    if (!scrollKey || settledRef.current) return;
-    const node = ref.current;
-    if (!node) return;
-    node.scrollTop = savedRef.current;
-    const reachable = savedRef.current <= Math.max(0, node.scrollHeight - node.clientHeight);
-    if (reachable) {
-      settledRef.current = true;
-      // The saved value is on screen again; recording it back is a no-op.
-      recordedRef.current = true;
-    }
-  }, [scrollKey, scrollWhen]);
+    restore();
+  }, [restore, scrollWhen]);
+
+  // The rows' count can be final before their heights are: settled rows and a
+  // wrapping status line grow the content in place, after the clamped restore
+  // already ran, and `scrollWhen` never moves again. Watch the children's
+  // wrapper — the scroll container's own box is fixed by its parents, so an
+  // observer on it would never fire. The retry is bounded by the reachability
+  // rule (`settled` stops it) and by the reader: a pointer or wheel settles the
+  // body, so growth never yanks someone who has chosen a new position.
+  useLayoutEffect(() => {
+    if (!scrollKey) return;
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      restore();
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [restore, scrollKey]);
 
   return (
     <div
@@ -128,7 +157,10 @@ export function MobileScreen({
         className,
       ].join(" ")}
     >
-      {children}
+      {/* Layout-transparent block: full width, no margin or padding, so the
+          rows keep the exact geometry they had as direct children. It exists
+          only to give the growth observer a box inside the scroll node. */}
+      <div ref={contentRef}>{children}</div>
     </div>
   );
 }
