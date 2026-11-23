@@ -230,11 +230,11 @@ case_usage_error_exits_two() {
 case_wiring_runs_the_suite() {
   want wiring-runs-the-suite || return 0
   bash "$RSI/runtime/tests/test-wiring.sh" >/dev/null 2>&1 \
-    || fail "wiring: test-wiring.sh fails (name this suite in scripts/check.sh job_shell_test)"
-  grep -q 'followups-lint.py --status --state {{STATE}} --repo {{CTRL}}' "$RSI/runtime/prompts/fill.md" \
-    || fail "wiring: fill.md never names followups-lint.py to the planner"
+    || fail "wiring-runs-the-suite: test-wiring.sh fails (name this suite in scripts/check.sh job_shell_test)"
+  grep -q 'followups-lint.py --stale --state {{STATE}} --repo {{CTRL}}' "$RSI/runtime/prompts/fill.md" \
+    || fail "wiring-runs-the-suite: fill.md never names followups-lint.py to the planner"
   grep -q 'must still be read, not skipped' "$RSI/runtime/prompts/fill.md" \
-    || fail "wiring: fill.md does not say a cited line must be read"
+    || fail "wiring-runs-the-suite: fill.md does not say a cited line must be read"
   pass wiring-runs-the-suite
 }
 
@@ -266,10 +266,231 @@ PY
   pass cited-ref-is-not-done
 }
 
+# --- 13-24. --stale: does the path (and line) a follow-up cites still exist at the base ref? ----
+# The missing column: on 2026-11-23 the intake held 54 open lines and 25 cited a merged ref, yet
+# the three open lines checked by hand that evening were all already delivered. A citation is a
+# hint; only "the cited path is gone at origin/main" is the actionable column.
+
+# fixture_repo — a throwaway repo whose base commit holds ui/src/keep.ts (3 known lines) and
+# ui/src/deleted.ts; sets R and BASE. Reused (and mutated) by the stale cases, never by the
+# SHA cases above.
+fixture_repo() {
+  R="$T/fixture"
+  if [ ! -d "$R/.git" ]; then
+    git init -q "$R" || fail "fixture: git init"
+    git -C "$R" config user.email owner@example.com
+    git -C "$R" config user.name Fixture
+    git -C "$R" config commit.gpgsign false
+    mkdir -p "$R/ui/src"
+    printf 'alpha\nbravo\ncharlie\n' > "$R/ui/src/keep.ts"
+    printf 'gone later\n' > "$R/ui/src/deleted.ts"
+    git -C "$R" add -A
+    git -C "$R" commit -qm base
+  fi
+  BASE="$(git -C "$R" rev-parse --abbrev-ref HEAD)"
+}
+
+case_stale_path_gone_is_named() {
+  want stale-path-gone-is-named || return 0
+  reset
+  fixture_repo
+  fu '- [ ] broken since the #42 rewrite: ui/src/gone.ts'
+  merged 42
+  run --repo "$R" --base "$BASE" --stale
+  [ "$rc" -eq 0 ] || fail "stale-path-gone-is-named: rc=$rc ($out; $(cat "$T/err.txt"))"
+  printf '%s\n' "$out" | grep -q '^cited 1 ref=#42 merged=yes path=ui/src/gone.ts present=no at=- text=' \
+    || fail "stale-path-gone-is-named: wrong row ($out)"
+  pass stale-path-gone-is-named
+}
+
+case_stale_path_present_is_named() {
+  want stale-path-present-is-named || return 0
+  reset
+  fixture_repo
+  fu '- [ ] keep ui/src/keep.ts as the evidence'
+  run --repo "$R" --base "$BASE" --stale
+  [ "$rc" -eq 0 ] || fail "stale-path-present-is-named: rc=$rc ($out)"
+  printf '%s\n' "$out" | grep -q 'path=ui/src/keep.ts present=yes at=-' \
+    || fail "stale-path-present-is-named: wrong row ($out)"
+  pass stale-path-present-is-named
+}
+
+case_stale_line_beyond_eof_is_not_present() {
+  want stale-line-beyond-eof-is-not-present || return 0
+  reset
+  fixture_repo
+  fu '- [ ] past the end ui/src/keep.ts:999' '- [ ] the second line ui/src/keep.ts:2'
+  run --repo "$R" --base "$BASE" --stale
+  [ "$rc" -eq 0 ] || fail "stale-line-beyond-eof-is-not-present: rc=$rc ($out)"
+  printf '%s\n' "$out" | grep -q 'path=ui/src/keep.ts:999 present=no at=-' \
+    || fail "stale-line-beyond-eof-is-not-present: past-EOF line not stale ($out)"
+  printf '%s\n' "$out" | grep -q 'path=ui/src/keep.ts:2 present=yes at=bravo' \
+    || fail "stale-line-beyond-eof-is-not-present: in-range line wrong ($out)"
+  pass stale-line-beyond-eof-is-not-present
+}
+
+case_stale_reads_base_not_worktree() {
+  want stale-reads-base-not-worktree || return 0
+  reset
+  fixture_repo
+  printf 'worktree only\n' > "$R/ui/src/wt-only.ts"   # never committed
+  rm -f "$R/ui/src/deleted.ts"                        # committed at base, deleted in the worktree
+  fu '- [ ] untracked here ui/src/wt-only.ts' '- [ ] deleted here ui/src/deleted.ts'
+  run --repo "$R" --base "$BASE" --stale
+  [ "$rc" -eq 0 ] || fail "stale-reads-base-not-worktree: rc=$rc ($out)"
+  printf '%s\n' "$out" | grep -q 'path=ui/src/wt-only.ts present=no' \
+    || fail "stale-reads-base-not-worktree: worktree file counted as present ($out)"
+  printf '%s\n' "$out" | grep -q 'path=ui/src/deleted.ts present=yes' \
+    || fail "stale-reads-base-not-worktree: base file counted as gone ($out)"
+  pass stale-reads-base-not-worktree
+}
+
+case_stale_unknown_base_stays_unknown() {
+  want stale-unknown-base-stays-unknown || return 0
+  reset
+  fixture_repo
+  fu '- [ ] whatever ui/src/keep.ts:2'
+  run --repo "$R" --base no-such-ref --stale
+  [ "$rc" -eq 0 ] || fail "stale-unknown-base-stays-unknown: rc=$rc ($out)"
+  printf '%s\n' "$out" | grep -q 'present=unknown' \
+    || fail "stale-unknown-base-stays-unknown: not unknown ($out)"
+  [ -s "$T/err.txt" ] || fail "stale-unknown-base-stays-unknown: no stderr note"
+  pass stale-unknown-base-stays-unknown
+}
+
+case_stale_bare_basename_and_url_are_unknown() {
+  want stale-bare-basename-and-url-are-unknown || return 0
+  reset
+  fixture_repo
+  fu '- [ ] see ActionSheet.tsx:92' '- [ ] see https://example.invalid/pull/42'
+  run --repo "$R" --base "$BASE" --stale
+  [ "$rc" -eq 0 ] || fail "stale-bare-basename-and-url-are-unknown: rc=$rc ($out)"
+  [ "$(printf '%s\n' "$out" | grep -c 'path=- present=unknown')" = 2 ] \
+    || fail "stale-bare-basename-and-url-are-unknown: a basename or URL was guessed ($out)"
+  pass stale-bare-basename-and-url-are-unknown
+}
+
+# --- 21. a git revision range is not a repo path ------------------------------------------------
+case_stale_git_range_is_not_a_path() {
+  want stale-git-range-is-not-a-path || return 0
+  reset
+  fixture_repo
+  # `origin/main..HEAD` has a `/` and a dot-extension shape, so PATH_RE alone would read it as a
+  # file and print present=no for a live follow-up.
+  fu '- [ ] before dispatch run `git rev-list --count origin/main..HEAD`'
+  run --repo "$R" --base "$BASE" --stale
+  [ "$rc" -eq 0 ] || fail "stale-git-range-is-not-a-path: rc=$rc ($out)"
+  printf '%s\n' "$out" | grep -q 'path=- present=unknown' \
+    || fail "stale-git-range-is-not-a-path: a revision range was guessed as a path ($out)"
+  pass stale-git-range-is-not-a-path
+}
+
+# --- 22. the printed path is the one that carries the verdict ----------------------------------
+case_stale_gone_path_is_the_one_printed() {
+  want stale-gone-path-is-the-one-printed || return 0
+  reset
+  fixture_repo
+  fu '- [ ] keep ui/src/keep.ts:2 as evidence, but ui/src/gone.ts is the regression'
+  run --repo "$R" --base "$BASE" --stale
+  [ "$rc" -eq 0 ] || fail "stale-gone-path-is-the-one-printed: rc=$rc ($out)"
+  printf '%s\n' "$out" | grep -q 'path=ui/src/gone.ts present=no at=-' \
+    || fail "stale-gone-path-is-the-one-printed: a present path printed with the gone verdict ($out)"
+  pass stale-gone-path-is-the-one-printed
+}
+
+# --- 23. a committed binary blob is unknown, never a crash or "no" ------------------------------
+case_stale_binary_blob_is_unknown() {
+  want stale-binary-blob-is-unknown || return 0
+  reset
+  fixture_repo
+  # A PNG-shaped blob (invalid UTF-8 and a NUL byte), well under the 2 MiB cap.
+  printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR' > "$R/ui/src/icon.png"
+  git -C "$R" add ui/src/icon.png || fail "stale-binary-blob-is-unknown: git add"
+  git -C "$R" commit -qm binary || fail "stale-binary-blob-is-unknown: git commit"
+  BASE="$(git -C "$R" rev-parse --abbrev-ref HEAD)"
+  fu '- [ ] the icon ui/src/icon.png:1 is the evidence'
+  run --repo "$R" --base "$BASE" --stale
+  [ "$rc" -eq 0 ] || fail "stale-binary-blob-is-unknown: rc=$rc ($out; $(cat "$T/err.txt"))"
+  printf '%s\n' "$out" | grep -q 'path=ui/src/icon.png:1 present=unknown' \
+    || fail "stale-binary-blob-is-unknown: a binary blob was not unknown ($out)"
+  pass stale-binary-blob-is-unknown
+}
+
+# --- 24. a citation of a gitignored local artifact is unknown, not stale ------------------------
+case_stale_local_state_citation_is_unknown() {
+  want stale-local-state-citation-is-unknown || return 0
+  reset
+  fixture_repo
+  fu '- [ ] see state/merged.log for the merge record'
+  run --repo "$R" --base "$BASE" --json --stale
+  [ "$rc" -eq 0 ] || fail "stale-local-state-citation-is-unknown: rc=$rc ($out)"
+  python3 - "$T/out.txt" <<'PY' || exit 1
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["stale"] == 0, d        # a local artifact says nothing about the base ref
+assert d["items"][0]["paths"][0]["present"] == "unknown", d["items"][0]
+PY
+  pass stale-local-state-citation-is-unknown
+}
+
+case_stale_json_shape() {
+  want stale-json-shape || return 0
+  reset
+  fixture_repo
+  fu '- [ ] gone ui/src/gone.ts and #42' '- [ ] keep ui/src/keep.ts:2'
+  merged 42
+  run --repo "$R" --base "$BASE" --json --stale
+  python3 - "$T/out.txt" <<'PY' || exit 1
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["open"] == 2 and d["cited"] == 1, d
+assert d["stale"] == 1, d
+p = d["items"][0]["paths"][0]
+assert set(p) == {"token", "path", "cited_lines", "present", "at"}, p
+assert p == {"token": "ui/src/gone.ts", "path": "ui/src/gone.ts",
+             "cited_lines": [], "present": "no", "at": "-"}, p
+q = d["items"][1]["paths"][0]
+assert q == {"token": "ui/src/keep.ts:2", "path": "ui/src/keep.ts",
+             "cited_lines": [2], "present": "yes", "at": "bravo"}, q
+PY
+  run --repo "$R" --base "$BASE" --json
+  python3 - "$T/out.txt" <<'PY' || exit 1
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert "stale" not in d, d
+assert all("paths" not in item for item in d["items"]), d["items"]
+PY
+  pass stale-json-shape
+}
+
+case_stale_status_unchanged_and_no_writes() {
+  want stale-status-unchanged-and-no-writes || return 0
+  reset
+  fixture_repo
+  fu '- [ ] gone ui/src/gone.ts' '- [ ] keep ui/src/keep.ts:2'
+  merged 42
+  run --status
+  local plain="$out" before after
+  before="$(sha256 "$S/followups.md")"
+  run --status --stale
+  [ "$out" = "$plain" ] || fail "stale-status-unchanged-and-no-writes: '$out' != '$plain'"
+  run --repo "$R" --base "$BASE" --stale
+  [ "$rc" -eq 0 ] || fail "stale-status-unchanged-and-no-writes: rc=$rc ($out)"
+  after="$(sha256 "$S/followups.md")"
+  [ "$before" = "$after" ] || fail "stale-status-unchanged-and-no-writes: followups.md changed"
+  pass stale-status-unchanged-and-no-writes
+}
+
 for c in merged-pr-is-cited unmerged-pr-is-open ancestor-sha-is-cited non-ancestor-sha-is-open \
          unknown-sha-is-open checked-and-refless-lines-are-ignored file-is-not-modified \
          status-is-one-line missing-files-are-not-a-crash usage-error-exits-two \
-         wiring-runs-the-suite cited-ref-is-not-done; do
+         wiring-runs-the-suite cited-ref-is-not-done stale-path-gone-is-named \
+         stale-path-present-is-named stale-line-beyond-eof-is-not-present \
+         stale-reads-base-not-worktree stale-unknown-base-stays-unknown \
+         stale-bare-basename-and-url-are-unknown stale-git-range-is-not-a-path \
+         stale-gone-path-is-the-one-printed stale-binary-blob-is-unknown \
+         stale-local-state-citation-is-unknown stale-json-shape \
+         stale-status-unchanged-and-no-writes; do
   "case_${c//-/_}"
 done
 echo "PASS all"

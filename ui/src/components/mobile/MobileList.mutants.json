@@ -5,5 +5,12 @@
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/mobile/MobileList.dom.test.tsx -t \"retries the restore when the content grows\"",
     "old": "    const observer = new ResizeObserver(() => {\n      restore();\n    });",
     "new": "    const observer = new ResizeObserver(() => {\n      // mutant: content growth never retries the restore\n    });"
+  },
+  {
+    "label": "R-phone-list-back: the unmount reads the clamped container again",
+    "file": "ui/src/components/mobile/MobileList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/mobile/MobileList.dom.test.tsx -t \"keeps the reader's place when the container is clamped before the unmount\"",
+    "old": "        sessionStorage.setItem(scrollKey, String(lastTopRef.current));",
+    "new": "        sessionStorage.setItem(scrollKey, String(node.scrollTop));"
   }
 ]
