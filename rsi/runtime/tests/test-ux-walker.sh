@@ -46,8 +46,13 @@ MANIFEST="$HERE/ux-walker.mutants.json"
 REAL_NODE="$(type -P node || true)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 
-pass() { echo "ok: $*"; }
+pass() { PASSED=$((PASSED+1)); echo "ok: $*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
+PASSED=0
+# The expected case count is named here, so a case that stops running (a
+# deleted block, a stray early return) reds the suite instead of shrinking the
+# summary: "31/31" was a literal that kept saying 31 after cases were added.
+EXPECTED_CASES=36
 
 # common.sh rewrites PATH, so an exported function is the only stub that
 # survives into the child bash.
@@ -256,12 +261,34 @@ printf '%s\n' \
 out="$(select_walk --files "$T/pr626.txt")"; rc=$?
 [ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/select.err"))"
 got="$(printf '%s\n' "$out" | sort | tr '\n' ' ')"
-[ "$got" = 'J1 J11 J12 J14 J2 J5 J8 ' ] \
-  || fail "$case_name: got '$got', wanted the sessions row's 7 journeys"
+[ "$got" = 'J1 J11 J12 J14 J2 J4 J5 J8 ' ] \
+  || fail "$case_name: got '$got', wanted the sessions row's 8 journeys"
 printf '%s\n' "$out" | grep -qx 'J13' \
   && fail "$case_name: J13 was selected although no file in the list can reach it"
 printf '%s\n' "$out" | grep -qx 'J17' \
   && fail "$case_name: J17 was selected although no file in the list can reach it"
+pass "$case_name"
+
+case_name="a sessions change walks J4 with the list"
+# J4's first step presses a project row's title on /sessions, and that row lives
+# in ui/src/components/sessions/SessionList.tsx. Until 2026-11-23 the sessions
+# row did not name J4, so #584's rewrite of that step met no walk at all: the PR
+# walked J1 J2 J5 J8 J11 J12 J14 (measured, state/shots/delete-pagesb2b2) while
+# J4/mac and J4/mac-wide were red on the same branch (86 lines each, the first a
+# 3000 ms click timeout). A row that owns a journey must keep naming it, or the
+# journey can be retired by an edit no gate walks.
+printf 'ui/src/components/sessions/SessionList.tsx\n' > "$T/sessions-only.txt"
+out="$(select_walk --files "$T/sessions-only.txt")"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/select.err"))"
+printf '%s\n' "$out" | grep -qx 'J4' \
+  || fail "$case_name: a sessions change selected no J4; the project row's own journey is unwalked"
+# The phone list keeps its own row, so a mobile-only change must not pay for J4's
+# desktop legs the way a sessions change does.
+printf 'ui/src/components/mobile/MobileList.tsx\n' > "$T/mobile-only.txt"
+out="$(select_walk --files "$T/mobile-only.txt")"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/select.err"))"
+printf '%s\n' "$out" | grep -qx 'J4' \
+  && fail "$case_name: a mobile-only change selected J4; the mobile row is meant to stay at 7"
 pass "$case_name"
 
 case_name="select keeps a copy-only locales change walking the map's journeys"
@@ -822,4 +849,6 @@ out="$(check_spec "$UX/journeys.json")"; rc=$?
 [ $rc -eq 0 ] || fail "$case_name: the tree's own spec fails --check-spec: $out"
 pass "$case_name"
 
-echo "ux-walker contract: 31/31 cases passed"
+[ "$PASSED" -eq "$EXPECTED_CASES" ] \
+  || fail "only $PASSED of $EXPECTED_CASES cases ran; a case was skipped or the count is stale"
+echo "ux-walker contract: $PASSED/$EXPECTED_CASES cases passed"
