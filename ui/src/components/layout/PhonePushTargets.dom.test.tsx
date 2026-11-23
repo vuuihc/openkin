@@ -449,7 +449,7 @@ describe("starting the conversation from the draft", () => {
 });
 
 describe("continuing an imported session", () => {
-  it("becomes the conversation in the session's own entry, so Back reaches the list", async () => {
+  it("opens in the list's sheet, and continuing becomes the conversation above the list", async () => {
     fixtures.sessions = [
       {
         id: "s1",
@@ -475,15 +475,19 @@ describe("continuing an imported session", () => {
     await user.click(screen.getByRole("button", { name: "Search chats" }));
     await user.type(screen.getByRole("searchbox"), "Yesterday");
     await user.click(await screen.findByRole("button", { name: /Yesterday session/ }));
-    await waitFor(() => expect(window.location.pathname).toBe("/agent-sessions/s1"));
-    expect(window.history.state.idx).toBe(1);
+
+    // The row opens the sheet over the list: no route was pushed, so the
+    // reader never left the list they were reading.
+    await screen.findByRole("dialog", { name: /Yesterday session/ });
+    expect(window.location.pathname).toBe("/sessions");
+    expect(window.history.state.idx).toBe(0);
 
     await user.click(await screen.findByTestId("composer-send"));
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
     expect(api.attach).toHaveBeenCalledWith("s1", { prompt: "keep going" });
 
-    // [list, conversation]: the session screen was replaced by the task it
-    // continued into, not left underneath it.
+    // [list, conversation]: the sheet's entry is given back before the task
+    // is pushed, so one Back reaches the list.
     expect(window.history.state.idx).toBe(1);
     await browserBack();
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));

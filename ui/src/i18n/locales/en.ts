@@ -786,6 +786,8 @@ const en: MessageTree = {
       "Calls the local {agent} directly and keeps the original session context; no cloud Provider binding is required.",
     continueUnavailable:
       "This source session has no recorded working directory, so its history is view-only and cannot be resumed.",
+    continueOffline:
+      "You are offline. The last result is shown; sending is unavailable until the connection returns.",
     continuePrompt: "Next message for {agent}",
     continuePlaceholder: "Send the next message to {agent}…",
     continue: "Send and continue",
