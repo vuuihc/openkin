@@ -2637,10 +2637,10 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
     # vision review is dispatched up to twice (first ask + one grounding re-ask)
     # at DISPATCH_MAX_SECS=1500 each (ux-gate.sh), and the pre-walk UI/go build,
     # seed and daemon boot add ~900s. With the default bounds:
-    # 2 x (1800 + 1800) + 2 x 1500 + 900 = 11100s. A numeric RSI_UX_GATE_MAX_S
+    # 2 x (1800 + 2700) + 2 x 1500 + 900 = 12900s. A numeric RSI_UX_GATE_MAX_S
     # still wins; a malformed one falls back to the same derived default.
     HEAVY_WAIT_MAX="${RSI_HEAVY_WAIT_MAX:-1800}"; case "$HEAVY_WAIT_MAX" in ''|*[!0-9]*) HEAVY_WAIT_MAX=1800;; esac
-    WALK_MAX_S="${RSI_WALK_MAX_S:-1800}"; case "$WALK_MAX_S" in ''|*[!0-9]*) WALK_MAX_S=1800;; esac
+    WALK_MAX_S="${RSI_WALK_MAX_S:-2700}"; case "$WALK_MAX_S" in ''|*[!0-9]*) WALK_MAX_S=2700;; esac
     GATE_DEFAULT=$(( 2 * (HEAVY_WAIT_MAX + WALK_MAX_S) + 2 * 1500 + 900 ))
     GATE_MAX="${RSI_UX_GATE_MAX_S:-$GATE_DEFAULT}"; case "$GATE_MAX" in ''|*[!0-9]*) GATE_MAX=$GATE_DEFAULT;; esac
     # This attempt's evidence only: ux-gate clears confirm.json below its first walk, so an
