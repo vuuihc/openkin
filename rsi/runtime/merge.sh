@@ -1215,7 +1215,7 @@ batch_run() { # <id> <members-file>
 }
 
 # ------------------------------------------------------------------ re-verification accounting
-reverify_reason() { # <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason>
+reverify_reason() { # <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason> [current-head]
   # Accounting only (retro 2026-11-20 §5.2): WHY a gate that already ran is paid for again. Writes
   # nothing and is read by no gate decision, lock or verdict — the gate-start line in step 4
   # appends its one word to state/merge/cycles.log, so a week of data says whether re-verification
@@ -1223,10 +1223,12 @@ reverify_reason() { # <prior-gate-sha> <prior-diff-key> <current-diff-key> <prio
   # intuition. <prior-reachable> is 1 only when the prior gate head is a proven ancestor of the
   # current head. Prints exactly one word:
   #   first-gate      no prior gate head: the denominator, not a re-verification
+  #   land-sync       the head moved under an unchanged diff with no incoming paths: a main sync bought it
   #   rework          the PR's own code changed, the branch was rewritten, or nothing else moved
   #   shared-surface  main moved a surface every PR depends on, so every PR re-gates
   #   main-moved      main moved a path this PR does not verify, yet the gate ran again
-  local prior_sha="$1" prior_key="$2" cur_key="$3" reachable="$4" incoming="$5" reason="$6"
+  # An unknown current head (a six-argument caller) falls through to rework, never to land-sync.
+  local prior_sha="$1" prior_key="$2" cur_key="$3" reachable="$4" incoming="$5" reason="$6" cur_head="${7:-}"
   if [ -z "$prior_sha" ]; then echo first-gate; return 0; fi
   # An empty prior key is not evidence: a missing review cache must fall through, not claim rework.
   if [ -n "$prior_key" ] && [ "$prior_key" != "$cur_key" ]; then echo rework; return 0; fi
@@ -1237,6 +1239,14 @@ reverify_reason() { # <prior-gate-sha> <prior-diff-key> <current-diff-key> <prio
         echo shared-surface ;;
       *) echo main-moved ;;
     esac
+    return 0
+  fi
+  # The branch head moved under an unchanged PR diff and no path came in: the land loop merged
+  # origin/main into the branch during a CI hold, so the gate is bought by that sync, not rework.
+  # Only a known, unchanged key and a known, different head prove it; anything less fails closed.
+  if [ -n "$prior_key" ] && [ "$prior_key" = "$cur_key" ] \
+     && [ -n "$cur_head" ] && [ "$cur_head" != "$prior_sha" ]; then
+    echo land-sync
     return 0
   fi
   echo rework
@@ -1605,11 +1615,11 @@ if [ "${1:-}" != "--one" ]; then
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the pure re-verification classifier the
   # gate-start accounting line writes. No state, no lock, no gate, no dispatch — one word out.
   if [ "${1:-}" = "--reverify-reason-check" ]; then
-    [ $# -ge 7 ] || {
-      echo "usage: merge.sh --reverify-reason-check <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason>" >&2
+    if [ $# -lt 7 ] || [ $# -gt 8 ]; then
+      echo "usage: merge.sh --reverify-reason-check <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason> [current-head]" >&2
       exit 2
-    }
-    reverify_reason "$2" "$3" "$4" "$5" "$6" "$7"; exit 0
+    fi
+    reverify_reason "$2" "$3" "$4" "$5" "$6" "$7" "${8:-}"; exit 0
   fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the same prior_gate_capture() step 1
   # reads the accounting inputs with, over files on disk. No state, lock, gate, review or dispatch.
@@ -2174,7 +2184,7 @@ if [ $NEED_GATE -eq 1 ]; then
   # The retrospective's accounting line (2026-11-20 §5.2): record WHY this gate is paid for, before
   # the lock, so a FAIL or a lock timeout still counts. Deliberately not folded into the verify=
   # line at the bottom: that one is never written on a FAIL and would bias the data to cheap passes.
-  RR="$(reverify_reason "$PRIOR_GATE_SHA" "$PRIOR_DIFF_KEY" "$DH" "$PRIOR_REACHABLE" "$QUEUE_INCOMING" "${QUEUE_CARRY_REASON:-}")"
+  RR="$(reverify_reason "$PRIOR_GATE_SHA" "$PRIOR_DIFF_KEY" "$DH" "$PRIOR_REACHABLE" "$QUEUE_INCOMING" "${QUEUE_CARRY_REASON:-}" "$SHA")"
   echo "$(date '+%F %H:%M') #$N $SLUG reverify_reason=$RR" >> "$STATE/merge/cycles.log"
   # The head and diff key this gate is about to run on: a FAIL writes no verified/reviewed PASS line,
   # so the next cycle's accounting reads them from here (prior_gate_capture).
