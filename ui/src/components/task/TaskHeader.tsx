@@ -452,7 +452,7 @@ export default function TaskHeader({
                 // tablet). The ellipsis lives on the inner span so the visible
                 // text truncates inside the box instead of stretching it.
                 <Link
-                  to={`/projects/${encodeURIComponent(task.project_id)}`}
+                  to={`/sessions?project=${encodeURIComponent(task.project_id)}`}
                   title={project}
                   className="inline-flex min-h-11 min-w-11 max-w-[10rem] flex-none items-center justify-center rounded-md px-2 text-kin-secondary hover:text-kin-text hover:underline md:max-w-none"
                 >

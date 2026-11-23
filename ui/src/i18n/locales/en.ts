@@ -127,6 +127,8 @@ const en: MessageTree = {
     routineRun: "Routine",
     routineFiltered: "Routine runs",
     clearRoutineFilter: "Clear routine filter",
+    projectFiltered: "Project: {name}",
+    clearProjectFilter: "Clear project filter",
     archiveEmpty: "Nothing archived",
     archiveEmptyHint:
       "Conversations you put away, and projects removed from the drawer, wait here — nothing is deleted.",
