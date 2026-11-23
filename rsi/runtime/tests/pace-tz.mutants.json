@@ -1,0 +1,9 @@
+[
+  {
+    "label": "NOW follows the caller's host clock instead of the loop's +08 day, so today, the 24h window and the phase clock change with the shell's TZ",
+    "file": "rsi/runtime/pace.py",
+    "test": "bash rsi/runtime/tests/test-pace.sh",
+    "old": "NOW = datetime.now(LOOP_TZ).replace(tzinfo=None)",
+    "new": "NOW = datetime.now()"
+  }
+]
