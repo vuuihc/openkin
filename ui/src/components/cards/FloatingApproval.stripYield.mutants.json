@@ -1,0 +1,30 @@
+[
+  {
+    "label": "R-phone-approval-entry: the pill stops yielding to a conversation row",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.dom.test.tsx",
+    "old": "stripRect !== null && covers(stripRect, \"[data-kin-reading], [data-session-row]\")",
+    "new": "stripRect !== null && covers(stripRect, \"[data-kin-reading]\")"
+  },
+  {
+    "label": "R-phone-approval-entry: the yield is gated off on a phone tab root",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.dom.test.tsx",
+    "old": "if (hidden && !panelOpen) {",
+    "new": "if (hidden && !raised && !panelOpen) {"
+  },
+  {
+    "label": "R-phone-approval-entry: a phone tab root stops measuring the pill",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.dom.test.tsx",
+    "old": "if (!currentId || panelOpen) return;",
+    "new": "if (!currentId || raised || panelOpen) return;"
+  },
+  {
+    "label": "R-phone-approval-entry: a waiting approval keeps the running pulse",
+    "file": "ui/src/lib/sessionViewed.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/sessionViewed.test.ts",
+    "old": "  if (status === \"waiting_approval\") return \"bg-kin-orange\";",
+    "new": "  if (status === \"waiting_approval\") return \"bg-kin-blue animate-pulse\";"
+  }
+]

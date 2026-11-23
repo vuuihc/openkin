@@ -110,12 +110,14 @@ export default function FloatingApproval({
   // project summary) follows the same rule: the card is not mounted while it
   // would cover something the reader is reading.
   const [covered, setCovered] = useState(false);
-  // Whether the *strip itself* would cover reading content. The strip is not a
-  // fallback that always gets to stay: its pill floats over the same column,
-  // and on a table it ate a cell centre the decision card had already yielded.
-  // When the pill is over reading content nothing of the surface is mounted on
-  // that screen. The approval is not lost — the task list row carries the
-  // count, and opening the conversation shows the inline card.
+  // Whether the *strip itself* would cover reading content or a conversation
+  // row. The strip is not a fallback that always gets to stay: its pill floats
+  // over the same column, and on a table it ate a cell centre the decision card
+  // had already yielded. On the phone's conversation list it came to rest over
+  // the last row and took its tap. When the pill is over either, nothing of the
+  // surface is mounted on that screen. The approval is not lost — the list row
+  // carries the count and the needs-you dot, and opening the conversation shows
+  // the inline card.
   const [hidden, setHidden] = useState(false);
   // The whole floating surface's box — the strip *and* the card — remembered
   // across the strip-only render it causes: the card itself is gone while the
@@ -141,6 +143,9 @@ export default function FloatingApproval({
     rightGap: number;
     width: number;
     bottomGap: number;
+    /** Where the pill's bottom sat from the viewport's: a raised surface's
+     *  bottom carries the safe-area inset, which the numeric fallback cannot. */
+    bottomFromViewport: number;
   } | null>(null);
 
   // The oldest by its own timestamp rather than by position: the resource
@@ -161,10 +166,11 @@ export default function FloatingApproval({
    * resize and content mutations.
    */
   const measureOverlap = useCallback(() => {
-    // Another reason already keeps the strip: a phone tab root or a visible
-    // panel. There is nothing for the card to cover, and the question is asked
-    // again when that reason goes away.
-    if (!currentId || raised || panelOpen) return;
+    // A visible panel owns the screen: there is nothing for the card to cover,
+    // and the question is asked again when the panel goes away. A phone tab
+    // root still measures: the card is not mounted there, but the strip itself
+    // has to yield to a conversation row it would cover.
+    if (!currentId || panelOpen) return;
     const viewportWidth = window.innerWidth;
     const cached = expandedBox.current;
     let box: Rect | null = null;
@@ -183,6 +189,39 @@ export default function FloatingApproval({
           width: rect.width,
         };
       }
+    } else if (raised && surfaceRef.current) {
+      // A phone tab root never mounts the card, so the aside is the whole
+      // surface and its box is the strip's. The card is absent by design here,
+      // not because a measurement removed it, so measuring directly cannot
+      // flicker — and the cached strip below keeps the yield latched while the
+      // aside is unmounted.
+      const rect = surfaceRef.current.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        box = rect;
+        expandedBox.current = {
+          id: currentId,
+          height: rect.height,
+          rightGap: Math.max(0, viewportWidth - rect.right),
+          width: rect.width,
+        };
+      }
+    } else if (raised && stripBox.current && stripBox.current.id === currentId) {
+      // The yield unmounted the aside. Rebuild the pill from its own last box,
+      // anchored to the viewport rather than to the CSS fallback: the raised
+      // bottom is `9.25rem + env(safe-area-inset-bottom)`, and an inset the
+      // fallback cannot see would move the rebuilt pill off the row, bring it
+      // back, and alternate until React throws #185.
+      const width = viewportWidth >= 768 ? stripBox.current.width : Math.max(0, viewportWidth - 24);
+      const right = viewportWidth - stripBox.current.rightGap;
+      const bottom = window.innerHeight - stripBox.current.bottomFromViewport;
+      box = {
+        top: bottom - stripBox.current.height,
+        bottom,
+        left: right - width,
+        right,
+        width,
+        height: stripBox.current.height,
+      };
     } else if (cached && cached.id === currentId) {
       // Strip only, because of this very measurement: rebuild the expanded box
       // from the remembered height so the card does not come back just because
@@ -237,6 +276,7 @@ export default function FloatingApproval({
           rightGap: Math.max(0, viewportWidth - rect.right),
           width: rect.width,
           bottomGap: box.bottom - rect.bottom,
+          bottomFromViewport: window.innerHeight - rect.bottom,
         };
       }
     } else if (stripBox.current && stripBox.current.id === currentId) {
@@ -251,7 +291,8 @@ export default function FloatingApproval({
         height: stripBox.current.height,
       };
     }
-    const stripHit = stripRect !== null && covers(stripRect, "[data-kin-reading]");
+    const stripHit =
+      stripRect !== null && covers(stripRect, "[data-kin-reading], [data-session-row]");
     if (stripHit !== hidden) setHidden(stripHit);
   }, [currentId, raised, panelOpen, bottom, covered, hidden]);
 
@@ -499,13 +540,15 @@ export default function FloatingApproval({
     onDecide(current.id, decision);
   };
 
-  // On the phone's four tab roots the pill is the whole surface, and the task
-  // link is the only hit target: the card's body covered the conversation
-  // list, so a row underneath it could not be tapped — the reader's finger
-  // landed on the panel instead of the conversation it named. 待批准 belongs
-  // to its conversation (IA §通知): the list row already carries the count,
-  // and this strip is the way in. Its name spells out what the small visible
-  // parts mean, including the queue behind the one it opens.
+  // On the phone's tab roots the pill is the whole surface, and the task link
+  // is the only hit target: the card's body covered the conversation list, so
+  // a row underneath it could not be tapped — the reader's finger landed on
+  // the panel instead of the conversation it named. Where the list is the
+  // screen, the list's own row is the entry: a row under the pill suppresses
+  // the surface instead of being covered by it, and the row carries the count
+  // and the needs-you dot. 待批准 belongs to its conversation (IA §通知). The
+  // strip's name spells out what the small visible parts mean, including the
+  // queue behind the one it opens.
   const stripLabel = [
     tr("approval.floatingLabel"),
     titleText,
@@ -515,9 +558,10 @@ export default function FloatingApproval({
     .join(" · ");
 
   // Keep the arrival announcement while the visible surface yields to reading
-  // content. Outside the aside/surfaceRef, it cannot enter strip measurements;
-  // the next measurement restores the surface when the content scrolls clear.
-  if (hidden && !raised && !panelOpen) {
+  // content or a conversation row. Outside the aside/surfaceRef, it cannot
+  // enter strip measurements; the next measurement restores the surface when
+  // the content scrolls clear.
+  if (hidden && !panelOpen) {
     return <ApprovalStatus className="sr-only">{stripLabel}</ApprovalStatus>;
   }
 
