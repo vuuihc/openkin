@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the project param is read but never narrows the list",
+    "file": "ui/src/components/sessions/SessionList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectFilter.dom.test.tsx",
+    "old": "  const projectId = (params.get(\"project\") ?? \"\").trim();\n  const projectFilter = projectId !== \"\";",
+    "new": "  const projectId = \"\";\n  const projectFilter = false;"
+  },
+  {
+    "label": "clearing the project chip pushes a new history entry instead of replacing",
+    "file": "ui/src/components/sessions/SessionList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectFilter.dom.test.tsx",
+    "old": "  function changeProjectFilter() {\n    const nextParams = new URLSearchParams(params);\n    nextParams.delete(\"project\");\n    setParams(nextParams, { replace: true });\n  }",
+    "new": "  function changeProjectFilter() {\n    const nextParams = new URLSearchParams(params);\n    nextParams.delete(\"project\");\n    setParams(nextParams);\n  }"
+  },
+  {
+    "label": "a narrowed list claims the project is empty while older pages are unread",
+    "file": "ui/src/components/sessions/SessionList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectFilter.dom.test.tsx",
+    "old": "        !(pendingQuery && listed.length === 0) &&\n        !projectPagesRemain &&\n        listed.length === 0 && (",
+    "new": "        !(pendingQuery && listed.length === 0) &&\n        listed.length === 0 && ("
+  },
+  {
+    "label": "the narrowing matches buckets by project name instead of the record's roots",
+    "file": "ui/src/components/sessions/SessionList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectFilter.dom.test.tsx",
+    "old": "      projectBucketKeys ? filtered.filter((bucket) => projectBucketKeys.has(bucket.key)) : filtered,",
+    "new": "      projectBucketKeys ? filtered.filter((bucket) => bucket.label === projectRecord?.name.trim()) : filtered,"
+  }
+]

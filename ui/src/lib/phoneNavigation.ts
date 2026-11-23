@@ -41,7 +41,7 @@ const LIST_PARENTS_KEY = "kin.listParents";
 /** Each phone root's last URL, so a tab reopens where the reader left it. */
 const PHONE_TAB_URLS_KEY = "kin.phoneTabUrls";
 const PHONE_QUERY = "(min-width: 768px)";
-const LIST_STATE_KEYS = ["search", "status", "scope", "routine"] as const;
+const LIST_STATE_KEYS = ["search", "status", "scope", "routine", "project"] as const;
 
 /** Location state stamped on a destination `phonePush` placed directly above
  *  the list. It is what lets a later push tell "the list is already my parent"

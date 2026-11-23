@@ -39,6 +39,10 @@ export type SessionToolbarProps = {
   routineFilter?: boolean;
   /** Drop `?routine=` and return to the full list. */
   onClearRoutine?: () => void;
+  /** The project the list is narrowed to (`?project=`), by display name. */
+  projectFilter?: string;
+  /** Drop `?project=` and return to the full list. */
+  onClearProject?: () => void;
 };
 
 export default function SessionToolbar({
@@ -55,6 +59,8 @@ export default function SessionToolbar({
   onSortChange,
   routineFilter = false,
   onClearRoutine,
+  projectFilter = "",
+  onClearProject,
 }: SessionToolbarProps) {
   const tr = useT();
   // The 820px iPad draws this desktop toolbar with a thumb. The search field
@@ -99,6 +105,30 @@ export default function SessionToolbar({
         sortMode={sortMode}
         onSortChange={onSortChange}
       />
+      {/* A project is not a status and not a scope: it comes from a link
+          (`?project=`), names one project, and narrows the loaded rows in the
+          browser. The chip is the one visible reminder, and its clear control
+          is the way back. An id with no loaded record is still a real
+          narrowing, so the chip names the raw id rather than vanishing. */}
+      {projectFilter ? (
+        <div className="px-4 pb-1 pt-0.5">
+          <span className="inline-flex min-h-9 items-center gap-0.5 rounded-full bg-kin-blue/10 pl-2.5 pr-1 text-caption font-medium text-kin-blue-ink">
+            {tr("sessions.projectFiltered", { name: projectFilter })}
+            <Button
+              variant="quiet"
+              onClick={onClearProject}
+              aria-label={tr("sessions.clearProjectFilter")}
+              title={tr("sessions.clearProjectFilter")}
+              className={[
+                "flex-none items-center justify-center rounded-full p-0",
+                coarse ? "h-11 w-11" : "h-9 w-9",
+              ].join(" ")}
+            >
+              <IconX size={13} />
+            </Button>
+          </span>
+        </div>
+      ) : null}
       {/* A routine is not a status and not a scope: it comes from a link
           (`?routine=`), names one routine, and has no panel to live in — the
           list deliberately never fetches routine names. The chip is the one
