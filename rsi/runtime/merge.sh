@@ -1532,11 +1532,28 @@ for _,n,slug,title,tier,labs in sorted(rows):   # small-safe first, then PR numb
 # never sits idle. 2026-11-21: a docs typo fix arrived while #5xx waited 12m for the last slot,
 # took it, and the big PR then queued behind a 20-30m verifier it had already outwaited.
 
-# Slugs of the big/medium rows in a TSV row stream. A stale queued_at left by a PR that has since
-# merged or closed must not make the reserved slot idle, so the yield only considers PRs that are
-# still rows in this pass.
-SLOT_BIG_ROWS=""
-slot_big_rows() { awk -F'\t' '$2 != "" && $4 != "small" {print $2}'; }
+# Slugs of the big/medium rows in a TSV row stream that this pass would actually try to start. A
+# stale queued_at left by a PR that has since merged or closed must not make the reserved slot
+# idle, so the yield only considers PRs that are still rows in this pass — and only rows the loop
+# reaches slot_claim() for: an active lane, a pending sendback, a CEO hold or a large PR whose
+# strong reviewer is unavailable still keeps its old .queued_at but never starts, so yielding to it
+# would idle the reserved slot for as long as the hold or the sol-quota outage lasts. The predicates
+# below are the loop's own, in its order, so the candidate set cannot drift from what it will start.
+SLOT_ACTIVE=""; SLOT_BIG_ROWS=""
+slot_big_rows() { # rows on stdin; SLOT_ACTIVE = this pass's lane slugs
+  local n slug _title tier labels
+  while IFS=$'\t' read -r n slug _title tier labels; do
+    [ -z "$n" ] && continue
+    [ "$tier" = small ] && continue
+    printf '%s\n' "$SLOT_ACTIVE" | grep -qx "$slug" && continue
+    [ -e "$STATE/sendback/$slug.md" ] && continue
+    ceo_hold_skip "$slug" "$labels" "$n" >/dev/null && continue
+    if [ "$tier" = large ] && [ "$(awk '{print $2}' "$STATE/merge/$slug.reviewed" 2>/dev/null)" != PASS ] \
+       && [ ! -s "$STATE/merge/$slug.strong" ] \
+       && python3 "$RSI_DIR/runtime/escalate.py" --no-strong-available >/dev/null 2>&1 < /dev/null; then continue; fi
+    printf '%s\n' "$slug"
+  done
+}
 
 # Count the live verifier locks and how many of them are big/medium (an absent .tier is a big).
 slot_running() {
@@ -1702,11 +1719,13 @@ if [ "${1:-}" != "--one" ]; then
   # needs-ceo/hold labels applied because a held PR is not a candidate. No gh, fetch or state write.
   if [ "${1:-}" = "--pr-select-check" ]; then dispatch_rows --candidate-labels; exit $?; fi
   # Hermetic seam for rsi/runtime/tests/test-merge-slot-priority.sh: the dispatcher's verifier
-  # slot picker over the same TSV rows on stdin, the same live locks and .tier/.queued_at files,
-  # and the same slot_claim() the loop calls. Prints one START/SKIP line per row and simulates a
-  # start in memory. No gh, git, lane or dispatch call, and no lock or .tier write.
+  # slot picker over the same TSV rows on stdin, the same live locks, .tier/.queued_at files and
+  # yield candidates (the loop's pre-slot skips), and the same slot_claim() the loop calls. Prints
+  # one START/SKIP line per row and simulates a start in memory. No gh, git, lane or dispatch call,
+  # and no lock or .tier write.
   if [ "${1:-}" = "--slot-select-check" ]; then
     SLOT_ROWS="$(cat)"
+    SLOT_ACTIVE="$(python3 "$LANES_PY" slugs 2>/dev/null || true)"
     SLOT_BIG_ROWS="$(printf '%s\n' "$SLOT_ROWS" | slot_big_rows)"
     slot_running
     while IFS=$'\t' read -r n slug _title tier _labels; do
@@ -1974,6 +1993,7 @@ if [ "${1:-}" != "--one" ]; then
   # One gate for ready disjoint PRs (RSI_BATCH_VERIFY=1): form and start the batch runner before
   # the loop claims slots, so the batched slugs are started once, by the runner, not as singles.
   { batch_enabled && [ $DRY -eq 0 ]; } && dispatch_try_batch "$PRJ"
+  SLOT_ACTIVE="$ACTIVE"
   SLOT_BIG_ROWS="$(printf '%s\n' "$PRS" | slot_big_rows)"
   slot_running
   while IFS=$'\t' read -r -u 3 N SLUG TITLE TIER LABELS; do

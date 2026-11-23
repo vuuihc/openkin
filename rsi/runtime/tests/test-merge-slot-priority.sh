@@ -107,6 +107,18 @@ small_starts_under_threshold() {
   not_started small-starts-under-threshold big-auth
 }
 
+# A held big is not a big this pass will start: it keeps its 11-minute .queued_at while the CEO
+# hold is in place, so the small must take the slot rather than yield it to a verifier that will
+# not run and leave the reserved slot idle for as long as the hold lasts.
+held_big_still_lets_small_start() {
+  reset; lock big-run large; lock small-run small; queued big-auth large 11; write_rows large
+  touch "$S/big-auth.blocked"
+  run_slots
+  started held-big-still-lets-small-start small-docs
+  not_yielded held-big-still-lets-small-start small-docs
+  not_started held-big-still-lets-small-start big-auth
+}
+
 # Anti-starvation control: two bigs running means the waiting big cannot start under the
 # general-slot rule, so the small keeps the reserved slot instead of letting it idle.
 small_keeps_reserved_slot() {
@@ -168,6 +180,7 @@ run() { # <case name> <function>
 
 run small-yields-last-slot small_yields_last_slot
 run small-starts-under-threshold small_starts_under_threshold
+run held-big-still-lets-small-start held_big_still_lets_small_start
 run small-keeps-reserved-slot small_keeps_reserved_slot
 run medium-counts-as-big medium_counts_as_big
 run zero-disables-yield zero_disables_yield

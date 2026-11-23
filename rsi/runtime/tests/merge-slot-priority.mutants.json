@@ -2,35 +2,42 @@
   {
     "label": "the yield is dropped, so a fresh small takes the last general slot a big has waited 11 minutes for",
     "file": "rsi/runtime/merge.sh",
-    "test": "bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "test": "bash -c 'rc=0; for c in small-yields-last-slot small-starts-under-threshold held-big-still-lets-small-start small-keeps-reserved-slot medium-counts-as-big zero-disables-yield; do RSI_TEST_ONLY=$c bash rsi/runtime/tests/test-merge-slot-priority.sh || rc=1; done; exit $rc'",
     "old": "    if slot_yield_to_big; then",
     "new": "    if false; then"
   },
   {
     "label": "the ten-minute threshold is ignored, so a big queued five minutes ago still displaces the small",
     "file": "rsi/runtime/merge.sh",
-    "test": "bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "test": "bash -c 'rc=0; for c in small-yields-last-slot small-starts-under-threshold held-big-still-lets-small-start small-keeps-reserved-slot medium-counts-as-big zero-disables-yield; do RSI_TEST_ONLY=$c bash rsi/runtime/tests/test-merge-slot-priority.sh || rc=1; done; exit $rc'",
     "old": "    [ \"$since\" -ge \"$SLOT_YIELD_MIN\" ] || continue",
     "new": "    : # threshold ignored"
   },
   {
     "label": "the yield fires even when the big cannot start, so the reserved slot sits idle behind two running bigs",
     "file": "rsi/runtime/merge.sh",
-    "test": "bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "test": "bash -c 'rc=0; for c in small-yields-last-slot small-starts-under-threshold held-big-still-lets-small-start small-keeps-reserved-slot medium-counts-as-big zero-disables-yield; do RSI_TEST_ONLY=$c bash rsi/runtime/tests/test-merge-slot-priority.sh || rc=1; done; exit $rc'",
     "old": "  [ \"$running_big\" -lt \"$MERGE_WORKERS\" ] || return 1",
     "new": "  : # general-slot rule ignored"
   },
   {
     "label": "a medium PR is treated as small, so it never receives the yielded general slot",
     "file": "rsi/runtime/merge.sh",
-    "test": "bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "test": "bash -c 'rc=0; for c in small-yields-last-slot small-starts-under-threshold held-big-still-lets-small-start small-keeps-reserved-slot medium-counts-as-big zero-disables-yield; do RSI_TEST_ONLY=$c bash rsi/runtime/tests/test-merge-slot-priority.sh || rc=1; done; exit $rc'",
     "old": "    [ \"$(cat \"$STATE/merge/$slug.tier\" 2>/dev/null)\" = small ] && continue",
     "new": "    case \"$(cat \"$STATE/merge/$slug.tier\" 2>/dev/null)\" in small|medium) continue ;; esac"
   },
   {
+    "label": "a held big still counts as a yield candidate, so the small waits on a verifier the CEO hold will never start",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash -c 'rc=0; for c in small-yields-last-slot small-starts-under-threshold held-big-still-lets-small-start small-keeps-reserved-slot medium-counts-as-big zero-disables-yield; do RSI_TEST_ONLY=$c bash rsi/runtime/tests/test-merge-slot-priority.sh || rc=1; done; exit $rc'",
+    "old": "    [ -e \"$STATE/sendback/$slug.md\" ] && continue\n    ceo_hold_skip \"$slug\" \"$labels\" \"$n\" >/dev/null && continue",
+    "new": "    [ -e \"$STATE/sendback/$slug.md\" ] && continue\n    : # CEO hold ignored"
+  },
+  {
     "label": "the zero escape hatch is ignored, so an operator cannot turn the yield off",
     "file": "rsi/runtime/merge.sh",
-    "test": "bash rsi/runtime/tests/test-merge-slot-priority.sh",
+    "test": "bash -c 'rc=0; for c in small-yields-last-slot small-starts-under-threshold held-big-still-lets-small-start small-keeps-reserved-slot medium-counts-as-big zero-disables-yield; do RSI_TEST_ONLY=$c bash rsi/runtime/tests/test-merge-slot-priority.sh || rc=1; done; exit $rc'",
     "old": "  [ \"$SLOT_YIELD_MIN\" -gt 0 ] || return 1",
     "new": "  : # escape hatch ignored"
   },
