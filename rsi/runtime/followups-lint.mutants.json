@@ -19,5 +19,33 @@
     "test": "RSI_TEST_ONLY=stale-line-beyond-eof-is-not-present bash rsi/runtime/tests/test-followups-lint.sh",
     "old": "            last = max(item[\"cited_lines\"])\n            if last > len(lines):\n                present = PRESENT_NO\n",
     "new": "            last = max(item[\"cited_lines\"])\n            if False and last > len(lines):\n                present = PRESENT_NO\n"
+  },
+  {
+    "label": "a git revision range is parsed as a repo path, so a live follow-up reads as stale",
+    "file": "rsi/runtime/followups-lint.py",
+    "test": "RSI_TEST_ONLY=stale-git-range-is-not-a-path bash rsi/runtime/tests/test-followups-lint.sh",
+    "old": "        if \"://\" in token or \"..\" in token:\n            continue\n",
+    "new": "        if \"://\" in token:\n            continue\n"
+  },
+  {
+    "label": "a cited binary blob crashes the strict UTF-8 decode instead of reading as unknown",
+    "file": "rsi/runtime/followups-lint.py",
+    "test": "RSI_TEST_ONLY=stale-binary-blob-is-unknown bash rsi/runtime/tests/test-followups-lint.sh",
+    "old": "                              capture_output=True, text=True, errors=\"replace\", timeout=10)",
+    "new": "                              capture_output=True, text=True, timeout=10)"
+  },
+  {
+    "label": "a citation of a gitignored local artifact counts as absent, so live work reads stale",
+    "file": "rsi/runtime/followups-lint.py",
+    "test": "RSI_TEST_ONLY=stale-local-state-citation-is-unknown bash rsi/runtime/tests/test-followups-lint.sh",
+    "old": "        if path.startswith(LOCAL_STATE_ROOTS):\n            return PRESENT_UNKNOWN\n",
+    "new": "        if False:\n            return PRESENT_UNKNOWN\n"
+  },
+  {
+    "label": "the printed path is the first citation, so a present path carries another file's absent verdict",
+    "file": "rsi/runtime/followups-lint.py",
+    "test": "RSI_TEST_ONLY=stale-gone-path-is-the-one-printed bash rsi/runtime/tests/test-followups-lint.sh",
+    "old": "            shown_path = (next((p for p in paths if p[\"present\"] == PRESENT_NO), None)\n                          or next((p for p in paths if p[\"present\"] == PRESENT_YES), None)\n                          or first)\n",
+    "new": "            shown_path = first\n"
   }
 ]

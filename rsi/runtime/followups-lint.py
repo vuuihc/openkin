@@ -20,7 +20,8 @@ basename is ambiguous in this repo and a token carrying ``://`` is a URL, so nei
 Presence is read from ``<base>:<path>`` through git, **never from the worktree**: a file that
 exists only in a working tree is not on the base ref, and one the base has but the worktree
 deleted still is. ``present=no`` is the actionable column. Anything unresolvable — no git, an
-unknown ``--base``, a timeout, an oversized (>2 MiB) or binary blob — is ``present=unknown``,
+unknown ``--base``, a timeout, an oversized (>2 MiB) or binary blob, a path under a gitignored
+local-state root (``state/``, ``rsi/state/``, ``.kin-dev/``) — is ``present=unknown``,
 **never** ``no``: unknown is a reason to read the line, not a licence to skip it. The extra
 columns appear only when ``--stale`` is asked for; ``--status`` is unchanged by it.
 
@@ -65,6 +66,9 @@ MAX_BLOB_BYTES = 2 * 1024 * 1024
 
 CITED, OPEN = "cited", "open"
 PRESENT_YES, PRESENT_NO, PRESENT_UNKNOWN = "yes", "no", "unknown"
+# Gitignored local artifacts: they cannot exist on the base ref, so their absence is not evidence
+# that the work did not land. A citation of one is unknown, never "no".
+LOCAL_STATE_ROOTS = ("state/", "rsi/state/", ".kin-dev/")
 
 
 def repo_dir(arg: str | None) -> Path:
@@ -119,8 +123,10 @@ def merged_prs(text: str) -> set[str]:
 
 def git(repo: Path, *args: str):
     try:
+        # errors="replace": a cited blob can be binary (an icon, a database); strict decoding
+        # would crash the report before the caller's NUL check can call it unknown.
         return subprocess.run(["git", "-C", str(repo), *args],
-                              capture_output=True, text=True, timeout=10)
+                              capture_output=True, text=True, errors="replace", timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
 
@@ -141,14 +147,16 @@ def sha_landed(sha: str, repo: Path, base: str, cache: dict[str, bool]) -> bool:
 def cited_paths(text: str) -> list[dict]:
     """Repo-relative paths one follow-up line cites, in first-seen order.
 
-    Backticks are prose punctuation, not part of a path. A token carrying ``://`` is a URL and a
-    bare basename has no ``/``; neither is turned into a guess. The ``:line`` or ``:start-end``
-    suffix is kept beside the path (``token``, ``cited_lines``), never folded into it.
+    Backticks are prose punctuation, not part of a path. A token carrying ``://`` is a URL, one
+    carrying ``..`` is a revision range (``origin/main..HEAD``) or a parent-relative fragment,
+    and a bare basename has no ``/``; none is turned into a guess. The ``:line`` or
+    ``:start-end`` suffix is kept beside the path (``token``, ``cited_lines``), never folded
+    into it.
     """
     found: list[dict] = []
     seen: set[tuple[str, tuple[int, ...]]] = set()
     for token in TOKEN_RE.findall(text.replace("`", " ")):
-        if "://" in token:
+        if "://" in token or ".." in token:
             continue
         for m in PATH_RE.finditer(token):
             path = normalise(m.group(0))
@@ -196,6 +204,8 @@ class BaseTree:
     def state(self, path: str) -> str:
         """``yes``/``no``/``unknown`` for ``<base>:<path>``; a failed git call is unknown."""
         if not self.ok:
+            return PRESENT_UNKNOWN
+        if path.startswith(LOCAL_STATE_ROOTS):
             return PRESENT_UNKNOWN
         if path not in self.states:
             hit = git(self.repo, "cat-file", "-e", f"{self.base}:{path}")
@@ -279,12 +289,17 @@ def classify(items: list[tuple[int, str]], prs: set[str], repo: Path, base: str,
             else:
                 present = PRESENT_UNKNOWN
             first = paths[0] if paths else None
+            # Print the path that carries the verdict: a gone citation is why the row is stale, so
+            # its `at` must come from that same path, never from a present file further along.
+            shown_path = (next((p for p in paths if p["present"] == PRESENT_NO), None)
+                          or next((p for p in paths if p["present"] == PRESENT_YES), None)
+                          or first)
             row.update({
                 "ref": shown or "-",
                 "merged_label": "-" if shown is None else ("yes" if merged else "no"),
-                "path": first["token"] if first else "-",
+                "path": shown_path["token"] if shown_path else "-",
                 "present": present,
-                "at": next((p["at"] for p in paths if p["at"] != "-"), "-"),
+                "at": shown_path["at"] if shown_path else "-",
             })
         rows.append(row)
     return rows

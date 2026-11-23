@@ -231,7 +231,7 @@ case_wiring_runs_the_suite() {
   want wiring-runs-the-suite || return 0
   bash "$RSI/runtime/tests/test-wiring.sh" >/dev/null 2>&1 \
     || fail "wiring: test-wiring.sh fails (name this suite in scripts/check.sh job_shell_test)"
-  grep -q 'followups-lint.py --status --state {{STATE}} --repo {{CTRL}}' "$RSI/runtime/prompts/fill.md" \
+  grep -q 'followups-lint.py --stale --state {{STATE}} --repo {{CTRL}}' "$RSI/runtime/prompts/fill.md" \
     || fail "wiring: fill.md never names followups-lint.py to the planner"
   grep -q 'must still be read, not skipped' "$RSI/runtime/prompts/fill.md" \
     || fail "wiring: fill.md does not say a cited line must be read"
@@ -266,7 +266,7 @@ PY
   pass cited-ref-is-not-done
 }
 
-# --- 13-20. --stale: does the path (and line) a follow-up cites still exist at the base ref? ----
+# --- 13-24. --stale: does the path (and line) a follow-up cites still exist at the base ref? ----
 # The missing column: on 2026-11-23 the intake held 54 open lines and 25 cited a merged ref, yet
 # the three open lines checked by hand that evening were all already delivered. A citation is a
 # hint; only "the cited path is gone at origin/main" is the actionable column.
@@ -370,6 +370,69 @@ case_stale_bare_basename_and_url_are_unknown() {
   pass stale-bare-basename-and-url-are-unknown
 }
 
+# --- 21. a git revision range is not a repo path ------------------------------------------------
+case_stale_git_range_is_not_a_path() {
+  want stale-git-range-is-not-a-path || return 0
+  reset
+  fixture_repo
+  # `origin/main..HEAD` has a `/` and a dot-extension shape, so PATH_RE alone would read it as a
+  # file and print present=no for a live follow-up.
+  fu '- [ ] before dispatch run `git rev-list --count origin/main..HEAD`'
+  run --repo "$R" --base "$BASE" --stale
+  [ "$rc" -eq 0 ] || fail "stale-git-range-is-not-a-path: rc=$rc ($out)"
+  printf '%s\n' "$out" | grep -q 'path=- present=unknown' \
+    || fail "stale-git-range-is-not-a-path: a revision range was guessed as a path ($out)"
+  pass stale-git-range-is-not-a-path
+}
+
+# --- 22. the printed path is the one that carries the verdict ----------------------------------
+case_stale_gone_path_is_the_one_printed() {
+  want stale-gone-path-is-the-one-printed || return 0
+  reset
+  fixture_repo
+  fu '- [ ] keep ui/src/keep.ts:2 as evidence, but ui/src/gone.ts is the regression'
+  run --repo "$R" --base "$BASE" --stale
+  [ "$rc" -eq 0 ] || fail "stale-gone-path-is-the-one-printed: rc=$rc ($out)"
+  printf '%s\n' "$out" | grep -q 'path=ui/src/gone.ts present=no at=-' \
+    || fail "stale-gone-path-is-the-one-printed: a present path printed with the gone verdict ($out)"
+  pass stale-gone-path-is-the-one-printed
+}
+
+# --- 23. a committed binary blob is unknown, never a crash or "no" ------------------------------
+case_stale_binary_blob_is_unknown() {
+  want stale-binary-blob-is-unknown || return 0
+  reset
+  fixture_repo
+  # A PNG-shaped blob (invalid UTF-8 and a NUL byte), well under the 2 MiB cap.
+  printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR' > "$R/ui/src/icon.png"
+  git -C "$R" add ui/src/icon.png || fail "stale-binary-blob-is-unknown: git add"
+  git -C "$R" commit -qm binary || fail "stale-binary-blob-is-unknown: git commit"
+  BASE="$(git -C "$R" rev-parse --abbrev-ref HEAD)"
+  fu '- [ ] the icon ui/src/icon.png:1 is the evidence'
+  run --repo "$R" --base "$BASE" --stale
+  [ "$rc" -eq 0 ] || fail "stale-binary-blob-is-unknown: rc=$rc ($out; $(cat "$T/err.txt"))"
+  printf '%s\n' "$out" | grep -q 'path=ui/src/icon.png:1 present=unknown' \
+    || fail "stale-binary-blob-is-unknown: a binary blob was not unknown ($out)"
+  pass stale-binary-blob-is-unknown
+}
+
+# --- 24. a citation of a gitignored local artifact is unknown, not stale ------------------------
+case_stale_local_state_citation_is_unknown() {
+  want stale-local-state-citation-is-unknown || return 0
+  reset
+  fixture_repo
+  fu '- [ ] see state/merged.log for the merge record'
+  run --repo "$R" --base "$BASE" --json --stale
+  [ "$rc" -eq 0 ] || fail "stale-local-state-citation-is-unknown: rc=$rc ($out)"
+  python3 - "$T/out.txt" <<'PY' || exit 1
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["stale"] == 0, d        # a local artifact says nothing about the base ref
+assert d["items"][0]["paths"][0]["present"] == "unknown", d["items"][0]
+PY
+  pass stale-local-state-citation-is-unknown
+}
+
 case_stale_json_shape() {
   want stale-json-shape || return 0
   reset
@@ -424,7 +487,9 @@ for c in merged-pr-is-cited unmerged-pr-is-open ancestor-sha-is-cited non-ancest
          wiring-runs-the-suite cited-ref-is-not-done stale-path-gone-is-named \
          stale-path-present-is-named stale-line-beyond-eof-is-not-present \
          stale-reads-base-not-worktree stale-unknown-base-stays-unknown \
-         stale-bare-basename-and-url-are-unknown stale-json-shape \
+         stale-bare-basename-and-url-are-unknown stale-git-range-is-not-a-path \
+         stale-gone-path-is-the-one-printed stale-binary-blob-is-unknown \
+         stale-local-state-citation-is-unknown stale-json-shape \
          stale-status-unchanged-and-no-writes; do
   "case_${c//-/_}"
 done
