@@ -1,0 +1,16 @@
+[
+  {
+    "label": "docs-only stops exempting a long diff from the size rule",
+    "file": "rsi/runtime/review-tier.py",
+    "test": "bash rsi/runtime/tests/test-throughput.sh",
+    "old": "    if size > 500 and not docs_only and not (kind_refactor and size <= 800): why_large.append(\"size:%d\" % size)",
+    "new": "    if size > 500 and not (kind_refactor and size <= 800): why_large.append(\"size:%d\" % size)"
+  },
+  {
+    "label": "a story's design artifacts are no longer docs-only",
+    "file": "rsi/runtime/review-tier.py",
+    "test": "bash rsi/runtime/tests/test-throughput.sh",
+    "old": "DOC_ARTIFACT = re.compile(r\"^docs/.*\\.(html|svg|png|jpg|jpeg|webp)$\")",
+    "new": "DOC_ARTIFACT = re.compile(r\"^docs/.*\\.(nomatch)$\")"
+  }
+]
