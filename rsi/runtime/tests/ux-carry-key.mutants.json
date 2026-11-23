@@ -45,28 +45,28 @@
     "label": "the key ignores the journey spec, so a walk from before J4 was added to sessions still carries",
     "file": "rsi/runtime/merge.sh",
     "test": "RSI_TEST_ONLY=test_a_journey_spec_move_regates bash rsi/runtime/tests/test-ux-carry-key.sh",
-    "old": "  spec=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- rsi/runtime/ux/journeys.json rsi/runtime/ux/journeys 2>/dev/null)\"\n",
+    "old": "  spec=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- $UX_SPEC_PATHS 2>/dev/null)\"\n",
     "new": "  spec=\"\"\n"
   },
   {
     "label": "the key ignores per-journey bodies, so a walk from before J2 moved still carries",
     "file": "rsi/runtime/merge.sh",
     "test": "RSI_TEST_ONLY=test_a_journey_body_move_regates bash rsi/runtime/tests/test-ux-carry-key.sh",
-    "old": "  spec=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- rsi/runtime/ux/journeys.json rsi/runtime/ux/journeys 2>/dev/null)\"\n",
+    "old": "  spec=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- $UX_SPEC_PATHS 2>/dev/null)\"\n",
     "new": "  spec=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- rsi/runtime/ux/journeys.json 2>/dev/null)\"\n"
   },
   {
     "label": "the key ignores the walker code, so a learned wait or step does not invalidate a cached PASS",
     "file": "rsi/runtime/merge.sh",
     "test": "RSI_TEST_ONLY=test_a_walker_code_move_regates bash rsi/runtime/tests/test-ux-carry-key.sh",
-    "old": "  walker=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- rsi/runtime/ux/walk.mjs rsi/runtime/ux/optional-grace.mjs rsi/runtime/ux/walk-log.mjs 2>/dev/null)\"\n",
-    "new": "  walker=\"\"\n"
+    "old": "  spec=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- $UX_SPEC_PATHS 2>/dev/null)\"\n",
+    "new": "  spec=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- rsi/runtime/ux/journeys.json rsi/runtime/ux/journeys 2>/dev/null)\"\n"
   },
   {
     "label": "the key ignores the imported walker modules, so a learned optional wait does not invalidate a cached PASS",
     "file": "rsi/runtime/merge.sh",
     "test": "RSI_TEST_ONLY=test_a_walker_module_move_regates bash rsi/runtime/tests/test-ux-carry-key.sh",
-    "old": "  walker=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- rsi/runtime/ux/walk.mjs rsi/runtime/ux/optional-grace.mjs rsi/runtime/ux/walk-log.mjs 2>/dev/null)\"\n",
-    "new": "  walker=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- rsi/runtime/ux/walk.mjs 2>/dev/null)\"\n"
+    "old": "  spec=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- $UX_SPEC_PATHS 2>/dev/null)\"\n",
+    "new": "  spec=\"$($GIT -C \"$1\" ls-tree -r \"$2\" -- rsi/runtime/ux/walk.mjs 2>/dev/null)\"\n"
   }
 ]

@@ -765,7 +765,7 @@
     },
     {
       "id": "KIN-CONTINUE-007",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -779,7 +779,9 @@
       "file": "docs/product/stories/KIN-CONTINUE-007.md",
       "surface": "",
       "ownerPaths": [],
-      "tests": [],
+      "tests": [
+        "ui/src/lib/surfacesContract.KIN-CONTINUE-007.test.ts"
+      ],
       "blockedReason": null
     }
   ]
