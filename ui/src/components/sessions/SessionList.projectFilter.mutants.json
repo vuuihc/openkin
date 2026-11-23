@@ -24,7 +24,7 @@
     "label": "the narrowing matches buckets by project name instead of the record's roots",
     "file": "ui/src/components/sessions/SessionList.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectFilter.dom.test.tsx",
-    "old": "      projectBucketKeys\n        ? filtered.filter((bucket) => projectBucketKeys.has(bucket.key))\n        : filtered,",
-    "new": "      projectBucketKeys\n        ? filtered.filter((bucket) => bucket.label === projectRecord?.name.trim())\n        : filtered,"
+    "old": "      projectBucketKeys ? filtered.filter((bucket) => projectBucketKeys.has(bucket.key)) : filtered,",
+    "new": "      projectBucketKeys ? filtered.filter((bucket) => bucket.label === projectRecord?.name.trim()) : filtered,"
   }
 ]
