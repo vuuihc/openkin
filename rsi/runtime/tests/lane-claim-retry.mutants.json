@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the retry reuses the first verdict instead of re-reading the body from disk, so a late fix still records failed",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=claim-check-retry-body-fixed-mid-handoff bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "    CLAIM_EV=\"$(bash \"$SELF\" --claim-check-check \"$WT\" \"$STATUS_NOTE_FILE\" 2>&1)\"; CLAIM_RC=$?",
+    "new": "    CLAIM_RC=1"
+  },
+  {
+    "label": "the retry ignores RSI_CLAIM_RETRY_SECS=0, so the escape hatch still re-reads the body",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=claim-check-retry-zero-disables bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  if [ \"$CLAIM_RETRY_SECS_USE\" -gt 0 ]; then",
+    "new": "  if [ \"$CLAIM_RETRY_SECS_USE\" -ge 0 ]; then"
+  },
+  {
+    "label": "the pause is not clamped, so RSI_CLAIM_RETRY_SECS=999 sleeps 999 seconds",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=claim-check-retry-clock-is-clamped bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  [ \"$CLAIM_RETRY_SECS_USE\" -gt 5 ] && CLAIM_RETRY_SECS_USE=5",
+    "new": "  [ \"$CLAIM_RETRY_SECS_USE\" -gt 5 ] && :"
+  },
+  {
+    "label": "a still-failing re-read skips the failure path, so a genuine red is pushed and the round reports done",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=claim-check-retry-still-failing-stays-failed bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  if [ \"$CLAIM_RETRY_OK\" -eq 0 ]; then",
+    "new": "  if [ \"$CLAIM_RETRY_OK\" -eq 2 ]; then"
+  }
+]

@@ -601,15 +601,41 @@ fi
 # worker runs this same seam first (worker_contract); this pass is authoritative, and
 # rsi/runtime/claim_check.py is the merge gate's own rule. On a FAIL the branch stays committed
 # and clean: no push, no PR, and the worker fixes the body in its own session.
+CLAIM_RETRY_NOTE=""
 if ! CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; then
   [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
-  # Keep the verdict and the command's own tail on disk, the way merge.sh's claim_check_gate
-  # keeps its evidence. A flattened note cannot tell a genuine red from a slow or truncated run,
-  # and only the failure branch writes here, so a later green hand-off never rewrites the record.
-  printf '%s\n' "${CLAIM_EV:-check produced no output}" > "$STATE/lanes/$N.claim.txt"
-  CLAIM_NOTE="$(printf '%s' "$CLAIM_EV" | tr '\n' ' ' | sed 's/  */ /g')"
-  finish failed "" "claim check: ${CLAIM_NOTE:-check produced no output} (evidence: $STATE/lanes/$N.claim.txt)"
-  exit 1
+  # A worker can still have a write in flight when this read happens (2026-11-23 12:37: lane 1
+  # recorded failed/CLAIM_LANE_FAIL against bytes that already printed CLAIM_LANE_OK by hand, and
+  # the fill would have dispatched the same 21-minute round again). The record must describe the
+  # bytes this lane is about to hand off, so a FAIL is re-read from disk once after a short
+  # bounded pause. claim_lane_check() is a pure function of worktree + body + diff, and the
+  # attempts file is the evidence; only the final verdict reaches .claim.txt, whose one-writer
+  # contract is unchanged. A genuine body problem still fails: two runs, one sleep, no loop.
+  CLAIM_ATTEMPTS="$STATE/lanes/$N.claim-attempts.txt"
+  printf 'attempt 1: %s\n' "$(printf '%s' "${CLAIM_EV:-check produced no output}" | head -1)" > "$CLAIM_ATTEMPTS"
+  CLAIM_RETRY_SECS_USE="${RSI_CLAIM_RETRY_SECS:-1}"
+  case "$CLAIM_RETRY_SECS_USE" in ''|*[!0-9]*) CLAIM_RETRY_SECS_USE=1 ;; esac
+  [ "$CLAIM_RETRY_SECS_USE" -gt 5 ] && CLAIM_RETRY_SECS_USE=5
+  CLAIM_RETRY_OK=0
+  if [ "$CLAIM_RETRY_SECS_USE" -gt 0 ]; then
+    # The pause is bounded twice: by the clamp above and by bounded_run's own watchdog.
+    bounded_run "$((CLAIM_RETRY_SECS_USE + 2))" sleep "$CLAIM_RETRY_SECS_USE" >/dev/null 2>&1 || true
+    # Re-read the body from disk; never reuse the first verdict.
+    CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; CLAIM_RC=$?
+    printf 'attempt 2: %s\n' "$(printf '%s' "${CLAIM_EV:-check produced no output}" | head -1)" >> "$CLAIM_ATTEMPTS"
+    [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
+    [ "$CLAIM_RC" -eq 0 ] && CLAIM_RETRY_OK=1
+  fi
+  if [ "$CLAIM_RETRY_OK" -eq 0 ]; then
+    # Keep the verdict and the command's own tail on disk, the way merge.sh's claim_check_gate
+    # keeps its evidence. A flattened note cannot tell a genuine red from a slow or truncated run,
+    # and only the failure branch writes here, so a later green hand-off never rewrites the record.
+    printf '%s\n' "${CLAIM_EV:-check produced no output}" > "$STATE/lanes/$N.claim.txt"
+    CLAIM_NOTE="$(printf '%s' "$CLAIM_EV" | tr '\n' ' ' | sed 's/  */ /g')"
+    finish failed "" "claim check: ${CLAIM_NOTE:-check produced no output} (evidence: $STATE/lanes/$N.claim.txt)"
+    exit 1
+  fi
+  CLAIM_RETRY_NOTE="claim check passed on re-read (attempt 1 failed; evidence $CLAIM_ATTEMPTS)"
 fi
 [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
 
@@ -674,7 +700,7 @@ fi
 
 if [ $TIMEDOUT -eq 1 ]; then count_timeout "lane $N ($SLUG)" "partial work pushed as PR #$PRN"; else count_ok; fi
 scorecard_row "$ITEM $SLUG (lane $N, $MODE)" "$M_WORKER" "pending (merge lane)" "PR opened (${W_MIN}m, \$${COST:-?})$([ $TIMEDOUT -eq 1 ] && echo ', worker hit watchdog')" "[#$PRN]($PRURL)" "pending" "-"
-finish done "$PRN" "PR #$PRN ${W_MIN}m \$${COST:-?} swept=$SWEPT_N"
+finish done "$PRN" "PR #$PRN ${W_MIN}m \$${COST:-?} swept=$SWEPT_N${CLAIM_RETRY_NOTE:+ · $CLAIM_RETRY_NOTE}"
 echo "[$(date +%T)] lane $N done PR #$PRN"
 rm -rf "$LK"; trap - EXIT
 

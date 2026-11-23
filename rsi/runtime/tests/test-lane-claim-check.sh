@@ -36,13 +36,41 @@ cp "$REPO/rsi/runtime/claim_check.py" "$CTRL/rsi/runtime/claim_check.py" \
   || { echo "FAIL cannot copy claim_check.py" >&2; exit 1; }
 cp "$REPO/rsi/runtime/red_first.py" "$CTRL/rsi/runtime/red_first.py" \
   || { echo "FAIL cannot copy red_first.py" >&2; exit 1; }
+# common.sh is the production environment; the retry's pause is wrapped in its `bounded_run`
+# watchdog, and the clamp case needs the same watchdog around the whole hand-off so a missing
+# clamp cannot hang the suite. RSI_CTRL points into the temp dir before the source, so STATE and
+# RSI_DIR stay inside it (the +x restore touches only the copies).
+mkdir -p "$T/home"
+RSI_CTRL="$CTRL"; HOME="$T/home"; export RSI_CTRL HOME
+source "$RUNTIME/common.sh"
 R=""   # the worktree the current case works on
 BODY=""  # the PR body the current case passes to the seam
 ONLY="${RSI_TEST_ONLY:-}"
 OUT=""; RC=0
+CASE=""   # the case in flight, so a failure line names the test a claim can point at
+ATTEMPTS="$CTRL/rsi/state/lanes/1.claim-attempts.txt"
+
+# fixed_body <path> — the passing prose body the harness already proves: the claimed line is the
+# command's real output. Written outside $BODY so a flipper can swap it in mid-hand-off.
+fixed_body() {
+  printf '%s\n' "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+    "2:Prose claim check: the KIN-CONTINUE-001 story is signed." > "$1"
+}
+
+# flip_body_on_attempt <body-file> <fixed-body-file> — background helper for the retry cases. The
+# lane records attempt 1 before it pauses; a worker's late write lands in that pause. Polling is
+# bounded (200 × 0.05 s) so a lane with no retry leaves no flipper behind for the next case.
+flip_body_on_attempt() {
+  local body="$1" fixed="$2" i
+  for i in $(seq 1 200); do
+    if [ -f "$ATTEMPTS" ]; then cp "$fixed" "$body"; return 0; fi
+    sleep 0.05
+  done
+  return 1
+}
 
 pass() { echo "PASS $*"; }
-fail() { echo "FAIL $*" >&2; exit 1; }
+fail() { echo "FAIL ${CASE:+$CASE: }$*" >&2; exit 1; }
 g() { git -C "$R" "$@"; }
 
 # new_repo <name> — bare origin inside the temp dir plus a worktree on main. Main seeds NOTES.md
@@ -265,8 +293,8 @@ case_clean_tree_with_built_assets_is_na() {
 # push. Sets PH_RC (the exact status the lane's `exit 1` / `exit 0` produced).
 # Named apart from the live-body pr_handoff() fixture below: both branches added a helper under
 # that name, and the two drive different tails of lane.sh.
-claim_fail_handoff() { # <body-file>
-  local body="$1" tail_file="$T/push-tail.sh"
+claim_fail_handoff() { # <body-file> [RSI_CLAIM_RETRY_SECS]
+  local body="$1" retry="${2:-}" tail_file="$T/push-tail.sh"
   # Stop before the live-body check main added: it is driven by pr_handoff() and bounded_run,
   # neither of which belongs to the claim seam these cases assert.
   awk '/^# A prose delivery hands off only when/ { on = 1 } \
@@ -274,12 +302,19 @@ claim_fail_handoff() { # <body-file>
   [ -s "$tail_file" ] || fail "handoff: cannot extract the claim/push tail from lane.sh"
   ! grep -q -- '--pr-body-check' "$tail_file" \
     || fail "handoff: the claim tail runs into the live-body check; adjust the extraction boundary"
-  printf '#!/bin/bash\nexit 0\n' > "$T/gh"; chmod +x "$T/gh"
+  # The gh stub logs every call; the PR-create helper logs separately so a case can prove the
+  # green re-read really continued the hand-off instead of stopping at the push.
+  printf '#!/bin/bash\nprintf "%%s\\n" "$*" >> %q\nexit 0\n' "$T/ph-gh.calls" > "$T/gh"; chmod +x "$T/gh"
   mkdir -p "$CTRL/rsi/state/lanes" "$T/home" "$T/runs"
+  # The tail pushes the lane's branch; a case that expects a push needs it checked out here.
+  git -C "$R" rev-parse --verify -q refs/heads/rsi/handoff >/dev/null 2>&1 \
+    || g checkout -q -b rsi/handoff || fail "handoff: cannot create the branch"
   cp "$body" "$CTRL/rsi/state/lanes/1.pr-body.md"
-  : > "$T/ph-finish.log"
+  : > "$T/ph-finish.log"; : > "$T/ph-gh.calls"; : > "$T/ph-pr.log"; rm -f "$ATTEMPTS"
   (
     RSI_CTRL="$CTRL"; HOME="$T/home"; export RSI_CTRL HOME
+    source "$RUNTIME/common.sh"          # bounded_run: the retry pause's production watchdog
+    [ -n "$retry" ] && { RSI_CLAIM_RETRY_SECS="$retry"; export RSI_CLAIM_RETRY_SECS; }
     N=1
     SELF="$LANE"
     WT="$R"
@@ -297,10 +332,14 @@ claim_fail_handoff() { # <body-file>
     WORKER_TITLE=""; HDR="$T/hdr"; LK="$T/lk"; PRN=""; PRURL=""
     finish() { printf 'FINISH %s|%s|%s\n' "$1" "${2:-}" "${3:-}" >> "$T/ph-finish.log"; }
     count_fail() { :; }; count_ok() { :; }; count_timeout() { :; }; scorecard_row() { :; }
-    gh_pr_create() { printf 'https://github.com/%s/pull/77\n' "$GH_REPO"; }
+    gh_pr_create() { printf 'pr create %s %s\n' "$2" "$3" >> "$T/ph-pr.log"; printf 'https://github.com/%s/pull/77\n' "$GH_REPO"; }
     . "$tail_file"
+    # The retry note rides into the lane's finish note; the span stops before `finish done`, so
+    # the value the real record would carry is captured here.
+    printf 'RETRY-NOTE %s\n' "${CLAIM_RETRY_NOTE:-}" >> "$T/ph-finish.log"
   )
   PH_RC=$?
+  return "$PH_RC"
 }
 
 # R-claim-fail-output: a red claim verdict used to survive only as a flattened one-line note, so
@@ -378,6 +417,107 @@ case_claim_fail_evidence_wiring() {
     || fail "wiring: the evidence write (line $claim) does not follow the check (line $inv)"
   [ "$claim" -lt "$fin" ] \
     || fail "wiring: the evidence write (line $claim) does not precede finish failed (line $fin)"
+}
+
+# R-claim-seam-retry: 2026-11-23 12:37, lane 1 recorded `failed` with CLAIM_LANE_FAIL (claimed
+# 240/256/277 vs real 235/251/272) while the body it left already printed CLAIM_LANE_OK by hand.
+# A worker's final write landed after the seam's single read, so the round's own record was older
+# than its artifact and the fill would have dispatched the same 21-minute rework again. The lane
+# re-reads the hand-off body once, after a short bounded pause, and decides from the verdict that
+# matches the bytes it is about to hand off. A genuine failure still fails.
+case_claim_check_retry_body_fixed_mid_handoff() {
+  new_repo retryfixed
+  change docs/plans/gap-log.md '- a sentence the claim can prove'
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "99:Prose claim check: a line the command never printed"
+  rm -f "$CTRL/rsi/state/lanes/1.claim.txt"   # a sibling case's red must not stand in for this one
+  fixed_body "$T/retryfixed.fixed"
+  rm -f "$ATTEMPTS"   # the flipper must see the lane's new record, never a sibling case's
+  flip_body_on_attempt "$CTRL/rsi/state/lanes/1.pr-body.md" "$T/retryfixed.fixed" & local flipper=$!
+  claim_fail_handoff "$BODY"
+  wait "$flipper" 2>/dev/null || true
+  [ "$PH_RC" -eq 0 ] \
+    || fail "retryfixed: hand-off exit $PH_RC, want 0 (the late body fix must continue the hand-off): $(cat "$T/ph-finish.log")"
+  git -C "$T/retryfixed.git" rev-parse --verify -q refs/heads/rsi/handoff >/dev/null \
+    || fail "retryfixed: the branch was not pushed to the bare origin"
+  grep -q '^pr create ' "$T/ph-pr.log" || fail "retryfixed: the PR stub was not called"
+  [ -f "$ATTEMPTS" ] || fail "retryfixed: no attempt record at $ATTEMPTS"
+  [ "$(grep -c '^attempt ' "$ATTEMPTS")" -eq 2 ] \
+    || fail "retryfixed: want exactly two attempts: $(cat "$ATTEMPTS")"
+  grep -q '^attempt 1: CLAIM_LANE_FAIL' "$ATTEMPTS" \
+    || fail "retryfixed: attempt 1 is not the first FAIL: $(cat "$ATTEMPTS")"
+  grep -q '^attempt 2: CLAIM_LANE_OK' "$ATTEMPTS" \
+    || fail "retryfixed: attempt 2 is not the re-read OK: $(cat "$ATTEMPTS")"
+  [ ! -f "$CTRL/rsi/state/lanes/1.claim.txt" ] \
+    || fail "retryfixed: a passing re-read wrote the failure record: $(cat "$CTRL/rsi/state/lanes/1.claim.txt")"
+  grep -q '^RETRY-NOTE claim check passed on re-read' "$T/ph-finish.log" \
+    || fail "retryfixed: the finish note does not record the re-read: $(cat "$T/ph-finish.log")"
+}
+
+# The no-regression pin: a body that is still failing after the re-read keeps today's failure
+# path exactly — final verdict in .claim.txt, status failed, no push — and the retry is bounded
+# to one extra read, not a loop.
+case_claim_check_retry_still_failing_stays_failed() {
+  local claim="$CTRL/rsi/state/lanes/1.claim.txt"
+  new_repo retrystill
+  change docs/plans/gap-log.md '- a sentence the claim cannot prove'
+  body "Claim check: printf 'REAL-OUTPUT-42\n'" "Claim output:" "a line the command never prints"
+  rm -f "$claim"
+  claim_fail_handoff "$BODY"
+  [ "$PH_RC" -eq 1 ] || fail "retrystill: hand-off exit $PH_RC, want 1"
+  [ -f "$claim" ] || fail "retrystill: the final FAIL was not recorded in .claim.txt"
+  grep -q 'CLAIM_LANE_FAIL' "$claim" || fail "retrystill: .claim.txt does not hold the FAIL"
+  [ -f "$ATTEMPTS" ] || fail "retrystill: no attempt record at $ATTEMPTS"
+  [ "$(grep -c '^attempt ' "$ATTEMPTS")" -eq 2 ] \
+    || fail "retrystill: want exactly two attempts (a bounded retry, not a loop): $(cat "$ATTEMPTS")"
+  ! git -C "$T/retrystill.git" rev-parse --verify -q refs/heads/rsi/handoff >/dev/null \
+    || fail "retrystill: a still-failing body was pushed"
+}
+
+# RSI_CLAIM_RETRY_SECS=0 is the escape hatch: no pause, no second read, today's failure path.
+case_claim_check_retry_zero_disables() {
+  new_repo retryzero
+  change docs/plans/gap-log.md '- a sentence the claim can prove'
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "99:Prose claim check: a line the command never printed"
+  fixed_body "$T/retryzero.fixed"
+  rm -f "$ATTEMPTS"
+  flip_body_on_attempt "$CTRL/rsi/state/lanes/1.pr-body.md" "$T/retryzero.fixed" & local flipper=$!
+  claim_fail_handoff "$BODY" 0
+  wait "$flipper" 2>/dev/null || true
+  [ "$PH_RC" -eq 1 ] || fail "retryzero: hand-off exit $PH_RC, want 1 (retry disabled)"
+  [ -f "$ATTEMPTS" ] || fail "retryzero: no attempt record at $ATTEMPTS"
+  [ "$(grep -c '^attempt ' "$ATTEMPTS")" -eq 1 ] \
+    || fail "retryzero: want exactly one seam run with the retry disabled: $(cat "$ATTEMPTS")"
+  grep -q '^attempt 1: CLAIM_LANE_FAIL' "$ATTEMPTS" \
+    || fail "retryzero: the single attempt is not the FAIL: $(cat "$ATTEMPTS")"
+  [ -f "$CTRL/rsi/state/lanes/1.claim.txt" ] \
+    || fail "retryzero: the disabled retry lost the failure record"
+  ! git -C "$T/retryzero.git" rev-parse --verify -q refs/heads/rsi/handoff >/dev/null \
+    || fail "retryzero: the disabled retry still pushed"
+}
+
+# AGENTS.md 13: the pause is bounded. RSI_CLAIM_RETRY_SECS=999 must clamp to 5 s, so the case
+# finishes under its own 12 s ceiling and still makes both attempts.
+case_claim_check_retry_clock_is_clamped() {
+  local start elapsed
+  new_repo retryclamp
+  change docs/plans/gap-log.md '- a sentence the claim can prove'
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "99:Prose claim check: a line the command never printed"
+  fixed_body "$T/retryclamp.fixed"
+  rm -f "$ATTEMPTS"
+  flip_body_on_attempt "$CTRL/rsi/state/lanes/1.pr-body.md" "$T/retryclamp.fixed" & local flipper=$!
+  start="$(date +%s)"
+  bounded_run 12 claim_fail_handoff "$BODY" 999; PH_RC=$?
+  elapsed=$(( $(date +%s) - start ))
+  wait "$flipper" 2>/dev/null || true
+  [ "$PH_RC" -eq 0 ] \
+    || fail "retryclamp: hand-off exit $PH_RC within the 12 s ceiling (an unclamped 999 s retry)"
+  [ "$elapsed" -lt 10 ] || fail "retryclamp: the pause was ${elapsed}s, want < 10 (clamped to 5)"
+  [ -f "$ATTEMPTS" ] || fail "retryclamp: no attempt record at $ATTEMPTS"
+  [ "$(grep -c '^attempt ' "$ATTEMPTS")" -eq 2 ] \
+    || fail "retryclamp: the clamped retry did not make both attempts: $(cat "$ATTEMPTS")"
 }
 
 # A fake GitHub retains its old body even when edit reports success: only a read-back can prove
@@ -565,6 +705,7 @@ run() { # a case is named either case_... or its short form, x-...
   local short="${1#case_}"; short="${short//_/-}"
   [ -z "$ONLY" ] || [ "$ONLY" = "$1" ] || [ "$ONLY" = "$short" ] || return 0
   RAN=$((RAN + 1))
+  CASE="$1"
   "$1" || exit 1
   pass "$1"
 }
@@ -585,6 +726,10 @@ run case_claim_fail_keeps_real_output
 run case_claim_fail_real_output_is_bounded
 run case_claim_fail_evidence_keeps_the_first_run
 run case_claim_fail_evidence_wiring
+run case_claim_check_retry_body_fixed_mid_handoff
+run case_claim_check_retry_still_failing_stays_failed
+run case_claim_check_retry_zero_disables
+run case_claim_check_retry_clock_is_clamped
 run case_live_body_missing_claim_fails
 run case_live_body_matching_passes
 run case_failed_body_edit_is_not_swallowed
