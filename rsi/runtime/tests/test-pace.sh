@@ -666,14 +666,21 @@ fi
 # 21. A merge stamped at the current +08 minute is "today" on every host: the same
 #     fixture read under two host TZs must produce the same report. phase_hours_left is
 #     the one field that moves between the two invocations (it is measured from the live
-#     GOAL.md target), so it is compared for closeness, not equality.
+#     GOAL.md target), so it is compared for closeness, not equality; a marker missing from
+#     both runs (the loop's normal closed-phase state) is not a difference either.
 CASE=t_today_is_the_plus08_day_under_any_host_tz
 if run_case "$CASE"; then
 R="$T/r21"; S="$T/s21"; new_repo "$R"; origin_main "$R" HEAD
 mkdir -p "$S"
 printf '%s merged #701 tz R-tz aaaa\n' "$(sg_stamp 0)" > "$S/merged.log"
+# A second row 25 h back on the +08 clock: outside the 24 h window on the loop's day, but
+# only 12 h back to a New York clock, so a host-clock NOW pulls it in and merges_24h moves
+# even at +08 hours where `today` happens to agree. This keeps the case red without a live
+# `<!-- phase: -->` line in GOAL.md.
+printf '%s merged #704 tz R-tz bbbb\n' "$(sg_stamp -1500)" >> "$S/merged.log"
 run_json_tz America/New_York "$R" "$S"
 eq merges_today 1
+eq merges_24h 1
 EST_JSON="$LAST"
 run_json_tz Asia/Singapore "$R" "$S"
 eq merges_today 1
@@ -685,7 +692,7 @@ pa = a.pop("phase_hours_left", None)
 pb = b.pop("phase_hours_left", None)
 if a != b:
     print("objects differ: %r vs %r" % (a, b)); raise SystemExit
-if pa is None or pb is None or abs(pa - pb) > 0.5:
+if (pa is None) != (pb is None) or (pa is not None and abs(pa - pb) > 0.5):
     print("phase clock differs: %r vs %r" % (pa, pb)); raise SystemExit
 print("same")
 PY
