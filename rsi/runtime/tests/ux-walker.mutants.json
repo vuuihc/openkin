@@ -24,8 +24,8 @@
     "label": "walk no longer takes the heavy slot: a parallel build can starve the transcript again",
     "file": "rsi/runtime/ux-walk.sh",
     "test": "bash rsi/runtime/tests/test-ux-walker.sh",
-    "old": "bounded_run \"$WALK_MAX_S\" bash \"$RSI_DIR/runtime/heavy.sh\" node \"$WALKER\" \"${ARGS[@]}\" > \"$OUT/walk.log\" 2>&1; rc=$?",
-    "new": "node \"$WALKER\" \"${ARGS[@]}\" > \"$OUT/walk.log\" 2>&1; rc=$?"
+    "old": "walk_bounded \"$OUT\" node \"$WALKER\" \"${ARGS[@]}\"",
+    "new": "node \"$WALKER\" \"${ARGS[@]}\" > \"$OUT/walk.log\" 2>&1"
   },
   {
     "label": "fake agent only prepended to PATH: the daemon can resolve a home-config claude, the seed refuses every conversation and every list journey fails on an empty daemon",

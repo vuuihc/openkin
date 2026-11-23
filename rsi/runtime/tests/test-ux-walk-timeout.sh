@@ -5,8 +5,9 @@
 # Measured 2026-11-19: one UI PR's walk ran 40 minutes; merge.sh -> ux-gate.sh ->
 # ux-walk.sh -> heavy.sh -> node was unbounded at every step, so from outside the
 # lane nobody could tell slow from dead. The bound is now RSI_WALK_MAX_S (default
-# 1800s) around the walker, with an outer RSI_UX_GATE_MAX_S (default 5400s) in
-# merge.sh that maps exit 124 to "unavailable + cooldown, no sendback, not merged".
+# 1800s) around the walker, with an outer RSI_UX_GATE_MAX_S in merge.sh (derived
+# default 11100s: two walks at slot wait + walker, two vision dispatches and the
+# pre-walk build) that maps exit 124 to "unavailable + cooldown, no sendback, not merged".
 #
 # This suite drives the build-free --timeout-probe seam in ux-walk.sh: no UI
 # build, no daemon, no network. It proves what a ceiling alone does not:
@@ -26,12 +27,22 @@
 #      next-cycle retry instead of a false-red sendback;
 #   8. merge.sh clears the slug's confirm evidence before the gate runs, so an
 #      outer 124 cannot read a previous attempt's tree as this attempt's red.
+#   9-13. the walk's ceiling does not count the wait for the heavy slot: the
+#      composition seam (--walk-probe, shared with the real walk) starts the
+#      walker's bound only after the slot is held; an expired slot wait is its
+#      own message, never "walker exceeded"; RSI_NO_HEAVY still fails closed
+#      before any slot or walk; and a fast non-zero walker exit keeps its status.
+#   14. merge.sh's outer gate backstop encloses that composition: two walks at
+#      slot wait + walker ceiling, two vision dispatches and the pre-walk build,
+#      so a busy machine cannot make the outer bound fire before either inner one.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
 WALK="$REPO/rsi/runtime/ux-walk.sh"
 MERGE="$REPO/rsi/runtime/merge.sh"
-T="$(mktemp -d)"; trap 'pkill -f "$T/rsi-killtag-" 2>/dev/null || true; rm -rf "$T"' EXIT
+T="$(mktemp -d)"
+SLOT_HOLD_PID=""
+trap 'pkill -f "$T/rsi-killtag-" 2>/dev/null || true; [ -n "$SLOT_HOLD_PID" ] && kill "$SLOT_HOLD_PID" 2>/dev/null; rm -rf "$T"' EXIT
 
 pass() { echo "ok: $*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -180,5 +191,164 @@ GATE_LINE="$(grep -nF 'bounded_run "$GATE_MAX" bash "$RSI_DIR/runtime/ux-gate.sh
 [ "$RM_LINE" -lt "$GATE_LINE" ] \
   || fail "stale confirm: clearing (line $RM_LINE) is not before the gate call (line $GATE_LINE)"
 pass "stale confirm: the gate's confirm evidence is cleared before it runs"
+
+# --- 9-13: the walk's ceiling must not count the wait for the heavy slot --------
+# Measured 2026-11-23 (PR #610): ux-walk.sh wrapped heavy.sh AND the walker in
+# one bounded_run, so the queue for the machine-wide slot spent the walker's
+# 1800s. A healthy 29.5-minute walk was killed and recorded as "walker exceeded
+# 1800s"; the merge lane re-walked the PR as unavailable and the next reader
+# could not tell a busy machine from a hung walker. The composition is now two
+# bounds: the slot wait (RSI_HEAVY_WAIT_MAX, fail-closed for the walk) and the
+# walker (RSI_WALK_MAX_S, starting only once the slot is held). The real walk
+# and the build-free --walk-probe seam share one function, so these cases drive
+# the same order the gate does.
+SLOT_CTRL="$T/ctrl-slot"; mkdir -p "$SLOT_CTRL/rsi/runtime"
+cp "$REPO/rsi/runtime/common.sh" "$SLOT_CTRL/rsi/runtime/common.sh"
+cp "$WALK" "$SLOT_CTRL/rsi/runtime/ux-walk.sh"
+chmod +x "$SLOT_CTRL/rsi/runtime/"*.sh
+# Stub slot holder: records that the slot path was entered, spends
+# STUB_SLOT_WAIT seconds "queueing", then runs the command as its holder. The
+# real heavy.sh is exercised by case 11, which occupies a real slot instead.
+cat > "$SLOT_CTRL/rsi/runtime/heavy.sh" <<'SH'
+#!/bin/bash
+if [ -n "${STUB_HEAVY_MARKER:-}" ]; then : > "$STUB_HEAVY_MARKER"; fi
+sleep "${STUB_SLOT_WAIT:-0}"
+exec env RSI_HEAVY_HELD=1 "$@"
+SH
+chmod +x "$SLOT_CTRL/rsi/runtime/heavy.sh"
+SLOT_SEAM="$SLOT_CTRL/rsi/runtime/ux-walk.sh"
+cat > "$T/walk-2_5s.sh" <<'SH'
+#!/bin/bash
+sleep 2.5
+exit 0
+SH
+cat > "$T/walk-mark.sh" <<'SH'
+#!/bin/bash
+if [ -n "${WALK_MARK:-}" ]; then : > "$WALK_MARK"; fi
+exit 0
+SH
+chmod +x "$T/walk-2_5s.sh" "$T/walk-mark.sh"
+
+# 9. the red case: a 2s slot wait plus a 2.5s walker under a 3s walker ceiling.
+#    On the wrapped order the ceiling started at heavy.sh, so 4.5s > 3s and a
+#    healthy walk became 124/unavailable.
+OUT9="$T/o9"; mkdir -p "$OUT9"
+T0="$(date +%s)"
+STUB_HEAVY_MARKER="$T/walk9.heavy" STUB_SLOT_WAIT=2 RSI_WALK_MAX_S=3 \
+  bash "$SLOT_SEAM" --walk-probe "$OUT9" bash "$T/walk-2_5s.sh" >/dev/null 2>&1
+RC=$?
+EL=$(( $(date +%s) - T0 ))
+[ "$RC" -eq 0 ] || fail "slot wait: the walker's ceiling starts after the heavy slot is held: exit $RC, wanted 0 (UNAVAILABLE: $(cat "$OUT9/UNAVAILABLE" 2>/dev/null))"
+[ ! -e "$OUT9/UNAVAILABLE" ] || fail "slot wait: the walker's ceiling starts after the heavy slot is held: mislabelled as unavailable: $(cat "$OUT9/UNAVAILABLE")"
+[ -f "$T/walk9.heavy" ] || fail "slot wait: the walker's ceiling starts after the heavy slot is held: the slot path was never entered"
+[ "$EL" -ge 4 ] || fail "slot wait: the walker's ceiling starts after the heavy slot is held: returned in ${EL}s, before the 2s slot wait could have finished"
+pass "slot wait: the walker's ceiling starts after the heavy slot is held"
+
+# 10. the walker's own ceiling still fails closed after the slot is held, and
+#     its tree dies with it (the composed inner bound, not only the outer one).
+OUT10="$T/o10"; mkdir -p "$OUT10"
+STUB_SLOT_WAIT=1 RSI_WALK_MAX_S=2 \
+  bash "$SLOT_SEAM" --walk-probe "$OUT10" bash "$T/stub.sh" "$OUT10" >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 2 ] || fail "slot wait: a walker that itself exceeds the ceiling still reports unavailable: exit $RC, wanted 2"
+[ -s "$OUT10/UNAVAILABLE" ] || fail "slot wait: a walker that itself exceeds the ceiling still reports unavailable: no UNAVAILABLE marker"
+grep -q 'exceeded 2s' "$OUT10/UNAVAILABLE" \
+  || fail "slot wait: a walker that itself exceeds the ceiling still reports unavailable: marker does not name the ceiling: $(cat "$OUT10/UNAVAILABLE")"
+case "$(cat "$OUT10/UNAVAILABLE")" in
+  *heavy\ slot*) fail "slot wait: a walker that itself exceeds the ceiling still reports unavailable: blamed the slot: $(cat "$OUT10/UNAVAILABLE")" ;;
+esac
+CPID="$(cat "$OUT10/child.pid" 2>/dev/null || echo '')"
+[ -n "$CPID" ] || fail "slot wait: a walker that itself exceeds the ceiling still reports unavailable: stub never wrote child.pid"
+for _ in 1 2 3 4 5; do kill -0 "$CPID" 2>/dev/null || break; sleep 1; done
+kill -0 "$CPID" 2>/dev/null \
+  && fail "slot wait: a walker that itself exceeds the ceiling still reports unavailable: grandchild $CPID survived (the composed bound did not kill the tree)"
+pass "slot wait: a walker that itself exceeds the ceiling still reports unavailable"
+
+# 11. the real heavy.sh, with its slot occupied by a live holder: a small
+#     RSI_HEAVY_WAIT_MAX expires, the walker never starts, and the report is
+#     about the slot. It must not borrow the walker's message (the defect this
+#     row removes: "walker exceeded" for time spent queueing).
+REAL_CTRL="$T/ctrl-real"; mkdir -p "$REAL_CTRL/rsi/runtime"
+cp "$REPO/rsi/runtime/common.sh" "$REAL_CTRL/rsi/runtime/common.sh"
+cp "$WALK" "$REAL_CTRL/rsi/runtime/ux-walk.sh"
+cp "$REPO/rsi/runtime/heavy.sh" "$REAL_CTRL/rsi/runtime/heavy.sh"
+chmod +x "$REAL_CTRL/rsi/runtime/"*.sh
+mkdir -p "$REAL_CTRL/rsi/state/heavy/slot1"
+sleep 300 & SLOT_HOLD_PID=$!
+printf '%s\n' "$SLOT_HOLD_PID" > "$REAL_CTRL/rsi/state/heavy/slot1/pid"
+OUT11="$T/o11"; mkdir -p "$OUT11"
+T0="$(date +%s)"
+WALK_MARK="$T/walk11.ran" RSI_HEAVY_WAIT_MAX=1 RSI_WALK_MAX_S=30 \
+  bash "$REAL_CTRL/rsi/runtime/ux-walk.sh" --walk-probe "$OUT11" bash "$T/walk-mark.sh" >/dev/null 2>&1
+RC=$?
+EL=$(( $(date +%s) - T0 ))
+kill "$SLOT_HOLD_PID" 2>/dev/null; wait "$SLOT_HOLD_PID" 2>/dev/null; SLOT_HOLD_PID=""
+rm -rf "$REAL_CTRL/rsi/state/heavy"
+[ "$RC" -eq 2 ] || fail "slot wait: an expired slot wait is reported as the slot, not the walker: exit $RC, wanted 2"
+[ -s "$OUT11/UNAVAILABLE" ] || fail "slot wait: an expired slot wait is reported as the slot, not the walker: no UNAVAILABLE marker"
+grep -qi 'heavy slot\|machine-wide' "$OUT11/UNAVAILABLE" \
+  || fail "slot wait: an expired slot wait is reported as the slot, not the walker: marker does not name the slot: $(cat "$OUT11/UNAVAILABLE")"
+grep -q 'walker exceeded' "$OUT11/UNAVAILABLE" \
+  && fail "slot wait: an expired slot wait is reported as the slot, not the walker: blamed the walker: $(cat "$OUT11/UNAVAILABLE")"
+[ ! -e "$T/walk11.ran" ] \
+  || fail "slot wait: an expired slot wait is reported as the slot, not the walker: the walker ran without the slot"
+[ "$EL" -le 20 ] || fail "slot wait: an expired slot wait is reported as the slot, not the walker: took ${EL}s, the wait was not bounded"
+pass "slot wait: an expired slot wait is reported as the slot, not the walker"
+
+# 12. RSI_NO_HEAVY still fails closed before the slot wait and before the walk:
+#     the stub would record both and sleep 5s if either was reached.
+OUT12="$T/o12"; mkdir -p "$OUT12"
+T0="$(date +%s)"
+RSI_NO_HEAVY=1 STUB_SLOT_WAIT=5 STUB_HEAVY_MARKER="$T/walk12.heavy" WALK_MARK="$T/walk12.ran" \
+  bash "$SLOT_SEAM" --walk-probe "$OUT12" bash "$T/walk-mark.sh" >/dev/null 2>&1
+RC=$?
+EL=$(( $(date +%s) - T0 ))
+[ "$RC" -eq 2 ] || fail "slot wait: RSI_NO_HEAVY fails closed before any slot or walk: exit $RC, wanted 2"
+[ -s "$OUT12/UNAVAILABLE" ] || fail "slot wait: RSI_NO_HEAVY fails closed before any slot or walk: no UNAVAILABLE marker"
+grep -qi 'heavy slot\|machine-wide' "$OUT12/UNAVAILABLE" \
+  || fail "slot wait: RSI_NO_HEAVY fails closed before any slot or walk: marker does not name the heavy slot: $(cat "$OUT12/UNAVAILABLE")"
+[ ! -e "$T/walk12.heavy" ] || fail "slot wait: RSI_NO_HEAVY fails closed before any slot or walk: heavy.sh was reached"
+[ ! -e "$T/walk12.ran" ] || fail "slot wait: RSI_NO_HEAVY fails closed before any slot or walk: the walker ran"
+[ "$EL" -le 3 ] || fail "slot wait: RSI_NO_HEAVY fails closed before any slot or walk: took ${EL}s, the refusal waited"
+pass "slot wait: RSI_NO_HEAVY fails closed before any slot or walk"
+
+# 13. a fast non-zero walker exit is the walker's own answer: the composition
+#     must not turn it into unavailable.
+OUT13="$T/o13"; mkdir -p "$OUT13"
+STUB_SLOT_WAIT=0 RSI_WALK_MAX_S=10 \
+  bash "$SLOT_SEAM" --walk-probe "$OUT13" bash -c 'exit 3' >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 3 ] || fail "slot wait: a fast non-zero walker exit keeps its own status: exit $RC, wanted 3"
+[ ! -e "$OUT13/UNAVAILABLE" ] || fail "slot wait: a fast non-zero walker exit keeps its own status: mislabelled as unavailable"
+pass "slot wait: a fast non-zero walker exit keeps its own status"
+
+# 14. the outer backstop must enclose the composition it wraps. Since the walk's
+#     slot wait became its own bound, each walk's worst case is RSI_HEAVY_WAIT_MAX
+#     + RSI_WALK_MAX_S; ux-gate can walk twice (first + confirm) and dispatch the
+#     vision review twice (ask + grounding re-ask, DISPATCH_MAX_SECS each). The
+#     stale 5400s default was below that, so on a busy machine the outer bound
+#     fired first: a green gate became unavailable + cooldown, and a red whose
+#     confirm was still queueing became a preserved-red sendback — the false red
+#     this suite exists to remove. Read the live expression, do not restate it.
+CASE14="outer bound: the gate default encloses two slot waits, two walkers and two vision dispatches"
+DEF_EXPR="$(sed -n 's/^.*GATE_DEFAULT=\$((\(.*\)))$/\1/p' "$MERGE" | head -1)"
+[ -n "$DEF_EXPR" ] \
+  || fail "$CASE14: merge.sh does not derive the gate default from the walk's slot wait and walker ceiling"
+DEF_1800="$(HEAVY_WAIT_MAX=1800 WALK_MAX_S=1800; printf '%s\n' "$(( $DEF_EXPR ))")"
+DISPATCH_S="$(sed -n 's/.*DISPATCH_MAX_SECS=\([0-9][0-9]*\).*/\1/p' "$REPO/rsi/runtime/ux-gate.sh" | head -1)"
+[ -n "$DISPATCH_S" ] \
+  || fail "$CASE14: cannot read ux-gate's DISPATCH_MAX_SECS"
+NEED=$(( 2 * (1800 + 1800) + 2 * DISPATCH_S ))
+[ "$DEF_1800" -ge "$NEED" ] \
+  || fail "$CASE14: default ${DEF_1800}s does not enclose two walks at 1800s slot + 1800s walker plus two ${DISPATCH_S}s dispatches (want >= ${NEED}s)"
+DEF_3600="$(HEAVY_WAIT_MAX=1800 WALK_MAX_S=3600; printf '%s\n' "$(( $DEF_EXPR ))")"
+[ "$DEF_3600" -gt "$DEF_1800" ] \
+  || fail "$CASE14: a raised RSI_WALK_MAX_S does not raise the default (still ${DEF_3600}s)"
+# A malformed override must fall back to the same derived default, not a stale constant.
+grep -qF 'GATE_MAX="${RSI_UX_GATE_MAX_S:-$GATE_DEFAULT}"' "$MERGE" \
+  || fail "$CASE14: a malformed RSI_UX_GATE_MAX_S does not fall back to the derived default"
+grep -qF 'GATE_MAX=$GATE_DEFAULT;;' "$MERGE" \
+  || fail "$CASE14: a non-numeric RSI_UX_GATE_MAX_S falls back to a constant"
+pass "$CASE14"
 
 echo "all cases passed"
