@@ -73,7 +73,7 @@ describe("navigation contract", () => {
     expect(navigation).toMatch(/减少动态[^。\n]*淡入/);
   });
 
-  it("IA.md keeps D8's four phone entries, the /projects redirect and the cover's list parent", () => {
+  it("IA.md keeps D8's four phone entries, both /projects redirects and the title-to-filter contract", () => {
     for (const phrase of [
       "对话列表",
       "例行任务",
@@ -82,15 +82,16 @@ describe("navigation contract", () => {
       "D8",
       "/projects",
       "/projects/:id",
-      // The heading still opens the cover; the task header's project label is
-      // the link that narrows the list, and a chip names it (R-delete-pagesb2c).
-      "项目封面的父级是对话列表",
+      // The cover is retired: both URLs replace themselves with the one list,
+      // and a project's name narrows that list rather than pushing a page.
+      "旧封面 URL 以 `replace` 落到按项目收窄的对话列表",
       "任务头的项目名",
       "筛选条上留一枚写着项目名的可清除 chip",
     ]) {
       expect(ia).toContain(phrase);
     }
-    // The retired collection may survive only as the redirect it now is.
+    // The retired collection and cover may survive only as redirects.
     expect(ia).toContain("重定向");
+    expect(ia).not.toContain("项目封面的父级是对话列表");
   });
 });

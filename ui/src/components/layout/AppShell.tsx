@@ -232,15 +232,11 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
    * and eating 48px above the one bar that matters. Back is the way out of a
    * detail screen, which is what iOS does too.
    *
-   * `/projects/:id` is one of them for a second reason: its own back link is
-   * the only one that runs the unsaved-summary guard (`ProjectDetailPage`'s
-   * `canLeave`). A shell back above it would leave the page silently and throw
-   * the edited summary away.
+   * `/tasks/:id` and `/agent-sessions/:id` are the remaining ones. Both draw
+   * their own header inside the page, and Back is the way out of one.
    */
   const detailRoute =
-    selectedTaskId !== null ||
-    location.pathname.startsWith("/agent-sessions/") ||
-    location.pathname.startsWith("/projects/");
+    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");
 
   /** Detail routes whose page renders `MobileHeader` (and its own top inset). */
   const pageOwnsTopInset = selectedTaskId !== null;

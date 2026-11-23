@@ -26,7 +26,7 @@ export default function ProjectSummaryCard({
   const location = useLocation();
   const name = summary?.name || project.name;
   const mode = summary?.mode || project.mode;
-  const coverPath = `/projects/${encodeURIComponent(project.id)}`;
+  const projectChatsPath = `/sessions?project=${encodeURIComponent(project.id)}`;
   const empty =
     summary?.empty !== false && !summary?.north_star && !summary?.focus && !summary?.next?.length;
 
@@ -49,15 +49,15 @@ export default function ProjectSummaryCard({
           </div>
         </div>
         <Link
-          to={coverPath}
-          // The card is drawn on the draft and on the project's own overview.
-          // Every departure asks the page's leave guard. From the draft, the
-          // phone push gives the project the list as its parent; from the
-          // project's own overview the target is the same screen, and
-          // `phonePush` replaces that entry instead of stacking a second
-          // project above a synthesized list. Modifier clicks keep the
-          // browser's new-tab behaviour.
-          onClick={(event) => onGuardedLinkClick(event, navigate, location, coverPath)}
+          to={projectChatsPath}
+          // The card is drawn on the draft. Its departure opens the project's
+          // conversations: the one list, narrowed by `?project=` (the cover
+          // this link used to open is retired). Every departure asks the
+          // page's leave guard, so an edited draft is not thrown away, and
+          // modifier clicks keep the browser's new-tab behaviour.
+          onClick={(event) =>
+            onGuardedLinkClick(event, navigate, location, projectChatsPath)
+          }
           className="inline-flex min-h-11 touch-floor flex-none items-center rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-body text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text sm:min-h-0"
         >
           {tr("newChat.openOnePager")}

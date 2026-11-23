@@ -14,7 +14,6 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ApiError,
   archiveTask,
-  ensureProject,
   getOnePager,
   isTerminal,
   listAgentSessionsPage,
@@ -148,6 +147,9 @@ import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
  * both shells' filter panel.
  */
 const LIST_STATE_KEYS = ["search", "status", "scope", "routine", "project"] as const;
+
+/** The one conversation list, and the only screen a project's name opens. */
+const LIST_PATH = "/sessions";
 
 /**
  * Carry the list's own params through a navigation.
@@ -1310,26 +1312,26 @@ export default function SessionList({
     }
   }
 
-  async function openProject(bucket: PhoneProjectBucket) {
+  /**
+   * The project row's heading narrows this list to that project (`?project=`),
+   * the one surface the retired cover used to be. Like the filter chip, it is
+   * a same-entry change: narrowing is not a departure, so it adds no history
+   * layer and the chip's clear control puts the whole list back.
+   *
+   * A bucket with no local project record has no id to narrow by, and creating
+   * a record just to navigate would write to the machine behind a click that
+   * only meant "fold these rows". Those headings toggle instead — the same
+   * action their chevron already offers.
+   */
+  function openProject(bucket: PhoneProjectBucket) {
     if (!bucket.cwd) return;
     if (!bucketIsLocal(bucket)) return;
     const known = projects.find((project) =>
       (project.roots ?? []).some((root) => bucketKeyFor(root) === bucket.key),
     );
-    if (known) {
-      runGuardedNavigation(() =>
-        phonePush(navigate, location, `/projects/${known.id}${listStateQuery(params)}`),
-      );
-      return;
-    }
-    try {
-      const project = await ensureProject({ path: bucket.cwd, name: bucket.label });
-      runGuardedNavigation(() =>
-        phonePush(navigate, location, `/projects/${project.id}${listStateQuery(params)}`),
-      );
-    } catch {
-      // A cover is optional; the list stays where it is.
-    }
+    if (!known) return;
+    const to = `${LIST_PATH}${listStateQuery(params, { project: known.id })}`;
+    runGuardedNavigation(() => navigate(to, { replace: true }));
   }
 
   /** A project leaving the list is not one tap's worth of certainty: the hover
@@ -1769,14 +1771,18 @@ export default function SessionList({
                     },
                   ]
                 : []),
-              ...(!bucketIsLocal(projectMenu.bucket)
+              ...(!bucketIsLocal(projectMenu.bucket) || !projectMenu.recordProjectId
                 ? []
                 : [
                     {
-                      id: "cover",
+                      id: "narrow-project",
                       label: tr("nav.openCover"),
                       onSelect: () => void openProject(projectMenu.bucket),
                     },
+                  ]),
+              ...(!bucketIsLocal(projectMenu.bucket)
+                ? []
+                : [
                     {
                       id: "archive",
                       label: projectMenu.archived
@@ -2370,9 +2376,11 @@ function ProjectBucket({
       : tr("sessions.showLess");
   const imported = isImportedBucket(bucket.key);
   const realProject = Boolean(bucket.cwd) && !imported;
-  // A remote copy of a path has no Hub-side cover on this machine, so its
-  // heading folds the project rather than opening the local one.
-  const openable = realProject && local;
+  // The heading narrows the list to this project's conversations. That needs
+  // the local project record: its id is what `?project=` names. A remote copy
+  // of a path, and a folder with no record, fold the project instead of
+  // offering a control that would do nothing.
+  const openable = realProject && local && instructionsProjectId !== null;
   const heading = imported
     ? tr("sessions.imported", { count: String(bucket.rows.length) })
     : bucket.label;
@@ -2522,15 +2530,14 @@ function ProjectBucket({
               <IconPlus size={12} />
             </ProjectIconButton>
             <ProjectIconButton
-              label={local ? tr("nav.openCover") : tr("nav.openCoverLocalOnly")}
+              label={openable ? tr("nav.openCover") : tr("nav.openCoverLocalOnly")}
               onClick={onOpenProject}
-              disabled={!local}
+              disabled={!openable}
             >
               <IconFile size={12} />
             </ProjectIconButton>
             {onEditSummary ? (
-              // The cover is being retired; its summary editor lives here,
-              // beside the cover icon it writes to.
+              // The summary editor lives here now that the cover is gone.
               <ProjectIconButton label={tr("nav.editSummary")} onClick={onEditSummary}>
                 <IconPencil size={12} />
               </ProjectIconButton>
