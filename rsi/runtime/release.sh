@@ -114,6 +114,19 @@ if [ "$DRY" = 0 ]; then
   trap release_lock_release EXIT
 fi
 
+# The release record and its snapshot. Nothing but mark() may write it; a long agent turn
+# that reads it at its start and writes it back at its end loses any release that landed in
+# between (2026-11-23 07:02). Compare against the snapshot before each phase and before
+# every mark(), so a foreign write stops the run instead of being carried forward.
+MARKER="$STATE/last_release"
+MARKER_SEEN="$(cat "$MARKER" 2>/dev/null)"
+
+require_marker_unchanged() { # <phase>
+  local now; now="$(cat "$MARKER" 2>/dev/null)"
+  [ "$now" = "$MARKER_SEEN" ] && return 0
+  die "$1: $MARKER changed under this run (was: $(printf '%s' "$MARKER_SEEN" | tr '\n' ';'); now: $(printf '%s' "$now" | tr '\n' ';')); a concurrent writer (a fill turn?) rewrote the release record; refusing to ship on it"
+}
+
 # 1. Gate. Never releasable on a red check: the whole point is that the loop, not a
 #    person, remembers the two conditions.
 deadline=$(( $(date +%s) + WAIT ))
@@ -228,8 +241,6 @@ case "$SHA" in ''|*[!0-9a-f]*) die "cannot read the shipped commit in $REPO; not
 SHORT="$(printf '%s' "$SHA" | cut -c1-8)"
 [ "$SHA" = "$PRE_SHA" ] || say "origin/main moved mid-release; shipping $SHORT (pre-flight ${PRE_SHA:0:8})"
 
-MARKER="$STATE/last_release"
-
 # mark <target> — record this SHA as released for one target, keeping the other, and prove
 # the record landed. A write this script cannot see is not a release: on 2026-11-20 a run
 # printed `node: shipped <sha>` while the file still held the previous SHA, and the Hub
@@ -241,7 +252,11 @@ mark() {
     hub)  peer=node ;;
     *) die "mark: unknown target '$t'" ;;
   esac
-  other="$(sed -n "s/^$peer=//p" "$MARKER" 2>/dev/null | head -1)"
+  # A record this run cannot account for is not ours to overwrite: if it changed since the
+  # last snapshot (the node build is long enough for a fill turn to land), stop before
+  # writing, leaving the foreign line and the old SHAs exactly as they are.
+  require_marker_unchanged "$t"
+  other="$(sed -n "s/^$peer=//p" "$MARKER" 2>/dev/null | tail -1)"
   # One release ships one commit: SHA is HEAD after integration, so both targets must end
   # up at it. If the peer already holds something else while both phases run, something
   # else wrote the file (or the last write did not land). Refuse before writing so the
@@ -254,6 +269,10 @@ mark() {
   { [ "$t" = node ] && echo "node=$SHA" || { [ -n "$other" ] && echo "node=$other"; }; } >> "$tmp"
   { [ "$t" = hub ] && echo "hub=$SHA" || { [ -n "$other" ] && echo "hub=$other"; }; } >> "$tmp"
   echo "released_at=$(date '+%F %T %z')" >> "$tmp"
+  # Keep every key another writer left (a note, a gate reading from a hand-run check): this
+  # script owns node=, hub= and released_at=, not the whole file. Duplicates of the three
+  # owned keys are dropped, so the record holds one line per key and the values just written.
+  sed -n '/^node=/d;/^hub=/d;/^released_at=/d;p' "$MARKER" 2>/dev/null >> "$tmp"
   want="$(cat "$tmp")"
   mv "$tmp" "$MARKER" || die "$t: could not move $tmp into $MARKER"
   # Read the file back and compare it with what we just wrote. A rename that does not land
@@ -261,7 +280,15 @@ mark() {
   got="$(cat "$MARKER" 2>/dev/null)"
   [ "$got" = "$want" ] \
     || die "$t: marker write did not land in $MARKER (expected $t=$SHA; file says: $(printf '%s' "$got" | tr '\n' ';'))"
+  # This run's own write is the baseline for the next phase: the Hub compare must not treat
+  # the node line this run just wrote as a foreign change.
+  MARKER_SEEN="$got"
 }
+
+# The gate read the record that was on disk before the integration. If a fill turn wrote it
+# back after that read, the GO describes a different file: stop before the rebuild, not after
+# both targets shipped (2026-11-23 07:02).
+require_marker_unchanged "node"
 
 # 3. Node: the console + binary Ethan is looking at. desktop-rebuild.sh owns the
 #    sequence (UI embed, ./kin, ~/.kin/node refresh, stop :7777, relaunch Electron).
@@ -283,6 +310,9 @@ fi
 # 4. Hub: the NAS container. Built here for linux/amd64 from the same commit, because the
 #    repo does not commit the console bundles and the Dockerfile builds them itself.
 if [ "$HUB" = 1 ]; then
+  # The snapshot now holds this run's node write; a change here is another writer, and the
+  # Hub phase must not carry it forward.
+  require_marker_unchanged "hub"
   command -v docker >/dev/null || die "hub: docker not available on this machine"
   docker info >/dev/null 2>&1 || die "hub: docker daemon is not running (start OrbStack, then release again)"
   STAGE="$(mktemp -d)"

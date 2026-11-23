@@ -1,0 +1,23 @@
+[
+  {
+    "label": "unknown marker keys dropped from the rewrite",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "  sed -n '/^node=/d;/^hub=/d;/^released_at=/d;p' \"$MARKER\" 2>/dev/null >> \"$tmp\"\n",
+    "new": "  # mutant: unknown marker keys dropped\n"
+  },
+  {
+    "label": "no compare between the gate read and the node rebuild",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "require_marker_unchanged \"node\"\n",
+    "new": "# mutant: no compare between the gate read and the node rebuild\n"
+  },
+  {
+    "label": "no compare before mark writes the record",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "  require_marker_unchanged \"$t\"\n",
+    "new": "  # mutant: no compare before mark writes the record\n"
+  }
+]
