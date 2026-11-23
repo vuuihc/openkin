@@ -2,7 +2,7 @@ import type { NotificationAction } from "electron";
 import {
   NotifyDeduper,
   notifyHasDecisionActions,
-  safeNotifyPath,
+  notifyOpenPath,
   shouldAnnounceNotify,
   type NotifyEvent,
 } from "./native-notifications.ts";
@@ -132,6 +132,11 @@ export class Notifier {
       return;
     }
 
+    // One resolution feeds both the tap and the log line, so the log cannot
+    // disagree with where the banner opened. Resolved when the banner appears:
+    // the event is fixed, and the console origin only drops a host the shell
+    // never opens anyway.
+    const path = this.pathFor(ev);
     const actions = notifyHasDecisionActions(ev.kind) ? notificationActions() : [];
     const n = this.createNotification({
       title: ev.title.trim() || "Kin",
@@ -159,7 +164,7 @@ export class Notifier {
 
     n.on("click", () => {
       this.closeBanner(key, n);
-      this.cb.openPath(this.pathFor(ev));
+      this.cb.openPath(path);
     });
 
     if (actions.length > 0) {
@@ -170,7 +175,9 @@ export class Notifier {
     }
 
     n.show();
-    console.log(`[kin-desktop] notification: ${ev.kind} ${ev.id} — ${ev.title}`);
+    console.log(
+      `[kin-desktop] notification: ${ev.kind} ${ev.id} — ${ev.title} path=${path}`,
+    );
   }
 
   private closeBanner(key: string, handle: NotificationHandle): void {
@@ -180,7 +187,7 @@ export class Notifier {
   }
 
   private pathFor(ev: NotifyEvent): string {
-    return safeNotifyPath(ev.url, this.cb.origin?.() ?? undefined);
+    return notifyOpenPath(ev, this.cb.origin?.() ?? undefined);
   }
 
   private async decide(ev: NotifyEvent, decision: "approved" | "denied"): Promise<void> {
