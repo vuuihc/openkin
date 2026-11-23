@@ -1061,12 +1061,12 @@ function checkJ9Contract(spec) {
 
   // The screenshots are the reviewable evidence, in the order the switch runs.
   const shotAt = (name) => steps.findIndex((st) => Array.isArray(st) && st[0] === 'shot' && st[1] === name);
-  const chatShot = shotAt('switch-chat'), backShot = shotAt('switch-back'), areaShot = shotAt('area-projects');
+  const chatShot = shotAt('switch-chat'), backShot = shotAt('switch-back'), areaShot = shotAt('area-routines');
   if (chatShot < 0) errs.push('J9 takes no `switch-chat` shot');
   else if (switchAt >= 0 && chatShot > switchAt) errs.push('the `switch-chat` shot must be taken before the switch');
   if (backShot < 0) errs.push('J9 takes no `switch-back` shot');
   else if (backAt >= 0 && backShot < backAt) errs.push('the `switch-back` shot must follow the return');
-  if (areaShot < 0) errs.push('J9 takes no `area-projects` shot');
+  if (areaShot < 0) errs.push('J9 takes no `area-routines` shot');
 
   // A shell or conversation-pane diff that no longer selects J9 would let the
   // keep-alive contract rot without the gate ever walking it. Same first-match

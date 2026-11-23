@@ -14,6 +14,20 @@
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ9ContractTest.test_j9_walks_the_switch"
   },
   {
+    "label": "J9 contract again accepts the retired projects shot name, so the Routines evidence can ship under a page that no longer exists (R-j9-shot-rename)",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "old": "areaShot = shotAt('area-routines')",
+    "new": "areaShot = shotAt('area-projects')",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ9ContractTest.test_j9_contract_rejects_the_retired_area_shot"
+  },
+  {
+    "label": "the retired-area case renames the shot to the name the contract expects, so the case cannot tell the rename from a regression (R-j9-shot-rename)",
+    "file": "scripts/journeys_walk_test.py",
+    "old": "            steps[at][1] = \"area-projects\"",
+    "new": "            steps[at][1] = \"area-routines\"",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ9ContractTest.test_j9_contract_rejects_the_retired_area_shot"
+  },
+  {
     "label": "J2's seeded row can be opened without pressing the project fold, so the folded row is silently skipped (R-j2-seed-row)",
     "file": "rsi/runtime/ux/walk.mjs",
     "old": "if (foldAt < 0) errs.push('J2 never presses the project fold before opening the seeded row from the list (click … 展开全部|Show all)');",
