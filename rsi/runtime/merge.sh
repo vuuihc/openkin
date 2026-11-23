@@ -2396,10 +2396,18 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
     [ -s "$STATE/merge/$SLUG.strong-ux.txt" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong-ux")" = "$SHA" ] \
       && say "#$N $SLUG: cached strong UX review for ${SHA:0:8} fails the UX gate's own decision (grounding/threshold) — running the gate"
     say "#$N $SLUG: UX gate (journey walk + vision review)"
-    # Outer backstop, not the walk bound: ux-gate re-walks a red once (confirm),
-    # and that second walk has the same RSI_WALK_MAX_S ceiling, so the default
-    # leaves room for both (2 x 1800s) plus the vision dispatch.
-    GATE_MAX="${RSI_UX_GATE_MAX_S:-5400}"; case "$GATE_MAX" in ''|*[!0-9]*) GATE_MAX=5400;; esac
+    # Outer backstop, not a walk bound, and it must enclose the whole composition:
+    # each walk can spend RSI_HEAVY_WAIT_MAX queueing for the heavy slot and then
+    # RSI_WALK_MAX_S in the walker, ux-gate re-walks a red once (confirm), the
+    # vision review is dispatched up to twice (first ask + one grounding re-ask)
+    # at DISPATCH_MAX_SECS=1500 each (ux-gate.sh), and the pre-walk UI/go build,
+    # seed and daemon boot add ~900s. With the default bounds:
+    # 2 x (1800 + 1800) + 2 x 1500 + 900 = 11100s. A numeric RSI_UX_GATE_MAX_S
+    # still wins; a malformed one falls back to the same derived default.
+    HEAVY_WAIT_MAX="${RSI_HEAVY_WAIT_MAX:-1800}"; case "$HEAVY_WAIT_MAX" in ''|*[!0-9]*) HEAVY_WAIT_MAX=1800;; esac
+    WALK_MAX_S="${RSI_WALK_MAX_S:-1800}"; case "$WALK_MAX_S" in ''|*[!0-9]*) WALK_MAX_S=1800;; esac
+    GATE_DEFAULT=$(( 2 * (HEAVY_WAIT_MAX + WALK_MAX_S) + 2 * 1500 + 900 ))
+    GATE_MAX="${RSI_UX_GATE_MAX_S:-$GATE_DEFAULT}"; case "$GATE_MAX" in ''|*[!0-9]*) GATE_MAX=$GATE_DEFAULT;; esac
     # This attempt's evidence only: ux-gate clears confirm.json below its first walk, so an
     # earlier attempt on the same slug would otherwise leave it readable to the 124 branch if
     # this attempt expires during build/seed/walk, and the sendback would carry a past tree's red.

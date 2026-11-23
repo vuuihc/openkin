@@ -5,8 +5,9 @@
 # Measured 2026-11-19: one UI PR's walk ran 40 minutes; merge.sh -> ux-gate.sh ->
 # ux-walk.sh -> heavy.sh -> node was unbounded at every step, so from outside the
 # lane nobody could tell slow from dead. The bound is now RSI_WALK_MAX_S (default
-# 1800s) around the walker, with an outer RSI_UX_GATE_MAX_S (default 5400s) in
-# merge.sh that maps exit 124 to "unavailable + cooldown, no sendback, not merged".
+# 1800s) around the walker, with an outer RSI_UX_GATE_MAX_S in merge.sh (derived
+# default 11100s: two walks at slot wait + walker, two vision dispatches and the
+# pre-walk build) that maps exit 124 to "unavailable + cooldown, no sendback, not merged".
 #
 # This suite drives the build-free --timeout-probe seam in ux-walk.sh: no UI
 # build, no daemon, no network. It proves what a ceiling alone does not:
@@ -31,6 +32,9 @@
 #      walker's bound only after the slot is held; an expired slot wait is its
 #      own message, never "walker exceeded"; RSI_NO_HEAVY still fails closed
 #      before any slot or walk; and a fast non-zero walker exit keeps its status.
+#   14. merge.sh's outer gate backstop encloses that composition: two walks at
+#      slot wait + walker ceiling, two vision dispatches and the pre-walk build,
+#      so a busy machine cannot make the outer bound fire before either inner one.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
@@ -317,5 +321,34 @@ RC=$?
 [ "$RC" -eq 3 ] || fail "slot wait: a fast non-zero walker exit keeps its own status: exit $RC, wanted 3"
 [ ! -e "$OUT13/UNAVAILABLE" ] || fail "slot wait: a fast non-zero walker exit keeps its own status: mislabelled as unavailable"
 pass "slot wait: a fast non-zero walker exit keeps its own status"
+
+# 14. the outer backstop must enclose the composition it wraps. Since the walk's
+#     slot wait became its own bound, each walk's worst case is RSI_HEAVY_WAIT_MAX
+#     + RSI_WALK_MAX_S; ux-gate can walk twice (first + confirm) and dispatch the
+#     vision review twice (ask + grounding re-ask, DISPATCH_MAX_SECS each). The
+#     stale 5400s default was below that, so on a busy machine the outer bound
+#     fired first: a green gate became unavailable + cooldown, and a red whose
+#     confirm was still queueing became a preserved-red sendback — the false red
+#     this suite exists to remove. Read the live expression, do not restate it.
+CASE14="outer bound: the gate default encloses two slot waits, two walkers and two vision dispatches"
+DEF_EXPR="$(sed -n 's/^.*GATE_DEFAULT=\$((\(.*\)))$/\1/p' "$MERGE" | head -1)"
+[ -n "$DEF_EXPR" ] \
+  || fail "$CASE14: merge.sh does not derive the gate default from the walk's slot wait and walker ceiling"
+DEF_1800="$(HEAVY_WAIT_MAX=1800 WALK_MAX_S=1800; printf '%s\n' "$(( $DEF_EXPR ))")"
+DISPATCH_S="$(sed -n 's/.*DISPATCH_MAX_SECS=\([0-9][0-9]*\).*/\1/p' "$REPO/rsi/runtime/ux-gate.sh" | head -1)"
+[ -n "$DISPATCH_S" ] \
+  || fail "$CASE14: cannot read ux-gate's DISPATCH_MAX_SECS"
+NEED=$(( 2 * (1800 + 1800) + 2 * DISPATCH_S ))
+[ "$DEF_1800" -ge "$NEED" ] \
+  || fail "$CASE14: default ${DEF_1800}s does not enclose two walks at 1800s slot + 1800s walker plus two ${DISPATCH_S}s dispatches (want >= ${NEED}s)"
+DEF_3600="$(HEAVY_WAIT_MAX=1800 WALK_MAX_S=3600; printf '%s\n' "$(( $DEF_EXPR ))")"
+[ "$DEF_3600" -gt "$DEF_1800" ] \
+  || fail "$CASE14: a raised RSI_WALK_MAX_S does not raise the default (still ${DEF_3600}s)"
+# A malformed override must fall back to the same derived default, not a stale constant.
+grep -qF 'GATE_MAX="${RSI_UX_GATE_MAX_S:-$GATE_DEFAULT}"' "$MERGE" \
+  || fail "$CASE14: a malformed RSI_UX_GATE_MAX_S does not fall back to the derived default"
+grep -qF 'GATE_MAX=$GATE_DEFAULT;;' "$MERGE" \
+  || fail "$CASE14: a non-numeric RSI_UX_GATE_MAX_S falls back to a constant"
+pass "$CASE14"
 
 echo "all cases passed"
