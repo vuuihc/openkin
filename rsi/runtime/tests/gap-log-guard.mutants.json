@@ -1,0 +1,58 @@
+[
+  {
+    "label": "treat every diff as uncited",
+    "file": "rsi/runtime/gap_log_check.py",
+    "test": "RSI_TEST_ONLY=gap-log-guard-bare-none-on-a-cited-path-fails bash rsi/runtime/tests/test-gap-log-guard.sh",
+    "old": "    if not applicable and not declared:",
+    "new": "    if True:  # mutant: every diff is uncited"
+  },
+  {
+    "label": "accept a bare none on a cited path",
+    "file": "rsi/runtime/gap_log_check.py",
+    "test": "RSI_TEST_ONLY=gap-log-guard-bare-none-on-a-cited-path-fails bash rsi/runtime/tests/test-gap-log-guard.sh",
+    "old": "            if lowered == \"none\":\n                return fail(bare_none_failure(linked))",
+    "new": "            if lowered == \"none\":\n                return 0  # mutant: a bare none waives"
+  },
+  {
+    "label": "accept the declaration without moving the entry",
+    "file": "rsi/runtime/gap_log_check.py",
+    "test": "RSI_TEST_ONLY=gap-log-guard-declared-entry-must-move bash rsi/runtime/tests/test-gap-log-guard.sh",
+    "old": "        if section == \"open\":",
+    "new": "        if False:  # mutant: a declaration need not move the entry"
+  },
+  {
+    "label": "skip the same-PR half",
+    "file": "rsi/runtime/gap_log_check.py",
+    "test": "RSI_TEST_ONLY=gap-log-guard-declaration-needs-the-file-in-the-diff bash rsi/runtime/tests/test-gap-log-guard.sh",
+    "old": "        if GAP_LOG not in changed:",
+    "new": "        if False:  # mutant: the move need not be in the diff"
+  },
+  {
+    "label": "read the inline heading mention as the heading",
+    "file": "rsi/runtime/gap_log_check.py",
+    "test": "RSI_TEST_ONLY=gap-log-guard-empty-open-never-fails bash rsi/runtime/tests/test-gap-log-guard.sh",
+    "old": "        if open_at is None and stripped == OPEN_HEADING:",
+    "new": "        if open_at is None and OPEN_HEADING in stripped:  # mutant: the inline mention is a heading"
+  },
+  {
+    "label": "name the claim source in the gap-log sendback",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=gap-log-guard-gate-sends-back-and-names-the-command bash rsi/runtime/tests/test-gap-log-guard.sh",
+    "old": "\"mech-gap-log\" - \\",
+    "new": "\"mech-claim\" - \\"
+  },
+  {
+    "label": "skip the gap-log gate at the verifier",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=gap-log-guard-wiring bash rsi/runtime/tests/test-gap-log-guard.sh",
+    "old": "      gap_log_gate \"$N\" \"$SLUG\" \"$ITEM\" \"$WT\" \"$CLAIM_BODY\" \"$CLAIM_PATHS\"; CLAIM_RC=$?",
+    "new": "      :; CLAIM_RC=$?  # mutant: the verifier skips the gap-log guard"
+  },
+  {
+    "label": "unwire the gap-log suite from the gate",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-gap-log-guard.sh || return 1\n",
+    "new": "  : # mutant: the gap-log suite is unwired\n"
+  }
+]
