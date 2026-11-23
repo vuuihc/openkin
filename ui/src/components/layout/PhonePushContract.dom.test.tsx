@@ -329,21 +329,19 @@ describe("a warm list under the project it opened", () => {
     fixtures.tasks = [listTask()];
     browser("/sessions");
     await user.click(await screen.findByRole("button", { name: "alpha" }));
-    // The project heading narrows this same list in place; it no longer opens
-    // a cover of its own (R-delete-pagesb2c).
-    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
-    expect(window.location.search).toContain("project=p1");
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
+    await screen.findByRole("heading", { name: "alpha" });
   }
 
   it("keeps exactly one list below a conversation opened from the project", async () => {
     const user = userEvent.setup();
     await openProjectFromList(user);
 
-    await user.click(await screen.findByRole("button", { name: /listed-chat/ }));
-    await waitFor(() => expect(window.location.pathname).toBe("/tasks/listed-chat"));
+    await user.click(await screen.findByRole("button", { name: /Project chat/ }));
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/project-chat"));
 
-    // The project narrowing replaced the list entry, not stacked under a second
-    // list: the stack is [list, conversation], so one Back reaches the list.
+    // The project entry was replaced, not stacked under a second list: the
+    // stack is [list, conversation], so one Back reaches the list.
     expect(window.history.state.idx).toBe(1);
     await browserBack();
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
@@ -355,12 +353,12 @@ describe("a warm list under the project it opened", () => {
     const user = userEvent.setup();
     await openProjectFromList(user);
 
-    await user.click(await screen.findByRole("button", { name: "New chat" }));
+    await user.click(await screen.findByRole("link", { name: "New chat" }));
     await waitFor(() => expect(window.location.pathname).toBe("/new"));
     expect(window.history.state.idx).toBe(1);
 
-    // Closing the draft pops the one entry the narrowing left. The list is both
-    // the in-app target and the browser's Back target.
+    // Closing the draft pops the one entry the project used to hold. The list
+    // is both the in-app target and the browser's Back target.
     await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
     expect(window.history.state.idx).toBe(0);
@@ -368,13 +366,7 @@ describe("a warm list under the project it opened", () => {
 
   it("treats project routines as a peer root, after the summary's guard", async () => {
     const user = userEvent.setup();
-    // The app no longer routes `/projects/:id` (it redirects to the narrowed
-    // list), but this harness maps the page directly: its unsaved-summary guard
-    // stays covered until the next slice deletes the page file. A cold deep
-    // link synthesizes the list parent, so the stack is [list, cover] as it was
-    // when the heading still pushed the cover.
-    window.history.replaceState({ idx: 0 }, "", "/projects/p1");
-    synthesizePhoneParent();
+    window.history.replaceState({ idx: 0 }, "", "/sessions");
     render(
       <BrowserRouter>
         <AppShell pendingApprovals={[]}>
@@ -388,6 +380,8 @@ describe("a warm list under the project it opened", () => {
         </AppShell>
       </BrowserRouter>,
     );
+    await user.click(await screen.findByRole("button", { name: "alpha" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
     await screen.findByRole("heading", { name: "alpha" });
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.type(screen.getByRole("textbox", { name: "One-line summary" }), "Unsaved");
@@ -417,10 +411,7 @@ describe("a warm list under the project it opened", () => {
 
   it("asks before the browser Back discards a project summary draft", async () => {
     const user = userEvent.setup();
-    // The cover's guard, on the same harness route as the routines test above;
-    // the synthesized list parent gives the browser Back somewhere to go.
-    browser("/projects/p1", { synthesize: true });
-    await screen.findByRole("heading", { name: "alpha" });
+    await openProjectFromList(user);
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
     const summary = screen.getByRole("textbox", { name: "One-line summary" });
@@ -442,25 +433,21 @@ describe("a warm list under the project it opened", () => {
     }
   });
 
-  it("keeps the narrowed list in a Mac's ordinary history", async () => {
+  it("keeps the project in a Mac's ordinary history", async () => {
     viewport(true);
     const user = userEvent.setup();
     fixtures.tasks = [listTask()];
     browser("/sessions");
 
     await user.click(await screen.findByRole("button", { name: "alpha" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
-    expect(window.location.search).toContain("project=p1");
-    // On the Mac the project narrows the list in place: it adds no entry.
-    expect(window.history.state.idx).toBe(0);
-    await user.click(await screen.findByRole("button", { name: /listed-chat/ }));
-    await waitFor(() => expect(window.location.pathname).toBe("/tasks/listed-chat"));
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
+    await user.click(await screen.findByRole("button", { name: /Project chat/ }));
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/project-chat"));
 
-    // Back returns to the list, still narrowed to the project it came from.
-    expect(window.history.state.idx).toBe(1);
+    // On the Mac the project is not replaced: Back returns to it.
+    expect(window.history.state.idx).toBe(2);
     await browserBack();
-    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
-    expect(window.location.search).toContain("project=p1");
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
   });
 });
 

@@ -438,7 +438,7 @@ describe("the Mac sidebar list", () => {
     expect(localStorage.getItem("kin_draft_cwd")).toBe("/work/shared");
   });
 
-  it("keeps the list's search when a project narrows the list", async () => {
+  it("keeps the list's search when a project cover opens", async () => {
     // The heading is a navigation too, and it goes through the same helper:
     // a bare path there would clear the query just like a row tap did.
     fixtures.projects = [project("p-cover", "Cover project", "/work/cover")];
@@ -447,8 +447,9 @@ describe("the Mac sidebar list", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "cover" }));
 
-    await waitFor(() => expect(screen.getByTestId("location").textContent).toContain("/sessions"));
-    expect(screen.getByTestId("location").textContent).toContain("project=p-cover");
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toContain("/projects/p-cover"),
+    );
     expect(screen.getByTestId("location").textContent).toContain("search=cov");
   });
 

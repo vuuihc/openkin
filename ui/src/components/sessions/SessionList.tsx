@@ -219,10 +219,10 @@ export default function SessionList({
   // title is its routine's title, so the row already says which routine it is.
   const routineId = (params.get("routine") ?? "").trim();
   const routineFilter = routineId !== "";
-  // One project's conversations, by id (`?project=`). A retired project
-  // bookmark, the task header's project label and the list's own project
-  // heading all land here. The feed has no project_id filter, so the narrowing
-  // happens over the loaded rows in the browser; the chip is the way back.
+  // One project's conversations, by id (`?project=`). The task header's
+  // project label lands here. The feed has no project_id filter, so the
+  // narrowing happens over the loaded rows in the browser; the chip is the way
+  // back.
   const projectId = (params.get("project") ?? "").trim();
   const projectFilter = projectId !== "";
 
@@ -653,9 +653,8 @@ export default function SessionList({
       localTitles,
     ],
   );
-  // A project heading is the way into its conversations, so a project with no
-  // row in the loaded page is still drawn, with a count of 0 rather than
-  // omitted.
+  // A project heading is where its cover lives, so a project with no row in the
+  // loaded page is still drawn, with a count of 0 rather than omitted.
   //
   // Only from a trustworthy list: while a status filter is on, or the task feed
   // has failed or has not answered, "no rows" is not evidence the project is
@@ -1314,32 +1313,22 @@ export default function SessionList({
   async function openProject(bucket: PhoneProjectBucket) {
     if (!bucket.cwd) return;
     if (!bucketIsLocal(bucket)) return;
-    // A project link narrows this same list; it no longer opens the retired
-    // cover. Replacing keeps one list entry, so Back walks the reader's own
-    // history instead of stepping through project filters.
-    const openNarrowed = (projectId: string) =>
-      runGuardedNavigation(() =>
-        phonePush(
-          navigate,
-          location,
-          `/sessions${listStateQuery(params, { project: projectId })}`,
-          {
-            replace: true,
-          },
-        ),
-      );
     const known = projects.find((project) =>
       (project.roots ?? []).some((root) => bucketKeyFor(root) === bucket.key),
     );
     if (known) {
-      openNarrowed(known.id);
+      runGuardedNavigation(() =>
+        phonePush(navigate, location, `/projects/${known.id}${listStateQuery(params)}`),
+      );
       return;
     }
     try {
       const project = await ensureProject({ path: bucket.cwd, name: bucket.label });
-      openNarrowed(project.id);
+      runGuardedNavigation(() =>
+        phonePush(navigate, location, `/projects/${project.id}${listStateQuery(params)}`),
+      );
     } catch {
-      // A project link is optional; the list stays where it is.
+      // A cover is optional; the list stays where it is.
     }
   }
 

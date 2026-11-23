@@ -17,11 +17,10 @@ import {
 /**
  * A project link lands on the conversation list, narrowed.
  *
- * `/projects/:id` is retired as a page entry (KIN-CONTRACT-001): a bookmark, a
- * task header's project label and the list's own project heading all land on
- * `?project=<id>`, the list keeps only that project's conversations, and a
- * chip names it with a clear control that returns to the full list in the same
- * history entry.
+ * The task header's project label lands on `?project=<id>`, the list keeps
+ * only that project's conversations, and a chip names it with a clear control
+ * that returns to the full list in the same history entry. The list's own
+ * project heading still opens the cover (`/projects/:id`).
  *
  * The narrowing is honest about paging: with unread pages still out, an empty
  * screen is not evidence the project has no conversations, so the list keeps
