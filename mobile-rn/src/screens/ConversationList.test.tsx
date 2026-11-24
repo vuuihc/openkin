@@ -1,0 +1,217 @@
+import { describe, expect, it, jest } from "@jest/globals";
+import { fireEvent, render } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
+import ConversationList, {
+  BOTTOM_TAB_INSET,
+  LIST_HEADER_HEIGHT,
+  ROW_HEIGHT,
+  ROW_MIN_HEIGHT,
+  rowsOnScreen,
+} from "./ConversationList";
+import type {
+  ConversationRow,
+  DeviceGroup,
+  ListViewState,
+} from "../list/listModel";
+
+/**
+ * KIN-MOBILE-001 R3 — the conversation list screen.
+ *
+ * The view state is hand-built so the test is about presentation: which rows
+ * show under which heading, the 44pt floor, the pending number, and the four
+ * non-ready states. Grouping itself is proven in `listModel.test.ts`.
+ */
+
+const t = (key: string): string => key;
+
+function row(
+  id: string,
+  title: string,
+  at: number,
+  pending = 0,
+): ConversationRow {
+  return {
+    id,
+    title,
+    agentId: "kin",
+    at,
+    timeLabel: `t${at}`,
+    statusKey: "sessions.statusSucceeded",
+    pending,
+    remote: false,
+  };
+}
+
+function state(overrides: Partial<ListViewState> = {}): ListViewState {
+  const groups: DeviceGroup[] = [
+    {
+      id: "dev-a",
+      label: "Laptop",
+      isSelf: true,
+      online: true,
+      count: 4,
+      projects: [
+        {
+          key: "/work/alpha",
+          label: "Alpha",
+          open: true,
+          lastActivityAt: 1000,
+          rows: [row("a1", "a1 title", 1000, 2), row("a2", "a2 title", 900)],
+        },
+        {
+          key: "/work/beta",
+          label: "Beta",
+          open: false,
+          lastActivityAt: 700,
+          rows: [row("b1", "b1 title", 700), row("b2", "b2 title", 600)],
+        },
+      ],
+    },
+  ];
+  return { status: "ready", groups, error: null, ...overrides };
+}
+
+async function renderList(
+  overrides: Partial<ListViewState> = {},
+  props: Partial<Parameters<typeof ConversationList>[0]> = {},
+) {
+  return render(
+    <ConversationList
+      onOpen={() => {}}
+      onRefresh={() => {}}
+      state={state(overrides)}
+      t={t}
+      {...props}
+    />,
+  );
+}
+
+describe("KIN-MOBILE-001 R3 conversation list screen", () => {
+  it("KIN-MOBILE-001 R3: draws rows under their project and device headings", async () => {
+    const screen = await renderList();
+    expect(screen.getByText("Laptop")).toBeTruthy();
+    expect(screen.getByText("▾ Alpha")).toBeTruthy();
+    expect(screen.getByText("a1 title")).toBeTruthy();
+    expect(screen.getByText("a2 title")).toBeTruthy();
+  });
+
+  it("KIN-MOBILE-001 R3: a folded project keeps its heading and hides its rows", async () => {
+    const screen = await renderList();
+    expect(screen.getByText("▸ Beta")).toBeTruthy();
+    expect(screen.queryByText("b1 title")).toBeNull();
+    expect(screen.queryByText("b2 title")).toBeNull();
+  });
+
+  it("KIN-MOBILE-001 R3: every row is at least a 44pt target", async () => {
+    const screen = await renderList();
+    for (const id of ["a1", "a2"]) {
+      const style = StyleSheet.flatten(
+        screen.getByTestId(`row:${id}`).props.style,
+      );
+      const height = style.height ?? 0;
+      const minHeight = style.minHeight ?? 0;
+      expect(Math.max(height, minHeight)).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  it("KIN-MOBILE-001 R3: a row with two pending items shows 2 with a spoken label", async () => {
+    const screen = await renderList();
+    const badge = screen.getByText("2");
+    expect(badge).toBeTruthy();
+    // The number is not the only channel: the catalogue sentence is the
+    // accessibility label (TASTE 11/18 — never state by colour or glyph alone).
+    expect(screen.getByLabelText("sessions.pendingApprovals")).toBeTruthy();
+    // The row button is one accessible element, so the sentence must also be
+    // on the row itself — a child badge's label is not read while it has focus.
+    expect(screen.getByTestId("row:a1").props.accessibilityLabel).toBe(
+      "a1 title · kin · t1000 · sessions.statusSucceeded · sessions.pendingApprovals",
+    );
+    expect(screen.getByTestId("row:a2").props.accessibilityLabel).toBe(
+      "a2 title · kin · t900 · sessions.statusSucceeded",
+    );
+  });
+
+  it("KIN-MOBILE-001 R3: a failed refresh still shows the rows already loaded", async () => {
+    const screen = await renderList({ status: "failed", error: "unreachable" });
+    expect(screen.getByText("a1 title")).toBeTruthy();
+    expect(screen.getByText("pairing.unreachable")).toBeTruthy();
+    expect(screen.getByText("pairing.retry")).toBeTruthy();
+  });
+
+  it("KIN-MOBILE-001 R3: an offline read keeps the rows and says why", async () => {
+    const screen = await renderList({ status: "offline", error: "unreachable" });
+    expect(screen.getByText("a1 title")).toBeTruthy();
+    expect(screen.getByText("pairing.unreachable")).toBeTruthy();
+  });
+
+  it("KIN-MOBILE-001 R3: tapping a row opens that task", async () => {
+    const onOpen = jest.fn();
+    const screen = await renderList({}, { onOpen });
+    await fireEvent.press(screen.getByTestId("row:a1"));
+    expect(onOpen).toHaveBeenCalledWith("a1");
+  });
+
+  it("KIN-MOBILE-001 R3: tapping a project reports its fold toggle", async () => {
+    const onToggleProject = jest.fn();
+    const screen = await renderList({}, { onToggleProject });
+    await fireEvent.press(screen.getByTestId("project:/work/beta"));
+    expect(onToggleProject).toHaveBeenCalledWith("dev-a", "/work/beta");
+  });
+
+  it("KIN-MOBILE-001 R3: loading, empty, failed and expired each say something", async () => {
+    const loading = await renderList({ status: "loading", groups: [] });
+    expect(loading.getByText("sessions.loading")).toBeTruthy();
+
+    const empty = await renderList({ status: "empty", groups: [] });
+    expect(empty.getByText("sessions.empty")).toBeTruthy();
+    expect(empty.getByText("sessions.emptyHint")).toBeTruthy();
+
+    const expired = await renderList({
+      status: "failed",
+      groups: [],
+      error: "expired",
+    });
+    expect(expired.getByText("sessions.loadError")).toBeTruthy();
+    expect(expired.getByText("pairing.expired")).toBeTruthy();
+    expect(expired.getByText("pairing.retry")).toBeTruthy();
+  });
+
+  it("KIN-MOBILE-001 R3: an empty-device group does not hide the empty or offline state", async () => {
+    // `listModel` builds with `includeEmptyDevices: true`, so a paired machine
+    // with nothing in it still yields a group with `count: 0`. A section list
+    // with any section never draws `ListEmptyComponent`; the words must win.
+    const groups: DeviceGroup[] = [
+      {
+        id: "dev-empty",
+        label: "Empty machine",
+        isSelf: false,
+        online: true,
+        count: 0,
+        projects: [],
+      },
+    ];
+    const empty = await renderList({ status: "empty", groups });
+    expect(empty.getByText("sessions.empty")).toBeTruthy();
+    expect(empty.getByText("sessions.emptyHint")).toBeTruthy();
+    expect(empty.queryByText("Empty machine")).toBeNull();
+
+    const offline = await renderList({
+      status: "offline",
+      groups,
+      error: "unreachable",
+    });
+    expect(offline.getByText("sessions.loadError")).toBeTruthy();
+    expect(offline.getByText("pairing.unreachable")).toBeTruthy();
+    expect(offline.getByText("pairing.retry")).toBeTruthy();
+    expect(offline.queryByText("Empty machine")).toBeNull();
+  });
+
+  it("KIN-MOBILE-001 R3: fits ten full rows in an 820×1180 screenful", () => {
+    expect(ROW_MIN_HEIGHT).toBeGreaterThanOrEqual(44);
+    expect(ROW_HEIGHT).toBeGreaterThanOrEqual(ROW_MIN_HEIGHT);
+    expect(rowsOnScreen(1180)).toBe(
+      Math.floor((1180 - LIST_HEADER_HEIGHT - BOTTOM_TAB_INSET) / ROW_HEIGHT),
+    );
+    expect(rowsOnScreen(1180)).toBeGreaterThanOrEqual(10);
+  });
+});
