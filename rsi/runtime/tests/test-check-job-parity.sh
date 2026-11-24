@@ -9,8 +9,8 @@
 # so starting those eight again locally buys no evidence; R-gate-ci-dedupe moved them
 # behind --all. This suite pins the split from both sides:
 #
-#   * the default `--list` is the 14 local-only jobs and none of the eight;
-#   * `--all --list` is all 22, so a complete one-command local run still exists;
+#   * the default `--list` is the 15 local-only jobs and none of the eight;
+#   * `--all --list` is all 23, so a complete one-command local run still exists;
 #   * each of the eight is still run by CI, with the console pair read from its own
 #     CI step and the desktop pair from the `desktop:` job (the file contains
 #     `npm test` three times, so a bare grep would prove nothing);
@@ -41,12 +41,12 @@ trap 'rm -rf "$T"' EXIT
 
 fail() { echo "FAIL $*" >&2; exit 1; }
 
-# The 14 jobs CI does not run, and the eight it does: the names the two --list modes print.
+# The 15 jobs CI does not run, and the eight it does: the names the two --list modes print.
 LOCAL_ONLY=(gofmt probe api-contract api-coverage shell-syntax shell-test
   python-syntax stories removed-surfaces ux-spec-refs walk-contract
-  phone-baseline-contract journeys-smoke quality-reading-contract)
+  phone-baseline-contract journeys-smoke quality-reading-contract mobile-rn)
 CI_JOBS=(vet gotest desktop-test desktop-tsc ui-test ui-tsc ui-inventory ui-lint-guard)
-[ "${#LOCAL_ONLY[@]}" -eq 14 ] || fail "default-list: the local-only list is not 14 jobs"
+[ "${#LOCAL_ONLY[@]}" -eq 15 ] || fail "default-list: the local-only list is not 15 jobs"
 [ "${#CI_JOBS[@]}" -eq 8 ] || fail "default-list: the CI list is not eight jobs"
 
 sorted() { LC_ALL=C sort; }
@@ -63,12 +63,12 @@ default_list() {
   printf '%s\n' "$out"
 }
 
-# --- case 1: the default run is the 14 local-only jobs and none of the eight ----------------
+# --- case 1: the default run is the 15 local-only jobs and none of the eight ----------------
 # `fail` inside the command substitution ends that subshell, so carry its status out.
 if ! out="$(default_list "$CHECK")"; then exit 1; fi
 want="$(printf '%s\n' "${LOCAL_ONLY[@]}" | sorted)"
 if [ "$(printf '%s\n' "$out" | sorted)" != "$want" ]; then
-  fail "default-list: expected the 14 local-only jobs, got $(grep -c . <<<"$out") line(s): $out"
+  fail "default-list: expected the 15 local-only jobs, got $(grep -c . <<<"$out") line(s): $out"
 fi
 for j in "${CI_JOBS[@]}"; do
   grep -qx -- "$j" <<<"$out" && fail "default-list: CI job '$j' is in the default list"
@@ -84,9 +84,9 @@ fi
 out="$(bash "$CHECK" --all --list 2>&1)" || fail "all-list: --all --list exited nonzero: $out"
 want="$( { printf '%s\n' "${LOCAL_ONLY[@]}"; printf '%s\n' "${CI_JOBS[@]}"; } | sorted)"
 if [ "$(printf '%s\n' "$out" | sorted)" != "$want" ]; then
-  fail "all-list: expected the 14 + the eight, got $(grep -c . <<<"$out") line(s): $out"
+  fail "all-list: expected the 15 + the eight, got $(grep -c . <<<"$out") line(s): $out"
 fi
-[ "$(grep -c . <<<"$out")" -eq 22 ] || fail "all-list: expected 22 lines, got $(grep -c . <<<"$out")"
+[ "$(grep -c . <<<"$out")" -eq 23 ] || fail "all-list: expected 23 lines, got $(grep -c . <<<"$out")"
 out2="$(bash "$CHECK" --list --all 2>&1)" || fail "all-list: --list --all exited nonzero: $out2"
 [ "$out2" = "$out" ] || fail "all-list: --list --all and --all --list disagree"
 echo "PASS all-list"

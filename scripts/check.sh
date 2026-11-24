@@ -356,6 +356,22 @@ job_shell_test() {
   bash rsi/runtime/tests/test-wiring.sh
 }
 
+# The RN client's own typecheck and suite. The merge gate runs this default set,
+# so the scaffold cannot land without the gate ADR 0036 §4 fixed the job id for.
+# The scaffold has no committed package-lock.json yet (the NAS lane that wrote it
+# has no registry access), so the first run resolves one with npm install; once
+# that lockfile lands, npm ci is the reproducible path.
+job_mobile_rn() {
+  ( cd mobile-rn || exit 1
+    if [[ -f package-lock.json ]]; then
+      npm ci --no-audit --no-fund || exit 1
+    else
+      npm install --no-audit --no-fund || exit 1
+    fi
+    npx tsc --noEmit || exit 1
+    npx jest --ci )
+}
+
 job_python_syntax() {
   local files
   files="$(changed_python_files)"
@@ -458,6 +474,7 @@ start walk-contract job_walk_contract
 start phone-baseline-contract job_phone_baseline_contract
 start journeys-smoke job_journeys_smoke
 start quality-reading-contract job_quality_reading_contract
+start mobile-rn job_mobile_rn
 
 # The eight jobs CI already runs on every push (.github/workflows/ci.yml): `go vet
 # ./...` and `go test ./...` (build job), `npm test` + `npx tsc --noEmit` (build job's
