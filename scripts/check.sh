@@ -283,6 +283,7 @@ job_shell_test() {
   # The default gate starts only the jobs CI does not run; this pins the split and the
   # premises that make dropping the rest safe (R-gate-ci-dedupe).
   bash rsi/runtime/tests/test-check-job-parity.sh || return 1
+  bash rsi/runtime/tests/test-rename-copy-check.sh || return 1
   bash rsi/runtime/tests/test-ux-carry-key.sh || return 1
   bash rsi/runtime/tests/test-verifier-ci-hold.sh || return 1
   bash rsi/runtime/tests/test-merge-sync-skip.sh || return 1
