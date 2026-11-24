@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<title>KIN-MOBILE-001 · 手机用 Expo/RN 客户端承接固定面 · Figma 审阅</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1a1a1a;
+    --muted: #666a73;
+    --line: #dedee3;
+    --bg: #f1f1f4;
+    --page: #fbfbfd;
+    --card: #ffffff;
+    --accent: #1f6feb;
+    --accent-soft: #eef3ff;
+    --warn: #b42318;
+    --warn-soft: #fff1f0;
+    --ok: #137a3f;
+    --ok-soft: #eef8f1;
+    --gutter: clamp(16px, 5vw, 24px);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7;
+      --muted: #a1a1aa;
+      --line: #35353a;
+      --bg: #0b0b0d;
+      --page: #141416;
+      --card: #1d1d20;
+      --accent: #6ea8fe;
+      --accent-soft: #17243a;
+      --warn: #ff8a80;
+      --warn-soft: #2a1717;
+      --ok: #6dd58c;
+      --ok-soft: #13251b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-wrap: anywhere;
+  }
+  a { color: var(--accent); }
+  code { padding: 1px 5px; border-radius: 5px; background: var(--bg); font-size: .9em; }
+  .page { max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom)); background: var(--page); }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 25px; line-height: 1.3; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 4px; font-size: 17px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill { display: inline-flex; align-items: center; min-height: 25px; padding: 0 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 15.5px; }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 14.5px; }
+  .howto li { margin: 5px 0; }
+  .note { color: var(--muted); font-size: 13.5px; }
+  .toc {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 8px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 8px var(--gutter);
+    overflow-x: auto;
+    background: var(--page);
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none; display: inline-flex; align-items: center;
+    min-height: 44px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink);
+    font-size: 13px; text-decoration: none; white-space: nowrap;
+  }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 18px 0 6px; font-size: 16px; line-height: 1.4; }
+  h4 { margin: 14px 0 6px; font-size: 15px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 12.5px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  .screen { margin-top: 26px; }
+  figure { margin: 10px 0 6px; }
+  .frame { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 8px; }
+  .frame img { display: block; width: 100%; max-width: 390px; height: auto; margin: 0 auto; border-radius: 6px; }
+  .frame.wide img { max-width: none; width: 800px; }
+  figcaption { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; margin-top: 7px; color: var(--muted); font-size: 13px; }
+  .flow { margin: 12px 0 0; padding: 2px 14px; }
+  .flow dt { margin-top: 12px; font-size: 13px; font-weight: 600; color: var(--accent); }
+  .flow dd { margin: 3px 0 0 0; font-size: 14.5px; }
+  .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 9px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+  th { font-size: 12.5px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  .decision { margin-top: 12px; }
+  .decision h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+  .tag-settled { font-size: 11.5px; font-weight: 600; color: var(--ok); background: var(--ok-soft); border-radius: 999px; padding: 2px 8px; }
+  .tradeoff { color: var(--muted); font-size: 14px; }
+  pre {
+    overflow-x: auto;
+    margin: 10px 0 0;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--card);
+    font-size: 13.5px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+  }
+  .sign { margin-top: 12px; border-left: 4px solid var(--ok); }
+  footer { margin-top: 34px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="page">
+<header>
+  <div class="eyebrow">Figma 审阅版 · 约 6 分钟 · 0 个待拍板决定</div>
+  <h1>KIN-MOBILE-001<small>手机用 Expo/RN 客户端承接固定面</small></h1>
+  <p class="meta">状态：approved（2026-11-24 CEO 代签）· 优先级 P0 · 旅程 J1、J2、J4 · 面：手机</p>
+  <div class="tags">
+    <span class="pill here">本条 · RN parity</span>
+    <span class="pill plain">ADR 0036</span>
+    <span class="pill plain">四固定面</span>
+    <span class="pill ok">签字守卫已建</span>
+    <span class="pill plain">mobile/ 暂不删</span>
+  </div>
+</header>
+
+<div class="card summary">
+  <p>把已经签过字的四个手机面——列表、对话读/发/流、审批与提问、provider/usage——搬进新的 Expo/RN 客户端 <code>mobile-rn/</code>。屏幕不重新设计；这条故事只决定它们由谁渲染、共享代码怎么进来、以及 RN-only 的 PR 要过什么闸门。</p>
+</div>
+
+<div class="card howto">
+  <h2>怎么审</h2>
+  <ol>
+    <li>先读下面的 <a href="#mece">切法</a>：确认这是一条 parity 故事，不是第二次产品设计。</li>
+    <li>再看 <a href="#now">现在 → 之后</a>：今天 Capacitor 壳与之后 RN 客户端的边界。</li>
+    <li>逐屏看 <a href="#screens">界面</a>：帧来自已签故事，不重画；每帧下面六段用户流程说的是 RN 上会发生什么。</li>
+    <li>最后看 <a href="#decisions">决定</a>：五条都已定（已定），没有要你拍板的新决定。</li>
+  </ol>
+  <p class="note">帧是已签故事的设计源，按相对路径直接引用；本页不复制、不缩放、也不改画。手机阅读时宽的 800 状态板只在卡片内左右滑。</p>
+</div>
+
+<nav class="toc" aria-label="页内目录">
+  <a class="primary" href="#mece">切法</a>
+  <a href="#now">现在 → 之后</a>
+  <a href="#screens">界面</a>
+  <a href="#states">状态</a>
+  <a href="#decisions">决定</a>
+  <a href="#reply">回复模板</a>
+</nav>
+
+<section id="mece">
+  <h2>MECE · 这条故事切在哪一格</h2>
+  <div class="card mece">
+    <div class="mece-row here">
+      <div class="name"><strong>本条：手机客户端由谁渲染</strong><div class="who">四个已签面的 parity 交付；J1 手机、J2 读与改、J4 项目/资料入口</div></div>
+      <span class="pill here">在这里</span>
+    </div>
+    <div class="mece-row">
+      <div class="name">屏幕内容与行为<div class="who">已签：`KIN-CONTRACT-001`、`KIN-CONTINUE-002/003/004/005/007`、`KIN-RESULT-*`</div></div>
+      <span class="pill plain">不重开</span>
+    </div>
+    <div class="mece-row">
+      <div class="name">web 手机壳的 820 扫描与 iPad 44px 打磨<div class="who">parked（`rsi/DECISIONS.md` 2026-11-24）</div></div>
+      <span class="pill plain">暂停</span>
+    </div>
+    <div class="mece-row">
+      <div class="name">Settings 其余页面<div class="who">`KIN-SETTINGS-*`，留在桌面</div></div>
+      <span class="pill plain">别处</span>
+    </div>
+    <div class="mece-row">
+      <div class="name">例行任务 UI<div class="who">`KIN-ROUTINE-*`，留在 web/桌面</div></div>
+      <span class="pill plain">别处</span>
+    </div>
+    <div class="mece-row">
+      <div class="name">删除 `mobile/` Capacitor 壳<div class="who">四面对 parity 后的独立 cutover 故事</div></div>
+      <span class="pill plain">后续</span>
+    </div>
+    <div class="mece-row">
+      <div class="name">桌面与 Go daemon<div class="who">不改：Electron + Vite 与现有接口原样（ADR 0035 §2）</div></div>
+      <span class="pill plain">不动</span>
+    </div>
+  </div>
+  <h3>job map 覆盖</h3>
+  <p>定义（配对）→ 定位（列表）→ 准备（打开对话）→ 确认（读到流结束）→ 执行（发送、排队、打断）→ 监控（审批与提问）→ 修改（provider/usage 与设置边界）→ 收尾（后台、断线、回来）。八段都写了六项预期；没有省略的阶段。</p>
+  <h3>为什么设备只是差异维度</h3>
+  <p>本条只交付手机，因为桌面不换壳：Mac 仍是 Electron + Vite。手机内部仍按 390 单列、820 粗指针两套容器写，但那是同一个 RN 客户端的两个宽度，不是两条故事。</p>
+  <h3>四条自检</h3>
+  <ul>
+    <li><strong>一条意图？</strong>它服务三条已签旅程的手机端（J1 接着问、J2 读与改、J4 资料入口），但只做一件事：让手机客户端承接同一组已签面。</li>
+    <li><strong>一次能交付完？</strong>不能，所以拆成 R1–R7 七块，每块一个 PR、≤约 800 行；本条是它们的总合同，不按相位重复签字。</li>
+    <li><strong>范围外都有去处？</strong>Settings、routines、桌面、删壳各自写明去处；没有一条悬空。</li>
+    <li><strong>需求写行为？</strong>正文写用户看到什么、失败说什么；组件名与文件路径只出现在验收和 ADR 里。</li>
+  </ul>
+</section>
+
+<section id="now">
+  <h2>现在 → 之后</h2>
+  <div class="two">
+    <div class="card now">
+      <h3>现在</h3>
+      <ul>
+        <li>手机入口是 Capacitor 壳，加载 web 控制台（`mobile/package.json:4`）。</li>
+        <li>四个面已在 web 上签过字，但手机体感仍是 web 的体感。</li>
+        <li>没有 `mobile-rn/`，也没有任何检查在管它。</li>
+        <li>共享逻辑只有 web 一份；RN 若复制就是缺陷。</li>
+      </ul>
+    </div>
+    <div class="card after">
+      <h3>之后</h3>
+      <ul>
+        <li>新的 Expo/RN 客户端承接同样四个面，屏幕内容不变。</li>
+        <li>共享 TS 原地 import；两个具名适配器（i18n、传输）承担 DOM 依赖。</li>
+        <li>RN-only PR 走轻闸门：`tsc`、`jest`、共享导入契约、一个独立复核。</li>
+        <li>Capacitor 壳继续发布，直到四面对 parity 后由独立故事删除。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="screens">
+  <h2>界面 · 帧与用户流程</h2>
+  <p class="note">下面每一帧都来自已签故事，按相对路径引用；RN 不重画这些屏幕。帧讲样子，六段流程讲 RN 上发生什么。</p>
+
+  <div class="screen">
+    <h3>R2 · 配对与首次打开（没有新帧）</h3>
+    <p>配对不新增视觉面：沿用现有的 token 链接/扫码入口，成功后第一屏就是下面的列表。这里只写流程，避免为“登录页”造一个与已签故事无关的新设计。</p>
+    <dl class="flow">
+      <dt>起点</dt><dd>刚安装，没有 token；看到配对入口，而不是空列表。</dd>
+      <dt>动作</dt><dd>扫码或粘贴 `?token=` 链接。</dd>
+      <dt>立刻看到</dt><dd>按钮进入进度；成功后直接落到列表，token 不再出现在 URL 或屏幕上。</dd>
+      <dt>慢 · 空 · 失败 · 断线</dt><dd>慢：写「正在连接这台设备」；空：只显示配对入口；失败：区分链接过期、设备离线、网络不可达并保留重试；断线：token 已保存，恢复后自动重试。</dd>
+      <dt>键盘与焦点</dt><dd>粘贴框可聚焦，键盘不遮按钮；Enter 提交；失败后焦点回输入框并读出错误。</dd>
+      <dt>离开再回来</dt><dd>token 进 Keychain；杀掉应用再开仍已登录；过期 token 不静默重试。</dd>
+    </dl>
+  </div>
+
+  <div class="screen">
+    <h3>R3 · 对话列表</h3>
+    <figure>
+      <div class="frame">
+        <img src="KIN-CONTINUE-007.figma/frames/04-phone-390-list.svg" alt="手机 390×844 对话列表：设备 → 项目 → 对话，两行式行，项目默认折叠" width="390" height="844">
+      </div>
+      <figcaption><span>`KIN-CONTINUE-007` · 04-phone-390-list.svg · 390×844</span><a href="KIN-CONTINUE-007.figma/frames/04-phone-390-list.svg">打开原图</a><span>已签，不重画</span></figcaption>
+    </figure>
+    <dl class="flow">
+      <dt>起点</dt><dd>已配对，落在列表；设备 → 项目 → 对话三层，项目默认折叠，只开最近对话所在的项目。</dd>
+      <dt>动作</dt><dd>展开项目、滚动、搜索、点一条对话。</dd>
+      <dt>立刻看到</dt><dd>两行式行：标题一行，agent · 相对时间 · 状态一行；按下有可见反馈；点开在同一栈里推出对话。</dd>
+      <dt>慢 · 空 · 失败 · 断线</dt><dd>慢：设备标题骨架，底部导航立刻可点；空：「还没有对话」+ 新建；失败：该项目下一行「读取失败，重试」，已加载行不清空；断线：顶部横幅，缓存行仍可读。</dd>
+      <dt>键盘与焦点</dt><dd>每行是停点，读屏读出「标题 · agent · 时间 · 状态」；外接键盘 ↑↓ 移动、Enter 打开；返回焦点回到那一行。</dd>
+      <dt>离开再回来</dt><dd>折叠、滚动、搜索词保留；从对话返回不重载整页。</dd>
+    </dl>
+  </div>
+
+  <div class="screen">
+    <h3>R4 · 读一段对话</h3>
+    <figure>
+      <div class="frame">
+        <img src="KIN-CONTRACT-001.figma/frames/02-phone-reading.svg" alt="手机 390×844 对话阅读面：头部一行、回答正文、工具调用行与底部输入区" width="390" height="844">
+      </div>
+      <figcaption><span>`KIN-CONTRACT-001` · 02-phone-reading.svg · 390×844</span><a href="KIN-CONTRACT-001.figma/frames/02-phone-reading.svg">打开原图</a><span>已签，不重画</span></figcaption>
+    </figure>
+    <dl class="flow">
+      <dt>起点</dt><dd>从列表、推送或深链进入；先看到最近一段，不自动滚到顶。</dd>
+      <dt>动作</dt><dd>滚动阅读；等流结束；点工具调用行展开细节。</dd>
+      <dt>立刻看到</dt><dd>文本逐步追加，不整段闪回；工具行显示名称与状态；流结束变为「已完成」；markdown 表格在 390 宽内横向滚动，不撑破页面。</dd>
+      <dt>慢 · 空 · 失败 · 断线</dt><dd>慢：保留已收到文本 + 活动行；空：「正在准备」；失败：保留文本 + 原因与重试；断线：内容不丢，恢复后从断点续读。</dd>
+      <dt>键盘与焦点</dt><dd>新增文本不反复抢读屏焦点；用户上滚后不被自动拉回底部；表格可聚焦并读表头。</dd>
+      <dt>离开再回来</dt><dd>后台回来重新订阅当前对话；已读位置保留；不重播已完成状态。</dd>
+    </dl>
+  </div>
+
+  <div class="screen">
+    <h3>R4 · 写、发送、排队与打断</h3>
+    <figure>
+      <div class="frame">
+        <img src="KIN-START-001.figma/frames/03-phone-composer.svg" alt="手机 390×844 composer：输入框、发送按钮与运行中的停止按钮" width="390" height="844">
+      </div>
+      <figcaption><span>`KIN-START-001` · 03-phone-composer.svg · 390×844</span><a href="KIN-START-001.figma/frames/03-phone-composer.svg">打开原图</a><span>已签，不重画</span></figcaption>
+    </figure>
+    <dl class="flow">
+      <dt>起点</dt><dd>对话底部 composer；agent 空闲或运行中。</dd>
+      <dt>动作</dt><dd>输入并发送；运行中再发一条进入队列；点停止打断。</dd>
+      <dt>立刻看到</dt><dd>消息立刻入流、composer 清空并保持焦点；运行中显示停止；排队显示「已排队 1 条」；打断后留下一条 meta 行。</dd>
+      <dt>慢 · 空 · 失败 · 断线</dt><dd>慢：发送转圈但草稿可编辑；空：发送禁用；失败：草稿留在 composer 并说明；断线：发送禁用并说明，恢复后草稿还在。</dd>
+      <dt>键盘与焦点</dt><dd>键盘弹出时 composer 在键盘上方；Enter 发送、Shift+Enter 换行；发送后焦点留在 composer；停止按钮有可读标签。</dd>
+      <dt>离开再回来</dt><dd>草稿、队列、滚动位置保留；不重复发送；后台回来仍能看到停止按钮。</dd>
+    </dl>
+  </div>
+
+  <div class="screen">
+    <h3>R5 · 审批与提问</h3>
+    <figure>
+      <div class="frame">
+        <img src="KIN-CONTINUE-002.figma/frames/02-phone-conversation.svg" alt="手机 390×844 对话中的批准卡：批准 · 允许读取和写入项目文件" width="390" height="844">
+      </div>
+      <figcaption><span>`KIN-CONTINUE-002` · 02-phone-conversation.svg · 390×844</span><a href="KIN-CONTINUE-002.figma/frames/02-phone-conversation.svg">打开原图</a><span>已签，不重画</span></figcaption>
+    </figure>
+    <dl class="flow">
+      <dt>起点</dt><dd>对话里出现一次审批或提问；列表行显示待批计数。</dd>
+      <dt>动作</dt><dd>点卡片；批准或拒绝；回答一个问题。</dd>
+      <dt>立刻看到</dt><dd>展开命令/参数与允许范围；按下进入等待态；成功后卡片已处理并留结果；列表计数同步减少。</dd>
+      <dt>慢 · 空 · 失败 · 断线</dt><dd>慢：禁用重复点击；空：没有待处理不显示空卡；失败：卡片恢复可操作并说明；断线：禁用提交，已读审批不消失。</dd>
+      <dt>键盘与焦点</dt><dd>批准/拒绝是明确按钮，读屏读出动作与对象；危险动作不只靠颜色；提交后焦点留在结果行。</dd>
+      <dt>离开再回来</dt><dd>已处理状态从服务端重读；推送点开落到同一条；处理完不再提醒。</dd>
+    </dl>
+  </div>
+
+  <div class="screen">
+    <h3>R6 · provider / usage sheet</h3>
+    <figure>
+      <div class="frame">
+        <img src="KIN-AGENTS-001.figma/frames/02-phone-agents.svg" alt="手机 390×844 Agent 运维与用量：可用性、花费、Token、缓存命中率" width="390" height="844">
+      </div>
+      <figcaption><span>`KIN-AGENTS-001` · 02-phone-agents.svg · 390×844</span><a href="KIN-AGENTS-001.figma/frames/02-phone-agents.svg">打开原图</a><span>已签，不重画</span></figcaption>
+    </figure>
+    <dl class="flow">
+      <dt>起点</dt><dd>从对话头「⋯」或列表入口打开 sheet。</dd>
+      <dt>动作</dt><dd>切 7/30/90 天窗口；读 provider 可用性与花费；关闭。</dd>
+      <dt>立刻看到</dt><dd>sheet 从底部推出，玻璃背景；先出缓存值再按窗口刷新；关闭回到原对话，滚动不变。</dd>
+      <dt>慢 · 空 · 失败 · 断线</dt><dd>慢：骨架，关闭始终可用；空：「这台设备还没有用量」；失败：保留上次数字并标「刚刚更新失败」；断线：显示缓存并说明可能过期。</dd>
+      <dt>键盘与焦点</dt><dd>模态焦点进入标题；下拉与按钮都能关；关闭后焦点回到「⋯」。</dd>
+      <dt>离开再回来</dt><dd>窗口选择本次会话保留；不写新存储键；不把 provider 配置编辑带进 RN。</dd>
+    </dl>
+  </div>
+
+  <div class="screen">
+    <h3>R2 / R7 · 状态与连接</h3>
+    <figure>
+      <div class="frame wide">
+        <img src="KIN-CONTINUE-002.figma/frames/04-phone-states.svg" alt="列表的加载、空、已归档与搜索状态板，底部四个入口始终保留" width="800" height="900">
+      </div>
+      <figcaption><span>`KIN-CONTINUE-002` · 04-phone-states.svg · 800×900 · 左右滑动看完整</span><a href="KIN-CONTINUE-002.figma/frames/04-phone-states.svg">打开原图</a><span>已签，不重画</span></figcaption>
+    </figure>
+    <dl class="flow">
+      <dt>起点</dt><dd>应用在后台，或推送到达；网络从 Wi-Fi 切到蜂窝；或 token 过期。</dd>
+      <dt>动作</dt><dd>从推送点开；切回前台；等重连；或重新配对。</dd>
+      <dt>立刻看到</dt><dd>推送落到对应对话/审批；前台恢复先显示缓存再静默刷新；重连后运行中的对话继续追加。</dd>
+      <dt>慢 · 空 · 失败 · 断线</dt><dd>慢：顶部「正在重新连接」，不清空页面；空：没有缓存时是加载态不是错误；失败：一次手动重试；断线：已读内容与草稿保留；过期：回配对并说明原因。</dd>
+      <dt>键盘与焦点</dt><dd>推送进入后焦点在对话标题；恢复时不抢 composer 焦点；重连横幅是状态播报而不是弹窗。</dd>
+      <dt>离开再回来</dt><dd>未读与待批计数以服务端为准；同一条推送不重复弹；后台重连只补新事件，不重放已处理审批。</dd>
+    </dl>
+  </div>
+</section>
+
+<section id="states">
+  <h2>状态板</h2>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>状态</th><th>列表</th><th>对话 / 流</th><th>审批 / 提问</th><th>provider / usage</th></tr></thead>
+      <tbody>
+        <tr><td>加载</td><td>设备标题骨架，导航可点</td><td>消息骨架，头部与 composer 可用</td><td>卡片骨架，不显示假按钮</td><td>sheet 骨架，关闭可用</td></tr>
+        <tr><td>空</td><td>「还没有对话」+ 新建</td><td>只有用户那条 +「还没有回答」</td><td>没有待处理就不显示卡</td><td>「这台设备还没有用量」</td></tr>
+        <tr><td>失败</td><td>该项目一行「读取失败，重试」</td><td>保留已收到文本 + 原因与重试</td><td>卡片恢复可操作并说明</td><td>保留上次数字，标「刚刚更新失败」</td></tr>
+        <tr><td>断线</td><td>顶部横幅，缓存行可读</td><td>内容不丢，composer 禁用并说明</td><td>禁用提交，已读审批不消失</td><td>显示缓存并说明可能过期</td></tr>
+        <tr><td>运行中</td><td>行状态「运行中」</td><td>活动行 + 停止按钮</td><td>待批计数可见</td><td>已打开的数字不因流式刷新而跳</td></tr>
+        <tr><td>等待批准</td><td>行内计数（不只靠橙点）</td><td>批准卡进入等待态</td><td>按下后禁用重复点击</td><td>无关，保持可关闭</td></tr>
+        <tr><td>未配对 / 过期</td><td>不显示列表，只显示配对入口</td><td>不进入对话</td><td>不显示旧审批</td><td>不显示旧用量</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">所有状态都保留 44pt 触控目标与可读名称；状态不只靠颜色，读屏能读出同一句话。</p>
+</section>
+
+<section id="decisions">
+  <h2>决定</h2>
+  <p>五条都已定，没有要拍板的新决定。每条仍写推荐与代价，方便以后回看为什么这样定。</p>
+
+  <div class="card decision">
+    <h3>D1 · 新顶层 `mobile-rn/`，`mobile/` 暂不删 <span class="tag-settled">已定</span></h3>
+    <p><strong>推荐：</strong>Expo SDK 58 + TypeScript strict + expo-router 放在新的顶层目录；Capacitor 壳继续发布，四面对 parity 后由独立 cutover 故事删除。</p>
+    <p class="tradeoff"><strong>代价：</strong>一段时间内两套手机树并存；换来的是删壳前随时可以退回，且 web 构建完全看不到 RN 树。</p>
+  </div>
+
+  <div class="card decision">
+    <h3>D2 · 共享 TS 原地 import，不搬家 <span class="tag-settled">已定</span></h3>
+    <p><strong>推荐：</strong>Metro `watchFolders` + tsconfig `paths` 指向已有的 `transcriptProjection`、`contract.ts`、generated 类型、locale 数据与 DOM-free 的 `lib/**`；两个具名适配器（`i18n`、`api/transport`）承担 DOM 依赖，一个 grep 式契约测试守住导入闭包。</p>
+    <p class="tradeoff"><strong>代价：</strong>适配器与别名要一直诚实；换来的是不做一次只为 RN 服务的 web 重构，web 闸门不为搬家付钱。</p>
+  </div>
+
+  <div class="card decision">
+    <h3>D3 · 16 个 exact pin，只进 `mobile-rn/package.json` <span class="tag-settled">已定</span></h3>
+    <p><strong>推荐：</strong>每个版本都写死，发布日期不晚于 2026-11-17；不碰 `ui/package.json` 与 `go.mod`。owner 对 MANDATE 的依赖规则给了窄豁免：只覆盖 `mobile-rn/package.json`。</p>
+    <p class="tradeoff"><strong>代价：</strong>升级要手动开 PR；换来的是新客户端起步阶段没有浮动版本，签名测试会拒绝范围与过新的日期。</p>
+  </div>
+
+  <div class="card decision">
+    <h3>D4 · RN-only diff 走轻闸门 <span class="tag-settled">已定</span></h3>
+    <p><strong>推荐：</strong>`tsc --noEmit` + `jest` + 共享导入契约 + `scripts/check.sh` 的 `mobile-rn` 作业 + 一次独立复核。UX 走查不跑：`rsi/runtime/merge.sh:752-753` 只在 `ui/src/**/*.tsx|css` 变化时触发，RN-only PR 天然跳过，不需要新开关。</p>
+    <p class="tradeoff"><strong>代价：</strong>轻闸门不证明真机体感；换来的是 RN 脚手架不被 web 的 Playwright 流程拖住。体感由 Ethan 的真机 dogfood 验收，R7 的 PR 必须带设备证据。</p>
+  </div>
+
+  <div class="card decision">
+    <h3>D5 · 四个面 parity 才切，fork 就停 <span class="tag-settled">已定</span></h3>
+    <p><strong>推荐：</strong>列表、对话读/发/流/打断、审批/提问、provider/usage 四面在真机上绿了，才开删壳故事。若某一面必须复制共享逻辑才能 parity，停下记录是哪一面，不扩 MVP。</p>
+    <p class="tradeoff"><strong>代价：</strong>Capacitor 壳多留一段时间；换来的是不会为了赶进度长出第二份投影/客户端，那正是 ADR 0035 写明的“证明这条路错了”的信号。</p>
+  </div>
+</section>
+
+<section id="reply">
+  <h2>回复模板</h2>
+  <p>没有待拍板决定；如果要反对某一条，只回编号与一句话即可。复制下面这段：</p>
+  <pre>KIN-MOBILE-001 已读。
+同意按本页与 ADR 0036 开工 R1（脚手架 + 轻闸门 + 共享导入契约）。
+如需改一处：D＿ — 一句话原因。</pre>
+</section>
+
+<section id="sign">
+  <h2>签字</h2>
+  <div class="card sign">
+    <p><strong>2026-11-24 CEO 代签（owner 授权，见 rsi/DECISIONS.md 2026-11-24 RN 并行）。</strong></p>
+    <p class="note">签字依据：ADR 0036 固定布局、in-place 共享 TS、轻闸门与依赖窄豁免；本页五条决定全部已定，无待拍板项。签字后 R1 才创建 `mobile-rn/`；本 PR 不写产品代码。</p>
+  </div>
+  <footer>KIN-MOBILE-001 · Figma 审阅版 · 帧引用自已签故事，未重画 · 无外部资源</footer>
+</section>
+</div>
+</body>
+</html>
