@@ -1,0 +1,16 @@
+[
+  {
+    "label": "a row tap reports no task id, so the conversation cannot open (R-rn-wire-a)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "    callbacks.current.onOpen(taskId);",
+    "new": "    callbacks.current.onOpen(\"\");",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: tapping a row reports its task id\""
+  },
+  {
+    "label": "the agent turn is dropped, so history shows the ask and nothing done about it (R-rn-wire-a)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  const items: ChatItem[] = turn.kind === \"agent\" ? turn.items : [turn.item];",
+    "new": "  const items: ChatItem[] = false ? turn.items : [turn.item];",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.test.tsx -t \"KIN-MOBILE-001 R4: history renders grouped as the shared projection groups it\""
+  }
+]
