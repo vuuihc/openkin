@@ -57,4 +57,31 @@ describe("KIN-MOBILE-001 R1 gate wiring", () => {
     expect(body).toMatch(/npx\s+tsc\s+--noEmit/);
     expect(body).toMatch(/npx\s+jest\b/);
   });
+
+  it("KIN-MOBILE-001: job_mobile_rn installs only behind its node_modules stamp", () => {
+    const body = jobBody(source, "job_mobile_rn");
+    expect(body).not.toBeNull();
+    if (body === null) return;
+
+    // An unconditional install rewrote node_modules on every gate run, and npm
+    // install's generated package-lock.json then tripped gate.sh's clean-tree
+    // check on the next run. Each install sits inside its own stamp comparison
+    // and the no-lockfile branch must not write one.
+    expect(body).toContain("stamp=node_modules/.kin-lock-sha");
+    expect(body).toContain("stamp=node_modules/.kin-pkg-sha");
+
+    const bodyLines = body.split("\n").map((line) => line.trim());
+    const installs = bodyLines
+      .map((line, index) => ({ line, index }))
+      .filter(({ line }) => /^npm (ci|install)\b/.test(line));
+    expect(installs.map(({ line }) => line)).toEqual([
+      "npm ci --no-audit --no-fund || exit 1",
+      "npm install --no-package-lock --no-audit --no-fund || exit 1",
+    ]);
+    for (const { index } of installs) {
+      expect(bodyLines[index - 1]).toMatch(
+        /^if \[\[ "\$\(cat "\$stamp" 2>\/dev\/null\)" != "\$want" \]\]; then$/,
+      );
+    }
+  });
 });

@@ -359,14 +359,25 @@ job_shell_test() {
 # The RN client's own typecheck and suite. The merge gate runs this default set,
 # so the scaffold cannot land without the gate ADR 0036 §4 fixed the job id for.
 # The scaffold has no committed package-lock.json yet (the NAS lane that wrote it
-# has no registry access), so the first run resolves one with npm install; once
-# that lockfile lands, npm ci is the reproducible path.
+# has no registry access), so a first run resolves node_modules with npm install,
+# and --no-package-lock keeps it from writing an untracked lockfile that would
+# leave the tree dirty for gate.sh; once a lockfile lands, npm ci is the
+# reproducible path. Either install is stamped inside node_modules and skipped
+# while the manifest's hash is unchanged, so a repeat run does not reinstall.
 job_mobile_rn() {
   ( cd mobile-rn || exit 1
     if [[ -f package-lock.json ]]; then
-      npm ci --no-audit --no-fund || exit 1
+      stamp=node_modules/.kin-lock-sha; want="$(git hash-object package-lock.json)" || exit 1
+      if [[ "$(cat "$stamp" 2>/dev/null)" != "$want" ]]; then
+        npm ci --no-audit --no-fund || exit 1
+        printf '%s\n' "$want" > "$stamp" || exit 1
+      fi
     else
-      npm install --no-audit --no-fund || exit 1
+      stamp=node_modules/.kin-pkg-sha; want="$(git hash-object package.json)" || exit 1
+      if [[ "$(cat "$stamp" 2>/dev/null)" != "$want" ]]; then
+        npm install --no-package-lock --no-audit --no-fund || exit 1
+        printf '%s\n' "$want" > "$stamp" || exit 1
+      fi
     fi
     npx tsc --noEmit || exit 1
     npx jest --ci )
