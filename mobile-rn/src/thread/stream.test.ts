@@ -185,6 +185,33 @@ describe("KIN-MOBILE-001 R4 stream", () => {
     stream.stop();
   });
 
+  it("KIN-MOBILE-001 R4: a snapshot resume drops a replayed seq at epoch 0", async () => {
+    // A caller holding a snapshot starts at `afterSeq: 2`. The first live
+    // event carries `event_epoch: 0`, the contract's first epoch; it must not
+    // be mistaken for a rewritten tail that resets the cursor to 0.
+    const fake = fakeStream();
+    const seen: TaskEvent[] = [];
+    const stream = startTaskStream({
+      origin: ORIGIN,
+      token: "token",
+      taskId: TASK_ID,
+      source: fake.source,
+      afterSeq: 2,
+      onEvent: (value) => seen.push(value),
+    });
+    await settle();
+
+    expect(fake.requests[0].afterSeq).toBe(2);
+    expect(stream.lastSeq()).toBe(2);
+    fake.connections[0].push(frame(event(2)));
+    fake.connections[0].push(frame(event(3)));
+    await settle();
+
+    expect(seen.map((value) => value.seq)).toEqual([3]);
+    expect(stream.lastSeq()).toBe(3);
+    stream.stop();
+  });
+
   it("KIN-MOBILE-001 R4: a chunk from a closed stream's generation is dropped", async () => {
     const fake = fakeStream();
     const seen: TaskEvent[] = [];

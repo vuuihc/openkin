@@ -216,7 +216,10 @@ export function startTaskStream(options: TaskStreamOptions): TaskStream {
   let generation = 0;
   let failures = 0;
   let everConnected = false;
-  let epoch = -1;
+  // `event_epoch >= 0` in the contract (`ui/src/api/contract.ts`), so 0 is the
+  // first epoch: starting at -1 would treat a normal first event as a rewritten
+  // tail and wipe the snapshot's `afterSeq`.
+  let epoch = 0;
   let lastSeq = options.afterSeq ?? 0;
   let seen = new Set<number>();
   let cancelTimer: (() => void) | null = null;
