@@ -345,6 +345,9 @@ job_shell_test() {
   bash rsi/runtime/tests/test-dispatch-codex-timeout.sh || return 1
   bash rsi/runtime/tests/test-dispatch-review-findings.sh || return 1
   bash rsi/runtime/tests/test-lane-pr-retry.sh || return 1
+  # A finished round survives one transient `git push` failure; a final failure leaves it
+  # committed and marked delivered-unpushed instead of throwing the work away (R-lane-push-retry).
+  bash rsi/runtime/tests/test-lane-push-retry.sh || return 1
   bash rsi/runtime/nas/tests/test-nas.sh || return 1
   bash rsi/runtime/nas/tests/test-install-preflight.sh || return 1
   bash rsi/runtime/ux/retry-test.sh || return 1

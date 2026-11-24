@@ -32,6 +32,7 @@ CTRL="$T/ctrl"; mkdir -p "$CTRL/rsi/state/lanes" "$CTRL/rsi/runtime"
 # red-first seam sits in the same pre-push span this suite extracts, so it needs its checker too
 # (a body with no Claims block is NA, which is what these claim-check cases exercise).
 printf '#!/bin/bash\n# stub: the seams never create a PR\n' > "$CTRL/rsi/runtime/lane-pr.sh"
+printf '#!/bin/bash\n# stub: the seams never push\n' > "$CTRL/rsi/runtime/lane-push.sh"
 cp "$REPO/rsi/runtime/claim_check.py" "$CTRL/rsi/runtime/claim_check.py" \
   || { echo "FAIL cannot copy claim_check.py" >&2; exit 1; }
 cp "$REPO/rsi/runtime/red_first.py" "$CTRL/rsi/runtime/red_first.py" \
@@ -250,8 +251,8 @@ case_lane_runs_seam_before_push() {
   inv="$(grep -nF "$call" "$LANE" | cut -d: -f1)"
   mut="$(grep -nF 'if ! MUT_EV="$(bash "$SELF" --mutant-evidence-check "$WT" 2>&1)"; then' "$LANE" | cut -d: -f1)"
   [ -n "$mut" ] || fail "wiring: lane.sh has no mutant-evidence call"
-  push="$(grep -n 'push -q -u' "$LANE" | head -1 | cut -d: -f1)"
-  [ -n "$push" ] || fail "wiring: lane.sh has no 'push -q -u' line"
+  push="$(grep -nF 'git_push_retry "$GIT" "$WT" "$BR"' "$LANE" | head -1 | cut -d: -f1)"
+  [ -n "$push" ] || fail "wiring: lane.sh has no git_push_retry call"
   [ "$inv" -gt "$mut" ] \
     || fail "wiring: the claim check (line $inv) does not run after mutant evidence (line $mut)"
   [ "$inv" -lt "$push" ] \
@@ -315,7 +316,8 @@ claim_fail_handoff() { # <body-file> [RSI_CLAIM_RETRY_SECS]
   : > "$T/ph-finish.log"; : > "$T/ph-gh.calls"; : > "$T/ph-pr.log"; rm -f "$ATTEMPTS"
   (
     RSI_CTRL="$CTRL"; HOME="$T/home"; export RSI_CTRL HOME
-    source "$RUNTIME/common.sh"          # bounded_run: the retry pause's production watchdog
+    source "$RUNTIME/common.sh"          # bounded_run: the retry pause's production watchdog; with_timeout backs the push
+    source "$RUNTIME/lane-push.sh"       # git_push_retry: the tail's push, never a bare git push
     [ -n "$retry" ] && { RSI_CLAIM_RETRY_SECS="$retry"; export RSI_CLAIM_RETRY_SECS; }
     N=1
     SELF="$LANE"
@@ -583,6 +585,7 @@ pr_handoff() {
       "$LANE" "$R" "$BODY" "$hdr"
     printf 'FINISH_FILE=%q\nGH=%q\n' "$T/finish" "$GH_STUB"
     printf 'source %q\n' "$RUNTIME/lane-pr.sh"
+    printf 'source %q\n' "$RUNTIME/lane-push.sh"
     cat <<'SH'
 N=1; ITEM=R-fixture; SLUG=fixture; MODE=new; WORKER_TITLE='fix: fixture'
 TIMEDOUT=0; W_MIN=0; COST=0; SWEPT_N=0

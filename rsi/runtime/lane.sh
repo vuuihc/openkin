@@ -6,6 +6,7 @@ set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 source "$RSI_DIR/runtime/lane-pr.sh"
+source "$RSI_DIR/runtime/lane-push.sh"
 CMD="${1:-}"; N="${2:-}"
 
 # A squash-merged (or closed) PR leaves its branch diffing from main, so autofill's fetch/diff
@@ -891,8 +892,17 @@ fi
 [ -n "$RENAME_EV" ] && printf '%s\n' "$RENAME_EV"
 
 # push + PR (normal push only)
-if ! $GIT -C "$WT" push -q -u origin "$BR" 2>"$STATE/lanes/$N.push.err"; then
-  count_fail "lane $N push" "$(tail -c 150 "$STATE/lanes/$N.push.err")"; finish failed "" "push failed"; exit 1
+# A transient transport failure must not throw away a finished round; git_push_retry retries
+# and looks at the remote head before pushing again (see lane-push.sh). A final failure leaves
+# the round committed and unpushed: mark it delivered-unpushed, record the recovery line for a
+# person, and charge no count_fail — a TLS blip is not a runner failure.
+if ! git_push_retry "$GIT" "$WT" "$BR" "$STATE/lanes/$N.push.err"; then
+  PUSH_SHA="$($GIT -C "$WT" rev-parse HEAD 2>/dev/null || true)"
+  PUSH_NOTE="$(unpushed_note "$BR" "${PUSH_SHA:-unknown}" "$WT")"
+  printf '%s\n' "$PUSH_NOTE" > "$STATE/lanes/$N.push.txt"
+  printf '%s\n' "$PUSH_NOTE"
+  finish delivered-unpushed "" "push failed after ${RSI_PUSH_ATTEMPTS_USED:-3} attempt(s): branch $BR at ${PUSH_SHA:-unknown} is committed and unpushed; recovery: git -C $WT push -u origin $BR"
+  exit 1
 fi
 PRN="$($GH pr list --repo "$GH_REPO" --head "$BR" --state open --json number --jq '.[0].number' 2>/dev/null)"
 if [ -z "$PRN" ]; then
