@@ -316,17 +316,13 @@
       "file": "docs/product/stories/KIN-PROJECT-001.md",
       "surface": "Mac 项目封面 / 手机项目封面",
       "ownerPaths": [
-        "ui/src/pages/ProjectDetailPage.tsx",
         "ui/src/lib/projectChats.ts",
         "ui/src/lib/onePagerSummary.ts",
         "ui/src/lib/projectCoverCache.ts",
         "ui/src/lib/projectScroll.ts",
-        "ui/src/components/project/Heatmap.tsx",
         "ui/src/components/sessions/SessionList.tsx"
       ],
       "tests": [
-        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
-        "ui/src/pages/projectChatsWiring.test.ts",
         "ui/src/lib/projectChats.test.ts",
         "ui/src/lib/onePagerSummary.test.ts",
         "ui/src/lib/projectCoverCache.test.ts",
@@ -470,7 +466,6 @@
         "ui/src/components/mobile/SessionsHeader.tsx",
         "ui/src/pages/SessionsPage.tsx",
         "ui/src/pages/StartRoute.tsx",
-        "ui/src/pages/ProjectDetailPage.tsx",
         "ui/src/pages/RoutinesPage.tsx",
         "ui/src/pages/SettingsPage.tsx",
         "ui/src/lib/phoneBack.ts",
@@ -488,7 +483,6 @@
         "ui/src/pages/macKeyboardWiring.test.ts",
         "ui/src/pages/SettingsPage.leaveGuard.dom.test.tsx",
         "ui/src/pages/settingsTabsWiring.test.ts",
-        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
         "ui/src/pages/AgentSessionDetailPage.dom.test.tsx"
       ],
       "blockedReason": null
@@ -567,17 +561,13 @@
       "file": "docs/product/stories/KIN-PROJECT-002.md",
       "surface": "Mac / 手机 项目封面 · 工作目录块",
       "ownerPaths": [
-        "ui/src/pages/ProjectDetailPage.tsx",
-        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
         "internal/api/projects.go",
         "internal/store/projects.go",
-        "ui/src/components/project/ProjectRootsBlock.tsx",
         "ui/src/lib/projectRoots.ts"
       ],
       "tests": [
         "ui/src/lib/projectRoots.test.ts",
         "ui/src/lib/projectChats.test.ts",
-        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
         "internal/store/projects_test.go",
         "scripts/journeys_walk_test.py"
       ],
@@ -600,18 +590,14 @@
       "ownerPaths": [
         "internal/store/onepager.go",
         "internal/api/projects.go",
-        "ui/src/pages/ProjectDetailPage.tsx",
-        "ui/src/components/project/ProjectOnePager.tsx",
         "ui/src/pages/NewChatPage.tsx",
         "ui/src/i18n/locales/en.ts",
         "ui/src/i18n/locales/zh.ts",
-        "ui/src/components/project/ProjectInstructionsBlock.tsx",
         "ui/src/lib/projectInstructions.ts"
       ],
       "tests": [
         "internal/store/onepager_test.go",
         "internal/api/projects_test.go",
-        "ui/src/components/project/ProjectInstructionsBlock.dom.test.tsx",
         "ui/src/lib/projectInstructions.test.ts",
         "scripts/journeys_walk_test.py",
         "scripts/journeys_seed_test.py",

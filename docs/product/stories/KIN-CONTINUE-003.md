@@ -196,3 +196,4 @@
 - 2026-11-14 取代 `KIN-CONTINUE-002` 和 `NAVIGATION.md` 手机目的地模型；将项目提升为一级集合而不是取消项目封面能力。
 - 2026-11-17 签字并登记测试（CEO 代签，授权见 rsi/DECISIONS.md）；Astryx 计划 62/62 已合并，四区导航与其测试在 main。
 - 2026-11-19 J1–J7 在 390×844 / 1100×760 / 1280×800 走查完成，`hardFail: []`，12 个登记套件全绿；状态改为 covered。同时修正 fake agent 的 `[seed] slow` 保持顺序，使 J3 的等待行窗口确定（断言未放宽）。
+- 2026-11-24 退役封面（KIN-CONTRACT-001，PR #665）：`/projects/:id` 删除，导航合同里的项目目的地改为 `/sessions?project=<id>`（`replace`，不新增历史层）；`ProjectDetailPage.dom.test.tsx` 随页面删除，四区导航的其余部分与测试不变。
