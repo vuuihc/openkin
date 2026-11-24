@@ -33,7 +33,15 @@ const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const DOM_IDENTIFIERS = new Set(["window", "document", "localStorage", "sessionStorage"]);
 
 type ImportRef = { specifier: string; typeOnly: boolean };
-type Closure = { files: Set<string>; aliased: Set<string> };
+type Closure = {
+  files: Set<string>;
+  aliased: Set<string>;
+  /**
+   * Every shared module the walk reached, including the DOM-carrying ones that
+   * were redirected to an adapter. Rule 3 needs the originals to stay honest.
+   */
+  reachedShared: Set<string>;
+};
 
 function repoPath(file: string): string {
   return path.relative(REPO_ROOT, file).split(path.sep).join("/");
@@ -167,6 +175,7 @@ function resolveRelative(fromFile: string, specifier: string): string | null {
 function buildClosure(): Closure {
   const files = new Set<string>();
   const aliased = new Set<string>();
+  const reachedShared = new Set<string>();
   const queue = [
     ...listSources(path.join(MOBILE_ROOT, "app")),
     ...listSources(path.join(MOBILE_ROOT, "src")),
@@ -200,11 +209,16 @@ function buildClosure(): Closure {
         continue;
       }
       if (target.endsWith(".json")) continue;
-      queue.push(target);
+      const sharedRel = repoPath(target);
+      if (sharedRel.startsWith("ui/")) reachedShared.add(sharedRel);
+      // A shared module with an adapter is resolved to that adapter instead:
+      // the RN bundle must never load the browser module (ADR 0036 §2).
+      const adapter = SHARED_ADAPTERS[sharedRel];
+      queue.push(adapter ? path.join(REPO_ROOT, adapter) : target);
     }
   }
 
-  return { files, aliased };
+  return { files, aliased, reachedShared };
 }
 
 const domCache = new Map<string, string[]>();
@@ -239,7 +253,9 @@ function isAdrNamedSharedModule(rel: string): boolean {
     rel === "ui/src/api/generated/openapi.ts" ||
     rel === "ui/src/i18n/locales/en.ts" ||
     rel === "ui/src/i18n/locales/zh.ts" ||
+    rel === "ui/src/i18n/index.ts" ||
     rel === "ui/src/components/chat/transcriptProjection.ts" ||
+    rel === "ui/src/components/chat/eventMeta.ts" ||
     rel.startsWith("ui/src/lib/")
   );
 }
@@ -250,17 +266,22 @@ const ADR_NAMED_PATHS = [
   "ui/src/api/generated/openapi.ts",
   "ui/src/i18n/locales/en.ts",
   "ui/src/i18n/locales/zh.ts",
+  "ui/src/i18n/index.ts",
   "ui/src/components/chat/transcriptProjection.ts",
+  "ui/src/components/chat/eventMeta.ts",
   "ui/src/lib/",
 ];
 
 /**
  * ADR 0036 §2 adapters: shared module -> the one RN adapter that replaces it.
- * R1 imports only DOM-free shared modules, so none are needed yet. A module
- * that starts carrying a DOM reference must be added here (and to the ADR) or
- * the third test below turns red.
+ * The transcript projection reaches `ui/src/i18n/index.ts` for its labels; R4
+ * therefore adds the i18n adapter that R2b defined. A module that starts
+ * carrying a DOM reference must be added here (and to the ADR) or the third
+ * test below turns red.
  */
-const SHARED_ADAPTERS: Record<string, string> = {};
+const SHARED_ADAPTERS: Record<string, string> = {
+  "ui/src/i18n/index.ts": "mobile-rn/src/i18n.ts",
+};
 
 const closure = buildClosure();
 const closureByRepoPath = new Map(
@@ -292,17 +313,18 @@ describe("KIN-MOBILE-001 R1 shared-import contract", () => {
     expect(unnamed).toEqual([]);
   });
 
-  it("KIN-MOBILE-001: adapter aliases equal the DOM-carrying shared modules", () => {
+  it("KIN-MOBILE-001: an alias cannot paper over a DOM reference", () => {
     const adr = fs.readFileSync(ADR_PATH, "utf8");
-    const domShared = [...closure.files]
-      .filter((file) => repoPath(file).startsWith("ui/") && domReferences(file).length > 0)
-      .map(repoPath)
-      .sort();
-    const adapters = Object.keys(SHARED_ADAPTERS).sort();
 
-    expect(adapters).toEqual(domShared);
+    // Every DOM-carrying shared module the walk reached must be redirected to
+    // an adapter; nothing else may be.
+    const domShared = [...closure.reachedShared]
+      .filter((rel) => domReferences(path.join(REPO_ROOT, rel)).length > 0)
+      .sort();
+    expect(Object.keys(SHARED_ADAPTERS).sort()).toEqual(domShared);
 
     for (const [shared, adapter] of Object.entries(SHARED_ADAPTERS)) {
+      expect(closure.reachedShared.has(shared)).toBe(true);
       expect(fs.existsSync(path.join(REPO_ROOT, adapter))).toBe(true);
       expect(adr).toContain(shared);
       expect(adr).toContain(adapter);

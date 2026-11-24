@@ -66,7 +66,14 @@ test, is:
 | `ui/src/api/generated/openapi.ts` | generated types/constants only |
 | `ui/src/i18n/locales/en.ts`, `ui/src/i18n/locales/zh.ts` | locale data; `t()` lives elsewhere |
 | `ui/src/components/chat/transcriptProjection.ts` | no direct DOM reference; its i18n import is the adapter seam below (`ui/src/components/chat/transcriptProjection.ts:1-17`) |
+| `ui/src/components/chat/eventMeta.ts` | canonical speaker/phase decoding used by the projection; type-only imports, no DOM reference |
 | DOM-free files under `ui/src/lib/**` | e.g. `ui/src/lib/attachments.ts`, `ui/src/lib/friendlyError.ts`, `ui/src/lib/needsYou.ts` |
+
+R4 reaches the projection's real closure, not just the file: `eventMeta.ts`,
+`lib/attachments.ts`, `lib/friendlyError.ts`, `lib/roundEvidence.ts`,
+`lib/changedFiles.ts`, `lib/diffPreview.ts`, and `lib/eventStream.ts` (the seq
+cursor the phone's reconnect uses). Only its `ui/src/i18n/index.ts` import
+carries a browser global, and that is Adapter 1 below.
 
 The command that backs the table (no output is the proof):
 
@@ -74,7 +81,8 @@ The command that backs the table (no output is the proof):
 rg -n "window\.|document\.|localStorage|sessionStorage|react-dom" \
   ui/src/api/contract.ts ui/src/api/generated/openapi.ts \
   ui/src/i18n/locales/en.ts ui/src/i18n/locales/zh.ts \
-  ui/src/components/chat/transcriptProjection.ts
+  ui/src/components/chat/transcriptProjection.ts \
+  ui/src/components/chat/eventMeta.ts ui/src/lib/eventStream.ts
 ```
 
 `ui/src/lib/**` is not a hand list: R1's test walks the actual import closure of every module RN
