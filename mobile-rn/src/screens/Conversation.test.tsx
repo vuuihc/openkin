@@ -145,6 +145,7 @@ function ok(body: unknown, status = 200): Response {
 
 type Reply = { status?: number; body: unknown };
 type Router = (url: string, init?: RequestInit) => Reply | Promise<Reply>;
+type RecordedCall = { url: string; init: RequestInit };
 
 function routedFetch(route: Router): typeof fetch {
   return jest.fn(async (input: string, init?: RequestInit) => {
@@ -152,6 +153,59 @@ function routedFetch(route: Router): typeof fetch {
     return ok(reply.body, reply.status ?? 200);
   }) as unknown as typeof fetch;
 }
+
+/**
+ * The recording variant: every request's url and init, so a composer case can
+ * assert the exact prompt or cancel the model posted — and that a queued or
+ * withdrawn message posted nothing.
+ */
+function recordingFetch(
+  route: Router,
+  calls: RecordedCall[] = [],
+): { fetchImpl: typeof fetch; calls: RecordedCall[] } {
+  const impl = jest.fn(async (input: string, init?: RequestInit) => {
+    calls.push({ url: input, init: init ?? {} });
+    const reply = await route(input, init);
+    return ok(reply.body, reply.status ?? 200);
+  });
+  return { fetchImpl: impl as unknown as typeof fetch, calls };
+}
+
+/** The node-wide pending lists are empty in every composer case. */
+function noPending(url: string): Reply | undefined {
+  if (url.endsWith("/api/approvals?status=pending")) return { body: [] };
+  if (url.endsWith("/api/user-questions?status=pending")) return { body: [] };
+  return undefined;
+}
+
+function promptCalls(calls: RecordedCall[]): RecordedCall[] {
+  return calls.filter((call) =>
+    call.url.endsWith(`/api/tasks/${TASK_ID}/prompt`),
+  );
+}
+
+function cancelCalls(calls: RecordedCall[]): RecordedCall[] {
+  return calls.filter((call) =>
+    call.url.endsWith(`/api/tasks/${TASK_ID}/cancel`),
+  );
+}
+
+// A round still going: no `result` has closed it, so the projection has a
+// round the stop control can end.
+const RUNNING_HISTORY: TaskEvent[] = [
+  event(1, "message", {
+    speaker: "user",
+    role: "user",
+    content: "run the tests",
+    visibility: { user: true, task: true },
+  }),
+  event(2, "task_started"),
+  event(3, "message", {
+    speaker: "kin",
+    content: "working on it",
+    visibility: { user: true, task: true },
+  }),
+];
 
 function storedSession(): Promise<Session | null> {
   return Promise.resolve({ origin: ORIGIN, token: TOKEN });
@@ -300,5 +354,227 @@ describe("KIN-MOBILE-001 R4 conversation", () => {
 
     await fireEvent.press(control);
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("KIN-MOBILE-001 R4: the composer sends the typed message and clears the draft", async () => {
+    let accepted = false;
+    const route: Router = (url) => {
+      const pending = noPending(url);
+      if (pending) return pending;
+      if (url.endsWith(`/api/tasks/${TASK_ID}/prompt`)) {
+        accepted = true;
+        return { body: task({ status: "running" }) };
+      }
+      if (url.endsWith("/events")) {
+        return {
+          body: accepted
+            ? [
+                ...HISTORY,
+                event(9, "message", {
+                  speaker: "user",
+                  role: "user",
+                  content: "also check the lint",
+                  visibility: { user: true, task: true },
+                }),
+              ]
+            : HISTORY,
+        };
+      }
+      return { body: task({ status: accepted ? "running" : "succeeded" }) };
+    };
+    const first = recordingFetch(route);
+    const screen = await renderConversation({ fetchImpl: first.fetchImpl });
+    await waitFor(() => expect(screen.getByText("all green")).toBeTruthy());
+
+    await fireEvent.changeText(
+      screen.getByTestId("conversation:composer"),
+      "also check the lint",
+    );
+    await fireEvent.press(screen.getByTestId("conversation:send"));
+
+    await waitFor(() => expect(promptCalls(first.calls)).toHaveLength(1));
+    const post = promptCalls(first.calls)[0];
+    expect(post.init.method).toBe("POST");
+    expect(post.init.body).toBe(
+      JSON.stringify({ prompt: "also check the lint" }),
+    );
+    // The words left the composer as they went to the model.
+    expect(screen.getByTestId("conversation:composer").props.value).toBe("");
+
+    // The model publishes the accepted turn (a fresh read of the task); the
+    // message is on screen and the draft stays empty across that publish.
+    screen.rerender(
+      <ConversationScreen
+        fetchImpl={recordingFetch(route, first.calls).fetchImpl}
+        onBack={jest.fn()}
+        readSessionImpl={storedSession}
+        taskId={TASK_ID}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText("also check the lint")).toBeTruthy(),
+    );
+    expect(screen.getByTestId("conversation:composer").props.value).toBe("");
+    // One send is one prompt: the publish did not post the text again.
+    expect(promptCalls(first.calls)).toHaveLength(1);
+  });
+
+  it("KIN-MOBILE-001 R4: a send while a round runs is queued, shown, and can be withdrawn", async () => {
+    const route: Router = (url) => {
+      const pending = noPending(url);
+      if (pending) return pending;
+      if (url.endsWith("/events")) return { body: RUNNING_HISTORY };
+      return { body: task({ status: "running" }) };
+    };
+    const { fetchImpl, calls } = recordingFetch(route);
+    const screen = await renderConversation({ fetchImpl });
+    await waitFor(() =>
+      expect(screen.getByText(t("sessions.statusRunning"))).toBeTruthy(),
+    );
+
+    await fireEvent.changeText(
+      screen.getByTestId("conversation:composer"),
+      "then run the lint",
+    );
+    await fireEvent.press(screen.getByTestId("conversation:send"));
+
+    // Queued: visible in the composer, and nothing was posted to the node.
+    await waitFor(() =>
+      expect(screen.getByText("then run the lint")).toBeTruthy(),
+    );
+    expect(promptCalls(calls)).toHaveLength(0);
+    expect(screen.getByTestId("conversation:composer").props.value).toBe("");
+
+    // Withdrawing is local too: the row goes and still nothing was posted.
+    const withdraw = screen.getByTestId(/^conversation:withdraw:/);
+    const style = StyleSheet.flatten(withdraw.props.style);
+    expect(style.minHeight).toBeGreaterThanOrEqual(44);
+    expect(style.minWidth).toBeGreaterThanOrEqual(44);
+    await fireEvent.press(withdraw);
+    await waitFor(() =>
+      expect(screen.queryByText("then run the lint")).toBeNull(),
+    );
+    expect(promptCalls(calls)).toHaveLength(0);
+  });
+
+  it("KIN-MOBILE-001 R4: stopping a running round posts the cancel and the stopped note stays", async () => {
+    let stopped = false;
+    const route: Router = (url) => {
+      const pending = noPending(url);
+      if (pending) return pending;
+      if (url.endsWith(`/api/tasks/${TASK_ID}/cancel`)) {
+        stopped = true;
+        return { body: task({ status: "canceled" }) };
+      }
+      if (url.endsWith("/events")) return { body: RUNNING_HISTORY };
+      return { body: task({ status: stopped ? "canceled" : "running" }) };
+    };
+    const first = recordingFetch(route);
+    const screen = await renderConversation({ fetchImpl: first.fetchImpl });
+    await waitFor(() =>
+      expect(screen.getByText(t("sessions.statusRunning"))).toBeTruthy(),
+    );
+
+    await fireEvent.press(screen.getByTestId("conversation:stop"));
+
+    await waitFor(() => expect(cancelCalls(first.calls)).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.getByText(t("chat.stoppedNote"))).toBeTruthy(),
+    );
+
+    // The note is the task's durable status, not a transient banner: a later
+    // publish from the model (a fresh read) still has it, and the screen did
+    // not post a second cancel to get it.
+    screen.rerender(
+      <ConversationScreen
+        fetchImpl={recordingFetch(route, first.calls).fetchImpl}
+        onBack={jest.fn()}
+        readSessionImpl={storedSession}
+        taskId={TASK_ID}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("working on it")).toBeTruthy());
+    expect(screen.getByText(t("chat.stoppedNote"))).toBeTruthy();
+    expect(cancelCalls(first.calls)).toHaveLength(1);
+  });
+
+  it("KIN-MOBILE-001 R4: offline keeps the draft, disables sending and says why", async () => {
+    // Every request fails the way a phone with no route fails: the read is
+    // unreachable, so the screen is offline with the pairing sentence.
+    const { fetchImpl, calls } = recordingFetch(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const screen = await renderConversation({ fetchImpl });
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByText(t("pairing.unreachable")).length,
+      ).toBeGreaterThan(0),
+    );
+    // The reason is announced, not only drawn: the view's existing alert.
+    expect(
+      screen
+        .getAllByText(t("pairing.unreachable"))
+        .some((node) => node.props.accessibilityRole === "alert"),
+    ).toBe(true);
+
+    await fireEvent.changeText(
+      screen.getByTestId("conversation:composer"),
+      "keep my words",
+    );
+    const send = screen.getByTestId("conversation:send");
+    expect(send.props.accessibilityState?.disabled).toBe(true);
+    await fireEvent.press(send);
+    expect(promptCalls(calls)).toHaveLength(0);
+
+    // A later publish — the failed re-read behind the retry — does not lose
+    // what the person typed.
+    const reads = (): RecordedCall[] =>
+      calls.filter((call) => call.url.endsWith("/events"));
+    const before = reads().length;
+    // The view's own retry: the approvals section draws one too when every
+    // read failed, and this case is about the thread's.
+    await fireEvent.press(screen.getByTestId("conversation:retry"));
+    await waitFor(() => expect(reads().length).toBeGreaterThan(before));
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation:composer").props.value).toBe(
+        "keep my words",
+      ),
+    );
+    expect(promptCalls(calls)).toHaveLength(0);
+  });
+
+  it("KIN-MOBILE-001 R4: the composer's controls meet the 44pt floor", async () => {
+    const onSend = jest.fn();
+    const onStop = jest.fn();
+    const onWithdraw = jest.fn();
+    const screen = await render(
+      <ConversationView
+        onBack={jest.fn()}
+        onSend={onSend}
+        onStop={onStop}
+        onWithdraw={onWithdraw}
+        state={readyState({
+          running: true,
+          sendQueue: [{ id: "q1", text: "a follow-up" }],
+        })}
+        t={t}
+      />,
+    );
+
+    for (const testID of [
+      "conversation:send",
+      "conversation:stop",
+      "conversation:withdraw:q1",
+    ]) {
+      const style = StyleSheet.flatten(screen.getByTestId(testID).props.style);
+      expect(style.minHeight).toBeGreaterThanOrEqual(44);
+      expect(style.minWidth).toBeGreaterThanOrEqual(44);
+    }
+
+    await fireEvent.press(screen.getByTestId("conversation:stop"));
+    expect(onStop).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByTestId("conversation:withdraw:q1"));
+    expect(onWithdraw).toHaveBeenCalledWith("q1");
   });
 });
