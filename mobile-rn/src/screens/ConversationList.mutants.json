@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the conversation row drops below the signed 44pt touch floor (R-rn-list-2)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "    borderBottomWidth: StyleSheet.hairlineWidth,\n    height: ROW_HEIGHT,\n    justifyContent: \"center\",\n    minHeight: ROW_MIN_HEIGHT,",
+    "new": "    borderBottomWidth: StyleSheet.hairlineWidth,\n    height: 40,\n    justifyContent: \"center\",\n    minHeight: 30,",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 R3: every row is at least a 44pt target\""
+  },
+  {
+    "label": "the pending badge stops drawing, so waiting approvals go unspoken (R-rn-list-2)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "              {row.pending > 0 ? (",
+    "new": "              {false ? (",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 R3: a row with two pending items shows 2 with a spoken label\""
+  }
+]
