@@ -273,7 +273,10 @@ export function createThread(options: ThreadOptions): Thread {
     const loadedTask = snapshot.task;
     task = loadedTask;
     events = snapshot.events;
-    epoch = events.reduce((max, event) => Math.max(max, event.event_epoch), -1);
+    // The task row carries the current epoch (`event_epoch >= 0` in the
+    // contract). Deriving it from the events alone left `-1` on an empty
+    // history, so a gap-fill filtered out every real epoch-0 event.
+    epoch = loadedTask?.event_epoch ?? 0;
     publish({
       status: "ready",
       turns: projectThread(events, loadedTask, state.turns),
@@ -304,31 +307,65 @@ export function createThread(options: ThreadOptions): Thread {
     // Nothing new: do not repaint a transcript that is already correct.
     if (merged.length === events.length) return;
     events = merged;
-    publish({ turns: projectThread(events, task, state.turns) });
+    // A recovered `result` is the round's durable end even when the live
+    // stream skipped it: settle the task row before projecting (the shared
+    // projection folds the settled process card on that status), stop the
+    // round, and let the queue send its next item. The last recovered result
+    // is the round end that matters when the catch-up spans several rounds.
+    const ended = incoming.reduce<TaskEvent | undefined>(
+      (found, event) => (event.type === "result" ? event : found),
+      undefined,
+    );
+    if (ended && task) {
+      task = {
+        ...task,
+        status: ended.payload.is_error === true ? "failed" : "succeeded",
+      };
+    }
+    publish({
+      turns: projectThread(events, task, state.turns),
+      ...(ended ? { running: false } : {}),
+    });
+    if (ended) void flushQueue();
   };
 
   const recoverGap = (afterSeq: number): Promise<void> => {
     if (recovering) return recovering;
     const myGeneration = generation;
-    recovering = applyGapFill(afterSeq, myGeneration).finally(() => {
-      recovering = null;
+    const pending = applyGapFill(afterSeq, myGeneration).finally(() => {
+      // Only the repair still in the slot may clear it: an epoch bump or a
+      // newer gap may already have put a fresh catch-up there.
+      if (recovering === pending) recovering = null;
     });
-    return recovering;
+    recovering = pending;
+    return pending;
   };
 
   const applyEvent = (event: TaskEvent): void => {
     if (event.task_id !== taskId) return;
     if (event.event_epoch < epoch) return;
     if (event.event_epoch > epoch) {
-      // A retry rewrote the tail: earlier seqs no longer mean what they did.
+      // A retry rewrote the tail: earlier seqs no longer mean what they did,
+      // and a repair still fetching the old epoch must not answer for the new
+      // one, so drop it from the slot before the next gap asks.
       epoch = event.event_epoch;
       events = [];
+      recovering = null;
     }
     const cursor = highestContiguousSeq(events);
     const merged = mergeEventsBySeq(events, [event]);
     if (merged.length === events.length) return; // duplicate seq
     events = merged;
     const roundEnded = event.type === "result" || event.type === "error";
+    if (event.type === "result" && task) {
+      // The task row is the durable fact the shared projection folds a settled
+      // process card on; leaving it at `running` kept the card open after the
+      // round's own `result` arrived.
+      task = {
+        ...task,
+        status: event.payload.is_error === true ? "failed" : "succeeded",
+      };
+    }
     publish({
       turns: projectThread(events, task, state.turns),
       ...(roundEnded ? { running: false } : {}),
@@ -401,10 +438,16 @@ export function createThread(options: ThreadOptions): Thread {
           return;
         }
         task = result.data;
+        const running = !isTerminalStatus(result.data.status);
         publish({
           sendQueue: state.sendQueue.filter((queued) => queued.id !== item.id),
-          running: !isTerminalStatus(result.data.status),
+          running,
         });
+        // One prompt per round: an accepted prompt opens a new round, so the
+        // rest of the queue waits for that round's `result` (which flushes
+        // this loop again). Draining it here sent several prompts into one
+        // round and raced a concurrent `send` past the queue.
+        if (running) return;
       }
     } finally {
       flushing = false;
@@ -425,7 +468,14 @@ export function createThread(options: ThreadOptions): Thread {
 
     async start() {
       const next = await read();
-      if (next.status === "ready") startStream();
+      if (next.status === "ready") {
+        // `start()` is also the retry after the stream gave up: the dead
+        // TaskStream is still in the slot, so `startStream` would return
+        // early and no new events would ever arrive. Replace it.
+        stream?.stop();
+        stream = null;
+        startStream();
+      }
       return state;
     },
 
@@ -433,7 +483,9 @@ export function createThread(options: ThreadOptions): Thread {
       const trimmed = text.trim();
       if (!trimmed) return { ok: false, reason: "empty" };
       if (state.banner === "offline") return { ok: false, reason: "offline" };
-      if (state.running) {
+      // A queue that still holds items (a failed flush keeps them) must keep
+      // its order: a direct post here would jump ahead of the queue.
+      if (state.running || flushing || state.sendQueue.length > 0) {
         publish({ sendQueue: [...state.sendQueue, { id: newId(), text: trimmed }] });
         return { ok: true, queued: true };
       }
