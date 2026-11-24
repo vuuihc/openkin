@@ -180,7 +180,9 @@ export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const listeners = new Set<(state: ApprovalsState) => void>();
   const controllers = new Set<AbortController>();
-  const inFlight = new Set<string>();
+  // Keyed by card so a replaced list can abort only its own kind's requests,
+  // and a settlement removes only the request it still owns.
+  const inFlight = new Map<string, AbortController>();
   let state: ApprovalsState = {
     status: "idle",
     items: [],
@@ -194,6 +196,11 @@ export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
   // strand a card in `submitting` (AGENTS.md §11 and the "never stuck" rule).
   let approvalRevision = 0;
   let questionRevision = 0;
+  // Monotonic revision bumped when a decision or answer resolves a card. A
+  // list read that began before that moment carries an older snapshot and must
+  // not re-pend the card (AGENTS.md §11).
+  let mutationRevision = 0;
+  const resolutionRevisions = new Map<string, number>();
   let disposed = false;
 
   function publish(next: ApprovalsState): void {
@@ -255,9 +262,40 @@ export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
     publish({ ...state, items, pendingCount: countPending(items) });
   }
 
+  // A replaced list owns its cards: a decision or answer still pending against
+  // the old list is aborted, so the fresh card is actionable at once instead
+  // of being blocked as `busy` by a superseded request (AGENTS.md §11).
+  function abortReplaced(prefix: "approval:" | "question:"): void {
+    for (const [key, controller] of [...inFlight]) {
+      if (!key.startsWith(prefix)) continue;
+      inFlight.delete(key);
+      controller.abort();
+    }
+  }
+
+  // The cards a replacement list must carry: entries resolved after the read
+  // began, whose server snapshot predates the decision. Records older than the
+  // read are dropped; no later read can consult them.
+  function carriedAfter<T extends PendingEntry>(
+    kept: T[],
+    prefix: "approval:" | "question:",
+    startedAt: number,
+  ): Map<string, T> {
+    const carried = new Map<string, T>();
+    for (const item of kept) {
+      const revision = resolutionRevisions.get(item.key);
+      if (revision !== undefined && revision > startedAt) carried.set(item.key, item);
+    }
+    for (const [key, revision] of [...resolutionRevisions]) {
+      if (revision <= startedAt && key.startsWith(prefix)) resolutionRevisions.delete(key);
+    }
+    return carried;
+  }
+
   async function load(): Promise<ApprovalsState> {
     if (disposed) return state;
     const call = ++loadCalls;
+    const startedAt = mutationRevision;
     const controller = new AbortController();
     controllers.add(controller);
     publish({ ...state, status: "loading", error: undefined });
@@ -281,15 +319,25 @@ export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
     );
 
     // A failed read keeps that kind's already-read items (the signed row says
-    // a disconnect must not erase what the person has seen).
-    const approvalItems =
-      approvals.ok && Array.isArray(approvals.data)
-        ? approvals.data.map(fromApproval)
-        : keptApprovals;
-    const questionItems =
-      questions.ok && Array.isArray(questions.data)
-        ? questions.data.map(fromQuestion)
-        : keptQuestions;
+    // a disconnect must not erase what the person has seen). A successful one
+    // replaces them, except for cards resolved while this read was on the
+    // wire: that snapshot predates the decision (AGENTS.md §11).
+    let approvalItems: ApprovalEntry[] = keptApprovals;
+    if (approvals.ok && Array.isArray(approvals.data)) {
+      abortReplaced("approval:");
+      const carried = carriedAfter(keptApprovals, "approval:", startedAt);
+      approvalItems = approvals.data
+        .map(fromApproval)
+        .map((item) => carried.get(item.key) ?? item);
+    }
+    let questionItems: QuestionEntry[] = keptQuestions;
+    if (questions.ok && Array.isArray(questions.data)) {
+      abortReplaced("question:");
+      const carried = carriedAfter(keptQuestions, "question:", startedAt);
+      questionItems = questions.data
+        .map(fromQuestion)
+        .map((item) => carried.get(item.key) ?? item);
+    }
 
     const items: PendingEntry[] = [
       ...approvalItems.sort((a, b) => b.createdAt - a.createdAt),
@@ -353,7 +401,7 @@ export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
     const { revision } = gate;
     const controller = new AbortController();
     controllers.add(controller);
-    inFlight.add(key);
+    inFlight.set(key, controller);
     patchEntry(key, { phase: "submitting", failure: undefined, resolution: undefined });
 
     const payload: ApprovalDecisionRequest = { decision };
@@ -364,7 +412,9 @@ export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
       signal: controller.signal,
     });
     controllers.delete(controller);
-    inFlight.delete(key);
+    // A replaced list may have already aborted and cleared this card; only the
+    // owner of the current mapping may remove it.
+    if (inFlight.get(key) === controller) inFlight.delete(key);
 
     // The list that showed this card is gone: its answer must not resurrect it.
     if (disposed || approvalRevision !== revision) {
@@ -380,6 +430,8 @@ export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
     if (!current || current.kind !== "approval") {
       return { ok: false, reason: "stale" };
     }
+    mutationRevision += 1;
+    resolutionRevisions.set(key, mutationRevision);
     const decided = outcome.data ?? current.approval;
     patchEntry(key, {
       phase: "resolved",
@@ -399,7 +451,7 @@ export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
     const { revision } = gate;
     const controller = new AbortController();
     controllers.add(controller);
-    inFlight.add(key);
+    inFlight.set(key, controller);
     patchEntry(key, { phase: "submitting", failure: undefined, resolution: undefined });
 
     // The web console's answer body: an option list plus free text. R5's core
@@ -412,7 +464,7 @@ export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
       signal: controller.signal,
     });
     controllers.delete(controller);
-    inFlight.delete(key);
+    if (inFlight.get(key) === controller) inFlight.delete(key);
 
     if (disposed || questionRevision !== revision) {
       return { ok: false, reason: "stale" };
@@ -427,6 +479,8 @@ export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
     if (!current || current.kind !== "question") {
       return { ok: false, reason: "stale" };
     }
+    mutationRevision += 1;
+    resolutionRevisions.set(key, mutationRevision);
     patchEntry(key, {
       phase: "resolved",
       pending: false,
@@ -458,6 +512,7 @@ export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
       for (const controller of controllers) controller.abort();
       controllers.clear();
       inFlight.clear();
+      resolutionRevisions.clear();
       listeners.clear();
     },
   };

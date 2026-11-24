@@ -286,6 +286,94 @@ describe("KIN-MOBILE-001 R5 approvals and questions", () => {
     expect(round).toBe(2);
   });
 
+  it("KIN-MOBILE-001 R5: a reload makes its card actionable before the superseded decision settles", async () => {
+    const superseded = deferred<Response>();
+    const posts: string[] = [];
+    let rounds = 0;
+    const { fetchImpl } = listRouter(
+      [],
+      [],
+      (url) => {
+        if (url === ORIGIN + pendingApprovalsPath) {
+          rounds += 1;
+          return jsonResponse(200, [approval("a1")]);
+        }
+        if (url === ORIGIN + pendingQuestionsPath) return jsonResponse(200, []);
+        if (url === ORIGIN + approvalDecisionPath("a1")) {
+          posts.push(url);
+          return posts.length === 1
+            ? superseded.promise
+            : jsonResponse(200, { ...approval("a1"), decision: "approved" });
+        }
+        return undefined;
+      },
+    );
+    const model = modelWith(fetchImpl);
+    await model.load();
+
+    const first = model.approve("a1");
+    expect(entryOf(model, "a1").phase).toBe("submitting");
+
+    // The screen reloads while the superseded decision is still on the wire.
+    // The replacement card is idle, not blocked as `busy` by the older request.
+    await model.load();
+    expect(entryOf(model, "a1").phase).toBe("idle");
+
+    const second = model.approve("a1");
+    await expect(second).resolves.toMatchObject({ ok: true });
+    expect(posts).toHaveLength(2);
+    expect(entryOf(model, "a1").phase).toBe("resolved");
+
+    // The superseded request settles late; its answer belongs to the old list.
+    superseded.resolve(
+      jsonResponse(200, { ...approval("a1"), decision: "approved" }),
+    );
+    await expect(first).resolves.toEqual({ ok: false, reason: "stale" });
+    expect(entryOf(model, "a1").phase).toBe("resolved");
+    expect(model.getState().pendingCount).toBe(0);
+    expect(rounds).toBe(2);
+  });
+
+  it("KIN-MOBILE-001 R5: a stale list read keeps a card decided while it was on the wire", async () => {
+    const stale = deferred<Response>();
+    let rounds = 0;
+    const { fetchImpl } = listRouter(
+      [],
+      [],
+      (url) => {
+        if (url === ORIGIN + pendingApprovalsPath) {
+          rounds += 1;
+          // The second read is the snapshot taken before the decision.
+          return rounds === 1 ? jsonResponse(200, [approval("a1")]) : stale.promise;
+        }
+        if (url === ORIGIN + pendingQuestionsPath) return jsonResponse(200, []);
+        if (url === ORIGIN + approvalDecisionPath("a1")) {
+          return jsonResponse(200, { ...approval("a1"), decision: "approved" });
+        }
+        return undefined;
+      },
+    );
+    const model = modelWith(fetchImpl);
+    await model.load();
+
+    // A reload starts first; the decision lands while its GET is on the wire.
+    const refreshing = model.load();
+    await expect(model.approve("a1")).resolves.toMatchObject({ ok: true });
+    expect(entryOf(model, "a1").phase).toBe("resolved");
+    expect(model.getState().pendingCount).toBe(0);
+
+    // The older snapshot still lists a1 as pending: it must not re-pend the
+    // card or restore the count.
+    stale.resolve(jsonResponse(200, [approval("a1")]));
+    await refreshing;
+
+    const card = entryOf(model, "a1");
+    expect(card.phase).toBe("resolved");
+    expect(card.pending).toBe(false);
+    expect(card.resolution).toEqual({ kind: "approval", decision: "approved" });
+    expect(model.getState().pendingCount).toBe(0);
+  });
+
   it("KIN-MOBILE-001 R5: answering a question resolves it with the answer and drops the count", async () => {
     const { fetchImpl, calls } = listRouter(
       [],
