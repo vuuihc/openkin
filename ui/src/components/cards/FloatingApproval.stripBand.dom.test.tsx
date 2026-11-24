@@ -91,10 +91,8 @@ function props() {
   };
 }
 
-const bandHeight = () =>
-  document.documentElement.style.getPropertyValue("--approval-strip-height");
-const bandBottom = () =>
-  document.documentElement.style.getPropertyValue("--approval-strip-bottom");
+const bandHeight = () => document.documentElement.style.getPropertyValue("--approval-strip-height");
+const bandBottom = () => document.documentElement.style.getPropertyValue("--approval-strip-bottom");
 
 beforeEach(() => {
   viewport(390, 844);
