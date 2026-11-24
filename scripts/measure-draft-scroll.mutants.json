@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the verdict needs six moving runs, so a three-of-five reading is reported green",
+    "file": "scripts/measure-draft-scroll.mjs",
+    "test": "node scripts/measure-draft-scroll.mjs --self-check",
+    "old": "    if (moved.length >= 3) {",
+    "new": "    if (moved.length >= 6) {"
+  },
+  {
+    "label": "the 48 px bar is loosened to 480, so a 49 px jump passes as still",
+    "file": "scripts/measure-draft-scroll.mjs",
+    "test": "node scripts/measure-draft-scroll.mjs --self-check",
+    "old": "const MOVE_LIMIT = 48;",
+    "new": "const MOVE_LIMIT = 480;"
+  }
+]
