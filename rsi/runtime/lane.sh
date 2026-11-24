@@ -136,8 +136,20 @@ write_worker_brief() { # prints the header dispatch.sh receives; reads ITEM MODE
 # code as it stood there, so an edit to an already-covered file (lane.sh, merge.sh, ux/walk.mjs)
 # would otherwise hand off with no mutant for its new guard. Only manifests this branch adds or
 # modifies count and run (2026-11-21 review, major).
+# A branch can also invalidate a pre-existing manifest without touching it: rename or delete a line
+# an entry's `old` names and mutants.py can only report `pattern occurs 0 times`. Three rounds
+# learned that from the gate or the reviewer (panel-topmost-165641: walk-mutant.json's J7 anchor
+# after a UI rename; quality-reading-surface-192923; uxcooldown-hold-042926: entries mutating
+# deleted lines), so every tracked manifest is validated against this branch's changed-or-deleted
+# files, before the SKIP return below. The moved file need not be loop code — walk-mutant.json
+# mutates the UI — which is why the per-branch rule alone could not see it. Validation only: a
+# pre-existing manifest's tests are not run here, so this adds no gate minutes. An anchor already
+# broken at the branch point is pre-existing debt and is skipped: charging it to a lane that only
+# touched the file would add the rework round this seam exists to remove (measured 2026-11-24:
+# 8 zero-count and 3 multi-count anchors on main). Unparseable pre-existing manifests are likewise
+# ignored; the branch-manifest rule below still fails closed.
 mutant_evidence_check() { # <worktree> — prints one verdict line; 0 = ok/skip, 1 = red/missing
-  local wt="$1" base changed manifests
+  local wt="$1" base changed manifests touched all_manifests rc
   [ -d "$wt" ] || { echo "MUTANT_EVIDENCE_RED: $wt · worktree not found"; return 1; }
   # A guard that cannot read the branch point would silently see no changes; fail closed instead.
   "$GIT" -C "$wt" rev-parse --verify -q origin/main >/dev/null 2>&1 \
@@ -154,6 +166,74 @@ mutant_evidence_check() { # <worktree> — prints one verdict line; 0 = ok/skip,
       | grep -vE '^rsi/runtime/(tests|runs|prompts)/|^rsi/runtime/ux/journeys/|^rsi/state/' \
       | grep -v '\.mutants\.json$' || true
   )"
+  # Anchor validation for pre-existing manifests: every tracked manifest's entries whose `file` this
+  # branch changed or deleted must still hold exactly one occurrence of `old`. Deletions count here
+  # (no --diff-filter=d), because a deleted file is the loudest stale anchor. An anchor already
+  # stale at the branch point is pre-existing debt, not this branch's edit, and is skipped.
+  touched="$(
+    { "$GIT" -C "$wt" diff --name-only "$base" 2>/dev/null
+      "$GIT" -C "$wt" ls-files --others --exclude-standard 2>/dev/null
+    } | LC_ALL=C sort -u
+  )"
+  if [ -n "$touched" ]; then
+    # The three conventions the repo uses: *.mutants.json, *-mutant.json (walk-mutant.json) and
+    # */mutants.json (probe/**). -z keeps a path with spaces in one piece.
+    all_manifests="$(
+      "$GIT" -C "$wt" ls-files -z 2>/dev/null | tr '\0' '\n' \
+        | grep -E '(\.mutants\.json|-mutant\.json|/mutants\.json)$' || true
+    )"
+    rc=0
+    MUTANT_TOUCHED="$touched" MUTANT_ALL_MANIFESTS="$all_manifests" \
+      MUTANT_BASE="$base" MUTANT_GIT="${GIT:-git}" \
+      python3 - "$wt" <<'PY' || rc=$?
+import json, os, subprocess, sys
+
+wt = sys.argv[1]
+touched = {line for line in os.environ.get("MUTANT_TOUCHED", "").splitlines() if line}
+manifests = [line for line in os.environ.get("MUTANT_ALL_MANIFESTS", "").splitlines() if line]
+base = os.environ.get("MUTANT_BASE", "")
+git = os.environ.get("MUTANT_GIT", "git")
+
+def read(path):
+    try:
+        with open(os.path.join(wt, path), encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+base_text = {}
+for m in manifests:
+    try:
+        data = json.loads(read(m) or "")
+        if not isinstance(data, list):
+            raise ValueError
+    except Exception:
+        continue  # pre-existing manifests only; the branch-manifest rule below still fails closed
+    for e in data:
+        if not isinstance(e, dict):
+            continue
+        if not all(isinstance(e.get(k), str) for k in ("file", "old", "new", "test")):
+            continue
+        f = e["file"][2:] if e["file"].startswith("./") else e["file"]
+        if f not in touched:
+            continue
+        if f not in base_text:
+            proc = subprocess.run([git, "-C", wt, "show", f"{base}:{f}"],
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            base_text[f] = proc.stdout.decode("utf-8", "replace") if proc.returncode == 0 else None
+        if base_text[f] is None or base_text[f].count(e["old"]) != 1:
+            continue  # already stale at the branch point: debt, not this branch's edit
+        body = read(f)
+        if body is None:
+            print(f"MUTANT_EVIDENCE_RED: {m} · {f}: file is gone")
+            sys.exit(1)
+        count = body.count(e["old"])
+        if count != 1:
+            print(f"MUTANT_EVIDENCE_RED: {m} · {f}: anchor occurs {count} times")
+            sys.exit(1)
+PY
+    [ "$rc" -eq 0 ] || return 1
+  fi
   if [ -z "$changed" ]; then
     echo "MUTANT_EVIDENCE_SKIP: no loop-code change"
     return 0
