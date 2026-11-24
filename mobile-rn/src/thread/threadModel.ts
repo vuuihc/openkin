@@ -466,7 +466,15 @@ export function createThread(options: ThreadOptions): Thread {
 
     async start() {
       const next = await read();
-      if (next.status === "ready") startStream();
+      if (next.status === "ready") {
+        // A stream that gave up (`offline`) is dead but still in the slot, and
+        // `startStream` returns early on a non-null handle. A retried `start()`
+        // is a fresh subscription: replace the dead stream rather than report
+        // ready with nothing listening.
+        stream?.stop();
+        stream = null;
+        startStream();
+      }
       return state;
     },
 

@@ -10,6 +10,7 @@ import {
   createThread,
   loadThread,
   projectThread,
+  type ThreadOptions,
   type ThreadState,
 } from "./threadModel";
 import type { StreamConnection, StreamSource } from "./stream";
@@ -194,6 +195,7 @@ type FakeStream = {
   source: StreamSource;
   connections: Array<{ push(chunk: string): void; end(): void }>;
   failOpen(): void;
+  allowOpen(): void;
 };
 
 function fakeStream(): FakeStream {
@@ -203,6 +205,9 @@ function fakeStream(): FakeStream {
     connections,
     failOpen() {
       failing = true;
+    },
+    allowOpen() {
+      failing = false;
     },
     source: {
       async open(): Promise<StreamConnection> {
@@ -224,6 +229,23 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 8; i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
+}
+
+/** The live-round model: the one task, the one fake stream, immediate retries. */
+function liveThread(
+  fetchImpl: typeof fetch,
+  source: StreamSource,
+  extra: Partial<ThreadOptions> = {},
+) {
+  return createThread({
+    origin: ORIGIN,
+    token: TOKEN,
+    taskId: TASK_ID,
+    fetchImpl,
+    source,
+    schedule: immediate,
+    ...extra,
+  });
 }
 
 /** Meta keys anywhere in the turns (agent turns hold them in `items`). */
@@ -481,14 +503,7 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
     const fetchImpl = routedFetch((url) =>
       url.endsWith("/events") ? { body: RUNNING } : { body: task() },
     );
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
-    });
+    const model = liveThread(fetchImpl, fake.source);
 
     await model.start();
     await settle();
@@ -516,14 +531,7 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
     const fetchImpl = routedFetch((url) =>
       url.endsWith("/events") ? { body: RUNNING } : { body: task() },
     );
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
-    });
+    const model = liveThread(fetchImpl, fake.source);
 
     await model.start();
     await settle();
@@ -554,14 +562,7 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
       }
       return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
     });
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
-    });
+    const model = liveThread(fetchImpl, fake.source);
 
     await model.start();
     await settle();
@@ -609,14 +610,7 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
       }
       return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
     });
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
-    });
+    const model = liveThread(fetchImpl, fake.source);
 
     await model.start();
     await settle();
@@ -658,14 +652,7 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
       }
       return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
     });
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
-    });
+    const model = liveThread(fetchImpl, fake.source);
 
     await model.start();
     await settle();
@@ -704,14 +691,7 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
       const fetchImpl = routedFetch((url) =>
         url.endsWith("/events") ? { body: openRound } : { body: task() },
       );
-      const model = createThread({
-        origin: ORIGIN,
-        token: TOKEN,
-        taskId: TASK_ID,
-        fetchImpl,
-        source: fake.source,
-        schedule: immediate,
-      });
+      const model = liveThread(fetchImpl, fake.source);
 
       await model.start();
       await settle();
@@ -751,14 +731,7 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
       }
       return { body: task() };
     });
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
-    });
+    const model = liveThread(fetchImpl, fake.source);
 
     await model.start();
     await settle();
@@ -791,14 +764,7 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
       }
       return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
     });
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
-    });
+    const model = liveThread(fetchImpl, fake.source);
 
     await model.start();
     await settle();
@@ -832,14 +798,7 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
       }
       return Promise.resolve(url.endsWith("/events") ? ok(RUNNING) : ok(task()));
     }) as unknown as typeof fetch;
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
-    });
+    const model = liveThread(fetchImpl, fake.source);
 
     await model.start();
     await settle();
@@ -909,14 +868,7 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
       }
       return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
     });
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
-    });
+    const model = liveThread(fetchImpl, fake.source);
 
     await model.start();
     await settle();
@@ -948,14 +900,7 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
       // makes the stopped meta row survive a reload.
       return { body: stopped ? canceled : task() };
     });
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
-    });
+    const model = liveThread(fetchImpl, fake.source);
 
     await model.start();
     await settle();
@@ -988,13 +933,7 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
       // path rather than the suffix: both answers are the same event list.
       return url.includes("/events") ? { body: RUNNING } : { body: task() };
     });
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
+    const model = liveThread(fetchImpl, fake.source, {
       backoff: { baseMs: 1, maxMs: 1, maxAttempts: 1 },
     });
 
@@ -1014,19 +953,54 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
     model.close();
   });
 
+  it("KIN-MOBILE-001 R4: a retried start reopens the stream after it went offline", async () => {
+    const fake = fakeStream();
+    const fetchImpl = routedFetch((url) =>
+      url.includes("/events") ? { body: RUNNING } : { body: task() },
+    );
+    const model = liveThread(fetchImpl, fake.source, {
+      backoff: { baseMs: 1, maxMs: 1, maxAttempts: 1 },
+    });
+
+    await model.start();
+    await settle();
+    expect(fake.connections).toHaveLength(1);
+
+    // The stream gives up for good: the model says offline and keeps the turns.
+    fake.failOpen();
+    fake.connections[0].end();
+    await settle();
+    expect(model.getState().banner).toBe("offline");
+
+    // A retried start is a fresh subscription: the dead stream is replaced, a
+    // second connection opens and the banner clears. Without the replacement,
+    // `startStream` returns early and the model reports ready with no stream.
+    fake.allowOpen();
+    await model.start();
+    await settle();
+    expect(fake.connections).toHaveLength(2);
+    expect(model.getState().banner).toBeNull();
+
+    fake.connections[1].push(
+      frame(
+        event(4, "message", {
+          speaker: "kin",
+          content: "live again",
+          visibility: { user: true, task: true },
+        }),
+      ),
+    );
+    await settle();
+    expect(JSON.stringify(model.getState().turns)).toContain("live again");
+    model.close();
+  });
+
   it("KIN-MOBILE-001 R4: a chunk from a closed stream is dropped", async () => {
     const fake = fakeStream();
     const fetchImpl = routedFetch((url) =>
       url.endsWith("/events") ? { body: RUNNING } : { body: task() },
     );
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
-    });
+    const model = liveThread(fetchImpl, fake.source);
 
     await model.start();
     await settle();
