@@ -80,7 +80,13 @@ function ResumeBand({
 }) {
   return (
     <View style={styles.resumeBand}>
-      <Text accessibilityLiveRegion="polite" style={styles.resumeText}>
+      <Text
+        accessibilityLiveRegion="polite"
+        // Android speaks the polite region; the offline state is also an
+        // alert so iOS announces it and everyone hears the failure once.
+        accessibilityRole={resume.status === "offline" ? "alert" : undefined}
+        style={styles.resumeText}
+      >
         {resume.status === "resuming"
           ? t("app.reconnecting")
           : t("pairing.unreachable")}
@@ -249,19 +255,31 @@ export default function ConversationList({
               <Text style={styles.emptyHint}>{t("sessions.emptyHint")}</Text>
             </>
           ) : state.status === "failed" || state.status === "offline" ? (
-            <>
-              <Text accessibilityRole="alert" style={styles.emptyTitle}>
-                {t("sessions.loadError")}
+            resume ? (
+              // The band already carries the reason and the one retry; with no
+              // cached rows this repeats neither. While the series is still
+              // running the empty screen is loading, not failed (KIN-MOBILE-001
+              // §8: no cache shows a loading state, not an error).
+              <Text style={styles.emptyTitle}>
+                {resume.status === "resuming"
+                  ? t("sessions.loading")
+                  : t("sessions.loadError")}
               </Text>
-              <Text style={styles.emptyHint}>{t(errorKey(state))}</Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={onRefresh}
-                style={styles.retry}
-              >
-                <Text style={styles.retryText}>{t("pairing.retry")}</Text>
-              </Pressable>
-            </>
+            ) : (
+              <>
+                <Text accessibilityRole="alert" style={styles.emptyTitle}>
+                  {t("sessions.loadError")}
+                </Text>
+                <Text style={styles.emptyHint}>{t(errorKey(state))}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={onRefresh}
+                  style={styles.retry}
+                >
+                  <Text style={styles.retryText}>{t("pairing.retry")}</Text>
+                </Pressable>
+              </>
+            )
           ) : null}
         </View>
       }

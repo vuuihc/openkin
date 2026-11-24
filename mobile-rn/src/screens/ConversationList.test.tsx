@@ -232,6 +232,10 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     );
 
     expect(screen.getAllByText("pairing.unreachable")).toHaveLength(1);
+    // The failure is announced, not only drawn (RN's live region is Android-only).
+    expect(screen.getByText("pairing.unreachable").props.accessibilityRole).toBe(
+      "alert",
+    );
     const retry = screen.getByTestId("list-resume-retry");
     expect(retry.props.accessibilityRole).toBe("button");
     const style = StyleSheet.flatten(retry.props.style);
@@ -240,6 +244,31 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
 
     await fireEvent.press(retry);
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("KIN-MOBILE-001 R7: without cached rows the band is the only reason and the only retry", async () => {
+    const onRetry = jest.fn();
+    const offline = await renderList(
+      { status: "offline", groups: [], error: "unreachable" },
+      { resume: { status: "offline", onRetry } },
+    );
+
+    // Empty view + band would otherwise print the same sentence and offer two
+    // different retries (one direct read, one resume series).
+    expect(offline.getAllByText("pairing.unreachable")).toHaveLength(1);
+    expect(offline.getAllByText("pairing.retry")).toHaveLength(1);
+    expect(offline.getByTestId("list-resume-retry")).toBeTruthy();
+    expect(offline.getByText("sessions.loadError")).toBeTruthy();
+
+    const resuming = await renderList(
+      { status: "offline", groups: [], error: "unreachable" },
+      { resume: { status: "resuming", onRetry } },
+    );
+    // No cache while the series is still running is a loading screen, not an
+    // error screen with a control the reader should not press yet.
+    expect(resuming.getByText("sessions.loading")).toBeTruthy();
+    expect(resuming.queryByText("sessions.loadError")).toBeNull();
+    expect(resuming.queryByText("pairing.retry")).toBeNull();
   });
 
   it("KIN-MOBILE-001 R3: fits ten full rows in an 820×1180 screenful", () => {

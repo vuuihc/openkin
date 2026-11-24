@@ -262,6 +262,63 @@ describe("KIN-MOBILE-001 R7 resume on the list route", () => {
     }
   });
 
+  it("KIN-MOBILE-001 R7: a successful pull-to-refresh clears the offline band", async () => {
+    jest.useFakeTimers();
+    try {
+      let calls = 0;
+      let failing = false;
+      const fetchImpl = routedFetch(() => {
+        calls += 1;
+        return failing ? { status: 500, body: {} } : { body: [task()] };
+      });
+      const app = fakeAppState();
+      let clock = 1_000;
+
+      const screen = await renderList({
+        fetchImpl,
+        appState: app.port,
+        now: () => clock,
+      });
+      await waitFor(() =>
+        expect(screen.getByText("First conversation")).toBeTruthy(),
+      );
+
+      failing = true;
+      await act(async () => {
+        app.emit("background");
+      });
+      clock += RESUME_THRESHOLD_MS;
+      await act(async () => {
+        app.emit("active");
+      });
+      for (let i = 0; i < MAX_RESUME_ATTEMPTS; i += 1) {
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(RETRY_CAP_MS);
+        });
+      }
+      expect(screen.getByText(t("pairing.unreachable"))).toBeTruthy();
+
+      // The network is back and the reader pulls the list: one good read is
+      // proof the band's claim (no network / node offline) is no longer true.
+      failing = false;
+      const root = screen.root;
+      if (!root) throw new Error("the list rendered no root");
+      await act(async () => {
+        fireEvent(root, "refresh");
+        await jest.advanceTimersByTimeAsync(0);
+      });
+
+      await waitFor(() =>
+        expect(screen.queryByText(t("pairing.unreachable"))).toBeNull(),
+      );
+      expect(screen.queryByTestId("list-resume-retry")).toBeNull();
+      expect(screen.getByText("First conversation")).toBeTruthy();
+      expect(calls).toBe(MAX_RESUME_ATTEMPTS + 2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("KIN-MOBILE-001 R7: an expired session during resume asks for pairing instead of retrying", async () => {
     let calls = 0;
     const fetchImpl = routedFetch(() => {

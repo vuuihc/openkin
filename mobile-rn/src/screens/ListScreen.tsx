@@ -96,6 +96,9 @@ export default function ListScreen({
     let live = true;
     let list: ListController | null = null;
     let resume: ResumeController | null = null;
+    // A rebuilt controller starts with no band: the previous one described a
+    // list (and a retry target) this effect is about to replace.
+    setBand(null);
     const read = readSessionImpl ?? readStoredSession;
     void read()
       .then((session) => {
@@ -182,7 +185,12 @@ export default function ListScreen({
     const controller = controllerRef.current;
     if (!controller) return;
     void controller.load().then((next) => {
-      if (controllerRef.current === controller) setState(next);
+      if (controllerRef.current !== controller) return;
+      setState(next);
+      if (next.status === "offline" || next.status === "failed") return;
+      // A manual read that worked makes the band's claim false; drop the
+      // series that produced it so its retry cannot start a stale one.
+      resumeRef.current?.invalidate();
     });
   }, []);
 
