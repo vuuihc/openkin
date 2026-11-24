@@ -1,4 +1,5 @@
 import { describe, expect, it, jest } from "@jest/globals";
+import { summarizeUsage } from "../../../ui/src/lib/usage";
 import {
   createProvidersModel,
   providersPath,
@@ -9,39 +10,16 @@ import {
 } from "./providersModel";
 
 /**
- * The shared formatter, loaded at runtime through `jest.requireActual`.
+ * `summarizeUsage` is imported statically, in place (ADR 0036 §2).
  *
- * A static import (alias or path) would make `tsc` resolve
- * `ui/src/lib/usage.ts`, which type-imports the web `client.ts` and therefore
- * drags `zustand` and the browser modules into `mobile-rn`'s typecheck — the
- * mobile gate installs only mobile-rn's deps. `requireActual` takes a string,
- * so the compiler never follows it; the structural type below keeps the call
- * honest without `any`. At runtime Babel erases usage.ts's type-only import,
- * so no ui dependency is loaded either.
+ * `ui/src/lib/usage.ts` names no module — its fold input type is declared
+ * beside it — so this import adds nothing to the RN typecheck's closure: the
+ * light gate (`npx tsc --noEmit` with mobile-rn's deps only) follows it without
+ * reaching the web client. That is also how the R6 screen will call it, so this
+ * file is the compile-time proof that the shared module is importable. The
+ * import-contract test pins both halves: no module specifiers, no browser
+ * globals.
  */
-type SharedUsageRow = {
-  date: string;
-  tasks: number;
-  tokens_in: number;
-  tokens_out: number;
-  cost_usd: number | null;
-  request_count: number;
-  cache_read_tokens: number;
-  cache_eligible_input_tokens: number;
-  cache_status: string;
-};
-
-type SharedUsageFold = (rows: readonly SharedUsageRow[]) => {
-  cost: number;
-  tokens: number;
-  tasks: number;
-  requests: number;
-  empty: boolean;
-};
-
-const { summarizeUsage } = jest.requireActual<{ summarizeUsage: SharedUsageFold }>(
-  "../../../ui/src/lib/usage",
-);
 
 /**
  * KIN-MOBILE-001 R6 — the headless provider/usage sheet core.
@@ -52,10 +30,9 @@ const { summarizeUsage } = jest.requireActual<{ summarizeUsage: SharedUsageFold 
  * AGENTS.md bounds (a late answer from an older flow is dropped; every wait has
  * a timeout), and that the core never issues a write.
  *
- * `summarizeUsage` is loaded here, not in the model: the shared module is
- * lexically flagged by the R1 import contract (`ui/src/lib/usage.ts` uses a
- * local `window` in `contextFill`), so R6 forwards rows and proves they fold to
- * the shared formatter's numbers. See the PR body for the follow-up.
+ * `summarizeUsage` folds the rows here, not in the model: R6 forwards the
+ * window's rows and this test proves they fold to the shared formatter's
+ * numbers.
  */
 
 const ORIGIN = "https://kin.example.com";
