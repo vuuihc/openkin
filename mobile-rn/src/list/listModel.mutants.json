@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the pending count counts approvals only, so a waiting question never badges its row (R-rn-approvals-count)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "  for (const question of questions) {\n    const id = question.task_id;\n    if (!id) continue;\n    counts.set(id, (counts.get(id) ?? 0) + 1);\n  }\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/list/listModel.test.ts -t \"KIN-MOBILE-001 R5: the controller counts the server's pending approvals and questions per row\""
+  },
+  {
+    "label": "a failed pending read throws away the last counts instead of keeping them whole (R-rn-approvals-count)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "      let counts = lastCounts;\n",
+    "new": "      let counts: ReadonlyMap<string, number> = pending\n        ? lastCounts\n        : new Map();\n",
+    "test": "cd mobile-rn && npx jest src/list/listModel.test.ts -t \"KIN-MOBILE-001 R5: a failed pending read keeps the last counts and does not fail the list\""
+  },
+  {
+    "label": "a failed pending read marks the list failed, blaming the rows for a read they do not depend on (R-rn-approvals-count)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "        status: empty ? \"empty\" : \"ready\",\n",
+    "new": "        status: pending ? (empty ? \"empty\" : \"ready\") : \"failed\",\n",
+    "test": "cd mobile-rn && npx jest src/list/listModel.test.ts -t \"KIN-MOBILE-001 R5: a failed pending read keeps the last counts and does not fail the list\""
+  }
+]
