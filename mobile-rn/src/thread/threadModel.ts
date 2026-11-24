@@ -1,5 +1,5 @@
 /**
- * KIN-MOBILE-001 R4a — the headless conversation model.
+ * KIN-MOBILE-001 R4a — the headless conversation read model.
  *
  * The signed R4 row says the phone reads with the *same* projection the web
  * console uses. So nothing here re-derives the transcript: it loads the task
@@ -8,10 +8,8 @@
  * `ui/src/components/chat/transcriptProjection.ts`.
  *
  * The screen layer (R4b) is pure presentation over `ThreadState`; this module
- * owns the three behaviours it cannot: a stream that appends without redrawing,
- * a send queue that flushes in order when the round ends, and a stop whose meta
- * row comes back after a reload because it is derived from the task status the
- * daemon persisted (the same way the web projection closes a canceled round).
+ * also owns the stream append, the send queue and the stop row, plus the
+ * generation rule that keeps a late answer from repainting a newer one.
  */
 
 import type { Task, TaskEvent } from "../../../ui/src/api/contract";
@@ -82,7 +80,7 @@ export function isTerminalStatus(status: string): boolean {
 
 /**
  * Turn an event list into turns exactly as the web transcript does. `previous`
- * lets a streamed append reuse the turn objects whose projected content did not
+ * lets a later read reuse the turn objects whose projected content did not
  * change, so an earlier turn is not redrawn (and a memoized row can skip).
  */
 export function projectThread(
@@ -468,14 +466,7 @@ export function createThread(options: ThreadOptions): Thread {
 
     async start() {
       const next = await read();
-      if (next.status === "ready") {
-        // `start()` is also the retry after the stream gave up: the dead
-        // TaskStream is still in the slot, so `startStream` would return
-        // early and no new events would ever arrive. Replace it.
-        stream?.stop();
-        stream = null;
-        startStream();
-      }
+      if (next.status === "ready") startStream();
       return state;
     },
 

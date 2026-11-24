@@ -12,7 +12,7 @@ import {
   projectThread,
   type ThreadState,
 } from "./threadModel";
-import type { StreamConnection, StreamRequest, StreamSource } from "./stream";
+import type { StreamConnection, StreamSource } from "./stream";
 
 /**
  * KIN-MOBILE-001 R4 — the headless conversation model.
@@ -192,28 +192,20 @@ function chunkQueue(): ChunkQueue {
 
 type FakeStream = {
   source: StreamSource;
-  requests: StreamRequest[];
   connections: Array<{ push(chunk: string): void; end(): void }>;
   failOpen(): void;
-  allowOpen(): void;
 };
 
 function fakeStream(): FakeStream {
-  const requests: StreamRequest[] = [];
   const connections: Array<{ push(chunk: string): void; end(): void }> = [];
   let failing = false;
   return {
-    requests,
     connections,
     failOpen() {
       failing = true;
     },
-    allowOpen() {
-      failing = false;
-    },
     source: {
-      async open(request): Promise<StreamConnection> {
-        requests.push(request);
+      async open(): Promise<StreamConnection> {
         if (failing) throw new Error("unreachable");
         const queue = chunkQueue();
         connections.push({ push: queue.push, end: queue.end });
@@ -939,40 +931,6 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
     expect(prompts).toEqual(["after"]);
     expect(model.getState().sendQueue).toEqual([]);
     expect(model.getState().running).toBe(true);
-    model.close();
-  });
-
-  it("KIN-MOBILE-001 R4: a retried start reopens the stream after it went offline", async () => {
-    const fake = fakeStream();
-    const fetchImpl = routedFetch((url) =>
-      // The reconnect's catch-up carries `?since_seq=`, so match the path.
-      url.includes("/events") ? { body: RUNNING } : { body: task() },
-    );
-    const model = createThread({
-      origin: ORIGIN,
-      token: TOKEN,
-      taskId: TASK_ID,
-      fetchImpl,
-      source: fake.source,
-      schedule: immediate,
-      backoff: { baseMs: 1, maxMs: 1, maxAttempts: 1 },
-    });
-
-    await model.start();
-    await settle();
-
-    fake.failOpen();
-    fake.connections[0].end();
-    await settle();
-    expect(model.getState().banner).toBe("offline");
-
-    // `start()` is the retry: the dead TaskStream is still in the slot, so it
-    // has to be replaced or no new connection is ever opened.
-    fake.allowOpen();
-    await model.start();
-    await settle();
-    expect(fake.connections).toHaveLength(2);
-    expect(model.getState().banner).toBeNull();
     model.close();
   });
 

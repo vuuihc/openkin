@@ -81,8 +81,8 @@ R4's read reaches the projection's real closure, not just the file:
 `eventMeta.ts`, `lib/attachments.ts`, `lib/friendlyError.ts`,
 `lib/roundEvidence.ts`, `lib/changedFiles.ts`, and `lib/diffPreview.ts`. Only
 its `ui/src/i18n/index.ts` import carries a browser global, and that is
-Adapter 1 below. (The live stream's `ui/src/lib/eventStream.ts` import arrives
-with the stream slice.)
+Adapter 1 below. (The live stream's `ui/src/lib/eventStream.ts` import is in
+place — see the R4 note under the adapters.)
 
 The command that backs the table (no output is the proof):
 
@@ -139,11 +139,9 @@ references are exactly the ones mapped to a named adapter (so an alias cannot si
 new one). Adapters are substituted during the closure walk: the effective closure is DOM-free while
 the unaliased graph still names every module the adapter stands in for.
 
-R4's live round imports the shared stream helpers in place — `highestContiguousSeq`, `hasSequenceGap`
-and `mergeEventsBySeq` from `ui/src/lib/eventStream.ts` — at
-`mobile-rn/src/thread/threadModel.ts:29`; its SSE transport is the RN adapter
-`mobile-rn/src/thread/stream.ts` (Adapter 2's stream-reader seam), not a second copy of the browser
-reader.
+R4's live round imports `highestContiguousSeq`, `hasSequenceGap` and `mergeEventsBySeq` in place from
+`ui/src/lib/eventStream.ts` (`mobile-rn/src/thread/threadModel.ts:27`), with
+`mobile-rn/src/thread/stream.ts` as the SSE transport (Adapter 2's seam), not a second browser reader.
 
 ### 3. Dependencies: exact pins, RN only
 
