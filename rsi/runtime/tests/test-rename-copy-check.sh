@@ -10,9 +10,9 @@
 # derives from the branch diff, and the call site in the lane pipeline that makes it real.
 #
 # Hermetic: one temp git repo per case (origin/main via update-ref), RSI_CTRL redirected into the
-# temp dir, stubbed lane-pr.sh/volc-budget.py. No network, no npm, no node, no vitest: npm, npx,
-# node, go and curl are booby traps, because stage 1 must decide without them and stage 2 is the
-# lane's business. A fixture has no ui/node_modules, so a stage-1 hit yields the NA reason that
+# temp dir, stubbed lane-pr.sh/volc-budget.py. No network, no npm, no node: npm, npx, node, go and
+# curl are booby traps, and stage 2 runs the stub ui/node_modules/.bin/vitest the case writes. A
+# fixture without that stub has no ui/node_modules, so a stage-1 hit yields the NA reason that
 # names the candidate — that is how the static cases read stage 1's finding.
 # Prints "PASS <case>" per case and exits non-zero on the first failure.
 # Set RSI_TEST_ONLY=<case name> to run one case (used to show the red run per case).
@@ -90,6 +90,14 @@ commit_feat() {
 
 one_line() { [ "$(printf '%s\n' "$1" | wc -l | tr -d ' ')" = 1 ]; }
 
+# stub_vitest — stage 2 must execute the binary it checked, so the case writes that binary itself:
+# a plain shell script, no npm, npx, node or real vitest involved. <exit-code> <output-line>.
+stub_vitest() {
+  mkdir -p "$R/ui/node_modules/.bin"
+  printf '#!/bin/bash\nprintf "%%s\\n" %q\nexit %s\n' "$2" "$1" > "$R/ui/node_modules/.bin/vitest"
+  chmod +x "$R/ui/node_modules/.bin/vitest"
+}
+
 # --- cases -------------------------------------------------------------------------------------
 
 # Stage 1: the removed English value is still quoted in an untouched test. The fixture has no
@@ -158,6 +166,40 @@ test_no_locale_change_is_na() {
     || fail "no-locale-change: expected one NA for a non-locale diff, got: $OUT"
 }
 
+# Stage 2's block-the-push path: the checked binary fails, so the seam must report RED naming the
+# removed value, the untouched test and vitest's failing line, and exit 1 so the lane stops.
+test_failing_vitest_is_red() {
+  new_repo
+  sed -i '' 's/Show only this project/Only this project/' "$R/ui/src/i18n/locales/en.ts"
+  commit_feat
+  stub_vitest 1 "FAIL  src/components/Sidebar.dom.test.tsx > opens the cover"
+  seam
+  [ "$RC" -eq 1 ] || fail "failing-vitest: the seam exited $RC, not 1: $OUT"
+  case "$OUT" in RENAME_COPY_RED:*) ;; *) fail "failing-vitest: expected RED, got: $OUT" ;; esac
+  [[ "$OUT" == *"Show only this project"* ]] || fail "failing-vitest: the verdict never names the removed value: $OUT"
+  [[ "$OUT" == *"ui/src/components/Sidebar.dom.test.tsx:2"* ]] \
+    || fail "failing-vitest: the verdict never names the untouched test: $OUT"
+  [[ "$OUT" == *"FAIL src/components/Sidebar.dom.test.tsx"* ]] \
+    || fail "failing-vitest: the verdict never carries vitest's failing line: $OUT"
+  one_line "$OUT" || fail "failing-vitest: the seam printed more than one line: $OUT"
+}
+
+# The other half of the mapping: the same static hit with a green checked binary is OK, and the
+# line says the string is asserted but passing. A regression to `npx` lands in NA here (the booby
+# trap exits 97), so this case also pins that the seam runs the binary it checked.
+test_passing_vitest_is_ok() {
+  new_repo
+  sed -i '' 's/Show only this project/Only this project/' "$R/ui/src/i18n/locales/en.ts"
+  commit_feat
+  stub_vitest 0 ""
+  seam
+  [ "$RC" -eq 0 ] || fail "passing-vitest: the seam exited $RC: $OUT"
+  case "$OUT" in RENAME_COPY_OK:*) ;; *) fail "passing-vitest: expected OK, got: $OUT" ;; esac
+  [[ "$OUT" == *"ui/src/components/Sidebar.dom.test.tsx:2"* ]] \
+    || fail "passing-vitest: the OK line never names the asserted file:line: $OUT"
+  one_line "$OUT" || fail "passing-vitest: the seam printed more than one line: $OUT"
+}
+
 # The seam is only a gate when the lane runs it. Pin the call site inside the run path: after the
 # format commit (so the diff it reads is the committed branch) and before the push. Deleting the
 # call site, or moving it after the push, fails this case.
@@ -188,6 +230,8 @@ run test_value_renamed_everywhere_is_ok test_value_renamed_everywhere_is_ok
 run test_moved_value_is_not_a_candidate test_moved_value_is_not_a_candidate
 run test_short_value_is_ignored test_short_value_is_ignored
 run test_no_locale_change_is_na test_no_locale_change_is_na
+run test_failing_vitest_is_red test_failing_vitest_is_red
+run test_passing_vitest_is_ok test_passing_vitest_is_ok
 run test_lane_pipeline_calls_the_seam test_lane_pipeline_calls_the_seam
 [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS

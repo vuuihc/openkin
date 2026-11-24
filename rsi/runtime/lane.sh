@@ -499,9 +499,8 @@ PY
     return 0
   fi
   # Stage 2, bounded: a fixture or a fresh clone without the console's dependencies cannot decide,
-  # so it is NA that names the static finding instead of inventing a verdict. The binary is checked
-  # itself, not just the directory: `npx` would otherwise try to fetch vitest from the network,
-  # which a lane seam must never do.
+  # so it is NA that names the static finding instead of inventing a verdict. The checked binary is
+  # what runs (`npx` would try to fetch vitest from the network, which a lane seam must never do).
   if [ ! -x "$wt/ui/node_modules/.bin/vitest" ]; then
     local why='ui/node_modules is missing'
     [ -d "$wt/ui/node_modules" ] && why='ui/node_modules/.bin/vitest is missing'
@@ -516,7 +515,7 @@ PY
   secs="${RSI_RENAME_COPY_SECS:-300}"
   case "$secs" in ''|*[!0-9]*) secs=300 ;; esac
   [ "$secs" -gt 300 ] && secs=300
-  vitest_out="$(bounded_run "$secs" bash -c 'cd "$1" || exit 126; shift; exec env VITEST_MAX_WORKERS=2 npx vitest run "$@"' \
+  vitest_out="$(bounded_run "$secs" bash -c 'cd "$1" || exit 126; shift; exec env VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run "$@"' \
     _ "$wt/ui" "${rel[@]}" 2>&1)"; rc=$?
   case "$rc" in
     0)

@@ -28,6 +28,13 @@
     "new": "if false; then"
   },
   {
+    "label": "a failing vitest run is reported as a passing suite",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_failing_vitest_is_red bash rsi/runtime/tests/test-rename-copy-check.sh",
+    "old": "  case \"$rc\" in\n    0)\n",
+    "new": "  case \"$rc\" in\n    1)\n"
+  },
+  {
     "label": "the gate no longer runs the renamed-copy suite",
     "file": "scripts/check.sh",
     "test": "bash rsi/runtime/tests/test-wiring.sh",
