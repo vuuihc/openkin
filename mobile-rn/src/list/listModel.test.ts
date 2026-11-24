@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 import type { Task } from "../../../ui/src/api/contract";
 import type { Machine } from "../../../ui/src/lib/devices";
+import { t as realT } from "../i18n";
 import {
   applyFolds,
   buildListGroups,
@@ -125,6 +126,19 @@ describe("KIN-MOBILE-001 R3 list model — grouping", () => {
     ]);
     expect(groups[2]!.online).toBe(false);
     expect(groups[2]!.projects[0]!.rows).toHaveLength(3);
+  });
+
+  it("KIN-MOBILE-001 R3: an unnamed device heads with the catalogue's own word", () => {
+    // A device whose list has not loaded yet has neither a machine label nor
+    // an id to fall back to. The heading must be a real catalogue word, not a
+    // key path the reader would see as literal text.
+    const groups = buildListGroups(
+      [task({ id: "u1", cwd: "/work/alpha", created_at: 1 })],
+      { selfDeviceId: "", t: realT, formatTime },
+    );
+    expect(groups).toHaveLength(1);
+    expect(realT("nav.thisMachine")).not.toBe("nav.thisMachine");
+    expect(groups[0]!.label).toBe(realT("nav.thisMachine"));
   });
 
   it("KIN-MOBILE-001 R3: carries title, relative time, status and pending count", () => {

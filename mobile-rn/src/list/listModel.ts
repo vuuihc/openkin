@@ -189,7 +189,7 @@ export function buildListGroups(
     id: device.id,
     // A machine that has not named itself still needs a heading; the
     // catalogue says "this machine" rather than the screen inventing one.
-    label: device.label || options.t("projects.thisMachine"),
+    label: device.label || options.t("nav.thisMachine"),
     isSelf: device.isSelf,
     online: device.online,
     count: device.count,
