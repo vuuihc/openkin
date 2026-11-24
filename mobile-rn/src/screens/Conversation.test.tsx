@@ -157,13 +157,16 @@ function storedSession(): Promise<Session | null> {
   return Promise.resolve({ origin: ORIGIN, token: TOKEN });
 }
 
-/** The default router: the task row and its event log. */
+/** The default router: the task row and its event log, and the empty pending
+ * lists the conversation has read beside them since R5c. */
 function historyFetch(status: Task["status"] = "succeeded"): typeof fetch {
-  return routedFetch((url) =>
-    url.endsWith("/events")
+  return routedFetch((url) => {
+    if (url.endsWith("/api/approvals?status=pending")) return { body: [] };
+    if (url.endsWith("/api/user-questions?status=pending")) return { body: [] };
+    return url.endsWith("/events")
       ? { body: HISTORY }
-      : { body: task({ status }) },
-  );
+      : { body: task({ status }) };
+  });
 }
 
 async function renderConversation(
@@ -213,12 +216,19 @@ describe("KIN-MOBILE-001 R4 conversation", () => {
 
   it("KIN-MOBILE-001 R4: loading says so before the read answers, then the transcript replaces it", async () => {
     const pending: Array<(response: Response) => void> = [];
-    const fetchImpl = jest.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          pending.push(resolve);
-        }),
-    ) as unknown as typeof fetch;
+    const fetchImpl = jest.fn((url: string) => {
+      // The pending lists are not this case's subject; answer them at once so
+      // the two deferred reads below are exactly the task row and its log.
+      if (url.endsWith("/api/approvals?status=pending")) {
+        return Promise.resolve(ok([]));
+      }
+      if (url.endsWith("/api/user-questions?status=pending")) {
+        return Promise.resolve(ok([]));
+      }
+      return new Promise<Response>((resolve) => {
+        pending.push(resolve);
+      });
+    }) as unknown as typeof fetch;
     const screen = await renderConversation({ fetchImpl });
 
     await waitFor(() =>
@@ -238,6 +248,10 @@ describe("KIN-MOBILE-001 R4 conversation", () => {
   it("KIN-MOBILE-001 R4: a failed read shows the reason and retries", async () => {
     let calls = 0;
     const fetchImpl = routedFetch((url) => {
+      // The conversation's pending lists answer normally; the count below is
+      // about the task row and its log, which are what this case fails.
+      if (url.endsWith("/api/approvals?status=pending")) return { body: [] };
+      if (url.endsWith("/api/user-questions?status=pending")) return { body: [] };
       calls += 1;
       if (calls <= 2) return { status: 500, body: {} };
       return url.endsWith("/events")
