@@ -107,6 +107,7 @@ async function startDaemon() {
       timeout: 600_000,
     });
     if (build.status !== 0) {
+      fs.rmSync(buildDir, { recursive: true, force: true });
       throw new Error(`go build failed: ${build.stderr?.toString().slice(-800) || "no output"}`);
     }
   }
@@ -126,24 +127,42 @@ async function startDaemon() {
   child.unref();
   const base = `http://127.0.0.1:${port}`;
   const deadline = Date.now() + HEALTH_DEADLINE_MS;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null || child.signalCode !== null) {
-      const tail = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8").slice(-1200) : "";
-      throw new Error(`the daemon exited before /api/health\n${tail}`);
-    }
+  // A boot that failed must not leave a detached daemon, its state dir or the
+  // throwaway build behind: main never receives the handle, so its own
+  // cleanup cannot run.
+  const discard = () => {
     try {
-      const response = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(1500) });
-      if (response.ok) {
-        await response.body?.cancel();
-        const token = fs.readFileSync(path.join(stateDir, "token"), "utf8").trim();
-        if (!token) throw new Error("the daemon answered health but wrote no token");
-        return { base, port, stateDir, logPath, token, child, buildDir };
-      }
-    } catch (error) {
-      if (error instanceof Error && /wrote no token/.test(error.message)) throw error;
+      if (child.pid) process.kill(-child.pid, "SIGKILL");
+    } catch {
+      // Already gone.
     }
-    await sleep(100);
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    if (buildDir) fs.rmSync(buildDir, { recursive: true, force: true });
+  };
+  try {
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        const tail = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8").slice(-1200) : "";
+        throw new Error(`the daemon exited before /api/health\n${tail}`);
+      }
+      try {
+        const response = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(1500) });
+        if (response.ok) {
+          await response.body?.cancel();
+          const token = fs.readFileSync(path.join(stateDir, "token"), "utf8").trim();
+          if (!token) throw new Error("the daemon answered health but wrote no token");
+          return { base, port, stateDir, logPath, token, child, buildDir };
+        }
+      } catch (error) {
+        if (error instanceof Error && /wrote no token/.test(error.message)) throw error;
+      }
+      await sleep(100);
+    }
+  } catch (error) {
+    discard();
+    throw error;
   }
+  discard();
   throw new Error(`no answer from ${base}/api/health within ${HEALTH_DEADLINE_MS} ms`);
 }
 
