@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "@jest/globals";
 import * as ts from "typescript";
+import metroConfig from "../../metro.config.js";
 
 /**
  * KIN-MOBILE-001 R1 — the shared-import contract from ADR 0036 §2.
@@ -36,11 +37,19 @@ type ImportRef = { specifier: string; typeOnly: boolean };
 type Closure = {
   files: Set<string>;
   aliased: Set<string>;
-  /**
-   * Every shared module the walk reached, including the DOM-carrying ones that
-   * were redirected to an adapter. Rule 3 needs the originals to stay honest.
-   */
-  reachedShared: Set<string>;
+  /** Every `ui/` module reached before any adapter substitution. */
+  rawShared: Set<string>;
+};
+
+/** The slice of Metro's resolver result this contract asserts on. */
+type MetroResolution = { type: string; filePath: string };
+/** The slice of Metro's resolution context `metro.config.js` reads. */
+type MetroResolutionContext = {
+  resolveRequest: (
+    context: MetroResolutionContext,
+    moduleName: string,
+    platform: string,
+  ) => MetroResolution;
 };
 
 function repoPath(file: string): string {
@@ -83,9 +92,21 @@ function importsOf(file: string): ImportRef[] {
   const refs: ImportRef[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      // `import type { A }` and `import { type A }` are both erased by the
+      // TypeScript transform, so neither may pull a browser module into the
+      // RN bundle. Only a clause with at least one value binding is followed.
+      const clause = node.importClause;
+      const bindings = clause?.namedBindings;
+      const allNamedTypeOnly =
+        clause !== undefined &&
+        clause.name === undefined &&
+        bindings !== undefined &&
+        ts.isNamedImports(bindings) &&
+        bindings.elements.length > 0 &&
+        bindings.elements.every((element) => element.isTypeOnly);
       refs.push({
         specifier: node.moduleSpecifier.text,
-        typeOnly: node.importClause?.isTypeOnly === true,
+        typeOnly: clause?.isTypeOnly === true || allNamedTypeOnly,
       });
     } else if (
       ts.isExportDeclaration(node) &&
@@ -175,7 +196,7 @@ function resolveRelative(fromFile: string, specifier: string): string | null {
 function buildClosure(): Closure {
   const files = new Set<string>();
   const aliased = new Set<string>();
-  const reachedShared = new Set<string>();
+  const rawShared = new Set<string>();
   const queue = [
     ...listSources(path.join(MOBILE_ROOT, "app")),
     ...listSources(path.join(MOBILE_ROOT, "src")),
@@ -209,16 +230,25 @@ function buildClosure(): Closure {
         continue;
       }
       if (target.endsWith(".json")) continue;
-      const sharedRel = repoPath(target);
-      if (sharedRel.startsWith("ui/")) reachedShared.add(sharedRel);
-      // A shared module with an adapter is resolved to that adapter instead:
-      // the RN bundle must never load the browser module (ADR 0036 §2).
-      const adapter = SHARED_ADAPTERS[sharedRel];
-      queue.push(adapter ? path.join(REPO_ROOT, adapter) : target);
+      const relTarget = repoPath(target);
+      if (relTarget.startsWith("ui/")) rawShared.add(target);
+      // ADR 0036 §2: a DOM-carrying shared module is replaced by its one named
+      // RN adapter. The bundle follows the alias, so this walk must too; the
+      // unaliased target stays in `rawShared` so a new DOM dependency cannot be
+      // papered over by adding an alias.
+      const adapterRel = SHARED_ADAPTERS[relTarget];
+      if (adapterRel) {
+        const adapter = path.join(REPO_ROOT, adapterRel);
+        if (fs.existsSync(adapter)) {
+          queue.push(adapter);
+          continue;
+        }
+      }
+      queue.push(target);
     }
   }
 
-  return { files, aliased, reachedShared };
+  return { files, aliased, rawShared };
 }
 
 const domCache = new Map<string, string[]>();
@@ -274,13 +304,16 @@ const ADR_NAMED_PATHS = [
 
 /**
  * ADR 0036 §2 adapters: shared module -> the one RN adapter that replaces it.
- * The transcript projection reaches `ui/src/i18n/index.ts` for its labels; R4
- * therefore adds the i18n adapter that R2b defined. A module that starts
- * carrying a DOM reference must be added here (and to the ADR) or the third
- * test below turns red.
+ * The transcript projection reaches `ui/src/i18n/index.ts` for its labels, and
+ * that module reads `localStorage`/`window`; R4 adds the i18n adapter that R2b
+ * defined. R3's grouping import reaches `ui/src/lib/taskOrder.ts`, whose
+ * storage helpers read `localStorage`; its pure ordering function is carried by
+ * an RN adapter. A module that starts carrying a DOM reference must be added
+ * here (and to the ADR) or the fourth test below turns red.
  */
 const SHARED_ADAPTERS: Record<string, string> = {
   "ui/src/i18n/index.ts": "mobile-rn/src/i18n.ts",
+  "ui/src/lib/taskOrder.ts": "mobile-rn/src/list/taskOrder.ts",
 };
 
 const closure = buildClosure();
@@ -313,21 +346,63 @@ describe("KIN-MOBILE-001 R1 shared-import contract", () => {
     expect(unnamed).toEqual([]);
   });
 
-  it("KIN-MOBILE-001: an alias cannot paper over a DOM reference", () => {
+  it("KIN-MOBILE-001: adapter aliases equal the DOM-carrying shared modules", () => {
     const adr = fs.readFileSync(ADR_PATH, "utf8");
+    // The unaliased graph: every shared module the RN source reaches, whether
+    // or not an adapter later stands in for it.
+    const domShared = [...closure.rawShared]
+      .filter((file) => domReferences(file).length > 0)
+      .map(repoPath)
+      .sort();
+    const adapters = Object.keys(SHARED_ADAPTERS).sort();
 
     // Every DOM-carrying shared module the walk reached must be redirected to
     // an adapter; nothing else may be.
-    const domShared = [...closure.reachedShared]
-      .filter((rel) => domReferences(path.join(REPO_ROOT, rel)).length > 0)
-      .sort();
-    expect(Object.keys(SHARED_ADAPTERS).sort()).toEqual(domShared);
+    expect(adapters).toEqual(domShared);
 
     for (const [shared, adapter] of Object.entries(SHARED_ADAPTERS)) {
-      expect(closure.reachedShared.has(shared)).toBe(true);
       expect(fs.existsSync(path.join(REPO_ROOT, adapter))).toBe(true);
       expect(adr).toContain(shared);
       expect(adr).toContain(adapter);
     }
+  });
+
+  it("KIN-MOBILE-001: metro's resolver carries every adapter alias", () => {
+    // The closure walk above reads the source tree; this reads the shipped
+    // resolver. The walk applies SHARED_ADAPTERS itself, so deleting the
+    // substitution from metro.config.js would leave it green while the real
+    // bundle resolved the shared module with its DOM helpers.
+    expect(typeof metroConfig.resolver.resolveRequest).toBe("function");
+    const resolveRequest = metroConfig.resolver.resolveRequest as unknown as (
+      context: MetroResolutionContext,
+      moduleName: string,
+      platform: string,
+    ) => MetroResolution | null;
+
+    for (const [shared, adapter] of Object.entries(SHARED_ADAPTERS)) {
+      const upstream: MetroResolution = {
+        type: "sourceFile",
+        filePath: path.join(REPO_ROOT, shared),
+      };
+      const context: MetroResolutionContext = {
+        resolveRequest: () => upstream,
+      };
+      expect(resolveRequest(context, shared, "ios")).toEqual({
+        type: "sourceFile",
+        filePath: path.join(REPO_ROOT, adapter),
+      });
+    }
+
+    // A shared module that is not an adapter seam is passed through unchanged.
+    const untouched: MetroResolution = {
+      type: "sourceFile",
+      filePath: path.join(REPO_ROOT, "ui/src/lib/phoneSessionBuckets.ts"),
+    };
+    const context: MetroResolutionContext = {
+      resolveRequest: () => untouched,
+    };
+    expect(resolveRequest(context, "phoneSessionBuckets", "ios")).toEqual(
+      untouched,
+    );
   });
 });
