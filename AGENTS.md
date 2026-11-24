@@ -94,6 +94,7 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
     the first walk for the ones it did not.
 16. **Touch targets follow the pointer, not the width.** A control reachable at ≥768px takes its 44×44 floor from a coarse-pointer check (`useCoarsePointer()` or an equivalent coarse-scoped utility), never from a `max-width` breakpoint or a global floor that stops at 768; new or resized controls are measured at 820×1180 coarse and their coarse branch is pinned by a mutant.
 17. **A prose claim names its evidence.** Every prose deliverable (GOAL section, ADR, PLAN, story contract) cites the `path:line` or named section it asserts plus the command or test that backs it; a claim that cannot name its source — including numbers copied from a phased record — is not delivered.
+18. **An overlay on a list root yields to the row.** A floating card, strip or pill that covers a list row must yield to that row on the surface where they coexist, and the row must be proven tappable with a real pointer or `elementFromPoint` at 390 and at the coarse ≥768 boundary; the overlay's own presence is not evidence, and a document-wide yield that also clips a sidebar row is not a fix.
 
 ## Development workflow
 
