@@ -170,6 +170,7 @@ describe("KIN-MOBILE-001 R3 list model — request state", () => {
     let call = 0;
     const controller = createListController({
       origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
       t,
       formatTime,
       fetchImpl: (() => answers[call++]!) as unknown as typeof fetch,
@@ -212,6 +213,7 @@ describe("KIN-MOBILE-001 R3 list model — request state", () => {
     let call = 0;
     const controller = createListController({
       origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
       t,
       formatTime,
       fetchImpl: (() => {
@@ -236,6 +238,7 @@ describe("KIN-MOBILE-001 R3 list model — request state", () => {
   it("KIN-MOBILE-001 R3: an empty page is the empty state, not a failure", async () => {
     const controller = createListController({
       origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
       t,
       formatTime,
       fetchImpl: (() => Promise.resolve(response([]))) as unknown as typeof fetch,
@@ -250,6 +253,7 @@ describe("KIN-MOBILE-001 R3 list model — request state", () => {
     let calls = 0;
     const controller = createListController({
       origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
       t,
       formatTime,
       fetchImpl: (() => {
@@ -266,6 +270,7 @@ describe("KIN-MOBILE-001 R3 list model — request state", () => {
   it("KIN-MOBILE-001 R3: a wait that never answers is bounded", async () => {
     const controller = createListController({
       origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
       t,
       formatTime,
       timeoutMs: 10,
@@ -286,6 +291,7 @@ describe("KIN-MOBILE-001 R3 list model — request state", () => {
     const store = createMemoryFoldStore();
     const controller = createListController({
       origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
       t,
       formatTime,
       store,
@@ -300,6 +306,7 @@ describe("KIN-MOBILE-001 R3 list model — request state", () => {
 
     const again = createListController({
       origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
       t,
       formatTime,
       store,
