@@ -26,5 +26,12 @@
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/surfacesContract.KIN-CONTRACT-001.test.ts -t \"the story's exit table and EXIT_ROWS are the same rows, in order\"",
     "old": "    to: \"/sessions?agent=<id>\",",
     "new": "    to: \"/tasks/:id\","
+  },
+  {
+    "label": "the pill trusts a live distance the bottom band can move",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.newActivityPin.dom.test.tsx",
+    "old": "    if (stickToBottomRef.current) return;",
+    "new": "    if (isNearBottom(el)) return;"
   }
 ]
