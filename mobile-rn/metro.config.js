@@ -15,4 +15,21 @@ config.resolver.nodeModulesPaths = [
   path.resolve(repoRoot, "node_modules"),
 ];
 
+// ADR 0036 §2: a shared module that carries a browser global resolves to its
+// named RN adapter. `phoneSessionBuckets` imports `./taskOrder`, so the seam is
+// the resolved file path, not an import specifier the caller controls.
+const taskOrderShared = path.resolve(repoRoot, "ui/src/lib/taskOrder.ts");
+const taskOrderAdapter = path.resolve(projectRoot, "src/list/taskOrder.ts");
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const resolved = context.resolveRequest(context, moduleName, platform);
+  if (
+    resolved &&
+    resolved.type === "sourceFile" &&
+    resolved.filePath === taskOrderShared
+  ) {
+    return { type: "sourceFile", filePath: taskOrderAdapter };
+  }
+  return resolved;
+};
+
 module.exports = config;
