@@ -27,11 +27,16 @@ import type {
   ChatItem,
   Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
+import type {
+  ProvidersView,
+  UsageWindowDays,
+} from "../providers/providersModel";
 import type { ThreadState } from "../thread/threadModel";
 import {
   ApprovalsSection,
   type ApprovalsScreenProps,
 } from "./Approvals";
+import ProviderUsageSheet from "./ProviderUsageSheet";
 
 /** The signed touch floor; every control on this screen meets it. */
 export const BACK_SIZE = 44;
@@ -56,6 +61,21 @@ export type ConversationViewProps = {
   onStop?: () => void;
   /** Drop a queued send the round has not taken yet. */
   onWithdraw?: (id: string) => void;
+  /**
+   * This conversation's provider/usage sheet, already wired by the container;
+   * absent when there is no session to read with, and then the header draws no
+   * entry at all. The open/close state is this view's own transient UI, while
+   * the data (including the chosen 7/30/90 window) belongs to the model.
+   */
+  usage?: {
+    state: ProvidersView;
+    onSelectWindow: (days: UsageWindowDays) => void;
+    onRefresh?: () => void;
+    /** The sheet opened: the container starts the read. */
+    onOpen?: () => void;
+    /** The sheet closed: the container drops an in-flight read. */
+    onClose?: () => void;
+  };
 };
 
 /**
@@ -248,7 +268,11 @@ export default function ConversationView({
   onSend,
   onStop,
   onWithdraw,
+  usage,
 }: ConversationViewProps) {
+  // Whether the sheet is up is the person's own transient UI, so it lives in
+  // this view; the window choice and the rows are the model's (AGENTS.md §11).
+  const [usageOpen, setUsageOpen] = useState(false);
   // A conversation draws no approval chrome when there is nothing to say: no
   // card and no empty state, exactly as an unblocked turn reads today.
   const showApprovals =
@@ -271,6 +295,22 @@ export default function ConversationView({
         </Pressable>
         {state.running ? (
           <Text style={styles.running}>{t("sessions.statusRunning")}</Text>
+        ) : null}
+        {usage !== undefined ? (
+          // The sheet's entry: no overflow menu exists yet, so the signed
+          // "用量" control stands on its own at the header's trailing edge.
+          <Pressable
+            accessibilityLabel={t("usage.openPhone")}
+            accessibilityRole="button"
+            onPress={() => {
+              setUsageOpen(true);
+              usage.onOpen?.();
+            }}
+            style={styles.usageEntry}
+            testID="conversation:usage"
+          >
+            <Text style={styles.usageEntryText}>{t("usage.title")}</Text>
+          </Pressable>
         ) : null}
       </View>
       <ScrollView contentContainerStyle={styles.body} style={styles.scroller}>
@@ -318,6 +358,21 @@ export default function ConversationView({
           onWithdraw={onWithdraw}
           state={state}
           t={t}
+        />
+      ) : null}
+      {usage !== undefined ? (
+        // A sibling of the scroller too: closing the sheet leaves the
+        // transcript mounted exactly where it was, never re-read.
+        <ProviderUsageSheet
+          onClose={() => {
+            setUsageOpen(false);
+            usage.onClose?.();
+          }}
+          onRefresh={usage.onRefresh}
+          onSelectWindow={usage.onSelectWindow}
+          state={usage.state}
+          t={t}
+          visible={usageOpen}
         />
       ) : null}
     </View>
@@ -484,6 +539,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     marginTop: 8,
+  },
+  usageEntry: {
+    alignItems: "center",
+    justifyContent: "center",
+    // Trailing edge: the back control stays left and this is the only
+    // right-hand control in the header.
+    marginLeft: "auto",
+    minHeight: BACK_SIZE,
+    minWidth: BACK_SIZE,
+    paddingHorizontal: 12,
+  },
+  usageEntryText: {
+    color: "#0b57d0",
+    fontSize: 15,
+    fontWeight: "600",
   },
   withdraw: {
     alignItems: "center",

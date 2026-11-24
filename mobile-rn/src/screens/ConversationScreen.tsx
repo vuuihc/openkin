@@ -21,6 +21,12 @@ import {
 import { readSession, secureStoreBackend, type Session } from "../auth/tokenStore";
 import { t } from "../i18n";
 import {
+  createProvidersModel,
+  type ProvidersModel,
+  type ProvidersView,
+  type UsageWindowDays,
+} from "../providers/providersModel";
+import {
   createThread,
   type Thread,
   type ThreadState,
@@ -68,16 +74,27 @@ export default function ConversationScreen({
   // by `entriesForTask`: the model keeps the whole list because decisions
   // address cards by id.
   const [approvals, setApprovals] = useState<ApprovalsState | null>(null);
+  // This conversation's provider/usage view. The model keeps the chosen window
+  // for the whole screen, so it survives the sheet closing and reopening; the
+  // sheet itself owns no data (AGENTS.md §11).
+  const [providers, setProviders] = useState<ProvidersView | null>(null);
   const threadRef = useRef<Thread | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const approvalsRef = useRef<ApprovalsModel | null>(null);
   const approvalsUnsubscribeRef = useRef<(() => void) | null>(null);
+  const providersRef = useRef<ProvidersModel | null>(null);
+  // The model publishes by promise, not by subscription, so the effect hands
+  // its still-live publish here and clears it on the way out.
+  const publishProvidersRef = useRef<
+    ((next: ProvidersView) => void) | null
+  >(null);
 
   useEffect(() => {
     let live = true;
     // Whatever this run reads, no card from the previous run may paint in the
     // meantime — and an expired session shows no old approval at all.
     setApprovals(null);
+    setProviders(null);
     const read = readSessionImpl ?? readStoredSession;
     void read()
       .then((session) => {
@@ -113,6 +130,23 @@ export default function ConversationScreen({
         });
         setApprovals(approvalsModel.getState());
         void approvalsModel.load();
+
+        // One providers model beside the thread, from the same session. It is
+        // built here but never read here: the sheet's open handler is the one
+        // trigger, so a conversation opened for reading calls no usage
+        // endpoint (external-integration UX gate).
+        const providersModel = createProvidersModel({
+          origin: session.origin,
+          token: session.token,
+          fetchImpl,
+        });
+        providersRef.current = providersModel;
+        publishProvidersRef.current = (next) => {
+          if (live) setProviders(next);
+        };
+        // The model's opening view (loading, no rows), never a read: this is
+        // what makes the header entry exist before the sheet is first opened.
+        setProviders(providersModel.getState());
       })
       .catch(() => {
         if (live) setState(expiredState(taskId));
@@ -122,6 +156,9 @@ export default function ConversationScreen({
       // Drop the listeners first, then dispose/close: each model bumps its own
       // generation, so a read still in flight cannot publish to anyone
       // (AGENTS.md §11). The approvals read is abandoned with the screen.
+      publishProvidersRef.current = null;
+      providersRef.current?.cancel();
+      providersRef.current = null;
       approvalsUnsubscribeRef.current?.();
       approvalsUnsubscribeRef.current = null;
       approvalsRef.current?.dispose();
@@ -166,6 +203,30 @@ export default function ConversationScreen({
     threadRef.current?.cancelQueued(id);
   }, []);
 
+  // Both the sheet's first read and its retry are the same read. The model
+  // sets its "loading" state synchronously, so the sheet never opens on the
+  // previous answer pretending to be this one; a late answer is dropped by the
+  // model's own generation rule before it reaches `setProviders`.
+  const readUsage = useCallback(() => {
+    const model = providersRef.current;
+    if (!model) return;
+    const read = model.load();
+    setProviders(model.getState());
+    void read.then((next) => publishProvidersRef.current?.(next));
+  }, []);
+  // Cancel is the container telling the model the sheet is gone: it bumps the
+  // generation and aborts the request, so a held answer paints nothing.
+  const closeUsage = useCallback(() => {
+    providersRef.current?.cancel();
+  }, []);
+  const selectUsageWindow = useCallback((days: UsageWindowDays) => {
+    const model = providersRef.current;
+    if (!model) return;
+    const read = model.setWindow(days);
+    setProviders(model.getState());
+    void read.then((next) => publishProvidersRef.current?.(next));
+  }, []);
+
   if (state === null) {
     return (
       <View style={styles.container}>
@@ -187,6 +248,19 @@ export default function ConversationScreen({
           onRefresh: refresh,
         };
 
+  // With no model there is no session to read providers with, and the header
+  // draws no entry: the same rule that removes the composer removes this.
+  const usageProps =
+    providers === null
+      ? undefined
+      : {
+          state: providers,
+          onSelectWindow: selectUsageWindow,
+          onRefresh: readUsage,
+          onOpen: readUsage,
+          onClose: closeUsage,
+        };
+
   return (
     <ConversationView
       approvals={approvalsProps}
@@ -200,6 +274,7 @@ export default function ConversationScreen({
       onWithdraw={threadRef.current === null ? undefined : withdraw}
       state={state}
       t={t}
+      usage={usageProps}
     />
   );
 }
