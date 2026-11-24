@@ -23,19 +23,15 @@ function candidate(
 
 describe("session list folds", () => {
   it("opens only the most recent project by default", () => {
-    const folds = resolveSessionListFolds(
-      [candidate(ALPHA, 100), candidate(BETA, 200)],
-      {},
-    );
+    const folds = resolveSessionListFolds([candidate(ALPHA, 100), candidate(BETA, 200)], {});
 
     expect(folds).toEqual({ [ALPHA]: false, [BETA]: true });
   });
 
   it("keeps a remembered open project and closes the others", () => {
-    const folds = resolveSessionListFolds(
-      [candidate(ALPHA, 200), candidate(BETA, 100)],
-      { [BETA]: true },
-    );
+    const folds = resolveSessionListFolds([candidate(ALPHA, 200), candidate(BETA, 100)], {
+      [BETA]: true,
+    });
 
     expect(folds).toEqual({ [ALPHA]: false, [BETA]: true });
   });
@@ -54,10 +50,7 @@ describe("session list folds", () => {
   });
 
   it("does not let an empty project carry the open fold", () => {
-    const folds = resolveSessionListFolds(
-      [candidate(ALPHA, 0), candidate(BETA, 200)],
-      {},
-    );
+    const folds = resolveSessionListFolds([candidate(ALPHA, 0), candidate(BETA, 200)], {});
 
     expect(folds).toEqual({ [ALPHA]: false, [BETA]: true });
   });

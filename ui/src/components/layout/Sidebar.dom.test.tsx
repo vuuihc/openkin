@@ -210,7 +210,9 @@ describe("the Mac sidebar list", () => {
     // with its rows one click away.
     expect(remote?.textContent).toContain("beta");
     expect(remote?.textContent).not.toContain("remote-work");
-    await userEvent.click(within(remote as HTMLElement).getByRole("button", { name: /Expand project/ }));
+    await userEvent.click(
+      within(remote as HTMLElement).getByRole("button", { name: /Expand project/ }),
+    );
     expect(remote?.textContent).toContain("remote-work");
   });
 

@@ -81,10 +81,7 @@ import { consumeRowReturn, rememberRowReturn, takeRowReturn } from "../../lib/ro
 import { sortSessionBuckets } from "../../lib/sessionBucketOrder";
 import { sessionFeedTasks } from "../../lib/sessionFeed";
 import { readSessionFolds, setSessionFold } from "../../lib/sessionFolds";
-import {
-  resolveSessionListFolds,
-  type SessionListFoldCandidate,
-} from "../../lib/sessionListFolds";
+import { resolveSessionListFolds, type SessionListFoldCandidate } from "../../lib/sessionListFolds";
 import { sessionListParams } from "../../lib/sessionListParams";
 import { rowSelectable, selectableTaskIds } from "../../lib/sessionSelection";
 import {

@@ -72,7 +72,8 @@ async function openPinned(): Promise<void> {
   await userEvent.click(await screen.findByRole("button", { name: "Expand project Pinned" }));
 }
 
-function viewport(pointer: "fine" | "coarse") {  vi.stubGlobal("matchMedia", (query: string) => ({
+function viewport(pointer: "fine" | "coarse") {
+  vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === "(pointer: coarse)" ? pointer === "coarse" : false,
     media: query,
     onchange: null,

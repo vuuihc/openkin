@@ -40,10 +40,7 @@ export function resolveSessionListFolds(
   // two rows stamped the same millisecond do not move the open project between
   // renders.
   const newest = candidates
-    .filter(
-      (candidate) =>
-        !candidate.imported && !candidate.pinned && candidate.lastActivityAt > 0,
-    )
+    .filter((candidate) => !candidate.imported && !candidate.pinned && candidate.lastActivityAt > 0)
     .sort(
       (a, b) =>
         b.lastActivityAt - a.lastActivityAt ||
