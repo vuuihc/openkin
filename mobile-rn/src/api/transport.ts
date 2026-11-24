@@ -1,0 +1,111 @@
+/**
+ * KIN-MOBILE-001 R2 — the RN transport adapter from ADR 0036 §2.
+ *
+ * Same job as `ui/src/api/client.ts`'s `apiFetch`, without the browser: the
+ * origin comes from the stored session (not `window.location`), the token goes
+ * in an `Authorization` header (never the query string), and failures come back
+ * as reason codes instead of thrown browser errors. It adds no endpoint and
+ * changes no payload shape.
+ */
+
+export type TransportReason = "expired" | "rejected" | "unreachable";
+
+export type TransportResult<T> =
+  | { ok: true; status: number; data: T }
+  | { ok: false; status: number | null; reason: TransportReason };
+
+export type ApiFetchOptions = {
+  /** The stored device token; omitted means an unauthenticated read. */
+  token?: string | null;
+  method?: string;
+  body?: string;
+  headers?: Record<string, string>;
+  /** Tests inject their own; production uses the platform fetch. */
+  fetchImpl?: typeof fetch;
+  /**
+   * Bound on the whole request. A dead node must not leave the caller waiting
+   * forever (AGENTS.md §13), so every call has one.
+   */
+  timeoutMs?: number;
+  /** An outer cancellation, e.g. the screen that asked is gone. */
+  signal?: AbortSignal;
+};
+
+/** Every request is bounded; a dead host maps to `unreachable`, not a hang. */
+export const DEFAULT_TIMEOUT_MS = 15_000;
+
+/** `${origin}${path}` with exactly one slash at the seam. */
+export function apiUrl(origin: string, path: string): string {
+  const base = origin.replace(/\/+$/, "");
+  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+/** The first list read: the same query the web client's `listTasks` builds. */
+export function listTasksPath(limit = 20): string {
+  return `/api/tasks?page=1&limit=${limit}`;
+}
+
+/** Turn a daemon QR link's one-time secret into a device token. */
+export const pairingExchangePath = "/api/pairing/exchange";
+
+export async function apiFetch<T>(
+  origin: string,
+  path: string,
+  options: ApiFetchOptions = {},
+): Promise<TransportResult<T>> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    ...options.headers,
+  };
+  if (options.token) headers.Authorization = `Bearer ${options.token}`;
+
+  const doFetch = options.fetchImpl ?? fetch;
+  // One controller carries both bounds: the timeout and the caller's signal.
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  );
+  const outer = options.signal;
+  const forwardAbort = (): void => controller.abort();
+  if (outer) {
+    if (outer.aborted) controller.abort();
+    else outer.addEventListener("abort", forwardAbort);
+  }
+
+  let res: Response;
+  try {
+    res = await doFetch(apiUrl(origin, path), {
+      method: options.method ?? "GET",
+      headers,
+      body: options.body,
+      signal: controller.signal,
+    });
+  } catch {
+    // A rejected fetch (TypeError on RN), a timeout, and an unreachable node
+    // look the same without expo-network, which ADR 0036 does not pin.
+    return { ok: false, status: null, reason: "unreachable" };
+  } finally {
+    clearTimeout(timer);
+    outer?.removeEventListener("abort", forwardAbort);
+  }
+
+  if (res.status === 401) {
+    return { ok: false, status: 401, reason: "expired" };
+  }
+  if (res.status >= 500) {
+    return { ok: false, status: res.status, reason: "unreachable" };
+  }
+  if (!res.ok) {
+    return { ok: false, status: res.status, reason: "rejected" };
+  }
+  if (res.status === 204) {
+    return { ok: true, status: 204, data: undefined as T };
+  }
+  try {
+    return { ok: true, status: res.status, data: (await res.json()) as T };
+  } catch {
+    // A 2xx whose body cannot be read is not a usable answer.
+    return { ok: false, status: res.status, reason: "unreachable" };
+  }
+}
