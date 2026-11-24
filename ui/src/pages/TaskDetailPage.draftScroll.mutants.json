@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the draft callback re-pins the transcript to the bottom on every keystroke",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.draftScroll.dom.test.tsx",
+    "old": "      draftPromptRef.current = prompt;\n      draftAttachmentsRef.current = attachments;\n      setFollowUpDraft(id, { prompt, attachments });",
+    "new": "      draftPromptRef.current = prompt;\n      draftAttachmentsRef.current = attachments;\n      setFollowUpDraft(id, { prompt, attachments });\n      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;"
+  }
+]
