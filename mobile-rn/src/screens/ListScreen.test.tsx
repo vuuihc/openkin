@@ -1,9 +1,17 @@
 import { describe, expect, it, jest } from "@jest/globals";
-import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
 import type { Task } from "../../../ui/src/api/contract";
 import type { Machine } from "../../../ui/src/lib/devices";
 import type { Session } from "../auth/tokenStore";
 import { t } from "../i18n";
+import {
+  MAX_RESUME_ATTEMPTS,
+  RESUME_THRESHOLD_MS,
+  RETRY_CAP_MS,
+  type AppStateLike,
+  type AppStateStatus,
+} from "../lifecycle/resume";
 import ListScreen from "./ListScreen";
 
 /**
@@ -89,6 +97,323 @@ async function renderList(
     />,
   );
 }
+
+/** The slice of `AppState` the resume controller subscribes to. */
+function fakeAppState(): {
+  port: AppStateLike;
+  emit: (status: AppStateStatus) => void;
+} {
+  const listeners = new Set<(status: AppStateStatus) => void>();
+  return {
+    port: {
+      addEventListener(_type, listener) {
+        listeners.add(listener);
+        return {
+          remove() {
+            listeners.delete(listener);
+          },
+        };
+      },
+    },
+    emit(status) {
+      for (const listener of [...listeners]) listener(status);
+    },
+  };
+}
+
+describe("KIN-MOBILE-001 R7 resume on the list route", () => {
+  it("KIN-MOBILE-001 R7: a long absence re-reads the list and leaves the rows in place", async () => {
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl = jest.fn(async () => {
+      calls += 1;
+      // The initial read answers at once; the resume read is held so the
+      // screen can be inspected while it is still re-reading.
+      if (calls === 2) await gate;
+      return ok([task()]);
+    }) as unknown as typeof fetch;
+    const app = fakeAppState();
+    let clock = 1_000;
+
+    const screen = await renderList({
+      fetchImpl,
+      appState: app.port,
+      now: () => clock,
+    });
+    await waitFor(() =>
+      expect(screen.getByText("First conversation")).toBeTruthy(),
+    );
+    expect(calls).toBe(1);
+
+    await act(async () => {
+      app.emit("background");
+    });
+    clock += RESUME_THRESHOLD_MS;
+    await act(async () => {
+      app.emit("active");
+    });
+    await waitFor(() => expect(calls).toBe(2));
+
+    // Cached rows stay on screen while the list re-reads, and the band says so.
+    expect(screen.getByText("First conversation")).toBeTruthy();
+    expect(screen.getByText(t("app.reconnecting"))).toBeTruthy();
+
+    release();
+    await waitFor(() =>
+      expect(screen.queryByText(t("app.reconnecting"))).toBeNull(),
+    );
+    expect(screen.getByText("First conversation")).toBeTruthy();
+  });
+
+  it("KIN-MOBILE-001 R7: a 20 s glance does not re-read the list", async () => {
+    let calls = 0;
+    const fetchImpl = routedFetch(() => {
+      calls += 1;
+      return { body: [task()] };
+    });
+    const app = fakeAppState();
+    let clock = 1_000;
+
+    const screen = await renderList({
+      fetchImpl,
+      appState: app.port,
+      now: () => clock,
+    });
+    await waitFor(() =>
+      expect(screen.getByText("First conversation")).toBeTruthy(),
+    );
+    expect(calls).toBe(1);
+
+    await act(async () => {
+      app.emit("background");
+    });
+    clock += 20_000;
+    await act(async () => {
+      app.emit("active");
+    });
+    await act(async () => {});
+
+    expect(calls).toBe(1);
+    expect(screen.queryByText(t("app.reconnecting"))).toBeNull();
+  });
+
+  it("KIN-MOBILE-001 R7: a failed resume shows the offline band with one 44pt retry, and retrying re-reads", async () => {
+    jest.useFakeTimers();
+    try {
+      let calls = 0;
+      let failing = false;
+      const fetchImpl = routedFetch(() => {
+        calls += 1;
+        return failing ? { status: 500, body: {} } : { body: [task()] };
+      });
+      const app = fakeAppState();
+      let clock = 1_000;
+
+      const screen = await renderList({
+        fetchImpl,
+        appState: app.port,
+        now: () => clock,
+      });
+      await waitFor(() =>
+        expect(screen.getByText("First conversation")).toBeTruthy(),
+      );
+      expect(calls).toBe(1);
+
+      failing = true;
+      await act(async () => {
+        app.emit("background");
+      });
+      clock += RESUME_THRESHOLD_MS;
+      await act(async () => {
+        app.emit("active");
+      });
+      // Drive the whole bounded backoff series to `offline`.
+      for (let i = 0; i < MAX_RESUME_ATTEMPTS; i += 1) {
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(RETRY_CAP_MS);
+        });
+      }
+
+      expect(screen.getByText(t("pairing.unreachable"))).toBeTruthy();
+      const retry = screen.getByTestId("list-resume-retry");
+      const style = StyleSheet.flatten(retry.props.style);
+      expect(style.minHeight).toBeGreaterThanOrEqual(44);
+      expect(screen.getByText("First conversation")).toBeTruthy();
+      expect(calls).toBe(MAX_RESUME_ATTEMPTS + 1);
+
+      // The manual retry is the one extra read the story asks for.
+      failing = false;
+      await act(async () => {
+        fireEvent.press(retry);
+      });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(0);
+      });
+      await waitFor(() =>
+        expect(screen.queryByText(t("pairing.unreachable"))).toBeNull(),
+      );
+      expect(calls).toBe(MAX_RESUME_ATTEMPTS + 2);
+      expect(screen.getByText("First conversation")).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("KIN-MOBILE-001 R7: a successful pull-to-refresh clears the offline band", async () => {
+    jest.useFakeTimers();
+    try {
+      let calls = 0;
+      let failing = false;
+      const fetchImpl = routedFetch(() => {
+        calls += 1;
+        return failing ? { status: 500, body: {} } : { body: [task()] };
+      });
+      const app = fakeAppState();
+      let clock = 1_000;
+
+      const screen = await renderList({
+        fetchImpl,
+        appState: app.port,
+        now: () => clock,
+      });
+      await waitFor(() =>
+        expect(screen.getByText("First conversation")).toBeTruthy(),
+      );
+
+      failing = true;
+      await act(async () => {
+        app.emit("background");
+      });
+      clock += RESUME_THRESHOLD_MS;
+      await act(async () => {
+        app.emit("active");
+      });
+      for (let i = 0; i < MAX_RESUME_ATTEMPTS; i += 1) {
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(RETRY_CAP_MS);
+        });
+      }
+      expect(screen.getByText(t("pairing.unreachable"))).toBeTruthy();
+      const root = screen.root;
+      if (!root) throw new Error("the list rendered no root");
+
+      // A manual read that also fails keeps the band: it is still true.
+      await act(async () => {
+        fireEvent(root, "refresh");
+        await jest.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText(t("pairing.unreachable"))).toBeTruthy();
+      expect(calls).toBe(MAX_RESUME_ATTEMPTS + 2);
+
+      // The network is back and the reader pulls again: one good read is proof
+      // the band's claim (no network / node offline) is no longer true.
+      failing = false;
+      await act(async () => {
+        fireEvent(root, "refresh");
+        await jest.advanceTimersByTimeAsync(0);
+      });
+
+      await waitFor(() =>
+        expect(screen.queryByText(t("pairing.unreachable"))).toBeNull(),
+      );
+      expect(screen.queryByTestId("list-resume-retry")).toBeNull();
+      expect(screen.getByText("First conversation")).toBeTruthy();
+      expect(calls).toBe(MAX_RESUME_ATTEMPTS + 3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("KIN-MOBILE-001 R7: an expired session during resume asks for pairing instead of retrying", async () => {
+    let calls = 0;
+    const fetchImpl = routedFetch(() => {
+      calls += 1;
+      return calls === 1 ? { body: [task()] } : { status: 401, body: {} };
+    });
+    const onNeedsPairing = jest.fn();
+    const app = fakeAppState();
+    let clock = 1_000;
+
+    const screen = await renderList({
+      fetchImpl,
+      onNeedsPairing,
+      appState: app.port,
+      now: () => clock,
+    });
+    await waitFor(() =>
+      expect(screen.getByText("First conversation")).toBeTruthy(),
+    );
+
+    await act(async () => {
+      app.emit("background");
+    });
+    clock += RESUME_THRESHOLD_MS;
+    await act(async () => {
+      app.emit("active");
+    });
+
+    await waitFor(() => expect(onNeedsPairing).toHaveBeenCalledTimes(1));
+    // The band stays off: an expired token is a pairing trip, not a reconnect.
+    expect(screen.queryByText(t("app.reconnecting"))).toBeNull();
+    expect(screen.queryByTestId("list-resume-retry")).toBeNull();
+    expect(calls).toBe(2);
+
+    // No backoff was scheduled behind the reader's back.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls).toBe(2);
+  });
+
+  it("KIN-MOBILE-001 R7: unmounting drops a late resume answer", async () => {
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl = jest.fn(async () => {
+      calls += 1;
+      if (calls === 1) return ok([task()]);
+      await gate;
+      // The reader is long gone by the time the token is refused.
+      return ok({}, 401);
+    }) as unknown as typeof fetch;
+    const onNeedsPairing = jest.fn();
+    const app = fakeAppState();
+    let clock = 1_000;
+
+    const screen = await renderList({
+      fetchImpl,
+      onNeedsPairing,
+      appState: app.port,
+      now: () => clock,
+    });
+    await waitFor(() =>
+      expect(screen.getByText("First conversation")).toBeTruthy(),
+    );
+
+    await act(async () => {
+      app.emit("background");
+    });
+    clock += RESUME_THRESHOLD_MS;
+    await act(async () => {
+      app.emit("active");
+    });
+    await waitFor(() => expect(calls).toBe(2));
+
+    screen.unmount();
+    release();
+    // A dropped answer schedules no React update and no navigation, so this
+    // flush needs no act(): there is nothing left to render.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // No navigation from an answer that lands after the screen is gone.
+    expect(onNeedsPairing).not.toHaveBeenCalled();
+  });
+});
 
 describe("KIN-MOBILE-001 R3 list route", () => {
   it("KIN-MOBILE-001 R3: a stored session draws device, project and rows", async () => {

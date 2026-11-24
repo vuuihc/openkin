@@ -17,6 +17,8 @@
  *     to retry, another `active` does not start a second one;
  *   - a failed refresh retries with capped exponential backoff for a bounded
  *     number of attempts, then reports `offline` instead of looping;
+ *   - from `offline`, the reader gets exactly one manual `retry()` per press,
+ *     which starts the same bounded series again;
  *   - an answer that lands after `dispose()` or `invalidate()` is dropped
  *     (AGENTS.md rule 11), and every retry timer is cleared by both.
  *
@@ -61,9 +63,10 @@ export type ResumeControllerOptions = {
   /**
    * Continue the open conversation's stream after `lastSeq`. Called only
    * after a successful refresh, with the seq applied at that moment, so no
-   * event the reader already saw is replayed.
+   * event the reader already saw is replayed. Omitted when no stream is open
+   * (the list route): a good refresh then settles `online` on its own.
    */
-  resumeStream: (lastSeq: number) => void | Promise<void>;
+  resumeStream?: (lastSeq: number) => void | Promise<void>;
   /** The open conversation's last applied seq; 0 when nothing is open. */
   getLastSeq: () => number;
   /** Status transitions, for the screen's reconnect banner. */
@@ -74,6 +77,14 @@ export type ResumeControllerOptions = {
 
 export type ResumeController = {
   status(): ResumeStatus;
+  /**
+   * The reader's one manual retry after the bounded series gave up
+   * (`offline`). Starts a fresh series at attempt 1 under a new generation,
+   * so the old answer is dropped and the new series is capped like any other.
+   * A no-op in every other state: while resuming, online, expired, or after
+   * `invalidate()`/`dispose()`.
+   */
+  retry(): void;
   /**
    * Drop an in-flight resume because the screen now shows a different
    * conversation or session. The listener stays subscribed; the next long
@@ -162,16 +173,20 @@ export function createResumeController(
       return;
     }
 
-    try {
-      // Read the cursor after the refresh: a stream that appended while it
-      // was in flight raised it, and resuming from the older value would
-      // replay. A getter that cannot answer is a failed attempt, not a crash.
-      await options.resumeStream(options.getLastSeq());
-    } catch {
-      fail(mine, attempt);
-      return;
+    // The list route has no open stream, so there is nothing to continue and
+    // no cursor to read; the refresh alone decides the outcome.
+    if (options.resumeStream) {
+      try {
+        // Read the cursor after the refresh: a stream that appended while it
+        // was in flight raised it, and resuming from the older value would
+        // replay. A getter that cannot answer is a failed attempt, not a crash.
+        await options.resumeStream(options.getLastSeq());
+      } catch {
+        fail(mine, attempt);
+        return;
+      }
+      if (!current(mine)) return;
     }
-    if (!current(mine)) return;
     settle("online");
   };
 
@@ -204,6 +219,19 @@ export function createResumeController(
 
   return {
     status: () => status,
+
+    retry(): void {
+      if (disposed) return;
+      // Only the bounded series' give-up is retryable: an in-flight series
+      // already owns the attempts, and an expired token cannot be fixed by
+      // trying again. The reader's press starts a fresh, equally bounded run.
+      if (status !== "offline") return;
+      clearRetry();
+      generation += 1;
+      running = true;
+      report("resuming");
+      void attemptResume(generation, 1);
+    },
 
     invalidate(): void {
       if (disposed) return;

@@ -273,6 +273,133 @@ describe("KIN-MOBILE-001 R7 reconnect backoff", () => {
   });
 });
 
+describe("KIN-MOBILE-001 R7 manual retry", () => {
+  it("KIN-MOBILE-001 R7: one manual retry after the bounded series re-reads once and can settle online", async () => {
+    let calls = 0;
+    const { app, refreshList, statuses, controller } = setup({
+      refreshList: async () => {
+        calls += 1;
+        // The first series exhausts its bound; only the reader's press gets
+        // the refresh that finally succeeds.
+        return calls <= MAX_RESUME_ATTEMPTS
+          ? { ok: false, reason: "unreachable" }
+          : { ok: true };
+      },
+    });
+
+    await leaveAndReturn(app);
+    for (let i = 0; i < MAX_RESUME_ATTEMPTS; i += 1) {
+      await jest.advanceTimersByTimeAsync(RETRY_CAP_MS);
+    }
+    expect(controller.status()).toBe("offline");
+    expect(refreshList).toHaveBeenCalledTimes(MAX_RESUME_ATTEMPTS);
+    expect(jest.getTimerCount()).toBe(0);
+
+    controller.retry();
+    await settle();
+
+    expect(refreshList).toHaveBeenCalledTimes(MAX_RESUME_ATTEMPTS + 1);
+    expect(controller.status()).toBe("online");
+    expect(statuses).toEqual(["resuming", "offline", "resuming", "online"]);
+  });
+
+  it("KIN-MOBILE-001 R7: a manual retry while resuming, after dispose, or after expired is a no-op", async () => {
+    // While the first series is still in flight, a press joins it instead of
+    // starting a second series.
+    const gate = deferred<RefreshOutcome>();
+    const { app, refreshList, controller } = setup({
+      refreshList: () => gate.promise,
+    });
+
+    await leaveAndReturn(app);
+    expect(refreshList).toHaveBeenCalledTimes(1);
+    controller.retry();
+    await settle();
+    expect(refreshList).toHaveBeenCalledTimes(1);
+
+    gate.resolve({ ok: true });
+    await settle();
+    expect(controller.status()).toBe("online");
+
+    // Only `offline` is a retryable state; a settled `online` is not.
+    controller.retry();
+    await settle();
+    expect(refreshList).toHaveBeenCalledTimes(1);
+
+    // After dispose the controller is final.
+    controller.dispose();
+    controller.retry();
+    await settle();
+    expect(refreshList).toHaveBeenCalledTimes(1);
+
+    // An expired token cannot be fixed by a retry, so the press does nothing.
+    const expired = setup({
+      refreshList: async () => ({ ok: false, reason: "expired" }),
+    });
+    await leaveAndReturn(expired.app);
+    expect(expired.controller.status()).toBe("expired");
+    expired.controller.retry();
+    await settle();
+    expect(expired.refreshList).toHaveBeenCalledTimes(1);
+    expect(expired.controller.status()).toBe("expired");
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it("KIN-MOBILE-001 R7: a controller without resumeStream settles online after a good refresh", async () => {
+    const app = fakeAppState();
+    const refreshList = jest.fn<() => Promise<RefreshOutcome>>(
+      async () => ({ ok: true }),
+    );
+    const getLastSeq = jest.fn<() => number>(() => 7);
+    const statuses: ResumeStatus[] = [];
+    const controller = createResumeController({
+      appState: app.port,
+      refreshList,
+      getLastSeq,
+      onStatus: (status) => statuses.push(status),
+    });
+
+    await leaveAndReturn(app);
+
+    expect(refreshList).toHaveBeenCalledTimes(1);
+    // No stream is open on the list route, so there is no cursor to read.
+    expect(getLastSeq).not.toHaveBeenCalled();
+    expect(statuses).toEqual(["resuming", "online"]);
+    expect(controller.status()).toBe("online");
+  });
+
+  it("KIN-MOBILE-001 R7: a manual retry that fails again ends offline instead of looping", async () => {
+    const { app, refreshList, controller } = setup({
+      refreshList: async () => {
+        throw new Error("unreachable");
+      },
+    });
+
+    await leaveAndReturn(app);
+    for (let i = 0; i < MAX_RESUME_ATTEMPTS; i += 1) {
+      await jest.advanceTimersByTimeAsync(RETRY_CAP_MS);
+    }
+    expect(controller.status()).toBe("offline");
+    expect(refreshList).toHaveBeenCalledTimes(MAX_RESUME_ATTEMPTS);
+
+    controller.retry();
+    await settle();
+    expect(controller.status()).toBe("resuming");
+
+    // The reader's press starts a fresh series, capped like the first one: a
+    // retry can never become a loop.
+    for (let i = 0; i < MAX_RESUME_ATTEMPTS; i += 1) {
+      await jest.advanceTimersByTimeAsync(RETRY_CAP_MS);
+    }
+    expect(refreshList).toHaveBeenCalledTimes(MAX_RESUME_ATTEMPTS * 2);
+    expect(controller.status()).toBe("offline");
+    expect(jest.getTimerCount()).toBe(0);
+
+    await jest.advanceTimersByTimeAsync(RETRY_CAP_MS * 5);
+    expect(refreshList).toHaveBeenCalledTimes(MAX_RESUME_ATTEMPTS * 2);
+  });
+});
+
 describe("KIN-MOBILE-001 R7 dispose and generation guard", () => {
   it("KIN-MOBILE-001 R7: dispose is final — listener removed, retry cleared, no further calls", async () => {
     const { app, refreshList, controller } = setup({

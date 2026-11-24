@@ -206,6 +206,79 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     expect(offline.queryByText("Empty machine")).toBeNull();
   });
 
+  it("KIN-MOBILE-001 R7: the band speaks app.reconnecting while resuming and has no control", async () => {
+    const screen = await renderList(
+      {},
+      { resume: { status: "resuming", onRetry: () => {} } },
+    );
+
+    const band = screen.getByText("app.reconnecting");
+    // A polite live region: the reader hears the reconnect once, without
+    // being interrupted mid-row.
+    expect(band.props.accessibilityLiveRegion).toBe("polite");
+    // Nothing to press while the refresh is still in flight.
+    expect(screen.queryByText("pairing.retry")).toBeNull();
+    expect(screen.queryByTestId("list-resume-retry")).toBeNull();
+    expect(screen.queryByText("pairing.unreachable")).toBeNull();
+  });
+
+  it("KIN-MOBILE-001 R7: the offline band's retry meets the 44pt floor and calls back once", async () => {
+    const onRetry = jest.fn();
+    const screen = await renderList(
+      // A failed read is already drawing its own reason line; the resume band
+      // must still be one band, not a second stacked banner.
+      { status: "failed", error: "unreachable" },
+      { resume: { status: "offline", onRetry } },
+    );
+
+    expect(screen.getAllByText("pairing.unreachable")).toHaveLength(1);
+    // The failure is announced, not only drawn (RN's live region is Android-only).
+    expect(screen.getByText("pairing.unreachable").props.accessibilityRole).toBe(
+      "alert",
+    );
+    const retry = screen.getByTestId("list-resume-retry");
+    expect(retry.props.accessibilityRole).toBe("button");
+    const style = StyleSheet.flatten(retry.props.style);
+    expect(style.minHeight).toBeGreaterThanOrEqual(44);
+    expect(style.minWidth).toBeGreaterThanOrEqual(44);
+
+    await fireEvent.press(retry);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("KIN-MOBILE-001 R7: without cached rows the band is the only reason and the only retry", async () => {
+    const onRetry = jest.fn();
+    const offline = await renderList(
+      { status: "offline", groups: [], error: "unreachable" },
+      { resume: { status: "offline", onRetry } },
+    );
+
+    // Empty view + band would otherwise print the same sentence and offer two
+    // different retries (one direct read, one resume series).
+    expect(offline.getAllByText("pairing.unreachable")).toHaveLength(1);
+    expect(offline.getAllByText("pairing.retry")).toHaveLength(1);
+    expect(offline.getByTestId("list-resume-retry")).toBeTruthy();
+    expect(offline.getByText("sessions.loadError")).toBeTruthy();
+
+    const resuming = await renderList(
+      { status: "offline", groups: [], error: "unreachable" },
+      { resume: { status: "resuming", onRetry } },
+    );
+    // No cache while the series is still running is a loading screen, not an
+    // error screen with a control the reader should not press yet.
+    expect(resuming.getByText("sessions.loading")).toBeTruthy();
+    expect(resuming.queryByText("sessions.loadError")).toBeNull();
+    expect(resuming.queryByText("pairing.retry")).toBeNull();
+
+    // The band's sentence is the generic network one; a refused link keeps its
+    // own signed words even with no rows cached.
+    const rejected = await renderList(
+      { status: "failed", groups: [], error: "rejected" },
+      { resume: { status: "offline", onRetry } },
+    );
+    expect(rejected.getByText("pairing.rejected")).toBeTruthy();
+  });
+
   it("KIN-MOBILE-001 R3: fits ten full rows in an 820×1180 screenful", () => {
     expect(ROW_MIN_HEIGHT).toBeGreaterThanOrEqual(44);
     expect(ROW_HEIGHT).toBeGreaterThanOrEqual(ROW_MIN_HEIGHT);
