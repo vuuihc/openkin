@@ -66,7 +66,17 @@ test, is:
 | `ui/src/api/generated/openapi.ts` | generated types/constants only |
 | `ui/src/i18n/locales/en.ts`, `ui/src/i18n/locales/zh.ts` | locale data; `t()` lives elsewhere |
 | `ui/src/components/chat/transcriptProjection.ts` | no direct DOM reference; its i18n import is the adapter seam below (`ui/src/components/chat/transcriptProjection.ts:1-17`) |
+| `ui/src/components/chat/eventMeta.ts` | canonical speaker/phase decoding used by the projection; type-only imports, no DOM reference |
 | DOM-free files under `ui/src/lib/**` | e.g. `ui/src/lib/attachments.ts`, `ui/src/lib/friendlyError.ts`, `ui/src/lib/needsYou.ts` |
+| `ui/src/lib/phoneSessionBuckets.ts` | R3's device → project → conversation grouping, imported in place. Its type imports from `ui/src/api/client.ts` are erased; its only value import of a DOM-carrying module is `./taskOrder`, which resolves to Adapter 3 below |
+| `ui/src/lib/agentSessionTitle.ts`, `ui/src/lib/agentMention.ts` | the bucket module's own DOM-free dependencies, reached by the same import |
+
+R4's read reaches the projection's real closure, not just the file:
+`eventMeta.ts`, `lib/attachments.ts`, `lib/friendlyError.ts`,
+`lib/roundEvidence.ts`, `lib/changedFiles.ts`, and `lib/diffPreview.ts`. Only
+its `ui/src/i18n/index.ts` import carries a browser global, and that is
+Adapter 1 below. (The live stream's `ui/src/lib/eventStream.ts` import arrives
+with the stream slice.)
 
 The command that backs the table (no output is the proof):
 
@@ -74,7 +84,8 @@ The command that backs the table (no output is the proof):
 rg -n "window\.|document\.|localStorage|sessionStorage|react-dom" \
   ui/src/api/contract.ts ui/src/api/generated/openapi.ts \
   ui/src/i18n/locales/en.ts ui/src/i18n/locales/zh.ts \
-  ui/src/components/chat/transcriptProjection.ts
+  ui/src/components/chat/transcriptProjection.ts \
+  ui/src/components/chat/eventMeta.ts
 ```
 
 `ui/src/lib/**` is not a hand list: R1's test walks the actual import closure of every module RN
@@ -108,9 +119,19 @@ client. Type-only imports from `client.ts` (e.g. `TaskEvent` in
 `ui/src/components/chat/transcriptProjection.ts:1`) are erased by the TypeScript transform, so they do
 not pull the browser module into the RN bundle.
 
+**Adapter 3 — conversation order (`mobile-rn/src/list/taskOrder.ts`).** R3 imports
+`ui/src/lib/phoneSessionBuckets.ts` in place. That module's only value import of a browser-bound
+module is `./taskOrder`, whose read/write helpers use `localStorage`; its ordering function is pure.
+The RN adapter carries that one function behind the same signature, and Metro resolves
+`ui/src/lib/taskOrder.ts` to it by file path (the shared module imports it relatively, so a
+specifier alias cannot intercept it). R3 has no reorder surface, so the function is not reached at
+runtime; the adapter exists so the grouping can be imported rather than forked.
+
 R1's shared-import contract test enforces three things: the import closure rule above, that every
-alias target in the Metro config is named in this ADR, and that the aliased shared modules are exactly
-the ones with DOM references (so an alias cannot silently paper over a new one).
+alias target in the Metro config is named in this ADR, and that the shared modules carrying DOM
+references are exactly the ones mapped to a named adapter (so an alias cannot silently paper over a
+new one). Adapters are substituted during the closure walk: the effective closure is DOM-free while
+the unaliased graph still names every module the adapter stands in for.
 
 ### 3. Dependencies: exact pins, RN only
 
