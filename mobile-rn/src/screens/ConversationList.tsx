@@ -260,11 +260,23 @@ export default function ConversationList({
               // cached rows this repeats neither. While the series is still
               // running the empty screen is loading, not failed (KIN-MOBILE-001
               // §8: no cache shows a loading state, not an error).
-              <Text style={styles.emptyTitle}>
-                {resume.status === "resuming"
-                  ? t("sessions.loading")
-                  : t("sessions.loadError")}
-              </Text>
+              <>
+                <Text style={styles.emptyTitle}>
+                  {resume.status === "resuming"
+                    ? t("sessions.loading")
+                    : t("sessions.loadError")}
+                </Text>
+                {/*
+                  The band's offline sentence is the generic network one; a
+                  refused token or link needs its own signed words, and this is
+                  the only place they can appear with no rows cached.
+                */}
+                {resume.status === "offline" &&
+                state.error !== null &&
+                state.error !== "unreachable" ? (
+                  <Text style={styles.emptyHint}>{t(errorKey(state))}</Text>
+                ) : null}
+              </>
             ) : (
               <>
                 <Text accessibilityRole="alert" style={styles.emptyTitle}>

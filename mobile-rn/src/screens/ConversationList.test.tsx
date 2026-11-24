@@ -269,6 +269,14 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     expect(resuming.getByText("sessions.loading")).toBeTruthy();
     expect(resuming.queryByText("sessions.loadError")).toBeNull();
     expect(resuming.queryByText("pairing.retry")).toBeNull();
+
+    // The band's sentence is the generic network one; a refused link keeps its
+    // own signed words even with no rows cached.
+    const rejected = await renderList(
+      { status: "failed", groups: [], error: "rejected" },
+      { resume: { status: "offline", onRetry } },
+    );
+    expect(rejected.getByText("pairing.rejected")).toBeTruthy();
   });
 
   it("KIN-MOBILE-001 R3: fits ten full rows in an 820×1180 screenful", () => {

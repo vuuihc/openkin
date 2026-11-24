@@ -297,12 +297,20 @@ describe("KIN-MOBILE-001 R7 resume on the list route", () => {
         });
       }
       expect(screen.getByText(t("pairing.unreachable"))).toBeTruthy();
-
-      // The network is back and the reader pulls the list: one good read is
-      // proof the band's claim (no network / node offline) is no longer true.
-      failing = false;
       const root = screen.root;
       if (!root) throw new Error("the list rendered no root");
+
+      // A manual read that also fails keeps the band: it is still true.
+      await act(async () => {
+        fireEvent(root, "refresh");
+        await jest.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText(t("pairing.unreachable"))).toBeTruthy();
+      expect(calls).toBe(MAX_RESUME_ATTEMPTS + 2);
+
+      // The network is back and the reader pulls again: one good read is proof
+      // the band's claim (no network / node offline) is no longer true.
+      failing = false;
       await act(async () => {
         fireEvent(root, "refresh");
         await jest.advanceTimersByTimeAsync(0);
@@ -313,7 +321,7 @@ describe("KIN-MOBILE-001 R7 resume on the list route", () => {
       );
       expect(screen.queryByTestId("list-resume-retry")).toBeNull();
       expect(screen.getByText("First conversation")).toBeTruthy();
-      expect(calls).toBe(MAX_RESUME_ATTEMPTS + 2);
+      expect(calls).toBe(MAX_RESUME_ATTEMPTS + 3);
     } finally {
       jest.useRealTimers();
     }
