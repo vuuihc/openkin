@@ -17,7 +17,6 @@ import SettingsPage from "./pages/SettingsPage";
 import TaskSessionHost from "./pages/TaskSessionHost";
 import TrayPage from "./pages/TrayPage";
 import RoutinesPage from "./pages/RoutinesPage";
-import AgentSessionDetailPage from "./pages/AgentSessionDetailPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AccountScreen from "./components/AccountScreen";
 import { applyVisitGate, isAccountProbeUnanswered } from "./api/account";
@@ -69,6 +68,22 @@ function MachineTaskRedirect() {
 function ProjectCoverRedirect() {
   const { id = "" } = useParams();
   return <Navigate to={`/sessions?project=${encodeURIComponent(id)}`} replace />;
+}
+
+/**
+ * The imported agent session's entry (KIN-CONTRACT-001:137, R-agent-retire 5a).
+ *
+ * An imported session is a surface of the conversation list, not a screen of
+ * its own: the row opens its sheet over the list, and the list stays the
+ * reader's place. A notification, bookmark or cross-device link that names the
+ * old page therefore replaces itself with the same list, narrowed by
+ * `?agent=<id>`, and the list opens that session's sheet. `replace`, like the
+ * project cover above, keeps Back from returning to a URL that leaves again.
+ * The route's final landing (`/tasks/:id`) is 5b, R-agent-retire-del.
+ */
+function AgentSessionEntryRedirect() {
+  const { id = "" } = useParams();
+  return <Navigate to={`/sessions?agent=${encodeURIComponent(id)}`} replace />;
 }
 
 export default function App() {
@@ -253,7 +268,10 @@ export default function App() {
               <Route path="/machines/:device/tasks/:id" element={<MachineTaskRedirect />} />
               <Route path="/usage" element={<Navigate to="/settings?tab=operations" replace />} />
               <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
+              {/* An imported session opens in the list's sheet (5a); its old
+                  URL is the same list narrowed by `?agent=`. 5b retires the
+                  page file and moves this row's final landing. */}
+              <Route path="/agent-sessions/:id" element={<AgentSessionEntryRedirect />} />
               {/* Developer-only; a production build produces no route here. */}
               {designSystemRoute()}
               <Route path="*" element={<Navigate to="/new" replace />} />

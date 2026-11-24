@@ -90,6 +90,7 @@ const zh = {
     agentSessionsFailed: "本机 agent 会话暂时读不出来，Kin 自己的会话仍在上面。",
     agentSessionsLoadError: "导入的会话读不出来",
     agentSessionsLoadErrorHint: "Kin 自己的对话不受影响，重试即可重新读取导入索引。",
+    agentEntryFailed: "无法打开这个导入会话。",
     searchPlaceholder: "搜索对话",
     searchEmpty: "没有匹配「{query}」的对话",
     newChatOnDevice: "在{device}上新建对话",

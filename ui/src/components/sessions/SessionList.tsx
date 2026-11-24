@@ -14,6 +14,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ApiError,
   archiveTask,
+  getAgentSession,
   getOnePager,
   isTerminal,
   listAgentSessionsPage,
@@ -174,6 +175,10 @@ function listStateQuery(params: URLSearchParams, extra: Record<string, string> =
 const ROWS_BEFORE_SHOW_ALL = 5;
 const EMPTY_IDS: ReadonlySet<string> = new Set();
 const SEARCH_DEBOUNCE_MS = 200;
+// How long a closing deep-linked sheet waits for its own history entry to be
+// handed back before the parameter is cleared anyway. The pop is one frame in
+// practice; the bound keeps a lost entry from holding the URL hostage.
+const SHEET_ENTRY_RETURN_MS = 1000;
 
 /** The drag in flight: which bucket, which row, the order being drawn, and
  *  how far the row has followed the finger. */
@@ -192,6 +197,15 @@ type ProjectInstructionsEntry = {
   /** The newest read failed; the block shows its sentence and Retry. */
   failed: boolean;
   markdown: string;
+};
+
+/** The deep-linked imported session (`?agent=`), read once for this id. */
+type AgentEntry = {
+  id: string;
+  /** The snapshot the sheet opens on; null until the read lands. */
+  session: AgentSession | null;
+  /** The read failed; the list shows its inline alert and Retry. */
+  failed: boolean;
 };
 
 export default function SessionList({
@@ -227,6 +241,10 @@ export default function SessionList({
   // back.
   const projectId = (params.get("project") ?? "").trim();
   const projectFilter = projectId !== "";
+  // One imported session's sheet, by id (`?agent=`). The retired
+  // `/agent-sessions/:id` URL lands here, so the id is the sheet's open state:
+  // no second copy that can drift from the URL the reader can reload.
+  const agentId = (params.get("agent") ?? "").trim();
 
   const [searchTerm, setSearchTerm] = useState(() => query.trim());
   const [returnRow, setReturnRow] = useState<string | null>(() => takeRowReturn());
@@ -245,6 +263,54 @@ export default function SessionList({
   const pendingByTask = useMemo(() => pendingCountsByTask(pending.data), [pending.data]);
   const { machines, loading: machinesLoading, failed: machinesFailed } = useMachines();
   const [sessions, setSessions] = useState<AgentSession[]>([]);
+  // The imported rows already on screen, so a deep link can open on the row
+  // snapshot instead of a second read. A ref, not a dependency: a list
+  // refresh must not restart the entry's own read.
+  const sessionsRef = useRef<AgentSession[]>([]);
+  sessionsRef.current = sessions;
+  // A deep link (`?agent=`) opens the same sheet the row does.
+  const [agentEntry, setAgentEntry] = useState<AgentEntry | null>(null);
+  const [agentEntryAttempt, setAgentEntryAttempt] = useState(0);
+  // Set while a close gives the sheet's history entry back; a read that is
+  // already out must not reopen the sheet the reader just put away.
+  const dismissedAgent = useRef<string | null>(null);
+  // The URL is the state: read the id it names once, open the sheet on that
+  // snapshot, and let the sheet's own refresh replace it. A reader who closes
+  // the sheet (or moves to another id) before this answer lands never sees it.
+  useEffect(() => {
+    if (!agentId) {
+      dismissedAgent.current = null;
+      setAgentEntry(null);
+      return;
+    }
+    if (dismissedAgent.current === agentId) return;
+    const loaded = sessionsRef.current.find((item) => item.id === agentId);
+    if (loaded) {
+      setAgentEntry({ id: agentId, session: loaded, failed: false });
+      return;
+    }
+    let cancelled = false;
+    setAgentEntry({ id: agentId, session: null, failed: false });
+    void getAgentSession(agentId).then(
+      (found) => {
+        // AGENTS 11: the answer names the id it answers, and a stale one never
+        // opens a sheet under the id the URL holds now.
+        if (cancelled || dismissedAgent.current === agentId) return;
+        setAgentEntry({ id: agentId, session: found, failed: false });
+      },
+      () => {
+        // The list stays readable; the failure is an inline alert over it with
+        // its own retry, and the parameter stays so a reload tries again.
+        if (cancelled || dismissedAgent.current === agentId) return;
+        setAgentEntry({ id: agentId, session: null, failed: true });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, agentEntryAttempt]);
+  const urlAgentEntry = agentEntry && agentEntry.id === agentId ? agentEntry : null;
+  const urlAgentSession = urlAgentEntry?.session ?? null;
   const [olderTasks, setOlderTasks] = useState<Task[]>([]);
   const [olderArchivedTasks, setOlderArchivedTasks] = useState<Task[]>([]);
   const [olderSessions, setOlderSessions] = useState<AgentSession[]>([]);
@@ -1062,8 +1128,8 @@ export default function SessionList({
       rememberRowReturn(row.task?.id ?? row.session!.id);
       // An imported agent session is a surface of this list, not a departure
       // from it: open the sheet over the row so Back and the list's place stay
-      // where the reader left them. The full page remains the deep-link and
-      // cold-entry route.
+      // where the reader left them. The same sheet is what a deep-linked
+      // `?agent=` opens.
       if (!row.task) {
         setAgentSheet(row.session!);
         return;
@@ -1072,6 +1138,60 @@ export default function SessionList({
       const to = `/tasks/${encodeURIComponent(row.task.id)}${listStateQuery(params)}`;
       phonePush(navigate, location, to);
     });
+  }
+
+  /** Drop `agent` from the list's own URL, keeping its other state. */
+  function clearAgentParam() {
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("agent");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  /**
+   * Close the sheet, whether it came from a row or the URL.
+   *
+   * A deep-linked sheet has a second entry under it: the sheet pushes its own
+   * history entry above the list. Clearing `agent` with a replace right away
+   * would rewrite that entry's state and leave the pushed one behind, so Back
+   * would land on `?agent=` again and reopen what the reader closed. The
+   * parameter is cleared on the entry the sheet gives back instead.
+   */
+  function closeAgentSheet() {
+    const urlAgent = (params.get("agent") ?? "").trim();
+    setAgentSheet(null);
+    if (!urlAgent) return;
+    dismissedAgent.current = urlAgent;
+    setAgentEntry(null);
+    const sheetEntryIsCurrent = Boolean(
+      (window.history.state as { kinSheet?: string } | null)?.kinSheet,
+    );
+    if (!sheetEntryIsCurrent) {
+      // Closed by the browser's Back: the list's entry is already current.
+      clearAgentParam();
+      return;
+    }
+    let timer = 0;
+    const clear = () => {
+      window.removeEventListener("popstate", clear);
+      window.clearTimeout(timer);
+      clearAgentParam();
+    };
+    timer = window.setTimeout(() => {
+      window.removeEventListener("popstate", clear);
+      clearAgentParam();
+    }, SHEET_ENTRY_RETURN_MS);
+    window.addEventListener("popstate", clear);
+  }
+
+  /** The failed entry read's own retry: only that read runs again. */
+  function retryAgentEntry() {
+    dismissedAgent.current = null;
+    setAgentEntryAttempt((n) => n + 1);
   }
 
   function enterSelection(row: PhoneSessionRow) {
@@ -1592,6 +1712,17 @@ export default function SessionList({
 
   const body = (
     <div ref={listRef} onKeyDown={onListKeyDown}>
+      {urlAgentEntry?.failed && (
+        <InlineAlert className="mx-4 mt-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>{tr("sessions.agentEntryFailed")}</span>
+            <Button variant="secondary" onClick={retryAgentEntry}>
+              {tr("agentSession.historyRetry")}
+            </Button>
+          </div>
+        </InlineAlert>
+      )}
+
       {loading && <SessionListSkeleton shell={shell} label={tr("sessions.loading")} />}
 
       {!loading && pendingQuery && listed.length === 0 && !loadFailed && (
@@ -1818,10 +1949,10 @@ export default function SessionList({
   // would strand that entry under the task it opened.
   const agentSessionSheet = (
     <AgentSessionSheet
-      open={agentSheet !== null}
-      session={agentSheet}
+      open={agentSheet !== null || urlAgentSession !== null}
+      session={agentSheet ?? urlAgentSession}
       offline={offline}
-      onClose={() => setAgentSheet(null)}
+      onClose={closeAgentSheet}
     />
   );
 
