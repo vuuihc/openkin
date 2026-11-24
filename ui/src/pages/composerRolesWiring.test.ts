@@ -19,7 +19,7 @@ const UI = fileURLToPath(new URL("../..", import.meta.url));
 const HOST = readFileSync(join(UI, "src/pages/TaskSessionHost.tsx"), "utf8");
 const DETAIL = readFileSync(join(UI, "src/pages/TaskDetailPage.tsx"), "utf8");
 const DOCK = readFileSync(join(UI, "src/components/task/TaskComposerDock.tsx"), "utf8");
-const SESSION = readFileSync(join(UI, "src/pages/AgentSessionDetailPage.tsx"), "utf8");
+const SESSION = readFileSync(join(UI, "src/components/sessions/AgentSessionSheet.tsx"), "utf8");
 const NEW_CHAT = readFileSync(join(UI, "src/pages/NewChatPage.tsx"), "utf8");
 const SETTINGS = readFileSync(join(UI, "src/pages/SettingsPage.tsx"), "utf8");
 
@@ -43,10 +43,11 @@ describe("the composer's prompt shortcuts", () => {
   });
 
   it("gives the imported session's continue box the same list", () => {
-    // The same composer is the continue box on a session imported from a CLI.
+    // The same composer is the continue box on a session imported from a CLI,
+    // now in the list's sheet (5b deleted the page that used to hold it).
     // Without the list its `/` menu would claim there are no saved roles.
-    expect(SESSION).toContain("const agentRoles = useAgentRoles();");
-    expect(SESSION).toContain("roles={agentRoles}");
+    expect(SESSION).toContain("const roles = useAgentRoles();");
+    expect(SESSION).toContain("roles={roles}");
   });
 
   it("gives the new-chat composer the list the page already reads", () => {
