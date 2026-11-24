@@ -33,7 +33,12 @@ const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const DOM_IDENTIFIERS = new Set(["window", "document", "localStorage", "sessionStorage"]);
 
 type ImportRef = { specifier: string; typeOnly: boolean };
-type Closure = { files: Set<string>; aliased: Set<string> };
+type Closure = {
+  files: Set<string>;
+  aliased: Set<string>;
+  /** Every `ui/` module reached before any adapter substitution. */
+  rawShared: Set<string>;
+};
 
 function repoPath(file: string): string {
   return path.relative(REPO_ROOT, file).split(path.sep).join("/");
@@ -75,9 +80,21 @@ function importsOf(file: string): ImportRef[] {
   const refs: ImportRef[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      // `import type { A }` and `import { type A }` are both erased by the
+      // TypeScript transform, so neither may pull a browser module into the
+      // RN bundle. Only a clause with at least one value binding is followed.
+      const clause = node.importClause;
+      const bindings = clause?.namedBindings;
+      const allNamedTypeOnly =
+        clause !== undefined &&
+        clause.name === undefined &&
+        bindings !== undefined &&
+        ts.isNamedImports(bindings) &&
+        bindings.elements.length > 0 &&
+        bindings.elements.every((element) => element.isTypeOnly);
       refs.push({
         specifier: node.moduleSpecifier.text,
-        typeOnly: node.importClause?.isTypeOnly === true,
+        typeOnly: clause?.isTypeOnly === true || allNamedTypeOnly,
       });
     } else if (
       ts.isExportDeclaration(node) &&
@@ -167,6 +184,7 @@ function resolveRelative(fromFile: string, specifier: string): string | null {
 function buildClosure(): Closure {
   const files = new Set<string>();
   const aliased = new Set<string>();
+  const rawShared = new Set<string>();
   const queue = [
     ...listSources(path.join(MOBILE_ROOT, "app")),
     ...listSources(path.join(MOBILE_ROOT, "src")),
@@ -200,11 +218,25 @@ function buildClosure(): Closure {
         continue;
       }
       if (target.endsWith(".json")) continue;
+      const relTarget = repoPath(target);
+      if (relTarget.startsWith("ui/")) rawShared.add(target);
+      // ADR 0036 §2: a DOM-carrying shared module is replaced by its one named
+      // RN adapter. The bundle follows the alias, so this walk must too; the
+      // unaliased target stays in `rawShared` so a new DOM dependency cannot be
+      // papered over by adding an alias.
+      const adapterRel = SHARED_ADAPTERS[relTarget];
+      if (adapterRel) {
+        const adapter = path.join(REPO_ROOT, adapterRel);
+        if (fs.existsSync(adapter)) {
+          queue.push(adapter);
+          continue;
+        }
+      }
       queue.push(target);
     }
   }
 
-  return { files, aliased };
+  return { files, aliased, rawShared };
 }
 
 const domCache = new Map<string, string[]>();
@@ -256,11 +288,14 @@ const ADR_NAMED_PATHS = [
 
 /**
  * ADR 0036 §2 adapters: shared module -> the one RN adapter that replaces it.
- * R1 imports only DOM-free shared modules, so none are needed yet. A module
- * that starts carrying a DOM reference must be added here (and to the ADR) or
- * the third test below turns red.
+ * R3's grouping import reaches `ui/src/lib/taskOrder.ts`, whose storage helpers
+ * read `localStorage`; its pure ordering function is carried by an RN adapter.
+ * A module that starts carrying a DOM reference must be added here (and to the
+ * ADR) or the fourth test below turns red.
  */
-const SHARED_ADAPTERS: Record<string, string> = {};
+const SHARED_ADAPTERS: Record<string, string> = {
+  "ui/src/lib/taskOrder.ts": "mobile-rn/src/list/taskOrder.ts",
+};
 
 const closure = buildClosure();
 const closureByRepoPath = new Map(
@@ -294,8 +329,10 @@ describe("KIN-MOBILE-001 R1 shared-import contract", () => {
 
   it("KIN-MOBILE-001: adapter aliases equal the DOM-carrying shared modules", () => {
     const adr = fs.readFileSync(ADR_PATH, "utf8");
-    const domShared = [...closure.files]
-      .filter((file) => repoPath(file).startsWith("ui/") && domReferences(file).length > 0)
+    // The unaliased graph: every shared module the RN source reaches, whether
+    // or not an adapter later stands in for it.
+    const domShared = [...closure.rawShared]
+      .filter((file) => domReferences(file).length > 0)
       .map(repoPath)
       .sort();
     const adapters = Object.keys(SHARED_ADAPTERS).sort();
