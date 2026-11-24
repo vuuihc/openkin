@@ -499,9 +499,13 @@ PY
     return 0
   fi
   # Stage 2, bounded: a fixture or a fresh clone without the console's dependencies cannot decide,
-  # so it is NA that names the static finding instead of inventing a verdict.
-  if [ ! -d "$wt/ui/node_modules" ]; then
-    echo "RENAME_COPY_NA: cannot run vitest (ui/node_modules is missing); removed value \"$hit_value\" still asserted in $hit_fileline"
+  # so it is NA that names the static finding instead of inventing a verdict. The binary is checked
+  # itself, not just the directory: `npx` would otherwise try to fetch vitest from the network,
+  # which a lane seam must never do.
+  if [ ! -x "$wt/ui/node_modules/.bin/vitest" ]; then
+    local why='ui/node_modules is missing'
+    [ -d "$wt/ui/node_modules" ] && why='ui/node_modules/.bin/vitest is missing'
+    echo "RENAME_COPY_NA: cannot run vitest ($why); removed value \"$hit_value\" still asserted in $hit_fileline"
     return 0
   fi
   files="$(printf '%s' "$files" | sed '/^$/d' | sort -u)"
