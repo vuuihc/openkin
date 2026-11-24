@@ -4,21 +4,25 @@ import {
   buildChatItems,
   groupIntoTurns,
   mergeProcessRuns,
+  type Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
 import {
   createThread,
   loadThread,
   projectThread,
+  type ThreadOptions,
   type ThreadState,
 } from "./threadModel";
+import type { StreamConnection, StreamSource } from "./stream";
 
 /**
- * KIN-MOBILE-001 R4 — the headless conversation read model.
+ * KIN-MOBILE-001 R4 — the headless conversation model.
  *
  * The history row compares against the shared projection itself, not a
  * hand-written expectation: R4's contract is that the phone groups the
  * transcript exactly as the web console does. The live round (streamed
- * appends, send queue, stop row) lands in the next slice with its own suite.
+ * appends, send queue, stop row) drives the same model through the stream
+ * seam the R4a transport exposes.
  */
 
 const TASK_ID = "task-1";
@@ -99,6 +103,26 @@ const HISTORY: TaskEvent[] = [
   event(7, "result", { is_error: false }),
 ];
 
+/** A round that is still open: what the queue and stop rows act on. */
+const RUNNING: TaskEvent[] = [
+  event(1, "message", {
+    speaker: "user",
+    role: "user",
+    content: "do it",
+    visibility: { user: true, task: true },
+  }),
+  event(2, "task_started"),
+  event(3, "message", {
+    speaker: "kin",
+    content: "working",
+    visibility: { user: true, task: true },
+  }),
+];
+
+function frame(value: TaskEvent): string {
+  return `event: event\ndata: ${JSON.stringify({ kind: "event", data: value })}\n\n`;
+}
+
 function ok(body: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -123,6 +147,117 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+type ChunkQueue = { iterable: AsyncIterable<string>; push(chunk: string): void; end(): void };
+
+function chunkQueue(): ChunkQueue {
+  const pending: string[] = [];
+  let waiting: ((result: IteratorResult<string>) => void) | null = null;
+  let ended = false;
+  return {
+    iterable: {
+      [Symbol.asyncIterator](): AsyncIterator<string> {
+        return {
+          next(): Promise<IteratorResult<string>> {
+            if (pending.length > 0) {
+              return Promise.resolve({ done: false, value: pending.shift() as string });
+            }
+            if (ended) return Promise.resolve({ done: true, value: undefined });
+            return new Promise((resolve) => {
+              waiting = resolve;
+            });
+          },
+        };
+      },
+    },
+    push(chunk) {
+      if (waiting) {
+        const resolve = waiting;
+        waiting = null;
+        resolve({ done: false, value: chunk });
+        return;
+      }
+      pending.push(chunk);
+    },
+    end() {
+      ended = true;
+      if (waiting) {
+        const resolve = waiting;
+        waiting = null;
+        resolve({ done: true, value: undefined });
+      }
+    },
+  };
+}
+
+type FakeStream = {
+  source: StreamSource;
+  connections: Array<{ push(chunk: string): void; end(): void }>;
+  failOpen(): void;
+  allowOpen(): void;
+};
+
+function fakeStream(): FakeStream {
+  const connections: Array<{ push(chunk: string): void; end(): void }> = [];
+  let failing = false;
+  return {
+    connections,
+    failOpen() {
+      failing = true;
+    },
+    allowOpen() {
+      failing = false;
+    },
+    source: {
+      async open(): Promise<StreamConnection> {
+        if (failing) throw new Error("unreachable");
+        const queue = chunkQueue();
+        connections.push({ push: queue.push, end: queue.end });
+        return { status: 200, chunks: queue.iterable };
+      },
+    },
+  };
+}
+
+const immediate = (run: () => void): (() => void) => {
+  queueMicrotask(run);
+  return () => undefined;
+};
+
+async function settle(): Promise<void> {
+  for (let i = 0; i < 8; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+/** The live-round model: the one task, the one fake stream, immediate retries. */
+function liveThread(
+  fetchImpl: typeof fetch,
+  source: StreamSource,
+  extra: Partial<ThreadOptions> = {},
+) {
+  return createThread({
+    origin: ORIGIN,
+    token: TOKEN,
+    taskId: TASK_ID,
+    fetchImpl,
+    source,
+    schedule: immediate,
+    ...extra,
+  });
+}
+
+/** Meta keys anywhere in the turns (agent turns hold them in `items`). */
+function metaKeys(turns: readonly Turn[]): string[] {
+  const keys: string[] = [];
+  for (const turn of turns) {
+    const items = turn.kind === "agent" ? turn.items : [turn.item];
+    for (const item of items) {
+      if (item.kind === "meta") keys.push(item.key);
+    }
+  }
+  return keys;
 }
 
 describe("KIN-MOBILE-001 R4 thread model", () => {
@@ -361,5 +496,520 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
     expect(seen).toHaveLength(atClose);
     expect(model.getState().status).toBe("loading");
     expect(model.getState().turns).toEqual([]);
+  });
+
+  it("KIN-MOBILE-001 R4: a streamed chunk appends without redrawing earlier turns", async () => {
+    const fake = fakeStream();
+    const fetchImpl = routedFetch((url) =>
+      url.endsWith("/events") ? { body: RUNNING } : { body: task() },
+    );
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+    const earlier = model.getState().turns[0];
+
+    fake.connections[0].push(
+      frame(
+        event(4, "message", {
+          speaker: "kin",
+          content: "more",
+          visibility: { user: true, task: true },
+        }),
+      ),
+    );
+    await settle();
+
+    const after = model.getState().turns;
+    expect(after[0]).toBe(earlier);
+    expect(JSON.stringify(after)).toContain("more");
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 R4: a duplicate seq leaves the turns untouched", async () => {
+    const fake = fakeStream();
+    const fetchImpl = routedFetch((url) =>
+      url.endsWith("/events") ? { body: RUNNING } : { body: task() },
+    );
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+    const applied = model.getState().turns;
+
+    fake.connections[0].push(frame(event(4, "message", { speaker: "kin", content: "once" })));
+    await settle();
+    fake.connections[0].push(frame(event(4, "message", { speaker: "kin", content: "once" })));
+    await settle();
+
+    const once = model.getState().turns;
+    fake.connections[0].push(frame(event(4, "message", { speaker: "kin", content: "once" })));
+    await settle();
+
+    expect(model.getState().turns).toBe(once);
+    expect(once).not.toBe(applied);
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 R4: send while running queues, then flushes one item per round in order", async () => {
+    const fake = fakeStream();
+    const prompts: string[] = [];
+    const fetchImpl = routedFetch((url, init) => {
+      if (url.endsWith("/prompt")) {
+        const body = JSON.parse(String(init?.body)) as { prompt: string };
+        prompts.push(body.prompt);
+        return { body: task() };
+      }
+      return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
+    });
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+    expect(model.getState().running).toBe(true);
+
+    expect(await model.send("first")).toEqual({ ok: true, queued: true });
+    expect(await model.send("second")).toEqual({ ok: true, queued: true });
+    expect(await model.send("third")).toEqual({ ok: true, queued: true });
+    expect(prompts).toEqual([]);
+    expect(model.getState().sendQueue.map((item) => item.text)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
+
+    // A queued item is cancellable while the round runs.
+    const queued = model.getState().sendQueue[2];
+    model.cancelQueued(queued.id);
+    expect(model.getState().sendQueue.map((item) => item.text)).toEqual(["first", "second"]);
+
+    // One round ends: exactly one queued prompt opens the next round; the
+    // rest wait for that new round's own `result`.
+    fake.connections[0].push(frame(event(4, "result", { is_error: false })));
+    await settle();
+    expect(prompts).toEqual(["first"]);
+    expect(model.getState().sendQueue.map((item) => item.text)).toEqual(["second"]);
+    expect(model.getState().running).toBe(true);
+
+    fake.connections[0].push(frame(event(5, "result", { is_error: false })));
+    await settle();
+    expect(prompts).toEqual(["first", "second"]);
+    expect(model.getState().sendQueue).toEqual([]);
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 R4: a send during a flush joins the queue instead of racing it", async () => {
+    const fake = fakeStream();
+    const prompts: string[] = [];
+    const firstPrompt = deferred<Reply>();
+    const fetchImpl = routedFetch((url, init) => {
+      if (url.endsWith("/prompt")) {
+        const body = JSON.parse(String(init?.body)) as { prompt: string };
+        prompts.push(body.prompt);
+        return prompts.length === 1 ? firstPrompt.promise : { body: task() };
+      }
+      return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
+    });
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+    expect(await model.send("first")).toEqual({ ok: true, queued: true });
+
+    // The round's result starts the flush; its POST is still in flight when
+    // the person sends again, which must land behind the item being sent.
+    fake.connections[0].push(frame(event(4, "result", { is_error: false })));
+    await settle();
+    expect(prompts).toEqual(["first"]);
+    expect(await model.send("second")).toEqual({ ok: true, queued: true });
+    // The item being posted stays visible (and cancellable) until its POST
+    // answers; the new send lands behind it.
+    expect(model.getState().sendQueue.map((item) => item.text)).toEqual(["first", "second"]);
+
+    firstPrompt.resolve({ body: task() });
+    await settle();
+    expect(prompts).toEqual(["first"]);
+    expect(model.getState().sendQueue.map((item) => item.text)).toEqual(["second"]);
+    expect(model.getState().running).toBe(true);
+
+    fake.connections[0].push(frame(event(5, "result", { is_error: false })));
+    await settle();
+    expect(prompts).toEqual(["first", "second"]);
+    expect(model.getState().sendQueue).toEqual([]);
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 R4: a failed flush keeps the item queued and the next result retries it", async () => {
+    const fake = fakeStream();
+    const prompts: string[] = [];
+    let promptCalls = 0;
+    const fetchImpl = routedFetch((url, init) => {
+      if (url.endsWith("/prompt")) {
+        const body = JSON.parse(String(init?.body)) as { prompt: string };
+        prompts.push(body.prompt);
+        promptCalls += 1;
+        return promptCalls === 1 ? { status: 404, body: {} } : { body: task() };
+      }
+      return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
+    });
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+    expect(await model.send("keep")).toEqual({ ok: true, queued: true });
+
+    // A rejected prompt is the person's text, not a lost send: it stays in
+    // the queue (cancellable) and the round is not retried in a tight loop.
+    fake.connections[0].push(frame(event(4, "result", { is_error: false })));
+    await settle();
+    expect(prompts).toEqual(["keep"]);
+    expect(model.getState().sendQueue.map((item) => item.text)).toEqual(["keep"]);
+    expect(model.getState().banner).toBeNull();
+
+    // A new send behind a retained item keeps the queue's order instead of
+    // posting past it.
+    expect(await model.send("later")).toEqual({ ok: true, queued: true });
+    expect(model.getState().sendQueue.map((item) => item.text)).toEqual(["keep", "later"]);
+    const later = model.getState().sendQueue[1];
+    model.cancelQueued(later.id);
+
+    // The next round's end retries the retained item.
+    fake.connections[0].push(frame(event(5, "result", { is_error: false })));
+    await settle();
+    expect(prompts).toEqual(["keep", "keep"]);
+    expect(model.getState().sendQueue).toEqual([]);
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 R4: a streamed result settles the task row the projection folds on", async () => {
+    const openRound = HISTORY.slice(0, 6); // the same transcript, no `result` yet
+    for (const expected of [
+      { isError: false, status: "succeeded" as const },
+      { isError: true, status: "failed" as const },
+    ]) {
+      const fake = fakeStream();
+      const fetchImpl = routedFetch((url) =>
+        url.endsWith("/events") ? { body: openRound } : { body: task() },
+      );
+      const model = liveThread(fetchImpl, fake.source);
+
+      await model.start();
+      await settle();
+
+      const tail = event(7, "result", { is_error: expected.isError });
+      fake.connections[0].push(frame(tail));
+      await settle();
+
+      expect(model.getState().running).toBe(false);
+      // Without updating the task row first, the projection still sees a
+      // running task and keeps the two process cards of the live split.
+      expect(model.getState().turns).toEqual(
+        projectThread([...openRound, tail], task({ status: expected.status })),
+      );
+      model.close();
+    }
+  });
+
+  it("KIN-MOBILE-001 R4: a reconnect fills an empty epoch-0 history from the durable log", async () => {
+    const fake = fakeStream();
+    let eventReads = 0;
+    const fetchImpl = routedFetch((url) => {
+      if (url.endsWith("/events")) {
+        eventReads += 1;
+        return {
+          body:
+            eventReads === 1
+              ? []
+              : [
+                  event(1, "message", {
+                    speaker: "kin",
+                    content: "recovered",
+                    visibility: { user: true, task: true },
+                  }),
+                ],
+        };
+      }
+      return { body: task() };
+    });
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+    expect(model.getState().turns).toEqual([]);
+
+    // The first connection carried nothing and dropped. The retry's durable
+    // catch-up is the only source of the missed event, and it is epoch 0:
+    // an epoch seeded at -1 from the empty list would filter it out.
+    fake.connections[0].end();
+    await settle();
+
+    expect(eventReads).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(model.getState().turns)).toContain("recovered");
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 R4: a skipped seq is filled from the durable log", async () => {
+    const fake = fakeStream();
+    const fetchImpl = routedFetch((url) => {
+      if (url.includes("since_seq=3")) {
+        return {
+          body: [
+            event(4, "message", {
+              speaker: "kin",
+              content: "four",
+              visibility: { user: true, task: true },
+            }),
+          ],
+        };
+      }
+      return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
+    });
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+
+    fake.connections[0].push(
+      frame(
+        event(5, "message", {
+          speaker: "kin",
+          content: "five",
+          visibility: { user: true, task: true },
+        }),
+      ),
+    );
+    await settle();
+
+    const rendered = JSON.stringify(model.getState().turns);
+    expect(rendered).toContain("four");
+    expect(rendered).toContain("five");
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 R4: an epoch bump rewrites the tail and drops a repair for the old epoch", async () => {
+    const fake = fakeStream();
+    const catchUps: Array<{ url: string; reply: (body: TaskEvent[]) => void }> = [];
+    const fetchImpl = jest.fn((input: string) => {
+      const url = String(input);
+      if (url.includes("since_seq=")) {
+        return new Promise<Response>((resolve) => {
+          catchUps.push({ url, reply: (body) => resolve(ok(body)) });
+        });
+      }
+      return Promise.resolve(url.endsWith("/events") ? ok(RUNNING) : ok(task()));
+    }) as unknown as typeof fetch;
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+
+    // A hole starts a durable repair for epoch 0 and leaves it in flight.
+    fake.connections[0].push(frame(event(6, "message", { speaker: "kin", content: "six" })));
+    await settle();
+    expect(catchUps).toHaveLength(1);
+
+    // The daemon rewrote the tail: the transcript restarts at epoch 1.
+    fake.connections[0].push(
+      frame({
+        ...event(1, "message", {
+          speaker: "kin",
+          content: "rewritten",
+          visibility: { user: true, task: true },
+        }),
+        event_epoch: 1,
+      }),
+    );
+    await settle();
+    const rewritten = JSON.stringify(model.getState().turns);
+    expect(rewritten).toContain("rewritten");
+    expect(rewritten).not.toContain("do it");
+
+    // A hole in the new epoch must start its own repair: the old-epoch one is
+    // no longer the answer this model is waiting for.
+    fake.connections[0].push(
+      frame({ ...event(4, "message", { speaker: "kin", content: "four" }), event_epoch: 1 }),
+    );
+    await settle();
+    expect(catchUps).toHaveLength(2);
+    expect(catchUps[1].url).toContain("since_seq=1");
+
+    // The old-epoch repair answering late cannot repaint the new tail, and it
+    // must not clear the newer repair still in flight: another hole in the new
+    // epoch has to reuse that repair, not open a third fetch.
+    catchUps[0].reply([event(5, "message", { speaker: "kin", content: "stale" })]);
+    await settle();
+    fake.connections[0].push(
+      frame({ ...event(6, "message", { speaker: "kin", content: "six" }), event_epoch: 1 }),
+    );
+    await settle();
+    expect(catchUps).toHaveLength(2);
+
+    // A late epoch-0 event from the stream is a downgrade and is dropped.
+    fake.connections[0].push(frame(event(8, "message", { speaker: "kin", content: "downgrade" })));
+    await settle();
+    const after = JSON.stringify(model.getState().turns);
+    expect(after).not.toContain("stale");
+    expect(after).not.toContain("downgrade");
+    expect(after).toContain("rewritten");
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 R4: a reconcile that recovers a result ends the round and flushes the queue", async () => {
+    const fake = fakeStream();
+    const prompts: string[] = [];
+    const fetchImpl = routedFetch((url, init) => {
+      if (url.endsWith("/prompt")) {
+        const body = JSON.parse(String(init?.body)) as { prompt: string };
+        prompts.push(body.prompt);
+        return { body: task() };
+      }
+      if (url.includes("since_seq=")) {
+        return { body: [event(4, "result", { is_error: false })] };
+      }
+      return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
+    });
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+    expect(await model.send("after")).toEqual({ ok: true, queued: true });
+
+    // The stream drops, so the round's `result` arrives only through the
+    // reconnect's durable catch-up; the model must still end the round and
+    // send the queued prompt.
+    fake.connections[0].end();
+    await settle();
+
+    expect(prompts).toEqual(["after"]);
+    expect(model.getState().sendQueue).toEqual([]);
+    expect(model.getState().running).toBe(true);
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 R4: stop posts the interrupt and leaves a meta row that survives reload", async () => {
+    const fake = fakeStream();
+    const canceled = task({ status: "canceled" });
+    let stopped = false;
+    const fetchImpl = routedFetch((url) => {
+      if (url.endsWith("/cancel")) {
+        stopped = true;
+        return { body: canceled };
+      }
+      if (url.endsWith("/events")) return { body: RUNNING };
+      // The task row carries the cancel after the POST, which is exactly what
+      // makes the stopped meta row survive a reload.
+      return { body: stopped ? canceled : task() };
+    });
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+    expect(await model.stop()).toEqual({ ok: true });
+
+    expect(stopped).toBe(true);
+    expect(model.getState().running).toBe(false);
+    const stoppedKeys = metaKeys(model.getState().turns).filter((key) =>
+      key.startsWith("stopped-"),
+    );
+    expect(stoppedKeys).toHaveLength(1);
+
+    // The row is derived from the task's persisted status, so a fresh read
+    // shows it without any local memory of the tap.
+    const reloaded = await loadThread(ORIGIN, TOKEN, TASK_ID, { fetchImpl });
+    const reloadKeys = metaKeys(reloaded.turns).filter((key) => key.startsWith("stopped-"));
+    expect(reloadKeys).toEqual(stoppedKeys);
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 R4: offline keeps the turns, blocks the send, and keeps the text", async () => {
+    const fake = fakeStream();
+    const prompts: string[] = [];
+    const fetchImpl = routedFetch((url) => {
+      if (url.endsWith("/prompt")) {
+        prompts.push(String(url));
+        return { body: task() };
+      }
+      // The reconnect's durable catch-up carries `?since_seq=`, so match the
+      // path rather than the suffix: both answers are the same event list.
+      return url.includes("/events") ? { body: RUNNING } : { body: task() };
+    });
+    const model = liveThread(fetchImpl, fake.source, {
+      backoff: { baseMs: 1, maxMs: 1, maxAttempts: 1 },
+    });
+
+    await model.start();
+    await settle();
+    const before = model.getState().turns;
+
+    fake.failOpen();
+    fake.connections[0].end();
+    await settle();
+
+    expect(model.getState().banner).toBe("offline");
+    expect(model.getState().turns).toBe(before);
+    expect(await model.send("keep me")).toEqual({ ok: false, reason: "offline" });
+    expect(prompts).toEqual([]);
+    expect(model.getState().sendQueue).toEqual([]);
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 R4: a retried start reopens the stream after it went offline", async () => {
+    const fake = fakeStream();
+    const fetchImpl = routedFetch((url) =>
+      url.includes("/events") ? { body: RUNNING } : { body: task() },
+    );
+    const model = liveThread(fetchImpl, fake.source, {
+      backoff: { baseMs: 1, maxMs: 1, maxAttempts: 1 },
+    });
+
+    await model.start();
+    await settle();
+    expect(fake.connections).toHaveLength(1);
+
+    // The stream gives up for good: the model says offline and keeps the turns.
+    fake.failOpen();
+    fake.connections[0].end();
+    await settle();
+    expect(model.getState().banner).toBe("offline");
+
+    // A retried start is a fresh subscription: the dead stream is replaced, a
+    // second connection opens and the banner clears. Without the replacement,
+    // `startStream` returns early and the model reports ready with no stream.
+    fake.allowOpen();
+    await model.start();
+    await settle();
+    expect(fake.connections).toHaveLength(2);
+    expect(model.getState().banner).toBeNull();
+
+    fake.connections[1].push(
+      frame(
+        event(4, "message", {
+          speaker: "kin",
+          content: "live again",
+          visibility: { user: true, task: true },
+        }),
+      ),
+    );
+    await settle();
+    expect(JSON.stringify(model.getState().turns)).toContain("live again");
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 R4: a chunk from a closed stream is dropped", async () => {
+    const fake = fakeStream();
+    const fetchImpl = routedFetch((url) =>
+      url.endsWith("/events") ? { body: RUNNING } : { body: task() },
+    );
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+    const before = model.getState().turns;
+
+    model.close();
+    fake.connections[0].push(frame(event(4, "message", { speaker: "kin", content: "late" })));
+    await settle();
+
+    expect(model.getState().turns).toBe(before);
   });
 });
