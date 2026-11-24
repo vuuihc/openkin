@@ -127,6 +127,23 @@ describe("area routes", () => {
     expect(screen.queryByText("project detail page")).toBeNull();
   });
 
+  // KIN-CONTRACT-001, entry half (R-agent-retire, 5a): the imported session is
+  // a surface of the list, so its URL is the list narrowed by `?agent=`. The
+  // redirect replaces the entry — the same shape as the project cover — and
+  // the page it used to paint is gone from this URL.
+  it("redirects /agent-sessions/:id to the session sheet over the list, replacing the entry", async () => {
+    window.history.replaceState({ idx: 0 }, "", "/agent-sessions/s%201");
+    render(createElement(BrowserRouter, null, createElement(App)));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.location.search).toBe("?agent=s%201");
+    // `replace` kept the entry: this is index 0 still, not a push above it.
+    expect(window.history.state.idx).toBe(0);
+    // The retired full page is not what the URL paints any more; its only way
+    // back to the list was this link.
+    expect(screen.queryByText("Back to chats")).toBeNull();
+  });
+
   // E4a: the operations tab now hosts the agent console, so the old
   // full-page destinations land on the panel instead of a second copy.
   it("sends /agents to the operations tab now that the panel has content", async () => {
