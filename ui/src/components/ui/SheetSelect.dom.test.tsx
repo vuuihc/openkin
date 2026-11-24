@@ -23,12 +23,7 @@ const OPTIONS = [
 
 function stubMedia(wide: boolean, coarse: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches:
-      query === "(min-width: 768px)"
-        ? wide
-        : query === "(pointer: coarse)"
-          ? coarse
-          : false,
+    matches: query === "(min-width: 768px)" ? wide : query === "(pointer: coarse)" ? coarse : false,
     media: query,
     onchange: null,
     addEventListener: vi.fn(),
