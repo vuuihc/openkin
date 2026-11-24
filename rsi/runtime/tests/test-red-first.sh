@@ -243,7 +243,7 @@ case_lane_runs_the_seam_before_the_push() {
   local claim_at red_at push_at ev_at fin_at rc
   claim_at="$(grep -nF -- 'if ! CLAIM_EV="$(bash "$SELF" --claim-check-check' "$LANE" | head -1 | cut -d: -f1)"
   red_at="$(grep -nF -- 'if ! RED_EV="$(bash "$SELF" --red-first-check' "$LANE" | head -1 | cut -d: -f1)"
-  push_at="$(grep -nF -- 'push -q -u origin' "$LANE" | head -1 | cut -d: -f1)"
+  push_at="$(grep -nF -- 'git_push_retry "$GIT" "$WT" "$BR"' "$LANE" | head -1 | cut -d: -f1)"
   ev_at="$(grep -nF -- '"$STATE/lanes/$N.red-first.txt"' "$LANE" | head -1 | cut -d: -f1)"
   fin_at="$(grep -nF -- 'finish failed "" "red first:' "$LANE" | head -1 | cut -d: -f1)"
   [ -n "$claim_at" ] || fail "wiring: no claim-check call site"
