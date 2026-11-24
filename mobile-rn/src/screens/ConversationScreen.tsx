@@ -206,13 +206,16 @@ export default function ConversationScreen({
   // Both the sheet's first read and its retry are the same read. The model
   // sets its "loading" state synchronously, so the sheet never opens on the
   // previous answer pretending to be this one; a late answer is dropped by the
-  // model's own generation rule before it reaches `setProviders`.
+  // model's own generation rule before it reaches `setProviders`, and the
+  // publisher is the one this run installed — a read that outlives its effect
+  // run lands on a dead `live` and paints nothing (AGENTS.md §11).
   const readUsage = useCallback(() => {
     const model = providersRef.current;
     if (!model) return;
+    const publish = publishProvidersRef.current;
     const read = model.load();
     setProviders(model.getState());
-    void read.then((next) => publishProvidersRef.current?.(next));
+    void read.then((next) => publish?.(next));
   }, []);
   // Cancel is the container telling the model the sheet is gone: it bumps the
   // generation and aborts the request, so a held answer paints nothing.
@@ -222,9 +225,10 @@ export default function ConversationScreen({
   const selectUsageWindow = useCallback((days: UsageWindowDays) => {
     const model = providersRef.current;
     if (!model) return;
+    const publish = publishProvidersRef.current;
     const read = model.setWindow(days);
     setProviders(model.getState());
-    void read.then((next) => publishProvidersRef.current?.(next));
+    void read.then((next) => publish?.(next));
   }, []);
 
   if (state === null) {
