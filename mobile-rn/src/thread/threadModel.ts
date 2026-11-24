@@ -4,7 +4,8 @@
  * The signed R4 row says the phone reads with the *same* projection the web
  * console uses. So nothing here re-derives the transcript: it loads the task
  * and its events through the RN transport, then calls `buildChatItems` ->
- * `groupIntoTurns` in place from `ui/src/components/chat/transcriptProjection.ts`.
+ * `mergeProcessRuns` -> `groupIntoTurns` in place from
+ * `ui/src/components/chat/transcriptProjection.ts`.
  *
  * The screen layer (R4b) is pure presentation over `ThreadState`. The live
  * round — streamed appends, the send queue and the stop row — builds on this
@@ -16,6 +17,7 @@ import type { Task, TaskEvent } from "../../../ui/src/api/contract";
 import {
   buildChatItems,
   groupIntoTurns,
+  mergeProcessRuns,
   normalizeModel,
   type Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
@@ -69,7 +71,15 @@ export function projectThread(
   const hostSpeaker = task?.agent || "kin";
   const hostModel = normalizeModel(task?.model);
   const finalized = task ? isTerminalStatus(task.status) : false;
-  const items = buildChatItems([...events], hostSpeaker, hostModel, finalized, task?.status ?? null);
+  // While the turn runs, the projection keeps its notes as body text and its
+  // tools in a card; a settled turn folds into one row. This is the same
+  // `mergeProcessRuns(..., !finalized)` pair the web transcript builds
+  // (`ui/src/components/chat/ChatStream.tsx`), so the phone cannot disagree
+  // about where a process card begins or ends.
+  const items = mergeProcessRuns(
+    buildChatItems([...events], hostSpeaker, hostModel, finalized, task?.status ?? null),
+    !finalized,
+  );
   const next = groupIntoTurns(items, hostSpeaker, hostModel);
   return next.map((turn, index) => {
     const before = previous[index];
