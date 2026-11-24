@@ -1,4 +1,21 @@
-import type { UsageRow } from "../api/client";
+/**
+ * The fields the fold reads — declared here, not imported from `../api/client`.
+ * That module is the browser client (zustand, fetch state); ADR 0036 §2 lets the
+ * RN bundle import this file in place, and the RN typecheck must not walk the web
+ * client (`scripts/check.sh`'s mobile-rn job installs mobile-rn's deps only).
+ * The web's `UsageRow` and the node's generated schema both satisfy this shape.
+ */
+export type UsageRowLike = {
+  date: string;
+  tasks: number;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd?: number | null;
+  request_count: number;
+  cache_read_tokens: number;
+  cache_eligible_input_tokens: number;
+  cache_status: string;
+};
 
 export type CacheStatus = "reported" | "unknown" | "unsupported" | "mixed";
 
@@ -29,7 +46,7 @@ export type UsageInterval = {
  * list whose entries really cost nothing produce the same zero, and only the
  * first is allowed to read as "nothing happened".
  */
-export function summarizeUsage(rows: readonly UsageRow[] | null | undefined): UsageInterval {
+export function summarizeUsage(rows: readonly UsageRowLike[] | null | undefined): UsageInterval {
   const list = rows ?? [];
   let cost = 0;
   let tokens = 0;
