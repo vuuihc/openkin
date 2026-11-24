@@ -251,6 +251,19 @@ describe("the project row's working-folders editor", () => {
     expect(locationText()).toBe("/sessions");
   });
 
+  it("names the coarse sheet row after the list it edits", async () => {
+    // A bare 编辑 sat directly under 编辑一句话摘要, so the sheet offered two
+    // rows a reader could not tell apart: one edits a summary, this one edits
+    // the working folders. The seeded J4 walk could not identify the row
+    // either, which is what this label fixes.
+    setLocale("zh");
+    list();
+
+    await userEvent.click(await screen.findByRole("button", { name: "项目操作" }));
+    await userEvent.click(await screen.findByRole("button", { name: "编辑工作目录" }));
+    expect(await screen.findByRole("dialog", { name: "工作目录" })).toBeTruthy();
+  });
+
   it("a fine pointer opens the working-folders editor from the hover cluster as a dialog", async () => {
     pointer("fine");
     list();

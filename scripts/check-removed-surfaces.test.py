@@ -30,6 +30,21 @@ RESURRECTED = (
     "ui/src/lib/inboxKeyboard.ts",
 )
 
+# The project cover KIN-CONTRACT-001 retired (2026-11-24): the page, its four
+# blocks and the heat scale only the cover drew. A merge that brings one back
+# must turn the real tree red, not only a fixture.
+RETIRED_COVER = (
+    "ui/src/pages/ProjectDetailPage.tsx",
+    "ui/src/pages/ProjectDetailPage.dom.test.tsx",
+    "ui/src/components/project/Heatmap.tsx",
+    "ui/src/components/project/ProjectInstructionsBlock.tsx",
+    "ui/src/components/project/ProjectInstructionsBlock.dom.test.tsx",
+    "ui/src/components/project/ProjectOnePager.tsx",
+    "ui/src/components/project/ProjectOnePager.dom.test.tsx",
+    "ui/src/components/project/ProjectRootsBlock.tsx",
+    "ui/src/design/heat.ts",
+)
+
 
 class Fixture:
     """A throwaway source root plus a manifest beside it."""
@@ -155,14 +170,16 @@ class ManifestFailureTest(unittest.TestCase):
 
 
 class CheckedInManifestTest(unittest.TestCase):
-    def test_checked_in_manifest_names_the_four_resurrected_surfaces(self) -> None:
+    def test_checked_in_manifest_names_the_resurrected_and_retired_surfaces(self) -> None:
         paths = [
             line.strip()
             for line in MANIFEST.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.strip().startswith("#")
         ]
-        self.assertEqual(len(paths), 12, paths)
+        self.assertEqual(len(paths), 21, paths)
         for path in RESURRECTED:
+            self.assertIn(path, paths)
+        for path in RETIRED_COVER:
             self.assertIn(path, paths)
 
     def test_checked_in_manifest_paths_are_absent_on_this_tree(self) -> None:
@@ -175,7 +192,30 @@ class CheckedInManifestTest(unittest.TestCase):
             text=True,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("REMOVED_SURFACES_OK (12 paths absent)", result.stdout)
+        self.assertIn("REMOVED_SURFACES_OK (21 paths absent)", result.stdout)
+
+    def test_a_restored_cover_component_turns_the_real_tree_red(self) -> None:
+        """Put one retired cover file back and run the checked-in gate.
+
+        The fixture tests prove the checker's verdict; this one proves the
+        record names the paths this tree actually deleted. A component that a
+        merge restored must fail the real gate even though nothing else moved.
+        """
+        restored = ROOT / "ui/src/design/heat.ts"
+        self.assertFalse(restored.exists(), restored)
+        try:
+            restored.write_text("export {};\n", encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, "-B", str(CHECKER)],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("REMOVED_SURFACES_FAIL", result.stdout)
+            self.assertIn("ui/src/design/heat.ts", result.stdout)
+        finally:
+            restored.unlink(missing_ok=True)
 
 
 class GateWiringTest(unittest.TestCase):

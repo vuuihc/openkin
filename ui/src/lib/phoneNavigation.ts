@@ -468,10 +468,10 @@ export function phonePush(
     targetPath === location.pathname &&
     to.split("#", 1)[0] === `${location.pathname}${location.search}`;
   if (targetPath === location.pathname && (phone || sameView || options?.replace)) {
-    // A same-screen link ("Open cover" on the cover itself) is a view change,
-    // not a push. Replacing prevents a duplicate entry — and on a phone it
-    // also prevents the synthetic-list walk that would put a second project
-    // above the list.
+    // A same-screen link (a chip that rewrites the list's own query) is a view
+    // change, not a push. Replacing prevents a duplicate entry — and on a
+    // phone it also prevents the synthetic-list walk that would put a second
+    // list above the real one.
     navigate(to, { replace: true, state: options?.state });
     return;
   }

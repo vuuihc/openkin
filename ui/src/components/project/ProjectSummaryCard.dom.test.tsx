@@ -1,10 +1,26 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import type { Project } from "../../api/client";
+import { useLeaveGuard } from "../../hooks/useLeaveGuard";
 import { setLocale, t as tr } from "../../i18n";
+import { resetLeaveGuard } from "../../lib/leaveGuard";
 import ProjectSummaryCard from "./ProjectSummaryCard";
+
+/** A draft with an edited form: it refuses the departure until it is clean. */
+const guard = { allow: false };
+
+function GuardedDraft() {
+  useLeaveGuard(() => guard.allow, true);
+  return null;
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{`${location.pathname}${location.search}`}</div>;
+}
 
 const project: Project = {
   id: "p1",
@@ -19,13 +35,17 @@ const project: Project = {
 function renderCard() {
   return render(
     <MemoryRouter>
+      <GuardedDraft />
       <ProjectSummaryCard project={project} />
+      <LocationProbe />
     </MemoryRouter>,
   );
 }
 
 beforeEach(() => {
   setLocale("en");
+  guard.allow = false;
+  resetLeaveGuard();
 });
 
 describe("the project summary card", () => {
@@ -42,11 +62,31 @@ describe("the project summary card", () => {
     );
   });
 
-  it("keeps the cover chip thumb-sized on a coarse tablet and compact on the Mac", () => {
+  it("the draft summary opens the project-filtered list", async () => {
+    // The cover it used to open is retired: the summary is edited from the
+    // project's row on the one list, and the link goes to that narrowed list.
+    const user = userEvent.setup();
     renderCard();
     const link = screen.getByRole("link", { name: tr("newChat.openOnePager") }) as HTMLElement;
 
-    expect(link.getAttribute("href")).toBe("/projects/p1");
+    expect(link.getAttribute("href")).toBe("/sessions?project=p1");
+
+    // A dirty draft owns the departure: the guard refuses and the URL stays.
+    await user.click(link);
+    expect(screen.getByTestId("location").textContent).toBe("/");
+
+    guard.allow = true;
+    await user.click(link);
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe("/sessions?project=p1"),
+    );
+  });
+
+  it("keeps the summary chip thumb-sized on a coarse tablet and compact on the Mac", () => {
+    renderCard();
+    const link = screen.getByRole("link", { name: tr("newChat.openOnePager") }) as HTMLElement;
+
+    expect(link.getAttribute("href")).toBe("/sessions?project=p1");
 
     const classes = link.className.split(/\s+/);
     // `min-height` does not apply to a non-replaced inline box, so the display

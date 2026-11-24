@@ -16,3 +16,15 @@ ui/src/pages/ProjectsCollectionPage.tsx
 ui/src/pages/ProjectsCollectionPage.dom.test.tsx
 ui/src/lib/projectsCache.ts
 ui/src/lib/projectsCache.test.ts
+# KIN-CONTRACT-001 retired the project cover: a project is a narrowing of the
+# one conversation list, and its instructions, summary and folders are edited
+# from that list's project row.
+ui/src/pages/ProjectDetailPage.tsx
+ui/src/pages/ProjectDetailPage.dom.test.tsx
+ui/src/components/project/Heatmap.tsx
+ui/src/components/project/ProjectInstructionsBlock.tsx
+ui/src/components/project/ProjectInstructionsBlock.dom.test.tsx
+ui/src/components/project/ProjectOnePager.tsx
+ui/src/components/project/ProjectOnePager.dom.test.tsx
+ui/src/components/project/ProjectRootsBlock.tsx
+ui/src/design/heat.ts
