@@ -82,5 +82,47 @@
     "test": "RSI_TEST_ONLY=case_preexisting_manifest_does_not_cover_new_edit bash rsi/runtime/tests/test-lane-mutants.sh",
     "old": "  manifests=\"$(\n    { \"$GIT\" -C \"$wt\" diff --name-only --diff-filter=d \"$base\" -- '*.mutants.json' 2>/dev/null\n      \"$GIT\" -C \"$wt\" ls-files --others --exclude-standard -- '*.mutants.json' 2>/dev/null\n    } | LC_ALL=C sort -u\n  )\"",
     "new": "  manifests=\"$(\"$GIT\" -C \"$wt\" ls-files -co --exclude-standard -- '*.mutants.json' 2>/dev/null | LC_ALL=C sort -u)\""
+  },
+  {
+    "label": "a stale anchor in a pre-existing manifest is never checked",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_stale_preexisting_manifest_anchor_fails bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "  if [ -n \"$touched\" ]; then",
+    "new": "  if false; then"
+  },
+  {
+    "label": "the anchor check skips *-mutant.json, so walk-mutant.json's stale anchors are invisible",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_walk_mutant_anchor_is_checked bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "        | grep -E '(\\.mutants\\.json|-mutant\\.json|/mutants\\.json)$' || true",
+    "new": "        | grep -E '(\\.mutants\\.json|/mutants\\.json)$' || true"
+  },
+  {
+    "label": "the anchor check skips probe/**/mutants.json",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_probe_mutants_anchor_is_checked bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "        | grep -E '(\\.mutants\\.json|-mutant\\.json|/mutants\\.json)$' || true",
+    "new": "        | grep -E '(\\.mutants\\.json|-mutant\\.json)$' || true"
+  },
+  {
+    "label": "a duplicated anchor passes because only zero occurrences count as stale",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_duplicate_anchor_fails bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "        if count != 1:",
+    "new": "        if count == 0:"
+  },
+  {
+    "label": "pre-existing stale anchors are charged to a lane that only touched the file",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_preexisting_stale_anchor_is_not_charged bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "        if base_text[f] is None or base_text[f].count(e[\"old\"]) != 1:\n            continue  # already stale at the branch point: debt, not this branch's edit",
+    "new": "        if False:\n            continue"
+  },
+  {
+    "label": "a committed rename hides the deleted old path, so its stale anchor is never checked",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_renamed_file_with_anchor_fails bash rsi/runtime/tests/test-lane-mutants.sh",
+    "old": "    { \"$GIT\" -C \"$wt\" diff --name-only --no-renames \"$base\" 2>/dev/null",
+    "new": "    { \"$GIT\" -C \"$wt\" diff --name-only \"$base\" 2>/dev/null"
   }
 ]
