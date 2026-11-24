@@ -1,4 +1,5 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef } from "react";
+import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useT } from "../../i18n/react";
 import { MobileCard, MobileRow } from "../mobile/MobileList";
 import { MobileChevron } from "../mobile/MobileHeader";
@@ -101,6 +102,10 @@ export function SettingsLayout({
   children: ReactNode;
 }) {
   const tr = useT();
+  // The floor follows the pointer, not the viewport: an iPad in portrait is
+  // 820px wide and still a thumb, so `sm:min-h-10` shrank every tab to 40px
+  // on the screen that needed 44. A mouse keeps the dense shape above 640px.
+  const coarse = useCoarsePointer();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef<Partial<Record<SettingsTabId, HTMLButtonElement | null>>>({});
   // Operations hides the section column, and the selected tab with it, so the
@@ -244,7 +249,8 @@ export function SettingsLayout({
                     title={tab.description}
                     onClick={() => onTabChange(tab.id)}
                     className={classes(
-                      "min-h-11 w-full shrink-0 rounded-lg px-3 py-2 text-left text-strong font-medium outline-none transition sm:min-h-10",
+                      "min-h-11 w-full shrink-0 rounded-lg px-3 py-2 text-left text-strong font-medium outline-none transition",
+                      coarse ? null : "sm:min-h-10",
                       "focus-visible:ring-2 focus-visible:ring-kin-focus-ring",
                       selected
                         ? "bg-kin-blue text-kin-on-brand"
