@@ -16,7 +16,8 @@ that overlaps another active lane's paths is refused (exit 3).  Mutations hold a
   lanes.py cloud-list | cloud-release SLUG
   lanes.py start N PID | finish N --status S [--pr N] [--note T] | claimed
 
-Exit codes: 3 overlap/busy, 4 no such lane or lane busy, 5 bad paths, 6 missing brief,
+Exit codes: 2 a whitespace-joined --paths argument splits into a non-path token,
+3 overlap/busy, 4 no such lane or lane busy, 5 bad paths, 6 missing brief,
 7 UX gate, 8 host pressure, 9 item already merged (pass --redeliver or use a new id),
 10 the last usable lane is reserved for an unclaimed rework.
 `facts` exits 0 whenever the block prints, and 2 only when $STATE itself cannot be read (then
@@ -365,6 +366,38 @@ def is_valid_path(p):
         return True
     return os.path.isfile(os.path.join(HERE, "..", "..", p))
 
+def path_tokens(arg):
+    """The path tokens one --paths argument holds: itself when it names a real file or dir.
+
+    `git diff --raw` prints a path containing a space unquoted, so lane.sh hands a tracked
+    "design/Kin Main Window (standalone).orig.html" to claim as one argv word. Splitting that
+    would refuse a file that exists, so an argument whose whole text names something that exists
+    stays one path; only an argument that names nothing is read as a whitespace-joined list.
+    """
+    if os.path.exists(os.path.join(HERE, "..", "..", norm(arg))):
+        return [arg]
+    return arg.split()
+
+def refuse_joined_non_paths(args):
+    """Refuse a whitespace-joined --paths argument that splits into a non-path token.
+
+    A caller that passed one quoted "$PATHS" delivered a single argv word, and `claim` recorded
+    the whole 30-path blob as one path that can never match a file; lane.sh then called every
+    touched file outside the footprint and row 3 `delete-pagesb2c-del` lost its claim and idled
+    for a fill cycle (followup 1832, 2026-11-24 07:36). Splitting is only safe when every token
+    is a path: dropping a bad token would claim a narrower scope than the caller asked for, so
+    a joined argument holding prose stops here instead.
+    """
+    for arg in args:
+        if not any(c.isspace() for c in arg):
+            continue
+        toks = path_tokens(arg)
+        if toks == [arg]:
+            continue  # one real path that happens to contain a space
+        bad = [t for t in toks if not is_valid_path(norm(t))]
+        if bad:
+            print(f"REFUSED: --paths argument contains whitespace and splits into a non-path token: '{bad[0]}' (from '{arg}')"); sys.exit(2)
+
 def unclaimed_sendbacks():
     """Sendbacks no lane has taken yet, oldest first (by mtime).
 
@@ -401,7 +434,8 @@ def unclaimed_sendbacks():
 
 
 def cmd_claim(a):
-    paths = [norm(p) for p in a.paths if norm(p) not in IGNORED]
+    refuse_joined_non_paths(a.paths)
+    paths = [norm(p) for arg in a.paths for p in path_tokens(arg) if norm(p) not in IGNORED]
     bad = [p for p in paths if not is_valid_path(p)]
     if not paths or bad:
         print(f"REFUSED: declare specific files/dirs (too broad or empty: {bad or 'none given'})"); sys.exit(5)
@@ -482,7 +516,8 @@ def cloud_claims(reap_expired=True):
 def cmd_cloud_claim(a):
     ux_gate_refuse(a.item)
     merged_refuse(a.item, a.redeliver)
-    paths = [norm(p) for p in a.paths if norm(p) not in IGNORED]
+    refuse_joined_non_paths(a.paths)
+    paths = [norm(p) for arg in a.paths for p in path_tokens(arg) if norm(p) not in IGNORED]
     bad = [p for p in paths if p in TOO_BROAD]
     if not paths or bad: print(f"REFUSED: declare specific files/dirs (too broad or empty: {bad or 'none given'})"); sys.exit(5)
     if not os.path.isfile(a.brief): print(f"REFUSED: brief {a.brief} missing"); sys.exit(6)
