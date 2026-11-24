@@ -2,9 +2,10 @@
  * KIN-MOBILE-001 R4b — the phone's read-only conversation, phone presentation.
  *
  * Pure: it draws the view state `threadModel` produced and nothing else. No
- * fetch, no router, no storage — and no composer, send box, stop row or
- * approval card. This slice is history; their absence is the honest state
- * until the live round lands.
+ * fetch, no router, no storage — and no composer, send box or stop row. This
+ * slice is history; their absence is the honest state until the live round
+ * lands. The pending approvals and questions of *this* task may mount above
+ * the transcript through `approvals`, already scoped by the container.
  *
  * The turn shapes are the shared projection's (`ChatItem`, `Turn` from
  * `ui/src/components/chat/transcriptProjection.ts`), so the phone cannot
@@ -17,6 +18,10 @@ import type {
   Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
 import type { ThreadState } from "../thread/threadModel";
+import {
+  ApprovalsSection,
+  type ApprovalsScreenProps,
+} from "./Approvals";
 
 /** The signed touch floor; every control on this screen meets it. */
 export const BACK_SIZE = 44;
@@ -27,6 +32,11 @@ export type ConversationViewProps = {
   onBack: () => void;
   /** The failed read's retry; absent when there is nothing to retry. */
   onRetry?: () => void;
+  /**
+   * This task's pending approvals and questions, already scoped by the
+   * container; absent when there is no session to read them with.
+   */
+  approvals?: ApprovalsScreenProps;
 };
 
 /**
@@ -109,7 +119,16 @@ export default function ConversationView({
   t,
   onBack,
   onRetry,
+  approvals,
 }: ConversationViewProps) {
+  // A conversation draws no approval chrome when there is nothing to say: no
+  // card and no empty state, exactly as an unblocked turn reads today.
+  const showApprovals =
+    approvals !== undefined &&
+    (approvals.state.items.length > 0 ||
+      approvals.state.status === "loading" ||
+      approvals.state.status === "error" ||
+      !approvals.state.online);
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -152,6 +171,11 @@ export default function ConversationView({
           <Text accessibilityRole="alert" style={styles.notice}>
             {t("pairing.unreachable")}
           </Text>
+        ) : null}
+        {showApprovals && approvals ? (
+          // Above the turns: this is what the next turn is waiting on. The
+          // section is scroller-free, so it lives in this one ScrollView.
+          <ApprovalsSection {...approvals} embedded />
         ) : null}
         {state.turns.map((turn, index) => (
           <TurnBlock index={index} key={index} turn={turn} />

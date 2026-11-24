@@ -4,6 +4,7 @@ import {
   answerQuestionPath,
   approvalDecisionPath,
   createApprovals,
+  entriesForTask,
   pendingApprovalsPath,
   pendingQuestionsPath,
   type ApprovalsModel,
@@ -438,5 +439,78 @@ describe("KIN-MOBILE-001 R5 approvals and questions", () => {
     expect(card.phase).toBe("idle");
     expect(card.failure).toEqual({ reason: "unreachable", status: null });
     expect(model.getState().pendingCount).toBe(1);
+  });
+
+  it("KIN-MOBILE-001 R5: entriesForTask keeps only the cards this conversation asked for", async () => {
+    // Two approvals and one question on the node; only some belong to task-1.
+    const { fetchImpl } = listRouter(
+      [
+        { ...approval("a1", 20), task_id: "task-1" },
+        { ...approval("a2", 10), task_id: "task-2" },
+      ],
+      [{ ...question("q1", 30), task_id: "task-1" }],
+    );
+    const model = modelWith(fetchImpl);
+    await model.load();
+    const whole = model.getState();
+    expect(whole.items.map((item) => item.id)).toEqual(["a1", "a2", "q1"]);
+    expect(whole.pendingCount).toBe(3);
+
+    const scoped = entriesForTask(whole, "task-1");
+
+    expect(scoped.items.map((item) => item.id)).toEqual(["a1", "q1"]);
+    expect(scoped.pendingCount).toBe(2);
+    // Every other field is the model's own: this is a view, not a new list.
+    expect(scoped.status).toBe(whole.status);
+    expect(scoped.online).toBe(whole.online);
+    expect(scoped.error).toBe(whole.error);
+    expect(scoped.revision).toBe(whole.revision);
+
+    expect(entriesForTask(whole, "task-2").items.map((item) => item.id)).toEqual(["a2"]);
+    expect(entriesForTask(whole, "task-2").pendingCount).toBe(1);
+    const stranger = entriesForTask(whole, "task-unknown");
+    expect(stranger.items).toEqual([]);
+    expect(stranger.pendingCount).toBe(0);
+  });
+
+  it("KIN-MOBILE-001 R5: entriesForTask leaves the model's own list untouched", async () => {
+    const { fetchImpl } = listRouter(
+      [
+        { ...approval("a1", 20), task_id: "task-1" },
+        { ...approval("a2", 10), task_id: "task-2" },
+      ],
+      [],
+      (url) =>
+        url === ORIGIN + approvalDecisionPath("a1")
+          ? jsonResponse(200, { ...approval("a1"), decision: "approved" })
+          : undefined,
+    );
+    const model = modelWith(fetchImpl);
+    await model.load();
+    model.setOnline(false);
+    const whole = model.getState();
+    const originalItems = whole.items;
+
+    const scoped = entriesForTask(whole, "task-2");
+
+    // A new object with its own array; the model's state is not rewritten.
+    expect(scoped).not.toBe(whole);
+    expect(scoped.items).not.toBe(originalItems);
+    expect(whole.items).toBe(originalItems);
+    expect(whole.items.map((item) => item.id)).toEqual(["a1", "a2"]);
+    expect(whole.pendingCount).toBe(2);
+    expect(scoped.items.map((item) => item.id)).toEqual(["a2"]);
+    expect(scoped.online).toBe(false);
+
+    // The model still addresses the node-wide list by id: a1 is scoped out of
+    // this conversation's view, yet the model keeps and can decide it.
+    model.setOnline(true);
+    await expect(model.approve("a1")).resolves.toMatchObject({ ok: true });
+    const after = model.getState();
+    expect(after.items.map((item) => item.id)).toEqual(["a1", "a2"]);
+    expect(after.pendingCount).toBe(1);
+    // The snapshot taken before the decision is unchanged by it.
+    expect(whole.items.map((item) => item.id)).toEqual(["a1", "a2"]);
+    expect(whole.pendingCount).toBe(2);
   });
 });
