@@ -66,7 +66,13 @@ vi.mock("./api/useLiveResources", () => ({
 }));
 
 vi.mock("./hooks/useMachines", () => ({
-  useMachines: () => ({ machines: [], agents: [], loading: false, failed: false, refresh: vi.fn() }),
+  useMachines: () => ({
+    machines: [],
+    agents: [],
+    loading: false,
+    failed: false,
+    refresh: vi.fn(),
+  }),
 }));
 
 vi.mock("./hooks/useAgentRoles", () => ({ useAgentRoles: () => [] }));
