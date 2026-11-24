@@ -3759,13 +3759,8 @@ def j4_instructions_problems(steps: list) -> list[str]:
     )
     if empty < 0:
         problems.append("J4 never reads the empty state on a project with no 工作方式 section (还没写工作说明)")
-    empty_note = at(
-        lambda step: section_wait(step, "新对话不会收到这一段")
-        or section_wait(step, "New chats will not receive this section"),
-        max(empty, 0) + 1,
-    )
-    if empty >= 0 and empty_note < 0:
-        problems.append("J4 never reads the empty state footnote (新对话不会收到这一段)")
+    # The list row's empty state is one line by design (KIN-PROJECT-001, #590):
+    # "还没写工作说明" with no not-sent footnote, so J4 has none to read.
 
     # The evidence the reviewer reads.
     names = [step[1] for step in steps if isinstance(step, list) and step[:1] == ["shot"]]
@@ -3969,8 +3964,7 @@ def _j4_roots_problems(steps: list) -> list[str]:
         # 添加目录 / 移除 leg that follows reads the cover again (with
         # aaa-config last after the remove), and an unbounded search would let
         # a sorted read hide behind the later leg.
-        leg_start = at(is_edit, reload_link + 1)
-        bound = leg_start if leg_start >= 0 else len(steps)
+        bound = verbs_start if verbs_start >= 0 else len(steps)
         last_row = at(
             lambda step: step[0] == "wait"
             and "aaa-config" in str(step[1])
@@ -4090,7 +4084,7 @@ def j4_roots_verbs_problems(steps: list) -> list[str]:
     def cover_wait(step: list, path: str, position: str) -> bool:
         return (
             step[0] == "wait"
-            and "section" in str(step[1])
+            and "[role=dialog]" in str(step[1])
             and path in str(step[1])
             and position in str(step[1])
         )
@@ -4114,7 +4108,7 @@ def j4_roots_verbs_problems(steps: list) -> list[str]:
         return (
             step[0] == "count"
             and str(step[2]) == number
-            and "section" in str(step[1])
+            and "[role=dialog]" in str(step[1])
             and "li" in str(step[1])
         )
 
@@ -4125,7 +4119,7 @@ def j4_roots_verbs_problems(steps: list) -> list[str]:
     last_cover = [
         index
         for index, step in enumerate(steps)
-        if step[0] == "count" and "section" in str(step[1]) and "li" in str(step[1])
+        if step[0] == "count" and "[role=dialog]" in str(step[1]) and "li" in str(step[1])
     ]
     if not last_cover:
         problems.append("J4 never reads the cover's folder count; the seeded list cannot be proven intact")
@@ -4134,14 +4128,14 @@ def j4_roots_verbs_problems(steps: list) -> list[str]:
     last_first = [
         step
         for step in steps
-        if step[0] == "wait" and "section" in str(step[1]) and "first-child" in str(step[1]) and "li" in str(step[1])
+        if step[0] == "wait" and "[role=dialog]" in str(step[1]) and "first-child" in str(step[1]) and "li" in str(step[1])
     ]
     if not last_first or "/alpha" not in str(last_first[-1][1]) or "默认" not in str(last_first[-1][1]):
         problems.append("the leg's last cover read does not show alpha first with 默认; the seeded default drifted")
     last_last = [
         step
         for step in steps
-        if step[0] == "wait" and "section" in str(step[1]) and "last-child" in str(step[1]) and "li" in str(step[1])
+        if step[0] == "wait" and "[role=dialog]" in str(step[1]) and "last-child" in str(step[1]) and "li" in str(step[1])
     ]
     if not last_last or "/aaa-config" not in str(last_last[-1][1]) or "/tmp" in str(last_last[-1][1]):
         problems.append("the leg's last cover read does not show aaa-config last; the walk left the seeded list changed")

@@ -1809,8 +1809,8 @@ function checkJ4Contract(spec) {
   // blank block that a missing read could also draw.
   const emptyAt = idx((st) => sectionWait(st, '还没写工作说明') || sectionWait(st, 'No working instructions yet'), Math.max(sentTailAt, 0) + 1);
   if (emptyAt < 0) errs.push('J4 never reads the empty state on a project with no 工作方式 section (还没写工作说明)');
-  const emptyNoteAt = after(emptyAt, (st) => sectionWait(st, '新对话不会收到这一段') || sectionWait(st, 'New chats will not receive this section'));
-  if (emptyAt >= 0 && emptyNoteAt < 0) errs.push('J4 never reads the empty state footnote (新对话不会收到这一段)');
+  // The list row's empty state is one line by design (KIN-PROJECT-001, #590):
+  // no not-sent footnote, so J4 has none to read.
 
   // The screenshots are the reviewable evidence, in the order the leg runs.
   for (const name of ['instructions-cover', 'instructions-composer', 'instructions-sent', 'instructions-edited', 'instructions-old-chat', 'instructions-truncated', 'instructions-truncated-sent', 'instructions-empty']) {
