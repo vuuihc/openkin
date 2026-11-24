@@ -12,8 +12,8 @@
  * through the single polite live region (AGENTS.md §11: the list that asked
  * owns the answer, so nothing here keeps its own copy of an item).
  *
- * This slice draws no route and no container: the mount lands with the
- * conversation/tab row, exactly as R3's list screen landed before its route.
+ * This file draws no route: the standalone screen and the conversation's
+ * embedded section are the same body, so one card never reads two ways.
  */
 
 import { useState } from "react";
@@ -343,7 +343,16 @@ function QuestionCard({
   );
 }
 
-export default function Approvals({
+export type ApprovalsSectionProps = ApprovalsScreenProps & {
+  /**
+   * Hosted inside another scroller (the conversation). An embedded section
+   * draws no screen title row and no all-clear block — a conversation shows a
+   * card only when there is one — and owns no `ScrollView` of its own.
+   */
+  embedded?: boolean;
+};
+
+export function ApprovalsSection({
   state,
   t,
   onApprove,
@@ -351,7 +360,8 @@ export default function Approvals({
   onAnswer,
   onRetry,
   onRefresh,
-}: ApprovalsScreenProps) {
+  embedded = false,
+}: ApprovalsSectionProps) {
   // The chosen option is a draft for the card that asked, held against the
   // revision it was chosen under: a replaced list starts clean (AGENTS.md §11).
   const [choices, setChoices] = useState<
@@ -381,19 +391,17 @@ export default function Approvals({
   const empty = state.status === "ready" && state.items.length === 0;
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.content}
-      style={styles.screen}
-      testID="approvals-screen"
-    >
-      <View style={styles.header}>
-        <Text accessibilityRole="header" style={styles.headerTitle}>
-          {t("inbox.title")}
-        </Text>
-        {state.status === "ready" ? (
-          <Text style={styles.badge}>{countLine}</Text>
-        ) : null}
-      </View>
+    <View style={styles.body}>
+      {embedded ? null : (
+        <View style={styles.header}>
+          <Text accessibilityRole="header" style={styles.headerTitle}>
+            {t("inbox.title")}
+          </Text>
+          {state.status === "ready" ? (
+            <Text style={styles.badge}>{countLine}</Text>
+          ) : null}
+        </View>
+      )}
 
       {state.status === "loading" ? (
         <Text style={styles.status}>{t("inbox.loading")}</Text>
@@ -428,7 +436,7 @@ export default function Approvals({
         </View>
       ) : null}
 
-      {empty ? (
+      {!embedded && empty ? (
         <View style={styles.empty}>
           <Text style={styles.emptyTitle}>{t("inbox.allClear")}</Text>
           <Text style={styles.emptyHint}>{t("inbox.allClearHint")}</Text>
@@ -469,6 +477,23 @@ export default function Approvals({
           t={t}
         />
       ))}
+    </View>
+  );
+}
+
+/**
+ * The standalone screen: the same section, owning the page's one scroller.
+ * The conversation mounts `ApprovalsSection` directly inside its own scroller,
+ * so the phone never nests two vertical `ScrollView`s.
+ */
+export default function Approvals(props: ApprovalsScreenProps) {
+  return (
+    <ScrollView
+      contentContainerStyle={styles.content}
+      style={styles.screen}
+      testID="approvals-screen"
+    >
+      <ApprovalsSection {...props} />
     </ScrollView>
   );
 }
@@ -516,6 +541,9 @@ const styles = StyleSheet.create({
     color: "#6b4b00",
     flexShrink: 1,
     fontSize: 14,
+  },
+  body: {
+    gap: 12,
   },
   card: {
     borderColor: "#e5e5e5",
