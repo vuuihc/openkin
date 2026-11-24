@@ -535,6 +535,60 @@ export default function FloatingApproval({
     };
   }, [screenKey, expectsBottomChrome, hasAny, panelOpen, panelColumn]);
 
+  // The band the visible strip occupies, published where a page that scrolls
+  // under it can reserve it. `/routines` draws the strip above the phone footer
+  // and its pane scrolls beneath both; with no band the second routine card's
+  // 立即运行 and 编辑 sat under the pill and the pane had no scroll room to
+  // bring them clear (dogfood 2026-11-24-14). The numbers are the ones
+  // `measureOverlap` already reads: the pill's height and its bottom edge's
+  // distance from the viewport's bottom. `index.css`'s
+  // `.phone-approval-clearance` takes the larger of that band + 8px and the
+  // footer's clearance, and falls back to the footer alone when neither
+  // variable is set.
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const clear = () => {
+      root.style.removeProperty("--approval-strip-height");
+      root.style.removeProperty("--approval-strip-bottom");
+    };
+    if (!currentId || (hidden && !panelOpen)) {
+      // Nothing is painted — no approval, or the strip yielded to a row and
+      // only its sr-only live region is left. A reserved band there would be a
+      // blank gap above the footer with nothing to explain it.
+      clear();
+      return;
+    }
+    let observer: ResizeObserver | null = null;
+    const publish = () => {
+      const strip = surfaceRef.current?.querySelector<HTMLElement>("[role='status']");
+      const rect = strip?.getBoundingClientRect();
+      if (!strip || !rect || (rect.width === 0 && rect.height === 0)) {
+        // Not laid out (a cold route) or kept behind a hidden pane: a zero box
+        // says nothing about where the pill would sit, so publish nothing
+        // rather than a band of 0.
+        clear();
+        return;
+      }
+      root.style.setProperty("--approval-strip-height", `${Math.round(rect.height)}px`);
+      root.style.setProperty(
+        "--approval-strip-bottom",
+        `${Math.max(0, Math.round(window.innerHeight - rect.bottom))}px`,
+      );
+    };
+    publish();
+    // The queue count and the task title change the pill's height without a
+    // route or approval-id change; the observer keeps the published band true.
+    const strip = surfaceRef.current?.querySelector<HTMLElement>("[role='status']");
+    if (strip && typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(publish);
+      observer.observe(strip);
+    }
+    return () => {
+      observer?.disconnect();
+      clear();
+    };
+  }, [currentId, hidden, panelOpen, bottom, covered, raised, screenKey]);
+
   if (!current) return null;
 
   const waiting = approvals.length - 1;
