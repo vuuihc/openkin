@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the chip, close and retry controls drop below the signed 44pt touch floor (R-rn-provider-usage-screen)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "    minHeight: 44,\n    minWidth: 44,",
+    "new": "    minHeight: 32,\n    minWidth: 32,",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: the provider list is read-only and every control clears 44pt\""
+  },
+  {
+    "label": "a stale failed refresh stops marking the kept numbers, so old data reads as this read (R-rn-provider-usage-screen)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "      : state.error?.stale\n        ? t(\"agents.intervalFailed\")\n        : state.error",
+    "new": "      : state.error",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a failed refresh keeps the last numbers and marks them stale\""
+  },
+  {
+    "label": "the device-level empty state stops branching and draws tiles instead of the sentence (R-rn-provider-usage-screen)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "  const deviceEmpty = state.status === \"empty\";",
+    "new": "  const deviceEmpty = false;",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a device with no usage says so in words instead of a zero\""
+  }
+]
