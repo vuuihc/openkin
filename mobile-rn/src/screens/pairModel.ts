@@ -44,6 +44,11 @@ export function pairView(
 }
 
 /** The boot decision: where the first frame starts. */
-export function bootHref(state: AppState): "/pair" | "/list" {
-  return state.route === "list" ? "/list" : "/pair";
+export function bootHref(
+  state: AppState,
+): "/pair" | "/pair?reason=expired" | "/list" {
+  if (state.route === "list") return "/list";
+  // An expired token is not a fresh entry: carry the reason so the pairing
+  // screen renders its sentence on the first frame instead of a bare form.
+  return state.reason === "expired" ? "/pair?reason=expired" : "/pair";
 }

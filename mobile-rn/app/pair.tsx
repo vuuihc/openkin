@@ -6,9 +6,10 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type TextInputInstance,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { pairing, type AppState } from "../src/auth/pairing";
 import { t } from "../src/i18n";
 import { pairView } from "../src/screens/pairModel";
@@ -30,11 +31,17 @@ const FRESH: AppState = {
  */
 export default function PairScreen() {
   const router = useRouter();
+  // The boot and list screens carry the reason in the href; a fresh entry has
+  // none, so the first frame says why this screen is showing (story §1).
+  const { reason } = useLocalSearchParams<{ reason?: string | string[] }>();
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
-  const [state, setState] = useState<AppState>(FRESH);
+  const [state, setState] = useState<AppState>(() => ({
+    ...FRESH,
+    reason: reason === "expired" ? "expired" : "none",
+  }));
   const flow = useRef(0);
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<TextInputInstance>(null);
 
   useEffect(
     () => () => {
@@ -49,13 +56,22 @@ export default function PairScreen() {
     if (busy || typed.trim() === "") return;
     const myFlow = ++flow.current;
     setBusy(true);
-    const next = await pairing.pairWithLink(typed);
-    if (myFlow !== flow.current) return;
-    setBusy(false);
-    setState(next);
-    if (next.route === "list") {
-      router.replace("/list");
-      return;
+    try {
+      const next = await pairing.pairWithLink(typed);
+      if (myFlow !== flow.current) return;
+      setState(next);
+      if (next.route === "list") {
+        router.replace("/list");
+        return;
+      }
+    } catch {
+      // A rejected Keychain/SecureStore promise must not strand the action:
+      // name a reason and hand the field back so a retry stays possible.
+      if (myFlow !== flow.current) return;
+      setState({ ...FRESH, reason: "rejected" });
+    } finally {
+      // A stale flow's answer must not clear the busy state of a newer one.
+      if (myFlow === flow.current) setBusy(false);
     }
     // A failed attempt keeps the link and returns focus to the field so the
     // reason is read and a retry needs no retyping (story §1, 键盘与焦点).

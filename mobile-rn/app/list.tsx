@@ -3,6 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { pairing, type AppState } from "../src/auth/pairing";
 import { t } from "../src/i18n";
+import { bootHref } from "../src/screens/pairModel";
 
 /**
  * KIN-MOBILE-001 R2b — a minimal landing that proves the first list read
@@ -20,7 +21,7 @@ export default function ListScreen() {
       .then((next) => {
         if (!mounted) return;
         if (next.route === "pairing") {
-          router.replace("/pair");
+          router.replace(bootHref(next));
           return;
         }
         setState(next);

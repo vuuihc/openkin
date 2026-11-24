@@ -88,7 +88,10 @@ describe("KIN-MOBILE-001 R2b pairing view-model", () => {
   it("KIN-MOBILE-001 R2b: a paired state lands on the list route and an unpaired one on pairing", () => {
     expect(bootHref(state("list", "none"))).toBe("/list");
     expect(bootHref(state("pairing", "none"))).toBe("/pair");
-    expect(bootHref(state("pairing", "expired"))).toBe("/pair");
+    // An expired token is not a fresh entry: the pairing screen must render
+    // its reason sentence on the first frame, so the href carries it.
+    expect(bootHref(state("pairing", "expired"))).toBe("/pair?reason=expired");
+    expect(bootHref(state("pairing", "rejected"))).toBe("/pair");
 
     expect(pairView(state("list", "none"), { busy: false, typed: "" }).landing).toBe(
       "/list",
