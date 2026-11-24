@@ -1,6 +1,6 @@
 [
   {
-    "label": "the deleted page's composer band comes back into the measured routes",
+    "label": "re-add the deleted page composer band to the measured routes",
     "file": "ui/src/components/layout/AppShell.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/floatingApprovalWiring.test.ts",
     "old": "  const measuredBottomBand = selectedTaskId !== null || draftActive;",
@@ -19,5 +19,12 @@
     "test": "python3 scripts/check-removed-surfaces.test.py",
     "old": "        self.assertEqual(len(paths), 24, paths)",
     "new": "        self.assertEqual(len(paths), 23, paths)"
+  },
+  {
+    "label": "land the old session URL on the task instead of the list",
+    "file": "ui/src/lib/surfacesContract.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/surfacesContract.KIN-CONTRACT-001.test.ts -t \"the story's exit table and EXIT_ROWS are the same rows, in order\"",
+    "old": "    to: \"/sessions?agent=<id>\",",
+    "new": "    to: \"/tasks/:id\","
   }
 ]
