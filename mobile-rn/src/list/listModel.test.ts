@@ -1,6 +1,15 @@
 import { describe, expect, it } from "@jest/globals";
-import type { Task } from "../../../ui/src/api/contract";
+import type {
+  Approval,
+  Task,
+  UserQuestion,
+} from "../../../ui/src/api/contract";
 import type { Machine } from "../../../ui/src/lib/devices";
+import {
+  pendingApprovalsPath,
+  pendingQuestionsPath,
+} from "../approvals/approvalsModel";
+import { listTasksPath } from "../api/transport";
 import { t as realT } from "../i18n";
 import {
   applyFolds,
@@ -11,6 +20,7 @@ import {
   foldStateKey,
   LIST_TIMEOUT_MS,
   type DeviceGroup,
+  type ListViewState,
 } from "./listModel";
 
 /**
@@ -180,14 +190,21 @@ describe("KIN-MOBILE-001 R3 list model — request state", () => {
   it("KIN-MOBILE-001 R3: a late answer from an older generation is ignored", async () => {
     const first = deferred<Response>();
     const second = deferred<Response>();
-    const answers = [first.promise, second.promise];
-    let call = 0;
+    let taskCalls = 0;
     const controller = createListController({
       origin: "http://kin.example.com",
       selfDeviceId: "dev-a",
       t,
       formatTime,
-      fetchImpl: (() => answers[call++]!) as unknown as typeof fetch,
+      // The pending lists answer at once; the task page is what arrives late.
+      fetchImpl: ((input: string) => {
+        const url = String(input);
+        if (!url.endsWith(listTasksPath())) {
+          return Promise.resolve(response([]));
+        }
+        taskCalls += 1;
+        return taskCalls === 1 ? first.promise : second.promise;
+      }) as unknown as typeof fetch,
     });
 
     const older = controller.load();
@@ -264,21 +281,26 @@ describe("KIN-MOBILE-001 R3 list model — request state", () => {
   });
 
   it("KIN-MOBILE-001 R3: an expired token fails with a reason and no silent retry", async () => {
+    let taskCalls = 0;
     let calls = 0;
     const controller = createListController({
       origin: "http://kin.example.com",
       selfDeviceId: "dev-a",
       t,
       formatTime,
-      fetchImpl: (() => {
+      fetchImpl: ((input: string) => {
         calls += 1;
+        if (String(input).endsWith(listTasksPath())) taskCalls += 1;
         return Promise.resolve(response(null, 401));
       }) as unknown as typeof fetch,
     });
     const state = await controller.load();
     expect(state.status).toBe("failed");
     expect(state.error).toBe("expired");
-    expect(calls).toBe(1);
+    // One read per endpoint (the page plus the two pending lists), and not a
+    // single retry of the dead token.
+    expect(calls).toBe(3);
+    expect(taskCalls).toBe(1);
   });
 
   it("KIN-MOBILE-001 R3: a wait that never answers is bounded", async () => {
@@ -328,6 +350,197 @@ describe("KIN-MOBILE-001 R3 list model — request state", () => {
     });
     await again.load();
     expect(again.state().groups[0]!.projects[0]!.open).toBe(false);
+  });
+});
+
+function serverApproval(taskId: string, id = `approval-${taskId}`): Approval {
+  return { id, task_id: taskId } as unknown as Approval;
+}
+
+function serverQuestion(taskId: string, id = `question-${taskId}`): UserQuestion {
+  return { id, task_id: taskId } as unknown as UserQuestion;
+}
+
+/**
+ * One fake node for the controller's three parallel reads, routed by path.
+ * Handlers receive their own call number, so a test can make the second
+ * pending read fail while the first stays good.
+ */
+function controllerFetch(handlers: {
+  tasks: (call: number) => Response | Promise<Response>;
+  approvals?: (call: number) => Response | Promise<Response>;
+  questions?: (call: number) => Response | Promise<Response>;
+}): typeof fetch {
+  let taskCalls = 0;
+  let approvalCalls = 0;
+  let questionCalls = 0;
+  return ((input: string) => {
+    const url = String(input);
+    if (url.endsWith(listTasksPath())) {
+      taskCalls += 1;
+      return Promise.resolve(handlers.tasks(taskCalls));
+    }
+    if (url.endsWith(pendingApprovalsPath)) {
+      approvalCalls += 1;
+      const answer = handlers.approvals ?? (() => response([]));
+      return Promise.resolve(answer(approvalCalls));
+    }
+    if (url.endsWith(pendingQuestionsPath)) {
+      questionCalls += 1;
+      const answer = handlers.questions ?? (() => response([]));
+      return Promise.resolve(answer(questionCalls));
+    }
+    throw new Error(`unexpected request: ${url}`);
+  }) as unknown as typeof fetch;
+}
+
+/** The loaded page as `[taskId, pending]`, in draw order. */
+function pendingRows(state: ListViewState): [string, number][] {
+  return state.groups.flatMap((group) =>
+    group.projects.flatMap((project) =>
+      project.rows.map((row) => [row.id, row.pending] as [string, number]),
+    ),
+  );
+}
+
+function pageTask(id: string, at: number, device = "dev-a"): Task {
+  return task({
+    id,
+    cwd: "/work/alpha",
+    created_at: at,
+    executing_device_id: device,
+  });
+}
+
+describe("KIN-MOBILE-001 R5 list model — server pending counts", () => {
+  it("KIN-MOBILE-001 R5: the controller counts the server's pending approvals and questions per row", async () => {
+    const controller = createListController({
+      origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
+      t,
+      formatTime,
+      fetchImpl: controllerFetch({
+        tasks: () => response([pageTask("a1", 1000), pageTask("a2", 900)]),
+        approvals: () =>
+          response([
+            serverApproval("a1", "ap-1"),
+            serverApproval("a1", "ap-2"),
+          ]),
+        questions: () =>
+          response([
+            serverQuestion("a1", "q-1"),
+            serverQuestion("a2", "q-2"),
+          ]),
+      }),
+    });
+
+    const state = await controller.load();
+
+    expect(state.status).toBe("ready");
+    expect(pendingRows(state)).toEqual([
+      ["a1", 3],
+      ["a2", 1],
+    ]);
+  });
+
+  it("KIN-MOBILE-001 R5: a failed pending read keeps the last counts and does not fail the list", async () => {
+    let approvalsFail = false;
+    const controller = createListController({
+      origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
+      t,
+      formatTime,
+      fetchImpl: controllerFetch({
+        tasks: () => response([pageTask("a1", 1000)]),
+        approvals: () =>
+          approvalsFail
+            ? response({ error: "boom" }, 500)
+            : response([serverApproval("a1")]),
+        questions: () => response([]),
+      }),
+    });
+
+    await controller.load();
+    expect(pendingRows(controller.state())).toEqual([["a1", 1]]);
+
+    // The tasks read still works; only one of the two pending lists is down.
+    // The rows and their counts stay exactly as they were, and the list is not
+    // blamed for a read the reader never asked to be authoritative.
+    approvalsFail = true;
+    const state = await controller.load();
+
+    expect(state.status).toBe("ready");
+    expect(state.error).toBeNull();
+    expect(pendingRows(state)).toEqual([["a1", 1]]);
+  });
+
+  it("KIN-MOBILE-001 R5: a pending count for a task outside the page adds no row", async () => {
+    const controller = createListController({
+      origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
+      t,
+      formatTime,
+      fetchImpl: controllerFetch({
+        tasks: () => response([pageTask("a1", 1000)]),
+        approvals: () =>
+          response([serverApproval("a1"), serverApproval("ghost")]),
+        questions: () => response([serverQuestion("ghost", "q-ghost")]),
+      }),
+    });
+
+    const state = await controller.load();
+
+    expect(pendingRows(state)).toEqual([["a1", 1]]);
+    expect(state.groups.flatMap((group) =>
+      group.projects.flatMap((project) => project.rows),
+    )).toHaveLength(1);
+  });
+
+  it("KIN-MOBILE-001 R5: a late older page's counts are dropped with its tasks answer", async () => {
+    const olderPage = deferred<Response>();
+    const newerPage = deferred<Response>();
+    let taskCalls = 0;
+    let approvalCalls = 0;
+    const controller = createListController({
+      origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
+      t,
+      formatTime,
+      // The first tasks and approvals reads belong to the older load; the
+      // second pair describes the page the reader is looking at now.
+      fetchImpl: ((input: string) => {
+        const url = String(input);
+        if (url.endsWith(listTasksPath())) {
+          taskCalls += 1;
+          return taskCalls === 1 ? olderPage.promise : newerPage.promise;
+        }
+        if (url.endsWith(pendingApprovalsPath)) {
+          approvalCalls += 1;
+          return Promise.resolve(
+            response(
+              approvalCalls === 1
+                ? [serverApproval("older", "ap-1"), serverApproval("older", "ap-2")]
+                : [serverApproval("newer")],
+            ),
+          );
+        }
+        return Promise.resolve(response([]));
+      }) as unknown as typeof fetch,
+    });
+
+    const older = controller.load();
+    const newer = controller.load();
+    newerPage.resolve(response([pageTask("newer", 2000)]));
+    await newer;
+    expect(pendingRows(controller.state())).toEqual([["newer", 1]]);
+
+    // The older page's counts arrive with its tasks, long after the newer
+    // answer landed. Both are dropped whole: no older row, and no older count
+    // leaking onto the newer row either.
+    olderPage.resolve(response([pageTask("older", 1000)]));
+    await older;
+
+    expect(pendingRows(controller.state())).toEqual([["newer", 1]]);
   });
 });
 
