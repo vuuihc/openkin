@@ -283,7 +283,9 @@ function isAdrNamedSharedModule(rel: string): boolean {
     rel === "ui/src/api/generated/openapi.ts" ||
     rel === "ui/src/i18n/locales/en.ts" ||
     rel === "ui/src/i18n/locales/zh.ts" ||
+    rel === "ui/src/i18n/index.ts" ||
     rel === "ui/src/components/chat/transcriptProjection.ts" ||
+    rel === "ui/src/components/chat/eventMeta.ts" ||
     rel.startsWith("ui/src/lib/")
   );
 }
@@ -294,18 +296,23 @@ const ADR_NAMED_PATHS = [
   "ui/src/api/generated/openapi.ts",
   "ui/src/i18n/locales/en.ts",
   "ui/src/i18n/locales/zh.ts",
+  "ui/src/i18n/index.ts",
   "ui/src/components/chat/transcriptProjection.ts",
+  "ui/src/components/chat/eventMeta.ts",
   "ui/src/lib/",
 ];
 
 /**
  * ADR 0036 §2 adapters: shared module -> the one RN adapter that replaces it.
- * R3's grouping import reaches `ui/src/lib/taskOrder.ts`, whose storage helpers
- * read `localStorage`; its pure ordering function is carried by an RN adapter.
- * A module that starts carrying a DOM reference must be added here (and to the
- * ADR) or the fourth test below turns red.
+ * The transcript projection reaches `ui/src/i18n/index.ts` for its labels, and
+ * that module reads `localStorage`/`window`; R4 adds the i18n adapter that R2b
+ * defined. R3's grouping import reaches `ui/src/lib/taskOrder.ts`, whose
+ * storage helpers read `localStorage`; its pure ordering function is carried by
+ * an RN adapter. A module that starts carrying a DOM reference must be added
+ * here (and to the ADR) or the fourth test below turns red.
  */
 const SHARED_ADAPTERS: Record<string, string> = {
+  "ui/src/i18n/index.ts": "mobile-rn/src/i18n.ts",
   "ui/src/lib/taskOrder.ts": "mobile-rn/src/list/taskOrder.ts",
 };
 
@@ -349,6 +356,8 @@ describe("KIN-MOBILE-001 R1 shared-import contract", () => {
       .sort();
     const adapters = Object.keys(SHARED_ADAPTERS).sort();
 
+    // Every DOM-carrying shared module the walk reached must be redirected to
+    // an adapter; nothing else may be.
     expect(adapters).toEqual(domShared);
 
     for (const [shared, adapter] of Object.entries(SHARED_ADAPTERS)) {
