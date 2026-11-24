@@ -7,10 +7,9 @@
  * `mergeProcessRuns` -> `groupIntoTurns` in place from
  * `ui/src/components/chat/transcriptProjection.ts`.
  *
- * The screen layer (R4b) is pure presentation over `ThreadState`. The live
- * round — streamed appends, the send queue and the stop row — builds on this
- * read in the next slice; this module owns the read and the generation rule
- * that keeps a late answer from repainting a newer one.
+ * The screen layer (R4b) is pure presentation over `ThreadState`; this module
+ * also owns the stream append, the send queue and the stop row, plus the
+ * generation rule that keeps a late answer from repainting a newer one.
  */
 
 import type { Task, TaskEvent } from "../../../ui/src/api/contract";
@@ -21,7 +20,20 @@ import {
   normalizeModel,
   type Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
+import {
+  hasSequenceGap,
+  highestContiguousSeq,
+  mergeEventsBySeq,
+} from "../../../ui/src/lib/eventStream";
 import { apiFetch, type TransportReason } from "../api/transport";
+import {
+  createFetchStreamSource,
+  startTaskStream,
+  type Scheduler,
+  type StreamSource,
+  type StreamStatus,
+  type TaskStream,
+} from "./stream";
 
 export type ThreadStatus = "loading" | "ready" | "error";
 
@@ -51,6 +63,14 @@ export function taskEventsPath(taskId: string, sinceSeq = 0): string {
 
 export function taskPath(taskId: string): string {
   return `/api/tasks/${encodeURIComponent(taskId)}`;
+}
+
+export function cancelTaskPath(taskId: string): string {
+  return `/api/tasks/${encodeURIComponent(taskId)}/cancel`;
+}
+
+export function promptPath(taskId: string): string {
+  return `/api/tasks/${encodeURIComponent(taskId)}/prompt`;
 }
 
 /** The web console's terminal set (`isTerminal` in `ui/src/api/client.ts`). */
@@ -167,31 +187,60 @@ export async function loadThread(
   };
 }
 
+export type SendOutcome =
+  | { ok: true; queued: boolean }
+  | { ok: false; reason: TransportReason | "offline" | "empty" | "stale" };
+
+export type StopOutcome =
+  | { ok: true }
+  | { ok: false; reason: TransportReason | "not_running" | "stale" };
+
 export type ThreadOptions = {
   origin: string;
   token: string;
   taskId: string;
   fetchImpl?: typeof fetch;
+  /** Tests inject a chunk source; production builds the fetch reader. */
+  source?: StreamSource;
+  schedule?: Scheduler;
+  backoff?: { baseMs?: number; maxMs?: number; maxAttempts?: number };
+  firstByteTimeoutMs?: number;
+  idleTimeoutMs?: number;
   timeoutMs?: number;
+  newId?: () => string;
   onState?: (state: ThreadState) => void;
 };
 
 export type Thread = {
   getState(): ThreadState;
   subscribe(listener: (state: ThreadState) => void): () => void;
-  /** Read the history only; the stream and send land in the next slice. */
+  /** Read the history and begin streaming. */
+  start(): Promise<ThreadState>;
+  /** Read the history only; `start()` also opens the stream. */
   load(): Promise<ThreadState>;
+  send(text: string): Promise<SendOutcome>;
+  cancelQueued(id: string): void;
+  stop(): Promise<StopOutcome>;
   close(): void;
 };
 
+let nextFallbackId = 0;
+
 export function createThread(options: ThreadOptions): Thread {
-  const { origin, token, taskId, fetchImpl, timeoutMs } = options;
+  const { origin, token, taskId, fetchImpl, schedule, timeoutMs } = options;
+  const newId = options.newId ?? (() => `send-${++nextFallbackId}`);
 
   let state = emptyState(taskId);
+  let events: TaskEvent[] = [];
+  let task: Task | null = null;
+  let epoch = -1;
   // Every async answer carries the generation of the flow that asked for it
   // (AGENTS.md §11). A closed screen or a newer load bumps this, and the late
   // answer is dropped instead of repainting the conversation.
   let generation = 0;
+  let stream: TaskStream | null = null;
+  let flushing = false;
+  let recovering: Promise<void> | null = null;
   const listeners = new Set<(state: ThreadState) => void>();
 
   const publish = (patch: Partial<ThreadState>): void => {
@@ -199,6 +248,8 @@ export function createThread(options: ThreadOptions): Thread {
     listeners.forEach((listener) => listener(state));
     options.onState?.(state);
   };
+
+  const request = { token, fetchImpl, timeoutMs };
 
   // One read, generation-guarded, through the same `loadThread` the tests call
   // so the model and the pure read cannot disagree about the projection.
@@ -217,14 +268,188 @@ export function createThread(options: ThreadOptions): Thread {
       });
       return state;
     }
+    const loadedTask = snapshot.task;
+    task = loadedTask;
+    events = snapshot.events;
+    // The task row carries the current epoch (`event_epoch >= 0` in the
+    // contract). Deriving it from the events alone left `-1` on an empty
+    // history, so a gap-fill filtered out every real epoch-0 event.
+    epoch = loadedTask?.event_epoch ?? 0;
     publish({
       status: "ready",
-      turns: projectThread(snapshot.events, snapshot.task, state.turns),
-      running: snapshot.task ? !isTerminalStatus(snapshot.task.status) : false,
+      turns: projectThread(events, loadedTask, state.turns),
+      running: loadedTask ? !isTerminalStatus(loadedTask.status) : false,
       banner: null,
       reason: null,
     });
     return state;
+  };
+
+  // The stream can skip a seq (a reconnect, a daemon that replays past the
+  // cursor). The durable log is the repair: one REST catch-up at the contiguous
+  // cursor, filtered to the epoch the stream is delivering.
+  const applyGapFill = async (afterSeq: number, myGeneration: number): Promise<void> => {
+    const result = await apiFetch<TaskEvent[]>(
+      origin,
+      taskEventsPath(taskId, afterSeq),
+      request,
+    );
+    if (myGeneration !== generation) return;
+    if (!result.ok) {
+      if (result.reason === "unreachable") publish({ banner: "offline" });
+      return;
+    }
+    const incoming = result.data.filter((event) => event.event_epoch === epoch);
+    if (incoming.length === 0) return;
+    const merged = mergeEventsBySeq(events, incoming);
+    // Nothing new: do not repaint a transcript that is already correct.
+    if (merged.length === events.length) return;
+    events = merged;
+    // A recovered `result` is the round's durable end even when the live
+    // stream skipped it: settle the task row before projecting (the shared
+    // projection folds the settled process card on that status), stop the
+    // round, and let the queue send its next item. The last recovered result
+    // is the round end that matters when the catch-up spans several rounds.
+    const ended = incoming.reduce<TaskEvent | undefined>(
+      (found, event) => (event.type === "result" ? event : found),
+      undefined,
+    );
+    if (ended && task) {
+      task = {
+        ...task,
+        status: ended.payload.is_error === true ? "failed" : "succeeded",
+      };
+    }
+    publish({
+      turns: projectThread(events, task, state.turns),
+      ...(ended ? { running: false } : {}),
+    });
+    if (ended) void flushQueue();
+  };
+
+  const recoverGap = (afterSeq: number): Promise<void> => {
+    if (recovering) return recovering;
+    const myGeneration = generation;
+    const pending = applyGapFill(afterSeq, myGeneration).finally(() => {
+      // Only the repair still in the slot may clear it: an epoch bump or a
+      // newer gap may already have put a fresh catch-up there.
+      if (recovering === pending) recovering = null;
+    });
+    recovering = pending;
+    return pending;
+  };
+
+  const applyEvent = (event: TaskEvent): void => {
+    if (event.task_id !== taskId) return;
+    if (event.event_epoch < epoch) return;
+    if (event.event_epoch > epoch) {
+      // A retry rewrote the tail: earlier seqs no longer mean what they did,
+      // and a repair still fetching the old epoch must not answer for the new
+      // one, so drop it from the slot before the next gap asks.
+      epoch = event.event_epoch;
+      events = [];
+      recovering = null;
+    }
+    const cursor = highestContiguousSeq(events);
+    const merged = mergeEventsBySeq(events, [event]);
+    if (merged.length === events.length) return; // duplicate seq
+    events = merged;
+    const roundEnded = event.type === "result" || event.type === "error";
+    if (event.type === "result" && task) {
+      // The task row is the durable fact the shared projection folds a settled
+      // process card on; leaving it at `running` kept the card open after the
+      // round's own `result` arrived.
+      task = {
+        ...task,
+        status: event.payload.is_error === true ? "failed" : "succeeded",
+      };
+    }
+    publish({
+      turns: projectThread(events, task, state.turns),
+      ...(roundEnded ? { running: false } : {}),
+      banner: null,
+    });
+    if (hasSequenceGap(cursor, event.seq)) void recoverGap(cursor);
+    if (roundEnded) void flushQueue();
+  };
+
+  const onStreamStatus = (status: StreamStatus): void => {
+    if (status === "offline") publish({ banner: "offline" });
+    if (status === "connected" && state.banner === "offline") publish({ banner: null });
+  };
+
+  const startStream = (): void => {
+    if (stream) return;
+    stream = startTaskStream({
+      origin,
+      token,
+      taskId,
+      source:
+        options.source ??
+        createFetchStreamSource({
+          fetchImpl,
+          firstByteTimeoutMs: options.firstByteTimeoutMs,
+          idleTimeoutMs: options.idleTimeoutMs,
+        }),
+      afterSeq: highestContiguousSeq(events),
+      onEvent: applyEvent,
+      onStatus: onStreamStatus,
+      onReconnect: (afterSeq) => {
+        // Web parity: a reconnect catches up through the durable cursor
+        // (`listEvents(since_seq)`) before the new connection replays anything.
+        void recoverGap(afterSeq);
+      },
+      schedule,
+      backoff: options.backoff,
+    });
+  };
+
+  const postPrompt = (text: string) =>
+    apiFetch<Task>(origin, promptPath(taskId), {
+      ...request,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: text }),
+    });
+
+  const postStop = () =>
+    apiFetch<Task>(origin, cancelTaskPath(taskId), {
+      ...request,
+      method: "POST",
+    });
+
+  // Strictly one at a time, in order. A failure keeps the item (it is still
+  // visible text the person can cancel) and stops the flush.
+  const flushQueue = async (): Promise<void> => {
+    if (flushing) return;
+    flushing = true;
+    try {
+      while (state.sendQueue.length > 0) {
+        if (state.banner === "offline") return;
+        const item = state.sendQueue[0];
+        if (!item) return;
+        const myGeneration = generation;
+        const result = await postPrompt(item.text);
+        if (myGeneration !== generation) return;
+        if (!result.ok) {
+          if (result.reason === "unreachable") publish({ banner: "offline" });
+          return;
+        }
+        task = result.data;
+        const running = !isTerminalStatus(result.data.status);
+        publish({
+          sendQueue: state.sendQueue.filter((queued) => queued.id !== item.id),
+          running,
+        });
+        // One prompt per round: an accepted prompt opens a new round, so the
+        // rest of the queue waits for that round's `result` (which flushes
+        // this loop again). Draining it here sent several prompts into one
+        // round and raced a concurrent `send` past the queue.
+        if (running) return;
+      }
+    } finally {
+      flushing = false;
+    }
   };
 
   return {
@@ -239,8 +464,83 @@ export function createThread(options: ThreadOptions): Thread {
 
     load: read,
 
+    async start() {
+      const next = await read();
+      if (next.status === "ready") {
+        // A stream that gave up (`offline`) is dead but still in the slot, and
+        // `startStream` returns early on a non-null handle. A retried `start()`
+        // is a fresh subscription: replace the dead stream rather than report
+        // ready with nothing listening.
+        stream?.stop();
+        stream = null;
+        startStream();
+      }
+      return state;
+    },
+
+    async send(text) {
+      const trimmed = text.trim();
+      if (!trimmed) return { ok: false, reason: "empty" };
+      if (state.banner === "offline") return { ok: false, reason: "offline" };
+      // A queue that still holds items (a failed flush keeps them) must keep
+      // its order: a direct post here would jump ahead of the queue.
+      if (state.running || flushing || state.sendQueue.length > 0) {
+        publish({ sendQueue: [...state.sendQueue, { id: newId(), text: trimmed }] });
+        return { ok: true, queued: true };
+      }
+      const myGeneration = generation;
+      const result = await postPrompt(trimmed);
+      if (myGeneration !== generation) return { ok: false, reason: "stale" };
+      if (!result.ok) {
+        publish({
+          banner: result.reason === "unreachable" ? "offline" : state.banner,
+          reason: result.reason,
+        });
+        return { ok: false, reason: result.reason };
+      }
+      task = result.data;
+      publish({
+        running: !isTerminalStatus(result.data.status),
+        reason: null,
+        banner: null,
+      });
+      return { ok: true, queued: false };
+    },
+
+    cancelQueued(id) {
+      publish({ sendQueue: state.sendQueue.filter((item) => item.id !== id) });
+    },
+
+    async stop() {
+      if (!state.running) return { ok: false, reason: "not_running" };
+      const myGeneration = generation;
+      const result = await postStop();
+      if (myGeneration !== generation) return { ok: false, reason: "stale" };
+      if (!result.ok) {
+        publish({
+          banner: result.reason === "unreachable" ? "offline" : state.banner,
+          reason: result.reason,
+        });
+        return { ok: false, reason: result.reason };
+      }
+      task = result.data;
+      // The durable fact is the task's status. Projecting the events we hold
+      // with that status is what puts the stopped meta row on the transcript,
+      // and the same call after a reload puts the same row back.
+      publish({
+        running: false,
+        sendQueue: [],
+        turns: projectThread(events, result.data, state.turns),
+        banner: null,
+        reason: null,
+      });
+      return { ok: true };
+    },
+
     close() {
       generation += 1;
+      stream?.stop();
+      stream = null;
       listeners.clear();
     },
   };
