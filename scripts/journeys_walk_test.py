@@ -3846,12 +3846,17 @@ def _j4_roots_problems(steps: list) -> list[str]:
 
     # Every press of a project heading, matched by prefix: the aim check below
     # has to see a press that lost its icon, which an equality match on the
-    # aimed selector would skip in favour of a later press that kept it.
+    # aimed selector would skip in favour of a later press that kept it. The
+    # press STARTS with the heading button; a folder-editor step that names the
+    # heading inside a `:has()` scope is not a press of that heading.
     headings = [
         (index, step)
         for index, step in enumerate(steps)
         if step[0] == "click"
-        and any("aria-label*='Project %s']" % name in str(step[1]) for name in J4_PROJECTS)
+        and any(
+            str(step[1]).lstrip("?").startswith("css=button[aria-label*='Project %s']" % name)
+            for name in J4_PROJECTS
+        )
     ]
     link = headings[0][0] if headings else -1
     if not headings:
@@ -4483,6 +4488,21 @@ class WalkJ4ContractTest(unittest.TestCase):
             self.assertEqual(steps[index + 2][0], "wait", steps[index + 2])
             self.assertIn(J4_SAVE, str(steps[index + 2][1]), steps[index + 2])
             self.assertIn(J4_SAVE_EN, str(steps[index + 2][1]), steps[index + 2])
+            # `.first()` picks the first bucket in DOM order, and the seeded
+            # projects do not sort Alpha-first: an unscoped triplet opens
+            # another project's editor and its `/aaa-config` wait then fails
+            # (state/shots/delete-pagesb2c-del). Every step of the open names
+            # the seeded bucket, so the rendezvous holds whichever sorts first.
+            for step in (reveal, coarse, steps[index + 1]):
+                self.assertIn("Project Alpha", str(step[1]), step)
+            # The coarse row is the sheet's own label, matched exactly:
+            # `:has-text('编辑')` also matches 编辑一句话摘要 / Edit one-line
+            # summary, which the sheet draws above it, so `.first()` would
+            # open the summary editor instead of the folder editor.
+            self.assertIn("button:text-is('编辑')", str(steps[index + 1][1]), steps[index + 1])
+            self.assertIn(
+                "button:text-is('Edit folders')", str(steps[index + 1][1]), steps[index + 1]
+            )
 
         # A walker needle carries its engine prefix once, and `wait` / `gone`
         # must name one (`walk.mjs` `waitVisible`): `css=a, css=b` is a CSS
