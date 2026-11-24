@@ -370,4 +370,55 @@ describe("KIN-MOBILE-001 R6 provider/usage screen", () => {
     expect(expired.queryAllByTestId(/^tile:/)).toHaveLength(0);
     expect(expired.queryAllByText(/^\$/)).toHaveLength(0);
   });
+
+  it("KIN-MOBILE-001 R6: a first read with nothing cached shows its reason instead of em-dash tiles", async () => {
+    // The model's opening view (`providersModel.ts:172-177`): both lists are
+    // empty until the first read settles, so no tile has anything to show.
+    const initial = await render(
+      <ProviderUsage
+        onSelectWindow={() => {}}
+        state={view({ status: "loading", providers: [], usage: [] })}
+        t={t}
+      />,
+    );
+    expect(initial.getByText("usage.loading")).toBeTruthy();
+    expect(initial.queryAllByTestId(/^tile:/)).toHaveLength(0);
+
+    // A first read that failed kept no rows (`stale: false`), so the notice
+    // names the transport reason and no "—" tile stands in for data.
+    const rejected = await render(
+      <ProviderUsage
+        onRefresh={() => {}}
+        onSelectWindow={() => {}}
+        state={view({
+          status: "failed",
+          providers: [],
+          usage: [],
+          error: { reason: "rejected", stale: false },
+        })}
+        t={t}
+      />,
+    );
+    expect(rejected.getByText("pairing.rejected")).toBeTruthy();
+    expect(rejected.queryByText("agents.intervalFailed")).toBeNull();
+    expect(rejected.queryAllByTestId(/^tile:/)).toHaveLength(0);
+
+    const offline = await render(
+      <ProviderUsage
+        onRefresh={() => {}}
+        onSelectWindow={() => {}}
+        state={view({
+          status: "offline",
+          providers: [],
+          usage: [],
+          error: { reason: "unreachable", stale: false },
+        })}
+        t={t}
+      />,
+    );
+    // "Showing the last values" would be a lie: this read is the first one.
+    expect(offline.getByText("pairing.unreachable")).toBeTruthy();
+    expect(offline.queryByText("settings.disconnected")).toBeNull();
+    expect(offline.queryAllByTestId(/^tile:/)).toHaveLength(0);
+  });
 });

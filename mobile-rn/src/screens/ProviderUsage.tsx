@@ -141,13 +141,19 @@ export default function ProviderUsage({
   // and this screen must not put a zero or an empty tile in their place.
   const expired =
     state.status === "failed" && state.error?.reason === "expired";
-  const showTiles = !deviceEmpty && !expired;
+  // The last good rows a failed or offline read kept (`providersModel.ts:222-229`).
+  const hasData = state.providers.length > 0 || state.usage.length > 0;
+  // No data yet is not a quiet window: a first read in flight or a first read
+  // that failed must not put four "—" tiles where nothing was ever read.
+  const showTiles =
+    !deviceEmpty && !expired && (state.status === "ready" || hasData);
 
-  // One line for the state that is not a plain success. Offline wins: it names
-  // the network, which is the actionable fact; a stale failure says the last
-  // read is what is on screen; a first-read failure names its reason.
+  // One line for the state that is not a plain success. Offline wins when it
+  // kept rows: it names the network, which is the actionable fact; a stale
+  // failure says the last read is what is on screen; a first-read failure --
+  // offline included -- names its reason.
   const notice =
-    state.status === "offline"
+    state.status === "offline" && (hasData || state.error?.stale)
       ? t("settings.disconnected")
       : state.error?.stale
         ? t("agents.intervalFailed")

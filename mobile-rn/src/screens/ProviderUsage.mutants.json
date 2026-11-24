@@ -19,5 +19,19 @@
     "old": "  const deviceEmpty = state.status === \"empty\";",
     "new": "  const deviceEmpty = false;",
     "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a device with no usage says so in words instead of a zero\""
+  },
+  {
+    "label": "a first-read offline says it is showing the last values when nothing was ever read (R-rn-provider-usage-screen)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "    state.status === \"offline\" && (hasData || state.error?.stale)\n      ? t(\"settings.disconnected\")",
+    "new": "    state.status === \"offline\"\n      ? t(\"settings.disconnected\")",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a first read with nothing cached shows its reason instead of em-dash tiles\""
+  },
+  {
+    "label": "a first read in flight or failed puts four em-dash tiles where nothing was read (R-rn-provider-usage-screen)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "    !deviceEmpty && !expired && (state.status === \"ready\" || hasData);",
+    "new": "    !deviceEmpty && !expired;",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a first read with nothing cached shows its reason instead of em-dash tiles\""
   }
 ]
