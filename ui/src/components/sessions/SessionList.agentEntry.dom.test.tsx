@@ -5,11 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import SessionList from "./SessionList";
 import { setLocale } from "../../i18n";
-import type {
-  AgentSession,
-  AgentSessionBinding,
-  Task,
-} from "../../api/client";
+import type { AgentSession, AgentSessionBinding, Task } from "../../api/client";
 
 /**
  * KIN-CONTRACT-001: `/agent-sessions/:id` retires into the list.
@@ -204,9 +200,7 @@ describe("a deep-linked imported agent session", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     // The parameter is gone and the list is still the page.
-    await waitFor(() =>
-      expect(screen.getByTestId("location").textContent).toBe("/sessions"),
-    );
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/sessions"));
     expect(screen.getByRole("button", { name: /real-task/ })).toBeTruthy();
     // The entry was given back, not stacked: Back cannot reopen the sheet.
     expect(window.history.state.idx).toBe(0);
@@ -250,9 +244,7 @@ describe("a deep-linked imported agent session", () => {
     // The retry re-reads; the second answer opens the sheet.
     vi.mocked(getAgentSession).mockImplementation(async (id: string) => session(id));
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(
-      await screen.findByRole("dialog", { name: /Imported chat s1/ }),
-    ).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: /Imported chat s1/ })).toBeTruthy();
   });
 
   it("a late answer for a replaced agent id never opens the wrong sheet", async () => {
