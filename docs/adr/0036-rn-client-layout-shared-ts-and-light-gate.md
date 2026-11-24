@@ -133,6 +133,12 @@ references are exactly the ones mapped to a named adapter (so an alias cannot si
 new one). Adapters are substituted during the closure walk: the effective closure is DOM-free while
 the unaliased graph still names every module the adapter stands in for.
 
+R4's live round imports the shared stream helpers in place — `highestContiguousSeq`, `hasSequenceGap`
+and `mergeEventsBySeq` from `ui/src/lib/eventStream.ts` — at
+`mobile-rn/src/thread/threadModel.ts:29`; its SSE transport is the RN adapter
+`mobile-rn/src/thread/stream.ts` (Adapter 2's stream-reader seam), not a second copy of the browser
+reader.
+
 ### 3. Dependencies: exact pins, RN only
 
 No dependency enters `ui/package.json` or `go.mod`. `mobile-rn/package.json` is the only manifest this
