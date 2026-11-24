@@ -104,7 +104,7 @@ function Chip({
         // `text-body`, not `text-caption`: this is a chosen value on a phone,
         // and 12px read as metadata rather than as the thing that was picked.
         "inline-flex flex-none items-center gap-1 rounded-lg bg-transparent px-1.5 py-0.5 text-body font-medium",
-        coarse ? "min-h-11" : "",
+        coarse ? "min-h-11 min-w-11" : "",
         bordered ? "border border-[var(--kin-hairline-strong)]" : "",
         "focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
         disabled ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",

@@ -354,7 +354,7 @@ describe("SettingsLayout summaries and phone focus", () => {
 });
 
 describe("the settings section tabs' touch floor", () => {
-  // TASTE 11 / AGENTS.md §16: the floor follows the pointer, not the width.
+  // TASTE 21 / AGENTS.md §16: the floor follows the pointer, not the width.
   // `sm:min-h-10` shrank every tab to 40px at ≥640px regardless of pointer, so
   // an iPad in portrait (820px, a thumb) got a 40px target.
 

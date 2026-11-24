@@ -200,16 +200,21 @@ describe("the sheet select on a phone", () => {
 });
 
 describe("the sheet select's touch floor", () => {
-  // TASTE 11 / AGENTS.md §16: the floor follows the pointer, not the width.
+  // TASTE 21 / AGENTS.md §16: the floor follows the pointer, not the width.
   // The phone's 44px came only from `.touch-lg`, whose query stops at 767.98px,
   // so an iPad in portrait got a 24px chip beside 44px controls.
 
-  it("gives the chip a 44px floor on a coarse pointer at 820", () => {
-    setPointer(true);
+  it("gives the chip a 44×44 floor on a coarse pointer at 820", () => {
+    // `wide` makes this the MenuSelect branch a real 820 renders.
+    setPointer(true, true);
     render(<SheetSelect label="Role" value="" options={OPTIONS} onChange={() => {}} />);
 
     const chip = classes(screen.getByRole("button", { name: /^Role/ }));
+    // The floor is two-dimensional: a one-character value (a directory
+    // basename, a short role name) is content-sized and would otherwise be
+    // narrower than 44 once `.touch-lg` stops applying above 767.98px.
     expect(chip).toContain("min-h-11");
+    expect(chip).toContain("min-w-11");
   });
 
   it("keeps the chip dense on a fine pointer at 1100", () => {
@@ -218,6 +223,7 @@ describe("the sheet select's touch floor", () => {
 
     const chip = classes(screen.getByRole("button", { name: /^Role/ }));
     expect(chip).not.toContain("min-h-11");
+    expect(chip).not.toContain("min-w-11");
   });
 
   it("keeps the chip's label and chevron on one line inside the coarse floor", () => {
