@@ -1,4 +1,5 @@
 import { useRef, useState, type RefObject } from "react";
+import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import { useT } from "../../i18n/react";
 import { IconChevronDown } from "../icons";
@@ -85,6 +86,10 @@ function Chip({
   onClick,
 }: ChipProps) {
   const tr = useT();
+  // The floor follows the pointer, not the viewport: an iPad in portrait is
+  // 820px wide and still a thumb, so `.touch-lg`'s 768px query left this chip
+  // at 24px beside 44px controls. A mouse keeps the dense face.
+  const coarse = useCoarsePointer();
   return (
     <button
       ref={buttonRef}
@@ -99,6 +104,7 @@ function Chip({
         // `text-body`, not `text-caption`: this is a chosen value on a phone,
         // and 12px read as metadata rather than as the thing that was picked.
         "inline-flex flex-none items-center gap-1 rounded-lg bg-transparent px-1.5 py-0.5 text-body font-medium",
+        coarse ? "min-h-11 min-w-11" : "",
         bordered ? "border border-[var(--kin-hairline-strong)]" : "",
         "focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
         disabled ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",
