@@ -1,18 +1,28 @@
 /**
- * KIN-MOBILE-001 R4b — the phone's read-only conversation, phone presentation.
+ * KIN-MOBILE-001 R4b/R4c — the phone's conversation, phone presentation.
  *
  * Pure: it draws the view state `threadModel` produced and nothing else. No
- * fetch, no router, no storage — and no composer, send box or stop row. This
- * slice is history; their absence is the honest state until the live round
- * lands. The pending approvals and questions of *this* task may mount above
- * the transcript through `approvals`, already scoped by the container.
+ * fetch, no router, no storage. The composer below the transcript is the one
+ * exception to "draws only the model's state": the draft is the person's own
+ * text, so it lives here until Send hands it to the model — and the model, not
+ * this view, owns `running`, `sendQueue` and `banner`. The pending approvals
+ * and questions of *this* task may mount above the transcript through
+ * `approvals`, already scoped by the container.
  *
  * The turn shapes are the shared projection's (`ChatItem`, `Turn` from
  * `ui/src/components/chat/transcriptProjection.ts`), so the phone cannot
  * disagree with the web console about what belongs to a turn.
  */
 
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import type {
   ChatItem,
   Turn,
@@ -37,6 +47,15 @@ export type ConversationViewProps = {
    * container; absent when there is no session to read them with.
    */
   approvals?: ApprovalsScreenProps;
+  /**
+   * Hand the composer's text to the model. Absent when there is no thread to
+   * post through, and the composer is not drawn at all.
+   */
+  onSend?: (text: string) => void;
+  /** End the running round; the stopped note comes back from the model. */
+  onStop?: () => void;
+  /** Drop a queued send the round has not taken yet. */
+  onWithdraw?: (id: string) => void;
 };
 
 /**
@@ -114,12 +133,121 @@ function TurnBlock({ turn, index }: { turn: Turn; index: number }) {
   );
 }
 
+type ComposerProps = {
+  state: ThreadState;
+  t: ConversationViewProps["t"];
+  onSend: (text: string) => void;
+  onStop?: () => void;
+  onWithdraw?: (id: string) => void;
+};
+
+/**
+ * The draft is this component's own state and is tagged with the task it was
+ * typed for: a screen that swapped conversations draws an empty box, so the
+ * old words can neither return nor be posted under the new task (AGENTS.md
+ * §11). A failed read, a stream event or a queued send repaints the view
+ * without touching this state — that is what "offline keeps the draft" means.
+ */
+function Composer({ state, t, onSend, onStop, onWithdraw }: ComposerProps) {
+  const [draft, setDraft] = useState({ taskId: state.taskId, text: "" });
+  const text = draft.taskId === state.taskId ? draft.text : "";
+  const offline = state.banner === "offline";
+  // An offline node takes nothing, so Send is closed; the transcript above
+  // states why. An empty box has nothing to send.
+  const canSend = text.trim().length > 0 && !offline;
+
+  const send = (): void => {
+    const trimmed = text.trim();
+    if (!trimmed || offline) return;
+    // The words go to the model, not into the box: clear first, so the next
+    // thought is never appended to the one already sent. The guard above is
+    // what keeps them when the node cannot take them at all.
+    setDraft({ taskId: state.taskId, text: "" });
+    onSend(trimmed);
+  };
+
+  return (
+    <View style={styles.composer}>
+      {state.sendQueue.length > 0 ? (
+        <View style={styles.queue}>
+          {state.sendQueue.map((item) => (
+            <View key={item.id} style={styles.queueRow}>
+              <View style={styles.queueWords}>
+                <Text style={styles.queueLabel}>{t("chat.queued")}</Text>
+                <Text numberOfLines={2} style={styles.queueText}>
+                  {item.text}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityLabel={t("chat.withdrawNamed", {
+                  text: item.text,
+                })}
+                accessibilityRole="button"
+                onPress={() => onWithdraw?.(item.id)}
+                style={styles.withdraw}
+                testID={`conversation:withdraw:${item.id}`}
+              >
+                <Text numberOfLines={2} style={styles.withdrawText}>
+                  {t("chat.withdraw")}
+                </Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      <View style={styles.composerRow}>
+        <TextInput
+          accessibilityLabel={t("composer.placeholder")}
+          multiline
+          onChangeText={(next) => setDraft({ taskId: state.taskId, text: next })}
+          placeholder={t("composer.placeholder")}
+          placeholderTextColor="#8a8a8a"
+          style={styles.input}
+          testID="conversation:composer"
+          value={text}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !canSend }}
+          disabled={!canSend}
+          onPress={send}
+          style={[styles.action, !canSend && styles.actionDisabled]}
+          testID="conversation:send"
+        >
+          <Text style={canSend ? styles.actionText : styles.actionTextDisabled}>
+            {t("composer.send")}
+          </Text>
+        </Pressable>
+        {state.running ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: offline }}
+            disabled={offline}
+            onPress={() => onStop?.()}
+            style={[styles.action, offline && styles.actionDisabled]}
+            testID="conversation:stop"
+          >
+            <Text
+              style={offline ? styles.actionTextDisabled : styles.actionText}
+            >
+              {t("composer.stop")}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 export default function ConversationView({
   state,
   t,
   onBack,
   onRetry,
   approvals,
+  onSend,
+  onStop,
+  onWithdraw,
 }: ConversationViewProps) {
   // A conversation draws no approval chrome when there is nothing to say: no
   // card and no empty state, exactly as an unblocked turn reads today.
@@ -145,7 +273,7 @@ export default function ConversationView({
           <Text style={styles.running}>{t("sessions.statusRunning")}</Text>
         ) : null}
       </View>
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView contentContainerStyle={styles.body} style={styles.scroller}>
         {state.status === "loading" ? (
           <Text style={styles.notice}>{t("common.loading")}</Text>
         ) : null}
@@ -181,11 +309,42 @@ export default function ConversationView({
           <TurnBlock index={index} key={index} turn={turn} />
         ))}
       </ScrollView>
+      {onSend ? (
+        // A sibling of the scroller, not a row inside it: the composer is
+        // reachable at every scroll position.
+        <Composer
+          onSend={onSend}
+          onStop={onStop}
+          onWithdraw={onWithdraw}
+          state={state}
+          t={t}
+        />
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  action: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: BACK_SIZE,
+    minWidth: BACK_SIZE,
+    paddingHorizontal: 12,
+  },
+  actionDisabled: {
+    opacity: 0.5,
+  },
+  actionText: {
+    color: "#0b57d0",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  actionTextDisabled: {
+    color: "#6b6b6b",
+    fontSize: 15,
+    fontWeight: "600",
+  },
   back: {
     alignItems: "center",
     borderRadius: 8,
@@ -203,6 +362,19 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 16,
     paddingBottom: 48,
+  },
+  composer: {
+    borderTopColor: "#dcdcdc",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+    paddingBottom: 24,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  composerRow: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    gap: 8,
   },
   container: {
     flex: 1,
@@ -226,6 +398,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingTop: 48,
   },
+  input: {
+    borderColor: "#c4c4c4",
+    borderRadius: 8,
+    borderWidth: 1,
+    color: "#1d1d1d",
+    flex: 1,
+    fontSize: 16,
+    maxHeight: 120,
+    minHeight: BACK_SIZE,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
   item: {
     color: "#1d1d1d",
     fontSize: 16,
@@ -245,6 +429,27 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingLeft: 12,
   },
+  queue: {
+    gap: 4,
+  },
+  queueLabel: {
+    color: "#6b6b6b",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  queueRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  queueText: {
+    color: "#1d1d1d",
+    fontSize: 15,
+  },
+  queueWords: {
+    flex: 1,
+    gap: 2,
+  },
   retry: {
     alignItems: "center",
     alignSelf: "flex-start",
@@ -263,6 +468,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
+  scroller: {
+    flex: 1,
+  },
   tool: {
     color: "#3a3a3a",
     fontSize: 14,
@@ -276,5 +484,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     marginTop: 8,
+  },
+  withdraw: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: BACK_SIZE,
+    minWidth: BACK_SIZE,
+    paddingHorizontal: 8,
+  },
+  withdrawText: {
+    color: "#0b57d0",
+    fontSize: 13,
+    fontWeight: "600",
   },
 });
