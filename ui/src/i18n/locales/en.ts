@@ -26,8 +26,7 @@ const en: MessageTree = {
     connecting: "Connecting to this device",
     expired: "This link has expired; pair again on the device",
     rejected: "The link is not valid or was refused",
-    unreachable:
-      "The phone has no network, or the node is offline; reconnect and try again",
+    unreachable: "The phone has no network, or the node is offline; reconnect and try again",
     retry: "Retry",
     connected: "Connected to {origin}",
     noTasks: "No conversations yet",
