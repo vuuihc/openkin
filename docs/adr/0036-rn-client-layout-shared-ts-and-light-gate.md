@@ -66,9 +66,17 @@ test, is:
 | `ui/src/api/generated/openapi.ts` | generated types/constants only |
 | `ui/src/i18n/locales/en.ts`, `ui/src/i18n/locales/zh.ts` | locale data; `t()` lives elsewhere |
 | `ui/src/components/chat/transcriptProjection.ts` | no direct DOM reference; its i18n import is the adapter seam below (`ui/src/components/chat/transcriptProjection.ts:1-17`) |
+| `ui/src/components/chat/eventMeta.ts` | canonical speaker/phase decoding used by the projection; type-only imports, no DOM reference |
 | DOM-free files under `ui/src/lib/**` | e.g. `ui/src/lib/attachments.ts`, `ui/src/lib/friendlyError.ts`, `ui/src/lib/needsYou.ts` |
 | `ui/src/lib/phoneSessionBuckets.ts` | R3's device → project → conversation grouping, imported in place. Its type imports from `ui/src/api/client.ts` are erased; its only value import of a DOM-carrying module is `./taskOrder`, which resolves to Adapter 3 below |
 | `ui/src/lib/agentSessionTitle.ts`, `ui/src/lib/agentMention.ts` | the bucket module's own DOM-free dependencies, reached by the same import |
+
+R4's read reaches the projection's real closure, not just the file:
+`eventMeta.ts`, `lib/attachments.ts`, `lib/friendlyError.ts`,
+`lib/roundEvidence.ts`, `lib/changedFiles.ts`, and `lib/diffPreview.ts`. Only
+its `ui/src/i18n/index.ts` import carries a browser global, and that is
+Adapter 1 below. (The live stream's `ui/src/lib/eventStream.ts` import arrives
+with the stream slice.)
 
 The command that backs the table (no output is the proof):
 
@@ -76,7 +84,8 @@ The command that backs the table (no output is the proof):
 rg -n "window\.|document\.|localStorage|sessionStorage|react-dom" \
   ui/src/api/contract.ts ui/src/api/generated/openapi.ts \
   ui/src/i18n/locales/en.ts ui/src/i18n/locales/zh.ts \
-  ui/src/components/chat/transcriptProjection.ts
+  ui/src/components/chat/transcriptProjection.ts \
+  ui/src/components/chat/eventMeta.ts
 ```
 
 `ui/src/lib/**` is not a hand list: R1's test walks the actual import closure of every module RN
