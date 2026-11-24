@@ -7,6 +7,13 @@
     "test": "cd mobile-rn && npx jest src/shared/importContract.test.ts -t \"KIN-MOBILE-001: a name that declares or labels is not a browser global\""
   },
   {
+    "label": "a method name is treated as a body binding again, hiding a real global read (R-rn-usage-shared)",
+    "file": "mobile-rn/src/shared/importContract.test.ts",
+    "old": "    (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) &&\n    node.name !== undefined",
+    "new": "    (ts.isFunctionDeclaration(node) ||\n      ts.isFunctionExpression(node) ||\n      ts.isMethodDeclaration(node)) &&\n    ts.isIdentifier(node.name)",
+    "test": "cd mobile-rn && npx jest src/shared/importContract.test.ts -t \"KIN-MOBILE-001: a name that declares or labels is not a browser global\""
+  },
+  {
     "label": "the DOM scan stops reporting value uses altogether (R-rn-usage-shared)",
     "file": "mobile-rn/src/shared/importContract.test.ts",
     "old": "    if (ts.isIdentifier(node) && DOM_IDENTIFIERS.has(node.text)) {",

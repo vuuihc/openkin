@@ -266,7 +266,15 @@ function boundNames(name: ts.BindingName): string[] {
 /** The names a function-like node binds for its body (its parameters, name, type parameters). */
 function functionScope(node: ts.SignatureDeclarationBase): Set<string> {
   const names = new Set<string>();
-  if (node.name !== undefined && ts.isIdentifier(node.name)) names.add(node.name.text);
+  // Only a function declaration or expression binds its own name inside the
+  // body; a method or accessor name is a property key, so `{ window() { return
+  // window; } }` still reads the global.
+  if (
+    (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) &&
+    node.name !== undefined
+  ) {
+    names.add(node.name.text);
+  }
   for (const typeParameter of node.typeParameters ?? []) names.add(typeParameter.name.text);
   for (const parameter of node.parameters) {
     for (const name of boundNames(parameter.name)) names.add(name);
@@ -498,6 +506,11 @@ describe("KIN-MOBILE-001 R1 shared-import contract", () => {
     expect(
       domReferencesIn("const s = { window: 3 }; type C = { window: number };", "labels.ts"),
     ).toEqual([]);
+    // A method or accessor name is a label too, but the body still reads the
+    // global: only function declarations and expressions bind their own name.
+    expect(
+      domReferencesIn("const o = { window() { return window; } };", "method.ts"),
+    ).toEqual(["window"]);
 
     // Real value uses stay hits; `localStorage` here is a property name of
     // `window`, while `window` itself is the expression.

@@ -75,7 +75,7 @@ name (`KIN-MOBILE-001: a name that declares or labels is not a browser global`).
 | DOM-free files under `ui/src/lib/**` | e.g. `ui/src/lib/attachments.ts`, `ui/src/lib/friendlyError.ts`, `ui/src/lib/needsYou.ts` |
 | `ui/src/lib/phoneSessionBuckets.ts` | R3's device → project → conversation grouping, imported in place. Its type imports from `ui/src/api/client.ts` are erased; its only value import of a DOM-carrying module is `./taskOrder`, which resolves to Adapter 3 below |
 | `ui/src/lib/agentSessionTitle.ts`, `ui/src/lib/agentMention.ts` | the bucket module's own DOM-free dependencies, reached by the same import |
-| `ui/src/lib/usage.ts` | the provider/usage sheet's fold (`summarizeUsage`, `formatTokenCount`, `cacheRateLabel`). It names no module once the fold's input row type is declared locally (`ui/src/lib/usage.ts:8`), so the RN typecheck never reaches the web client. Its `window` identifiers are a property signature (`:163`), the `contextFill` parameter (`:191`, read as a value at `:194`) and a property assignment (`:202`) — a name, a binding and a label, never the browser global |
+| `ui/src/lib/usage.ts` | the provider/usage sheet's fold (`summarizeUsage`, `formatTokenCount`, `cacheRateLabel`). It names no module once the fold's input row type is declared locally (`ui/src/lib/usage.ts:8`), so the RN typecheck never reaches the web client. Its `window` identifiers are a property signature (`:161`), the `contextFill` parameter (`:189`, read as a value at `:192`) and a property assignment (`:200`) — a name, a binding and a label, never the browser global |
 
 R4's read reaches the projection's real closure, not just the file:
 `eventMeta.ts`, `lib/attachments.ts`, `lib/friendlyError.ts`,
