@@ -394,7 +394,15 @@ export function notePhoneLocation(location: TrackedRoute): void {
   // its `?device=` / `?tab=` / filter state intact.
   rememberPhoneTabUrl(url);
   if (location.pathname === LIST_PATH) {
-    rememberListUrl(url);
+    // `?agent=` opens the session sheet over the list; it is an overlay, not a
+    // list view. The sheet's continue flow never commits a clean list
+    // location, so remembering this URL would let the rail's Chats entry,
+    // ⌘K → Chats and a draft close reopen a sheet the reader already closed.
+    // Only `agent` goes; the list's own filters (`attention` included) stay.
+    const listParams = new URLSearchParams(location.search);
+    listParams.delete("agent");
+    const listSearch = listParams.toString();
+    rememberListUrl(listSearch ? `${location.pathname}?${listSearch}` : location.pathname);
     return;
   }
   const idx = routeIndex(location);

@@ -32,7 +32,7 @@
 | `/approvals` | 对话 | 旧通知落点 | 根（重定向） | `replace` 到 `/sessions`，理由同上 |
 | `/tasks/:id` | 对话 | 一段对话（`TaskSessionHost` 渲染，在 `<Routes>` 外） | `/sessions` | task id、`?focus=` 保留；列表的搜索 / 状态 / 范围跟着列表父级回来 |
 | `/new` | 对话 | 新建对话 | `/sessions` | `?cwd=` 和草稿保留；关闭回列表 |
-| `/agent-sessions/:id` | 对话 | 导入的 agent 会话 | `/sessions` | 会话 id 保留；继续后手机替换成对应的 `/tasks/:id` |
+| `/agent-sessions/:id` | 对话 | 旧导入会话 URL（重定向） | `/sessions` | `replace` 到 `/sessions?agent=<id>`（R-agent-retire 5a）；列表不动，sheet 开在该列表上方，关闭去掉参数回到同一份列表；继续后手机替换成对应的 `/tasks/:id` |
 | `/projects` | 对话 | 旧项目区根（重定向） | 根（重定向） | `replace` 到 `/sessions`（KIN-CONTRACT-001）；项目层级由列表画出，书签 / 通知落在这里也落到列表 |
 | `/projects/:id` | 对话 | 旧项目封面（重定向） | 根（重定向） | `replace` 到 `/sessions?project=<id>`（KIN-CONTRACT-001）；项目 id 保留为收窄条件，摘要 / 工作说明 / 目录在这份列表的项目行里编辑 |
 | `/routines` | 例行任务 | 机器内的例程列表 | 根 | 显式 `?device=` 优先于记忆值，缺失机器按既有 fallback 修正 |

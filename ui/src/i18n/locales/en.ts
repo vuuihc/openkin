@@ -95,6 +95,7 @@ const en: MessageTree = {
     agentSessionsLoadError: "Could not load imported sessions",
     agentSessionsLoadErrorHint:
       "Kin's own chats are unaffected. Retry to read the imported index again.",
+    agentEntryFailed: "Could not open that imported session.",
     searchPlaceholder: "Search chats",
     searchEmpty: "No chats match “{query}”",
     newChatOnDevice: "New chat on {device}",
