@@ -20,9 +20,28 @@ describe("KIN-MOBILE-001 R2 pairing link", () => {
       link: {
         origin: "https://kin.example.com",
         token: TOKEN,
+        pairing: false,
         display: "https://kin.example.com",
       },
     });
+  });
+
+  it("KIN-MOBILE-001 R2: marks a daemon QR link (?pairing=1) for exchange", () => {
+    const parsed = parsePairingLink(
+      `https://kin.example.com/?token=${TOKEN}&pairing=1`,
+    );
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.link.pairing).toBe(true);
+    // The one-time secret is still the parsed token; the exchange consumes it.
+    expect(parsed.link.token).toBe(TOKEN);
+    expect(parsed.link.origin).toBe("https://kin.example.com");
+
+    const plain = parsePairingLink(`https://kin.example.com/?token=${TOKEN}`);
+    expect(plain.ok).toBe(true);
+    if (!plain.ok) return;
+    expect(plain.link.pairing).toBe(false);
   });
 
   it("KIN-MOBILE-001 R2: parses ?token= from a bare kin:// link", () => {

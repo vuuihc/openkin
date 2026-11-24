@@ -15,6 +15,9 @@ import { SESSION_KEY, type SecureBackend } from "./tokenStore";
 const ORIGIN = "https://kin.example.com";
 const TOKEN = "fixture-token-not-real";
 const LINK = `${ORIGIN}/?token=${TOKEN}`;
+const SECRET = "one-time-secret-not-real";
+const QR_LINK = `${ORIGIN}/?token=${SECRET}&pairing=1`;
+const DEVICE_TOKEN = "device-token-not-real";
 
 const TASKS = [
   { id: "task-1", title: "Fixture conversation" },
@@ -47,13 +50,35 @@ function response(status: number, body?: unknown): Response {
   } as unknown as Response;
 }
 
-function recordingFetch(reply: (url: string) => Response | Promise<Response>) {
+function recordingFetch(
+  reply: (url: string, init: RequestInit) => Response | Promise<Response>,
+) {
   const calls: Call[] = [];
   const spy = jest.fn(async (input: string, init?: RequestInit) => {
-    calls.push({ url: input, init: init ?? {} });
-    return reply(input);
+    const call = { url: input, init: init ?? {} };
+    calls.push(call);
+    return reply(input, call.init);
   });
   return { impl: spy as unknown as typeof fetch, calls, spy };
+}
+
+type Pending = { url: string; init: RequestInit; resolve: (r: Response) => void };
+
+/**
+ * The first `deferredCount` requests stay unanswered until the test resolves
+ * them, so two flows can land out of order; later requests answer at once.
+ */
+function controlledFetch(deferredCount: number, later: () => Response) {
+  const pending: Pending[] = [];
+  const impl = jest.fn((input: string, init?: RequestInit) => {
+    if (pending.length < deferredCount) {
+      return new Promise<Response>((resolve) => {
+        pending.push({ url: input, init: init ?? {}, resolve });
+      });
+    }
+    return Promise.resolve(later());
+  });
+  return { impl: impl as unknown as typeof fetch, pending };
 }
 
 function header(call: Call, name: string): string | undefined {
@@ -117,6 +142,167 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     expect(resumed.route).toBe("pairing");
     expect(resumed.reason).toBe("expired");
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("KIN-MOBILE-001 R2: a 401 on resume retires the stored session and is not retried", async () => {
+    const store = memoryStore();
+    await store.setItemAsync(
+      SESSION_KEY,
+      JSON.stringify({ origin: ORIGIN, token: TOKEN }),
+    );
+    const { impl, spy } = recordingFetch(() => response(401, { error: "unauthorized" }));
+    const pairing = createPairing({ store, fetchImpl: impl });
+
+    const resumed = await pairing.resume();
+
+    expect(resumed.route).toBe("pairing");
+    expect(resumed.reason).toBe("expired");
+    expect(store.entries.get(SESSION_KEY)).toBeUndefined();
+
+    const again = await pairing.resume();
+
+    expect(again.route).toBe("pairing");
+    expect(again.reason).toBe("expired");
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  const unreachableReplies: Array<[string, () => Response]> = [
+    ["a 500", () => response(500, { error: "boom" })],
+    [
+      "a network failure",
+      () => {
+        throw new TypeError("Network request failed");
+      },
+    ],
+  ];
+
+  it.each(unreachableReplies)(
+    "KIN-MOBILE-001 R2: a stored session survives %s on resume",
+    async (_label, reply) => {
+      const store = memoryStore();
+      await store.setItemAsync(
+        SESSION_KEY,
+        JSON.stringify({ origin: ORIGIN, token: TOKEN }),
+      );
+      const { impl } = recordingFetch(reply);
+      const pairing = createPairing({ store, fetchImpl: impl });
+
+      const resumed = await pairing.resume();
+
+      // The node is silent, not the token: stay on the list and keep the entry.
+      expect(resumed.route).toBe("list");
+      expect(resumed.reason).toBe("unreachable");
+      expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+        origin: ORIGIN,
+        token: TOKEN,
+      });
+    },
+  );
+
+  it("KIN-MOBILE-001 R2: a ?pairing=1 secret is exchanged for a device token before the list read", async () => {
+    const store = memoryStore();
+    const { impl, calls } = recordingFetch((url) =>
+      url.endsWith("/api/pairing/exchange")
+        ? response(200, { token: DEVICE_TOKEN })
+        : response(200, TASKS),
+    );
+    const pairing = createPairing({ store, fetchImpl: impl });
+
+    const paired = await pairing.pairWithLink(QR_LINK);
+
+    expect(calls[0].url).toBe(`${ORIGIN}/api/pairing/exchange`);
+    expect(calls[0].init.method).toBe("POST");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ secret: SECRET });
+    // The one-time secret is never sent as a bearer token.
+    expect(header(calls[0], "Authorization")).toBeUndefined();
+
+    expect(calls[1].url).toBe(`${ORIGIN}/api/tasks?page=1&limit=20`);
+    expect(header(calls[1], "Authorization")).toBe(`Bearer ${DEVICE_TOKEN}`);
+
+    expect(paired.route).toBe("list");
+    expect(paired.reason).toBe("none");
+    expect(paired.tasks).toEqual(TASKS);
+    expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      origin: ORIGIN,
+      token: DEVICE_TOKEN,
+    });
+  });
+
+  it("KIN-MOBILE-001 R2: a consumed secret is recovered with the recovery header", async () => {
+    const store = memoryStore();
+    const { impl, calls } = recordingFetch((url, init) => {
+      if (!url.endsWith("/api/pairing/exchange")) return response(200, TASKS);
+      const headers = init.headers as Record<string, string>;
+      return headers["X-Kin-Pairing-Recovery"] === "1"
+        ? response(200, { token: DEVICE_TOKEN })
+        : response(401, { error: "pairing secret already used" });
+    });
+    const pairing = createPairing({ store, fetchImpl: impl });
+
+    const paired = await pairing.pairWithLink(QR_LINK);
+
+    expect(calls).toHaveLength(3);
+    expect(header(calls[0], "X-Kin-Pairing-Recovery")).toBeUndefined();
+    expect(header(calls[1], "X-Kin-Pairing-Recovery")).toBe("1");
+    expect(header(calls[2], "Authorization")).toBe(`Bearer ${DEVICE_TOKEN}`);
+    expect(paired.route).toBe("list");
+    expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      origin: ORIGIN,
+      token: DEVICE_TOKEN,
+    });
+  });
+
+  it("KIN-MOBILE-001 R2: a refused exchange keeps the owner on pairing and writes nothing", async () => {
+    const store = memoryStore();
+    const { impl } = recordingFetch(() =>
+      response(401, { error: "pairing secret invalid" }),
+    );
+    const pairing = createPairing({ store, fetchImpl: impl });
+
+    const paired = await pairing.pairWithLink(QR_LINK);
+
+    expect(paired.route).toBe("pairing");
+    expect(paired.reason).toBe("expired");
+    expect(paired.origin).toBe(ORIGIN);
+    expect(store.entries.get(SESSION_KEY)).toBeUndefined();
+  });
+
+  it("KIN-MOBILE-001 R2: a late 401 from a superseded pairing does not retire the newer session", async () => {
+    const store = memoryStore();
+    const { impl, pending } = controlledFetch(2, () => response(200, TASKS));
+    const pairing = createPairing({ store, fetchImpl: impl });
+
+    const superseded = pairing.pairWithLink(
+      `https://old.example.com/?token=old-token`,
+    );
+    const latest = pairing.pairWithLink(LINK);
+    expect(pending).toHaveLength(2);
+
+    pending[1].resolve(response(200, TASKS));
+    const paired = await latest;
+    expect(paired.route).toBe("list");
+    expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      origin: ORIGIN,
+      token: TOKEN,
+    });
+
+    // The older call's answer lands last: it must not clear or overwrite the
+    // newer session, and it must not flash a retired pairing state.
+    pending[0].resolve(response(401, { error: "unauthorized" }));
+    const stale = await superseded;
+
+    expect(stale.route).toBe("list");
+    expect(stale.reason).toBe("none");
+    expect(stale.tasks).toEqual(TASKS);
+    expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      origin: ORIGIN,
+      token: TOKEN,
+    });
+
+    // A real boot still reads the newer session instead of reporting expired.
+    const resumed = await pairing.resume();
+    expect(resumed.route).toBe("list");
+    expect(resumed.reason).toBe("none");
   });
 
   it("KIN-MOBILE-001 R2: the token never appears in the URL, the result, or a log line", async () => {

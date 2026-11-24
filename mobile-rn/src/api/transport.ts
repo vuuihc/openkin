@@ -22,7 +22,17 @@ export type ApiFetchOptions = {
   headers?: Record<string, string>;
   /** Tests inject their own; production uses the platform fetch. */
   fetchImpl?: typeof fetch;
+  /**
+   * Bound on the whole request. A dead node must not leave the caller waiting
+   * forever (AGENTS.md §13), so every call has one.
+   */
+  timeoutMs?: number;
+  /** An outer cancellation, e.g. the screen that asked is gone. */
+  signal?: AbortSignal;
 };
+
+/** Every request is bounded; a dead host maps to `unreachable`, not a hang. */
+export const DEFAULT_TIMEOUT_MS = 15_000;
 
 /** `${origin}${path}` with exactly one slash at the seam. */
 export function apiUrl(origin: string, path: string): string {
@@ -34,6 +44,9 @@ export function apiUrl(origin: string, path: string): string {
 export function listTasksPath(limit = 20): string {
   return `/api/tasks?page=1&limit=${limit}`;
 }
+
+/** Turn a daemon QR link's one-time secret into a device token. */
+export const pairingExchangePath = "/api/pairing/exchange";
 
 export async function apiFetch<T>(
   origin: string,
@@ -47,17 +60,34 @@ export async function apiFetch<T>(
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
 
   const doFetch = options.fetchImpl ?? fetch;
+  // One controller carries both bounds: the timeout and the caller's signal.
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  );
+  const outer = options.signal;
+  const forwardAbort = (): void => controller.abort();
+  if (outer) {
+    if (outer.aborted) controller.abort();
+    else outer.addEventListener("abort", forwardAbort);
+  }
+
   let res: Response;
   try {
     res = await doFetch(apiUrl(origin, path), {
       method: options.method ?? "GET",
       headers,
       body: options.body,
+      signal: controller.signal,
     });
   } catch {
-    // A rejected fetch (TypeError on RN) and an unreachable node look the same
-    // without expo-network, which ADR 0036 does not pin.
+    // A rejected fetch (TypeError on RN), a timeout, and an unreachable node
+    // look the same without expo-network, which ADR 0036 does not pin.
     return { ok: false, status: null, reason: "unreachable" };
+  } finally {
+    clearTimeout(timer);
+    outer?.removeEventListener("abort", forwardAbort);
   }
 
   if (res.status === 401) {

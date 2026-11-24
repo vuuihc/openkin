@@ -14,6 +14,11 @@ export type PairingLink = {
   /** The node to talk to, or null when the link names none (a bare app link). */
   origin: string | null;
   token: string;
+  /**
+   * True for a daemon QR link (`?pairing=1`): the token is a one-time secret
+   * that must be exchanged for a device token before any API call.
+   */
+  pairing: boolean;
   /** Origin-only text safe to show and to keep for a retry. */
   display: string;
 };
@@ -71,7 +76,12 @@ export function parsePairingLink(raw: string): PairingLinkResult {
   const origin = nodeOrigin(url);
   return {
     ok: true,
-    link: { origin, token, display: origin ?? displayFor(url) },
+    link: {
+      origin,
+      token,
+      pairing: url.searchParams.get("pairing") === "1",
+      display: origin ?? displayFor(url),
+    },
   };
 }
 

@@ -103,4 +103,52 @@ describe("KIN-MOBILE-001 R2 transport", () => {
 
     expect(result).toEqual({ ok: true, status: 200, data: tasks });
   });
+
+  it("KIN-MOBILE-001 R2: a request that outlives its timeout reads as unreachable", async () => {
+    // A host that accepts the connection and never answers: only the bound
+    // ends the wait, and the abort surfaces as the same reason as a dead node.
+    const impl = jest.fn(
+      (_input: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new Error("aborted")),
+          );
+        }),
+    );
+
+    const result = await apiFetch<unknown>(ORIGIN, listTasksPath(), {
+      token: TOKEN,
+      fetchImpl: impl as unknown as typeof fetch,
+      timeoutMs: 20,
+    });
+
+    expect(result).toEqual({ ok: false, status: null, reason: "unreachable" });
+    const init = (impl.mock.calls[0] as [string, RequestInit])[1];
+    expect(init.signal?.aborted).toBe(true);
+  });
+
+  it("KIN-MOBILE-001 R2: an outer abort cancels the request and reads as unreachable", async () => {
+    const controller = new AbortController();
+    const impl = jest.fn(
+      (_input: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new Error("aborted")),
+          );
+        }),
+    );
+
+    const pending = apiFetch<unknown>(ORIGIN, listTasksPath(), {
+      token: TOKEN,
+      fetchImpl: impl as unknown as typeof fetch,
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(pending).resolves.toEqual({
+      ok: false,
+      status: null,
+      reason: "unreachable",
+    });
+  });
 });
