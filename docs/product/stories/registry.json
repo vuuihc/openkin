@@ -769,6 +769,27 @@
         "ui/src/lib/surfacesContract.KIN-CONTINUE-007.test.ts"
       ],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-MOBILE-001",
+      "state": "approved",
+      "priority": "P0",
+      "journeys": [
+        "J1",
+        "J2",
+        "J4"
+      ],
+      "surfaces": [
+        "phone"
+      ],
+      "title": "手机用 Expo/RN 客户端承接固定面",
+      "file": "docs/product/stories/KIN-MOBILE-001.md",
+      "surface": "手机 · Expo/RN 客户端（列表、对话、审批、provider/usage）",
+      "ownerPaths": [],
+      "tests": [
+        "ui/src/lib/surfacesContract.KIN-MOBILE-001.test.ts"
+      ],
+      "blockedReason": null
     }
   ]
 }
