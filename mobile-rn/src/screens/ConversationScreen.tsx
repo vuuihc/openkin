@@ -153,6 +153,19 @@ export default function ConversationScreen({
     void approvalsRef.current?.answer(id, text);
   }, []);
 
+  // The composer's three writes go to the thread model, which owns the queue,
+  // the stop and the offline refusal; this container only forwards. A press
+  // after unmount reaches a null ref and posts nothing.
+  const send = useCallback((text: string) => {
+    void threadRef.current?.send(text);
+  }, []);
+  const stop = useCallback(() => {
+    void threadRef.current?.stop();
+  }, []);
+  const withdraw = useCallback((id: string) => {
+    threadRef.current?.cancelQueued(id);
+  }, []);
+
   if (state === null) {
     return (
       <View style={styles.container}>
@@ -179,8 +192,12 @@ export default function ConversationScreen({
       approvals={approvalsProps}
       onBack={onBack}
       // With no thread there is no read to retry, so the control is absent
-      // rather than a button that does nothing.
+      // rather than a button that does nothing. The same rule draws no
+      // composer: a box that cannot post is not a composer.
       onRetry={threadRef.current === null ? undefined : retry}
+      onSend={threadRef.current === null ? undefined : send}
+      onStop={threadRef.current === null ? undefined : stop}
+      onWithdraw={threadRef.current === null ? undefined : withdraw}
       state={state}
       t={t}
     />
