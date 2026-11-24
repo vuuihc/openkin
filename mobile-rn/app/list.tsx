@@ -1,16 +1,21 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { pairing, type AppState } from "../src/auth/pairing";
 import { t } from "../src/i18n";
 import { bootHref } from "../src/screens/pairModel";
+import ListScreen from "../src/screens/ListScreen";
 
 /**
- * KIN-MOBILE-001 R2b — a minimal landing that proves the first list read
- * arrived. R3 replaces this screen with the device → project → conversation
- * list; it deliberately has no grouping, folds, search or composer.
+ * KIN-MOBILE-001 R3 — the list route.
+ *
+ * The boot check decides the first frame (a stored, accepted session lands
+ * here; anything else opens the pairing entry), then the wired screen reads
+ * the session itself and draws device → project → conversation. A row pushes
+ * the conversation; `push` keeps this screen mounted under the stack, which is
+ * what restores its folds and scroll position on Back.
  */
-export default function ListScreen() {
+export default function ListRoute() {
   const router = useRouter();
   const [state, setState] = useState<AppState | null>(null);
 
@@ -43,54 +48,17 @@ export default function ListScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>
-        {t("pairing.connected", { origin: state.origin ?? "" })}
-      </Text>
-      {state.reason === "unreachable" ? (
-        <Text accessibilityRole="alert" style={styles.notice}>
-          {t("pairing.unreachable")}
-        </Text>
-      ) : null}
-      {state.tasks.length === 0 ? (
-        <Text style={styles.empty}>{t("pairing.noTasks")}</Text>
-      ) : (
-        <View style={styles.rows}>
-          {state.tasks.map((task) => (
-            <Text key={task.id} style={styles.row}>
-              {task.title}
-            </Text>
-          ))}
-        </View>
-      )}
-    </View>
+    <ListScreen
+      onNeedsPairing={() => router.replace("/pair")}
+      onOpen={(taskId) => router.push(`/thread/${encodeURIComponent(taskId)}`)}
+    />
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    alignItems: "center",
     flex: 1,
-    gap: 12,
-    padding: 24,
-    paddingTop: 72,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: "600",
-  },
-  notice: {
-    color: "#a1261b",
-    fontSize: 15,
-  },
-  empty: {
-    color: "#555555",
-    fontSize: 16,
-  },
-  rows: {
-    gap: 12,
-  },
-  row: {
-    fontSize: 16,
-    minHeight: 44,
+    justifyContent: "center",
   },
 });

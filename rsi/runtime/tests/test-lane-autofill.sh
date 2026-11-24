@@ -106,6 +106,7 @@ PY
   # lane.sh sources lane-pr.sh (PR creation, never reached by autofill); without it the failed
   # source prints a stderr line that lands in $CASE.out and hides autofill's own output.
   printf '#!/bin/bash\n# stub: autofill never creates a PR\n' > "$RSI_CTRL/rsi/runtime/lane-pr.sh"
+  printf '#!/bin/bash\n# stub: autofill never pushes\n' > "$RSI_CTRL/rsi/runtime/lane-push.sh"
   # Default PR state OPEN so the waiver cases keep reaching the claim, as they did before the
   # terminal-PR guard; each terminal case overrides it.
   STUB_PR_STATE=OPEN; STUB_PR_STATE_FAIL=0; STUB_PR_STATE_ARG_FILE=""
