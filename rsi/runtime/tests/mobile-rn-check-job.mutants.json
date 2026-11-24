@@ -1,0 +1,9 @@
+[
+  {
+    "label": "unguarded-install: the RN install runs on every gate run and writes a lockfile",
+    "file": "scripts/check.sh",
+    "test": "cd mobile-rn && npx jest src/gate/checkJob.test.ts --ci",
+    "old": "      stamp=node_modules/.kin-pkg-sha; want=\"$(git hash-object package.json)\" || exit 1\n      if [[ \"$(cat \"$stamp\" 2>/dev/null)\" != \"$want\" ]]; then\n        npm install --no-package-lock --no-audit --no-fund || exit 1\n        printf '%s\\n' \"$want\" > \"$stamp\" || exit 1\n      fi",
+    "new": "      npm install --no-audit --no-fund || exit 1"
+  }
+]

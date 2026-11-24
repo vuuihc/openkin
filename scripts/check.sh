@@ -356,6 +356,33 @@ job_shell_test() {
   bash rsi/runtime/tests/test-wiring.sh
 }
 
+# The RN client's own typecheck and suite. The merge gate runs this default set,
+# so the scaffold cannot land without the gate ADR 0036 §4 fixed the job id for.
+# The scaffold has no committed package-lock.json yet (the NAS lane that wrote it
+# has no registry access), so a first run resolves node_modules with npm install,
+# and --no-package-lock keeps it from writing an untracked lockfile that would
+# leave the tree dirty for gate.sh; once a lockfile lands, npm ci is the
+# reproducible path. Either install is stamped inside node_modules and skipped
+# while the manifest's hash is unchanged, so a repeat run does not reinstall.
+job_mobile_rn() {
+  ( cd mobile-rn || exit 1
+    if [[ -f package-lock.json ]]; then
+      stamp=node_modules/.kin-lock-sha; want="$(git hash-object package-lock.json)" || exit 1
+      if [[ "$(cat "$stamp" 2>/dev/null)" != "$want" ]]; then
+        npm ci --no-audit --no-fund || exit 1
+        printf '%s\n' "$want" > "$stamp" || exit 1
+      fi
+    else
+      stamp=node_modules/.kin-pkg-sha; want="$(git hash-object package.json)" || exit 1
+      if [[ "$(cat "$stamp" 2>/dev/null)" != "$want" ]]; then
+        npm install --no-package-lock --no-audit --no-fund || exit 1
+        printf '%s\n' "$want" > "$stamp" || exit 1
+      fi
+    fi
+    npx tsc --noEmit || exit 1
+    npx jest --ci )
+}
+
 job_python_syntax() {
   local files
   files="$(changed_python_files)"
@@ -458,6 +485,7 @@ start walk-contract job_walk_contract
 start phone-baseline-contract job_phone_baseline_contract
 start journeys-smoke job_journeys_smoke
 start quality-reading-contract job_quality_reading_contract
+start mobile-rn job_mobile_rn
 
 # The eight jobs CI already runs on every push (.github/workflows/ci.yml): `go vet
 # ./...` and `go test ./...` (build job), `npm test` + `npx tsc --noEmit` (build job's
