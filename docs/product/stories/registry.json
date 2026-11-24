@@ -483,7 +483,7 @@
         "ui/src/pages/macKeyboardWiring.test.ts",
         "ui/src/pages/SettingsPage.leaveGuard.dom.test.tsx",
         "ui/src/pages/settingsTabsWiring.test.ts",
-        "ui/src/pages/AgentSessionDetailPage.dom.test.tsx"
+        "ui/src/components/sessions/AgentSessionSheet.dom.test.tsx"
       ],
       "blockedReason": null
     },
