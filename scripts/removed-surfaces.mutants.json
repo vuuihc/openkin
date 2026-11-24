@@ -24,8 +24,8 @@
   "label": "the checked-in record count regresses to the old total, so a deletion added without review goes unnoticed",
   "file": "scripts/check-removed-surfaces.test.py",
   "test": "python3 -B scripts/check-removed-surfaces.test.py CheckedInManifestTest.test_checked_in_manifest_names_the_resurrected_and_retired_surfaces",
-  "old": "        self.assertEqual(len(paths), 21, paths)\n",
-  "new": "        self.assertEqual(len(paths), 8, paths)\n"
+  "old": "        self.assertEqual(len(paths), 24, paths)\n",
+  "new": "        self.assertEqual(len(paths), 22, paths)\n"
  },
  {
   "label": "the gate stops starting the job, so the checker never runs",

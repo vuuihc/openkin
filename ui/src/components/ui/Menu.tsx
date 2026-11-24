@@ -6,6 +6,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { isImeKeyEvent } from "../../lib/ime";
 import { IconCheck, IconSearch, IconX } from "../icons";
 import Button from "./Button";
@@ -146,6 +147,10 @@ export default function Menu({
   emptyLabel,
 }: MenuProps) {
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  // The floor follows the pointer, not the viewport: an iPad in portrait is
+  // 768px wide and still a thumb, so a width breakpoint stopped applying long
+  // before the screen that needed it. A mouse keeps the dense 36px rows.
+  const coarse = useCoarsePointer();
   const searchRef = useRef<HTMLInputElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   // `window.setTimeout` rather than the bare global: the DOM one returns a
@@ -365,10 +370,14 @@ export default function Menu({
                 onClick={() => search.onChange("")}
                 aria-label={search.clearLabel}
                 title={search.clearLabel}
-                // The icon stays compact, but the tap area does not: on a
-                // phone the clear sits in a 44px field and a 28px-wide target
-                // beside the search text is the one a thumb misses.
-                className="h-7 w-7 flex-none rounded-full p-0 max-sm:min-w-11"
+                // The icon stays compact, but the tap area follows the
+                // pointer: a thumb misses a 28px target beside the search
+                // text at any width, while a mouse keeps the compact field.
+                className={
+                  coarse
+                    ? "h-11 w-11 flex-none rounded-full p-0"
+                    : "h-7 w-7 flex-none rounded-full p-0"
+                }
               >
                 <IconX size={13} className="text-kin-muted" />
               </Button>
@@ -390,7 +399,7 @@ export default function Menu({
             // nothing" while the keyboard has already moved onto it.
             onMouseDown={item.disabled ? (event) => event.preventDefault() : undefined}
             className={[
-              "flex min-h-9 w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-body transition-colors max-sm:min-h-11",
+              `flex ${coarse ? "min-h-11" : "min-h-9"} w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-body transition-colors`,
               item.disabled
                 ? "cursor-default text-kin-muted opacity-60"
                 : "text-kin-secondary hover:bg-[var(--kin-fill-strong)] focus:bg-[var(--kin-fill-strong)] focus:text-kin-text focus:outline-none focus-visible:ring-1 focus-visible:ring-kin-focus-ring",

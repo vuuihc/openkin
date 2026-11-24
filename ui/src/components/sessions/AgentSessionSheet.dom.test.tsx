@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -62,13 +64,16 @@ function item(
   messageID: string,
   role: AgentSessionHistoryItem["role"],
   text: string,
+  kind: AgentSessionHistoryItem["kind"] = "message",
+  toolName?: string,
 ): AgentSessionHistoryItem {
   return {
     agent_id: "claude-code",
     external_ref: "ref-1",
     message_id: messageID,
-    kind: "message",
+    kind,
     role,
+    tool_name: toolName,
     text,
     occurred_at: 1,
     source_rev: "rev-1",
@@ -137,6 +142,18 @@ function renderSheet(options: { offline?: boolean } = {}) {
   );
 }
 
+// jsdom rewrites import.meta.url to an http URL, so resolve from the package
+// root Vitest runs in (ui/). Comments are not code; a scan cannot tell a dead
+// line from a live one.
+const SHEET_SOURCE = readFileSync(
+  join(process.cwd(), "src/components/sessions/AgentSessionSheet.tsx"),
+  "utf8",
+)
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .split("\n")
+  .filter((line) => !/^\s*\/\//.test(line))
+  .join("\n");
+
 beforeEach(() => {
   setLocale("en");
   window.history.replaceState({}, "", "/sessions");
@@ -186,6 +203,62 @@ describe("AgentSessionSheet", () => {
     expect(calls).toHaveLength(1);
     // One composer, exactly: the transcript is not a second input.
     expect(screen.getAllByRole("textbox")).toHaveLength(1);
+  });
+
+  it("shows a two-turn session whole", async () => {
+    // A session shorter than the opening budget is not cut at a threshold:
+    // both turns arrive in the one page and all of it is on screen.
+    const all = [
+      item("u1", "user", "question 1"),
+      item("a1", "assistant", "answer 1"),
+      item("u2", "user", "question 2"),
+      item("a2", "assistant", "answer 2"),
+    ];
+    const { impl, calls } = pagedHistory(all);
+    vi.mocked(getAgentSessionHistory).mockImplementation(impl);
+
+    renderSheet();
+
+    await screen.findByText(/question 2/);
+    expect(calls).toHaveLength(1);
+    expect(screen.getByText(/question 1/)).toBeTruthy();
+    expect(screen.getByText(/answer 1/)).toBeTruthy();
+  });
+
+  it("stops reading at the byte ceiling", async () => {
+    // Each turn is one user message plus a wall of tool output. Two pages of
+    // thirty items cross the 256 KiB ceiling, so the opening read must stop
+    // after the first page even though it has not found three turns yet.
+    const longOutput = (tool: number) => `tool ${tool}\n${"x".repeat(5000)}`;
+    const all: AgentSessionHistoryItem[] = [item("u1", "user", "run it")];
+    for (let tool = 1; tool <= 90; tool += 1) {
+      all.push(item(`t${tool}`, "tool", longOutput(tool), "tool_result", "Bash"));
+    }
+    const { impl, calls } = pagedHistory(all);
+    vi.mocked(getAgentSessionHistory).mockImplementation(impl);
+
+    renderSheet();
+
+    // Tool results collapse into one progress row, so the count in its label
+    // is what says how many arrived: thirty from the first page, not sixty.
+    await screen.findByText(/Bash × 30/);
+    expect(calls).toHaveLength(2);
+    expect(screen.queryByText(/Bash × 60/)).toBeNull();
+  });
+
+  // KIN-CONTINUE-003 row 12: the imported session's controls use the shared
+  // button facade.
+  it("puts the agent-session controls on the shared button facade", () => {
+    expect(SHEET_SOURCE).toMatch(/import Button from "\.\.\/ui\/Button";/);
+    // The × is the quiet weight and the read's retry the secondary one: both
+    // are the facade's variants, not hand-rolled classes.
+    expect(SHEET_SOURCE).toMatch(
+      /<Button\s+variant="quiet"[\s\S]*?aria-label=\{tr\("common\.close"\)\}/,
+    );
+    expect(SHEET_SOURCE).toMatch(/<Button variant="secondary" onClick=\{\(\) => setReloadKey/);
+    // A raw control here would bypass the facade's focus ring, sizes and
+    // states.
+    expect(SHEET_SOURCE).not.toMatch(/<button[\s>]/);
   });
 
   it("the sheet's one composer attaches the session and opens the task", async () => {
