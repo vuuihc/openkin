@@ -376,6 +376,48 @@ describe("KIN-MOBILE-001 R6 provider/usage sheet mount", () => {
     expect(threadReads(calls)).toHaveLength(1);
   });
 
+  it("KIN-MOBILE-001 R6: leaving the conversation abandons an in-flight usage read", async () => {
+    let releaseProviders!: () => void;
+    const held = new Promise<Reply>((resolve) => {
+      releaseProviders = () =>
+        resolve({ body: { active_id: PROVIDER.id, providers: [PROVIDER] } });
+    });
+    const { fetchImpl, calls } = routedFetch((url) => {
+      const thread = threadReply(url);
+      if (thread) return thread;
+      const pending = pendingReply(url);
+      if (pending) return pending;
+      if (url === `${ORIGIN}/api/providers`) return held;
+      if (url.startsWith(`${ORIGIN}/api/usage/summary`)) {
+        return { body: [usageRow()] };
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    const screen = await renderConversation(fetchImpl);
+    await settled(screen);
+
+    await fireEvent.press(screen.getByTestId("conversation:usage"));
+    await waitFor(() =>
+      expect(
+        calls.find((call) => call.url === `${ORIGIN}/api/providers`),
+      ).toBeDefined(),
+    );
+    const signal = calls.find(
+      (call) => call.url === `${ORIGIN}/api/providers`,
+    )?.init.signal;
+    expect(signal?.aborted).toBe(false);
+
+    // Leaving the conversation disposes the model (AGENTS.md §11): the held
+    // answer is aborted, and its resolution reaches no publisher.
+    await screen.unmount();
+    expect(signal?.aborted).toBe(true);
+    await act(async () => {
+      releaseProviders();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  });
+
   it("KIN-MOBILE-001 R6: the empty device says so inside the sheet", async () => {
     const { fetchImpl } = routedFetch(usageRouter([], []));
     const screen = await renderConversation(fetchImpl);

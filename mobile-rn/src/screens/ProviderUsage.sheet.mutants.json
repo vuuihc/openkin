@@ -54,5 +54,12 @@
     "old": "          state: providers,",
     "new": "          state: { status: \"loading\", days: 30, providers: [], usage: [] },",
     "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.sheet.test.tsx -t \"KIN-MOBILE-001 R6: the empty device says so inside the sheet\""
+  },
+  {
+    "label": "leaving the conversation never cancels the providers model, so its usage read outlives the screen (R-rn-provider-usage-sheet)",
+    "file": "mobile-rn/src/screens/ConversationScreen.tsx",
+    "old": "      providersRef.current?.cancel();\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.sheet.test.tsx -t \"KIN-MOBILE-001 R6: leaving the conversation abandons an in-flight usage read\""
   }
 ]
