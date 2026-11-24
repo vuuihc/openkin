@@ -61,6 +61,12 @@ export type ListScreenProps = {
   appState?: AppStateLike;
   /** Test seam; production uses the platform clock. */
   now?: () => number;
+  /**
+   * Bumped by the route when the list is focused again (Back from a pushed
+   * conversation). The screen owns no navigation knowledge: it only re-reads
+   * when this value changes after the one it mounted with.
+   */
+  focusEpoch?: number;
 };
 
 export default function ListScreen({
@@ -74,6 +80,7 @@ export default function ListScreen({
   store,
   appState = AppState,
   now,
+  focusEpoch = 0,
 }: ListScreenProps) {
   const [state, setState] = useState<ListViewState | null>(null);
   // The reconnect band is a network state, not a steady one: null whenever the
@@ -209,6 +216,17 @@ export default function ListScreen({
   const retryResume = useCallback(() => {
     resumeRef.current?.retry();
   }, []);
+
+  // A changed `focusEpoch` means the route is on screen again after a pushed
+  // conversation, so the server may have moved on (an approval decided inside
+  // that conversation). The value observed at mount is the baseline: the
+  // initial load already covers it, and only a later change re-reads.
+  const seenFocus = useRef(focusEpoch);
+  useEffect(() => {
+    if (seenFocus.current === focusEpoch) return;
+    seenFocus.current = focusEpoch;
+    refresh();
+  }, [focusEpoch, refresh]);
 
   if (state === null) {
     return (

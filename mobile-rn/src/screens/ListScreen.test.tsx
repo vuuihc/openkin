@@ -3,6 +3,11 @@ import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
 import type { Task } from "../../../ui/src/api/contract";
 import type { Machine } from "../../../ui/src/lib/devices";
+import {
+  pendingApprovalsPath,
+  pendingQuestionsPath,
+} from "../approvals/approvalsModel";
+import { listTasksPath } from "../api/transport";
 import type { Session } from "../auth/tokenStore";
 import { t } from "../i18n";
 import {
@@ -128,7 +133,9 @@ describe("KIN-MOBILE-001 R7 resume on the list route", () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const fetchImpl = jest.fn(async () => {
+    const fetchImpl = jest.fn(async (input: string) => {
+      // Only the task page is counted; the pending lists answer empty here.
+      if (!input.endsWith(listTasksPath())) return ok([]);
       calls += 1;
       // The initial read answers at once; the resume read is held so the
       // screen can be inspected while it is still re-reading.
@@ -170,7 +177,8 @@ describe("KIN-MOBILE-001 R7 resume on the list route", () => {
 
   it("KIN-MOBILE-001 R7: a 20 s glance does not re-read the list", async () => {
     let calls = 0;
-    const fetchImpl = routedFetch(() => {
+    const fetchImpl = routedFetch((url) => {
+      if (!url.endsWith(listTasksPath())) return { body: [] };
       calls += 1;
       return { body: [task()] };
     });
@@ -205,7 +213,8 @@ describe("KIN-MOBILE-001 R7 resume on the list route", () => {
     try {
       let calls = 0;
       let failing = false;
-      const fetchImpl = routedFetch(() => {
+      const fetchImpl = routedFetch((url) => {
+        if (!url.endsWith(listTasksPath())) return { body: [] };
         calls += 1;
         return failing ? { status: 500, body: {} } : { body: [task()] };
       });
@@ -267,7 +276,8 @@ describe("KIN-MOBILE-001 R7 resume on the list route", () => {
     try {
       let calls = 0;
       let failing = false;
-      const fetchImpl = routedFetch(() => {
+      const fetchImpl = routedFetch((url) => {
+        if (!url.endsWith(listTasksPath())) return { body: [] };
         calls += 1;
         return failing ? { status: 500, body: {} } : { body: [task()] };
       });
@@ -329,7 +339,8 @@ describe("KIN-MOBILE-001 R7 resume on the list route", () => {
 
   it("KIN-MOBILE-001 R7: an expired session during resume asks for pairing instead of retrying", async () => {
     let calls = 0;
-    const fetchImpl = routedFetch(() => {
+    const fetchImpl = routedFetch((url) => {
+      if (!url.endsWith(listTasksPath())) return { body: [] };
       calls += 1;
       return calls === 1 ? { body: [task()] } : { status: 401, body: {} };
     });
@@ -372,7 +383,8 @@ describe("KIN-MOBILE-001 R7 resume on the list route", () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const fetchImpl = jest.fn(async () => {
+    const fetchImpl = jest.fn(async (input: string) => {
+      if (!input.endsWith(listTasksPath())) return ok([]);
       calls += 1;
       if (calls === 1) return ok([task()]);
       await gate;
@@ -415,6 +427,74 @@ describe("KIN-MOBILE-001 R7 resume on the list route", () => {
   });
 });
 
+describe("KIN-MOBILE-001 R5 pending counts on the list route", () => {
+  it("KIN-MOBILE-001 R5: returning to the list re-reads the server and the approved row's badge is gone", async () => {
+    let approved = false;
+    let taskReads = 0;
+    let approvalReads = 0;
+    const fetchImpl = routedFetch((url) => {
+      if (url.endsWith(listTasksPath())) {
+        taskReads += 1;
+        return { body: [task()] };
+      }
+      if (url.endsWith(pendingApprovalsPath)) {
+        approvalReads += 1;
+        return {
+          body: approved ? [] : [{ id: "ap-1", task_id: "task-1" }],
+        };
+      }
+      if (url.endsWith(pendingQuestionsPath)) return { body: [] };
+      throw new Error(`unexpected request: ${url}`);
+    });
+    const props = {
+      fetchImpl,
+      formatTime,
+      machines: MACHINES,
+      onNeedsPairing: jest.fn(),
+      onOpen: jest.fn(),
+      readSessionImpl: storedSession,
+      selfDeviceId: "dev-a",
+    };
+    const screen = await render(<ListScreen {...props} focusEpoch={0} />);
+
+    const badge = t("sessions.pendingApprovals", { count: 1 });
+    await waitFor(() => expect(screen.getByLabelText(badge)).toBeTruthy());
+    expect(taskReads).toBe(1);
+    expect(approvalReads).toBe(1);
+
+    // The approval is decided inside the pushed conversation; Back refocuses
+    // this mounted list and the route bumps the epoch. The badge must fall
+    // because the second read says so, not because anything decremented it.
+    approved = true;
+    await screen.rerender(<ListScreen {...props} focusEpoch={1} />);
+
+    await waitFor(() => expect(screen.queryByLabelText(badge)).toBeNull());
+    expect(taskReads).toBe(2);
+    expect(approvalReads).toBe(2);
+  });
+
+  it("KIN-MOBILE-001 R5: the mount focus does not cause a second initial read", async () => {
+    let taskReads = 0;
+    const fetchImpl = routedFetch((url) => {
+      if (url.endsWith(listTasksPath())) {
+        taskReads += 1;
+        return { body: [task()] };
+      }
+      return { body: [] };
+    });
+
+    // A route that bumped its epoch before this screen mounted (a focus event
+    // during the boot read): the value is the baseline, not a return.
+    const screen = await renderList({ fetchImpl, focusEpoch: 1 });
+    await waitFor(() =>
+      expect(screen.getByText("First conversation")).toBeTruthy(),
+    );
+    await act(async () => {});
+
+    expect(taskReads).toBe(1);
+  });
+});
+
 describe("KIN-MOBILE-001 R3 list route", () => {
   it("KIN-MOBILE-001 R3: a stored session draws device, project and rows", async () => {
     const screen = await renderList();
@@ -449,7 +529,8 @@ describe("KIN-MOBILE-001 R3 list route", () => {
 
   it("KIN-MOBILE-001 R3: a failed refresh keeps the rows and offers a retry", async () => {
     let calls = 0;
-    const fetchImpl = routedFetch(() => {
+    const fetchImpl = routedFetch((url) => {
+      if (!url.endsWith(listTasksPath())) return { body: [] };
       calls += 1;
       return calls === 1 ? { body: [task()] } : { status: 500, body: {} };
     });
