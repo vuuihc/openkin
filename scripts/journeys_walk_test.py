@@ -4437,6 +4437,101 @@ class WalkJ4ContractTest(unittest.TestCase):
         problems = self.problems_after(drop_the_wait)
         self.assertTrue(any("without a preceding wait" in problem for problem in problems), problems)
 
+    def test_j4_opens_the_folder_editor_under_both_pointer_classes(self) -> None:
+        """`SessionList` gives the row's folder editor one trigger per input.
+
+        A coarse pointer gets the project row's `⋯` (`项目操作` / `Project
+        actions`) and the sheet row behind it; a fine pointer has no such
+        button and instead reveals the row's hover cluster, whose `编辑` /
+        `Edit folders` icon is `pointer-events-none` + `opacity-0` until the
+        row is hovered or the cluster holds focus (`SessionList.tsx`, the
+        `focus-within:pointer-events-auto` strip). A J4 that names only the
+        `⋯` hard-fails both Mac widths with "missing required click", and a J4
+        that names only the icon times out at the click because the strip is
+        not hittable (state/shots/delete-pagesb2c-del). So every open reveals
+        the cluster with a `focus` (a recorded skip on the phone, which draws
+        no icon) and offers the `⋯` as an optional press (a recorded skip on
+        the Macs), while the editor's own save wait stays mandatory: the
+        trigger may skip, the dialog may not.
+        """
+        steps = self.steps()
+        opens = [
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "click"
+            and "项目操作" in str(step[1])
+            and "Project actions" in str(step[1])
+        ]
+        self.assertTrue(
+            opens, "J4 never presses the project row's coarse ⋯ (项目操作 / Project actions)"
+        )
+        for index in opens:
+            coarse = steps[index]
+            self.assertTrue(
+                str(coarse[1]).startswith("?"),
+                f"the coarse ⋯ press is required; a fine pointer draws no such button: {coarse}",
+            )
+            reveal = steps[index - 1]
+            self.assertEqual(reveal[0], "focus", reveal)
+            self.assertTrue(
+                str(reveal[1]).startswith("?"),
+                f"the fine pointer's reveal is required; the phone has no such icon: {reveal}",
+            )
+            self.assertIn("aria-label='编辑'", str(reveal[1]), reveal)
+            self.assertIn("aria-label='Edit folders'", str(reveal[1]), reveal)
+            self.assertEqual(steps[index + 1][0], "click", steps[index + 1])
+            self.assertEqual(steps[index + 2][0], "wait", steps[index + 2])
+            self.assertIn(J4_SAVE, str(steps[index + 2][1]), steps[index + 2])
+            self.assertIn(J4_SAVE_EN, str(steps[index + 2][1]), steps[index + 2])
+
+        # A walker needle carries its engine prefix once, and `wait` / `gone`
+        # must name one (`walk.mjs` `waitVisible`): `css=a, css=b` is a CSS
+        # parse error ("Unexpected token \"=\"") and a bare selector is "wait
+        # needs text=<literal> or css=<selector>". Both are hard failures that
+        # do not name the surface (state/shots/delete-pagesb2c-del).
+        for step in steps:
+            if step[0] not in ("click", "wait", "gone", "focus", "hover"):
+                continue
+            needle = str(step[1]).lstrip("?")
+            self.assertNotIn(", css=", needle, f"a needle repeats the css= prefix: {needle}")
+            if step[0] in ("wait", "gone"):
+                self.assertTrue(
+                    needle.startswith(("css=", "text=")),
+                    f"{step[0]} needs css= or text=: {needle}",
+                )
+
+    def test_j4_narrows_the_old_chat_read_to_the_seeded_project(self) -> None:
+        """`/sessions` lists every project bucket, and the walker clicks `.first()`.
+
+        The old-chat leg opens the conversation that predates the instructions
+        edit and expects the previous line in it. Left to `.first()` across all
+        buckets, the row it picks depends on bucket order: at mac-wide it
+        opened a Gamma conversation and the transcript wait timed out
+        (state/shots/delete-pagesb2c-del, `J4-mac-wide-07`). So the leg
+        discloses Project Alpha the way the other legs do — `goto /sessions`,
+        wait for its collapsed heading, click it — before it presses the
+        `ONE_PAGER.md` row, which makes the first match the seeded project's
+        own chat. A wait and its click must name the same row, or the wait
+        proves a row other than the one the click takes.
+        """
+        steps = self.steps()
+        presses = [
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "click" and "ONE_PAGER.md" in str(step[1])
+        ]
+        self.assertTrue(presses, "J4 never opens the ONE_PAGER.md chat")
+        for index in presses:
+            self.assertEqual(steps[index - 2][0], "wait", steps[index - 2])
+            self.assertEqual(
+                steps[index - 2][1], steps[index - 1][1], "the wait and its click name different rows"
+            )
+            for step in (steps[index - 2], steps[index - 1]):
+                self.assertIn("Project Alpha", str(step[1]), step)
+                self.assertIn(":not([aria-expanded])", str(step[1]), step)
+            self.assertEqual(steps[index - 3][0], "goto", steps[index - 3])
+            self.assertEqual(steps[index - 3][1], "/sessions", steps[index - 3])
+
     def test_j4_contract_rejects_a_route_change_instead_of_a_reload(self) -> None:
         # A client-side return to the cover reads the state the editor just
         # installed; only `goto` re-reads /api/projects. The mutation drops the
