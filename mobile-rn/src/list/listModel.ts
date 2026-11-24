@@ -13,13 +13,21 @@
  * never reaches for `localStorage` and can be tested without a device.
  */
 
-import type { Task } from "../../../ui/src/api/contract";
+import type {
+  Approval,
+  Task,
+  UserQuestion,
+} from "../../../ui/src/api/contract";
 import type { Machine } from "../../../ui/src/lib/devices";
 import {
   groupProjectBucketsByDevice,
   phoneProjectBuckets,
   type PhoneBucketCopy,
 } from "../../../ui/src/lib/phoneSessionBuckets";
+import {
+  pendingApprovalsPath,
+  pendingQuestionsPath,
+} from "../approvals/approvalsModel";
 import {
   apiFetch,
   listTasksPath,
@@ -239,6 +247,30 @@ export type ListController = {
 };
 
 /**
+ * The signed row's pending count: approvals plus questions, per task.
+ *
+ * Both lists are node-wide, so the map is keyed by the record's own
+ * `task_id`; ids that are not on the loaded page simply never match a row.
+ */
+function countPendingByTask(
+  approvals: readonly Approval[],
+  questions: readonly UserQuestion[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const approval of approvals) {
+    const id = approval.task_id;
+    if (!id) continue;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  for (const question of questions) {
+    const id = question.task_id;
+    if (!id) continue;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
  * The list's request state machine.
  *
  * `load` is the only writer. Each call takes a generation; an answer whose
@@ -246,16 +278,29 @@ export type ListController = {
  * cannot replace a newer one (rule 11). A failed refresh keeps the rows the
  * reader already has — losing them because the network blipped is the failure
  * the story's "已加载行不清空" row forbids.
+ *
+ * Each load also reads the node-wide pending approvals and questions, and the
+ * counts it derives are the server's answer, never a local decrement. The
+ * pair is only usable whole: one failed read keeps the last counts (no partial
+ * number, no zeroing) and never changes the list's status — the task page
+ * alone decides loading/ready/empty/failed/offline.
  */
 export function createListController(
   options: ListControllerOptions,
 ): ListController {
   const store = options.store ?? createMemoryFoldStore();
   let generation = 0;
+  let lastCounts: ReadonlyMap<string, number> = new Map();
   let state: ListViewState = { status: "loading", groups: [], error: null };
 
-  const groupsOf = (tasks: readonly Task[]): DeviceGroup[] =>
-    applyFolds(buildListGroups(tasks, options), store);
+  const groupsOf = (
+    tasks: readonly Task[],
+    pendingByTask: ReadonlyMap<string, number>,
+  ): DeviceGroup[] =>
+    applyFolds(
+      buildListGroups(tasks, { ...options, pendingByTask }),
+      store,
+    );
 
   return {
     state: () => state,
@@ -265,11 +310,25 @@ export function createListController(
       if (state.groups.length === 0) {
         state = { status: "loading", groups: [], error: null };
       }
-      const result = await apiFetch<Task[]>(options.origin, listTasksPath(), {
-        token: options.token,
-        fetchImpl: options.fetchImpl,
-        timeoutMs: options.timeoutMs ?? LIST_TIMEOUT_MS,
-      });
+      // Three reads under one generation. Each keeps its own bound (rule 13),
+      // and the pending pair cannot fail the page.
+      const [result, approvals, questions] = await Promise.all([
+        apiFetch<Task[]>(options.origin, listTasksPath(), {
+          token: options.token,
+          fetchImpl: options.fetchImpl,
+          timeoutMs: options.timeoutMs ?? LIST_TIMEOUT_MS,
+        }),
+        apiFetch<Approval[]>(options.origin, pendingApprovalsPath, {
+          token: options.token,
+          fetchImpl: options.fetchImpl,
+          timeoutMs: options.timeoutMs ?? LIST_TIMEOUT_MS,
+        }),
+        apiFetch<UserQuestion[]>(options.origin, pendingQuestionsPath, {
+          token: options.token,
+          fetchImpl: options.fetchImpl,
+          timeoutMs: options.timeoutMs ?? LIST_TIMEOUT_MS,
+        }),
+      ]);
       if (mine !== generation) {
         // Another load started after this one; its answer is the one that
         // describes the screen the reader is looking at now.
@@ -287,7 +346,19 @@ export function createListController(
         };
         return state;
       }
-      const groups = groupsOf(result.data);
+      const pending =
+        approvals.ok &&
+        questions.ok &&
+        Array.isArray(approvals.data) &&
+        Array.isArray(questions.data)
+          ? { approvals: approvals.data, questions: questions.data }
+          : null;
+      let counts = lastCounts;
+      if (pending) {
+        counts = countPendingByTask(pending.approvals, pending.questions);
+        lastCounts = counts;
+      }
+      const groups = groupsOf(result.data, counts);
       const empty = groups.every((device) =>
         device.projects.every((project) => project.rows.length === 0),
       );
