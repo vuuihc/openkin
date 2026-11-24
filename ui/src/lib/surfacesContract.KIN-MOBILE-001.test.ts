@@ -37,17 +37,18 @@ function signCall(log: string): string {
     log
       .split("\n")
       .find(
-        (line) =>
-          line.startsWith("- ") && line.includes("KIN-MOBILE-001") && line.includes("CEO"),
+        (line) => line.startsWith("- ") && line.includes("KIN-MOBILE-001") && line.includes("CEO"),
       ) ?? ""
   );
 }
 
 /** The ADR's dependency table rows: package, exact version, publish date. */
 function dependencyRows(text: string) {
-  return [...text.matchAll(/^\| `([^`]+)` \| `([^`]+)` \| (\d{4}-\d{2}-\d{2}) \|/gm)].map(
-    (m) => ({ pkg: m[1], version: m[2], published: m[3] }),
-  );
+  return [...text.matchAll(/^\| `([^`]+)` \| `([^`]+)` \| (\d{4}-\d{2}-\d{2}) \|/gm)].map((m) => ({
+    pkg: m[1],
+    version: m[2],
+    published: m[3],
+  }));
 }
 
 /** The planned test files the acceptance table names, of any runner. */
