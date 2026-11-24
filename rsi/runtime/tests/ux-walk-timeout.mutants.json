@@ -91,11 +91,18 @@
     "new": "    if false; then\n      echo \"[heavy] waited ${waited}s for the machine-wide build/test slot; running nothing (RSI_HEAVY_WAIT_STRICT)\" >&2\n      exit 125\n    fi"
   },
   {
-    "label": "stale 5400s gate default restored: the outer backstop expires before two slot waits, two walkers and the vision dispatch, so a busy machine's verdict becomes unavailable or a preserved-red sendback",
+    "label": "stale 5400s gate default restored: the outer backstop expires before three slot waits, three walkers and the vision dispatch, so a busy machine's verdict becomes unavailable or a preserved-red sendback",
     "file": "rsi/runtime/merge.sh",
     "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
-    "old": "    GATE_DEFAULT=$(( 2 * (HEAVY_WAIT_MAX + WALK_MAX_S) + 2 * 1500 + 900 ))",
+    "old": "    GATE_DEFAULT=$(( 3 * (HEAVY_WAIT_MAX + WALK_MAX_S) + 2 * 1500 + 900 ))",
     "new": "    GATE_DEFAULT=5400"
+  },
+  {
+    "label": "the outer gate default prices two walks again while a variant run walks three: a 124 inside the second sample bills the first walk's raw reds (the #656 false-red sendback)",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walk-timeout.sh",
+    "old": "    GATE_DEFAULT=$(( 3 * (HEAVY_WAIT_MAX + WALK_MAX_S) + 2 * 1500 + 900 ))",
+    "new": "    GATE_DEFAULT=$(( 2 * (HEAVY_WAIT_MAX + WALK_MAX_S) + 2 * 1500 + 900 ))"
   },
   {
     "label": "walk ceiling reverted to the old 30 minutes: a healthy 29.5-minute walk becomes 'no verdict' and burns the heavy slot",

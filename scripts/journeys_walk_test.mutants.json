@@ -82,5 +82,19 @@
     "old": "        [\"wait\", \"css=button[aria-label*='Project Beta']:not([aria-expanded]) svg\"],\n        [\"click\", \"css=button[aria-label*='Project Beta']:not([aria-expanded]) svg\"],",
     "new": "        [\"wait\", \"css=button[aria-label*='Project Beta']:not([aria-expanded]) svg\"],\n        [\"click\", \"css=button[aria-label*='Project Beta']:not([aria-expanded])\"],",
     "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_roots_editor_and_reloads"
+  },
+  {
+    "label": "J9 scrolls the transcript before the draft fill again, so the fill's re-render leaves 2201 where scroll-kept wants 320 and convicts a green PR (R-ux-j9-scroll-settle)",
+    "file": "rsi/runtime/ux/journeys/J9.json",
+    "old": "    [\n      \"node\",\n      \"css=#root .touch-lg\",\n      \"shell\"\n    ],\n    [\n      \"fill\",\n      \"textarea\",\n      \"F4 draft [seed]\"\n    ],\n    [\n      \"node\",\n      \"css=[data-kin-bottom-chrome] form\",\n      \"composer\"\n    ],\n    [\n      \"scroll\",\n      \"css=[role=region][tabindex='-1']\",\n      \"320\"\n    ],",
+    "new": "    [\n      \"scroll\",\n      \"css=[role=region][tabindex='-1']\",\n      \"320\"\n    ],\n    [\n      \"node\",\n      \"css=#root .touch-lg\",\n      \"shell\"\n    ],\n    [\n      \"fill\",\n      \"textarea\",\n      \"F4 draft [seed]\"\n    ],\n    [\n      \"node\",\n      \"css=[data-kin-bottom-chrome] form\",\n      \"composer\"\n    ],",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ9ContractTest.test_j9_walks_the_switch"
+  },
+  {
+    "label": "the J9 contract stops reading whether the scroll follows the draft, so the walker's own race can ship again (R-ux-j9-scroll-settle)",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "old": "  if (scrollAt >= 0 && draftFillAt >= 0 && scrollAt < draftFillAt) {",
+    "new": "  if (false && scrollAt >= 0 && draftFillAt >= 0 && scrollAt < draftFillAt) {",
+    "test": "python3 -B scripts/journeys_walk_test.py WalkJ9ContractTest.test_j9_contract_rejects_a_scroll_before_the_draft"
   }
 ]

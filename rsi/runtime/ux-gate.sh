@@ -14,6 +14,7 @@
 #   RSI_UX_COOLDOWN_MIN=0    disable the cooldown (test hook)
 #   RSI_UX_WALK_CMD=<cmd>    test hook: run instead of the walker, gets the screenshot dir as $1, must leave walk.json + a .png there
 #                            a red run's confirm re-walk passes the journey selector (J2,J9) as an optional $2;
+#                            a variant's second sample is the same call into state/ux/<slug>/confirm2;
 #                            older callers (retry-test.sh) pass only $1 and stay valid
 #   RSI_UX_REVIEW_CMD=<cmd>  test hook: run instead of the model, gets the prompt file as $1 and prints the reviewer text
 #                            (a non-zero exit without UX_SCORES counts as unavailable, same as a failed dispatch)
@@ -123,12 +124,14 @@ NSHOT="$(ls "$SHOTS"/*.png 2>/dev/null | wc -l | tr -d ' ')"
 # are recorded as flaked in the sendback and scores.json, so the rework lane and the retro can
 # count false reds by source. A green run walks once and never creates $UXD/confirm. A confirm
 # that cannot run keeps the first-walk failures: fail closed, never turn a red into "unavailable".
+# A line only the confirm walk produced is a variant and is sampled once more (1b1): seen twice
+# it convicts, seen once it is evidence, and a second sample that cannot run keeps its conviction.
 CONF_JSON="$UXD/confirm.json"; CONF_SUMMARY=""
 rm -f "$CONF_JSON" "$UXD/confirm.txt" "$UXD/confirm.summary" "$UXD/confirm.hard" "$UXD/green.txt" \
-      "$UXD/outside.txt" "$UXD/attributed.txt"   # this attempt's evidence only
+      "$UXD/outside.txt" "$UXD/attributed.txt" "$UXD/variant.pending"   # this attempt's evidence only
 # This run's own evidence only: a stale UNAVAILABLE or walk.json from an earlier attempt on the
 # same slug must not decide the confirmation.
-rm -rf "$UXD/confirm"
+rm -rf "$UXD/confirm" "$UXD/confirm2"
 if [ -n "$HARD" ]; then
   # A hard fail names its journey two ways: walk.mjs writes `<journey>/<viewport>: ` for a step
   # failure, and `<J<nn>>-<viewport>-<NN>-<step>: ` for a screenshot check such as "blank page"
@@ -231,10 +234,72 @@ PY
       if [ -n "$CHARD" ] && [ -s "$KNOWN" ]; then
         CHARD="$(printf '%s\n' "$CHARD" | grep -v -F -f "$KNOWN" || true)"
       fi
-      # Written to a file rather than captured: macOS bash 3.2 lexes quotes inside a heredoc
-      # nested in $( ), so a body comment with an apostrophe breaks the parse. A standalone
-      # heredoc is literal and keeps the python readable.
-      python3 - "$HARD" "$CHARD" "$JOURNEYS" "$UXD/confirm.txt" "$CONF_JSON" "$UXD/confirm.summary" "$UXD/confirm.hard" "$SHOTS/walk.json" "$SHOTS" "$UXD/green.txt" "$ATTR_OUT" "$UXD/outside.txt" <<'PY'
+      # 1b1. A hard-fail line only the confirm walk produced is a variant, and one confirm
+      # sample must not convict it (R-ux-confirm-variant, 2026-11-24). #656's 06:29 confirm
+      # walk invented `J9/mac: scroll-kept ... is at 2201, want 320±48` — a line the full-spec
+      # first walk never produced, as its reproduced=0 proves (reproduced is the intersection)
+      # — and the gate opened a fourth rework round for it while §1c called the first walk's
+      # reds "not evidence" for the same run. A variant is now sampled once more on the same
+      # tree through the same walker seam and the same selector: seen twice it convicts like a
+      # reproduced red, seen once it is evidence (confirm.json variant=<n>, the summary's
+      # variant=<n>, confirm.txt under a variant heading) and confirm.hard stays empty for it.
+      # Fail closed: a second sample that cannot run — exit 2, no walk.json, an unreadable
+      # walk.json — keeps the variant's conviction, never turns a red into "unavailable".
+      # No second sample runs when the confirm produced no variant, so a reproduced red and a
+      # green first walk keep their old cost.
+      VAR_PENDING=""; VS="not-needed"; C2SN=""; CHARD2=""
+      python3 - "$HARD" "$CHARD" "$ATTR_OUT" "$UXD/variant.pending" <<'PY'
+import re, sys
+orig = set(l for l in sys.argv[1].splitlines() if l)
+raw = sys.argv[3].strip()
+attr = None
+if raw.startswith("ATTRJ="):
+    attr = set(j for j in raw[len("ATTRJ="):].split(",") if j)
+# The same two journey forms and the same in-scope rule as the decision below: a line that
+# names no journey (kept and billed as before), or one on a journey this PR's diff cannot
+# reach (recorded as outside), never needs a second sample. Spelled as two matches rather
+# than the decision's one-liner so the sibling suite's mutant anchor stays unique.
+def journey(line):
+    m = re.match(r"^([A-Za-z0-9_]+)/", line)
+    if m:
+        return m.group(1)
+    m = re.match(r"^(J[0-9]+)-", line)
+    return m.group(1) if m else ""
+with open(sys.argv[4], "w") as f:
+    for line in sys.argv[2].splitlines():
+        if not line or line in orig:
+            continue
+        j = journey(line)
+        if j and (attr is None or j in attr):
+            f.write(line + "\n")
+PY
+      PYRC=$?
+      [ "$PYRC" -eq 0 ] || CRSN="variant scan failed"
+      VAR_PENDING="$(cat "$UXD/variant.pending" 2>/dev/null || true)"
+      if [ -z "$CRSN" ] && [ -n "$VAR_PENDING" ]; then
+        mkdir -p "$UXD/confirm2"
+        if [ -n "${RSI_UX_WALK_CMD:-}" ]; then
+          bash -c "$RSI_UX_WALK_CMD" _ "$UXD/confirm2" "$JOURNEYS" > "$UXD/confirm2/walk.out" 2>&1; C2RC=$?
+        else
+          bash "$RSI_DIR/runtime/ux-walk.sh" "$WT" "$UXD/confirm2" "$JOURNEYS" > "$UXD/confirm2/walk.out" 2>&1; C2RC=$?
+        fi
+        VS="ok"
+        if [ -e "$UXD/confirm2/UNAVAILABLE" ]; then VS="unavailable"; C2SN="$(tr '\n' ' ' < "$UXD/confirm2/UNAVAILABLE")"
+        elif [ "${C2RC:-0}" -eq 2 ]; then VS="unavailable"; C2SN="walker exit 2"
+        elif [ ! -s "$UXD/confirm2/walk.json" ]; then VS="unavailable"; C2SN="no second-sample walk.json"
+        else
+          CHARD2="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("\n".join(d.get("hardFail",[])))' "$UXD/confirm2/walk.json")" \
+            || { VS="unavailable"; C2SN="second-sample walk.json unreadable"; CHARD2=""; }
+        fi
+        if [ "$VS" = "ok" ] && [ -n "$CHARD2" ] && [ -s "$KNOWN" ]; then
+          CHARD2="$(printf '%s\n' "$CHARD2" | grep -v -F -f "$KNOWN" || true)"
+        fi
+      fi
+      if [ -z "$CRSN" ]; then
+        # Written to a file rather than captured: macOS bash 3.2 lexes quotes inside a heredoc
+        # nested in $( ), so a body comment with an apostrophe breaks the parse. A standalone
+        # heredoc is literal and keeps the python readable.
+        python3 - "$HARD" "$CHARD" "$JOURNEYS" "$UXD/confirm.txt" "$CONF_JSON" "$UXD/confirm.summary" "$UXD/confirm.hard" "$SHOTS/walk.json" "$SHOTS" "$UXD/green.txt" "$ATTR_OUT" "$UXD/outside.txt" "$VAR_PENDING" "$VS" "$CHARD2" "$C2SN" <<'PY'
 import json, os, re, sys
 orig = [l for l in sys.argv[1].splitlines() if l]
 conf = [l for l in sys.argv[2].splitlines() if l]
@@ -256,6 +321,22 @@ def journey(line):
     return m.group(1) if m else ""
 def in_scope(line):
     return attr is None or journey(line) in attr
+# 1b1. A hard-fail line only the confirm walk produced is a variant (the pending set the shell
+# just computed and sampled again). Only one the second sample also produced survives into
+# `conf`; one seen in a single sample is dropped here, so the unchanged `final` rule below stays
+# the one definition of what bills. An unavailable second sample convicts every pending variant.
+pending = [l for l in sys.argv[13].splitlines() if l]
+vsample = sys.argv[14].strip()
+seen2 = set(l for l in sys.argv[15].splitlines() if l)
+if vsample == "ok":
+    variant_convicted = [l for l in pending if l in seen2]
+    variant = [l for l in pending if l not in seen2]
+else:
+    # fail closed: an unavailable second sample keeps the variant conviction
+    variant_convicted = list(pending)
+    variant = []
+pending_set = set(variant)
+conf = [l for l in conf if l not in pending_set]
 conf_set = set(conf)
 reproduced = [l for l in orig if journey(l) and l in conf_set]
 flaked = [l for l in orig if journey(l) and l not in conf_set]
@@ -264,23 +345,46 @@ unattributed = [l for l in orig if not journey(l)]
 # blocking reason: printed, saved to outside.txt and counted, exactly like the flaked list. A line
 # that names no journey can never be attributed, so it stays in final.
 outside = [l for l in conf if journey(l) and not in_scope(l)]
-# The confirm walk's filtered lines are the surviving hard failures. A NEW line survives too:
-# a flaky first red must not hide a real second one. Unattributable first-walk lines stay.
+# The confirm walk's filtered lines are the surviving hard failures: the reproduced first-walk
+# lines and the variants the second sample also produced. Unattributable first-walk lines stay.
 final = [l for l in conf if in_scope(l) or not journey(l)] + unattributed
+# §1c's flag, computed here so its invariant lives in one place: CONFIRM_ONLY requires an empty
+# confirm.hard, so a confirmed variant (or an unattributable confirm line) can never coexist
+# with "the first walk's reds are not evidence". The shell re-checks confirm.hard itself.
+confirm_only = not reproduced and bool(flaked) and not final
 with open(sys.argv[4], "w") as f:
-    f.write("journeys=%s reproduced=%d flaked=%d outside=%d attributed=%s\n"
-            % (journeys, len(reproduced), len(flaked), len(outside), attr_label))
+    f.write("journeys=%s reproduced=%d flaked=%d outside=%d variant=%d attributed=%s\n"
+            % (journeys, len(reproduced), len(flaked), len(outside), len(variant), attr_label))
     for l in flaked:
         f.write(l + "\n")
-summary = ("walk confirm: re-walked %s once → reproduced=%d flaked=%d outside=%d attributed=%s"
-           % (journeys, len(reproduced), len(flaked), len(outside), attr_label))
+    if variant:
+        f.write("variant (seen in one confirm sample only; not blocking):\n")
+        for l in variant:
+            f.write(l + "\n")
+summary = ("walk confirm: re-walked %s once → reproduced=%d flaked=%d outside=%d variant=%d attributed=%s"
+           % (journeys, len(reproduced), len(flaked), len(outside), len(variant), attr_label))
+if pending:
+    if vsample == "ok":
+        summary += ("\nsecond sample: re-walked %s again → %d confirmed, %d seen once (not blocking)"
+                    % (journeys, len(variant_convicted), len(variant)))
+    else:
+        summary += ("\nsecond sample: unavailable (%s) — variant lines kept"
+                    % (sys.argv[16].strip() or "unknown"))
 if flaked:
     summary += "\nflaked (failed the first walk, not reproduced; not blocking):\n" + "\n".join(flaked)
+if variant:
+    summary += "\nvariant (seen in one confirm sample only; not blocking):\n" + "\n".join(variant)
 if outside:
     summary += "\noutside this PR's surfaces (evidence, not blocking):\n" + "\n".join(outside)
 open(sys.argv[6], "w").write(summary + "\n")
-json.dump({"journeys": journeys, "reproduced": len(reproduced), "flaked": len(flaked),
-           "outside": len(outside), "attributed": attr_label}, open(sys.argv[5], "w"))
+doc = {"journeys": journeys, "reproduced": len(reproduced), "flaked": len(flaked),
+       "outside": len(outside), "variant": len(variant),
+       "variant_confirmed": len(variant_convicted),
+       "variant_sample": vsample if pending else "not-needed",
+       "confirm_only": confirm_only, "attributed": attr_label}
+if pending and vsample != "ok":
+    doc["variant_unavailable"] = sys.argv[16].strip() or "unavailable"
+json.dump(doc, open(sys.argv[5], "w"))
 open(sys.argv[7], "w").write("\n".join(final) + ("\n" if final else ""))
 open(sys.argv[12], "w").write("\n".join(outside) + ("\n" if outside else ""))
 # R-ux-confirm-evidence: the confirm walk only re-walks the journeys its red named, so the
@@ -313,8 +417,9 @@ if not reproduced and flaked:
 else:
     open(sys.argv[10], "w").write("\n\n")
 PY
-      PYRC=$?
-      [ "$PYRC" -eq 0 ] || CRSN="confirm decision failed"
+        PYRC=$?
+        [ "$PYRC" -eq 0 ] || CRSN="confirm decision failed"
+      fi
     fi
     if [ -z "$CRSN" ]; then
       HARD="$(cat "$UXD/confirm.hard")"
@@ -340,15 +445,17 @@ fi
 CONFIRM_ONLY=0
 # Only a confirm decision that completed sets the flag: a partial write can leave
 # confirm.json behind while the first walk's HARD is kept (CRSN set), and that state
-# must not both bill those lines and call them not evidence.
-if [ -s "$CONF_JSON" ] && [ -z "${CRSN:-}" ]; then
+# must not both bill those lines and call them not evidence. The decision's own
+# confirm_only also requires an empty final, and the confirm.hard test repeats that
+# here: CONFIRM_ONLY must never coexist with a conviction (R-ux-confirm-variant).
+if [ -s "$CONF_JSON" ] && [ ! -s "$UXD/confirm.hard" ] && [ -z "${CRSN:-}" ]; then
   if python3 - "$CONF_JSON" >/dev/null 2>&1 <<'PY'
 import json, sys
 try:
     d = json.load(open(sys.argv[1]))
 except Exception:
     sys.exit(1)
-sys.exit(0 if d.get("reproduced") == 0 and int(d.get("flaked") or 0) > 0 else 1)
+sys.exit(0 if d.get("confirm_only") else 1)
 PY
   then CONFIRM_ONLY=1; fi
 fi
@@ -491,7 +598,9 @@ fi
   if [ "$CONFIRM_ONLY" = 1 ]; then
     echo
     echo "A second walk on the same tree did not reproduce these first-walk failures, so they are not evidence about this PR — do not score or ground an axis on them:"
-    tail -n +2 "$UXD/confirm.txt" 2>/dev/null
+    # The flaked lines only: confirm.txt's variant section (1b1) is a different list and must
+    # not be read as an unreproduced first-walk failure.
+    awk 'NR > 1 && /^variant \(/ { exit } NR > 1' "$UXD/confirm.txt" 2>/dev/null
     echo "The confirm walk re-walked ${JOURNEYS:-the flaked journeys}; its screenshots are the evidence for those journeys: ${CONF_SHOTS:-none recorded} (names, notes and lint in $UXD/confirm/walk.json)."
     if [ -n "$GREEN" ]; then
       echo "The journeys with no surviving failure ($GREEN) were not re-walked; their first-walk screenshots named above remain evidence for them (names, notes and lint in $SHOTS/walk.json)."
@@ -542,7 +651,7 @@ if [ -n "$GAPS" ]; then
   { cat "$PF"; echo; echo "--- second pass ---"; \
     if [ "$CONFIRM_ONLY" = 1 ]; then
       echo "Your previous answer scored $GAPS below 3, but it grounds that score only in failures the confirm walk could not reproduce. Those are not evidence about this PR. Re-answer this review from the evidence this PR is judged on: the confirm walk's screenshots ($UXD/confirm)${GREEN_REASK}."
-      echo "These are the first-walk failures the second walk on the same tree did not reproduce:"; tail -n +2 "$UXD/confirm.txt" 2>/dev/null
+      echo "These are the first-walk failures the second walk on the same tree did not reproduce:"; awk 'NR > 1 && /^variant \(/ { exit } NR > 1' "$UXD/confirm.txt" 2>/dev/null
     else
       echo "Your previous answer scored $GAPS below 3, but its findings never name that axis. Re-answer this review."
     fi; \
