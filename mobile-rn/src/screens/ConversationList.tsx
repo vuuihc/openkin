@@ -87,8 +87,11 @@ export default function ConversationList({
   onRefresh,
   onToggleProject,
 }: ConversationListProps) {
-  const sections = sectionsOf(state.groups);
+  // An empty device (`includeEmptyDevices`) still yields a section, and a
+  // SectionList with sections never draws `ListEmptyComponent` — so an empty
+  // read would show a bare heading instead of the empty/offline words.
   const hasRows = state.groups.some((device) => device.count > 0);
+  const sections = hasRows ? sectionsOf(state.groups) : [];
 
   return (
     <SectionList<Entry, Section>
@@ -130,9 +133,17 @@ export default function ConversationList({
         ]
           .filter((part): part is string => Boolean(part))
           .join(" · ");
+        // The row button is one accessible element; a child's label is never
+        // read while the row has focus, so the count joins the row's words.
+        const pendingLabel =
+          row.pending > 0
+            ? t("sessions.pendingApprovals", { count: row.pending })
+            : null;
         return (
           <Pressable
-            accessibilityLabel={`${row.title} · ${meta}`}
+            accessibilityLabel={[row.title, meta, pendingLabel]
+              .filter(Boolean)
+              .join(" · ")}
             accessibilityRole="button"
             onPress={() => onOpen(row.id)}
             style={styles.row}
@@ -145,13 +156,8 @@ export default function ConversationList({
               <Text numberOfLines={1} style={styles.meta}>
                 {meta}
               </Text>
-              {row.pending > 0 ? (
-                <Text
-                  accessibilityLabel={t("sessions.pendingApprovals", {
-                    count: row.pending,
-                  })}
-                  style={styles.pending}
-                >
+              {pendingLabel ? (
+                <Text accessibilityLabel={pendingLabel} style={styles.pending}>
                   {row.pending}
                 </Text>
               ) : null}
@@ -186,7 +192,7 @@ export default function ConversationList({
               <Text style={styles.emptyTitle}>{t("sessions.empty")}</Text>
               <Text style={styles.emptyHint}>{t("sessions.emptyHint")}</Text>
             </>
-          ) : state.status === "failed" ? (
+          ) : state.status === "failed" || state.status === "offline" ? (
             <>
               <Text accessibilityRole="alert" style={styles.emptyTitle}>
                 {t("sessions.loadError")}

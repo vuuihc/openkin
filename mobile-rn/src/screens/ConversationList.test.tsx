@@ -121,6 +121,14 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     // The number is not the only channel: the catalogue sentence is the
     // accessibility label (TASTE 11/18 — never state by colour or glyph alone).
     expect(screen.getByLabelText("sessions.pendingApprovals")).toBeTruthy();
+    // The row button is one accessible element, so the sentence must also be
+    // on the row itself — a child badge's label is not read while it has focus.
+    expect(screen.getByTestId("row:a1").props.accessibilityLabel).toBe(
+      "a1 title · kin · t1000 · sessions.statusSucceeded · sessions.pendingApprovals",
+    );
+    expect(screen.getByTestId("row:a2").props.accessibilityLabel).toBe(
+      "a2 title · kin · t900 · sessions.statusSucceeded",
+    );
   });
 
   it("KIN-MOBILE-001 R3: a failed refresh still shows the rows already loaded", async () => {
@@ -166,6 +174,36 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     expect(expired.getByText("sessions.loadError")).toBeTruthy();
     expect(expired.getByText("pairing.expired")).toBeTruthy();
     expect(expired.getByText("pairing.retry")).toBeTruthy();
+  });
+
+  it("KIN-MOBILE-001 R3: an empty-device group does not hide the empty or offline state", async () => {
+    // `listModel` builds with `includeEmptyDevices: true`, so a paired machine
+    // with nothing in it still yields a group with `count: 0`. A section list
+    // with any section never draws `ListEmptyComponent`; the words must win.
+    const groups: DeviceGroup[] = [
+      {
+        id: "dev-empty",
+        label: "Empty machine",
+        isSelf: false,
+        online: true,
+        count: 0,
+        projects: [],
+      },
+    ];
+    const empty = await renderList({ status: "empty", groups });
+    expect(empty.getByText("sessions.empty")).toBeTruthy();
+    expect(empty.getByText("sessions.emptyHint")).toBeTruthy();
+    expect(empty.queryByText("Empty machine")).toBeNull();
+
+    const offline = await renderList({
+      status: "offline",
+      groups,
+      error: "unreachable",
+    });
+    expect(offline.getByText("sessions.loadError")).toBeTruthy();
+    expect(offline.getByText("pairing.unreachable")).toBeTruthy();
+    expect(offline.getByText("pairing.retry")).toBeTruthy();
+    expect(offline.queryByText("Empty machine")).toBeNull();
   });
 
   it("KIN-MOBILE-001 R3: fits ten full rows in an 820×1180 screenful", () => {
