@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { render, screen, waitFor } from "@testing-library/react";
+import { BrowserRouter, MemoryRouter } from "react-router-dom";
 import App from "./App";
 import { setLocale } from "./i18n";
 import { useAppStore } from "./store/appStore";
@@ -62,9 +62,6 @@ vi.mock("./components/NotificationTaps", () => ({ default: () => null }));
 vi.mock("./components/ToastHost", () => ({ default: () => null }));
 vi.mock("./pages/TaskSessionHost", () => ({ default: () => null }));
 
-vi.mock("./pages/ProjectDetailPage", () => ({
-  default: () => createElement("div", null, "project detail page"),
-}));
 // The settings host reads its location so the redirect's target is asserted
 // rather than assumed: landing on `/settings` without `?tab=operations` would
 // still render this marker.
@@ -112,12 +109,22 @@ describe("area routes", () => {
     expect(screen.queryByRole("heading", { name: "Projects" })).toBeNull();
   });
 
-  // The collection route must not swallow the detail route: `/projects/:id`
-  // is still the project cover.
-  it("keeps /projects/:id on the project detail page", () => {
-    renderAt("/projects/p1");
-    expect(screen.getByText("project detail page")).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Projects" })).toBeNull();
+  // KIN-CONTRACT-001 retired the project cover too: `/projects/:id` is a
+  // replace-only redirect to the one list, narrowed by `?project=`. The URL,
+  // the encoded id and the history index are the assertion — a redirect that
+  // pushed would leave a dead entry for Back to land on.
+  it("redirects /projects/:id to the project-filtered session list, replacing the entry", async () => {
+    window.history.replaceState({ idx: 0 }, "", "/projects/p%201");
+    render(createElement(BrowserRouter, null, createElement(App)));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.location.search).toBe("?project=p%201");
+    // `replace` kept the entry: this is index 0 still, not a push above it.
+    expect(window.history.state.idx).toBe(0);
+    // The list is on screen, narrowed: the project has no conversations, so
+    // the filter's own empty sentence is what it says.
+    expect(await screen.findByText("No chats match this filter")).toBeTruthy();
+    expect(screen.queryByText("project detail page")).toBeNull();
   });
 
   // E4a: the operations tab now hosts the agent console, so the old

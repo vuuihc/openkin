@@ -39,7 +39,9 @@ describe("goBackToList", () => {
     const ui = existsSync(join(process.cwd(), "src/pages"))
       ? process.cwd()
       : join(process.cwd(), "ui");
-    for (const page of ["TaskDetailPage", "ProjectDetailPage", "AgentSessionDetailPage"]) {
+    // The project cover was a third until KIN-CONTRACT-001 retired it: a
+    // project is a narrowing of the list, so there is no page to go back from.
+    for (const page of ["TaskDetailPage", "AgentSessionDetailPage"]) {
       const source = readFileSync(join(ui, "src/pages", `${page}.tsx`), "utf8");
       expect(source, page).toContain("goBackToList(navigate)");
       expect(source, page).not.toContain("window.history.state?.idx");

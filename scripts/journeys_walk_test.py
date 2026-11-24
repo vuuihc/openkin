@@ -3785,13 +3785,8 @@ def j4_instructions_problems(steps: list) -> list[str]:
     )
     if empty < 0:
         problems.append("J4 never reads the empty state on a project with no 工作方式 section (还没写工作说明)")
-    empty_note = at(
-        lambda step: section_wait(step, "新对话不会收到这一段")
-        or section_wait(step, "New chats will not receive this section"),
-        max(empty, 0) + 1,
-    )
-    if empty >= 0 and empty_note < 0:
-        problems.append("J4 never reads the empty state footnote (新对话不会收到这一段)")
+    # The list row's empty state is one line by design (KIN-PROJECT-001, #590):
+    # "还没写工作说明" with no not-sent footnote, so J4 has none to read.
 
     # The evidence the reviewer reads.
     names = [step[1] for step in steps if isinstance(step, list) and step[:1] == ["shot"]]
@@ -3851,12 +3846,17 @@ def _j4_roots_problems(steps: list) -> list[str]:
 
     # Every press of a project heading, matched by prefix: the aim check below
     # has to see a press that lost its icon, which an equality match on the
-    # aimed selector would skip in favour of a later press that kept it.
+    # aimed selector would skip in favour of a later press that kept it. The
+    # press STARTS with the heading button; a folder-editor step that names the
+    # heading inside a `:has()` scope is not a press of that heading.
     headings = [
         (index, step)
         for index, step in enumerate(steps)
         if step[0] == "click"
-        and any("aria-label*='Project %s']" % name in str(step[1]) for name in J4_PROJECTS)
+        and any(
+            str(step[1]).lstrip("?").startswith("css=button[aria-label*='Project %s']" % name)
+            for name in J4_PROJECTS
+        )
     ]
     link = headings[0][0] if headings else -1
     if not headings:
@@ -3995,8 +3995,7 @@ def _j4_roots_problems(steps: list) -> list[str]:
         # 添加目录 / 移除 leg that follows reads the cover again (with
         # aaa-config last after the remove), and an unbounded search would let
         # a sorted read hide behind the later leg.
-        leg_start = at(is_edit, reload_link + 1)
-        bound = leg_start if leg_start >= 0 else len(steps)
+        bound = verbs_start if verbs_start >= 0 else len(steps)
         last_row = at(
             lambda step: step[0] == "wait"
             and "aaa-config" in str(step[1])
@@ -4116,7 +4115,7 @@ def j4_roots_verbs_problems(steps: list) -> list[str]:
     def cover_wait(step: list, path: str, position: str) -> bool:
         return (
             step[0] == "wait"
-            and "section" in str(step[1])
+            and "[role=dialog]" in str(step[1])
             and path in str(step[1])
             and position in str(step[1])
         )
@@ -4140,7 +4139,7 @@ def j4_roots_verbs_problems(steps: list) -> list[str]:
         return (
             step[0] == "count"
             and str(step[2]) == number
-            and "section" in str(step[1])
+            and "[role=dialog]" in str(step[1])
             and "li" in str(step[1])
         )
 
@@ -4151,7 +4150,7 @@ def j4_roots_verbs_problems(steps: list) -> list[str]:
     last_cover = [
         index
         for index, step in enumerate(steps)
-        if step[0] == "count" and "section" in str(step[1]) and "li" in str(step[1])
+        if step[0] == "count" and "[role=dialog]" in str(step[1]) and "li" in str(step[1])
     ]
     if not last_cover:
         problems.append("J4 never reads the cover's folder count; the seeded list cannot be proven intact")
@@ -4160,14 +4159,14 @@ def j4_roots_verbs_problems(steps: list) -> list[str]:
     last_first = [
         step
         for step in steps
-        if step[0] == "wait" and "section" in str(step[1]) and "first-child" in str(step[1]) and "li" in str(step[1])
+        if step[0] == "wait" and "[role=dialog]" in str(step[1]) and "first-child" in str(step[1]) and "li" in str(step[1])
     ]
     if not last_first or "/alpha" not in str(last_first[-1][1]) or "默认" not in str(last_first[-1][1]):
         problems.append("the leg's last cover read does not show alpha first with 默认; the seeded default drifted")
     last_last = [
         step
         for step in steps
-        if step[0] == "wait" and "section" in str(step[1]) and "last-child" in str(step[1]) and "li" in str(step[1])
+        if step[0] == "wait" and "[role=dialog]" in str(step[1]) and "last-child" in str(step[1]) and "li" in str(step[1])
     ]
     if not last_last or "/aaa-config" not in str(last_last[-1][1]) or "/tmp" in str(last_last[-1][1]):
         problems.append("the leg's last cover read does not show aaa-config last; the walk left the seeded list changed")
@@ -4413,6 +4412,38 @@ class WalkJ4ContractTest(unittest.TestCase):
         self.assertIsNotNone(mobile, "no paths row owns ui/src/components/mobile/")
         self.assertNotIn("J4", mobile[1], "a phone-list change now pays for J4's desktop legs")
 
+    def test_app_paths_row_is_a_literal_prefix_like_the_gate(self) -> None:
+        """`ux-gate.sh` matches an alternative as a literal prefix, not a regex.
+
+        The gate attributes a changed file with `path.startswith(p)` over the
+        `|`-separated alternatives (`rsi/runtime/ux-gate.sh`, the attribution
+        helper). A row written with regex escapes (`ui/src/App\\.tsx`) never
+        matches `ui/src/App.tsx`: the gate fails closed with
+        `attributed=fail-closed (unmapped ui path: ui/src/App.tsx)` and the
+        confirm walk cannot say which journey the change belongs to. This
+        mirrors the gate's matcher instead of trusting the row to read like
+        one.
+        """
+        spec = load_spec()
+        app_paths = ("ui/src/App.tsx", "ui/src/App.areaRoutes.tsx")
+        row = next(
+            (
+                row
+                for row in spec["paths"]
+                if any(app_paths[0].startswith(alt) for alt in row[0].split("|"))
+            ),
+            None,
+        )
+        self.assertIsNotNone(row, "no paths row names ui/src/App.tsx")
+        for alt in row[0].split("|"):
+            for path in app_paths:
+                self.assertTrue(
+                    path.startswith(alt),
+                    f"{alt!r} is not a literal prefix of {path}, so the gate cannot attribute it",
+                )
+        self.assertIn("J1", row[1], row)
+        self.assertIn("J4", row[1], row)
+
     def test_j4_contract_rejects_a_press_behind_the_hover_strip(self) -> None:
         # A press at the heading button's own centre meets the five-button hover
         # strip the row opens over its tail, which is what
@@ -4442,6 +4473,122 @@ class WalkJ4ContractTest(unittest.TestCase):
 
         problems = self.problems_after(drop_the_wait)
         self.assertTrue(any("without a preceding wait" in problem for problem in problems), problems)
+
+    def test_j4_opens_the_folder_editor_under_both_pointer_classes(self) -> None:
+        """`SessionList` gives the row's folder editor one trigger per input.
+
+        A coarse pointer gets the project row's `⋯` (`项目操作` / `Project
+        actions`) and the sheet row behind it; a fine pointer has no such
+        button and instead reveals the row's hover cluster, whose `编辑工作目录`
+        / `Edit folders` icon is `pointer-events-none` + `opacity-0` until the
+        row is hovered or the cluster holds focus (`SessionList.tsx`, the
+        `focus-within:pointer-events-auto` strip). A J4 that names only the
+        `⋯` hard-fails both Mac widths with "missing required click", and a J4
+        that names only the icon times out at the click because the strip is
+        not hittable (state/shots/delete-pagesb2c-del). So every open reveals
+        the cluster with a `focus` (a recorded skip on the phone, which draws
+        no icon) and offers the `⋯` as an optional press (a recorded skip on
+        the Macs), while the editor's own save wait stays mandatory: the
+        trigger may skip, the dialog may not.
+        """
+        steps = self.steps()
+        opens = [
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "click"
+            and "项目操作" in str(step[1])
+            and "Project actions" in str(step[1])
+        ]
+        self.assertTrue(
+            opens, "J4 never presses the project row's coarse ⋯ (项目操作 / Project actions)"
+        )
+        for index in opens:
+            coarse = steps[index]
+            self.assertTrue(
+                str(coarse[1]).startswith("?"),
+                f"the coarse ⋯ press is required; a fine pointer draws no such button: {coarse}",
+            )
+            reveal = steps[index - 1]
+            self.assertEqual(reveal[0], "focus", reveal)
+            self.assertTrue(
+                str(reveal[1]).startswith("?"),
+                f"the fine pointer's reveal is required; the phone has no such icon: {reveal}",
+            )
+            self.assertIn("aria-label='编辑工作目录'", str(reveal[1]), reveal)
+            self.assertIn("aria-label='Edit folders'", str(reveal[1]), reveal)
+            self.assertEqual(steps[index + 1][0], "click", steps[index + 1])
+            self.assertEqual(steps[index + 2][0], "wait", steps[index + 2])
+            self.assertIn(J4_SAVE, str(steps[index + 2][1]), steps[index + 2])
+            self.assertIn(J4_SAVE_EN, str(steps[index + 2][1]), steps[index + 2])
+            # `.first()` picks the first bucket in DOM order, and the seeded
+            # projects do not sort Alpha-first: an unscoped reveal or `⋯`
+            # opens another project's editor and its `/aaa-config` wait then
+            # fails (state/shots/delete-pagesb2c-del). Both triggers name the
+            # seeded bucket. The editor step itself cannot: the coarse sheet
+            # row is a modal label with no bucket in it, and the fine
+            # pointer's icon resolves by its accessible name.
+            for step in (reveal, coarse):
+                self.assertIn("Project Alpha", str(step[1]), step)
+            # The sheet row's label is a nested `<span>`, so `button:text-is(…)`
+            # never matches it (walk.mjs `stepLocator` documents the same fact
+            # for J13's Files row); the walker's exact-text regex does, and
+            # `getByRole(…, {name: re})` is what finds the fine pointer's icon
+            # on the Macs. One needle covers both pointer classes, and the
+            # anchor keeps it off 编辑一句话摘要 / Edit one-line summary, which
+            # the sheet draws above it.
+            self.assertEqual(
+                steps[index + 1][1],
+                "/^(编辑工作目录|Edit folders)$/",
+                steps[index + 1],
+            )
+
+        # A walker needle carries its engine prefix once, and `wait` / `gone`
+        # must name one (`walk.mjs` `waitVisible`): `css=a, css=b` is a CSS
+        # parse error ("Unexpected token \"=\"") and a bare selector is "wait
+        # needs text=<literal> or css=<selector>". Both are hard failures that
+        # do not name the surface (state/shots/delete-pagesb2c-del).
+        for step in steps:
+            if step[0] not in ("click", "wait", "gone", "focus", "hover"):
+                continue
+            needle = str(step[1]).lstrip("?")
+            self.assertNotIn(", css=", needle, f"a needle repeats the css= prefix: {needle}")
+            if step[0] in ("wait", "gone"):
+                self.assertTrue(
+                    needle.startswith(("css=", "text=")),
+                    f"{step[0]} needs css= or text=: {needle}",
+                )
+
+    def test_j4_narrows_the_old_chat_read_to_the_seeded_project(self) -> None:
+        """`/sessions` lists every project bucket, and the walker clicks `.first()`.
+
+        The old-chat leg opens the conversation that predates the instructions
+        edit and expects the previous line in it. Left to `.first()` across all
+        buckets, the row it picks depends on bucket order: at mac-wide it
+        opened a Gamma conversation and the transcript wait timed out
+        (state/shots/delete-pagesb2c-del, `J4-mac-wide-07`). So the leg
+        discloses Project Alpha the way the other legs do — `goto /sessions`,
+        wait for its collapsed heading, click it — before it presses the
+        `ONE_PAGER.md` row, which makes the first match the seeded project's
+        own chat. A wait and its click must name the same row, or the wait
+        proves a row other than the one the click takes.
+        """
+        steps = self.steps()
+        presses = [
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "click" and "ONE_PAGER.md" in str(step[1])
+        ]
+        self.assertTrue(presses, "J4 never opens the ONE_PAGER.md chat")
+        for index in presses:
+            self.assertEqual(steps[index - 2][0], "wait", steps[index - 2])
+            self.assertEqual(
+                steps[index - 2][1], steps[index - 1][1], "the wait and its click name different rows"
+            )
+            for step in (steps[index - 2], steps[index - 1]):
+                self.assertIn("Project Alpha", str(step[1]), step)
+                self.assertIn(":not([aria-expanded])", str(step[1]), step)
+            self.assertEqual(steps[index - 3][0], "goto", steps[index - 3])
+            self.assertEqual(steps[index - 3][1], "/sessions", steps[index - 3])
 
     def test_j4_contract_rejects_a_route_change_instead_of_a_reload(self) -> None:
         # A client-side return to the cover reads the state the editor just

@@ -3,11 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import AppShell from "./AppShell";
 import Sheet from "../mobile/Sheet";
 import SessionsPage from "../../pages/SessionsPage";
-import ProjectDetailPage from "../../pages/ProjectDetailPage";
 import { setLocale } from "../../i18n";
 import { useLeaveGuard } from "../../hooks/useLeaveGuard";
 import { resetLeaveGuard } from "../../lib/leaveGuard";
@@ -179,6 +178,47 @@ function GuardedPage({ label = "guarded page" }: { label?: string }) {
   );
 }
 
+/**
+ * A detail page that owns its header and its leave guard.
+ *
+ * `/agent-sessions/:id` is the surviving detail route that draws its own back
+ * and asks before leaving (`/tasks/:id` renders through the keep-alive host).
+ * The retired project cover was the other one until KIN-CONTRACT-001; this
+ * fixture keeps the shell's half of that contract under test — the shell must
+ * not draw a second bar, and its edge swipe, Back and ⌘N must ask the page.
+ */
+function DetailPageFixture() {
+  const navigate = useNavigate();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const dirty = editing && draft !== "";
+  const canLeave = () => !dirty || window.confirm("Your summary is unsaved. Leave anyway?");
+  useLeaveGuard(canLeave, dirty);
+  return (
+    <div>
+      <h1>alpha</h1>
+      {editing ? (
+        <textarea
+          aria-label="One-line summary"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+      ) : null}
+      <button type="button" onClick={() => setEditing(true)}>
+        Edit
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          if (canLeave()) navigate(-1);
+        }}
+      >
+        Back
+      </button>
+    </div>
+  );
+}
+
 /** The conversation's own link to another destination, which has no footer. */
 
 /** The route's own address, so a tab return can be asserted with its params. */
@@ -199,7 +239,7 @@ function routes() {
         <Route path="/settings" element={<div>settings page</div>} />
         <Route path="/inbox" element={<div>inbox page</div>} />
         <Route path="/tasks/:id" element={<div>conversation page</div>} />
-        <Route path="/projects/:id" element={<ProjectDetailPage />} />
+        <Route path="/agent-sessions/:id" element={<DetailPageFixture />} />
         <Route path="/guarded" element={<GuardedPage />} />
       </Routes>
       <LocationProbe />
@@ -569,20 +609,20 @@ describe("destinations and back", () => {
     );
   });
 
-  it("leaves the project page its own, guarded back control", async () => {
-    // The project page's back link is the only one that asks before discarding
-    // an edited summary. A shell back above it would leave silently, so the
-    // shell draws no bar on that route (KIN-CONTINUE-002, blocker fix).
-    shell(["/sessions", "/projects/p1"]);
+  it("leaves a detail page its own, guarded back control", async () => {
+    // A detail page's own back is the only one that asks before discarding an
+    // edited draft. A shell back above it would leave silently, so the shell
+    // draws no bar on that route (KIN-CONTINUE-002, blocker fix).
+    shell(["/sessions", "/agent-sessions/a1"]);
     expect(await screen.findByRole("heading", { name: "alpha" })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Back" })).toHaveLength(1);
   });
 
-  it("asks before the project page's own back discards an edited One-Pager", async () => {
+  it("asks before a detail page's own back discards an edited draft", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     try {
-      shell(["/sessions", "/projects/p1"]);
+      shell(["/sessions", "/agent-sessions/a1"]);
       await screen.findByRole("heading", { name: "alpha" });
 
       await user.click(screen.getByRole("button", { name: "Edit" }));
@@ -605,11 +645,11 @@ describe("destinations and back", () => {
     }
   });
 
-  it("asks the real project page before its edge swipe and ⌘N leave it", async () => {
+  it("asks the detail page before its edge swipe and ⌘N leave it", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     try {
-      shell(["/sessions", "/projects/p1"]);
+      shell(["/sessions", "/agent-sessions/a1"]);
       await screen.findByRole("heading", { name: "alpha" });
       await user.click(screen.getByRole("button", { name: "Edit" }));
       await user.type(screen.getByRole("textbox"), "!");

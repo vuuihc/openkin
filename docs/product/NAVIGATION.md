@@ -12,7 +12,7 @@
 
 | 区域 id | 根 URL | 图标 / 文案 | 拥有什么 | Mac 入口 | 手机入口 |
 |---|---|---|---|---|---|
-| `conversations` | `/sessions` | `sessions` / `nav.sessions` | 对话集合（设备 → 项目 → 对话）、项目封面（列表的详情：摘要、活动、只读例程）、搜索 / 状态 / 归档范围、对话详情、新建、导入会话详情 | 区域栏「对话」⌘1；回到 `lastListUrl()`（带搜索 / 状态 / 范围） | 底部「对话列表」 |
+| `conversations` | `/sessions` | `sessions` / `nav.sessions` | 对话集合（设备 → 项目 → 对话）、按项目收窄（`?project=`）、搜索 / 状态 / 归档范围、对话详情、新建、导入会话详情 | 区域栏「对话」⌘1；回到 `lastListUrl()`（带搜索 / 状态 / 范围） | 底部「对话列表」 |
 | `routines` | `/routines` | `routines` / `nav.routines` | 机器选择、例行任务、最近运行（运行详情是共享的 `/tasks/:id?device=`） | 区域栏「例行任务」⌘2，带未读结果角标 | 底部「例行任务」 |
 | `settings` | `/settings` | `settings` / `nav.settings` | 通用、本地 Agent 与角色、模型提供方、额度与路由、高级、Agent 运维 | 区域栏「设置」⌘3 | 底部「设置」和「Agent 运维」（Agent Ops，`?tab=operations`） |
 
@@ -34,7 +34,7 @@
 | `/new` | 对话 | 新建对话 | `/sessions` | `?cwd=` 和草稿保留；关闭回列表 |
 | `/agent-sessions/:id` | 对话 | 导入的 agent 会话 | `/sessions` | 会话 id 保留；继续后手机替换成对应的 `/tasks/:id` |
 | `/projects` | 对话 | 旧项目区根（重定向） | 根（重定向） | `replace` 到 `/sessions`（KIN-CONTRACT-001）；项目层级由列表画出，书签 / 通知落在这里也落到列表 |
-| `/projects/:id` | 对话 | 项目封面（列表的详情） | `/sessions` | 项目 id 保留；封面拥有摘要编辑、活动、只读例程，不复制第二份对话列表 |
+| `/projects/:id` | 对话 | 旧项目封面（重定向） | 根（重定向） | `replace` 到 `/sessions?project=<id>`（KIN-CONTRACT-001）；项目 id 保留为收窄条件，摘要 / 工作说明 / 目录在这份列表的项目行里编辑 |
 | `/routines` | 例行任务 | 机器内的例程列表 | 根 | 显式 `?device=` 优先于记忆值，缺失机器按既有 fallback 修正 |
 | `/tasks/:id?device=<device>` | 对话（同一份任务详情） | 远程运行详情（只读）：任务行与 transcript 向 `?device=` 指定的机器要 | `/sessions` | task id 与 `?device=` 保留；旧的 `/machines/:device/tasks/:id` 以 `replace` 到这里（原 query 保留）；批准、回复、停跑仍在机器自己的 console |
 | `/agents` | 设置 | Agent 运维（旧 URL） | 根（`agents` 是手机入口 id，无合成父级） | `replace` 到 `/settings?tab=operations`（#141 `71402048`）；不再有独立的 `AgentsPage` |
@@ -83,10 +83,10 @@ R2 的实现：路由已经进 history；页头返回、对话页自己的返回
 
 这些是**已知差距**，不是允许随手补的洞：
 
-1. **项目不是区域。** 项目层级由对话列表的设备 → 项目 → 对话画出；`/projects` 重定向到 `/sessions`，`/projects/:id` 封面是列表的详情——手机从项目标题推入，返回按第 4 条落回对话列表（KIN-CONTRACT-001）。加一个「项目」区域或入口需要一条自己的签字故事，不能在实现里顺手加。
+1. **项目不是区域。** 项目层级由对话列表的设备 → 项目 → 对话画出；`/projects` 和旧封面 `/projects/:id` 都重定向到 `/sessions`；项目标题把列表收窄到该项目（`?project=`），不新增返回层（KIN-CONTRACT-001）。加一个「项目」区域或入口需要一条自己的签字故事，不能在实现里顺手加。
 2. **入口 id 不是区域 id。** `sessions` / `agents` 是手机入口和历史模块的名字；区域叫 `conversations` / `settings`。不许把 `PHONE_TAB_IDS` 当成区域表，也不许为了「对齐」改用户的四个入口。
-3. **按区域的冷启动父级还没接线。** `ui/src/lib/areaNavigation.ts` 的 `coldStartPhoneParent` 已写出签字地图的按区父级（项目封面 → `/sessions`、设置分区 → `/settings`、远程运行 → `/routines?device=`），也有测试；但实际安装的 `phoneDeepLinkParent` 仍只合成 `/sessions`。项目封面与它一致；设置分区与远程运行在接入前，手机冷启动的 Back 仍落到对话列表。
-4. **「原入口返回」在手机上还没实现。** 从项目封面或 Agent 运维打开的对话，Back 回对话列表，不回封面或运维页：`phonePush` 的既有规则是「列表是对话的唯一父级」。签字地图的入口证据返回目前只在 Mac 的普通历史上成立。接这条线要改 `phonePush` 和它的合同测试，不能在某个页面里单独写一份。
+3. **按区域的冷启动父级还没接线。** `ui/src/lib/areaNavigation.ts` 的 `coldStartPhoneParent` 已写出签字地图的按区父级（旧项目封面 → `/sessions`、设置分区 → `/settings`、远程运行 → `/routines?device=`），也有测试；但实际安装的 `phoneDeepLinkParent` 仍只合成 `/sessions`。旧封面与它一致；设置分区与远程运行在接入前，手机冷启动的 Back 仍落到对话列表。
+4. **「原入口返回」在手机上还没实现。** 从 Agent 运维打开的对话，Back 回对话列表，不回运维页：`phonePush` 的既有规则是「列表是对话的唯一父级」。签字地图的入口证据返回目前只在 Mac 的普通历史上成立。接这条线要改 `phonePush` 和它的合同测试，不能在某个页面里单独写一份。
 
 ## 6. 怎么防止再腐烂
 

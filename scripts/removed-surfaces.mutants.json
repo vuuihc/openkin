@@ -1,51 +1,107 @@
 [
-  {
-    "label": "the existence check is skipped, so a resurrected file passes the gate",
-    "file": "scripts/check-removed-surfaces.py",
-    "test": "python3 -B scripts/check-removed-surfaces.test.py ResurrectedPathTest.test_listed_file_that_exists_turns_red",
-    "old": "        if target.exists() or target.is_symlink():\n",
-    "new": "        if False and (target.exists() or target.is_symlink()):\n"
-  },
-  {
-    "label": "the empty-manifest guard is removed, so an empty record reports success",
-    "file": "scripts/check-removed-surfaces.py",
-    "test": "python3 -B scripts/check-removed-surfaces.test.py ManifestFailureTest.test_empty_manifest_fails_closed",
-    "old": "    if not paths:\n        raise ManifestError(f\"{origin}: no paths listed; an empty record guards nothing\")\n",
-    "new": "    if False:\n        raise ManifestError(f\"{origin}: no paths listed; an empty record guards nothing\")\n"
-  },
-  {
-    "label": "the pass-count assertion expects the wrong number, so the test no longer pins the output",
-    "file": "scripts/check-removed-surfaces.test.py",
-    "test": "python3 -B scripts/check-removed-surfaces.test.py ResurrectedPathTest.test_absent_paths_pass_and_report_the_count",
-    "old": "        self.assertIn(\"REMOVED_SURFACES_OK (3 paths absent)\", result.stdout)\n",
-    "new": "        self.assertIn(\"REMOVED_SURFACES_OK (4 paths absent)\", result.stdout)\n"
-  },
-  {
-    "label": "the checked-in record count regresses to the old total, so a deletion added without review goes unnoticed",
-    "file": "scripts/check-removed-surfaces.test.py",
-    "test": "python3 -B scripts/check-removed-surfaces.test.py CheckedInManifestTest.test_checked_in_manifest_names_the_four_resurrected_surfaces",
-    "old": "        self.assertEqual(len(paths), 12, paths)\n",
-    "new": "        self.assertEqual(len(paths), 8, paths)\n"
-  },
-  {
-    "label": "the gate stops starting the job, so the checker never runs",
-    "file": "scripts/check.sh",
-    "test": "python3 -B scripts/check-removed-surfaces.test.py GateWiringTest.test_check_sh_runs_the_checker_on_every_gate",
-    "old": "start removed-surfaces job_removed_surfaces\n",
-    "new": ""
-  },
-  {
-    "label": "the new guard scripts drop out of the merge deny-list, so a move on main carries instead of re-gating",
-    "file": "rsi/runtime/merge.sh",
-    "test": "bash rsi/runtime/tests/test-gate-carry.sh",
-    "old": "    \"scripts/check-removed-surfaces.py\", \"scripts/check-removed-surfaces.test.py\",\n",
-    "new": "\n"
-  },
-  {
-    "label": "a deleted surface drops off the record, so the gate would miss its resurrection",
-    "file": "scripts/removed-surfaces.txt",
-    "test": "python3 -B scripts/check-removed-surfaces.test.py CheckedInManifestTest.test_checked_in_manifest_names_the_four_resurrected_surfaces",
-    "old": "ui/src/lib/inboxFocus.ts\n",
-    "new": ""
-  }
+ {
+  "label": "the existence check is skipped, so a resurrected file passes the gate",
+  "file": "scripts/check-removed-surfaces.py",
+  "test": "python3 -B scripts/check-removed-surfaces.test.py ResurrectedPathTest.test_listed_file_that_exists_turns_red",
+  "old": "        if target.exists() or target.is_symlink():\n",
+  "new": "        if False and (target.exists() or target.is_symlink()):\n"
+ },
+ {
+  "label": "the empty-manifest guard is removed, so an empty record reports success",
+  "file": "scripts/check-removed-surfaces.py",
+  "test": "python3 -B scripts/check-removed-surfaces.test.py ManifestFailureTest.test_empty_manifest_fails_closed",
+  "old": "    if not paths:\n        raise ManifestError(f\"{origin}: no paths listed; an empty record guards nothing\")\n",
+  "new": "    if False:\n        raise ManifestError(f\"{origin}: no paths listed; an empty record guards nothing\")\n"
+ },
+ {
+  "label": "the pass-count assertion expects the wrong number, so the test no longer pins the output",
+  "file": "scripts/check-removed-surfaces.test.py",
+  "test": "python3 -B scripts/check-removed-surfaces.test.py ResurrectedPathTest.test_absent_paths_pass_and_report_the_count",
+  "old": "        self.assertIn(\"REMOVED_SURFACES_OK (3 paths absent)\", result.stdout)\n",
+  "new": "        self.assertIn(\"REMOVED_SURFACES_OK (4 paths absent)\", result.stdout)\n"
+ },
+ {
+  "label": "the checked-in record count regresses to the old total, so a deletion added without review goes unnoticed",
+  "file": "scripts/check-removed-surfaces.test.py",
+  "test": "python3 -B scripts/check-removed-surfaces.test.py CheckedInManifestTest.test_checked_in_manifest_names_the_resurrected_and_retired_surfaces",
+  "old": "        self.assertEqual(len(paths), 21, paths)\n",
+  "new": "        self.assertEqual(len(paths), 8, paths)\n"
+ },
+ {
+  "label": "the gate stops starting the job, so the checker never runs",
+  "file": "scripts/check.sh",
+  "test": "python3 -B scripts/check-removed-surfaces.test.py GateWiringTest.test_check_sh_runs_the_checker_on_every_gate",
+  "old": "start removed-surfaces job_removed_surfaces\n",
+  "new": ""
+ },
+ {
+  "label": "the new guard scripts drop out of the merge deny-list, so a move on main carries instead of re-gating",
+  "file": "rsi/runtime/merge.sh",
+  "test": "bash rsi/runtime/tests/test-gate-carry.sh",
+  "old": "    \"scripts/check-removed-surfaces.py\", \"scripts/check-removed-surfaces.test.py\",\n",
+  "new": "\n"
+ },
+ {
+  "label": "a deleted surface drops off the record, so the gate would miss its resurrection",
+  "file": "scripts/removed-surfaces.txt",
+  "test": "python3 -B scripts/check-removed-surfaces.test.py CheckedInManifestTest.test_checked_in_manifest_names_the_resurrected_and_retired_surfaces",
+  "old": "ui/src/lib/inboxFocus.ts\n",
+  "new": ""
+ },
+ {
+  "label": "the new restoration case stops asserting the red verdict, so a merge that restores the cover passes it",
+  "file": "scripts/check-removed-surfaces.test.py",
+  "test": "python3 -B scripts/check-removed-surfaces.test.py CheckedInManifestTest.test_a_restored_cover_component_turns_the_real_tree_red",
+  "old": "            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)\n",
+  "new": "            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)\n"
+ },
+ {
+  "label": "the J4 contract still demands the retired cover's not-sent footnote",
+  "file": "scripts/journeys_walk_test.py",
+  "test": "python3 -B scripts/journeys_walk_test.py",
+  "old": "    # The list row's empty state is one line by design (KIN-PROJECT-001, #590):\n    # \"还没写工作说明\" with no not-sent footnote, so J4 has none to read.",
+  "new": "    empty_note = at(\n        lambda step: section_wait(step, \"新对话不会收到这一段\")\n        or section_wait(step, \"New chats will not receive this section\"),\n        max(empty, 0) + 1,\n    )\n    if empty >= 0 and empty_note < 0:\n        problems.append(\"J4 never reads the empty state footnote (新对话不会收到这一段)\")"
+ },
+ {
+  "label": "the spec validator still demands the retired cover's not-sent footnote",
+  "file": "rsi/runtime/ux/walk.mjs",
+  "test": "python3 -B scripts/journeys_walk_test.py",
+  "old": "  // The list row's empty state is one line by design (KIN-PROJECT-001, #590):\n  // no not-sent footnote, so J4 has none to read.",
+  "new": "  const emptyNoteAt = after(emptyAt, (st) => sectionWait(st, '新对话不会收到这一段') || sectionWait(st, 'New chats will not receive this section'));\n  if (emptyAt >= 0 && emptyNoteAt < 0) errs.push('J4 never reads the empty state footnote (新对话不会收到这一段)');"
+ },
+ {
+  "label": "the J4 pointer-class guard stops pinning the fine pointer focus reveal, so a Mac-only J4 passes again",
+  "file": "scripts/journeys_walk_test.py",
+  "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_folder_editor_under_both_pointer_classes",
+  "old": "            self.assertEqual(reveal[0], \"focus\", reveal)\n",
+  "new": "            self.assertEqual(reveal[0], \"hover\", reveal)\n"
+ },
+ {
+  "label": "the old-chat guard stops pinning its route, so a leg that clicks whichever bucket sorts first passes",
+  "file": "scripts/journeys_walk_test.py",
+  "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_narrows_the_old_chat_read_to_the_seeded_project",
+  "old": "            self.assertEqual(steps[index - 3][1], \"/sessions\", steps[index - 3])\n",
+  "new": "            self.assertEqual(steps[index - 3][1], \"/projects\", steps[index - 3])\n"
+ },
+ {
+  "label": "J4 opens the coarse sheet by a text-is selector the nested span never matches, so the phone leg cannot reach the folder editor (59 later steps fail)",
+  "file": "rsi/runtime/ux/journeys.json",
+  "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_folder_editor_under_both_pointer_classes",
+  "old": "        [\"click\", \"/^(编辑工作目录|Edit folders)$/\"],\n        [\"wait\", \"css=[role=dialog] button:has-text('保存'), [role=dialog] button:has-text('Save folders')\"],\n        [\"wait\", \"css=[role=dialog] li:first-child:has(span[title$='/alpha']):has-text('默认'),[role=dialog] li:first-child:has(span[title$='/alpha']):has-text('Default')\"],\n        [\"wait\", \"css=[role=dialog] li:last-child span[title$='/aaa-config']\"],\n        [\"count\", \"css=[role=dialog] li\", \"2\"],\n        [\"shot\", \"roots-removed-reloaded\"],\n        [\"click\", \"css=[role=dialog] button:has-text('取消'), [role=dialog] button:has-text('Cancel')\"],\n        [\"goto\", \"/routines\"],",
+  "new": "        [\"click\", \"css=[role=dialog] button:text-is('编辑'), [role=dialog] button:text-is('Edit folders'), section:not([aria-label]):has(button[aria-label*='Project Alpha']) button[aria-label='编辑'], section:not([aria-label]):has(button[aria-label*='Project Alpha']) button[aria-label='Edit folders']\"],\n        [\"wait\", \"css=[role=dialog] button:has-text('保存'), [role=dialog] button:has-text('Save folders')\"],\n        [\"wait\", \"css=[role=dialog] li:first-child:has(span[title$='/alpha']):has-text('默认'),[role=dialog] li:first-child:has(span[title$='/alpha']):has-text('Default')\"],\n        [\"wait\", \"css=[role=dialog] li:last-child span[title$='/aaa-config']\"],\n        [\"count\", \"css=[role=dialog] li\", \"2\"],\n        [\"shot\", \"roots-removed-reloaded\"],\n        [\"click\", \"css=[role=dialog] button:has-text('取消'), [role=dialog] button:has-text('Cancel')\"],\n        [\"goto\", \"/routines\"],"
+ },
+ {
+  "label": "the App paths row returns to regex escapes, so the gate cannot attribute ui/src/App.tsx and fails closed",
+  "file": "rsi/runtime/ux/journeys.json",
+  "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_app_paths_row_is_a_literal_prefix_like_the_gate",
+  "old": "    [\"ui/src/App\", [\"J1\", \"J4\"]],",
+  "new": "    [\"ui/src/App\\\\.tsx|ui/src/App\\\\.areaRoutes\", [\"J1\", \"J4\"]],"
+ },
+ {
+  "label": "the J4 pointer-class guard drops the regex needle pin, so a spec back on the nested-span selector passes again",
+  "file": "scripts/journeys_walk_test.py",
+  "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_folder_editor_under_both_pointer_classes",
+  "old": "                \"/^(编辑工作目录|Edit folders)$/\",\n",
+  "new": "                \"button:text-is('编辑')\",\n"
+ }
 ]

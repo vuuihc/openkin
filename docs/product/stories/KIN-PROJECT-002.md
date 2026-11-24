@@ -168,3 +168,4 @@
 - 2026-11-18 第三轮返修：读回改 `ORDER BY rowid` 并加读序测试；封面默认标签紧贴路径、路径单行；编辑器每行只留一个默认指示；帮助文案改为用户语义（双向）
 - 2026-11-18 item 走查（PR #309 `0fae9787`）：J4 真浏览器读封面工作目录块（按保存顺序，第一行带「默认」，共 2 行；「只有第一行带默认」由 `ProjectDetailPage.dom.test.tsx` 证明）→ 编辑器把第二个设为默认 → 保存 → 离开再回来顺序与默认不变 → 再切回 /alpha；phone/mac/mac-wide，截图 `rsi/state/shots/roots-j4-walk/`。仍未走查：增加与移除目录（由 `ProjectDetailPage.dom.test.tsx` 与 `projectRoots.test.ts` 覆盖），故事保持 `approved`。
 - 2026-11-18 P8 走查：J4 补上「添加目录 → 保存 → 离开再回来 → 移除并读确认 → 取消 → 确认 → 保存 → 离开再回来」，0 硬失败、0 跳过，截图 390/1100/1280 已看过；验收表第 1–3 行重跑 75 个用例全绿。故事 `approved` → `covered`，registry 与 COVERAGE 同提交更新。
+- 2026-11-24 退役封面（KIN-CONTRACT-001，PR #665）：工作目录块从封面移到对话列表的项目行（`ProjectRootsEditor`，粗/细指针同一编辑器），`ProjectRootsBlock.tsx` 与封面页删除；`projectRoots.ts`、`internal/api|store` 的读与保存合同不变。

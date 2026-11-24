@@ -356,7 +356,7 @@ describe("the Mac sidebar list", () => {
     fixtures.tasks = [task("only", "/work/alpha")];
     render(sidebar(["/sessions?search=onl&status=succeeded&scope=active&find=seed&q=draft"]));
 
-    await userEvent.click(screen.getByRole("button", { name: /only/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^only ·/ }));
 
     await waitFor(() =>
       expect(screen.getByTestId("location").textContent).toContain("/tasks/only"),
@@ -383,7 +383,9 @@ describe("the Mac sidebar list", () => {
     // Two machines can work in /work/shared. The Hub's project record, its pin
     // and its archive are this machine's filesystem facts, so the remote copy
     // must not be treated as the local project — while "new session" in it must
-    // still aim the draft at the remote machine.
+    // still aim the draft at the remote machine. The record is also what lets
+    // the local heading narrow the list, so the fixture carries one.
+    fixtures.projects = [project("p-shared", "shared", "/work/shared")];
     fixtures.tasks = [
       task("local-work", "/work/shared"),
       task("remote-work", "/work/shared", "nas-1"),
@@ -398,13 +400,17 @@ describe("the Mac sidebar list", () => {
       .getByRole("heading", { name: /Studio/ })
       .closest("section") as HTMLElement;
 
-    expect(within(self).getByRole("button", { name: "One-Pager cover" })).toBeTruthy();
+    // The narrowing control needs the local project record, which loads on a
+    // live read after the first paint.
+    expect(
+      await within(self).findByRole("button", { name: "Show only this project" }),
+    ).toBeTruthy();
     expect(within(self).getByRole("button", { name: "Pin project" })).toBeTruthy();
-    expect(within(remote).queryByRole("button", { name: "One-Pager cover" })).toBeNull();
+    expect(within(remote).queryByRole("button", { name: "Show only this project" })).toBeNull();
     expect(
       (
         within(remote).getByRole("button", {
-          name: "One-Pager cover (this machine only)",
+          name: "Show only this project (this machine only)",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
@@ -438,9 +444,10 @@ describe("the Mac sidebar list", () => {
     expect(localStorage.getItem("kin_draft_cwd")).toBe("/work/shared");
   });
 
-  it("keeps the list's search when a project cover opens", async () => {
+  it("keeps the list's search when a project heading narrows the list", async () => {
     // The heading is a navigation too, and it goes through the same helper:
-    // a bare path there would clear the query just like a row tap did.
+    // a bare path there would clear the query just like a row tap did. It now
+    // narrows this one list (`?project=`) instead of opening the retired cover.
     fixtures.projects = [project("p-cover", "Cover project", "/work/cover")];
     fixtures.tasks = [task("cov-chat", "/work/cover")];
     render(sidebar(["/sessions?search=cov"]));
@@ -448,9 +455,11 @@ describe("the Mac sidebar list", () => {
     await userEvent.click(await screen.findByRole("button", { name: "cover" }));
 
     await waitFor(() =>
-      expect(screen.getByTestId("location").textContent).toContain("/projects/p-cover"),
+      expect(screen.getByTestId("location").textContent).toContain("project=p-cover"),
     );
-    expect(screen.getByTestId("location").textContent).toContain("search=cov");
+    const location = screen.getByTestId("location").textContent ?? "";
+    expect(location).toContain("/sessions");
+    expect(location).toContain("search=cov");
   });
 
   it("puts the waiting count on the conversation row that owns it", () => {
@@ -610,12 +619,13 @@ describe("the sidebar's pointer shapes", () => {
     expect(chevron.className).toContain("min-h-11 w-11");
   });
 
-  it("keeps the hover-revealed controls for a mouse at the same width", () => {
+  it("keeps the hover-revealed controls for a mouse at the same width", async () => {
     viewport("fine");
+    fixtures.projects = [project("p-alpha", "alpha", "/work/alpha")];
     fixtures.tasks = [task("one", "/work/alpha")];
     render(sidebar());
 
-    expect(screen.getByRole("button", { name: "One-Pager cover" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Show only this project" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Pin project" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remove from sidebar" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Project actions" })).toBeNull();

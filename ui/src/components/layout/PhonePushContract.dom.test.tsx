@@ -5,7 +5,6 @@ import userEvent from "@testing-library/user-event";
 import { BrowserRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import AppShell from "./AppShell";
 import SessionsPage from "../../pages/SessionsPage";
-import ProjectDetailPage from "../../pages/ProjectDetailPage";
 import RoutinesPage from "../../pages/RoutinesPage";
 import { setLocale } from "../../i18n";
 import { resetLeaveGuard } from "../../lib/leaveGuard";
@@ -15,11 +14,12 @@ import type { Task } from "../../api/client";
 
 /**
  * The list is the parent of a conversation on a phone, whichever surface the
- * conversation was opened from. A project's Chats tab and the command palette
- * sit on destinations of their own; opening a conversation (or the draft) from
- * one must replace that destination with the list instead of leaving it
- * underneath, or Back lands on the project or the routines page instead of the
- * list.
+ * conversation was opened from. The command palette and the routines page sit
+ * on destinations of their own; opening a conversation (or the draft) from one
+ * must replace that destination with the list instead of leaving it
+ * underneath, or Back lands on the routines page instead of the list. A
+ * project has no page of its own since KIN-CONTRACT-001: its name narrows this
+ * same entry.
  */
 
 const fixtures = vi.hoisted(() => ({
@@ -211,7 +211,6 @@ function browser(initial: string, options?: { synthesize?: boolean }) {
       <AppShell pendingApprovals={[]}>
         <Routes>
           <Route path="/sessions" element={<SessionsPage />} />
-          <Route path="/projects/:id" element={<ProjectDetailPage />} />
           <Route path="/routines" element={<RoutinesPage />} />
           <Route path="/agents" element={<div>agent operations</div>} />
           <Route path="/new" element={<div>draft page</div>} />
@@ -294,21 +293,6 @@ describe("the four roots on real history", () => {
 });
 
 describe("the list under a conversation", () => {
-  it("replaces a project's Chats tab, so Back reaches the list rather than the project", async () => {
-    const user = userEvent.setup();
-    browser("/projects/p1");
-    await screen.findByRole("heading", { name: "alpha" });
-
-    await user.click(await screen.findByRole("button", { name: /Project chat/ }));
-    await waitFor(() => expect(window.location.pathname).toBe("/tasks/project-chat"));
-
-    // The browser's own Back is the honest test of what sits underneath: the
-    // list, not the project the conversation was opened from.
-    await browserBack();
-    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
-    expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
-  });
-
   it("puts the list under a draft started from the palette on a destination", async () => {
     const user = userEvent.setup();
     browser("/routines");
@@ -324,130 +308,21 @@ describe("the list under a conversation", () => {
   });
 });
 
-describe("a warm list under the project it opened", () => {
-  async function openProjectFromList(user: ReturnType<typeof userEvent.setup>) {
+describe("a project name on the list", () => {
+  it("narrows the one list instead of pushing a page, so Back never lands on a project", async () => {
+    const user = userEvent.setup();
     fixtures.tasks = [listTask()];
     browser("/sessions");
+    await screen.findByRole("heading", { name: "Chats" });
+
+    // KIN-CONTRACT-001 retired the project cover. The heading is on the list
+    // itself: it either narrows this entry by `?project=` or, with no local
+    // record to name, folds the bucket. Neither pushes a project page, so the
+    // stack is still the list at index 0 and Back has no project to land on.
     await user.click(await screen.findByRole("button", { name: "alpha" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
-    await screen.findByRole("heading", { name: "alpha" });
-  }
-
-  it("keeps exactly one list below a conversation opened from the project", async () => {
-    const user = userEvent.setup();
-    await openProjectFromList(user);
-
-    await user.click(await screen.findByRole("button", { name: /Project chat/ }));
-    await waitFor(() => expect(window.location.pathname).toBe("/tasks/project-chat"));
-
-    // The project entry was replaced, not stacked under a second list: the
-    // stack is [list, conversation], so one Back reaches the list.
-    expect(window.history.state.idx).toBe(1);
-    await browserBack();
-    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.location.pathname).toBe("/sessions");
     expect(window.history.state.idx).toBe(0);
     expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
-  });
-
-  it("returns the draft to the list once, not to the project", async () => {
-    const user = userEvent.setup();
-    await openProjectFromList(user);
-
-    await user.click(await screen.findByRole("link", { name: "New chat" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/new"));
-    expect(window.history.state.idx).toBe(1);
-
-    // Closing the draft pops the one entry the project used to hold. The list
-    // is both the in-app target and the browser's Back target.
-    await user.click(screen.getByRole("button", { name: "Close" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
-    expect(window.history.state.idx).toBe(0);
-  });
-
-  it("treats project routines as a peer root, after the summary's guard", async () => {
-    const user = userEvent.setup();
-    window.history.replaceState({ idx: 0 }, "", "/sessions");
-    render(
-      <BrowserRouter>
-        <AppShell pendingApprovals={[]}>
-          <Routes>
-            <Route path="/sessions" element={<SessionsPage />} />
-            <Route path="/projects/:id" element={<ProjectDetailPage />} />
-            <Route path="/routines" element={<div>routines root</div>} />
-            <Route path="/agents" element={<div>agents root</div>} />
-            <Route path="/settings" element={<div>settings root</div>} />
-          </Routes>
-        </AppShell>
-      </BrowserRouter>,
-    );
-    await user.click(await screen.findByRole("button", { name: "alpha" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
-    await screen.findByRole("heading", { name: "alpha" });
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.type(screen.getByRole("textbox", { name: "One-line summary" }), "Unsaved");
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    try {
-      await user.click(screen.getByRole("link", { name: /Go to routines/ }));
-      await waitFor(() => expect(confirm).toHaveBeenCalled());
-      expect(window.location.pathname).toBe("/projects/p1");
-      confirm.mockReturnValue(true);
-      await user.click(screen.getByRole("link", { name: /Go to routines/ }));
-      await waitFor(() => expect(window.location.pathname).toBe("/routines"));
-      expect(window.history.state.idx).toBe(1);
-      await user.click(screen.getByRole("link", { name: "Chats" }));
-      await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
-      // Routines replaced the project detail, while the original list remains
-      // beneath it. Chats must pop to that real parent, not replace it with a
-      // second list entry. A cold root with a non-list parent is covered in
-      // phoneNavigation.test.tsx: a positive idx alone is not parent evidence.
-      expect(window.history.state.idx).toBe(0);
-      expect(screen.queryByRole("heading", { name: "routines root" })).toBeNull();
-      // The direct list → detail Back return is covered below and by
-      // `goBackToList`; this root switch was the behavior under test here.
-    } finally {
-      confirm.mockRestore();
-    }
-  });
-
-  it("asks before the browser Back discards a project summary draft", async () => {
-    const user = userEvent.setup();
-    await openProjectFromList(user);
-
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    const summary = screen.getByRole("textbox", { name: "One-line summary" });
-    await user.type(summary, "Unsaved");
-    await waitFor(() => expect(window.history.state?.kinLeaveGuard).toEqual(expect.any(String)));
-
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    try {
-      await browserBack();
-      await waitFor(() =>
-        expect(confirm).toHaveBeenCalledWith("Your summary is unsaved. Leave anyway?"),
-      );
-      expect(window.location.pathname).toBe("/projects/p1");
-      expect(
-        (screen.getByRole("textbox", { name: "One-line summary" }) as HTMLTextAreaElement).value,
-      ).toBe("Unsaved");
-    } finally {
-      confirm.mockRestore();
-    }
-  });
-
-  it("keeps the project in a Mac's ordinary history", async () => {
-    viewport(true);
-    const user = userEvent.setup();
-    fixtures.tasks = [listTask()];
-    browser("/sessions");
-
-    await user.click(await screen.findByRole("button", { name: "alpha" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
-    await user.click(await screen.findByRole("button", { name: /Project chat/ }));
-    await waitFor(() => expect(window.location.pathname).toBe("/tasks/project-chat"));
-
-    // On the Mac the project is not replaced: Back returns to it.
-    expect(window.history.state.idx).toBe(2);
-    await browserBack();
-    await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
   });
 });
 

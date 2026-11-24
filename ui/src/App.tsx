@@ -9,7 +9,6 @@ import NotificationTaps from "./components/NotificationTaps";
 import AppShell from "./components/layout/AppShell";
 import AreaRoute from "./components/layout/AreaRoute";
 import ToastHost from "./components/ToastHost";
-import ProjectDetailPage from "./pages/ProjectDetailPage";
 import { designSystemRoute } from "./pages/DesignSystemPage";
 import NewChatPage from "./pages/NewChatPage";
 import SessionsRoute from "./pages/SessionsRoute";
@@ -55,6 +54,21 @@ function MachineTaskRedirect() {
     params.append(key, value);
   }
   return <Navigate to={`/tasks/${encodeURIComponent(id)}?${params.toString()}`} replace />;
+}
+
+/**
+ * The retired project cover (KIN-CONTRACT-001).
+ *
+ * A project has no page of its own: its conversations are a narrowing of the
+ * one conversation list (`?project=`), and its work instructions, summary and
+ * working folders are edited from that list's project row. An old
+ * `/projects/:id` bookmark, notification or Back entry therefore replaces
+ * itself with the narrowed list — `replace`, like `/projects` and `/inbox`, so
+ * Back does not return to a URL that immediately leaves again.
+ */
+function ProjectCoverRedirect() {
+  const { id = "" } = useParams();
+  return <Navigate to={`/sessions?project=${encodeURIComponent(id)}`} replace />;
 }
 
 export default function App() {
@@ -221,14 +235,14 @@ export default function App() {
               <Route path="/approvals" element={<Navigate to="/sessions" replace />} />
               {/* Task detail UI is rendered by TaskSessionHost above. */}
               <Route path="/tasks/:id" element={null} />
-              {/* KIN-CONTRACT-001 retired the Projects area and its
-                  collection: the project level is the conversation list's own
-                  headings. A bookmark or notification that names `/projects`
-                  lands on that list, the same way `/inbox` and `/approvals`
-                  do. The project cover at `/projects/:id` stays as the list's
-                  detail. `App.areaRoutes.test.ts` pins both. */}
+              {/* KIN-CONTRACT-001 retired the Projects area, its collection and
+                  the project cover: the project level is the conversation
+                  list's own headings, and narrowing that list by `?project=` is
+                  what the cover used to be. A bookmark or notification that
+                  names either URL lands on that list, the same way `/inbox` and
+                  `/approvals` do. `App.areaRoutes.test.ts` pins both. */}
               <Route path="/projects" element={<Navigate to="/sessions" replace />} />
-              <Route path="/projects/:id" element={<ProjectDetailPage />} />
+              <Route path="/projects/:id" element={<ProjectCoverRedirect />} />
               {/* Agent operations live in Settings → Operations, so the old
                   full-page destinations redirect there: a bookmark, banner or
                   notification from before E4a still lands on the panel. */}

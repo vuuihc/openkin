@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import SessionList from "./SessionList";
@@ -8,6 +8,7 @@ import { setLocale } from "../../i18n";
 import { getDraftCwd } from "../../lib/draftChat";
 import type { Machine } from "../../lib/devices";
 import {
+  ensureProject,
   getOnePager,
   type AgentSession,
   type OnePager,
@@ -156,9 +157,9 @@ function LocationProbe() {
   );
 }
 
-function list() {
+function list(initial = "/sessions") {
   return render(
-    <MemoryRouter initialEntries={["/sessions"]}>
+    <MemoryRouter initialEntries={[initial]}>
       <SessionList shell="page" />
       <LocationProbe />
     </MemoryRouter>,
@@ -470,5 +471,60 @@ describe("a project's work instructions in the conversation list", () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe("the project row's heading (KIN-CONTRACT-001)", () => {
+  it("the project name narrows the list to that project instead of leaving the list", async () => {
+    const user = userEvent.setup();
+    const createProject = vi.mocked(ensureProject);
+    createProject.mockClear();
+
+    // The list's own query survives the narrowing: the heading is a filter,
+    // not a departure that would drop search / status / scope.
+    list("/sessions?search=Alpha");
+    const heading = await screen.findByRole("button", { name: "Project Alpha" });
+    await user.click(heading);
+
+    await waitFor(() => expect(locationText()).toBe("/sessions?search=Alpha&project=p-alpha"));
+    // The list stayed: its conversation row is still on screen under the
+    // narrowed heading, and no project was created to get here.
+    expect(screen.getByRole("button", { name: /alpha-work/ })).toBeTruthy();
+    expect(createProject).not.toHaveBeenCalled();
+
+    // Enter on the heading is the same activation as a press, and the list
+    // stays put. (A search hides the fold, so the chevron is read below on an
+    // unfiltered list.)
+    cleanup();
+    list("/sessions");
+    const again = await screen.findByRole("button", { name: "Project Alpha" });
+    again.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(locationText()).toBe("/sessions?project=p-alpha"));
+
+    // The chevron is its own control on the same row: it folds the project and
+    // never navigates.
+    await user.click(screen.getByRole("button", { name: "Collapse project Project Alpha" }));
+    expect(locationText()).toBe("/sessions?project=p-alpha");
+    expect(screen.getByRole("button", { name: "Expand project Project Alpha" })).toBeTruthy();
+  });
+
+  it("a bucket with no local project record folds instead of narrowing, and creates nothing", async () => {
+    // No project record owns /work/alpha. There is no id to narrow by, so the
+    // heading does what its chevron does; it must not write a project to the
+    // machine just to have somewhere to go.
+    fixtures.projects = [];
+    const createProject = vi.mocked(ensureProject);
+    createProject.mockClear();
+    list();
+
+    const heading = await screen.findByRole("button", { name: "alpha" });
+    expect(heading.getAttribute("aria-expanded")).toBe("true");
+    await userEvent.click(heading);
+
+    expect(locationText()).toBe("/sessions");
+    expect(createProject).not.toHaveBeenCalled();
+    // Folded, not dead: the same heading now offers to expand.
+    expect(screen.getByRole("button", { name: "Expand project alpha" })).toBeTruthy();
   });
 });
