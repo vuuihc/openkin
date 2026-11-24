@@ -97,9 +97,9 @@ export const EXIT_ROWS: readonly ExitRow[] = [
   },
   {
     from: "/agent-sessions/:id",
-    to: "/tasks/:id",
-    ability: "agent 状态进会话动作表",
-    owner: "R-agent-status",
+    to: "/sessions?agent=<id>",
+    ability: "旧整页 URL 落到列表，该会话的 sheet 开在列表上方；继续即落到 /tasks/<id>",
+    owner: "已落地",
   },
   {
     from: "/machines/:device/tasks/:id",
