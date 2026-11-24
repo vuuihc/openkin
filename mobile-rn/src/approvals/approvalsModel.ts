@@ -176,6 +176,28 @@ function countPending(items: PendingEntry[]): number {
   return count;
 }
 
+/**
+ * The cards one conversation owns, as a view of the model's state.
+ *
+ * The lists are node-wide (`/api/approvals?status=pending`), so a conversation
+ * must show only the records whose `task_id` is its own — the same rule the web
+ * console applies (`ui/src/pages/TaskDetailPage.tsx`: `item.task_id === id`).
+ * The returned state is a new object with a new item array; the model keeps the
+ * node-wide list untouched, because `approve` / `deny` / `answer` address items
+ * by id and a decision on a scoped-out card must still resolve.
+ */
+export function entriesForTask(
+  state: ApprovalsState,
+  taskId: string,
+): ApprovalsState {
+  const items = state.items.filter((entry) =>
+    entry.kind === "approval"
+      ? entry.approval.task_id === taskId
+      : entry.question.task_id === taskId,
+  );
+  return { ...state, items, pendingCount: countPending(items) };
+}
+
 export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const listeners = new Set<(state: ApprovalsState) => void>();
