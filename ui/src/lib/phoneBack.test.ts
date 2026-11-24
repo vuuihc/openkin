@@ -41,10 +41,15 @@ describe("goBackToList", () => {
       : join(process.cwd(), "ui");
     // The project cover was a third until KIN-CONTRACT-001 retired it: a
     // project is a narrowing of the list, so there is no page to go back from.
-    for (const page of ["TaskDetailPage", "AgentSessionDetailPage"]) {
+    // The imported-session page was the second until 5b deleted it: its URL
+    // lands on the list's sheet, which has no page to go back from.
+    for (const page of ["TaskDetailPage"]) {
       const source = readFileSync(join(ui, "src/pages", `${page}.tsx`), "utf8");
       expect(source, page).toContain("goBackToList(navigate)");
       expect(source, page).not.toContain("window.history.state?.idx");
     }
+    // The suite itself refuses the page's return: a merge that brings the file
+    // back would otherwise pass this test by never reading it.
+    expect(existsSync(join(ui, "src/pages/AgentSessionDetailPage.tsx"))).toBe(false);
   });
 });
