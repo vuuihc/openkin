@@ -46,13 +46,58 @@ type Entry =
 
 type Section = { device: DeviceGroup; data: Entry[] };
 
+/** The resume controller's reader-facing state, owned by the container. */
+export type ResumeBandState = {
+  status: "resuming" | "offline";
+  onRetry: () => void;
+};
+
 export type ConversationListProps = {
   state: ListViewState;
   t: (key: string, params?: Record<string, string | number>) => string;
   onOpen: (taskId: string) => void;
   onRefresh: () => void;
   onToggleProject?: (deviceId: string, projectKey: string) => void;
+  /**
+   * A network state, not a steady one: present only while the screen is
+   * reconnecting or has given up. It draws above the list header and never
+   * over a row.
+   */
+  resume?: ResumeBandState;
 };
+
+/**
+ * The reconnect band. One control at most: while the refresh is in flight
+ * there is nothing to press, and after it gives up the single retry is the
+ * reader's one manual action (KIN-MOBILE-001 §8).
+ */
+function ResumeBand({
+  resume,
+  t,
+}: {
+  resume: ResumeBandState;
+  t: ConversationListProps["t"];
+}) {
+  return (
+    <View style={styles.resumeBand}>
+      <Text accessibilityLiveRegion="polite" style={styles.resumeText}>
+        {resume.status === "resuming"
+          ? t("app.reconnecting")
+          : t("pairing.unreachable")}
+      </Text>
+      {resume.status === "offline" ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={resume.onRetry}
+          style={styles.resumeRetry}
+          testID="list-resume-retry"
+        >
+          <Text style={styles.resumeRetryText}>{t("pairing.retry")}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
 
 /** The catalogue sentence for a failed read, by transport reason. */
 function errorKey(state: ListViewState): string {
@@ -86,6 +131,7 @@ export default function ConversationList({
   onOpen,
   onRefresh,
   onToggleProject,
+  resume,
 }: ConversationListProps) {
   // An empty device (`includeEmptyDevices`) still yields a section, and a
   // SectionList with sections never draws `ListEmptyComponent` — so an empty
@@ -166,8 +212,17 @@ export default function ConversationList({
         );
       }}
       ListHeaderComponent={
-        hasRows && (state.status === "failed" || state.status === "offline")
-          ? (
+        resume ||
+        (hasRows && (state.status === "failed" || state.status === "offline")) ? (
+          <View>
+            {resume ? <ResumeBand resume={resume} t={t} /> : null}
+            {/*
+              While the resume band is up it is the one band: the list's own
+              failure line would repeat the same sentence with a second retry.
+            */}
+            {!resume &&
+            hasRows &&
+            (state.status === "failed" || state.status === "offline") ? (
               <View style={styles.banner}>
                 <Text accessibilityRole="alert" style={styles.bannerText}>
                   {t(errorKey(state))}
@@ -180,8 +235,9 @@ export default function ConversationList({
                   <Text style={styles.retryText}>{t("pairing.retry")}</Text>
                 </Pressable>
               </View>
-            )
-          : undefined
+            ) : null}
+          </View>
+        ) : undefined
       }
       ListEmptyComponent={
         <View style={styles.empty}>
@@ -307,6 +363,32 @@ const styles = StyleSheet.create({
     color: "#0b57d0",
     fontSize: 15,
     fontWeight: "600",
+  },
+  resumeBand: {
+    alignItems: "center",
+    backgroundColor: "#e8f0fe",
+    flexDirection: "row",
+    gap: 12,
+    minHeight: ROW_MIN_HEIGHT,
+    paddingHorizontal: 16,
+  },
+  resumeRetry: {
+    alignItems: "center",
+    justifyContent: "center",
+    // The signed touch floor, on the one control the band offers.
+    minHeight: ROW_MIN_HEIGHT,
+    minWidth: ROW_MIN_HEIGHT,
+    paddingHorizontal: 12,
+  },
+  resumeRetryText: {
+    color: "#0b57d0",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  resumeText: {
+    color: "#0b3d91",
+    flex: 1,
+    fontSize: 14,
   },
   row: {
     borderBottomColor: "#ececec",

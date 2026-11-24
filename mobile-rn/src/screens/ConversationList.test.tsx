@@ -206,6 +206,42 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     expect(offline.queryByText("Empty machine")).toBeNull();
   });
 
+  it("KIN-MOBILE-001 R7: the band speaks app.reconnecting while resuming and has no control", async () => {
+    const screen = await renderList(
+      {},
+      { resume: { status: "resuming", onRetry: () => {} } },
+    );
+
+    const band = screen.getByText("app.reconnecting");
+    // A polite live region: the reader hears the reconnect once, without
+    // being interrupted mid-row.
+    expect(band.props.accessibilityLiveRegion).toBe("polite");
+    // Nothing to press while the refresh is still in flight.
+    expect(screen.queryByText("pairing.retry")).toBeNull();
+    expect(screen.queryByTestId("list-resume-retry")).toBeNull();
+    expect(screen.queryByText("pairing.unreachable")).toBeNull();
+  });
+
+  it("KIN-MOBILE-001 R7: the offline band's retry meets the 44pt floor and calls back once", async () => {
+    const onRetry = jest.fn();
+    const screen = await renderList(
+      // A failed read is already drawing its own reason line; the resume band
+      // must still be one band, not a second stacked banner.
+      { status: "failed", error: "unreachable" },
+      { resume: { status: "offline", onRetry } },
+    );
+
+    expect(screen.getAllByText("pairing.unreachable")).toHaveLength(1);
+    const retry = screen.getByTestId("list-resume-retry");
+    expect(retry.props.accessibilityRole).toBe("button");
+    const style = StyleSheet.flatten(retry.props.style);
+    expect(style.minHeight).toBeGreaterThanOrEqual(44);
+    expect(style.minWidth).toBeGreaterThanOrEqual(44);
+
+    await fireEvent.press(retry);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
   it("KIN-MOBILE-001 R3: fits ten full rows in an 820×1180 screenful", () => {
     expect(ROW_MIN_HEIGHT).toBeGreaterThanOrEqual(44);
     expect(ROW_HEIGHT).toBeGreaterThanOrEqual(ROW_MIN_HEIGHT);

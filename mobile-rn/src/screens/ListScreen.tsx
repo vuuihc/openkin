@@ -7,13 +7,24 @@
  * the controller, and mirrors the model's state into React. Every callback
  * leaves the model as the one writer: a refresh asks the controller, a fold is
  * the controller's own toggle, and neither derives list state here.
+ *
+ * KIN-MOBILE-001 R7 adds one more async owner: the resume controller
+ * (`lifecycle/resume`) re-reads the list after a real absence and reports the
+ * reconnect band's state. It is created with the list controller and disposed
+ * with it, so no answer outlives the screen.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, AppState, StyleSheet, View } from "react-native";
 import type { Machine } from "../../../ui/src/lib/devices";
 import { readSession, secureStoreBackend, type Session } from "../auth/tokenStore";
 import { t } from "../i18n";
+import {
+  createResumeController,
+  type AppStateLike,
+  type ResumeController,
+  type ResumeStatus,
+} from "../lifecycle/resume";
 import {
   createListController,
   type FoldStore,
@@ -46,6 +57,10 @@ export type ListScreenProps = {
   formatTime?: (at: number) => string;
   /** The fold store; production keeps the reader's folds in memory for now. */
   store?: FoldStore;
+  /** The AppState emitter; production uses react-native's. Tests inject one. */
+  appState?: AppStateLike;
+  /** Test seam; production uses the platform clock. */
+  now?: () => number;
 };
 
 export default function ListScreen({
@@ -57,9 +72,15 @@ export default function ListScreen({
   machines,
   formatTime,
   store,
+  appState = AppState,
+  now,
 }: ListScreenProps) {
   const [state, setState] = useState<ListViewState | null>(null);
+  // The reconnect band is a network state, not a steady one: null whenever the
+  // list is current.
+  const [band, setBand] = useState<"resuming" | "offline" | null>(null);
   const controllerRef = useRef<ListController | null>(null);
+  const resumeRef = useRef<ResumeController | null>(null);
   // The route callbacks are fresh closures on most renders; a ref keeps the
   // mount effect from tearing the controller down just because the parent
   // repainted.
@@ -73,7 +94,8 @@ export default function ListScreen({
 
   useEffect(() => {
     let live = true;
-    let local: ListController | null = null;
+    let list: ListController | null = null;
+    let resume: ResumeController | null = null;
     const read = readSessionImpl ?? readStoredSession;
     void read()
       .then((session) => {
@@ -90,7 +112,7 @@ export default function ListScreen({
           formatTime: clock,
           store: folds,
         } = options.current;
-        local = createListController({
+        list = createListController({
           origin: session.origin,
           token: session.token,
           selfDeviceId: self,
@@ -100,9 +122,43 @@ export default function ListScreen({
           store: folds,
           fetchImpl,
         });
-        controllerRef.current = local;
-        setState(local.state());
-        return local.load().then((next) => {
+        controllerRef.current = list;
+        setState(list.state());
+
+        // One resume controller for the mounted screen. Its refresh is the
+        // list's own load, so the rows the reader already has are never
+        // cleared; the answer is mirrored only while this controller is the
+        // one the screen shows.
+        const mounted = list;
+        resume = createResumeController({
+          appState,
+          refreshList: async () => {
+            const next = await mounted.load();
+            if (live && controllerRef.current === mounted) setState(next);
+            return {
+              ok: next.status !== "offline" && next.status !== "failed",
+              reason: next.error ?? undefined,
+            };
+          },
+          // The list route has no open conversation, so `resumeStream` stays
+          // absent and a good refresh settles `online` on its own.
+          getLastSeq: () => 0,
+          onStatus: (status: ResumeStatus) => {
+            if (!live) return;
+            if (status === "expired") {
+              // A dead token is a pairing trip, not a network blip: no band,
+              // and no retry behind the reader's back.
+              setBand(null);
+              callbacks.current.onNeedsPairing();
+              return;
+            }
+            setBand(status === "resuming" || status === "offline" ? status : null);
+          },
+          now,
+        });
+        resumeRef.current = resume;
+
+        return mounted.load().then((next) => {
           // The controller drops an answer from an older generation; this guard
           // drops the one that lands after the screen is gone.
           if (live) setState(next);
@@ -114,9 +170,13 @@ export default function ListScreen({
     return () => {
       live = false;
       controllerRef.current = null;
-      local = null;
+      resumeRef.current = null;
+      // Final: removes the AppState listener, clears a pending retry, and
+      // drops every answer that lands after the screen is gone.
+      resume?.dispose();
+      list = null;
     };
-  }, [readSessionImpl, fetchImpl]);
+  }, [readSessionImpl, fetchImpl, appState, now]);
 
   const refresh = useCallback(() => {
     const controller = controllerRef.current;
@@ -136,6 +196,12 @@ export default function ListScreen({
     callbacks.current.onOpen(taskId);
   }, []);
 
+  // The band's one control. The controller ignores a retry it cannot honour,
+  // so the screen does not have to second-guess the status.
+  const retryResume = useCallback(() => {
+    resumeRef.current?.retry();
+  }, []);
+
   if (state === null) {
     return (
       <View style={styles.container}>
@@ -149,6 +215,7 @@ export default function ListScreen({
       onOpen={open}
       onRefresh={refresh}
       onToggleProject={toggleProject}
+      resume={band ? { status: band, onRetry: retryResume } : undefined}
       state={state}
       t={t}
     />
