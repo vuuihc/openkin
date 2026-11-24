@@ -681,7 +681,7 @@ const zh = {
     rootsRuleOne: "新对话默认落在这个目录。",
     rootsDefault: "默认",
     rootsEmpty: "这个项目还没有目录。",
-    rootsEdit: "编辑",
+    rootsEdit: "编辑工作目录",
     rootsAdd: "添加目录",
     rootsSetDefault: "设为默认",
     rootsIsDefault: "已经是默认",

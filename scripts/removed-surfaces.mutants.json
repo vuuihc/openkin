@@ -82,5 +82,26 @@
   "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_narrows_the_old_chat_read_to_the_seeded_project",
   "old": "            self.assertEqual(steps[index - 3][1], \"/sessions\", steps[index - 3])\n",
   "new": "            self.assertEqual(steps[index - 3][1], \"/projects\", steps[index - 3])\n"
+ },
+ {
+  "label": "J4 opens the coarse sheet by a text-is selector the nested span never matches, so the phone leg cannot reach the folder editor (59 later steps fail)",
+  "file": "rsi/runtime/ux/journeys.json",
+  "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_folder_editor_under_both_pointer_classes",
+  "old": "        [\"click\", \"/^(编辑工作目录|Edit folders)$/\"],\n        [\"wait\", \"css=[role=dialog] button:has-text('保存'), [role=dialog] button:has-text('Save folders')\"],\n        [\"wait\", \"css=[role=dialog] li:first-child:has(span[title$='/alpha']):has-text('默认'),[role=dialog] li:first-child:has(span[title$='/alpha']):has-text('Default')\"],\n        [\"wait\", \"css=[role=dialog] li:last-child span[title$='/aaa-config']\"],\n        [\"count\", \"css=[role=dialog] li\", \"2\"],\n        [\"shot\", \"roots-removed-reloaded\"],\n        [\"click\", \"css=[role=dialog] button:has-text('取消'), [role=dialog] button:has-text('Cancel')\"],\n        [\"goto\", \"/routines\"],",
+  "new": "        [\"click\", \"css=[role=dialog] button:text-is('编辑'), [role=dialog] button:text-is('Edit folders'), section:not([aria-label]):has(button[aria-label*='Project Alpha']) button[aria-label='编辑'], section:not([aria-label]):has(button[aria-label*='Project Alpha']) button[aria-label='Edit folders']\"],\n        [\"wait\", \"css=[role=dialog] button:has-text('保存'), [role=dialog] button:has-text('Save folders')\"],\n        [\"wait\", \"css=[role=dialog] li:first-child:has(span[title$='/alpha']):has-text('默认'),[role=dialog] li:first-child:has(span[title$='/alpha']):has-text('Default')\"],\n        [\"wait\", \"css=[role=dialog] li:last-child span[title$='/aaa-config']\"],\n        [\"count\", \"css=[role=dialog] li\", \"2\"],\n        [\"shot\", \"roots-removed-reloaded\"],\n        [\"click\", \"css=[role=dialog] button:has-text('取消'), [role=dialog] button:has-text('Cancel')\"],\n        [\"goto\", \"/routines\"],"
+ },
+ {
+  "label": "the App paths row returns to regex escapes, so the gate cannot attribute ui/src/App.tsx and fails closed",
+  "file": "rsi/runtime/ux/journeys.json",
+  "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_app_paths_row_is_a_literal_prefix_like_the_gate",
+  "old": "    [\"ui/src/App\", [\"J1\", \"J4\"]],",
+  "new": "    [\"ui/src/App\\\\.tsx|ui/src/App\\\\.areaRoutes\", [\"J1\", \"J4\"]],"
+ },
+ {
+  "label": "the J4 pointer-class guard drops the regex needle pin, so a spec back on the nested-span selector passes again",
+  "file": "scripts/journeys_walk_test.py",
+  "test": "python3 -B scripts/journeys_walk_test.py WalkJ4ContractTest.test_j4_opens_the_folder_editor_under_both_pointer_classes",
+  "old": "                \"/^(编辑工作目录|Edit folders)$/\",\n",
+  "new": "                \"button:text-is('编辑')\",\n"
  }
 ]

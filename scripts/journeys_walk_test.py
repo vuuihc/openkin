@@ -4412,6 +4412,38 @@ class WalkJ4ContractTest(unittest.TestCase):
         self.assertIsNotNone(mobile, "no paths row owns ui/src/components/mobile/")
         self.assertNotIn("J4", mobile[1], "a phone-list change now pays for J4's desktop legs")
 
+    def test_app_paths_row_is_a_literal_prefix_like_the_gate(self) -> None:
+        """`ux-gate.sh` matches an alternative as a literal prefix, not a regex.
+
+        The gate attributes a changed file with `path.startswith(p)` over the
+        `|`-separated alternatives (`rsi/runtime/ux-gate.sh`, the attribution
+        helper). A row written with regex escapes (`ui/src/App\\.tsx`) never
+        matches `ui/src/App.tsx`: the gate fails closed with
+        `attributed=fail-closed (unmapped ui path: ui/src/App.tsx)` and the
+        confirm walk cannot say which journey the change belongs to. This
+        mirrors the gate's matcher instead of trusting the row to read like
+        one.
+        """
+        spec = load_spec()
+        app_paths = ("ui/src/App.tsx", "ui/src/App.areaRoutes.tsx")
+        row = next(
+            (
+                row
+                for row in spec["paths"]
+                if any(app_paths[0].startswith(alt) for alt in row[0].split("|"))
+            ),
+            None,
+        )
+        self.assertIsNotNone(row, "no paths row names ui/src/App.tsx")
+        for alt in row[0].split("|"):
+            for path in app_paths:
+                self.assertTrue(
+                    path.startswith(alt),
+                    f"{alt!r} is not a literal prefix of {path}, so the gate cannot attribute it",
+                )
+        self.assertIn("J1", row[1], row)
+        self.assertIn("J4", row[1], row)
+
     def test_j4_contract_rejects_a_press_behind_the_hover_strip(self) -> None:
         # A press at the heading button's own centre meets the five-button hover
         # strip the row opens over its tail, which is what
@@ -4447,8 +4479,8 @@ class WalkJ4ContractTest(unittest.TestCase):
 
         A coarse pointer gets the project row's `⋯` (`项目操作` / `Project
         actions`) and the sheet row behind it; a fine pointer has no such
-        button and instead reveals the row's hover cluster, whose `编辑` /
-        `Edit folders` icon is `pointer-events-none` + `opacity-0` until the
+        button and instead reveals the row's hover cluster, whose `编辑工作目录`
+        / `Edit folders` icon is `pointer-events-none` + `opacity-0` until the
         row is hovered or the cluster holds focus (`SessionList.tsx`, the
         `focus-within:pointer-events-auto` strip). A J4 that names only the
         `⋯` hard-fails both Mac widths with "missing required click", and a J4
@@ -4482,26 +4514,32 @@ class WalkJ4ContractTest(unittest.TestCase):
                 str(reveal[1]).startswith("?"),
                 f"the fine pointer's reveal is required; the phone has no such icon: {reveal}",
             )
-            self.assertIn("aria-label='编辑'", str(reveal[1]), reveal)
+            self.assertIn("aria-label='编辑工作目录'", str(reveal[1]), reveal)
             self.assertIn("aria-label='Edit folders'", str(reveal[1]), reveal)
             self.assertEqual(steps[index + 1][0], "click", steps[index + 1])
             self.assertEqual(steps[index + 2][0], "wait", steps[index + 2])
             self.assertIn(J4_SAVE, str(steps[index + 2][1]), steps[index + 2])
             self.assertIn(J4_SAVE_EN, str(steps[index + 2][1]), steps[index + 2])
             # `.first()` picks the first bucket in DOM order, and the seeded
-            # projects do not sort Alpha-first: an unscoped triplet opens
-            # another project's editor and its `/aaa-config` wait then fails
-            # (state/shots/delete-pagesb2c-del). Every step of the open names
-            # the seeded bucket, so the rendezvous holds whichever sorts first.
-            for step in (reveal, coarse, steps[index + 1]):
+            # projects do not sort Alpha-first: an unscoped reveal or `⋯`
+            # opens another project's editor and its `/aaa-config` wait then
+            # fails (state/shots/delete-pagesb2c-del). Both triggers name the
+            # seeded bucket. The editor step itself cannot: the coarse sheet
+            # row is a modal label with no bucket in it, and the fine
+            # pointer's icon resolves by its accessible name.
+            for step in (reveal, coarse):
                 self.assertIn("Project Alpha", str(step[1]), step)
-            # The coarse row is the sheet's own label, matched exactly:
-            # `:has-text('编辑')` also matches 编辑一句话摘要 / Edit one-line
-            # summary, which the sheet draws above it, so `.first()` would
-            # open the summary editor instead of the folder editor.
-            self.assertIn("button:text-is('编辑')", str(steps[index + 1][1]), steps[index + 1])
-            self.assertIn(
-                "button:text-is('Edit folders')", str(steps[index + 1][1]), steps[index + 1]
+            # The sheet row's label is a nested `<span>`, so `button:text-is(…)`
+            # never matches it (walk.mjs `stepLocator` documents the same fact
+            # for J13's Files row); the walker's exact-text regex does, and
+            # `getByRole(…, {name: re})` is what finds the fine pointer's icon
+            # on the Macs. One needle covers both pointer classes, and the
+            # anchor keeps it off 编辑一句话摘要 / Edit one-line summary, which
+            # the sheet draws above it.
+            self.assertEqual(
+                steps[index + 1][1],
+                "/^(编辑工作目录|Edit folders)$/",
+                steps[index + 1],
             )
 
         # A walker needle carries its engine prefix once, and `wait` / `gone`
