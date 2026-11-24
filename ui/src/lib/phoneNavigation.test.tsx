@@ -10,6 +10,7 @@ import {
 } from "react-router-dom";
 import { useEffect } from "react";
 import {
+  lastListUrl,
   listUrlFor,
   notePhoneLocation,
   phonePush,
@@ -395,5 +396,18 @@ describe("the list URL a return carries", () => {
       "/sessions?search=note&status=running&scope=archived&routine=r1&project=p-alpha";
     expect(listUrlFor(search)).toBe(narrowed);
     expect(returnListUrl({ pathname: "/sessions", search })).toBe(narrowed);
+  });
+
+  it("does not remember the session sheet's transient agent parameter", () => {
+    // `?agent=` names the sheet over the list, and the sheet's continue flow
+    // never commits a clean list location. Remembering it as the list URL
+    // would reopen the closed sheet from the rail's Chats entry, ⌘K → Chats,
+    // or a draft close (`lastListUrl`). Only `agent` goes; the list's own
+    // filters stay, `attention` included.
+    notePhoneLocation({ pathname: "/sessions", search: "?agent=s1" });
+    expect(lastListUrl()).toBe("/sessions");
+
+    notePhoneLocation({ pathname: "/sessions", search: "?agent=s1&attention=needs-you" });
+    expect(lastListUrl()).toBe("/sessions?attention=needs-you");
   });
 });
