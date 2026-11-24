@@ -104,6 +104,28 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["a link with no token", `${ORIGIN}/`, "no-token"],
+    ["an empty token", `${ORIGIN}/?token=`, "empty-token"],
+    ["an ftp link", `ftp://kin.example.com/?token=${TOKEN}`, "bad-link"],
+    ["plain text", "not a link at all", "bad-link"],
+  ] as const)(
+    "KIN-MOBILE-001 R2: refuses %s without a request or a stored session",
+    async (_label, raw, _reason) => {
+      const store = memoryStore();
+      const { impl, spy } = recordingFetch(() => response(200, TASKS));
+      const pairing = createPairing({ store, fetchImpl: impl });
+
+      const state = await pairing.pairWithLink(raw);
+
+      // The parser rejects the link before anything is stored or sent.
+      expect(state.route).toBe("pairing");
+      expect(state.reason).toBe("rejected");
+      expect(store.entries.get(SESSION_KEY)).toBeUndefined();
+      expect(spy).not.toHaveBeenCalled();
+    },
+  );
+
   it("KIN-MOBILE-001 R2: a valid link stores the session and the first list read returns the tasks", async () => {
     const store = memoryStore();
     const { impl, calls } = recordingFetch(() => response(200, TASKS));
