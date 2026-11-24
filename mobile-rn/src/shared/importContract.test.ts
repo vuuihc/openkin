@@ -253,27 +253,189 @@ function buildClosure(): Closure {
 
 const domCache = new Map<string, string[]>();
 
-/** Browser globals used as code, not words inside strings or comments. */
-function domReferences(file: string): string[] {
-  const cached = domCache.get(file);
-  if (cached) return cached;
+/** The names a binding pattern declares: `x`, `{ a, b: c }`, `[d]`. */
+function boundNames(name: ts.BindingName): string[] {
+  if (ts.isIdentifier(name)) return [name.text];
+  const names: string[] = [];
+  for (const element of name.elements) {
+    if (ts.isBindingElement(element)) names.push(...boundNames(element.name));
+  }
+  return names;
+}
 
+/** The names a function-like node binds for its body (its parameters, name, type parameters). */
+function functionScope(node: ts.SignatureDeclarationBase): Set<string> {
+  const names = new Set<string>();
+  // Only a function declaration or expression binds its own name inside the
+  // body; a method or accessor name is a property key, so `{ window() { return
+  // window; } }` still reads the global.
+  if (
+    (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) &&
+    node.name !== undefined
+  ) {
+    names.add(node.name.text);
+  }
+  for (const typeParameter of node.typeParameters ?? []) names.add(typeParameter.name.text);
+  for (const parameter of node.parameters) {
+    for (const name of boundNames(parameter.name)) names.add(name);
+  }
+  return names;
+}
+
+/** The names a block declares for itself (hoisted enough for a lexical guard). */
+function blockScope(node: ts.SourceFile | ts.Block | ts.ModuleBlock): Set<string> {
+  const names = new Set<string>();
+  for (const statement of node.statements) {
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        for (const name of boundNames(declaration.name)) names.add(name);
+      }
+    } else if (
+      (ts.isFunctionDeclaration(statement) ||
+        ts.isClassDeclaration(statement) ||
+        ts.isEnumDeclaration(statement)) &&
+      statement.name !== undefined
+    ) {
+      names.add(statement.name.text);
+    }
+  }
+  return names;
+}
+
+/**
+ * True when the identifier names something rather than reading a global: a
+ * declaration (`function f(window: number)`), a property key or member label
+ * (`{ window: 3 }`, `type C = { window: number }`, `obj.window`, `enum E`),
+ * an import binding or a type parameter. `const x = window` and
+ * `window.localStorage` are reads, so they are not labels.
+ */
+function isDeclaredOrLabel(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  if (parent === undefined) return false;
+
+  if (
+    ((ts.isPropertyAssignment(parent) ||
+      ts.isPropertySignature(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isMethodSignature(parent) ||
+      ts.isEnumMember(parent)) &&
+      parent.name === node) ||
+    (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+    (ts.isQualifiedName(parent) && parent.right === node)
+  ) {
+    return true;
+  }
+
+  if (
+    (ts.isParameter(parent) ||
+      ts.isVariableDeclaration(parent) ||
+      ts.isBindingElement(parent) ||
+      ts.isFunctionDeclaration(parent) ||
+      ts.isFunctionExpression(parent) ||
+      ts.isClassDeclaration(parent) ||
+      ts.isTypeAliasDeclaration(parent) ||
+      ts.isInterfaceDeclaration(parent) ||
+      ts.isEnumDeclaration(parent) ||
+      ts.isTypeParameterDeclaration(parent) ||
+      ts.isImportSpecifier(parent) ||
+      ts.isImportClause(parent)) &&
+    parent.name === node
+  ) {
+    return true;
+  }
+  return ts.isBindingElement(parent) && parent.propertyName === node;
+}
+
+/**
+ * Browser globals the source actually reads — not words inside strings or
+ * comments, not names it declares for itself.
+ *
+ * A name is a browser global only when it is used as a value. A declaration, a
+ * parameter, a property key or a label that happens to be called `window` is
+ * not one, and neither is a reference bound by such a local declaration: a
+ * function that takes `window: number` reads its own parameter, not the
+ * browser's. `const x = window`, `window.localStorage`, `document.title = …`
+ * and a bare `localStorage` value all stay hits.
+ */
+export function domReferencesIn(source: string, file: string): string[] {
   const hits = new Set<string>();
-  const visit = (node: ts.Node): void => {
-    if (ts.isIdentifier(node) && DOM_IDENTIFIERS.has(node.text)) hits.add(node.text);
+  const visit = (node: ts.Node, scopes: readonly Set<string>[]): void => {
+    if (ts.isIdentifier(node) && DOM_IDENTIFIERS.has(node.text)) {
+      const locallyBound = scopes.some((scope) => scope.has(node.text));
+      if (!locallyBound && !isDeclaredOrLabel(node)) hits.add(node.text);
+    }
     if (
       ts.isStringLiteral(node) &&
       (node.text === "react-dom" || node.text.startsWith("react-dom/"))
     ) {
       hits.add("react-dom");
     }
-    ts.forEachChild(node, visit);
+    let inner = scopes;
+    if (ts.isFunctionLike(node)) {
+      inner = [...scopes, functionScope(node)];
+    } else if (ts.isBlock(node) || ts.isSourceFile(node) || ts.isModuleBlock(node)) {
+      inner = [...scopes, blockScope(node)];
+    }
+    ts.forEachChild(node, (child) => visit(child, inner));
   };
-  visit(parse(file));
+  visit(
+    ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, scriptKind(file)),
+    [],
+  );
+  return [...hits];
+}
 
-  const result = [...hits];
+function domReferences(file: string): string[] {
+  const cached = domCache.get(file);
+  if (cached) return cached;
+
+  const result = domReferencesIn(fs.readFileSync(file, "utf8"), file);
   domCache.set(file, result);
   return result;
+}
+
+/**
+ * Every module specifier the compiler would follow, `import type` included.
+ *
+ * `tsc` resolves type-only imports even though the transform erases them, so a
+ * shared module that stays importable under ADR 0036 §4's light gate (mobile-rn
+ * deps only) may name no module at all — the import is the seam, not the runtime
+ * load.
+ */
+export function moduleSpecifiersIn(source: string, file: string): string[] {
+  const specifiers: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      specifiers.push(node.moduleSpecifier.text);
+    } else if (
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier !== undefined &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
+      specifiers.push(node.moduleSpecifier.text);
+    } else if (
+      ts.isImportTypeNode(node) &&
+      ts.isLiteralTypeNode(node.argument) &&
+      ts.isStringLiteral(node.argument.literal)
+    ) {
+      specifiers.push(node.argument.literal.text);
+    } else if (
+      ts.isCallExpression(node) &&
+      node.arguments.length === 1 &&
+      ts.isStringLiteral(node.arguments[0])
+    ) {
+      const callee = node.expression;
+      const isDynamicImport = callee.kind === ts.SyntaxKind.ImportKeyword;
+      const isRequire = ts.isIdentifier(callee) && callee.text === "require";
+      if (isDynamicImport || isRequire) specifiers.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(
+    ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, scriptKind(file)),
+  );
+  return specifiers;
 }
 
 /** The shared modules ADR 0036 §2 names as importable in place. */
@@ -332,6 +494,41 @@ describe("KIN-MOBILE-001 R1 shared-import contract", () => {
       domReferences(file).map((ref) => `${repoPath(file)} -> ${ref}`),
     );
     expect(violations).toEqual([]);
+  });
+
+  it("KIN-MOBILE-001: a name that declares or labels is not a browser global", () => {
+    // A parameter named `window` is the local binding, not the global — also
+    // where the function body reads it as a value.
+    expect(
+      domReferencesIn("function f(window: number) { return window + 1; }", "declared.ts"),
+    ).toEqual([]);
+    // An object key and a type property are labels.
+    expect(
+      domReferencesIn("const s = { window: 3 }; type C = { window: number };", "labels.ts"),
+    ).toEqual([]);
+    // A method or accessor name is a label too, but the body still reads the
+    // global: only function declarations and expressions bind their own name.
+    expect(
+      domReferencesIn("const o = { window() { return window; } };", "method.ts"),
+    ).toEqual(["window"]);
+
+    // Real value uses stay hits; `localStorage` here is a property name of
+    // `window`, while `window` itself is the expression.
+    const used = domReferencesIn(
+      'const el = window; window.localStorage.getItem("a"); document.title = "x";',
+      "globals.ts",
+    );
+    expect([...used].sort()).toEqual(["document", "window"]);
+  });
+
+  it("KIN-MOBILE-001: the shared usage formatter imports nothing, so the RN typecheck stays light", () => {
+    // `tsc` follows `import type` even though the transform erases it, so one
+    // type import is enough to drag the web client into the RN typecheck. This
+    // module is imported in place (ADR 0036 §2), so it may name no module.
+    const file = path.join(REPO_ROOT, "ui/src/lib/usage.ts");
+    const source = fs.readFileSync(file, "utf8");
+    expect(moduleSpecifiersIn(source, file)).toEqual([]);
+    expect(domReferences(file)).toEqual([]);
   });
 
   it("KIN-MOBILE-001: every aliased shared module is named in ADR 0036", () => {
