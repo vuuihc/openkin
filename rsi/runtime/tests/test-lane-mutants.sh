@@ -12,6 +12,14 @@
 # same seam after the format commit and before the push, and the worker contract tells the worker
 # to run it first.
 #
+# The seam also validates the anchors a branch invalidates without touching the manifest: an
+# entry already on main names a line this branch renamed or deleted, so mutants.py can only report
+# `pattern occurs 0 times`. That check runs before the no-loop-code SKIP, because the moved file
+# need not be loop code (walk-mutant.json mutates the UI), and it validates only — pre-existing
+# manifests' tests are not run, so it adds no gate minutes. An anchor already stale at the branch
+# point is pre-existing debt and is skipped: charging it to a lane that only touched the file
+# would add the rework round this seam exists to remove.
+#
 # Hermetic: one bare origin and one worktree per case under mktemp -d, RSI_CTRL redirected into the
 # temp dir (common.sh derives STATE and RSI_DIR from it), a stubbed lane-pr.sh. No network, no gh,
 # no npm, no model calls. Each fixture's main commit seeds the real scripts/mutants.py so the
@@ -66,6 +74,22 @@ edit_lane() { printf '%s\n' "$1" >> "$R/rsi/runtime/lane.sh"; }
 
 # manifest <relpath> <json> — write a manifest where `git ls-files -co` will find it.
 manifest() { mkdir -p "$R/$(dirname "$1")"; printf '%s\n' "$2" > "$R/$1"; }
+
+# anchor_fixture <case> <manifest> <ui-file> <anchor> — main seeds a UI file holding one <anchor>
+# line plus a manifest entry that mutates it, committed and pushed, so the branch under test starts
+# from a valid anchor. UI, not loop code, is deliberate: a stale anchor there is invisible to the
+# per-branch manifest rule, which is the hole. Sets R.
+anchor_fixture() {
+  local name="$1" mpath="$2" uipath="$3" anchor="$4"
+  new_repo "$name"
+  mkdir -p "$R/$(dirname "$uipath")"
+  printf '%s\n' "$anchor" > "$R/$uipath"
+  manifest "$mpath" \
+    "[{\"label\":\"anchor guard\",\"file\":\"$uipath\",\"test\":\"true\",\"old\":\"$anchor\",\"new\":\"ANCHOR=mutated\"}]"
+  g add -A >/dev/null && g commit -q -m 'main: ui and its manifest' || fail "$name: commit failed"
+  g push -q origin main || fail "$name: push failed"
+  g update-ref refs/remotes/origin/main HEAD
+}
 
 # seam — run the hidden check against the current worktree. Sets OUT (stdout) and RC.
 seam() {
@@ -273,6 +297,100 @@ case_check_sh_wires_the_suite() {
     || fail "wiring: job_shell_test() does not name test-lane-mutants.sh"
 }
 
+# A manifest already on main names a line this branch renamed, and the file is UI, so the old seam
+# returned SKIP: the hole panel-topmost-165641 hit when a rename moved walk-mutant.json's J7 anchor.
+case_stale_preexisting_manifest_anchor_fails() {
+  anchor_fixture staleanchor ui/src/app.mutants.json ui/src/App.tsx ANCHOR=one
+  printf 'ANCHOR=two\n' > "$R/ui/src/App.tsx"
+  seam
+  [ "$RC" -ne 0 ] || fail "staleanchor: a stale anchor on a UI change passed (output: $OUT)"
+  [ "$OUT" = "MUTANT_EVIDENCE_RED: ui/src/app.mutants.json · ui/src/App.tsx: anchor occurs 0 times" ] \
+    || fail "staleanchor: unexpected output: $OUT"
+}
+
+# The same fixture with the anchor still present must stay green: the new check must not turn every
+# UI branch into a failure.
+case_untouched_anchor_still_skips() {
+  anchor_fixture intactanchor ui/src/app.mutants.json ui/src/App.tsx ANCHOR=one
+  printf '// a later edit\n' >> "$R/ui/src/App.tsx"
+  seam
+  [ "$RC" -eq 0 ] || fail "intactanchor: an intact anchor failed a UI branch (output: $OUT)"
+  [ "$OUT" = "MUTANT_EVIDENCE_SKIP: no loop-code change" ] \
+    || fail "intactanchor: unexpected output: $OUT"
+}
+
+# `*-mutant.json` is the second naming convention; walk-mutant.json is the file the panel-topmost
+# round needed covered.
+case_walk_mutant_anchor_is_checked() {
+  anchor_fixture walkmutant rsi/runtime/ux/walk-mutant.json ui/src/walk.tsx ANCHOR=walk
+  printf 'ANCHOR=renamed\n' > "$R/ui/src/walk.tsx"
+  seam
+  [ "$RC" -ne 0 ] || fail "walkmutant: a stale *-mutant.json anchor passed (output: $OUT)"
+  seam_output_has 'MUTANT_EVIDENCE_RED: rsi/runtime/ux/walk-mutant.json · ui/src/walk.tsx' \
+    || fail "walkmutant: the walk manifest is not named: $OUT"
+}
+
+# mutants.py needs `old` exactly once; a branch edit that duplicates it is just as unusable as one
+# that removes it.
+case_duplicate_anchor_fails() {
+  anchor_fixture duplicate ui/src/app.mutants.json ui/src/App.tsx ANCHOR=one
+  printf 'ANCHOR=one\nANCHOR=one\n' > "$R/ui/src/App.tsx"
+  seam
+  [ "$RC" -ne 0 ] || fail "duplicate: a duplicated anchor passed (output: $OUT)"
+  [ "$OUT" = "MUTANT_EVIDENCE_RED: ui/src/app.mutants.json · ui/src/App.tsx: anchor occurs 2 times" ] \
+    || fail "duplicate: unexpected output: $OUT"
+}
+
+# Deleting a file the manifest names is the uxcooldown shape: the entry now mutates nothing.
+case_deleted_file_with_anchor_fails() {
+  anchor_fixture goneanchor ui/src/app.mutants.json ui/src/App.tsx ANCHOR=one
+  g rm -q ui/src/App.tsx || fail "goneanchor: cannot remove App.tsx"
+  seam
+  [ "$RC" -ne 0 ] || fail "goneanchor: deleting an anchored file passed (output: $OUT)"
+  [ "$OUT" = "MUTANT_EVIDENCE_RED: ui/src/app.mutants.json · ui/src/App.tsx: file is gone" ] \
+    || fail "goneanchor: unexpected output: $OUT"
+}
+
+# A committed rename is a deletion the diff hides: with rename detection `git diff --name-only`
+# prints only the new path, so a pre-existing manifest naming the renamed file is never validated
+# and a UI-only lane still returns SKIP. The lane commits before this seam runs, so this is the
+# live shape (2026-11-24 review, major).
+case_renamed_file_with_anchor_fails() {
+  anchor_fixture renamedanchor ui/src/app.mutants.json ui/src/App.tsx ANCHOR=one
+  g mv ui/src/App.tsx ui/src/AppMain.tsx || fail "renamedanchor: cannot rename App.tsx"
+  g commit -q -m 'rename the anchored file' || fail "renamedanchor: commit failed"
+  seam
+  [ "$RC" -ne 0 ] || fail "renamedanchor: a committed rename hid the deleted anchor path (output: $OUT)"
+  [ "$OUT" = "MUTANT_EVIDENCE_RED: ui/src/app.mutants.json · ui/src/App.tsx: file is gone" ] \
+    || fail "renamedanchor: unexpected output: $OUT"
+}
+
+# probe/**/mutants.json is the third naming convention the repo already uses.
+case_probe_mutants_anchor_is_checked() {
+  anchor_fixture probemutants probe/kin-probe-w4/mutants.json ui/src/probe.ts ANCHOR=probe
+  printf 'ANCHOR=changed\n' > "$R/ui/src/probe.ts"
+  seam
+  [ "$RC" -ne 0 ] || fail "probemutants: a stale probe manifest anchor passed (output: $OUT)"
+  seam_output_has 'MUTANT_EVIDENCE_RED: probe/kin-probe-w4/mutants.json · ui/src/probe.ts' \
+    || fail "probemutants: the probe manifest is not named: $OUT"
+}
+
+# An anchor already stale at the branch point is pre-existing debt: a lane that only touched the
+# file must not be charged for it. 11 such anchors sat on main when this check landed (2026-11-24).
+case_preexisting_stale_anchor_is_not_charged() {
+  anchor_fixture olddebt ui/src/app.mutants.json ui/src/App.tsx ANCHOR=one
+  # Main moves the anchor without updating the manifest, so the entry is already broken there.
+  printf 'ANCHOR=moved\n' > "$R/ui/src/App.tsx"
+  g add -A >/dev/null && g commit -q -m 'main: move the anchor alone' || fail "olddebt: commit failed"
+  g push -q origin main || fail "olddebt: push failed"
+  g update-ref refs/remotes/origin/main HEAD
+  printf '// an unrelated edit\n' >> "$R/ui/src/App.tsx"
+  seam
+  [ "$RC" -eq 0 ] || fail "olddebt: pre-existing debt was charged to this branch (output: $OUT)"
+  [ "$OUT" = "MUTANT_EVIDENCE_SKIP: no loop-code change" ] \
+    || fail "olddebt: unexpected output: $OUT"
+}
+
 RAN=0
 run() { # a case is named either test_x_... or its short form, x-...
   local short="${1#test_}"; short="${short//_/-}"
@@ -297,5 +415,13 @@ run case_scripts_change_is_in_scope
 run case_unresolvable_origin_main_fails_closed
 run case_origin_main_advance_does_not_add_files
 run case_deleted_loop_file_needs_no_manifest
+run case_stale_preexisting_manifest_anchor_fails
+run case_untouched_anchor_still_skips
+run case_walk_mutant_anchor_is_checked
+run case_duplicate_anchor_fails
+run case_deleted_file_with_anchor_fails
+run case_renamed_file_with_anchor_fails
+run case_probe_mutants_anchor_is_checked
+run case_preexisting_stale_anchor_is_not_charged
 [ -z "$ONLY" ] || [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS
