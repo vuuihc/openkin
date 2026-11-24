@@ -35,18 +35,18 @@
     "new": "      aria-label={tr(\"projects.instructionsTitle\")}"
   },
   {
-    "label": "the list's instructions preview is no longer clamped",
+    "label": "the working-style body mounts while the disclosure is still collapsed",
     "file": "ui/src/components/sessions/SessionList.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectFace.dom.test.tsx",
-    "old": "                expanded ? \"\" : \"line-clamp-2\",",
-    "new": "                expanded ? \"\" : \"\","
+    "old": "      {expanded ? (\n        <div id={bodyId} className=\"pb-2\">",
+    "new": "      {true ? (\n        <div id={bodyId} className=\"pb-2\">"
   },
   {
     "label": "the disclosure title wraps its chevron onto a second line",
     "file": "ui/src/components/sessions/SessionList.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.projectFace.dom.test.tsx",
-    "old": "              <span className=\"inline-flex items-center gap-1 whitespace-nowrap\">\n                {tr(\"projects.instructionsTitle\")}",
-    "new": "              <span className=\"inline-flex items-center gap-1\">\n                {tr(\"projects.instructionsTitle\")}"
+    "old": "          <span className=\"inline-flex items-center gap-1 whitespace-nowrap\">",
+    "new": "          <span className=\"inline-flex items-center gap-1\">"
   },
   {
     "label": "the project name stops narrowing the list, so pressing it does nothing",
