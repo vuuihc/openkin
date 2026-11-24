@@ -212,10 +212,20 @@ export function createProvidersModel(options: ProvidersModelOptions): ProvidersM
 
     if (!providersRead.ok || !usageRead.ok) {
       const reason = failureReason(providersRead, usageRead);
+      // An expired token is a pairing state, not a transient failure: the
+      // signed table's `未配对 / 过期` row says that surface shows no old usage
+      // (`不显示旧用量`), the same way `pairing.ts` drops its cached tasks on
+      // 401. Every other reason keeps the last good rows instead, and those
+      // rows belong to the window that last settled -- `state.days` already
+      // moved to the window this read asked for and never got.
+      const expired = reason === "expired";
       state = {
         ...state,
         status: reason === "unreachable" ? "offline" : "failed",
-        error: { reason, stale: hadData },
+        days: hadData ? lastSettledDays : state.days,
+        providers: expired ? [] : state.providers,
+        usage: expired ? [] : state.usage,
+        error: { reason, stale: hadData && !expired },
       };
       lastSettled = state.status;
       lastSettledDays = state.days;
@@ -231,6 +241,7 @@ export function createProvidersModel(options: ProvidersModelOptions): ProvidersM
       state = {
         ...state,
         status: "failed",
+        days: hadData ? lastSettledDays : state.days,
         error: { reason: "rejected", stale: hadData },
       };
       lastSettled = state.status;

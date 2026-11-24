@@ -273,6 +273,56 @@ describe("KIN-MOBILE-001 R6 provider/usage core", () => {
     expect(second.usage).toEqual(USAGE_ROWS);
   });
 
+  it("KIN-MOBILE-001 R6: a failed window switch keeps the settled window beside the kept rows", async () => {
+    const impl = jest.fn(async (url: string) => {
+      if (new URL(url).searchParams.get("days") === "90") {
+        return response(403, { error: "fixture" });
+      }
+      return url.includes("/api/providers")
+        ? response(200, { active_id: "provider-primary", providers: PROVIDERS })
+        : response(200, USAGE_ROWS);
+    });
+    const model = modelWith(impl);
+
+    const first = await model.load();
+    expect(first.status).toBe("ready");
+    expect(first.days).toBe(30);
+
+    const failed = await model.setWindow(90);
+
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toEqual({ reason: "rejected", stale: true });
+    // The rows on screen are the 30-day read's: the selection must not stay on
+    // the 90-day window that never answered.
+    expect(failed.days).toBe(30);
+    expect(failed.usage).toEqual(USAGE_ROWS);
+
+    // A close/reopen restores that same settled window, not the failed one.
+    model.cancel();
+    expect(model.getState().days).toBe(30);
+    expect(model.getState().usage).toEqual(USAGE_ROWS);
+  });
+
+  it("KIN-MOBILE-001 R6: an unreadable window answer keeps the settled window too", async () => {
+    const impl = jest.fn(async (url: string) => {
+      if (new URL(url).searchParams.get("days") === "90") {
+        return response(200, [{ date: 1 }]);
+      }
+      return url.includes("/api/providers")
+        ? response(200, { active_id: "provider-primary", providers: PROVIDERS })
+        : response(200, USAGE_ROWS);
+    });
+    const model = modelWith(impl);
+
+    await model.load();
+    const failed = await model.setWindow(90);
+
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toEqual({ reason: "rejected", stale: true });
+    expect(failed.days).toBe(30);
+    expect(failed.usage).toEqual(USAGE_ROWS);
+  });
+
   it("KIN-MOBILE-001 R6: an expired token reads as failed/expired and is not retried", async () => {
     const calls: Call[] = [];
     const model = modelWith(nodeFetch({ status: () => 401, calls }));
@@ -283,6 +333,32 @@ describe("KIN-MOBILE-001 R6 provider/usage core", () => {
     expect(view.error).toEqual({ reason: "expired", stale: false });
     // One load is exactly two reads; a 401 is never retried silently.
     expect(calls).toHaveLength(2);
+  });
+
+  it("KIN-MOBILE-001 R6: an expired token after a good read clears the old usage", async () => {
+    let status = 200;
+    const model = modelWith(
+      nodeFetch({
+        providers: { active_id: "provider-primary", providers: PROVIDERS },
+        usage: USAGE_ROWS,
+        status: () => status,
+      }),
+    );
+
+    const first = await model.load();
+    expect(first.status).toBe("ready");
+
+    status = 401;
+    const expired = await model.load();
+
+    // The signed state table's `未配对 / 过期` row: the surface shows no old
+    // usage once the token is gone, so neither the view nor the model keeps any.
+    expect(expired.status).toBe("failed");
+    expect(expired.error).toEqual({ reason: "expired", stale: false });
+    expect(expired.providers).toEqual([]);
+    expect(expired.usage).toEqual([]);
+    expect(model.getState().providers).toEqual([]);
+    expect(model.getState().usage).toEqual([]);
   });
 
   it("KIN-MOBILE-001 R6: an unreachable node reads as offline", async () => {
