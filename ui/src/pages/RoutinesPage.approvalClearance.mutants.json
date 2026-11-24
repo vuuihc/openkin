@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the routines scroller stops carrying the approval clearance class",
+    "file": "ui/src/pages/RoutinesPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/RoutinesPage.approvalClearance.dom.test.tsx",
+    "old": "phone-footer-clearance phone-approval-clearance",
+    "new": "phone-footer-clearance"
+  },
+  {
+    "label": "the clearance resolves to the footer alone and ignores the published strip band",
+    "file": "ui/src/index.css",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/RoutinesPage.approvalClearance.dom.test.tsx",
+    "old": "    padding-bottom: max(\n      var(--phone-footer-clearance),\n      calc(var(--approval-strip-height, 0px) + var(--approval-strip-bottom, 0px) + 8px)\n    );\n  }\n  /* Zen hides",
+    "new": "    padding-bottom: var(--phone-footer-clearance);\n  }\n  /* Zen hides"
+  }
+]

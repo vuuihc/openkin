@@ -454,6 +454,38 @@
   }
 }
 
+/* The floating 等待处理 strip reserves its own band on the pages that scroll
+   under it. The footer clearance above is the floor; the strip floats above the
+   footer and publishes its own measured band as custom properties from
+   `FloatingApproval` — its height and its bottom edge's distance from the
+   viewport's bottom. A page that carries `.phone-approval-clearance` (today the
+   routines pane) takes the taller of the two plus the same 8px breath, so its
+   last control can be scrolled clear of the pill and hit-tests itself. With
+   nothing pending both variables are absent and the `0px` fallbacks make the
+   max() exactly `--phone-footer-clearance`: a page with no strip does not
+   move.
+
+   A media block of its own rather than the footer block above, because
+   `phoneFooterGlass.test.ts` pins that block as the footer's own contiguous
+   pair and a third rule inside it breaks the contract it writes down. */
+@media (max-width: 767.98px) {
+  .phone-approval-clearance {
+    padding-bottom: max(
+      var(--phone-footer-clearance),
+      calc(var(--approval-strip-height, 0px) + var(--approval-strip-bottom, 0px) + 8px)
+    );
+  }
+  /* Zen hides the footer bar, so the footer's clearance goes to zero; the strip
+     is not footer chrome and keeps its band. 0-2-0 like the zen exception above
+     so it outranks `.kin-zen .phone-footer-clearance` on the same element. */
+  .kin-zen .phone-approval-clearance {
+    padding-bottom: max(
+      0px,
+      calc(var(--approval-strip-height, 0px) + var(--approval-strip-bottom, 0px) + 8px)
+    );
+  }
+}
+
 /* A horizontally scrolling strip that says so.
    The settings tab strip holds seven tabs and a phone shows about five of them;
    iOS draws no persistent scrollbar, so the sixth and seventh were invisible and
