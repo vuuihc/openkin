@@ -168,10 +168,12 @@ mutant_evidence_check() { # <worktree> — prints one verdict line; 0 = ok/skip,
   )"
   # Anchor validation for pre-existing manifests: every tracked manifest's entries whose `file` this
   # branch changed or deleted must still hold exactly one occurrence of `old`. Deletions count here
-  # (no --diff-filter=d), because a deleted file is the loudest stale anchor. An anchor already
-  # stale at the branch point is pre-existing debt, not this branch's edit, and is skipped.
+  # (no --diff-filter=d), because a deleted file is the loudest stale anchor. A committed rename is
+  # a deletion too, and rename detection would print only the new path, so it is off: both paths
+  # show up and the old one fails as `file is gone`. An anchor already stale at the branch point is
+  # pre-existing debt, not this branch's edit, and is skipped.
   touched="$(
-    { "$GIT" -C "$wt" diff --name-only "$base" 2>/dev/null
+    { "$GIT" -C "$wt" diff --name-only --no-renames "$base" 2>/dev/null
       "$GIT" -C "$wt" ls-files --others --exclude-standard 2>/dev/null
     } | LC_ALL=C sort -u
   )"

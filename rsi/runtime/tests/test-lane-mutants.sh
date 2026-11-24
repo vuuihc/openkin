@@ -351,6 +351,20 @@ case_deleted_file_with_anchor_fails() {
     || fail "goneanchor: unexpected output: $OUT"
 }
 
+# A committed rename is a deletion the diff hides: with rename detection `git diff --name-only`
+# prints only the new path, so a pre-existing manifest naming the renamed file is never validated
+# and a UI-only lane still returns SKIP. The lane commits before this seam runs, so this is the
+# live shape (2026-11-24 review, major).
+case_renamed_file_with_anchor_fails() {
+  anchor_fixture renamedanchor ui/src/app.mutants.json ui/src/App.tsx ANCHOR=one
+  g mv ui/src/App.tsx ui/src/AppMain.tsx || fail "renamedanchor: cannot rename App.tsx"
+  g commit -q -m 'rename the anchored file' || fail "renamedanchor: commit failed"
+  seam
+  [ "$RC" -ne 0 ] || fail "renamedanchor: a committed rename hid the deleted anchor path (output: $OUT)"
+  [ "$OUT" = "MUTANT_EVIDENCE_RED: ui/src/app.mutants.json · ui/src/App.tsx: file is gone" ] \
+    || fail "renamedanchor: unexpected output: $OUT"
+}
+
 # probe/**/mutants.json is the third naming convention the repo already uses.
 case_probe_mutants_anchor_is_checked() {
   anchor_fixture probemutants probe/kin-probe-w4/mutants.json ui/src/probe.ts ANCHOR=probe
@@ -406,6 +420,7 @@ run case_untouched_anchor_still_skips
 run case_walk_mutant_anchor_is_checked
 run case_duplicate_anchor_fails
 run case_deleted_file_with_anchor_fails
+run case_renamed_file_with_anchor_fails
 run case_probe_mutants_anchor_is_checked
 run case_preexisting_stale_anchor_is_not_charged
 [ -z "$ONLY" ] || [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
