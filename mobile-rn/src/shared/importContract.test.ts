@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "@jest/globals";
 import * as ts from "typescript";
+import metroConfig from "../../metro.config.js";
 
 /**
  * KIN-MOBILE-001 R1 — the shared-import contract from ADR 0036 §2.
@@ -38,6 +39,17 @@ type Closure = {
   aliased: Set<string>;
   /** Every `ui/` module reached before any adapter substitution. */
   rawShared: Set<string>;
+};
+
+/** The slice of Metro's resolver result this contract asserts on. */
+type MetroResolution = { type: string; filePath: string };
+/** The slice of Metro's resolution context `metro.config.js` reads. */
+type MetroResolutionContext = {
+  resolveRequest: (
+    context: MetroResolutionContext,
+    moduleName: string,
+    platform: string,
+  ) => MetroResolution;
 };
 
 function repoPath(file: string): string {
@@ -344,5 +356,44 @@ describe("KIN-MOBILE-001 R1 shared-import contract", () => {
       expect(adr).toContain(shared);
       expect(adr).toContain(adapter);
     }
+  });
+
+  it("KIN-MOBILE-001: metro's resolver carries every adapter alias", () => {
+    // The closure walk above reads the source tree; this reads the shipped
+    // resolver. The walk applies SHARED_ADAPTERS itself, so deleting the
+    // substitution from metro.config.js would leave it green while the real
+    // bundle resolved the shared module with its DOM helpers.
+    expect(typeof metroConfig.resolver.resolveRequest).toBe("function");
+    const resolveRequest = metroConfig.resolver.resolveRequest as unknown as (
+      context: MetroResolutionContext,
+      moduleName: string,
+      platform: string,
+    ) => MetroResolution | null;
+
+    for (const [shared, adapter] of Object.entries(SHARED_ADAPTERS)) {
+      const upstream: MetroResolution = {
+        type: "sourceFile",
+        filePath: path.join(REPO_ROOT, shared),
+      };
+      const context: MetroResolutionContext = {
+        resolveRequest: () => upstream,
+      };
+      expect(resolveRequest(context, shared, "ios")).toEqual({
+        type: "sourceFile",
+        filePath: path.join(REPO_ROOT, adapter),
+      });
+    }
+
+    // A shared module that is not an adapter seam is passed through unchanged.
+    const untouched: MetroResolution = {
+      type: "sourceFile",
+      filePath: path.join(REPO_ROOT, "ui/src/lib/phoneSessionBuckets.ts"),
+    };
+    const context: MetroResolutionContext = {
+      resolveRequest: () => untouched,
+    };
+    expect(resolveRequest(context, "phoneSessionBuckets", "ios")).toEqual(
+      untouched,
+    );
   });
 });
