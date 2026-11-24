@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the surface stops publishing the strip's measured height",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.stripBand.dom.test.tsx",
+    "old": "      root.style.setProperty(\"--approval-strip-height\", `${Math.round(rect.height)}px`);",
+    "new": "      void 0;"
+  }
+]
