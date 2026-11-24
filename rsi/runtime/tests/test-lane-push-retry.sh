@@ -203,4 +203,24 @@ if should_run test_suite_is_wired_into_check_sh; then
   pass "the suite is wired into scripts/check.sh"
 fi
 
+# 9. Both network-bound calls run under the runtime's watchdog, so a stalled connection cannot
+#    wedge lane.sh with its lock and slot held. A helper-only suite never loads common.sh, so the
+#    wrapper falls back to the direct call — cases 1-4 above are that fallback.
+if should_run test_push_and_remote_read_are_bounded; then
+  begin test_push_and_remote_read_are_bounded
+  reset_case permanent
+  BOUND_LOG="$T/timeout.log"; export BOUND_LOG
+  : > "$BOUND_LOG"
+  with_timeout() { printf 'bounded %s\n' "$1" >> "$BOUND_LOG"; shift; "$@"; }
+  export -f with_timeout
+  env RSI_PUSH_RETRY_SLEEP=0 RSI_PUSH_RETRY_ATTEMPTS=2 RSI_PUSH_TIMEOUT_SECS=42 \
+    bash -c 'source "$1"; git_push_retry "$2" "$3" rsi/demo "$4"' \
+    _ "$HELPER" "$T/bin/git" "$T/wt" "$T/err" >"$T/o9" 2>"$T/e9" || true
+  [ "$(grep -c '^bounded 42$' "$BOUND_LOG")" -eq 4 ] \
+    || fail "expected 2 pushes + 2 remote-head reads under the watchdog, saw: $(cat "$BOUND_LOG")"
+  [ "$(grep -c . "$BOUND_LOG")" -eq 4 ] \
+    || fail "a bounded call did not use RSI_PUSH_TIMEOUT_SECS=42: $(cat "$BOUND_LOG")"
+  pass "push and remote-head read run under with_timeout with RSI_PUSH_TIMEOUT_SECS"
+fi
+
 echo "lane push retry: $n/$n cases passed"

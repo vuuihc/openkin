@@ -39,6 +39,8 @@ mkdir -p "$ST/lanes" "$CTRL/rsi/runtime" "$T/home"
 printf 'import sys\nsys.exit(0)\n' > "$CTRL/rsi/runtime/volc-budget.py"
 printf '#!/bin/bash\n# stub: the seam never creates a PR\n' > "$CTRL/rsi/runtime/lane-pr.sh"
 chmod +x "$CTRL/rsi/runtime/lane-pr.sh"
+printf '#!/bin/bash\n# stub: the seam never pushes\n' > "$CTRL/rsi/runtime/lane-push.sh"
+chmod +x "$CTRL/rsi/runtime/lane-push.sh"
 
 # seam — lane.sh --renamed-copy-check against the temp control tree and a temp HOME. The seam must
 # exit before locks, fetch, dispatch or any lane bookkeeping. Sets RC and OUT.
@@ -207,7 +209,7 @@ test_lane_pipeline_calls_the_seam() {
   local call_ln fmt_ln push_ln
   call_ln="$(grep -nF -- '--renamed-copy-check "$WT"' "$LANE" | head -1 | cut -d: -f1)"
   fmt_ln="$(grep -nF 'format-changed.sh" --write --commit --check' "$LANE" | head -1 | cut -d: -f1)"
-  push_ln="$(grep -nF 'push -q -u origin' "$LANE" | head -1 | cut -d: -f1)"
+  push_ln="$(grep -nF 'git_push_retry "$GIT" "$WT" "$BR"' "$LANE" | head -1 | cut -d: -f1)"
   [ -n "$call_ln" ] || fail "pipeline-call: the lane never calls --renamed-copy-check on \$WT"
   [ -n "$fmt_ln" ] || fail "pipeline-call: no format-commit call site found"
   [ -n "$push_ln" ] || fail "pipeline-call: no push call site found"
