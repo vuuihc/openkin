@@ -126,7 +126,6 @@ const en: MessageTree = {
     statusWaitingApproval: "Awaiting approval",
     statusWaitingInput: "Awaiting you",
     pendingApprovals: "{count} waiting for you",
-    statusPendingCount: "{count} awaiting approval",
     imported: "Imported sessions ({count})",
     importedLabel: "Imported sessions",
     statusSucceeded: "Done",

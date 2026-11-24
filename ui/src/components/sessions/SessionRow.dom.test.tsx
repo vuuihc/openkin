@@ -148,21 +148,18 @@ beforeEach(() => {
 });
 
 describe("SessionRow", () => {
-  it("renders the title, one metadata line and the status without repeating the device", () => {
+  it("renders the conversation title agent status device and relative time without changing the accessible label", () => {
     const { container } = render(<SessionRow {...props({ deviceLabel: "Studio" })} />);
 
     expect(screen.getByText("Fix the build")).toBeTruthy();
-    // KIN-CONTINUE-007: the device is the heading, not a row tail.
-    expect(screen.queryByText("Studio")).toBeNull();
-    expect(container.querySelector("[data-session-meta]")?.textContent).toBe(
-      "Claude Code · 2 minutes ago · Done",
-    );
+    expect(screen.getByText("Studio")).toBeTruthy();
+    expect(screen.getByText("2 minutes ago")).toBeTruthy();
     // The status dot is the succeeded, not-yet-viewed marker.
     expect(container.querySelector(".bg-kin-green")).not.toBeNull();
-    // aria-label is the row's own sentence: title, agent, when, status.
+    // aria-label is the row's own sentence: title, agent, when, status, device.
     expect(
       screen.getByRole("button", {
-        name: "Fix the build · Claude Code · 2 minutes ago · Done",
+        name: "Fix the build · Claude Code · 2 minutes ago · completed · Studio",
       }),
     ).toBeTruthy();
   });
@@ -1051,15 +1048,14 @@ describe("SessionRow", () => {
     const { container } = render(
       <SessionRow {...props({ shell: "sidebar", coarse: false, deviceLabel: "Studio" })} />,
     );
-    expect(container.querySelector("[data-session-meta]")?.textContent).toBe(
-      "Claude Code · 2 minutes ago · Done",
-    );
+    expect(screen.getByText("Studio")).toBeTruthy();
 
     const field = await chooseRename(container, "menu");
 
-    // In a 248px sidebar the metadata line and the trigger beside the field
-    // left only a few characters of the name visible.
-    expect(container.querySelector("[data-session-meta]")).toBeNull();
+    // In a 248px sidebar the time, the device label and the trigger beside
+    // the field left only a few characters of the name visible.
+    expect(screen.queryByText("Studio")).toBeNull();
+    expect(screen.queryByText("2 minutes ago")).toBeNull();
     expect(container.querySelector("[data-row-actions]")).toBeNull();
     expect(field.className).toContain("px-1.5");
   });

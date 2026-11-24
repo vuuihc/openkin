@@ -37,14 +37,11 @@ describe("the phone list's waiting count", () => {
     expect(SOURCE).toContain("pendingCount={row.task ? (pendingByTask.get(row.task.id) ?? 0) : 0}");
   });
 
-  it("says the count in the row's metadata line and name", () => {
-    // KIN-CONTINUE-007 gave the row one status slot. The row's `aria-label`
-    // wins over its subtree, so the count has to be composed into the name
-    // too; a name that omitted it would hide the one thing the status exists
-    // to say.
-    expect(ROW).toContain('tr("sessions.statusPendingCount", { count: String(pendingCount) })');
-    expect(ROW).toContain("data-session-status");
-    expect(ROW).toContain("` · ${status}`");
-    expect(ROW).toContain("const label = [row.title, agent, at, status]");
+  it("draws the chip and says the count in the row's name", () => {
+    // The badge's own label sits inside the button, and the row's `aria-label`
+    // wins over that subtree: a name that omitted the count would hide the one
+    // thing the orange mark exists to say.
+    expect(ROW).toContain("<PendingBadge count={pendingCount} />");
+    expect(ROW).toContain('tr("sessions.pendingApprovals", { count: String(pendingCount) })');
   });
 });
