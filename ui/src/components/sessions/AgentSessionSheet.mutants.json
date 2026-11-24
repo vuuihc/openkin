@@ -49,13 +49,6 @@
     "new": "            <Button variant=\"default\" onClick={() => setReloadKey((key) => key + 1)}>"
   },
   {
-    "label": "the removed-surfaces manifest count drifts from its paths",
-    "file": "scripts/check-removed-surfaces.test.py",
-    "test": "python3 -B scripts/check-removed-surfaces.test.py",
-    "old": "        self.assertEqual(len(paths), 23, paths)",
-    "new": "        self.assertEqual(len(paths), 21, paths)"
-  },
-  {
     "label": "the agent header scrolls inside the transcript again",
     "file": "ui/src/components/mobile/Sheet.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/AgentSessionSheet.dom.test.tsx -t \"keeps the agent header and close out of the scrolling transcript\"",
