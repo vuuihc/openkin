@@ -93,11 +93,6 @@
       "css=[role=region][tabindex='-1'] p:has-text('Fake reply from the journey fake agent.') >> nth=4"
     ],
     [
-      "scroll",
-      "css=[role=region][tabindex='-1']",
-      "320"
-    ],
-    [
       "node",
       "css=#root .touch-lg",
       "shell"
@@ -111,6 +106,11 @@
       "node",
       "css=[data-kin-bottom-chrome] form",
       "composer"
+    ],
+    [
+      "scroll",
+      "css=[role=region][tabindex='-1']",
+      "320"
     ],
     [
       "shot",
