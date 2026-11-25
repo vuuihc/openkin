@@ -15,7 +15,11 @@ import { Text } from "react-native";
 const mockFocusCallbacks: Array<() => void> = [];
 // One router for the whole suite: the route's effect depends on `router`, and
 // a fresh object per render would re-run the boot read forever.
-const mockRouter = { push: jest.fn(), replace: jest.fn() };
+const mockRouter = {
+  push: jest.fn(),
+  replace: jest.fn(),
+  setParams: jest.fn(),
+};
 
 /** The epoch the route passed, as text; a missing prop reads `none`. */
 function mockProbe({ focusEpoch }: { focusEpoch?: number }) {
@@ -27,6 +31,9 @@ jest.mock("expo-router", () => ({
   useFocusEffect: (callback: () => void) => {
     mockFocusCallbacks.push(callback);
   },
+  // The route reads the split selection from the URL even when this suite only
+  // cares about focus; no selection means the stack at any width.
+  useLocalSearchParams: () => ({}),
 }));
 
 jest.mock("../src/auth/pairing", () => ({
