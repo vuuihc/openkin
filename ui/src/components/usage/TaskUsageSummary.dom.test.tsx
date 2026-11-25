@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskUsage } from "../../api/client";
 import { t } from "../../i18n";
 import TaskUsageSummary from "./TaskUsageSummary";
@@ -298,5 +298,100 @@ describe("TaskUsageSummary controls on the facade (E4c)", () => {
     expect(row.parentElement?.children).toHaveLength(1);
     expect(title.nextElementSibling?.className).toContain("truncate");
     expect(row.lastElementChild?.textContent).toBe(t("usage.showDetails"));
+  });
+});
+
+/**
+ * R-usage-sheet-820: the composer footer renders this phone variant at every
+ * width below the 1600px side rail — 768–1599 included. The sheet it opens
+ * used to be the bare bottom sheet, which is `md:hidden` and closes itself the
+ * moment the breakpoint matches, so at 820 and 1100 the chip opened and shut
+ * inside one commit. jsdom has no `matchMedia` and the shared setup adds none;
+ * without the stub below the breakpoint effect bails out and every assertion
+ * here would pass against the broken control.
+ */
+function stubMatchMedia(matches: boolean) {
+  const listeners = new Set<() => void>();
+  window.matchMedia = ((query: string) => ({
+    // A getter, not a copy: the component re-reads `matches` when the change
+    // fires, which is how a real MediaQueryList behaves.
+    get matches() {
+      return matches;
+    },
+    media: query,
+    onchange: null,
+    addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+    removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+    addListener: (fn: () => void) => listeners.add(fn),
+    removeListener: (fn: () => void) => listeners.delete(fn),
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+  return {
+    set(next: boolean) {
+      matches = next;
+      for (const fn of listeners) fn();
+    },
+  };
+}
+
+describe("R-usage-sheet-820 the tablet usage sheet", () => {
+  const originalMatchMedia = window.matchMedia;
+  let back: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    // A sheet gives its history entry back on close. jsdom queues a real
+    // traversal, and its popstate can land in the next test; the mock keeps
+    // each test's history deterministic, exactly as Sheet.dom.test.tsx does.
+    back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
+    back.mockRestore();
+  });
+
+  function renderPhone() {
+    render(<TaskUsageSummary usage={usage()} loading={false} variant="phone" />);
+    return screen.getByRole("button", {
+      name: (name) => name.includes(t("usage.taskSummary")),
+    });
+  }
+
+  it("R-usage-sheet-820: the tablet trigger's sheet stays open past 768", async () => {
+    stubMatchMedia(true);
+    const user = userEvent.setup();
+    const opener = renderPhone();
+    await user.click(opener);
+    expect(await screen.findByRole("dialog", { name: t("usage.taskSummary") })).toBeTruthy();
+    expect(opener.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("R-usage-sheet-820: below 768 it is still the bottom sheet", async () => {
+    // `dialog` deliberately drops the layer's `md:hidden` (Sheet.tsx:521):
+    // that class and the breakpoint auto-close are what made the chip dead at
+    // 820, and a sheet that stays visible above `md` opts out of both. The
+    // phone shape therefore lives in the base classes, with every centring or
+    // radius change scoped to `md:` — the 390×844 screenshot proves the
+    // rendered result; this pins the contract that keeps it a bottom sheet.
+    stubMatchMedia(false);
+    const user = userEvent.setup();
+    await user.click(renderPhone());
+    const panel = await screen.findByRole("dialog", { name: t("usage.taskSummary") });
+    const layer = document.querySelector("[data-kin-sheet]")!;
+    expect(layer.className).toContain("justify-end");
+    expect(layer.className).toContain("md:justify-center");
+    expect(panel.className).toContain("rounded-t-2xl");
+    expect(panel.className).toContain("md:rounded-2xl");
+    // The touch tablet at 820 can still pull the centred panel down.
+    expect(document.querySelector("[data-sheet-grip]")).toBeTruthy();
+  });
+
+  it("R-usage-sheet-820: at 820 the layer is not the hidden phone sheet", async () => {
+    stubMatchMedia(true);
+    const user = userEvent.setup();
+    await user.click(renderPhone());
+    const panel = await screen.findByRole("dialog", { name: t("usage.taskSummary") });
+    expect(document.querySelector("[data-kin-sheet]")!.className).not.toContain("md:hidden");
+    expect(panel.className).toContain("md:rounded-2xl");
   });
 });
