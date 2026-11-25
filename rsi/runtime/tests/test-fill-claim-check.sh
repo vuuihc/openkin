@@ -11,11 +11,13 @@
 # all, so a prose row handed to an external agent arrived as an unverified
 # sentence. This suite pins both prompts and proves the pin can go red.
 #
-# Cases 3, 4 and 6 are negative fixtures: `missing` must refuse a copy of each
+# Cases 3, 4, 6 and 8 are negative fixtures: `missing` must refuse a copy of each
 # prompt with its claim-check text removed, or the positive cases are vacuous.
 # Case 5 pins the queue-dry fallback (fill.md §3b) and the dogfooder trigger:
 # on 2026-11-21 deleting either left check.sh green, the silent-drop failure
-# §3b exists to repair.
+# §3b exists to repair. Case 7 pins §2d (a signed story with open scope refills
+# the queue): on 2026-11-25 deleting the section left every named test green
+# while the only rule that refills the queue from signed stories was gone.
 #
 # Hermetic: temp dir, no network, no state dirs. Prints "PASS <case>" per case
 # and exits non-zero on the first failure.
@@ -97,5 +99,22 @@ if missing "$T/fill-no-3b.md" "queue-dry-negative-fixture-is-refused" "${QD_MARK
   fail "queue-dry-negative-fixture-is-refused: the copy without §3b still passed"
 fi
 pass "queue-dry-negative-fixture-is-refused"
+
+# --- 7. §2d (a signed story with open scope refills the queue) stays pinned ---------------------
+# Without §2d the director prompt has no rule that turns a signed story's open
+# scope into Queue rows, so lanes idle while approved work waits.
+REFILL_MARKERS=('## 2d. A signed story with open scope refills the queue before any lane idles' 'docs/product/stories/registry.json' 'waits on #N' '**做** list only' '不做（各自去处）' "name it on STATUS.md's Parked list" "a person's subjective check" 'active claim')
+if ! missing "$FILL" "fill-prompt-carries-signed-story-refill" "${REFILL_MARKERS[@]}"; then
+  fail "fill-prompt-carries-signed-story-refill"
+fi
+pass "fill-prompt-carries-signed-story-refill"
+
+# --- 8. the check can go red: a fill.md copy without §2d is refused ------------------------------
+# Delete the §2d heading through its paragraph; the next `## ` heading stays.
+awk '/^## 2d\./ {skip=1} /^## / && !/^## 2d\./ {skip=0} !skip' "$FILL" > "$T/fill-no-2d.md"
+if missing "$T/fill-no-2d.md" "signed-story-refill-negative-fixture-is-refused" "${REFILL_MARKERS[@]}"; then
+  fail "signed-story-refill-negative-fixture-is-refused: the copy without §2d still passed"
+fi
+pass "signed-story-refill-negative-fixture-is-refused"
 
 echo "test-fill-claim-check: ALL-PASS"
