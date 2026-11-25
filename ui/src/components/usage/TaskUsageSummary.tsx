@@ -261,7 +261,14 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
             {total} {tr("usage.tokens")}
           </span>
         </Button>
-        <Sheet open={open} onClose={() => setOpen(false)} title={tr("usage.taskSummary")}>
+        {/* The composer footer draws this variant at every width below the
+            1600px side rail, so above `md` it has to stop being the phone's
+            bottom sheet: without `dialog` the layer stays `md:hidden` and the
+            breakpoint effect closes it inside the opening commit. `dialog`
+            keeps the bottom sheet on a phone, centres it at 768–1599, and
+            skips that auto-close. The grip stays: a touch tablet can still
+            pull it down. */}
+        <Sheet open={open} onClose={() => setOpen(false)} title={tr("usage.taskSummary")} dialog>
           {details}
         </Sheet>
       </>
