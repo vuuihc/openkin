@@ -7,6 +7,13 @@
     "new": "const CONTROL_FLOOR_ARM = 767.98;"
   },
   {
+    "label": "the instrument's boundary falls back to 767.98px while the stylesheet ships 1023.98px, so a green reading describes a page the product does not draw",
+    "file": "rsi/runtime/ux/measure-list-shell.mjs",
+    "test": "node rsi/runtime/ux/measure-list-shell.mjs --self-test",
+    "old": "const SHIPPED_FLOOR_ARM = 1023.98;\nconst CONTROL_FLOOR_ARM = 1023.98;",
+    "new": "const SHIPPED_FLOOR_ARM = 767.98;\nconst CONTROL_FLOOR_ARM = 767.98;"
+  },
+  {
     "label": "the injected floor loses the buttons arm, so the row is never floored",
     "file": "rsi/runtime/ux/measure-list-shell.mjs",
     "test": "node rsi/runtime/ux/measure-list-shell.mjs --self-test",
