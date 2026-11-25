@@ -26,6 +26,7 @@ import {
   type ProvidersView,
   type UsageWindowDays,
 } from "../providers/providersModel";
+import type { StreamSource } from "../thread/stream";
 import {
   createThread,
   type Thread,
@@ -61,6 +62,11 @@ export type ConversationScreenProps = {
   readSessionImpl?: () => Promise<Session | null>;
   /** Tests inject a recording fetch. */
   fetchImpl?: typeof fetch;
+  /**
+   * Tests inject the event source. Production lets the thread build the
+   * fetch reader, exactly as the web console's EventSource would.
+   */
+  source?: StreamSource;
 };
 
 export default function ConversationScreen({
@@ -68,6 +74,7 @@ export default function ConversationScreen({
   onBack,
   readSessionImpl,
   fetchImpl,
+  source,
 }: ConversationScreenProps) {
   const [state, setState] = useState<ThreadState | null>(null);
   // The node-wide pending lists, scoped to this conversation at render time
@@ -109,13 +116,17 @@ export default function ConversationScreen({
           token: session.token,
           taskId,
           fetchImpl,
+          source,
         });
         threadRef.current = thread;
         unsubscribeRef.current = thread.subscribe((next) => {
           if (live) setState(next);
         });
         setState(thread.getState());
-        void thread.load();
+        // `start()` is the read *and* the subscription: `load()` alone leaves
+        // the screen with a snapshot that never learns a sent message, its
+        // reply, or the round's end (2026-11-25, the simulator walk).
+        void thread.start();
 
         // One approvals model beside the thread, from the same session: the
         // conversation shows the card its next turn is blocked on.
@@ -168,10 +179,12 @@ export default function ConversationScreen({
       threadRef.current?.close();
       threadRef.current = null;
     };
-  }, [taskId, readSessionImpl, fetchImpl]);
+  }, [taskId, readSessionImpl, fetchImpl, source]);
 
   const retry = useCallback(() => {
-    void threadRef.current?.load();
+    // A retry after a failed read must also (re)open the subscription: a
+    // load-only retry would leave the recovered screen unable to update.
+    void threadRef.current?.start();
   }, []);
 
   // One read path for the list and for a failed card's retry: re-reading the
