@@ -7,6 +7,13 @@
     "test": "cd ui && VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run src/design/tailwind.test.ts"
   },
   {
+    "label": "the coarse floor stops at the phone arm again, so an iPad in portrait is drawn at desktop density (KIN-CONTINUE-007 item 5)",
+    "file": "ui/src/index.css",
+    "old": "  @media (max-width: 639.98px), ((pointer: coarse) and (max-width: 1023.98px)) {\n    .touch-lg button:not([data-touch-mini]),",
+    "new": "  @media (max-width: 639.98px), ((pointer: coarse) and (max-width: 767.98px)) {\n    .touch-lg button:not([data-touch-mini]),",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run src/design/tailwind.test.ts"
+  },
+  {
     "label": "the chip floor keeps its 44px width but drops the height a thumb needs (R-touch-820a)",
     "file": "ui/src/index.css",
     "old": "    .touch-floor.touch-floor {\n      min-height: 44px;\n      min-width: 44px;\n    }",
