@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { act, render, waitFor } from "@testing-library/react-native";
+import { useEffect as mockUseEffect } from "react";
 import { Text } from "react-native";
 
 /**
@@ -21,15 +22,32 @@ const mockRouter = {
   setParams: jest.fn(),
 };
 
-/** The epoch the route passed, as text; a missing prop reads `none`. */
-function mockProbe({ focusEpoch }: { focusEpoch?: number }) {
-  return <Text testID="epoch">{String(focusEpoch ?? "none")}</Text>;
+/** The epochs the route passed, as text; a missing prop reads `none`. */
+function mockProbe({
+  focusEpoch,
+  returnFocusEpoch,
+}: {
+  focusEpoch?: number;
+  returnFocusEpoch?: number;
+}) {
+  return (
+    <>
+      <Text testID="epoch">{String(focusEpoch ?? "none")}</Text>
+      <Text testID="return-epoch">{String(returnFocusEpoch ?? "none")}</Text>
+    </>
+  );
 }
 
 jest.mock("expo-router", () => ({
   useRouter: () => mockRouter,
   useFocusEffect: (callback: () => void) => {
     mockFocusCallbacks.push(callback);
+    // React Navigation runs the callback once when a screen mounts focused.
+    // Recording it without running it would leave the route's mount guard
+    // (`showing.current`) unpinned: deleting the guard would still be green.
+    mockUseEffect(() => {
+      callback();
+    }, [callback]);
   },
   // The route reads the split selection from the URL even when this suite only
   // cares about focus; no selection means the stack at any width.
@@ -75,6 +93,26 @@ describe("KIN-MOBILE-001 R5 list route focus", () => {
 
     await waitFor(() =>
       expect(screen.getByTestId("epoch").props.children).toBe("1"),
+    );
+  });
+
+  it("KIN-MOBILE-001 §2: the list route bumps the return-focus epoch when the screen regains focus, and not at mount", async () => {
+    const screen = await render(<ListRoute />);
+    await waitFor(() =>
+      expect(screen.getByTestId("return-epoch")).toBeTruthy(),
+    );
+    // The mount is not a return: the boot read decided the first frame and the
+    // list must not move the reader onto a row it just painted.
+    expect(screen.getByTestId("return-epoch").props.children).toBe("0");
+    expect(screen.getByTestId("epoch").props.children).toBe("0");
+
+    const focus = mockFocusCallbacks[0]!;
+    await act(async () => {
+      focus();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("return-epoch").props.children).toBe("1"),
     );
   });
 });
