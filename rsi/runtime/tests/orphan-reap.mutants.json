@@ -42,10 +42,10 @@
     "new": "  bash rsi/runtime/tests/test-lane-orphan-reap.sh || true"
   },
   {
-    "label": "a successful lane keeps its simulators and the sims-before snapshot",
+    "label": "a successful lane advertises itself done before releasing host resources",
     "file": "rsi/runtime/lane.sh",
     "test": "bash rsi/runtime/tests/test-lane-orphan-reap.sh",
-    "old": "lane_release_host\nrm -rf \"$LK\"; trap - EXIT",
-    "new": "rm -rf \"$LK\"; trap - EXIT"
+    "old": "lane_release_host\nfinish done \"$PRN\"",
+    "new": "finish done \"$PRN\"\nlane_release_host"
   }
 ]

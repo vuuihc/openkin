@@ -217,8 +217,12 @@ grep -qx 'simctl shutdown UDID-B' "$T/xcrun.log" \
 rm -f "$T/bin/xcrun"
 pass "a lane release shuts down simulators booted after the snapshot and removes sims-before"
 
-# 10. Wiring: the success path calls lane_release_host while the lane lock still
-#     exists, before `rm -rf "$LK"; trap - EXIT`; cleanup() still calls it.
+# 10. Wiring: the success path releases host resources while the lane is still
+#     advertised as running — before `finish done`, which makes lanes.py report
+#     the lane idle (merge.sh then stops skipping this PR and can start a
+#     verifier here while rsi_reap_cwd sweeps; a pulse can claim the still-locked
+#     lane for 25 min) — and before `rm -rf "$LK"; trap - EXIT`; cleanup() still
+#     calls it.
 #     `trap - EXIT` must stay: cleanup's pgrep -P kill loop would otherwise kill
 #     the nohup merge/pulse handoff launched right after.
 cleanup_ln="$(grep -n '^cleanup()' "$LANE" | cut -d: -f1)"
@@ -226,9 +230,11 @@ awk -v c="$cleanup_ln" 'NR > c && /^  lane_release_host$/ { found = 1; exit } EN
   || fail "case 10: cleanup no longer calls lane_release_host"
 unlock_ln="$(grep -n '^rm -rf "$LK"; trap - EXIT$' "$LANE" | cut -d: -f1)"
 call_ln="$(grep -n '^lane_release_host$' "$LANE" | cut -d: -f1)"
-[ -n "$call_ln" ] && [ -n "$unlock_ln" ] && [ $((call_ln + 1)) -eq "$unlock_ln" ] \
-  || fail "case 10: success path does not release host resources right before dropping the lock"
-pass "lane.sh releases host resources on the success path before dropping the lock"
+done_ln="$(grep -n '^finish done ' "$LANE" | cut -d: -f1)"
+[ -n "$call_ln" ] && [ -n "$done_ln" ] && [ -n "$unlock_ln" ] \
+  && [ "$call_ln" -lt "$done_ln" ] && [ "$done_ln" -lt "$unlock_ln" ] \
+  || fail "case 10: success path must release host resources before finish done (lane stays running during the sweep) and before dropping the lock"
+pass "lane.sh releases host resources on the success path before finish done and before dropping the lock"
 
 # 11. The shell gate job runs this suite, so a regression cannot land green.
 grep -q 'bash rsi/runtime/tests/test-lane-orphan-reap.sh || return 1' "$REPO/scripts/check.sh" \

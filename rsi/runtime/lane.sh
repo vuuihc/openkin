@@ -1034,9 +1034,15 @@ fi
 
 if [ $TIMEDOUT -eq 1 ]; then count_timeout "lane $N ($SLUG)" "partial work pushed as PR #$PRN"; else count_ok; fi
 scorecard_row "$ITEM $SLUG (lane $N, $MODE)" "$M_WORKER" "pending (merge lane)" "PR opened (${W_MIN}m, \$${COST:-?})$([ $TIMEDOUT -eq 1 ] && echo ', worker hit watchdog')" "[#$PRN]($PRURL)" "pending" "-"
+# Release host resources BEFORE the lane is advertised as done: `finish done`
+# makes lanes.py report the lane idle, and the sweep/shutdown just below can take up
+# to 20 s (lsof). In that window merge.sh no longer skips this PR — it could
+# start a verifier in this worktree and have its git/claim-check children reaped
+# by rsi_reap_cwd — and a pulse could claim the still-locked lane for 25 min.
+# cleanup() keeps the same invariant: release, then mark the lane crashed.
+lane_release_host
 finish done "$PRN" "PR #$PRN ${W_MIN}m \$${COST:-?} swept=$SWEPT_N${CLAIM_RETRY_NOTE:+ · $CLAIM_RETRY_NOTE}"
 echo "[$(date +%T)] lane $N done PR #$PRN"
-lane_release_host
 rm -rf "$LK"; trap - EXIT
 
 # hand over: merge lane now, refill idle lanes right after
