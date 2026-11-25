@@ -6,6 +6,23 @@ const repoRoot = path.resolve(projectRoot, "..");
 
 const config = getDefaultConfig(projectRoot);
 
+// expo-router builds its route table from `require.context("./app")`, whose
+// pattern matches every `.ts`/`.tsx` file in the route directory — including
+// `app/list.focus.test.tsx`. Bundling that test pulls
+// `@testing-library/react-native` into the app graph, and its `require
+// ("console")` is not resolvable on Hermes: the whole app dies on a red box
+// before the first frame. Tests are not routes, so Metro's file map must not
+// offer them to the context module at all. Jest is unaffected: it resolves
+// through its own resolver, not this config.
+//
+// The default block list (Metro's own caches and duplicates) is kept; this
+// adds the route directory's test files beside it.
+const defaultBlockList = config.resolver.blockList;
+config.resolver.blockList = [
+  ...(Array.isArray(defaultBlockList) ? defaultBlockList : [defaultBlockList]),
+  /[\\/]app[\\/].*\.test\.[tj]sx?$/,
+].filter(Boolean);
+
 // ADR 0036 §2: the shared TypeScript under ui/ is imported in place. Metro
 // watches the repository root, and expo/metro-config reads the @ui/* alias from
 // tsconfig.json, so nothing is copied out of ui/.

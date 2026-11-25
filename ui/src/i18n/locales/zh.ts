@@ -153,6 +153,7 @@ const zh = {
     deletedCount: "已删除 {count} 个会话",
     deleteFailedCount: "{count} 个会话删除失败：{error}",
     deletingSelected: "正在删除…",
+    selectConversation: "在左侧选一条对话，在这里阅读。",
   },
   home: {
     slogan: "和 Kin 对话，编排你的 agent",

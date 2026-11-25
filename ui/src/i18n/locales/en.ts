@@ -160,6 +160,7 @@ const en: MessageTree = {
     deletedCount: "Sessions deleted: {count}",
     deleteFailedCount: "{count} could not be deleted: {error}",
     deletingSelected: "Deleting…",
+    selectConversation: "Select a chat to read it here.",
   },
   home: {
     slogan: "Talk to Kin, orchestrate your agents",
