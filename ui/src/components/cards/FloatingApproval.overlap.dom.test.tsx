@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Approval, TaskEvent } from "../../api/client";
+import type { Approval, TaskEvent, UserQuestion } from "../../api/client";
 import { t } from "../../i18n";
 import type { RoundEvidence } from "../../lib/roundEvidence";
 import RoundEvidenceCard from "../chat/RoundEvidenceCard";
 import Markdown from "../Markdown";
 import FloatingApproval, { rectsOverlap } from "./FloatingApproval";
+import UserQuestionCard from "./UserQuestionCard";
 
 /**
  * The floating approval card over a conversation's own content.
@@ -94,12 +95,43 @@ const CELL_UNDER_CARD: Box = { top: 600, bottom: 632, left: 700, right: 900 };
 const CELL_UNDER_STRIP: Box = { top: 400, bottom: 632, left: 700, right: 900 };
 const CELL_CLEAR: Box = { top: 200, bottom: 232, left: 300, right: 600 };
 
+/**
+ * The filed phone (390×844, safe area applied to the fixed offsets): the
+ * floating surface is 366×269 at (12,353) and its strip 274×52 at the same
+ * top. A question card's `其他` row sits at 349–409, under both. When the card
+ * yields, the pill is bottom-anchored above the composer band (y=630) at
+ * 570–622, clear of the field.
+ */
+const PHONE_CARD: Box = { top: 353, bottom: 622, left: 12, right: 378 };
+const PHONE_STRIP: Box = { top: 353, bottom: 405, left: 12, right: 286 };
+const PHONE_COLLAPSED_STRIP: Box = { top: 570, bottom: 622, left: 12, right: 286 };
+const PHONE_BAND: Box = { top: 630, bottom: 844, left: 0, right: 390 };
+const PHONE_ANSWER_ROW: Box = { top: 349, bottom: 409, left: 31, right: 359 };
+
+const questionCard: UserQuestion = {
+  id: "question-1",
+  task_id: "task-1",
+  payload: {
+    question: "Which release path?",
+    options: [
+      { label: "Alpha", description: "The first way" },
+      { label: "Beta", description: "The second way" },
+    ],
+  },
+  status: "pending",
+  created_at: 1_700_000_000_000,
+};
+
 const geometry = {
   card: CARD,
   strip: STRIP,
   collapsedStrip: null as Box | null,
   rows: [ROW_UNDER_CARD] as Box[],
   cells: [] as Box[],
+  /** Where the page's own bottom band sits, for the phone's measurements. */
+  band: { top: 700, bottom: 760, left: 0, right: 1100 } as Box,
+  /** A plain paragraph the reader is reading: it marks nothing. */
+  prose: EMPTY as Box,
 };
 
 /**
@@ -129,8 +161,11 @@ function stubGeometry(): void {
       const cells = Array.from(document.querySelectorAll("[data-kin-reading]"));
       return domRect(geometry.cells[cells.indexOf(this)] ?? EMPTY);
     }
+    if (this.hasAttribute("data-kin-prose")) {
+      return domRect(geometry.prose);
+    }
     if (this.hasAttribute("data-kin-bottom-chrome")) {
-      return domRect({ top: 700, bottom: 760, left: 0, right: 1100 });
+      return domRect(geometry.band);
     }
     return domRect(EMPTY);
   });
@@ -174,6 +209,8 @@ beforeEach(() => {
   geometry.collapsedStrip = null;
   geometry.rows = [ROW_UNDER_CARD];
   geometry.cells = [];
+  geometry.band = { top: 700, bottom: 760, left: 0, right: 1100 };
+  geometry.prose = EMPTY;
   stubGeometry();
   // The conversation's composer band, on screen: the card measures its offset
   // from it, and the strip-only render reconstructs the card's box from the
@@ -492,6 +529,105 @@ describe("FloatingApproval over reading content", () => {
     for (const cell of cells) {
       expect(cell.hasAttribute("data-kin-reading")).toBe(true);
     }
+  });
+});
+
+describe("FloatingApproval over a question card's custom answer", () => {
+  const answerCard = () => <UserQuestionCard question={questionCard} onAnswer={vi.fn()} />;
+
+  beforeEach(() => {
+    // The filed phone: a pushed conversation with a composer band at y=630.
+    viewport(390, 844);
+    geometry.card = PHONE_CARD;
+    geometry.strip = PHONE_STRIP;
+    geometry.collapsedStrip = PHONE_COLLAPSED_STRIP;
+    geometry.band = PHONE_BAND;
+    geometry.rows = [PHONE_ANSWER_ROW];
+    geometry.cells = [];
+  });
+
+  it("keeps the strip off a question card's custom answer field", () => {
+    const { props } = setupProps();
+    const view = render(
+      <>
+        {answerCard()}
+        <FloatingApproval {...props} />
+      </>,
+    );
+
+    // The decision surface gives way exactly as it does for a changed-file
+    // row: the field is under the expanded box, so only the pill stays.
+    expect(view.container.querySelector("[data-kin-approval-card]")).toBeNull();
+    expect(approveButton()).toBeNull();
+    expect(denyButton()).toBeNull();
+
+    // …and the pill's own box is clear of the field, so a finger tap at the
+    // field's centre reaches the input instead of the strip's task name.
+    const strip = view.container.querySelector("aside > [role='status']");
+    expect(strip).not.toBeNull();
+    expect(rectsOverlap(strip!.getBoundingClientRect(), domRect(PHONE_ANSWER_ROW))).toBe(false);
+  });
+
+  it("does not hide the strip when only the question card's field is under it", () => {
+    // The strip is a pushed conversation's one pending-approval entry
+    // (`rsi/DECISIONS.md:172`): the card yields, the surface does not
+    // disappear. At the first measurement the field is under the expanded
+    // strip's own box, so a rule that hid the strip on a hit row would take
+    // that entry away entirely.
+    const { props, onOpenTask } = setupProps();
+    const view = render(
+      <>
+        {answerCard()}
+        <FloatingApproval {...props} />
+      </>,
+    );
+
+    const strip = view.container.querySelector("aside > [role='status']");
+    expect(strip).not.toBeNull();
+    const control = screen.getByRole("button", { name: /Fix the tests/ });
+    expect(control.getAttribute("aria-label")).toContain(t("approval.floatingLabel"));
+    fireEvent.click(control);
+    expect(onOpenTask).toHaveBeenCalledWith("task-1");
+  });
+
+  it("keeps the card on a tablet when only the phone-marked answer row is under it", () => {
+    // The defect is the phone band. At 820 the strip's corner touched the
+    // row's last 11px but the field's centre was self-hit; the card keeps the
+    // shape the filed probe measured, so the marker's `phone` value scopes the
+    // yield instead of widening it to every width.
+    viewport(820, 1180);
+    geometry.card = { top: 725, bottom: 994, left: 412, right: 796 };
+    geometry.strip = { top: 725, bottom: 777, left: 412, right: 686 };
+    geometry.band = { top: 1002, bottom: 1180, left: 0, right: 820 };
+    geometry.rows = [{ top: 671, bottom: 736, left: 411, right: 777 }];
+    const { props } = setupProps();
+    const view = render(
+      <>
+        {answerCard()}
+        <FloatingApproval {...props} />
+      </>,
+    );
+
+    expect(view.container.querySelector("[data-kin-approval-card]")).not.toBeNull();
+    expect(approveButton()).toBeTruthy();
+    expect(denyButton()).toBeTruthy();
+  });
+
+  it("leaves prose under the card alone", () => {
+    // The 2026-11-22 decision accepts the card covering prose: only controls
+    // and reading content yield. Extending the marker must not widen the rule.
+    geometry.rows = [];
+    geometry.prose = { top: 500, bottom: 580, left: 40, right: 350 };
+    const { props } = setupProps();
+    const view = render(
+      <>
+        <p data-kin-prose="">A paragraph the reader is reading.</p>
+        <FloatingApproval {...props} />
+      </>,
+    );
+
+    expect(view.container.querySelector("[data-kin-approval-card]")).not.toBeNull();
+    expect(approveButton()).toBeTruthy();
   });
 });
 

@@ -158,7 +158,16 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
           })}
         </ul>
 
-        <div className="mt-3">
+        {/* The free-text row is a control a floating surface must not cover:
+            `FloatingApproval` measures every `[data-kin-hit-row]` box before
+            it draws the decision card, and on a 390-wide phone the strip sat
+            on this field and took the tap. The marker is on the row — the
+            label and the input together — because a tap anywhere in it is the
+            same intent, not only on the input's own 44px. The `phone` value
+            scopes the yield to the band the defect was filed in: from 768 up
+            the conversation is a column beside the list, the field measured
+            self-hit, and the card keeps its present shape. */}
+        <div className="mt-3" data-kin-hit-row="phone">
           <label className="block text-caption text-kin-muted mb-1">{tr("question.other")}</label>
           <input
             type="text"

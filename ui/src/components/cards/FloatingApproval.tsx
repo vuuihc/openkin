@@ -259,7 +259,17 @@ export default function FloatingApproval({
       return false;
     };
 
-    const hit = covers(box, "[data-kin-hit-row]") || covers(box, "[data-kin-reading]");
+    // A question card's `其他` answer row marks itself `phone`: on the phone
+    // band the strip sat on the field and took the tap, so the card yields the
+    // same way it does to a changed-file row. From 768 up the conversation is
+    // a column beside the list, the filed probe measured the field self-hit,
+    // and the card keeps its present shape — a strip corner touching the row's
+    // last 11px is not a blocked control.
+    const hitRowSelector =
+      viewportWidth < 768
+        ? "[data-kin-hit-row]"
+        : "[data-kin-hit-row]:not([data-kin-hit-row='phone'])";
+    const hit = covers(box, hitRowSelector) || covers(box, "[data-kin-reading]");
     if (hit !== covered) setCovered(hit);
 
     // The strip's own pill: measured directly whenever it is mounted, and
