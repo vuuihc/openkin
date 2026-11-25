@@ -179,6 +179,22 @@ describe("the Mac sidebar list", () => {
     expect(screen.getAllByRole("searchbox")).toHaveLength(1);
   });
 
+  it("keeps the one sidebar list", () => {
+    // KIN-CONTINUE-007 gave the row a second line; it did not give the column
+    // a second list. One search field, one row per conversation, and every row
+    // is the same two-line `SessionList` row.
+    fixtures.tasks = [task("one", "/work/alpha"), task("two", "/work/alpha")];
+    render(sidebar());
+
+    expect(screen.getAllByRole("searchbox")).toHaveLength(1);
+    const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-session-row]"));
+    expect(rows.map((row) => row.dataset.sessionRow).sort()).toEqual(["one", "two"]);
+    for (const row of rows) {
+      expect(row.querySelector("[data-session-title]")).not.toBeNull();
+      expect(row.querySelector("[data-session-meta]")).not.toBeNull();
+    }
+  });
+
   it("draws machine → project → conversation from the shared model", async () => {
     fixtures.tasks = [task("local-work", "/work/alpha"), task("remote-work", "/srv/beta", "nas-1")];
     render(sidebar());
@@ -473,8 +489,8 @@ describe("the Mac sidebar list", () => {
     fixtures.tasks = [task("only", "/work/alpha")];
     fixtures.pending = [{ task_id: "only" }, { task_id: "only" }, { task_id: "only" }];
     render(sidebar());
-    expect(screen.getByRole("button", { name: /only · .*3 waiting for you/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^3 waiting for you$/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /only · .*3 awaiting approval/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^3 awaiting approval$/ })).toBeNull();
   });
 
   it("remembers a project fold by machine and project", async () => {
