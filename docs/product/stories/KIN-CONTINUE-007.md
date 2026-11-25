@@ -10,16 +10,16 @@
 
 当我坐在竖着的 iPad 前（820×1180，手指操作），或把 Mac 窗口收窄到只剩 304px 左栏，想接着问昨天那段对话，我想一屏就扫到十条对话——每条只有一行标题、一行元数据，设备和项目默认不再把对话挤到折叠线以下——以便不用先滚动、先折叠、先猜被截断的标题。
 
-这是 `R-list-scan` 的合同。`KIN-CONTINUE-004.md:38` 的「不做」把它写成「下一条故事」；`ui/src/index.css:273-276` 把 44px 地板在 768–1023.98 的去留交给签了字的故事，本条就是那一条。
+这是 `R-list-scan` 的合同。`KIN-CONTINUE-004.md:38` 的「不做」把它写成「下一条故事」；`ui/src/index.css:263-266` 记录本故事 item 5 / D4 对粗指针地板的要求，本条就是那一条。
 
 ## 现在
 
-2026-11-24 在 820×1180、`pointer: coarse` 下重跑 `node rsi/runtime/ux/measure-list-shell.mjs --viewports 820x1180 --shots …`：列表列 304px，项目名可读宽度 126.5px，对话标题 97.7px（行宽 216px），与 `ui/src/index.css:269-270` 记录的 2026-11-23 值一致。同一次运行的 shipped 截图里默认列表只露出 **8 条对话**（Alpha 2 条、Beta 5 条、Gamma 1 条），而设备标题写「此设备 10」——另外 2 条在折叠线以下。
+2026-11-24 在 820×1180、`pointer: coarse` 下重跑 `node rsi/runtime/ux/measure-list-shell.mjs --viewports 820x1180 --shots …`：列表列 304px，项目名可读宽度 126.5px，对话标题 97.7px（行宽 216px），与 `ui/src/index.css:270-271` 记录的 2026-11-23 值一致。同一次运行的 shipped 截图里默认列表只露出 **8 条对话**（Alpha 2 条、Beta 5 条、Gamma 1 条），而设备标题写「此设备 10」——另外 2 条在折叠线以下。
 
 - **一行塞了标题和全部尾巴**：`ui/src/components/sessions/SessionRow.tsx:399` 的标题是单行 `truncate`，`:422-431` 把设备名、例行标记、相对时间放在同一行尾部；304px 下标题只剩 97.7px，截图里读作 `[seed] A…`、`[seed] Mornin…`。
 - **项目默认全开**：`ui/src/components/sessions/SessionList.tsx:853` 是 `folds[stateKey] ?? !imported`——只有「导入的会话」默认收起，项目一律展开。
 - **每个展开的项目都带一块工作方式**：`SessionList.tsx:2499-2512` 在展开项目里渲染 `ProjectInstructionsRow`；标题行 `:2071` 是 44px，正文 `:2136-2137` 是 `line-clamp-2`。截图里 Alpha 这块约 95px、Beta 约 80px，三个项目就吃掉约 260px（2026-11-24 截图逐块量得）。
-- **44px 地板停在 md**：`ui/src/index.css:262-276` 的 `.touch-lg` 只在 `max-width: 767.98px` 或粗指针且不超过 767.98px 时生效；同一次测量里 820 的 `shippedFloorMatches` 是 false。行本身有 `min-h-11`（`SessionRow.tsx:296`，820 粗指针下 `dense` 为 false，见 `:178`），所以行量得 44px；但这来自行自己的类，不是全局地板——一个没写 44px 的控件在 820 上没有保证。
+- **44px 地板停在 md（D4 落地前的状态）**：`ui/src/index.css:287` 的 `.touch-lg` 当时只在 `max-width: 767.98px` 或粗指针且不超过 767.98px 时生效，同一次测量里 820 的 `shippedFloorMatches` 是 false；item 5 / D4 已把粗指针臂扩到 1023.98px（宽度臂仍是 639.98px），落地后 820 复测 `shippedFloorMatches: true`，项目名与行标题仍是 126.5px / 97.7px。行本身有 `min-h-11`（`SessionRow.tsx:296`，820 粗指针下 `dense` 为 false，见 `:178`），所以行量得 44px；但这来自行自己的类，不是全局地板——一个没写 44px 的控件在 820 上没有保证。
 - **没有「一屏几条」的合同**：今天没有任何测试数过 820 一屏能放几条对话；8 这个数字只存在于这次截图里。
 
 ## 范围
