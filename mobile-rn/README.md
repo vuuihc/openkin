@@ -46,10 +46,10 @@ xcrun simctl openurl booted "exp://127.0.0.1:8081"
 ```
 
 Expo Go caches the app under `~/.expo/ios-simulator-app-cache/` the first time
-`npx expo start --ios` installs it. If the cache is empty, run
-`npx expo start --ios` once on a machine with the Simulator app, or use
-`npx expo run:ios` (which generates `ios/`; it is gitignored and never
-committed).
+it is installed. If the cache is empty, install Expo Go on the simulator from
+the App Store, or use `npx expo run:ios` (which generates `ios/`; it is
+gitignored and never committed). Neither fallback was exercised in this run:
+the simulator already had the cached Expo Go 58.0.7 app.
 
 The iPad layout is the same project on an iPad simulator; portrait is the
 supported orientation today:
