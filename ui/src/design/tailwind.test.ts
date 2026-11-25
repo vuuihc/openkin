@@ -515,12 +515,14 @@ describe("cascade foundation through the real stylesheet", () => {
 
   it("floors a coarse tablet chip at 44px without changing the Mac's density", async () => {
     // The `/new` draft's cover chip measured 75×27.9 at 820×1180 with a coarse
-    // pointer: the global floor stops at 768 and the chip's own `sm:min-h-0`
-    // drops `min-h-11` at ≥640. One chip opts in by class, so the 768–1023
-    // shell keeps desktop density everywhere else (index.css's `.touch-lg`
-    // comment records what a blanket floor does to a 304px list row). The
-    // doubled class beats `sm:` utilities regardless of emission order, the
-    // same reason `.kin-composer-input.kin-composer-input` is doubled.
+    // pointer: the chip is an anchor, so the global floor's selector list
+    // (buttons, selects, `[role="button"]`, inputs) never matches it, and the
+    // chip's own `sm:min-h-0` drops `min-h-11` at ≥640. The global coarse arm
+    // now reaches 1023.98px, and the chip's own class matches that same arm, so
+    // a coarse pointer in the iPad band takes 44px while a fine pointer keeps
+    // the Mac's density. The doubled class beats `sm:` utilities regardless of
+    // emission order, the same reason `.kin-composer-input.kin-composer-input`
+    // is doubled.
     const css = await stylesheet([]);
     const chip = one(css, ".touch-floor.touch-floor");
     expect(chip.layers).toEqual(["utilities"]);
