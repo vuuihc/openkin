@@ -166,6 +166,7 @@ export default function ProviderUsageSheet({
             <View style={styles.handleBar} testID="usage-drag-bar" />
           </View>
           <ProviderUsage
+            autoFocus={visible}
             onClose={onClose}
             onRefresh={onRefresh}
             onSelectWindow={onSelectWindow}

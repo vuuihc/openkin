@@ -1,0 +1,37 @@
+[
+  {
+    "label": "a first-load skeleton drops the !hasData guard, so a refresh covers the kept numbers (R-rn-usage-first-open)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "  const showSkeleton = state.status === \"loading\" && !hasData;",
+    "new": "  const showSkeleton = state.status === \"loading\";",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.firstOpen.test.tsx -t \"a refresh over kept numbers keeps them instead of covering them with a skeleton\""
+  },
+  {
+    "label": "the skeleton is drawn on a failed first read, hiding the failure block and its retry (R-rn-usage-first-open)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "  const showSkeleton = state.status === \"loading\" && !hasData;",
+    "new": "  const showSkeleton =\n    (state.status === \"loading\" || state.status === \"failed\") && !hasData;",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.firstOpen.test.tsx -t \"a failed first read draws the failure block and its retry, not a skeleton\""
+  },
+  {
+    "label": "the sheet opens without asking for the reader's focus (R-rn-usage-first-open)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "            autoFocus={visible}\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.firstOpen.test.tsx -t \"opening the sheet moves reader focus to its title once\""
+  },
+  {
+    "label": "the screen never moves the reader to the title even when the sheet asks (R-rn-usage-first-open)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "    if (autoFocus) focusNode(titleRef);",
+    "new": "    if (autoFocus) {\n      // focus call removed by the mutant\n    }",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.firstOpen.test.tsx -t \"opening the sheet moves reader focus to its title once\""
+  },
+  {
+    "label": "the skeleton speaks no loading word to the reader (R-rn-usage-first-open)",
+    "file": "mobile-rn/src/screens/UsageSkeleton.tsx",
+    "old": "      accessibilityLabel={t(\"usage.loading\")}\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.firstOpen.test.tsx -t \"the skeleton is one spoken loading word and exposes no bars to the reader\""
+  }
+]
