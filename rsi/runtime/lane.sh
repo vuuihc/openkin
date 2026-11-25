@@ -784,7 +784,21 @@ if [ "$MODE" = rework ] || [ -d "$WT/.git" ] || [ -f "$WT/.git" ]; then
     echo "merge of origin/main left conflicts: $CONFLICT (worker must resolve and commit)"
   fi
 else
-  $GIT -C "$RSI_CTRL" worktree add "$WT" -b "$BR" origin/main >/dev/null 2>&1 || { finish failed "" "cannot create worktree $WT"; count_fail "lane $N" "worktree $WT"; exit 1; }
+  # A `worktree add -b` that half-fails leaves a local $BR with 0 commits and no worktree;
+  # every later dispatch then dies on `-b` (branch exists) forever — lane 2, rn-gate-timeout,
+  # 2026-11-25. Reuse the leftover only when it holds nothing of its own (0 commits ahead of
+  # origin/main): attach it, then fast-forward so the worktree sits on main. A branch with
+  # real commits, an unreadable count, or a failed retry keeps the failed path unchanged.
+  if ! $GIT -C "$RSI_CTRL" worktree add "$WT" -b "$BR" origin/main >/dev/null 2>&1; then
+    if $GIT -C "$RSI_CTRL" rev-parse --verify -q "refs/heads/$BR" >/dev/null \
+       && [ "$($GIT -C "$RSI_CTRL" rev-list --count "origin/main..$BR" 2>/dev/null || echo 1)" = 0 ] \
+       && $GIT -C "$RSI_CTRL" worktree add "$WT" "$BR" >/dev/null 2>&1 \
+       && $GIT -C "$WT" merge -q --ff-only origin/main >/dev/null 2>&1; then
+      echo "reusing leftover empty branch $BR"
+    else
+      finish failed "" "cannot create worktree $WT"; count_fail "lane $N" "worktree $WT"; exit 1
+    fi
+  fi
 fi
 BASE_N="$($GIT -C "$WT" rev-list --count origin/main..HEAD 2>/dev/null || echo 0)"
 bash "$RSI_DIR/runtime/prep-worktree.sh" "$WT" 2>&1 | tail -2
