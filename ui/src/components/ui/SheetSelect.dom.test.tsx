@@ -201,8 +201,11 @@ describe("the sheet select on a phone", () => {
 
 describe("the sheet select's touch floor", () => {
   // TASTE 21 / AGENTS.md §16: the floor follows the pointer, not the width.
-  // The phone's 44px came only from `.touch-lg`, whose query stops at 767.98px,
-  // so an iPad in portrait got a 24px chip beside 44px controls.
+  // The phone's 44px came only from `.touch-lg`, and before KIN-CONTINUE-007
+  // item 5 that query stopped at 767.98px, so an iPad in portrait got a 24px
+  // chip beside 44px controls. The chip keeps its own floored classes: a
+  // coarse pointer past the floor's 1023.98px arm (an iPad in landscape) is
+  // still a thumb, and a fine pointer must stay dense.
 
   it("gives the chip a 44×44 floor on a coarse pointer at 820", () => {
     // `wide` makes this the MenuSelect branch a real 820 renders.
@@ -212,7 +215,8 @@ describe("the sheet select's touch floor", () => {
     const chip = classes(screen.getByRole("button", { name: /^Role/ }));
     // The floor is two-dimensional: a one-character value (a directory
     // basename, a short role name) is content-sized and would otherwise be
-    // narrower than 44 once `.touch-lg` stops applying above 767.98px.
+    // narrower than 44 wherever `.touch-lg` does not reach it (beyond the
+    // 1023.98px coarse arm, or under a fine pointer).
     expect(chip).toContain("min-h-11");
     expect(chip).toContain("min-w-11");
   });

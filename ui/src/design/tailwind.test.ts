@@ -257,7 +257,7 @@ describe("scale ladders through Tailwind", () => {
     expect(Number.isFinite(listPx), `the list step is not a px width: ${configured}`).toBe(true);
 
     const css = readFileSync(join(BASE, "index.css"), "utf8");
-    const open = css.indexOf("/* Phone-only floor for the app's controls");
+    const open = css.indexOf("/* The 44px floor for the app's controls");
     expect(open, "the touch-floor comment block is not in index.css").toBeGreaterThan(-1);
     const close = css.indexOf("*/", open);
     const block = css.slice(open, close + 2);
@@ -515,12 +515,14 @@ describe("cascade foundation through the real stylesheet", () => {
 
   it("floors a coarse tablet chip at 44px without changing the Mac's density", async () => {
     // The `/new` draft's cover chip measured 75×27.9 at 820×1180 with a coarse
-    // pointer: the global floor stops at 768 and the chip's own `sm:min-h-0`
-    // drops `min-h-11` at ≥640. One chip opts in by class, so the 768–1023
-    // shell keeps desktop density everywhere else (index.css's `.touch-lg`
-    // comment records what a blanket floor does to a 304px list row). The
-    // doubled class beats `sm:` utilities regardless of emission order, the
-    // same reason `.kin-composer-input.kin-composer-input` is doubled.
+    // pointer: the chip is an anchor, so the global floor's selector list
+    // (buttons, selects, `[role="button"]`, inputs) never matches it, and the
+    // chip's own `sm:min-h-0` drops `min-h-11` at ≥640. The global coarse arm
+    // now reaches 1023.98px, and the chip's own class matches that same arm, so
+    // a coarse pointer in the iPad band takes 44px while a fine pointer keeps
+    // the Mac's density. The doubled class beats `sm:` utilities regardless of
+    // emission order, the same reason `.kin-composer-input.kin-composer-input`
+    // is doubled.
     const css = await stylesheet([]);
     const chip = one(css, ".touch-floor.touch-floor");
     expect(chip.layers).toEqual(["utilities"]);
@@ -528,6 +530,29 @@ describe("cascade foundation through the real stylesheet", () => {
     expect(chip.atRules.join(" ")).toContain("max-width: 1023.98px");
     expect(chip.text).toContain("min-height: 44px");
     expect(chip.text).toContain("min-width: 44px");
+  });
+
+  it("reaches the iPad band with the 44px coarse floor (KIN-CONTINUE-007 item 5)", async () => {
+    // The signed story KIN-CONTINUE-007 item 5 / D4 (rsi/DECISIONS.md, 2026-11-24
+    // 03:50 +08) moves the coarse-pointer arm of the floor to 1023.98px, so an
+    // iPad in portrait takes its 44px controls from the pointer, never from a
+    // width breakpoint (AGENTS 16). The phone width arm stays at 639.98px: a
+    // narrow Mac window with a mouse keeps desktop density. The 768–1023 band
+    // costs neither name at the 304px list column (126.5px project name, 97.7px
+    // row title, measured 2026-11-23 by rsi/runtime/ux/measure-list-shell.mjs),
+    // which is what the comment above the rule records.
+    const css = await stylesheet([]);
+    const floor = one(css, ".touch-lg button:not([data-touch-mini])", false);
+    // PostCSS re-emits the query's spacing, so the two arms are asserted
+    // separately rather than as one exact media string.
+    const atRules = floor.atRules.join(" ");
+    expect(atRules).toContain("pointer: coarse");
+    expect(atRules).toContain("max-width: 1023.98px");
+    expect(atRules).toContain("max-width: 639.98px");
+    expect(atRules).not.toContain("767.98px");
+    expect(floor.layers).toEqual(["utilities"]);
+    expect(floor.text).toContain("min-height: 44px");
+    expect(floor.text).toContain("min-width: 44px");
   });
 
   it("preserves existing utility overrides for safe areas and touch controls", async () => {
