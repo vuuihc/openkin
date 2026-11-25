@@ -10,6 +10,10 @@
       "/sessions"
     ],
     [
+      "click",
+      "?css=section:has-text('[seed] Project Gamma'):not(:has(section)) button[aria-label^='展开项目'], section:has-text('[seed] Project Gamma'):not(:has(section)) button[aria-label^='Expand project']"
+    ],
+    [
       "wait",
       "css=[data-row-actions][aria-describedby='session-row-title-{j5.conversation}']"
     ],
