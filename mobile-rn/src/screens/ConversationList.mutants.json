@@ -93,8 +93,8 @@
   {
     "label": "Enter reports an empty task id instead of the focused row (R-rn-list-keyboard)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
-    "old": "      if (target !== null) onOpen(target);",
-    "new": "      if (target !== null) onOpen(\"\");",
+    "old": "      if (target !== null) {\n        // The list is leaving for the conversation: a return still waiting\n        // for a row must not land behind it (AGENTS.md rule 11).\n        dropPendingReturn();\n        onOpen(target);\n      }",
+    "new": "      if (target !== null) {\n        // The list is leaving for the conversation: a return still waiting\n        // for a row must not land behind it (AGENTS.md rule 11).\n        dropPendingReturn();\n        onOpen(\"\");\n      }",
     "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: Enter opens the focused row\""
   },
   {
