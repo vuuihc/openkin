@@ -17,10 +17,15 @@ concurrency:
 
 jobs:
   # A markdown-only diff outside ui/, web/ and mobile-rn/ cannot break a
-  # compile, a test or a boot — it is the same rule the local merge gate's
-  # docs scope uses (AGENTS.md/CLAUDE.md stay code because tests pin their
-  # contents). Skipping build, smoke and desktop for it turns ~7 min of CI
-  # into seconds; their SKIPPED conclusions read as green to merge.sh's ci()
+  # compile or a boot, and it can only break a test when a suite names the
+  # file — so the *.md arm below keeps a doc as code when a test CI runs
+  # mentions its path or basename. That mirrors the local merge gate's docs
+  # scope (scripts/check.sh's job_doc_refs greps ui test files, *_test.go and
+  # *_test.py for the same two strings and fails closed on a hit) without a
+  # static list that would rot as suites move. AGENTS.md/CLAUDE.md stay code
+  # unconditionally because their own rules pin test contents. Skipping build,
+  # smoke and desktop for a docs-only diff turns ~7 min of CI into seconds;
+  # their SKIPPED conclusions read as green to merge.sh's ci()
   # (rsi/runtime/merge.sh treats SKIPPED like SUCCESS). The classifier fails
   # safe: an unusable base, an unreadable diff or an empty list means code.
   changes:
@@ -39,13 +44,29 @@ jobs:
           code=true
           base="$BASE_SHA"
           if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2>/dev/null; then
-            files="$(git diff --name-only "$base"...HEAD 2>/dev/null)" || files=""
+            # --no-renames keeps the old path in the list: a rename out of a
+            # non-markdown file (git mv tool.sh docs/tool.md) is still code.
+            files="$(git diff --no-renames --name-only "$base"...HEAD 2>/dev/null)" || files=""
             if [ -n "$files" ]; then
               code=false
               while IFS= read -r p; do
                 [ -z "$p" ] && continue
                 case "$p" in
-                  *.md) ;;
+                  *.md)
+                    # Mirror scripts/check.sh's job_doc_refs: a doc is code when
+                    # a test CI runs names it. The vitest suites assert several
+                    # repo docs (docs/product/IA.md, NAVIGATION.md, the signed
+                    # stories, ADR 0036, rsi/DECISIONS.md), so a docs-only edit
+                    # to one of them must still run `build`.
+                    b="${p##*/}"
+                    if grep -rlF --include='*.test.*' --exclude-dir=node_modules \
+                         -e "$p" -e "$b" ui >/dev/null 2>&1 ||
+                       grep -rlF --include='*_test.go' --include='*_test.py' \
+                         --include='*.test.py' --exclude-dir=.git \
+                         --exclude-dir=node_modules -e "$p" -e "$b" . >/dev/null 2>&1; then
+                      code=true
+                    fi
+                    ;;
                   *) code=true ;;
                 esac
                 case "$p" in
