@@ -244,10 +244,14 @@ rsi_reap_cwd() { # <dir> [exclude_pid...]
 # Booted iOS simulator UDIDs, one per line. A lane worker that ran `expo start`
 # can boot simulators that are launchd-owned and never enter our process tree;
 # the lane records this list before launch and shuts down the difference on
-# cleanup. Silent (rc 0) when xcrun is absent, fails, or reports nothing booted.
+# cleanup. Silent (rc 0) when xcrun is absent or nothing is booted; a failed or
+# timed-out query returns non-zero so an incomplete snapshot is distinguishable
+# from an empty one — an empty "before" would otherwise read as "nothing was up".
 rsi_sim_booted() {
   command -v xcrun >/dev/null 2>&1 || return 0
-  bounded_run 20 xcrun simctl list devices booted -j 2>/dev/null \
+  local out
+  out="$(bounded_run 20 xcrun simctl list devices booted -j 2>/dev/null)" || return 1
+  printf '%s\n' "$out" \
     | python3 -c 'import json,sys
 try: d = json.load(sys.stdin)
 except Exception: sys.exit(0)
@@ -257,12 +261,32 @@ for devs in (d.get("devices") or {}).values():
             print(dev["udid"])' 2>/dev/null || true
 }
 
+# Basename of another live lane holding a lock beside <self_lock>, or nothing.
+# A simulator this lane booted can still be in use by a second lane, so cleanup
+# consults this before shutting any down. A lock with no pid file or a dead pid
+# is a leftover, not a live lane.
+rsi_other_live_lane() { # <self_lock_dir>
+  local self="${1:-}" lk lp
+  [ -n "$self" ] || return 0
+  for lk in "${self%/*}"/*.lock; do
+    [ -d "$lk" ] || continue
+    [ "$lk" = "$self" ] && continue
+    lp="$(cat "$lk/pid" 2>/dev/null || true)"
+    if [ -n "$lp" ] && kill -0 "$lp" 2>/dev/null; then echo "${lk##*/}"; return 0; fi
+  done
+  return 0
+}
+
 # Shut down each currently booted simulator not listed in <before_file> (the
 # snapshot rsi_sim_booted wrote before the worker launched). Booted-by-someone-
-# else simulators stay up; only the difference is this lane's.
+# else simulators stay up; only the difference is this lane's. The snapshot's
+# "#complete" line marks a query that actually succeeded: without it the file
+# is empty because xcrun failed, not because nothing was booted, and shutting
+# down everything unlisted would kill simulators that predate the lane.
 rsi_sim_shutdown_new() { # <before_file>
   local before="${1:-}" udid n=0
   [ -f "$before" ] || return 0
+  grep -qx '#complete' "$before" 2>/dev/null || return 0
   command -v xcrun >/dev/null 2>&1 || return 0
   while IFS= read -r udid; do
     [ -n "$udid" ] || continue

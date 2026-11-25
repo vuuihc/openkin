@@ -1,0 +1,44 @@
+[
+  {
+    "label": "a snapshot that never completed no longer blocks the shutdown",
+    "file": "rsi/runtime/common.sh",
+    "test": "bash rsi/runtime/tests/test-lane-orphan-reap.sh",
+    "old": "  grep -qx '#complete' \"$before\" 2>/dev/null || return 0",
+    "new": "  grep -qx '#complete' \"$before\" 2>/dev/null || true"
+  },
+  {
+    "label": "a failed simulator query is reported as an empty one",
+    "file": "rsi/runtime/common.sh",
+    "test": "bash rsi/runtime/tests/test-lane-orphan-reap.sh",
+    "old": "  out=\"$(bounded_run 20 xcrun simctl list devices booted -j 2>/dev/null)\" || return 1",
+    "new": "  out=\"$(bounded_run 20 xcrun simctl list devices booted -j 2>/dev/null)\" || return 0"
+  },
+  {
+    "label": "a dead lane's leftover lock still counts as a live lane",
+    "file": "rsi/runtime/common.sh",
+    "test": "bash rsi/runtime/tests/test-lane-orphan-reap.sh",
+    "old": "    if [ -n \"$lp\" ] && kill -0 \"$lp\" 2>/dev/null; then echo \"${lk##*/}\"; return 0; fi",
+    "new": "    if [ -n \"$lp\" ]; then echo \"${lk##*/}\"; return 0; fi"
+  },
+  {
+    "label": "lane.sh writes the simulator snapshot without its completeness marker",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-lane-orphan-reap.sh",
+    "old": "rsi_sim_booted > \"$STATE/lanes/$N.sims-before\" \\\n  && echo '#complete' >> \"$STATE/lanes/$N.sims-before\"",
+    "new": "rsi_sim_booted > \"$STATE/lanes/$N.sims-before\" || true"
+  },
+  {
+    "label": "cleanup ignores a second live lane and shuts its simulators down",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-lane-orphan-reap.sh",
+    "old": "    other_live=\"$(rsi_other_live_lane \"$LK\")\"",
+    "new": "    other_live=\"\""
+  },
+  {
+    "label": "the shell gate job stops running the orphan-reap suite",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-lane-orphan-reap.sh",
+    "old": "  bash rsi/runtime/tests/test-lane-orphan-reap.sh || return 1",
+    "new": "  bash rsi/runtime/tests/test-lane-orphan-reap.sh || true"
+  }
+]

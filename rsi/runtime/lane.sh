@@ -731,13 +731,7 @@ cleanup() {
   # Shut down only the ones that were not booted when this lane launched — and
   # only when no other live lane could still be using them.
   if [ -f "$STATE/lanes/$N.sims-before" ]; then
-    other_live=""
-    for lk in "$STATE"/lanes/*.lock; do
-      [ -d "$lk" ] || continue
-      [ "$lk" = "$LK" ] && continue
-      lp="$(cat "$lk/pid" 2>/dev/null || true)"
-      [ -n "$lp" ] && kill -0 "$lp" 2>/dev/null && other_live="${lk##*/}"
-    done
+    other_live="$(rsi_other_live_lane "$LK")"
     if [ -n "$other_live" ]; then
       echo "left new simulators booted: lane ${other_live%.lock} is live" >&2
     else
@@ -801,8 +795,11 @@ write_worker_brief > "$HDR"
 
 export BUDGET_GUARD="$LANE_BUDGET_USD" DISPATCH_MAX_SECS="$LANE_WORKER_SECS"
 # Snapshot booted simulators before the worker can boot its own: cleanup shuts
-# down only the difference, so a simulator that was already up stays up.
-rsi_sim_booted > "$STATE/lanes/$N.sims-before" || true
+# down only the difference, so a simulator that was already up stays up. The
+# marker records a query that succeeded; without it cleanup leaves every
+# simulator alone rather than reading a failed snapshot as "nothing was up".
+rsi_sim_booted > "$STATE/lanes/$N.sims-before" \
+  && echo '#complete' >> "$STATE/lanes/$N.sims-before"
 W_START=$(date +%s)
 # Run the worker in its own process group so timeout/exit can reap vitest/go/node/agy.
 python3 -c 'import os,sys; os.setpgrp(); os.execvp(sys.argv[1], sys.argv[1:])' \

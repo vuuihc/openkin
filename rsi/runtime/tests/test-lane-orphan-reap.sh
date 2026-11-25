@@ -7,9 +7,11 @@
 # cleanup()'s pgid kill and pgrep -P walk only reach the worker's own tree, so
 # all three survived the watchdog and held the host under load for hours.
 #
-# Hermetic: real processes in a temp dir, stubbed lsof/xcrun on PATH, no Xcode,
-# no network. Sources common.sh with RSI_CTRL redirected so STATE stays in the
-# temp dir. Prints "ok: <case>" per case and exits non-zero on the first failure.
+# Hermetic: real processes in a temp dir, stubbed lsof/xcrun on PATH, and the
+# "xcrun absent" case run against an empty PATH directory — the host's Xcode and
+# CoreSimulator are never queried. No network. Sources common.sh with RSI_CTRL
+# redirected so STATE stays in the temp dir. Prints "ok: <case>" per case and
+# exits non-zero on the first failure.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
@@ -108,30 +110,81 @@ echo "$@" >> "$XCRUN_LOG"
 exit 0
 SH
 chmod +x "$T/bin/xcrun"
-echo UDID-A > "$T/before.sims"
+printf 'UDID-A\n#complete\n' > "$T/before.sims"
 XCRUN_LOG="$T/xcrun.log" run 'rsi_sim_shutdown_new "$1"' "$T/before.sims" 2>"$T/e5"
 grep -qx 'simctl shutdown UDID-B' "$T/xcrun.log" || fail "case 5: UDID-B not shut down: $(cat "$T/xcrun.log" 2>/dev/null)"
 ! grep -q 'UDID-A' "$T/xcrun.log" || fail "case 5: UDID-A (already booted) was shut down"
 ! grep -q 'UDID-C' "$T/xcrun.log" || fail "case 5: UDID-C (not booted) was shut down"
 grep -q 'shut down 1 simulator(s)' "$T/e5" || fail "case 5: missing shutdown line: $(cat "$T/e5")"
 pass "only newly booted simulators are shut down"
+
+# 5b. A snapshot without the '#complete' marker is a failed query, not an empty
+#     host: shutdown must leave every simulator alone instead of killing the
+#     ones that predate the lane.
+printf 'UDID-A\n' > "$T/before-incomplete.sims"
+: > "$T/xcrun.log"
+XCRUN_LOG="$T/xcrun.log" run 'rsi_sim_shutdown_new "$1"' "$T/before-incomplete.sims" 2>"$T/e5b"
+[ ! -s "$T/xcrun.log" ] || fail "case 5b: shutdown ran on an incomplete snapshot: $(cat "$T/xcrun.log")"
+! grep -q 'shut down' "$T/e5b" || fail "case 5b: reported a shutdown from an incomplete snapshot"
+pass "an incomplete simulator snapshot shuts nothing down"
 rm -f "$T/bin/xcrun"
 
-# 6. No xcrun on PATH: rsi_sim_booted prints nothing and returns 0.
-out6="$(run 'PATH=/usr/bin:/bin; rsi_sim_booted')"
+# 6. No xcrun on PATH — an empty dir, not /usr/bin where the host may have it:
+#    rsi_sim_booted prints nothing and returns 0.
+mkdir -p "$T/empty"
+out6="$(run 'PATH="$1"; rsi_sim_booted' "$T/empty")"
 [ -z "$out6" ] || fail "case 6: rsi_sim_booted printed without xcrun: $out6"
 pass "rsi_sim_booted is silent when xcrun is absent"
 
-# 7. Wiring: lane.sh snapshots sims-before before the worker launch and cleanup
-#    calls rsi_reap_cwd "$WT" and rsi_sim_shutdown_new.
+# 6b. A failing query returns non-zero with no output, so lane.sh can mark the
+#     snapshot incomplete instead of reading it as "nothing booted".
+cat > "$T/bin/xcrun" <<'SH'
+#!/bin/bash
+exit 1
+SH
+chmod +x "$T/bin/xcrun"
+out6b="$(run 'rsi_sim_booted' 2>/dev/null)" && rc6b=0 || rc6b=$?
+[ "$rc6b" -ne 0 ] || fail "case 6b: a failed xcrun query returned 0"
+[ -z "$out6b" ] || fail "case 6b: a failed xcrun query printed: $out6b"
+pass "a failed simulator query is distinguishable from an empty one"
+rm -f "$T/bin/xcrun"
+
+# 7. Wiring: lane.sh snapshots sims-before before the worker launch, marks the
+#    snapshot complete, calls rsi_reap_cwd "$WT", consults the live-lane
+#    interlock and calls rsi_sim_shutdown_new.
 grep -q 'rsi_sim_booted > "$STATE/lanes/$N.sims-before"' "$LANE" \
   || fail "case 7: lane.sh does not snapshot booted simulators"
-sims_line=$(grep -n 'sims-before"' "$LANE" | head -1 | cut -d: -f1)
+grep -q "echo '#complete' >> \"\$STATE/lanes/\$N.sims-before\"" "$LANE" \
+  || fail "case 7: lane.sh does not mark the snapshot complete"
+sims_line=$(grep -n 'rsi_sim_booted > .*sims-before' "$LANE" | head -1 | cut -d: -f1)
 wstart_line=$(grep -n 'W_START=$(date +%s)' "$LANE" | head -1 | cut -d: -f1)
 [ "$sims_line" -lt "$wstart_line" ] || fail "case 7: sims-before is written after the worker launch"
 grep -q 'rsi_reap_cwd "$WT"' "$LANE" || fail "case 7: cleanup never calls rsi_reap_cwd \"\$WT\""
+grep -q 'other_live="$(rsi_other_live_lane "$LK")"' "$LANE" \
+  || fail "case 7: cleanup never consults the live-lane interlock"
+grep -q 'left new simulators booted' "$LANE" \
+  || fail "case 7: cleanup never reports simulators left for a live lane"
 grep -q 'rsi_sim_shutdown_new "$STATE/lanes/$N.sims-before"' "$LANE" \
   || fail "case 7: cleanup never calls rsi_sim_shutdown_new"
 pass "lane.sh wires the snapshot, the cwd sweep and the sim shutdown"
+
+# 8. The live-lane interlock: only another lock whose pid is alive counts, so a
+#    leftover lock from a dead lane does not keep this lane's simulators up.
+mkdir -p "$T/lanes/1.lock" "$T/lanes/2.lock" "$T/lanes/3.lock"
+echo $$ > "$T/lanes/2.lock/pid"
+( exit 0 ) & dead=$!
+wait "$dead" 2>/dev/null
+echo "$dead" > "$T/lanes/3.lock/pid"
+other="$(run 'rsi_other_live_lane "$1"' "$T/lanes/1.lock")"
+[ "$other" = "2.lock" ] || fail "case 8: live-lane scan returned '$other', want 2.lock"
+rm -f "$T/lanes/2.lock/pid"
+other="$(run 'rsi_other_live_lane "$1"' "$T/lanes/1.lock")"
+[ -z "$other" ] || fail "case 8: a dead lane's lock still counts: $other"
+pass "only a live other lane's lock holds the simulator shutdown"
+
+# 9. The shell gate job runs this suite, so a regression cannot land green.
+grep -q 'bash rsi/runtime/tests/test-lane-orphan-reap.sh || return 1' "$REPO/scripts/check.sh" \
+  || fail "case 9: scripts/check.sh does not run this suite"
+pass "scripts/check.sh runs this suite"
 
 echo "lane orphan reap: $n/$n cases passed"
