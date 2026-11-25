@@ -33,5 +33,19 @@
     "old": "      accessibilityLabel={t(\"usage.loading\")}\n",
     "new": "",
     "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.firstOpen.test.tsx -t \"the skeleton is one spoken loading word and exposes no bars to the reader\""
+  },
+  {
+    "label": "the first read draws no skeleton, only the bare caption it replaced (R-rn-usage-first-open)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "      {showSkeleton ? <UsageSkeleton t={t} /> : null}",
+    "new": "      {null}",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.firstOpen.test.tsx -t \"a first read draws the usage skeleton instead of a bare caption\""
+  },
+  {
+    "label": "the caption returns where the skeleton belongs, so a first load reads the old bare line (R-rn-usage-first-open)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "      {showSkeleton ? <UsageSkeleton t={t} /> : null}",
+    "new": "      {null}",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.firstOpen.test.tsx -t \"the caption is gone from a first load\""
   }
 ]
