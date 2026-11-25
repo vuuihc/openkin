@@ -26,6 +26,13 @@ jest.mock("../a11y/focus", () => ({ focusNode: jest.fn(() => true) }));
 
 const focusMock = jest.mocked(focusNode);
 
+/**
+ * The props of the node each focus call landed on, captured when it landed.
+ * The ref itself is stable across renders, so reading it later would show the
+ * latest header text, not the text the reader was moved to.
+ */
+const focusSnapshots: Array<Record<string, unknown> | undefined> = [];
+
 const t = (key: string): string => key;
 
 const TASK_ID = "task-1";
@@ -87,9 +94,22 @@ function textOf(props: Record<string, unknown> | undefined): string {
     : String(children ?? "");
 }
 
+/** The text each focus call's node spoke at the moment it was moved to. */
+function focusedTexts(): string[] {
+  return focusSnapshots.map((props) => textOf(props));
+}
+
 describe("KIN-MOBILE-001 §3 conversation entry focus", () => {
   beforeEach(() => {
     focusMock.mockClear();
+    focusSnapshots.length = 0;
+    focusMock.mockImplementation((ref) => {
+      const current = (
+        ref as { current?: { props?: Record<string, unknown> } } | null
+      )?.current;
+      focusSnapshots.push(current?.props);
+      return true;
+    });
   });
 
   it("KIN-MOBILE-001 §3: entering a conversation moves reader focus to the title, not the composer", async () => {
@@ -107,25 +127,85 @@ describe("KIN-MOBILE-001 §3 conversation entry focus", () => {
     const props = focusedNodeProps();
     expect(props?.testID).toBe("conversation:title");
     expect(props?.accessibilityRole).toBe("header");
+    expect(focusedTexts()).toEqual(["Morning planning"]);
     // The writing box is where the reader is *not* put on entry (先读再写).
     expect(focusedTestIDs()).not.toContain("conversation:composer");
   });
 
-  it("KIN-MOBILE-001 §3: a conversation that opens while its read is still pending still starts at the title", async () => {
+  it("KIN-MOBILE-001 §3: a conversation that opens while its read is still pending starts at the title the read names", async () => {
+    // The container mounts the view before the read answers, with
+    // `threadModel.emptyState`: `title: ""` (`threadModel.ts:134`), so the
+    // header speaks the untitled placeholder. The real name lands with the
+    // read (`threadModel.ts:295`), which is the first moment a move can
+    // announce the conversation.
     const screen = await render(
       <ConversationView
         onBack={jest.fn()}
         onSend={jest.fn()}
-        state={state({ status: "loading", turns: [] })}
+        state={state({ status: "loading", title: "", turns: [] })}
         t={t}
       />,
     );
 
-    // The header is live before the read answers, so the slow state is not a
-    // reason to leave the reader where the platform dropped it (§3 慢).
-    expect(screen.getByTestId("conversation:title")).toBeTruthy();
+    // Moving on the placeholder would place the reader on "Untitled" and never
+    // re-announce, so the slow state waits for the name (§3 慢).
+    expect(focusMock).not.toHaveBeenCalled();
+
+    await screen.rerender(
+      <ConversationView
+        onBack={jest.fn()}
+        onSend={jest.fn()}
+        state={state({
+          status: "ready",
+          title: "Morning planning",
+          turns: [userTurn("plan the day")],
+        })}
+        t={t}
+      />,
+    );
+
     expect(focusMock).toHaveBeenCalledTimes(1);
     expect(focusedNodeProps()?.testID).toBe("conversation:title");
+    // The node the move landed on already spoke the real name, not the
+    // placeholder the header showed a moment earlier (§3 慢).
+    expect(focusedTexts()).toEqual(["Morning planning"]);
+  });
+
+  it("KIN-MOBILE-001 §3: a read that settles without a name moves once, to the untitled heading", async () => {
+    const screen = await render(
+      <ConversationView
+        onBack={jest.fn()}
+        onSend={jest.fn()}
+        state={state({ status: "loading", title: "", turns: [] })}
+        t={t}
+      />,
+    );
+    expect(focusMock).not.toHaveBeenCalled();
+
+    // The read failed with no task row to name the conversation: there is
+    // nothing left to wait for, so the placeholder is its announced name.
+    await screen.rerender(
+      <ConversationView
+        onBack={jest.fn()}
+        onSend={jest.fn()}
+        state={state({ status: "error", title: "", turns: [] })}
+        t={t}
+      />,
+    );
+    expect(focusMock).toHaveBeenCalledTimes(1);
+    expect(focusedTexts()).toEqual(["sessions.untitled"]);
+
+    // A name that lands after the settle is still the same entry: the reader
+    // is not moved a second time (AGENTS.md §11).
+    await screen.rerender(
+      <ConversationView
+        onBack={jest.fn()}
+        onSend={jest.fn()}
+        state={state({ status: "ready", title: "Morning planning", turns: [] })}
+        t={t}
+      />,
+    );
+    expect(focusMock).toHaveBeenCalledTimes(1);
   });
 
   it("KIN-MOBILE-001 §3: a later repaint or a streamed append does not move the reader again", async () => {

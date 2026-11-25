@@ -496,6 +496,9 @@ export default function ConversationView({
   const listRef = useRef<FlatList<Turn>>(null);
   // The conversation's name: the node the reader is placed on at entry.
   const titleRef = useRef<ViewInstance | null>(null);
+  // The conversation whose entry move already happened: one entry is one
+  // reader move, so a title that settles late cannot move it a second time.
+  const movedFor = useRef<string | null>(null);
   // The thread whose first layout was already scrolled to the end, and the last
   // content height seen, so "grew" is a comparison rather than a guess.
   const openedFor = useRef<string | null>(null);
@@ -511,11 +514,18 @@ export default function ConversationView({
   // One entry is one reader move (KIN-MOBILE-001.md:80): the reader starts at
   // the conversation's name, not in the writing box, and a streamed append or
   // any other repaint must not move it again (AGENTS.md §11). A split route
-  // swapping the conversation in place is a new entry, so the task id is the
-  // dependency.
+  // swapping the conversation in place is a new entry. The view mounts before
+  // the read names the conversation (`threadModel.ts:134` carries `title: ""`,
+  // so the header speaks the untitled placeholder), so the move waits for the
+  // first non-empty title; a read that settles without one (`ready` or
+  // `error`) has nothing more to wait for and settles on the placeholder.
   useEffect(() => {
+    if (movedFor.current === state.taskId) return;
+    const settled = state.status === "ready" || state.status === "error";
+    if (state.title.trim() === "" && !settled) return;
+    movedFor.current = state.taskId;
     focusNode(titleRef);
-  }, [state.taskId]);
+  }, [state.taskId, state.title, state.status]);
 
   const toggleStep = (key: string): void => {
     setExpandedSteps((current) => ({ ...current, [key]: current[key] !== true }));
