@@ -721,11 +721,22 @@ cleanup() {
   for kid in $(pgrep -P $$ 2>/dev/null || true); do
     rsi_kill_tree "$kid"
   done
+  lane_release_host
+  [ $FINISHED -eq 0 ] && python3 "$LANES_PY" finish "$N" --status crashed --note "lane.sh exited early"
+  rm -rf "$LK"
+}
+
+# Host resources a worker left outside its own process tree are released the
+# same way on every exit: cleanup() calls this on failure and early exit, and
+# the success path calls it before `rm -rf "$LK"; trap - EXIT` (which disarms
+# cleanup). Both run it while $LK still exists so rsi_other_live_lane's
+# self-exclusion sees the same world.
+lane_release_host() {
   # The pgid and parent-pid walks miss a child that left the worker's tree
   # (setsid -> reparented to launchd, e.g. `expo start`): sweep anything still
   # holding a working directory under the lane worktree. WT is set after this
   # trap is armed, so guard for the early-exit path. Failures print "no verdict"
-  # inside rsi_reap_cwd and never turn cleanup red.
+  # inside rsi_reap_cwd and never turn the lane red.
   if [ -n "${WT:-}" ]; then rsi_reap_cwd "$WT" || true; fi
   # Simulators a worker booted are launchd-owned, never our children either.
   # Shut down only the ones that were not booted when this lane launched — and
@@ -739,8 +750,6 @@ cleanup() {
     fi
     rm -f "$STATE/lanes/$N.sims-before"
   fi
-  [ $FINISHED -eq 0 ] && python3 "$LANES_PY" finish "$N" --status crashed --note "lane.sh exited early"
-  rm -rf "$LK"
 }
 trap cleanup EXIT
 finish() { FINISHED=1; python3 "$LANES_PY" finish "$N" --status "$1" --pr "${2:-}" --note "${3:-}"; }
@@ -1027,6 +1036,7 @@ if [ $TIMEDOUT -eq 1 ]; then count_timeout "lane $N ($SLUG)" "partial work pushe
 scorecard_row "$ITEM $SLUG (lane $N, $MODE)" "$M_WORKER" "pending (merge lane)" "PR opened (${W_MIN}m, \$${COST:-?})$([ $TIMEDOUT -eq 1 ] && echo ', worker hit watchdog')" "[#$PRN]($PRURL)" "pending" "-"
 finish done "$PRN" "PR #$PRN ${W_MIN}m \$${COST:-?} swept=$SWEPT_N${CLAIM_RETRY_NOTE:+ · $CLAIM_RETRY_NOTE}"
 echo "[$(date +%T)] lane $N done PR #$PRN"
+lane_release_host
 rm -rf "$LK"; trap - EXIT
 
 # hand over: merge lane now, refill idle lanes right after
