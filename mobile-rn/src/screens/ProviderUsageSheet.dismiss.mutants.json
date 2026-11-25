@@ -1,0 +1,37 @@
+[
+  {
+    "label": "shouldDismiss ignores the threshold, so a short drag closes the sheet (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/sheetDrag.ts",
+    "old": "  return offset > SHEET_DISMISS_DISTANCE;",
+    "new": "  return offset >= 0;",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: a short downward drag springs back and leaves the sheet open\""
+  },
+  {
+    "label": "dragOffset takes the absolute value, so an upward pull moves and closes the sheet (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/sheetDrag.ts",
+    "old": "  return Math.max(0, pageY - startPageY);",
+    "new": "  return Math.abs(pageY - startPageY);",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: an upward drag on the handle never closes the sheet\""
+  },
+  {
+    "label": "the release handler drops its close call, so a pull-down never dismisses (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "      onClose();\n      // The sheet is going away; the next open must start at rest.\n",
+    "new": "      // The sheet is going away; the next open must start at rest.\n",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: dragging the sheet handle down past the threshold closes it once\""
+  },
+  {
+    "label": "a cancelled gesture keeps its start point, so the next release dismisses a sheet already back at rest (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "    startPageY.current = null;\n    translateY.setValue(0);",
+    "new": "    translateY.setValue(0);",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: a cancelled gesture neither closes the sheet nor leaves it displaced\""
+  },
+  {
+    "label": "the drag strip shrinks under the 44pt touch floor, so the pull-down target is too small (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "  handle: {\n    alignItems: \"center\",\n    height: 44,\n    justifyContent: \"center\",\n  },",
+    "new": "  handle: {\n    alignItems: \"center\",\n    height: 32,\n    justifyContent: \"center\",\n  },",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: the drag strip is at least 44 points tall and hidden from the reader\""
+  }
+]
