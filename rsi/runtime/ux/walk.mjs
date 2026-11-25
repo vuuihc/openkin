@@ -19,7 +19,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
-import { awaitOptionalVisible } from './optional-grace.mjs';
+import { awaitOptionalVisible, pressLeftControl } from './optional-grace.mjs';
 import { createStepLog } from './walk-log.mjs';
 const require = createRequire(import.meta.url);
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -741,7 +741,11 @@ function checkJ8Contract(spec) {
   // deleted; its tray wait then fails for a fixture reason and the gate learns
   // to excuse it. The phone review reads its own seeded diff.
   const listAt = idx((st) => st[0] === 'goto' && String(sel(st, 1)).startsWith('/sessions'));
-  const openAt = after(listAt, (st) => st[0] === 'click');
+  // The first press that is not a fold opens the conversation: the row lives
+  // in a project bucket that is folded unless it holds the newest row, so a
+  // fold press may sit between the list load and the row.
+  const isFoldPress = (st) => st[0] === 'click' && /展开项目|Expand project|展开全部|Show all/.test(sel(st, 1));
+  const openAt = after(listAt, (st) => st[0] === 'click' && !isFoldPress(st));
   if (openAt < 0) {
     errs.push('J8 never opens a conversation from the seeded list (click … after goto /sessions)');
   } else if (String(sel(steps[openAt], 1)).includes(J8_CONVERSATION)) {
@@ -1858,15 +1862,20 @@ function checkJ12Contract(spec) {
   if (!Array.isArray(steps) || steps.length === 0) return ['J12 has no steps'];
   const errs = [];
   const isFoldClick = (st) => Array.isArray(st) && st[0] === 'click'
-    && /展开全部|Show all/.test(String(st[1] ?? ''));
+    && /展开全部|Show all|展开项目|Expand project/.test(String(st[1] ?? ''));
+  const optionalStep = (st) => Array.isArray(st) && st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'));
   // Every J12 proof is mandatory. The executor logs a `?`-prefixed step that
   // does not match as `skipped …` with no hard failure, so one optional chip
   // wait or post-reload `rows` would leave the walk green while the gesture is
-  // dead — the failure this contract exists to catch.
+  // dead — the failure this contract exists to catch. The one exception is the
+  // fold press: ROWS_BEFORE_SHOW_ALL is 10 (KIN-CONTINUE-007), so the seeded
+  // bucket plus four fixtures may offer no row fold at all and the project fold
+  // is the only one left. An optional press is accepted only when the same list
+  // load still proves the seeded row with a mandatory wait right after it, so a
+  // fold that silently stops matching cannot hide a row that is not there.
   steps.forEach((st) => {
-    if (Array.isArray(st) && st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'))) {
-      errs.push('J12 ' + (isFoldClick(st) ? 'project fold ' : 'step ') + JSON.stringify(st) + ' is optional; every J12 proof must be mandatory');
-    }
+    if (!optionalStep(st) || isFoldClick(st)) return;
+    errs.push('J12 step ' + JSON.stringify(st) + ' is optional; every J12 proof must be mandatory');
   });
   const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
   const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
@@ -1884,11 +1893,14 @@ function checkJ12Contract(spec) {
   }
 
   // Every unsearched list load whose rows the walk reads must press the fold
-  // first. Past five rows the seeded row is not rendered until 展开全部 is
+  // first. Past ten rows the seeded row is not rendered until 展开全部 is
   // pressed, and a gesture aimed at it fails as "not on the screen". A load
   // followed by a non-empty search is exempt: `searching` force-opens every
-  // bucket, so the row is drawn without the disclosure. The press must be
-  // mandatory: an optional click would never prove the fold was exercised.
+  // bucket, so the row is drawn without the disclosure. The press may be
+  // optional because with ROWS_BEFORE_SHOW_ALL at 10 the bucket can be short
+  // enough that neither fold exists; when it is optional the mandatory seeded
+  // row wait right after it is the proof, and a press that silently stopped
+  // matching would leave that wait to go red.
   const rowRead = (st) => Array.isArray(st)
     && ['click', 'wait', 'swipe', 'drag', 'rows'].includes(st[0])
     && /Morning planning/.test(JSON.stringify(st));
@@ -1902,18 +1914,23 @@ function checkJ12Contract(spec) {
     const fillAt = steps.findLastIndex((cand, i) => i > g && i < readAt && Array.isArray(cand)
       && cand[0] === 'fill' && /input\[type=search\]/.test(sel(cand, 1)));
     if (fillAt >= 0 && sel(steps[fillAt], 2).trim() !== '') return;
-    const pressed = steps.findIndex((cand, i) => i > g && i < readAt && isFoldClick(cand) && !sel(cand, 1).startsWith('?'));
+    const pressed = steps.findIndex((cand, i) => i > g && i < readAt && isFoldClick(cand));
     if (pressed < 0) missingFold = true;
+    if (pressed >= 0 && optionalStep(steps[pressed])
+      && !(steps[readAt][0] === 'wait' && !optionalStep(steps[readAt]))) {
+      errs.push('J12 presses the fold optionally without a mandatory seeded-row wait right after it; the row read must prove the list');
+    }
     if (fillAt < 0 || (pressed >= 0 && fillAt > pressed)) {
       errs.push('J12 must clear the search after each unsearched list load before pressing the project fold');
     }
   });
   if (missingFold) {
-    errs.push('J12 never presses the project fold after a list load (click … 展开全部|Show all, not optional) before reading the seeded row');
+    errs.push('J12 never presses the project fold after a list load (click … 展开全部|Show all|展开项目|Expand project) before reading the seeded row');
   }
 
   // The standalone seed has only two Alpha rows. Create four conversations
-  // through the fake-agent-gated UI so this walk exercises a real disclosure.
+  // through the fake-agent-gated UI so this walk exercises a real disclosure
+  // when one exists, and the project fold when ROWS_BEFORE_SHOW_ALL is above it.
   const firstFoldAt = idx(isFoldClick);
   const fixtureSends = steps.filter((st, i) => i < firstFoldAt && Array.isArray(st) && st[0] === 'send');
   if (fixtureSends.length < 4) errs.push('J12 needs four fixture conversations before the project fold; the standalone seed does not fold');
@@ -2363,16 +2380,17 @@ function checkJ14Contract(spec) {
   const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
   const sel = (st, i) => String((st || [])[i] ?? '');
 
-  // Only the project fold may be optional: past five rows the bucket draws
-  // 展开全部 and a standalone walk's bucket may not. Every address, count,
-  // wait, node, key and gone is a proof, and a `?`-prefixed proof that misses
-  // is logged as `skipped` — green while the cold start, a palette zero or a
+  // Only the fold may be optional: the bucket may already be open (the
+  // newest project opens by default) and past ten rows it draws 展开全部,
+  // which a standalone walk's bucket may not. Every address, count, wait,
+  // node, key and gone is a proof, and a `?`-prefixed proof that misses is
+  // logged as `skipped` — green while the cold start, a palette zero or a
   // list level is dead.
   steps.forEach((st) => {
     if (!Array.isArray(st)) return;
     const optional = st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'));
     if (!optional) return;
-    const isFold = st[0] === 'click' && /展开全部|Show all/.test(sel(st, 1));
+    const isFold = st[0] === 'click' && /展开全部|Show all|展开项目|Expand project/.test(sel(st, 1));
     if (!isFold) {
       errs.push('J14 step ' + JSON.stringify(st) + ' is optional; only the project fold may be optional, every proof must be mandatory');
     }
@@ -4258,8 +4276,25 @@ for (const j of want) {
             // the stable one: the layout settles before the layer opens.
             await loc.focus({ timeout: 3000 }); await page.waitForTimeout(200); continue;
           }
-          if (op === 'fill') await loc.fill(b, { timeout: 3000 }); else await (op === 'click' ? loc.click({ timeout: 3000 }) : loc.hover({ timeout: 3000 })); await page.waitForTimeout(400);
-          if (op === 'click') log.push('click ' + sel);
+          if (op === 'fill') await loc.fill(b, { timeout: 3000 });
+          else if (op === 'click') {
+            // One bounded retry, then the control's absence decides: a press
+            // can land and take its control with it (the fold button
+            // re-labels 展开项目 → 收起项目 as the bucket opens, J7/phone
+            // 2026-11-25), which is the page having acted; a control still on
+            // screen after the retry is a press that never landed and stays a
+            // hard failure. The journey's next mandatory step is the proof.
+            let pressed = false;
+            for (let attempt = 0; ; attempt++) {
+              try { await loc.click({ timeout: 3000 }); pressed = true; break; }
+              catch (e) {
+                if (await pressLeftControl(loc)) { log.push(`click ${sel} (the control left as it acted)`); break; }
+                if (attempt >= 1) throw e;
+              }
+            }
+            if (pressed) log.push('click ' + sel);
+          } else await loc.hover({ timeout: 3000 });
+          await page.waitForTimeout(400);
         } else if (op === 'gone') {
           // A decision landing must take its control off the screen: the
           // pending card unmounts its buttons when the answer arrives. Waiting
