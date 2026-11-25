@@ -2,7 +2,7 @@
 // KIN-SETTINGS-001 — 改默认设置（J6）：本套件持有目录 / 内容列布局与键盘焦点的验收行。
 import { createElement, useState } from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   nextSettingsTabId,
   offscreenEdges,
@@ -18,6 +18,29 @@ const tabs: SettingsTabItem[] = [
   { id: "agents", label: "Agents", description: "Agent settings" },
   { id: "providers", label: "Providers", description: "Provider settings" },
 ];
+
+/**
+ * jsdom has no `matchMedia`, and the tabs' touch floor follows the pointer
+ * rather than the viewport width, so the floor cases declare the pointer they
+ * run on. Every other case keeps the fallback, which is the mouse.
+ */
+function setPointer(coarse: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(pointer: coarse)" ? coarse : false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
+/** Whole class tokens, never substrings: `sm:min-h-10` must not satisfy `min-h-10`. */
+function classes(element: HTMLElement): string[] {
+  return element.className.split(/\s+/).filter(Boolean);
+}
 
 /** A stateful parent, the way the settings page owns the active tab. */
 function layoutHarness(initial: SettingsTabId, items: SettingsTabItem[]) {
@@ -327,6 +350,59 @@ describe("SettingsLayout summaries and phone focus", () => {
     fireEvent.click(tab);
 
     expect(document.activeElement).toBe(tab);
+  });
+});
+
+describe("the settings section tabs' touch floor", () => {
+  // TASTE 21 / AGENTS.md §16: the floor follows the pointer, not the width.
+  // `sm:min-h-10` shrank every tab to 40px at ≥640px regardless of pointer, so
+  // an iPad in portrait (820px, a thumb) got a 40px target.
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function renderTabs() {
+    render(
+      createElement(SettingsLayout, {
+        title: "Settings",
+        tabs,
+        activeTab: "general" as const,
+        onTabChange: () => undefined,
+        children: createElement("div", null, "panel"),
+      }),
+    );
+  }
+
+  it("keeps every settings section tab at 44px on a coarse pointer at 820", () => {
+    setPointer(true);
+    renderTabs();
+
+    const rows = screen.getAllByRole("tab").map((tab) => classes(tab));
+    expect(rows).toHaveLength(tabs.length);
+    for (const tokens of rows) {
+      expect(tokens).toContain("min-h-11");
+      // The width-only rule must not be in the class list at all: leaving it
+      // there would win above 640px and put the 40px target back.
+      expect(tokens).not.toContain("sm:min-h-10");
+    }
+  });
+
+  it("keeps the settings section tabs at 40px on a fine pointer at 1100", () => {
+    setPointer(false);
+    renderTabs();
+
+    const rows = screen.getAllByRole("tab").map((tab) => classes(tab));
+    expect(rows).toHaveLength(tabs.length);
+    for (const tokens of rows) {
+      // The phone still gets 44px; above 640px a mouse keeps the dense 40px.
+      expect(tokens).toContain("min-h-11");
+      expect(tokens).toContain("sm:min-h-10");
+    }
   });
 });
 

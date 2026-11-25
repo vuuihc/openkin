@@ -45,6 +45,15 @@ RETIRED_COVER = (
     "ui/src/design/heat.ts",
 )
 
+# The imported-session full page and its two suites (2026-11-24). #672 replaced
+# the page's URL with the list's sheet; part 1 deleted the suites, part 2
+# deleted the page itself.
+RETIRED_IMPORTED_PAGE = (
+    "ui/src/pages/AgentSessionDetailPage.dom.test.tsx",
+    "ui/src/pages/AgentSessionDetailPage.historyBudget.dom.test.tsx",
+    "ui/src/pages/AgentSessionDetailPage.tsx",
+)
+
 
 class Fixture:
     """A throwaway source root plus a manifest beside it."""
@@ -176,10 +185,12 @@ class CheckedInManifestTest(unittest.TestCase):
             for line in MANIFEST.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.strip().startswith("#")
         ]
-        self.assertEqual(len(paths), 21, paths)
+        self.assertEqual(len(paths), 24, paths)
         for path in RESURRECTED:
             self.assertIn(path, paths)
         for path in RETIRED_COVER:
+            self.assertIn(path, paths)
+        for path in RETIRED_IMPORTED_PAGE:
             self.assertIn(path, paths)
 
     def test_checked_in_manifest_paths_are_absent_on_this_tree(self) -> None:
@@ -192,7 +203,7 @@ class CheckedInManifestTest(unittest.TestCase):
             text=True,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("REMOVED_SURFACES_OK (21 paths absent)", result.stdout)
+        self.assertIn("REMOVED_SURFACES_OK (24 paths absent)", result.stdout)
 
     def test_a_restored_cover_component_turns_the_real_tree_red(self) -> None:
         """Put one retired cover file back and run the checked-in gate.

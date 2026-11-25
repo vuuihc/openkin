@@ -1,0 +1,9 @@
+[
+  {
+    "label": "a changed focus epoch no longer re-reads the list, so a badge decided in the conversation stays up (R-rn-approvals-count)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "  useEffect(() => {\n    if (seenFocus.current === focusEpoch) return;\n    seenFocus.current = focusEpoch;\n    refresh();\n  }, [focusEpoch, refresh]);\n",
+    "new": "  useEffect(() => {}, [focusEpoch, refresh]);\n",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R5: returning to the list re-reads the server and the approved row's badge is gone\""
+  }
+]
