@@ -53,6 +53,11 @@ export default function ListRoute() {
   const layout = splitFor(width);
   const [state, setState] = useState<AppState | null>(null);
   const [focusEpoch, setFocusEpoch] = useState(0);
+  // KIN-MOBILE-001 §2「返回时焦点回到那一行」. A separate signal from the data
+  // epoch: only a real focus regain (Back from a pushed conversation) may move
+  // the reader, while a split open/switch/close bumps `focusEpoch` alone and
+  // must leave reader focus in the conversation pane.
+  const [returnFocusEpoch, setReturnFocusEpoch] = useState(0);
   // A focus event while the list is showing is a return. While the boot read
   // is still deciding the first frame there is nothing to re-read.
   const showing = useRef(false);
@@ -69,6 +74,10 @@ export default function ListRoute() {
     useCallback(() => {
       if (!showing.current) return;
       setFocusEpoch((epoch) => epoch + 1);
+      // The return epoch has no split-path writer: opening, switching or
+      // closing the conversation beside the list never calls this callback,
+      // so a pane change cannot be mistaken for a return.
+      setReturnFocusEpoch((epoch) => epoch + 1);
     }, []),
   );
 
@@ -170,6 +179,7 @@ export default function ListRoute() {
       list={
         <ListScreen
           focusEpoch={focusEpoch}
+          returnFocusEpoch={returnFocusEpoch}
           onNeedsPairing={() => router.replace("/pair")}
           onOpen={open}
         />

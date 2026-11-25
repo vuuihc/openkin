@@ -7,7 +7,7 @@
  * Routing, data loading and transport stay outside this component.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Pressable,
   SectionList,
@@ -15,7 +15,9 @@ import {
   Text,
   TextInput,
   View,
+  type PressableInstance,
 } from "react-native";
+import { focusNode } from "../a11y/focus";
 import { isRowKey, moveRow, openRow } from "../list/listKeys";
 import type {
   ConversationRow,
@@ -96,6 +98,12 @@ export type ConversationListProps = {
   initialFocusId?: string;
   /** Every move of the ring, so the route can remember where the reader was. */
   onFocusChange?: (rowId: string) => void;
+  /**
+   * Bumped only when the list route itself regains focus (Back from a pushed
+   * conversation). Distinct from the data epoch the container re-reads on: a
+   * split open/switch/close is not a return and must not move the reader.
+   */
+  returnFocusEpoch?: number;
   /**
    * A network state, not a steady one: present only while the screen is
    * reconnecting or has given up. It draws above the list header and never
@@ -230,6 +238,7 @@ export default function ConversationList({
   onScrollOffset,
   initialFocusId = "",
   onFocusChange,
+  returnFocusEpoch = 0,
   resume,
 }: ConversationListProps) {
   // An empty device (`includeEmptyDevices`) still yields a section, and a
@@ -264,9 +273,39 @@ export default function ConversationList({
     sectionIndex: number;
     itemIndex: number;
   } | null>(null);
+  // The row nodes a return can move the reader to. SectionList paints only
+  // the rows near the viewport, so the ringed row may not be committed yet.
+  const rowRefs = useRef(new Map<string, PressableInstance>());
+  // The row a return is still waiting to see painted. Its ref callback is the
+  // only signal that the row exists now: no timer, no retry loop (AGENTS §13).
+  const pendingReturn = useRef<string | null>(null);
+  // The epoch this list mounted with is the baseline: only a later change is a
+  // return, so the first paint (including a restored ring) moves nothing.
+  const returnBaseline = useRef(returnFocusEpoch);
+
+  // KIN-MOBILE-001 §2「返回时焦点回到那一行」: when the route reports that the
+  // list itself regained focus, move the reader once to the row the ring is on.
+  // The split's data-only epoch never reaches this prop, so opening, switching
+  // or closing the conversation beside the list cannot steal the reader.
+  useEffect(() => {
+    if (returnBaseline.current === returnFocusEpoch) return;
+    returnBaseline.current = returnFocusEpoch;
+    // A deep link straight into a conversation never had an originating row:
+    // nothing to return to, and the first row is not it.
+    if (focusedId === "") return;
+    const node = rowRefs.current.get(focusedId);
+    if (node == null) {
+      pendingReturn.current = focusedId;
+      return;
+    }
+    pendingReturn.current = null;
+    focusNode({ current: node });
+  }, [returnFocusEpoch, focusedId]);
 
   const focusRow = (rowId: string, scroll = false) => {
     if (rowId === focusedId) return;
+    // A newer move supersedes a return still waiting for its row to paint.
+    pendingReturn.current = null;
     setFocusedId(rowId);
     onFocusChange?.(rowId);
     if (!scroll) return;
@@ -393,6 +432,18 @@ export default function ConversationList({
               .filter(Boolean)
               .join(" · ")}
             accessibilityRole="button"
+            ref={(node) => {
+              if (node === null) {
+                rowRefs.current.delete(row.id);
+                return;
+              }
+              rowRefs.current.set(row.id, node);
+              // A return that landed before this row was painted waits here;
+              // the first committed ref is the row's arrival.
+              if (pendingReturn.current !== row.id) return;
+              pendingReturn.current = null;
+              focusNode({ current: node });
+            }}
             onPress={() => {
               // A tapped row is where the reader left the list, so the ring
               // rests there when they come back.
