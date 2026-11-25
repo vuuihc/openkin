@@ -709,7 +709,7 @@
     },
     {
       "id": "KIN-CONTRACT-001",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -727,7 +727,8 @@
       "ownerPaths": [],
       "tests": [
         "ui/src/lib/surfacesContract.KIN-CONTRACT-001.test.ts",
-        "ui/src/pages/RoutinesPage.dom.test.tsx"
+        "ui/src/pages/RoutinesPage.dom.test.tsx",
+        "ui/src/pages/SettingsPage.leaveGuard.dom.test.tsx"
       ],
       "blockedReason": null
     },
