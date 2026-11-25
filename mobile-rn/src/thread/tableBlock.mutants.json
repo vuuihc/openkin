@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the divider row is drawn as text under the table, so raw dashes reach the reader (R-rn-table-block)",
+    "file": "mobile-rn/src/thread/tableBlock.ts",
+    "old": "    i += 2; // the header row and the divider are one table head",
+    "new": "    i += 1; // the header row and the divider are one table head",
+    "test": "cd mobile-rn && npx jest src/thread/tableBlock.test.ts -t \"KIN-MOBILE-001 R4: the divider row is consumed and never drawn as a body row\""
+  },
+  {
+    "label": "a short body row keeps its own length, so the last column shifts left (R-rn-table-block)",
+    "file": "mobile-rn/src/thread/tableBlock.ts",
+    "old": "      while (cells.length < header.length) cells.push(\"\");",
+    "new": "      while (cells.length < 0) cells.push(\"\");",
+    "test": "cd mobile-rn && npx jest src/thread/tableBlock.test.ts -t \"KIN-MOBILE-001 R4: short body rows pad to the header width and long rows trim to it\""
+  },
+  {
+    "label": "a long body row keeps its extra cells, so it paints a column the header does not have (R-rn-table-block)",
+    "file": "mobile-rn/src/thread/tableBlock.ts",
+    "old": "      rows.push(cells.slice(0, header.length));",
+    "new": "      rows.push(cells.slice(0, header.length + 1));",
+    "test": "cd mobile-rn && npx jest src/thread/tableBlock.test.ts -t \"KIN-MOBILE-001 R4: short body rows pad to the header width and long rows trim to it\""
+  }
+]

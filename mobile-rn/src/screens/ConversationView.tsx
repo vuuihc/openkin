@@ -54,6 +54,7 @@ import {
   type ApprovalsScreenProps,
 } from "./Approvals";
 import ProviderUsageSheet from "./ProviderUsageSheet";
+import { MessageBody } from "./TableBlock";
 
 /** The signed touch floor; every control on this screen meets it. */
 export const BACK_SIZE = 44;
@@ -322,6 +323,14 @@ function TurnBlock({
             onToggleStep={onToggleStep}
             t={t}
             turnIndex={index}
+          />
+        ) : item.kind === "message" ? (
+          // A message may hold a markdown table (KIN-MOBILE-001 R4); with no
+          // table its body is still the one <Text> it was.
+          <MessageBody
+            key={`${index}:${item.key}`}
+            text={item.text}
+            textStyle={styles.item}
           />
         ) : (
           <Text
