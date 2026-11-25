@@ -11,15 +11,27 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  AppState,
+  StyleSheet,
+  View,
+} from "react-native";
 import {
   createApprovals,
   entriesForTask,
   type ApprovalsModel,
   type ApprovalsState,
+  type SubmitResult,
 } from "../approvals/approvalsModel";
 import { readSession, secureStoreBackend, type Session } from "../auth/tokenStore";
 import { t } from "../i18n";
+import {
+  asAppStateStatus,
+  shouldResume,
+  type AppStateLike,
+  type AppStateStatus,
+} from "../native/reconnect";
 import {
   createProvidersModel,
   type ProvidersModel,
@@ -58,6 +70,12 @@ function expiredState(taskId: string): ThreadState {
 export type ConversationScreenProps = {
   taskId: string;
   onBack: () => void;
+  /**
+   * A pending decision settled on the server: the sibling list's badges may be
+   * stale. The split route raises its focus epoch from here; a phone route
+   * passes nothing because there is no mounted list to re-read.
+   */
+  onPendingSettled?: () => void;
   /** Tests inject the Keychain read; production reads the paired session. */
   readSessionImpl?: () => Promise<Session | null>;
   /** Tests inject a recording fetch. */
@@ -67,14 +85,22 @@ export type ConversationScreenProps = {
    * fetch reader, exactly as the web console's EventSource would.
    */
   source?: StreamSource;
+  /**
+   * Tests inject the platform app-state emitter. Production uses React
+   * Native's `AppState`; a foreground return reopens a dead stream
+   * (KIN-MOBILE-001 R7).
+   */
+  appState?: AppStateLike;
 };
 
 export default function ConversationScreen({
   taskId,
   onBack,
+  onPendingSettled,
   readSessionImpl,
   fetchImpl,
   source,
+  appState,
 }: ConversationScreenProps) {
   const [state, setState] = useState<ThreadState | null>(null);
   // The node-wide pending lists, scoped to this conversation at render time
@@ -98,6 +124,10 @@ export default function ConversationScreen({
 
   useEffect(() => {
     let live = true;
+    // The platform's app-state emitter, or the test's. The subscription is
+    // created below, after the session answers, and removed by this run's
+    // cleanup (a return after the screen is gone must resume nothing).
+    let appStateSubscription: { remove(): void } | null = null;
     // Whatever this run reads, no card from the previous run may paint in the
     // meantime — and an expired session shows no old approval at all.
     setApprovals(null);
@@ -123,6 +153,30 @@ export default function ConversationScreen({
           if (live) setState(next);
         });
         setState(thread.getState());
+        // R7: a return from the background reopens a stream that gave up,
+        // silently and from the last applied seq. The listener is in place
+        // before `start()` so no transition can be missed while the first
+        // read is in flight; `resume()` itself no-ops until the thread is
+        // ready and while the stream is healthy.
+        const appStatePort: AppStateLike = appState ?? {
+          // RN's generated type is `string | null` until the platform sets it;
+          // anything outside the status union reads as `unknown`.
+          get currentState() {
+            return asAppStateStatus(AppState.currentState);
+          },
+          addEventListener(_type, listener) {
+            const subscription = AppState.addEventListener("change", listener);
+            return { remove: () => subscription.remove() };
+          },
+        };
+        let previousAppState: AppStateStatus = appStatePort.currentState;
+        appStateSubscription = appStatePort.addEventListener(
+          "change",
+          (next) => {
+            if (shouldResume(previousAppState, next)) void thread.resume();
+            previousAppState = next;
+          },
+        );
         // `start()` is the read *and* the subscription: `load()` alone leaves
         // the screen with a snapshot that never learns a sent message, its
         // reply, or the round's end (2026-11-25, the simulator walk).
@@ -164,6 +218,8 @@ export default function ConversationScreen({
       });
     return () => {
       live = false;
+      appStateSubscription?.remove();
+      appStateSubscription = null;
       // Drop the listeners first, then dispose/close: each model bumps its own
       // generation, so a read still in flight cannot publish to anyone
       // (AGENTS.md §11). The approvals read is abandoned with the screen.
@@ -179,12 +235,17 @@ export default function ConversationScreen({
       threadRef.current?.close();
       threadRef.current = null;
     };
-  }, [taskId, readSessionImpl, fetchImpl, source]);
+  }, [taskId, readSessionImpl, fetchImpl, source, appState]);
 
   const retry = useCallback(() => {
     // A retry after a failed read must also (re)open the subscription: a
     // load-only retry would leave the recovered screen unable to update.
     void threadRef.current?.start();
+  }, []);
+  // The offline banner's one manual retry: reopen the stream without the
+  // visible re-read `start()` does, keeping the transcript and the draft.
+  const reconnect = useCallback(() => {
+    void threadRef.current?.resume();
   }, []);
 
   // One read path for the list and for a failed card's retry: re-reading the
@@ -193,15 +254,34 @@ export default function ConversationScreen({
   const refresh = useCallback(() => {
     void approvalsRef.current?.load();
   }, []);
-  const approve = useCallback((id: string) => {
-    void approvalsRef.current?.approve(id);
-  }, []);
-  const deny = useCallback((id: string) => {
-    void approvalsRef.current?.deny(id);
-  }, []);
-  const answer = useCallback((id: string, text: string) => {
-    void approvalsRef.current?.answer(id, text);
-  }, []);
+  // The one outward signal a settled decision sends: the list beside this
+  // conversation is showing a count the server just changed. Only an `ok`
+  // answer moved anything — a failure restored the card, and a `stale` answer
+  // belongs to a list this screen no longer owns (AGENTS.md §11).
+  const settled = useCallback(
+    (result: SubmitResult) => {
+      if (result.ok) onPendingSettled?.();
+    },
+    [onPendingSettled],
+  );
+  const approve = useCallback(
+    (id: string) => {
+      void approvalsRef.current?.approve(id).then(settled);
+    },
+    [settled],
+  );
+  const deny = useCallback(
+    (id: string) => {
+      void approvalsRef.current?.deny(id).then(settled);
+    },
+    [settled],
+  );
+  const answer = useCallback(
+    (id: string, text: string) => {
+      void approvalsRef.current?.answer(id, text).then(settled);
+    },
+    [settled],
+  );
 
   // The composer's three writes go to the thread model, which owns the queue,
   // the stop and the offline refusal; this container only forwards. A press
@@ -286,6 +366,7 @@ export default function ConversationScreen({
       // rather than a button that does nothing. The same rule draws no
       // composer: a box that cannot post is not a composer.
       onRetry={threadRef.current === null ? undefined : retry}
+      onReconnect={threadRef.current === null ? undefined : reconnect}
       onSend={threadRef.current === null ? undefined : send}
       onStop={threadRef.current === null ? undefined : stop}
       onWithdraw={threadRef.current === null ? undefined : withdraw}
