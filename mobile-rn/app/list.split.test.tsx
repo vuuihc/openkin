@@ -80,8 +80,10 @@ jest.mock("../src/screens/ConversationScreen", () => ({
 import { t } from "../src/i18n";
 import ListRoute from "./list";
 
+type BackHandlerListener = Parameters<typeof BackHandler.addEventListener>[1];
+
 async function renderLoaded() {
-  const screen = render(<ListRoute />);
+  const screen = await render(<ListRoute />);
   await waitFor(() => expect(screen.getByTestId("list-probe")).toBeTruthy());
   return screen;
 }
@@ -107,7 +109,7 @@ describe("KIN-MOBILE-001: the list route across the split boundary", () => {
     expect(column.flexGrow).toBe(0);
     expect(screen.getByText(t("sessions.selectConversation"))).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId("row-a"));
+    await fireEvent.press(screen.getByTestId("row-a"));
 
     expect(mockRouter.setParams).toHaveBeenCalledWith({ thread: "task-a" });
     expect(mockRouter.push).not.toHaveBeenCalled();
@@ -127,7 +129,7 @@ describe("KIN-MOBILE-001: the list route across the split boundary", () => {
   });
 
   it("KIN-MOBILE-001: at 820 Android's system back closes the conversation instead of the app", async () => {
-    const handlers: Array<() => boolean | null | undefined> = [];
+    const handlers: BackHandlerListener[] = [];
     const spy = jest
       .spyOn(BackHandler, "addEventListener")
       .mockImplementation((_event, handler) => {
@@ -139,7 +141,7 @@ describe("KIN-MOBILE-001: the list route across the split boundary", () => {
       await renderLoaded();
       expect(handlers.length).toBeGreaterThan(0);
 
-      const handled = handlers[0]!();
+      const handled = handlers[0]!({ type: "hardwareBackPress", timeStamp: 0 });
 
       expect(handled).toBe(true);
       expect(mockRouter.setParams).toHaveBeenCalledWith({ thread: undefined });
@@ -153,7 +155,7 @@ describe("KIN-MOBILE-001: the list route across the split boundary", () => {
     const screen = await renderLoaded();
 
     expect(screen.queryByTestId("list-split-column")).toBeNull();
-    fireEvent.press(screen.getByTestId("row-a"));
+    await fireEvent.press(screen.getByTestId("row-a"));
 
     expect(mockRouter.push).toHaveBeenCalledWith("/thread/task-a");
     expect(mockRouter.setParams).not.toHaveBeenCalled();
@@ -165,7 +167,7 @@ describe("KIN-MOBILE-001: the list route across the split boundary", () => {
     expect(screen.getByTestId("conversation").props.children).toBe("task-7");
 
     mockWidth = 390;
-    screen.rerender(<ListRoute />);
+    await screen.rerender(<ListRoute />);
 
     await waitFor(() =>
       expect(mockRouter.push).toHaveBeenCalledWith("/thread/task-7"),

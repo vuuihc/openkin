@@ -66,19 +66,19 @@ describe("KIN-MOBILE-001: the list's split presentation", () => {
     jest.useRealTimers();
   });
 
-  it("KIN-MOBILE-001: a 767pt window stays the phone stack", () => {
-    const screen = render(<Harness width={767} />);
+  it("KIN-MOBILE-001: a 767pt window stays the phone stack", async () => {
+    const screen = await render(<Harness width={767} />);
     expect(screen.getByTestId("list-stack-column")).toBeTruthy();
     expect(screen.queryByTestId("list-split-column")).toBeNull();
     expect(screen.queryByTestId("list-split-conversation")).toBeNull();
 
     // A tap still reaches the route; this layout draws no conversation.
-    fireEvent.press(screen.getByTestId("row-a"));
+    await fireEvent.press(screen.getByTestId("row-a"));
     expect(screen.queryByTestId("conversation")).toBeNull();
   });
 
-  it("KIN-MOBILE-001: a 768pt window puts the list in a 304pt column beside the conversation", () => {
-    const screen = render(<Harness width={768} />);
+  it("KIN-MOBILE-001: a 768pt window puts the list in a 304pt column beside the conversation", async () => {
+    const screen = await render(<Harness width={768} />);
     expect(screen.getByTestId("list-split-conversation")).toBeTruthy();
     const column = screen.getByTestId("list-split-column");
     const style = StyleSheet.flatten(column.props.style);
@@ -89,11 +89,11 @@ describe("KIN-MOBILE-001: the list's split presentation", () => {
     expect(style.flexShrink).toBe(0);
   });
 
-  it("KIN-MOBILE-001: at 820 tapping a row shows that conversation while the list stays rendered", () => {
-    const screen = render(<Harness width={820} />);
+  it("KIN-MOBILE-001: at 820 tapping a row shows that conversation while the list stays rendered", async () => {
+    const screen = await render(<Harness width={820} />);
     expect(screen.getByText(EMPTY_LABEL)).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId("row-a"));
+    await fireEvent.press(screen.getByTestId("row-a"));
 
     expect(screen.getByTestId("list-probe")).toBeTruthy();
     expect(screen.getByTestId("list-split-column")).toBeTruthy();
@@ -101,19 +101,19 @@ describe("KIN-MOBILE-001: the list's split presentation", () => {
     expect(screen.queryByText(EMPTY_LABEL)).toBeNull();
   });
 
-  it("KIN-MOBILE-001: an empty selection names the choice instead of showing a blank pane", () => {
-    const screen = render(<Harness width={820} />);
+  it("KIN-MOBILE-001: an empty selection names the choice instead of showing a blank pane", async () => {
+    const screen = await render(<Harness width={820} />);
     expect(screen.getByText(EMPTY_LABEL)).toBeTruthy();
     expect(screen.queryByTestId("conversation")).toBeNull();
   });
 
-  it("KIN-MOBILE-001: a new selection drops the previous conversation's late answer", () => {
-    const screen = render(<Harness width={820} />);
+  it("KIN-MOBILE-001: a new selection drops the previous conversation's late answer", async () => {
+    const screen = await render(<Harness width={820} />);
 
-    fireEvent.press(screen.getByTestId("row-a"));
+    await fireEvent.press(screen.getByTestId("row-a"));
     // The first read has not answered yet when the reader picks another row.
-    fireEvent.press(screen.getByTestId("row-b"));
-    act(() => {
+    await fireEvent.press(screen.getByTestId("row-b"));
+    await act(() => {
       jest.advanceTimersByTime(100);
     });
 
@@ -123,14 +123,14 @@ describe("KIN-MOBILE-001: the list's split presentation", () => {
     expect(screen.queryByText("answer:task-a")).toBeNull();
   });
 
-  it("KIN-MOBILE-001: the split dispatches no request of its own", () => {
+  it("KIN-MOBILE-001: the split dispatches no request of its own", async () => {
     const fetchSpy = jest.fn();
     const original = globalThis.fetch;
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
     try {
-      const screen = render(<Harness width={820} />);
-      fireEvent.press(screen.getByTestId("row-a"));
-      act(() => {
+      const screen = await render(<Harness width={820} />);
+      await fireEvent.press(screen.getByTestId("row-a"));
+      await act(() => {
         jest.advanceTimersByTime(100);
       });
       // Each pane owns its own bounded read; laying them out asks for nothing.

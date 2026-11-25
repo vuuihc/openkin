@@ -55,6 +55,8 @@ jest.mock("../../src/screens/ConversationScreen", () => ({
 
 import ThreadRoute from "./[id]";
 
+type BackHandlerListener = Parameters<typeof BackHandler.addEventListener>[1];
+
 describe("KIN-MOBILE-001: the conversation route across the split boundary", () => {
   beforeEach(() => {
     mockWidth = 390;
@@ -65,35 +67,35 @@ describe("KIN-MOBILE-001: the conversation route across the split boundary", () 
     mockRouter.setParams.mockClear();
   });
 
-  it("KIN-MOBILE-001: at 390 the conversation route is only the conversation", () => {
-    const screen = render(<ThreadRoute />);
+  it("KIN-MOBILE-001: at 390 the conversation route is only the conversation", async () => {
+    const screen = await render(<ThreadRoute />);
     expect(screen.getByTestId("conversation").props.children).toBe("task-7");
     expect(screen.queryByTestId("list-probe")).toBeNull();
   });
 
-  it("KIN-MOBILE-001: rotating 390 to 820 keeps the task id and draws the list beside it", () => {
-    const screen = render(<ThreadRoute />);
+  it("KIN-MOBILE-001: rotating 390 to 820 keeps the task id and draws the list beside it", async () => {
+    const screen = await render(<ThreadRoute />);
     expect(screen.queryByTestId("list-probe")).toBeNull();
 
     mockWidth = 820;
-    screen.rerender(<ThreadRoute />);
+    await screen.rerender(<ThreadRoute />);
 
     expect(screen.getByTestId("conversation").props.children).toBe("task-7");
     expect(screen.getByTestId("list-probe")).toBeTruthy();
     expect(screen.getByTestId("list-split-column")).toBeTruthy();
   });
 
-  it("KIN-MOBILE-001: at 820 picking another row rewrites the URL's task id", () => {
+  it("KIN-MOBILE-001: at 820 picking another row rewrites the URL's task id", async () => {
     mockWidth = 820;
-    const screen = render(<ThreadRoute />);
+    const screen = await render(<ThreadRoute />);
 
-    fireEvent.press(screen.getByTestId("row-nine"));
+    await fireEvent.press(screen.getByTestId("row-nine"));
 
     expect(mockRouter.setParams).toHaveBeenCalledWith({ id: "task-9" });
   });
 
-  it("KIN-MOBILE-001: at 820 Android's system back leaves the conversation for the list", () => {
-    const handlers: Array<() => boolean | null | undefined> = [];
+  it("KIN-MOBILE-001: at 820 Android's system back leaves the conversation for the list", async () => {
+    const handlers: BackHandlerListener[] = [];
     const spy = jest
       .spyOn(BackHandler, "addEventListener")
       .mockImplementation((_event, handler) => {
@@ -102,10 +104,10 @@ describe("KIN-MOBILE-001: the conversation route across the split boundary", () 
       });
     try {
       mockWidth = 820;
-      render(<ThreadRoute />);
+      await render(<ThreadRoute />);
       expect(handlers.length).toBeGreaterThan(0);
 
-      const handled = handlers[0]!();
+      const handled = handlers[0]!({ type: "hardwareBackPress", timeStamp: 0 });
 
       expect(handled).toBe(true);
       expect(mockRouter.back).toHaveBeenCalled();
@@ -114,8 +116,8 @@ describe("KIN-MOBILE-001: the conversation route across the split boundary", () 
     }
   });
 
-  it("KIN-MOBILE-001: a deep-linked split conversation's Back opens the list when there is no history", () => {
-    const handlers: Array<() => boolean | null | undefined> = [];
+  it("KIN-MOBILE-001: a deep-linked split conversation's Back opens the list when there is no history", async () => {
+    const handlers: BackHandlerListener[] = [];
     const spy = jest
       .spyOn(BackHandler, "addEventListener")
       .mockImplementation((_event, handler) => {
@@ -125,9 +127,9 @@ describe("KIN-MOBILE-001: the conversation route across the split boundary", () 
     try {
       mockRouter.canGoBack.mockReturnValueOnce(false);
       mockWidth = 820;
-      render(<ThreadRoute />);
+      await render(<ThreadRoute />);
 
-      handlers[0]!();
+      handlers[0]!({ type: "hardwareBackPress", timeStamp: 0 });
 
       expect(mockRouter.replace).toHaveBeenCalledWith("/list");
     } finally {
