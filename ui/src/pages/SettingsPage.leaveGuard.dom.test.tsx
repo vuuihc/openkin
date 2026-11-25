@@ -23,6 +23,9 @@ import SettingsPage from "./SettingsPage";
  *
  * KIN-CONTINUE-003 row 14: leaving or reshaping Settings asks before dropping a
  * draft, and a section keeps its fields on return.
+ *
+ * KIN-CONTRACT-001 row 4: the `agents` tab keeps its import action and its
+ * roles editor, mounted through the real page rather than the section alone.
  */
 
 const baseSettings = {
@@ -350,5 +353,26 @@ describe("settings forms ask before a phone departure", () => {
     expect(window.confirm).toHaveBeenCalledWith("Discard unsaved settings changes?");
     expectOnSettings();
     expect(fixtures.importEveryMachine).not.toHaveBeenCalled();
+  });
+});
+
+describe("the agents tab keeps the capabilities that live only there", () => {
+  // KIN-CONTRACT-001 row 4: retiring the tab would delete two capabilities
+  // nothing else offers — importing provider sessions and the roles editor —
+  // so both are asserted through the real page at the tab's own URL.
+  it("keeps the import-sessions action inside the agents tab", async () => {
+    shell("/settings?tab=agents");
+
+    expect(await screen.findByRole("button", { name: "Import sessions now" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Add role" })).toBeTruthy();
+  });
+
+  it("does not offer the agents tab's import action from another tab", async () => {
+    shell("/settings?tab=general");
+
+    // The anchor first: a null below must mean "another tab", never "the page
+    // never mounted".
+    expect((await screen.findAllByRole("heading", { name: "Settings" })).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Import sessions now" })).toBeNull();
   });
 });
