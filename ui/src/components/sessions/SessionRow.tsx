@@ -59,8 +59,9 @@ import TextInput from "../ui/TextInput";
  */
 export type SessionRowProps = {
   row: PhoneSessionRow;
-  /** The machine a pinned row came from. The row itself draws no device text:
-   *  a device heading already names it (KIN-CONTINUE-007). */
+  /** The machine a pinned row came from. Pinning lifts the row out of the
+   *  device heading that names every other row's machine, so this one names
+   *  it on its own face; empty for every row under a heading (KIN-CONTINUE-001). */
   deviceLabel: string;
   query: string;
   now: number;
@@ -101,6 +102,7 @@ export type SessionRowProps = {
 
 export default function SessionRow({
   row,
+  deviceLabel,
   now,
   viewedIds,
   pendingCount,
@@ -170,14 +172,15 @@ export default function SessionRow({
           : row.task?.status === "succeeded"
             ? tr("sessions.statusSucceeded")
             : "";
-  // The row's second line says who ran it, when, and one status. The device is
-  // not repeated: it is already the heading above the project. In the 304px
-  // column the line is narrower than the three slots at caption size, so the
-  // agent — the constant, and the one part the avatar already hints at — is
-  // what ellipsizes; the time and the status keep their own boxes and stay
-  // readable. The accessible name is the whole sentence, so a screen reader
-  // reads the title once.
-  const label = [row.title, agent, at, status].filter(Boolean).join(" · ");
+  // The row's second line says who ran it, when, and one status; a pinned row
+  // additionally names its machine, because pinning lifts it out of the device
+  // heading that says it for every other row. In the 304px column the line is
+  // narrower than the slots at caption size, so the agent — the constant, and
+  // the one part the avatar already hints at — is what ellipsizes; the time,
+  // the status and the device keep their own boxes and stay readable. The
+  // accessible name is the whole sentence, so a screen reader reads the title
+  // once.
+  const label = [row.title, agent, at, status, deviceLabel].filter(Boolean).join(" · ");
   const gutter = shell === "sidebar" ? "px-2" : "px-4";
   // The Mac sidebar is a pointer surface with a keyboard: its edit is confirmed
   // with Enter. A touch surface has neither key, so it draws explicit controls.
@@ -430,6 +433,11 @@ export default function SessionRow({
             {status ? (
               <span data-session-status className="shrink-0 whitespace-pre">
                 {agent || at ? ` · ${status}` : status}
+              </span>
+            ) : null}
+            {deviceLabel ? (
+              <span className="shrink-0 whitespace-pre">
+                {agent || at || status ? ` · ${deviceLabel}` : deviceLabel}
               </span>
             ) : null}
           </span>

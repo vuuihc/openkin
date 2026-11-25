@@ -148,21 +148,22 @@ beforeEach(() => {
 });
 
 describe("SessionRow", () => {
-  it("renders the title, one metadata line and the status without repeating the device", () => {
+  it("renders the title, one metadata line and the status, naming a pinned row's machine", () => {
     const { container } = render(<SessionRow {...props({ deviceLabel: "Studio" })} />);
 
     expect(screen.getByText("Fix the build")).toBeTruthy();
-    // KIN-CONTINUE-007: the device is the heading, not a row tail.
-    expect(screen.queryByText("Studio")).toBeNull();
+    // KIN-CONTINUE-001: a pinned row sits outside the device heading, so it
+    // names its machine in the metadata line; under a heading the slot is
+    // empty and nothing is repeated.
     expect(container.querySelector("[data-session-meta]")?.textContent).toBe(
-      "Claude Code · 2 minutes ago · Done",
+      "Claude Code · 2 minutes ago · Done · Studio",
     );
     // The status dot is the succeeded, not-yet-viewed marker.
     expect(container.querySelector(".bg-kin-green")).not.toBeNull();
-    // aria-label is the row's own sentence: title, agent, when, status.
+    // aria-label is the row's own sentence: title, agent, when, status, device.
     expect(
       screen.getByRole("button", {
-        name: "Fix the build · Claude Code · 2 minutes ago · Done",
+        name: "Fix the build · Claude Code · 2 minutes ago · Done · Studio",
       }),
     ).toBeTruthy();
   });
@@ -1052,7 +1053,7 @@ describe("SessionRow", () => {
       <SessionRow {...props({ shell: "sidebar", coarse: false, deviceLabel: "Studio" })} />,
     );
     expect(container.querySelector("[data-session-meta]")?.textContent).toBe(
-      "Claude Code · 2 minutes ago · Done",
+      "Claude Code · 2 minutes ago · Done · Studio",
     );
 
     const field = await chooseRename(container, "menu");

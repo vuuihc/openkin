@@ -45,6 +45,6 @@ describe("the phone list's waiting count", () => {
     expect(ROW).toContain('tr("sessions.statusPendingCount", { count: String(pendingCount) })');
     expect(ROW).toContain("data-session-status");
     expect(ROW).toContain("` · ${status}`");
-    expect(ROW).toContain("const label = [row.title, agent, at, status]");
+    expect(ROW).toContain("const label = [row.title, agent, at, status");
   });
 });

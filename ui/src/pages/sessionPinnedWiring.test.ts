@@ -25,12 +25,13 @@ describe("the pinned section's machine label", () => {
     expect(SOURCE).toContain("deviceLabel={pinnedRowDeviceName(bucket.key, row, machines)}");
   });
 
-  it("leaves the device to the heading instead of repeating it on the row", () => {
-    // KIN-CONTINUE-007: the row is title · agent · time · status. The device
-    // heading above the project already names the machine, so the row neither
-    // draws the label nor reads it into the accessible name.
-    expect(ROW).not.toContain("{deviceLabel}");
-    expect(ROW).not.toContain('row.remote ? deviceLabel || tr("machine.remote") : ""');
-    expect(ROW).toContain("const label = [row.title, agent, at, status]");
+  it("shows the answer on the row and reads it out", () => {
+    // `pinnedRowDeviceName` answers only for a pinned remote row, so the slot
+    // is empty for every row under a device heading and nothing is repeated.
+    // A pinned row sits outside that heading, and its `aria-label` overrides
+    // the content: a label that left the machine out would tell a screen
+    // reader a different story from the one the row shows.
+    expect(ROW).toContain("{deviceLabel}");
+    expect(ROW).toContain("const label = [row.title, agent, at, status, deviceLabel]");
   });
 });
