@@ -16,6 +16,7 @@ import type {
   Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
 import type { Session } from "../auth/tokenStore";
+import type { StreamSource } from "../thread/stream";
 import { t } from "../i18n";
 import ConversationScreen from "./ConversationScreen";
 import ConversationView from "./ConversationView";
@@ -223,6 +224,62 @@ function historyFetch(status: Task["status"] = "succeeded"): typeof fetch {
   });
 }
 
+/**
+ * A stream that opens and says nothing. The default here keeps every existing
+ * case on its snapshot: those tests are about the surface, and a real stream
+ * would make their routing fixtures answer an endpoint they never meant to.
+ */
+function silentSource(): StreamSource {
+  return {
+    async open() {
+      return {
+        status: 200,
+        chunks: (async function* never(): AsyncGenerator<string> {
+          await new Promise<void>(() => undefined);
+        })(),
+      };
+    },
+  };
+}
+
+/** A stream the test drives: each push is one decoded chunk. */
+function controlledSource(): {
+  source: StreamSource;
+  opens: () => number;
+  push: (chunk: string) => void;
+} {
+  const queue: string[] = [];
+  let wake: (() => void) | null = null;
+  let opens = 0;
+  const chunks = (async function* feed(): AsyncGenerator<string> {
+    for (;;) {
+      if (queue.length === 0) {
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+        continue;
+      }
+      const next = queue.shift();
+      if (next !== undefined) yield next;
+    }
+  })();
+  return {
+    source: {
+      async open() {
+        opens += 1;
+        return { status: 200, chunks };
+      },
+    },
+    opens: () => opens,
+    push(chunk) {
+      queue.push(chunk);
+      const resume = wake;
+      wake = null;
+      resume?.();
+    },
+  };
+}
+
 async function renderConversation(
   props: Partial<Parameters<typeof ConversationScreen>[0]> = {},
 ) {
@@ -231,6 +288,7 @@ async function renderConversation(
       fetchImpl={historyFetch()}
       onBack={jest.fn()}
       readSessionImpl={storedSession}
+      source={silentSource()}
       taskId={TASK_ID}
       {...props}
     />,
@@ -266,6 +324,40 @@ describe("KIN-MOBILE-001 R4 conversation", () => {
     for (const text of expected) {
       expect(screen.getByText(text)).toBeTruthy();
     }
+  });
+
+  it("KIN-MOBILE-001 R4: the screen subscribes, so an event after the snapshot is drawn", async () => {
+    // The snapshot is not the conversation: a sent message, its reply and the
+    // round's end arrive on `/api/events`. A container that only calls
+    // `load()` shows the first frame forever; the simulator walk on
+    // 2026-11-25 sent a message and watched "运行中" never clear.
+    const live = controlledSource();
+    const screen = await renderConversation({
+      fetchImpl: historyFetch("running"),
+      source: live.source,
+    });
+    await waitFor(() => expect(live.opens()).toBe(1));
+
+    // The next contiguous seq: a skip is the gap-fill path, not this case.
+    const reply = event(9, "message", {
+      speaker: "kin",
+      content: "answer that arrived over the stream",
+      visibility: { user: true, task: true },
+    });
+    await act(async () => {
+      live.push(
+        `event: event\ndata: ${JSON.stringify({ kind: "event", data: reply })}\n\n`,
+      );
+      // The reader consumes a chunk through a microtask chain; let it finish
+      // inside this act so its setState is not a warning.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("answer that arrived over the stream"),
+      ).toBeTruthy(),
+    );
   });
 
   it("KIN-MOBILE-001 R4: loading says so before the read answers, then the transcript replaces it", async () => {
