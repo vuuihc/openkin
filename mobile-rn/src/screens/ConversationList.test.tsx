@@ -266,6 +266,8 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     const skeleton = screen.getByTestId("list-skeleton");
     // The loading sentence is spoken once by the shape's container; the bars
     // themselves carry no words (the old lone sentence is no longer drawn).
+    // `accessible` is what makes that one label a stop at all on iOS.
+    expect(skeleton.props.accessible).toBe(true);
     expect(skeleton.props.accessibilityLabel).toBe("sessions.loading");
     expect(screen.getByTestId("list-skeleton-heading")).toBeTruthy();
     expect(screen.getAllByTestId("list-skeleton-row")).toHaveLength(3);

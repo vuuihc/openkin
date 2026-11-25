@@ -284,6 +284,12 @@ export default function ListScreen({
 
   /** Every scroll updates the place Back will restore. */
   const rememberOffset = useCallback((offset: number) => {
+    // A negative offset is never a resting place: iOS's refresh control
+    // reports one at mount (`RCTPullToRefreshViewComponentView`), and a
+    // rubber-band bounce reports the same. The pre-session frame mounts a
+    // refreshing list, so writing it here would erase the offset a remount
+    // was about to restore (KIN-MOBILE-001 §2 离开再回来).
+    if (offset < 0) return;
     memoryRef.current.write({ offset });
   }, []);
 

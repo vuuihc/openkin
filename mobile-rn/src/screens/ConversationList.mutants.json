@@ -75,5 +75,12 @@
     "old": "      accessibilityLabel={t(\"sessions.loading\")}\n      testID=\"list-skeleton\"",
     "new": "      testID=\"list-skeleton\"",
     "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: the first load draws the list's shape, not a lone wheel\""
+  },
+  {
+    "label": "the first-load skeleton stops being one accessibility stop, so its label is never spoken (R-rn-list-press-skeleton)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "    <View\n      accessible\n      accessibilityLabel={t(\"sessions.loading\")}\n      testID=\"list-skeleton\"\n    >",
+    "new": "    <View\n      accessibilityLabel={t(\"sessions.loading\")}\n      testID=\"list-skeleton\"\n    >",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: the first load draws the list's shape, not a lone wheel\""
   }
 ]

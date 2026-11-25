@@ -739,6 +739,57 @@ describe("KIN-MOBILE-001 R3 list memory and restore", () => {
     }
   });
 
+  it("KIN-MOBILE-001 R3: a negative scroll on the boot frame does not erase the offset a remount restores", async () => {
+    const fetchImpl = routedFetch((url) =>
+      url.endsWith(listTasksPath()) ? { body: [task()] } : { body: [] },
+    );
+    const memory = createListMemory();
+
+    // A page the reader left at 180, so the remount has somewhere to restore.
+    const first = await renderList({ fetchImpl, memory });
+    await waitFor(() =>
+      expect(first.getByText("First conversation")).toBeTruthy(),
+    );
+    memory.write({ offset: 180 });
+    await first.unmount();
+
+    // Hold the session read so the screen stays on its pre-session frame — the
+    // one that mounts a refreshing SectionList. iOS's refresh control calls
+    // setContentOffset(y - height) at mount, and the scroll view reports that
+    // as onScroll; a top-edge bounce reports the same. Neither is a resting
+    // place, and neither may replace the place Back restores.
+    let release: (session: Session | null) => void = () => {};
+    const heldSession = new Promise<Session | null>((resolve) => {
+      release = resolve;
+    });
+    const second = await renderList({
+      fetchImpl,
+      memory,
+      readSessionImpl: () => heldSession,
+    });
+    await fireEvent.scroll(second.getByTestId("list-scroller"), {
+      nativeEvent: {
+        contentOffset: { x: 0, y: -60 },
+        contentSize: { width: 390, height: 4000 },
+        layoutMeasurement: { width: 390, height: 800 },
+      },
+    });
+    expect(memory.read().offset).toBe(180);
+
+    await act(async () => {
+      release({ origin: ORIGIN, token: TOKEN });
+    });
+    await waitFor(() =>
+      expect(second.getByText("First conversation")).toBeTruthy(),
+    );
+    // The page and the reader's place both came back untouched.
+    expect(second.getByTestId("list-scroller").props.contentOffset).toEqual({
+      x: 0,
+      y: 180,
+    });
+    await second.unmount();
+  });
+
   it("KIN-MOBILE-001 R3: folding a project on a restored page keeps the rows", async () => {
     let taskReads = 0;
     const fetchImpl = routedFetch((url) => {
