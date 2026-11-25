@@ -51,8 +51,8 @@
   {
     "label": "a held conversation row never paints its pressed background (R-rn-list-press-skeleton)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
-    "old": "            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}",
-    "new": "            style={({ pressed }) => [styles.row, false && styles.rowPressed]}",
+    "old": "            style={({ pressed }) => [\n              styles.row,\n              pressed && styles.rowPressed,\n              focused && styles.rowFocused,\n            ]}",
+    "new": "            style={({ pressed }) => [\n              styles.row,\n              false && styles.rowPressed,\n              focused && styles.rowFocused,\n            ]}",
     "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: pressing a conversation row paints a pressed state\""
   },
   {
@@ -82,5 +82,54 @@
     "old": "    <View\n      accessible\n      accessibilityLabel={t(\"sessions.loading\")}\n      testID=\"list-skeleton\"\n    >",
     "new": "    <View\n      accessibilityLabel={t(\"sessions.loading\")}\n      testID=\"list-skeleton\"\n    >",
     "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: the first load draws the list's shape, not a lone wheel\""
+  },
+  {
+    "label": "ArrowDown stops moving the ring, so the list has no way down (R-rn-list-keyboard)",
+    "file": "mobile-rn/src/list/listKeys.ts",
+    "old": "  if (key === \"ArrowDown\") {\n    return index + 1 < ids.length ? ids[index + 1]! : current;\n  }",
+    "new": "  if (key === \"ArrowDown\") {\n    return current;\n  }",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: ArrowDown paints the focus ring on the next row\""
+  },
+  {
+    "label": "Enter reports an empty task id instead of the focused row (R-rn-list-keyboard)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "      if (target !== null) onOpen(target);",
+    "new": "      if (target !== null) onOpen(\"\");",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: Enter opens the focused row\""
+  },
+  {
+    "label": "the row never paints the keyboard ring, so the arrows move invisibly (R-rn-list-keyboard)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "            style={({ pressed }) => [\n              styles.row,\n              pressed && styles.rowPressed,\n              focused && styles.rowFocused,\n            ]}",
+    "new": "            style={({ pressed }) => [\n              styles.row,\n              pressed && styles.rowPressed,\n            ]}",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: ArrowDown paints the focus ring on the next row\""
+  },
+  {
+    "label": "the list steals the arrows while the search caret is in the field (R-rn-list-keyboard)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "  const handleKeyDown = (event: ListKeyEvent) => {\n    if (searchFocused) return;\n",
+    "new": "  const handleKeyDown = (event: ListKeyEvent) => {\n",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: typing in the search field keeps the arrows for the caret\""
+  },
+  {
+    "label": "the route never remembers the ring's row, so Back returns to no focus (R-rn-list-keyboard)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "  const rememberFocus = useCallback((rowId: string) => {\n    memoryRef.current.write({ focusedRowId: rowId });\n  }, []);",
+    "new": "  const rememberFocus = useCallback((rowId: string) => {\n    void rowId;\n  }, []);",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 §2: the ring is on the row the reader left\""
+  },
+  {
+    "label": "a fresh list's first ArrowUp falls into the hidden-id branch and lands on the last row (R-rn-list-keyboard)",
+    "file": "mobile-rn/src/list/listKeys.ts",
+    "old": "  if (ids.length === 0) return current;\n  if (current === \"\") return ids[0]!;",
+    "new": "  if (ids.length === 0) return current;",
+    "test": "cd mobile-rn && npx jest src/list/listKeys.test.ts -t \"KIN-MOBILE-001 §2: a fresh list enters at the first row from either arrow\""
+  },
+  {
+    "label": "a keyboard move never reveals the row it lands on, so the ring can sit off-screen (R-rn-list-keyboard)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "    pendingScroll.current = where;\n    listRef.current?.scrollToLocation({",
+    "new": "    pendingScroll.current = where;\n    void listRef.current;",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: a move past the fold reveals the row it lands on\""
   }
 ]
