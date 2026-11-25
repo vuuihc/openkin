@@ -16,8 +16,17 @@
  * embedded section are the same body, so one card never reads two ways.
  */
 
-import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type ViewInstance,
+} from "react-native";
+import { focusNode } from "../a11y/focus";
 import type {
   ApprovalEntry,
   ApprovalsState,
@@ -49,6 +58,24 @@ export type ApprovalsScreenProps = {
  */
 export function entryActionable(entry: PendingEntry, online: boolean): boolean {
   return online && entry.phase === "idle";
+}
+
+/**
+ * Move the reader once, on the transition into a settled state within this
+ * mount. The ref remembers the previous value across renders, so a card that
+ * arrives already handled after a reload takes no focus: the list that asked
+ * owns that answer (AGENTS.md §11). A submit in flight changes neither target,
+ * so the pressed control keeps the reader where it is.
+ */
+function useReaderFocus(
+  target: boolean,
+  ref: RefObject<ViewInstance | null>,
+): void {
+  const wasTarget = useRef(target);
+  useEffect(() => {
+    if (target && !wasTarget.current) focusNode(ref);
+    wasTarget.current = target;
+  }, [target, ref]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -115,18 +142,31 @@ function FailureRow({
   id,
   t,
   onRetry,
+  containerRef,
 }: {
   failure: EntryFailure;
   id: string;
   t: Translate;
   onRetry?: (id: string) => void;
+  /** The card keeps the ref so only a fresh failure, not a reload, focuses. */
+  containerRef?: RefObject<ViewInstance | null>;
 }) {
   return (
     <View style={styles.failureRow}>
-      <Text accessibilityRole="alert" style={styles.failureText}>
-        {t("inbox.decisionFailed")}
-      </Text>
-      <Text style={styles.failureText}>{t(failureKey(failure))}</Text>
+      {/* The reason is one alert stop; the retry stays its sibling, because an
+          `accessible` group would collapse the control out of the reader. */}
+      <View
+        accessible
+        accessibilityRole="alert"
+        ref={containerRef}
+        style={styles.failureReason}
+        testID={`failure:${id}`}
+      >
+        <Text accessibilityRole="alert" style={styles.failureText}>
+          {t("inbox.decisionFailed")}
+        </Text>
+        <Text style={styles.failureText}>{t(failureKey(failure))}</Text>
+      </View>
       {onRetry ? (
         <Pressable
           accessibilityRole="button"
@@ -162,6 +202,10 @@ function ApprovalCard({
   const actionable = entryActionable(entry, online);
   const title = resolved ? approvalTitle(entry, t) : t("approval.cardTitle");
   const object = toolName || t("approval.cardTitle");
+  const resultRef = useRef<ViewInstance | null>(null);
+  const failureRef = useRef<ViewInstance | null>(null);
+  useReaderFocus(resolved, resultRef);
+  useReaderFocus(entry.failure != null, failureRef);
 
   return (
     <View style={styles.card} testID={`card:${entry.key}`}>
@@ -175,6 +219,7 @@ function ApprovalCard({
 
       {entry.failure ? (
         <FailureRow
+          containerRef={failureRef}
           failure={entry.failure}
           id={entry.id}
           onRetry={onRetry}
@@ -183,7 +228,14 @@ function ApprovalCard({
       ) : null}
 
       {resolved ? (
-        <View style={styles.result}>
+        <View
+          accessible
+          accessibilityLabel={`${title} · ${object}`}
+          accessibilityRole="text"
+          ref={resultRef}
+          style={styles.result}
+          testID={`result:${entry.key}`}
+        >
           {/* One polite announcement per settled card; the title stays quiet. */}
           <Text accessibilityLiveRegion="polite" style={styles.resultText}>
             {t("approval.decidedFallback")}
@@ -258,6 +310,10 @@ function QuestionCard({
   const canSubmit = entryActionable(entry, online) && chosen !== null;
   const result =
     entry.resolution?.kind === "question" ? entry.resolution.text : prompt;
+  const resultRef = useRef<ViewInstance | null>(null);
+  const failureRef = useRef<ViewInstance | null>(null);
+  useReaderFocus(resolved, resultRef);
+  useReaderFocus(entry.failure != null, failureRef);
 
   return (
     <View style={styles.card} testID={`card:${entry.key}`}>
@@ -268,6 +324,7 @@ function QuestionCard({
 
       {entry.failure ? (
         <FailureRow
+          containerRef={failureRef}
           failure={entry.failure}
           id={entry.id}
           onRetry={onRetry}
@@ -276,7 +333,14 @@ function QuestionCard({
       ) : null}
 
       {resolved ? (
-        <View style={styles.result}>
+        <View
+          accessible
+          accessibilityLabel={`${prompt} · ${result}`}
+          accessibilityRole="text"
+          ref={resultRef}
+          style={styles.result}
+          testID={`result:${entry.key}`}
+        >
           <Text accessibilityLiveRegion="polite" style={styles.resultText}>
             {result}
           </Text>
@@ -581,6 +645,13 @@ const styles = StyleSheet.create({
     color: "#1d1d1d",
     fontSize: 16,
     fontWeight: "600",
+  },
+  failureReason: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 1,
+    flexWrap: "wrap",
+    gap: 8,
   },
   failureRow: {
     alignItems: "center",
