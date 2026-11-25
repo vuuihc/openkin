@@ -22,6 +22,7 @@ import {
   entriesForTask,
   type ApprovalsModel,
   type ApprovalsState,
+  type SubmitResult,
 } from "../approvals/approvalsModel";
 import { readSession, secureStoreBackend, type Session } from "../auth/tokenStore";
 import { t } from "../i18n";
@@ -69,6 +70,12 @@ function expiredState(taskId: string): ThreadState {
 export type ConversationScreenProps = {
   taskId: string;
   onBack: () => void;
+  /**
+   * A pending decision settled on the server: the sibling list's badges may be
+   * stale. The split route raises its focus epoch from here; a phone route
+   * passes nothing because there is no mounted list to re-read.
+   */
+  onPendingSettled?: () => void;
   /** Tests inject the Keychain read; production reads the paired session. */
   readSessionImpl?: () => Promise<Session | null>;
   /** Tests inject a recording fetch. */
@@ -89,6 +96,7 @@ export type ConversationScreenProps = {
 export default function ConversationScreen({
   taskId,
   onBack,
+  onPendingSettled,
   readSessionImpl,
   fetchImpl,
   source,
@@ -246,15 +254,34 @@ export default function ConversationScreen({
   const refresh = useCallback(() => {
     void approvalsRef.current?.load();
   }, []);
-  const approve = useCallback((id: string) => {
-    void approvalsRef.current?.approve(id);
-  }, []);
-  const deny = useCallback((id: string) => {
-    void approvalsRef.current?.deny(id);
-  }, []);
-  const answer = useCallback((id: string, text: string) => {
-    void approvalsRef.current?.answer(id, text);
-  }, []);
+  // The one outward signal a settled decision sends: the list beside this
+  // conversation is showing a count the server just changed. Only an `ok`
+  // answer moved anything — a failure restored the card, and a `stale` answer
+  // belongs to a list this screen no longer owns (AGENTS.md §11).
+  const settled = useCallback(
+    (result: SubmitResult) => {
+      if (result.ok) onPendingSettled?.();
+    },
+    [onPendingSettled],
+  );
+  const approve = useCallback(
+    (id: string) => {
+      void approvalsRef.current?.approve(id).then(settled);
+    },
+    [settled],
+  );
+  const deny = useCallback(
+    (id: string) => {
+      void approvalsRef.current?.deny(id).then(settled);
+    },
+    [settled],
+  );
+  const answer = useCallback(
+    (id: string, text: string) => {
+      void approvalsRef.current?.answer(id, text).then(settled);
+    },
+    [settled],
+  );
 
   // The composer's three writes go to the thread model, which owns the queue,
   // the stop and the offline refusal; this container only forwards. A press
