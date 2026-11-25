@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import type { AgentInfo, AgentLimitStatus, AgentManagement, UsageRow } from "../../api/client";
-import { setLocale } from "../../i18n";
+import { setLocale, t } from "../../i18n";
 import { useAppStore } from "../../store/appStore";
 import {
   readConnectedFamilies,
@@ -342,6 +342,17 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     expect(await screen.findByText("No usage in this range")).toBeTruthy();
     expect(screen.queryByText("$0.000")).toBeNull();
+  });
+
+  it("calls the usage count a conversation on the operations tab", async () => {
+    // The usage numbers must call the count a conversation: the tile, the
+    // table header and the phone row share one name on one screen.
+    setLocale("zh");
+    renderPage();
+
+    expect((await screen.findAllByText(t("usage.tasks"))).length).toBeGreaterThan(0);
+    expect(screen.queryByText("任务")).toBeNull();
+    expect(screen.getByText(new RegExp(t("agents.tasksCount", { count: 4 })))).toBeTruthy();
   });
 
   it("names the agent that failed the smoke test", async () => {
