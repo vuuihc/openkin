@@ -324,11 +324,17 @@ describe("KIN-MOBILE-001 R6 provider/usage screen", () => {
       <ProviderUsage
         onClose={close}
         onSelectWindow={() => {}}
-        state={view({ status: "loading", usage: [] })}
+        state={view({ status: "loading", providers: [], usage: [] })}
         t={t}
       />,
     );
-    expect(loading.getByText("usage.loading")).toBeTruthy();
+    // The first read draws the usage-shaped skeleton, and its one spoken word
+    // is the loading sentence the bare caption used to be (story §7 "sheet 骨架").
+    expect(loading.getByTestId("usage-skeleton")).toBeTruthy();
+    expect(loading.getByTestId("usage-skeleton").props.accessibilityLabel).toBe(
+      "usage.loading",
+    );
+    expect(loading.queryByText("usage.loading")).toBeNull();
     // Closing stays available while the read is in flight (story §7 "关闭始终可用").
     expect(loading.getByTestId("usage-close").props.disabled).not.toBe(true);
     expect(
@@ -381,7 +387,10 @@ describe("KIN-MOBILE-001 R6 provider/usage screen", () => {
         t={t}
       />,
     );
-    expect(initial.getByText("usage.loading")).toBeTruthy();
+    expect(initial.getByTestId("usage-skeleton").props.accessibilityLabel).toBe(
+      "usage.loading",
+    );
+    expect(initial.queryByText("usage.loading")).toBeNull();
     expect(initial.queryAllByTestId(/^tile:/)).toHaveLength(0);
 
     // A first read that failed kept no rows (`stale: false`), so the notice
