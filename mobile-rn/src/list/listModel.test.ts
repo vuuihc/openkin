@@ -15,6 +15,7 @@ import {
   applyFolds,
   buildListGroups,
   createListController,
+  createListMemory,
   createMemoryFoldStore,
   defaultOpenKeys,
   foldStateKey,
@@ -554,3 +555,125 @@ function deferred<T>(): {
   });
   return { promise, resolve };
 }
+
+describe("KIN-MOBILE-001 R3 list memory", () => {
+  it("KIN-MOBILE-001 R3: a claim supersedes the earlier one and only the newest mount is current", () => {
+    const memory = createListMemory();
+    const first = memory.claim();
+    expect(memory.isCurrent(first)).toBe(true);
+
+    // A remount claims the same memory while the old one is still alive.
+    const second = memory.claim();
+    expect(second).not.toBe(first);
+    expect(memory.isCurrent(second)).toBe(true);
+    expect(memory.isCurrent(first)).toBe(false);
+    // An older generation never becomes current again.
+    expect(memory.isCurrent(second - 1)).toBe(false);
+    expect(memory.isCurrent(second + 1)).toBe(false);
+  });
+
+  it("KIN-MOBILE-001 R3: stored pages are keyed by origin, so another node's rows never restore", () => {
+    const memory = createListMemory();
+    const pageA: ListViewState = {
+      status: "ready",
+      groups: groupsOf(),
+      error: null,
+    };
+    const pageB: ListViewState = { status: "empty", groups: [], error: null };
+
+    expect(memory.readSnapshot("https://a.example")).toBeNull();
+    memory.writeSnapshot("https://a.example", pageA);
+    memory.writeSnapshot("https://b.example", pageB);
+
+    expect(memory.readSnapshot("https://a.example")).toBe(pageA);
+    expect(memory.readSnapshot("https://b.example")).toBe(pageB);
+    // A re-pairing to a third node restores nothing.
+    expect(memory.readSnapshot("https://c.example")).toBeNull();
+  });
+
+  it("KIN-MOBILE-001 R3: the query and the offset survive the route and patch independently", () => {
+    const memory = createListMemory({ query: "seed" });
+    expect(memory.read()).toEqual({ query: "seed", offset: 0 });
+
+    memory.write({ offset: 180 });
+    memory.write({ query: "alpha" });
+    expect(memory.read()).toEqual({ query: "alpha", offset: 180 });
+
+    // A patch that names one field leaves the other alone.
+    memory.write({});
+    expect(memory.read()).toEqual({ query: "alpha", offset: 180 });
+  });
+
+  it("KIN-MOBILE-001 R3: a controller handed a restored page keeps its rows when a project folds", () => {
+    const restored: ListViewState = {
+      status: "ready",
+      groups: groupsOf(),
+      error: null,
+    };
+    const controller = createListController({
+      origin: "https://kin.example.com",
+      selfDeviceId: "dev-a",
+      machines: MACHINES,
+      t,
+      formatTime,
+      store: createMemoryFoldStore(),
+      initialState: restored,
+    });
+    expect(pendingRows(controller.state())).toHaveLength(14);
+
+    const folded = controller.toggleProject("dev-a", "/work/beta");
+    // The page behind the fold is the restored one, not a fresh loading
+    // state: every row is still there and only the fold moved.
+    expect(folded.status).toBe("ready");
+    expect(pendingRows(folded)).toHaveLength(14);
+    const beta = folded.groups
+      .find((group) => group.id === "dev-a")
+      ?.projects.find((project) => project.key === "/work/beta");
+    expect(beta?.open).toBe(false);
+  });
+
+  it("KIN-MOBILE-001 R3: a stored failure is not a page and the mount reads again", () => {
+    const options = {
+      origin: "https://kin.example.com",
+      selfDeviceId: "dev-a",
+      machines: MACHINES,
+      t,
+      formatTime,
+      store: createMemoryFoldStore(),
+    };
+    // A failure is a network fact about the moment. Restoring it would trap
+    // the mount on an error it never retries, so the controller starts on
+    // loading and the mount reads.
+    const failed = createListController({
+      ...options,
+      initialState: {
+        status: "failed",
+        groups: groupsOf(),
+        error: "unreachable",
+      },
+    });
+    expect(failed.state()).toEqual({
+      status: "loading",
+      groups: [],
+      error: null,
+    });
+
+    // Ready and empty pages are pages, so both restore.
+    const ready = createListController({
+      ...options,
+      initialState: {
+        status: "ready",
+        groups: groupsOf(),
+        error: null,
+      },
+    });
+    expect(ready.state().status).toBe("ready");
+    expect(pendingRows(ready.state())).toHaveLength(14);
+
+    const empty = createListController({
+      ...options,
+      initialState: { status: "empty", groups: [], error: null },
+    });
+    expect(empty.state().status).toBe("empty");
+  });
+});
