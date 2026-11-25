@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from "@jest/globals";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
-import { StyleSheet } from "react-native";
+import { SectionList, StyleSheet } from "react-native";
 import type { Task } from "../../../ui/src/api/contract";
 import type { Machine } from "../../../ui/src/lib/devices";
 import {
@@ -10,6 +10,7 @@ import {
 import { listTasksPath } from "../api/transport";
 import type { Session } from "../auth/tokenStore";
 import { t } from "../i18n";
+import { createListMemory, createMemoryFoldStore } from "../list/listModel";
 import {
   MAX_RESUME_ATTEMPTS,
   RESUME_THRESHOLD_MS,
@@ -94,6 +95,7 @@ async function renderList(
       fetchImpl={routedFetch(() => ({ body: [task()] }))}
       formatTime={formatTime}
       machines={MACHINES}
+      memory={createListMemory()}
       onNeedsPairing={jest.fn()}
       onOpen={jest.fn()}
       readSessionImpl={storedSession}
@@ -414,7 +416,7 @@ describe("KIN-MOBILE-001 R7 resume on the list route", () => {
     });
     await waitFor(() => expect(calls).toBe(2));
 
-    screen.unmount();
+    await screen.unmount();
     release();
     // A dropped answer schedules no React update and no navigation, so this
     // flush needs no act(): there is nothing left to render.
@@ -450,6 +452,7 @@ describe("KIN-MOBILE-001 R5 pending counts on the list route", () => {
       fetchImpl,
       formatTime,
       machines: MACHINES,
+      memory: createListMemory(),
       onNeedsPairing: jest.fn(),
       onOpen: jest.fn(),
       readSessionImpl: storedSession,
@@ -564,6 +567,7 @@ describe("KIN-MOBILE-001 R3 list route", () => {
         fetchImpl={fetchImpl}
         formatTime={formatTime}
         machines={MACHINES}
+        memory={createListMemory()}
         onNeedsPairing={jest.fn()}
         onOpen={jest.fn()}
         readSessionImpl={readSessionImpl}
@@ -581,5 +585,159 @@ describe("KIN-MOBILE-001 R3 list route", () => {
     await screen.rerender(element);
     expect(screen.queryByText("First conversation")).toBeNull();
     expect(screen.getByText("▸ alpha")).toBeTruthy();
+  });
+});
+
+describe("KIN-MOBILE-001 R3 list search and place", () => {
+  it("KIN-MOBILE-001 R3: a query opens a folded project without writing the fold store, and clearing restores the fold", async () => {
+    const store = createMemoryFoldStore();
+    const write = jest.spyOn(store, "write");
+    const fetchImpl = routedFetch((url) => {
+      if (!url.endsWith(listTasksPath())) return { body: [] };
+      return {
+        body: [
+          task({
+            id: "task-1",
+            title: "First conversation",
+            cwd: "/work/alpha",
+            created_at: 1000,
+          }),
+          task({
+            id: "task-2",
+            title: "Second conversation",
+            cwd: "/work/beta",
+            created_at: 900,
+          }),
+        ],
+      };
+    });
+    const screen = await renderList({ fetchImpl, memory: createListMemory(), store });
+    await waitFor(() => expect(screen.getByText("First conversation")).toBeTruthy());
+
+    // Only the newest project opens by default; beta's row is folded away.
+    expect(screen.queryByText("Second conversation")).toBeNull();
+    expect(screen.getByText("▸ beta")).toBeTruthy();
+
+    await fireEvent.changeText(screen.getByTestId("list-search"), "SECOND");
+    // The match is visible because the query opens its project for the
+    // duration of the search...
+    expect(screen.getByText("Second conversation")).toBeTruthy();
+    expect(screen.getByText("▾ beta")).toBeTruthy();
+    // ...without touching the reader's folds: clearing must hand them back.
+    expect(write).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId("list-search-clear"));
+    expect(screen.queryByText("Second conversation")).toBeNull();
+    expect(screen.getByText("▸ beta")).toBeTruthy();
+  });
+
+  it("KIN-MOBILE-001 R3: remounting the container restores the query and offset with no extra list reads", async () => {
+    let taskReads = 0;
+    const fetchImpl = routedFetch((url) => {
+      if (!url.endsWith(listTasksPath())) return { body: [] };
+      taskReads += 1;
+      return { body: [task()] };
+    });
+    const memory = createListMemory();
+    const scrollTo = jest.fn();
+    const spy = jest
+      .spyOn(SectionList.prototype, "getScrollResponder")
+      .mockReturnValue({
+        scrollTo,
+      } as unknown as ReturnType<
+        SectionList<never, never>["getScrollResponder"]
+      >);
+    try {
+      const first = await renderList({ fetchImpl, memory });
+      await waitFor(() => expect(first.getByText("First conversation")).toBeTruthy());
+      expect(taskReads).toBe(1);
+
+      await fireEvent.changeText(first.getByTestId("list-search"), "first");
+      // A real scroll writes this field; `ConversationList.test.tsx` proves
+      // the scroll → callback wiring, and this case measures the remount.
+      memory.write({ offset: 180 });
+      await first.unmount();
+
+      const second = await renderList({ fetchImpl, memory });
+      await waitFor(() =>
+        expect(second.getByTestId("list-search").props.value).toBe("first"),
+      );
+      expect(second.getByText("First conversation")).toBeTruthy();
+      // The stored page answers the remount: the reader does not pay for the
+      // same read again.
+      expect(taskReads).toBe(1);
+
+      await fireEvent(second.getByTestId("list-scroller"), "contentSizeChange", 390, 4000);
+      expect(scrollTo).toHaveBeenCalledWith({ x: 0, y: 180, animated: false });
+
+      // A content-size change schedules VirtualizedList's own update on a
+      // 50ms timer. Let it land inside act and take the screen down, so the
+      // next case starts with no open act scope.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      });
+      await second.unmount();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("KIN-MOBILE-001 R3: a late answer from an old generation does not clobber the restored query or page", async () => {
+    let taskReads = 0;
+    let releaseOld!: () => void;
+    const oldGate = new Promise<void>((resolve) => {
+      releaseOld = resolve;
+    });
+    const fetchImpl = jest.fn(async (input: string) => {
+      if (!String(input).endsWith(listTasksPath())) return ok([]);
+      taskReads += 1;
+      if (taskReads === 2) {
+        // The refresh in flight when the reader leaves.
+        await oldGate;
+        return ok([task({ id: "late", title: "alpha late", created_at: 500 })]);
+      }
+      return ok([task({ id: "new", title: "alpha page", created_at: 1000 })]);
+    }) as unknown as typeof fetch;
+    const memory = createListMemory();
+
+    const first = await renderList({ fetchImpl, memory });
+    await waitFor(() => expect(first.getByText("alpha page")).toBeTruthy());
+    await fireEvent.changeText(first.getByTestId("list-search"), "alpha");
+    expect(first.getByTestId("list-search").props.value).toBe("alpha");
+    expect(taskReads).toBe(1);
+
+    // The reader pulls to refresh and leaves before the answer lands.
+    const root = first.root;
+    if (!root) throw new Error("the list rendered no root");
+    await fireEvent(root, "refresh");
+    await waitFor(() => expect(taskReads).toBe(2));
+    await first.unmount();
+
+    // The remount restores the stored page and the query without a read.
+    const second = await renderList({ fetchImpl, memory });
+    await waitFor(() => expect(second.getByText("alpha page")).toBeTruthy());
+    expect(second.getByTestId("list-search").props.value).toBe("alpha");
+    expect(taskReads).toBe(2);
+
+    // The old refresh lands long after its screen is gone. Neither the screen
+    // nor the memory may take it.
+    releaseOld();
+    await act(async () => {});
+    expect(second.getByText("alpha page")).toBeTruthy();
+    expect(second.queryByText("alpha late")).toBeNull();
+    expect(second.getByTestId("list-search").props.value).toBe("alpha");
+    // The stored page — what a later remount would restore — is still the
+    // second mount's, not the dead refresh's.
+    const snapshot = memory.readSnapshot(ORIGIN);
+    const titles =
+      snapshot?.groups.flatMap((device) =>
+        device.projects.flatMap((project) =>
+          project.rows.map((item) => item.title),
+        ),
+      ) ?? [];
+    expect(titles).toContain("alpha page");
+    expect(titles).not.toContain("alpha late");
+    expect(memory.read().query).toBe("alpha");
+    expect(taskReads).toBe(2);
   });
 });

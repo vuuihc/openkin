@@ -1,0 +1,16 @@
+[
+  {
+    "label": "search stops lower-casing, so an upper-case query matches nothing (R-rn-list-search)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "  const needle = query.trim().toLowerCase();",
+    "new": "  const needle = query.trim();",
+    "test": "cd mobile-rn && npx jest src/list/listSearch.test.ts -t \"KIN-MOBILE-001 R3: search matches title and agent case-insensitively and drops non-matching headings\""
+  },
+  {
+    "label": "a query writes the fold store open, so clearing it no longer restores the reader's folds (R-rn-list-search)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "  // The page is the model's; the query only narrows what the reader sees.\n  // `filterGroups` returns the page object unchanged for a blank query.\n  const visibleGroups = filterGroups(state.groups, query);",
+    "new": "  const visibleGroups = filterGroups(state.groups, query);\n  if (query.trim()) {\n    const folds = options.current.store;\n    if (folds) {\n      for (const device of visibleGroups) {\n        for (const project of device.projects) {\n          folds.write(`${device.id}:${project.key}`, true);\n        }\n      }\n    }\n  }",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a query opens a folded project without writing the fold store, and clearing restores the fold\""
+  }
+]
