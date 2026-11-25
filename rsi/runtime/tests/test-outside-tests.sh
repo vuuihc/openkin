@@ -113,6 +113,60 @@ test_locale_rule_does_not_swallow_non_test_failures() {
   pass "$c"
 }
 
+# 2026-11-25 (#712): on a machine at load avg ~370 the vitest pool starved
+# ("[vitest-pool]: Failed to start forks worker", "[vitest-pool-runner]:
+# Timeout waiting for worker to respond") and failed in-footprint test files;
+# classify() sent the PR back as QUALITY. Pool starvation is machine load, so
+# it is a rerun-once — but it must not swallow a real non-test failure, and
+# without pool lines the footprint still decides.
+
+# --- 5. a starved pool makes an in-footprint failure a mechanical rerun -----
+test_starved_pool_makes_in_footprint_failure_mechanical() {
+  want_case test_starved_pool_makes_in_footprint_failure_mechanical || return 0
+  local c=test_starved_pool_makes_in_footprint_failure_mechanical
+  printf 'ui/src/design/x.ts\n' > "$T/c5.changed"
+  {
+    printf 'FAIL  src/design/tailwind.test.ts > cascade foundation\n'
+    printf '\033[31m\033[1mError\033[22m: [vitest-pool]: Failed to start forks worker for test files /x.ts.\033[39m\n'
+    printf 'Caused by: Error: [vitest-pool-runner]: Timeout waiting for worker to respond\n'
+  } > "$T/c5.log"
+  classify "$T/c5.changed" "$T/c5.log"
+  expect_rc "$c" 0 "$RC" "$OUT"
+  expect_prefix "$c" "MECHANICAL:" "$OUT"
+  expect_contains "$c" "starved" "$OUT"
+  pass "$c"
+}
+
+# --- 6. without pool lines an in-footprint failure is still a sendback ------
+test_in_footprint_failure_without_pool_lines_is_quality() {
+  want_case test_in_footprint_failure_without_pool_lines_is_quality || return 0
+  local c=test_in_footprint_failure_without_pool_lines_is_quality
+  printf 'ui/src/design/x.ts\n' > "$T/c6.changed"
+  printf 'FAIL  src/design/tailwind.test.ts > cascade foundation\n' > "$T/c6.log"
+  classify "$T/c6.changed" "$T/c6.log"
+  expect_rc "$c" 1 "$RC" "$OUT"
+  expect_prefix "$c" "QUALITY:" "$OUT"
+  expect_contains "$c" "touched package" "$OUT"
+  pass "$c"
+}
+
+# --- 7. pool starvation never swallows a non-test failure -------------------
+test_starved_pool_does_not_swallow_non_test_failures() {
+  want_case test_starved_pool_does_not_swallow_non_test_failures || return 0
+  local c=test_starved_pool_does_not_swallow_non_test_failures
+  printf 'ui/src/design/x.ts\n' > "$T/c7.changed"
+  {
+    printf 'FAIL  src/design/tailwind.test.ts > cascade foundation\n'
+    printf 'Error: [vitest-pool]: Failed to start forks worker for test files /x.ts.\n'
+    printf "ui  Typecheck  2026-11-25T08:00:00.0Z  error TS2322: Type 'X' is not assignable\n"
+  } > "$T/c7.log"
+  classify "$T/c7.changed" "$T/c7.log"
+  expect_rc "$c" 1 "$RC" "$OUT"
+  expect_prefix "$c" "QUALITY:" "$OUT"
+  expect_contains "$c" "non-test" "$OUT"
+  pass "$c"
+}
+
 # The python self-test covers the same rule in-process; skip it when one named
 # case is requested so a mutant is judged by that case alone.
 if [ -z "$ONLY" ]; then
@@ -123,5 +177,8 @@ test_locale_value_change_sends_back
 test_locale_change_keeps_go_tests_mechanical
 test_ui_change_without_locale_keeps_outside_test_mechanical
 test_locale_rule_does_not_swallow_non_test_failures
+test_starved_pool_makes_in_footprint_failure_mechanical
+test_in_footprint_failure_without_pool_lines_is_quality
+test_starved_pool_does_not_swallow_non_test_failures
 
 echo "test-outside-tests: ALL-PASS"

@@ -19,5 +19,12 @@
     "test": "RSI_TEST_ONLY=test_ui_change_without_locale_keeps_outside_test_mechanical bash rsi/runtime/tests/test-outside-tests.sh",
     "old": "LOCALE_FILE = re.compile(r\"^ui/src/i18n/locales/[^/]+\\.tsx?$\")",
     "new": "LOCALE_FILE = re.compile(r\"^ui/src/\")"
+  },
+  {
+    "label": "the starvation branch never fires, so a vitest pool starved by machine load sends an in-footprint failure back to rework (2026-11-25 #712)",
+    "file": "rsi/runtime/outside-tests.py",
+    "test": "RSI_TEST_ONLY=test_starved_pool_makes_in_footprint_failure_mechanical bash rsi/runtime/tests/test-outside-tests.sh",
+    "old": "    if starved_msg:",
+    "new": "    if False:"
   }
 ]
