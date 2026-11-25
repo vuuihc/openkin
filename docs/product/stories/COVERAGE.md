@@ -13,7 +13,7 @@
 | `KIN-CONTINUE-005` | approved | P0 | J1、J2 | 手机 | 手机底栏：玻璃与纯图标，四个区域共用 | 2 |
 | `KIN-CONTINUE-006` | blocked | P0 | J1 | 手机 | 手机开屏：先用自己的控制台打开，新版本在后台整套换 | 0 |
 | `KIN-CONTINUE-007` | covered | P0 | J1、J2 | Mac/手机 | 在 820 的列表里一屏扫到那条对话 | 5 |
-| `KIN-CONTRACT-001` | approved | P0 | J1、J2、J4、J6 | Mac/手机 | 只留四个页面：列表、任务详情、例行任务、设置 | 2 |
+| `KIN-CONTRACT-001` | covered | P0 | J1、J2、J4、J6 | Mac/手机 | 只留四个页面：列表、任务详情、例行任务、设置 | 3 |
 | `KIN-MOBILE-001` | approved | P0 | J1、J2、J4 | 手机 | 手机用 Expo/RN 客户端承接固定面 | 1 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
 | `KIN-PROJECT-002` | covered | P0 | J4 | Mac/手机 | 项目的工作目录：看清这几个目录为什么在一起，并能增删 | 4 |
@@ -32,4 +32,4 @@
 
 ## 汇总
 
-approved 5 · blocked 1 · covered 17 · draft 1
+approved 4 · blocked 1 · covered 18 · draft 1
