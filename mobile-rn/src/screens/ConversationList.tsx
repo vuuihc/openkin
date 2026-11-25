@@ -7,7 +7,7 @@
  * Routing, data loading and transport stay outside this component.
  */
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
   Pressable,
   SectionList,
@@ -16,6 +16,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { isRowKey, moveRow, openRow } from "../list/listKeys";
 import type {
   ConversationRow,
   DeviceGroup,
@@ -34,6 +35,13 @@ export const ROW_HEIGHT = 56;
  * held state is Pressable's own; this is the one colour both surfaces share.
  */
 export const PRESSED_BG = "#ececec";
+
+/**
+ * The keyboard ring's colour (KIN-MOBILE-001 §2). Visual only: the ring never
+ * becomes a second accessibility element, and it paints on the row's own box
+ * so the 56pt height does not move.
+ */
+export const FOCUS_RING = "#0b57d0";
 
 /** The list header band, and the bottom tab bar the list sits above. */
 export const LIST_HEADER_HEIGHT = 56;
@@ -78,12 +86,26 @@ export type ConversationListProps = {
   /** The offset a remount starts at, and every scroll the reader makes. */
   initialOffset?: number;
   onScrollOffset?: (offset: number) => void;
+  /** The row the ring is on when the list mounts (KIN-MOBILE-001 §2). */
+  initialFocusId?: string;
+  /** Every move of the ring, so the route can remember where the reader was. */
+  onFocusChange?: (rowId: string) => void;
   /**
    * A network state, not a steady one: present only while the screen is
    * reconnecting or has given up. It draws above the list header and never
    * over a row.
    */
   resume?: ResumeBandState;
+};
+
+/**
+ * The slice of React Native's key event this screen reads. `KeyDownEvent` is
+ * assignable to it; the test renderer can deliver the same two fields without
+ * a native key pipeline.
+ */
+type ListKeyEvent = {
+  nativeEvent: { key: string };
+  preventDefault?: () => void;
 };
 
 /**
@@ -182,6 +204,8 @@ export default function ConversationList({
   onQueryChange,
   initialOffset = 0,
   onScrollOffset,
+  initialFocusId = "",
+  onFocusChange,
   resume,
 }: ConversationListProps) {
   // An empty device (`includeEmptyDevices`) still yields a section, and a
@@ -198,10 +222,43 @@ export default function ConversationList({
   const searching = query.trim() !== "";
   const listRef = useRef<SectionList<Entry, Section>>(null);
   const restored = useRef(false);
+  // The visible conversation rows in paint order. Project headings are not
+  // rows: the arrows skip them and Enter on one does nothing.
+  const rowIds = sections.flatMap((section) =>
+    section.data.flatMap((entry) =>
+      entry.kind === "row" ? [entry.row.id] : [],
+    ),
+  );
+  // The ring's row. A row that a fold or a query hides keeps the id: no ring
+  // is drawn while it is gone, and it comes back when the row does.
+  const [focusedId, setFocusedId] = useState(initialFocusId);
+  // While the caret is in the search field the arrows belong to the text.
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  const focusRow = (rowId: string) => {
+    if (rowId === focusedId) return;
+    setFocusedId(rowId);
+    onFocusChange?.(rowId);
+  };
+
+  const handleKeyDown = (event: ListKeyEvent) => {
+    if (searchFocused) return;
+    const key = event?.nativeEvent?.key;
+    if (typeof key !== "string" || !isRowKey(key)) return;
+    // A handled key never scrolls the list or moves the caret instead.
+    event?.preventDefault?.();
+    if (key === "Enter") {
+      const target = openRow(rowIds, focusedId);
+      if (target !== null) onOpen(target);
+      return;
+    }
+    focusRow(moveRow(rowIds, focusedId, key));
+  };
 
   return (
     <SectionList<Entry, Section>
       ref={listRef}
+      onKeyDown={handleKeyDown}
       sections={sections}
       // iOS takes the restored offset before content lays out; the scroll
       // responder below covers the platforms that ignore it.
@@ -266,14 +323,24 @@ export default function ConversationList({
           row.pending > 0
             ? t("sessions.pendingApprovals", { count: row.pending })
             : null;
+        const focused = row.id === focusedId;
         return (
           <Pressable
             accessibilityLabel={[row.title, meta, pendingLabel]
               .filter(Boolean)
               .join(" · ")}
             accessibilityRole="button"
-            onPress={() => onOpen(row.id)}
-            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+            onPress={() => {
+              // A tapped row is where the reader left the list, so the ring
+              // rests there when they come back.
+              focusRow(row.id);
+              onOpen(row.id);
+            }}
+            style={({ pressed }) => [
+              styles.row,
+              pressed && styles.rowPressed,
+              focused && styles.rowFocused,
+            ]}
             testID={`row:${row.id}`}
           >
             <Text numberOfLines={1} style={styles.title}>
@@ -305,6 +372,8 @@ export default function ConversationList({
               autoCapitalize="none"
               autoCorrect={false}
               onChangeText={onQueryChange}
+              onBlur={() => setSearchFocused(false)}
+              onFocus={() => setSearchFocused(true)}
               placeholder={t("sessions.searchPlaceholder")}
               returnKeyType="search"
               style={styles.searchInput}
@@ -568,6 +637,12 @@ const styles = StyleSheet.create({
   },
   rowPressed: {
     backgroundColor: PRESSED_BG,
+  },
+  rowFocused: {
+    // A ring on the row's own box: the fixed height absorbs the border, so
+    // neither ROW_HEIGHT nor the 44pt floor moves.
+    borderColor: FOCUS_RING,
+    borderWidth: 2,
   },
   skeletonHeading: {
     backgroundColor: "#dcdcdc",

@@ -8,6 +8,7 @@ import {
 import { SectionList, StyleSheet } from "react-native";
 import ConversationList, {
   BOTTOM_TAB_INSET,
+  FOCUS_RING,
   LIST_HEADER_HEIGHT,
   PRESSED_BG,
   ROW_HEIGHT,
@@ -533,5 +534,95 @@ describe("KIN-MOBILE-001 R3 list place", () => {
       },
     });
     expect(onScrollOffset).toHaveBeenLastCalledWith(420);
+  });
+});
+
+describe("KIN-MOBILE-001 §2 list keyboard focus", () => {
+  /**
+   * The ring's colour, restated here. A screen reverted to `origin/main`
+   * exports no `FOCUS_RING`, so comparing two imported values would make the
+   * ring assertions pass while nothing is painted.
+   */
+  const RING = "#0b57d0";
+
+  /** A row's flattened paint; the ring is the border colour, nothing else. */
+  function ringOf(
+    screen: Awaited<ReturnType<typeof renderList>>,
+    id: string,
+  ): string | undefined {
+    return StyleSheet.flatten(screen.getByTestId(`row:${id}`).props.style)
+      .borderColor;
+  }
+
+  it("KIN-MOBILE-001 §2: ArrowDown paints the focus ring on the next row", async () => {
+    // The exported token is the colour the rows paint.
+    expect(FOCUS_RING).toBe(RING);
+    const screen = await renderList({}, { initialFocusId: "a1" });
+    const scroller = screen.getByTestId("list-scroller");
+    // The remembered row opens with the ring already on it.
+    expect(ringOf(screen, "a1")).toBe(RING);
+
+    await fireEvent(scroller, "keyDown", { nativeEvent: { key: "ArrowDown" } });
+    expect(ringOf(screen, "a2")).toBe(RING);
+    expect(ringOf(screen, "a1")).toBeUndefined();
+
+    await fireEvent(scroller, "keyDown", { nativeEvent: { key: "ArrowUp" } });
+    expect(ringOf(screen, "a1")).toBe(RING);
+    expect(ringOf(screen, "a2")).toBeUndefined();
+  });
+
+  it("KIN-MOBILE-001 §2: Enter opens the focused row", async () => {
+    const onOpen = jest.fn();
+    const screen = await renderList({}, { initialFocusId: "a1", onOpen });
+    const scroller = screen.getByTestId("list-scroller");
+
+    await fireEvent(scroller, "keyDown", { nativeEvent: { key: "ArrowDown" } });
+    await fireEvent(scroller, "keyDown", { nativeEvent: { key: "Enter" } });
+
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith("a2");
+  });
+
+  it("KIN-MOBILE-001 §2: the arrows stop at the ends", async () => {
+    const onOpen = jest.fn();
+    const screen = await renderList({}, { initialFocusId: "a1", onOpen });
+    const scroller = screen.getByTestId("list-scroller");
+
+    // Up at the first row holds instead of wrapping to the last.
+    await fireEvent(scroller, "keyDown", { nativeEvent: { key: "ArrowUp" } });
+    expect(ringOf(screen, "a1")).toBe(RING);
+
+    await fireEvent(scroller, "keyDown", { nativeEvent: { key: "Enter" } });
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith("a1");
+  });
+
+  it("KIN-MOBILE-001 §2: typing in the search field keeps the arrows for the caret", async () => {
+    const onOpen = jest.fn();
+    const screen = await renderList({}, { initialFocusId: "a1", onOpen });
+    const scroller = screen.getByTestId("list-scroller");
+    const field = screen.getByTestId("list-search");
+
+    await fireEvent(field, "focus");
+    await fireEvent(scroller, "keyDown", { nativeEvent: { key: "ArrowDown" } });
+    // While the caret is in the field the arrows belong to the text, not the
+    // list: no ring moves and nothing opens.
+    expect(ringOf(screen, "a1")).toBe(RING);
+    expect(ringOf(screen, "a2")).toBeUndefined();
+    expect(onOpen).not.toHaveBeenCalled();
+
+    await fireEvent(field, "blur");
+    await fireEvent(scroller, "keyDown", { nativeEvent: { key: "ArrowDown" } });
+    expect(ringOf(screen, "a2")).toBe(RING);
+  });
+
+  it("KIN-MOBILE-001 §2: the ring follows a tapped row", async () => {
+    const onOpen = jest.fn();
+    const screen = await renderList({}, { onOpen });
+
+    await fireEvent.press(screen.getByTestId("row:a2"));
+
+    expect(onOpen).toHaveBeenCalledWith("a2");
+    expect(ringOf(screen, "a2")).toBe(RING);
   });
 });

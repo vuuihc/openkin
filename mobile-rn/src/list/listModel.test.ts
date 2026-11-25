@@ -591,17 +591,30 @@ describe("KIN-MOBILE-001 R3 list memory", () => {
     expect(memory.readSnapshot("https://c.example")).toBeNull();
   });
 
-  it("KIN-MOBILE-001 R3: the query and the offset survive the route and patch independently", () => {
+  it("KIN-MOBILE-001 R3: the query, the offset and the focused row survive the route and patch independently", () => {
     const memory = createListMemory({ query: "seed" });
-    expect(memory.read()).toEqual({ query: "seed", offset: 0 });
+    expect(memory.read()).toEqual({
+      query: "seed",
+      offset: 0,
+      focusedRowId: "",
+    });
 
     memory.write({ offset: 180 });
     memory.write({ query: "alpha" });
-    expect(memory.read()).toEqual({ query: "alpha", offset: 180 });
+    memory.write({ focusedRowId: "task-2" });
+    expect(memory.read()).toEqual({
+      query: "alpha",
+      offset: 180,
+      focusedRowId: "task-2",
+    });
 
-    // A patch that names one field leaves the other alone.
+    // A patch that names one field leaves the others alone.
     memory.write({});
-    expect(memory.read()).toEqual({ query: "alpha", offset: 180 });
+    expect(memory.read()).toEqual({
+      query: "alpha",
+      offset: 180,
+      focusedRowId: "task-2",
+    });
   });
 
   it("KIN-MOBILE-001 R3: a controller handed a restored page keeps its rows when a project folds", () => {
