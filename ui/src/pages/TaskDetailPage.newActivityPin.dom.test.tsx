@@ -175,7 +175,9 @@ class ResizeObserverStub {
   disconnect() {}
 }
 
-const VIEWPORT = 400;
+// The transcript's viewport is the scroll box minus the bottom band, so it is
+// mutable: a band that gives a row back grows it without a single scroll.
+let VIEWPORT = 400;
 let contentHeight = 1000;
 let scrollTop = 0;
 
@@ -269,6 +271,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   setLocale("en");
   localStorage.clear();
+  VIEWPORT = 400;
   contentHeight = 1000;
   scrollTop = 0;
   store.reset(seedEvents());
@@ -349,6 +352,34 @@ describe("a follow-up's reply while the send pin is owed", () => {
     appendReply();
     expect(scroller.scrollTop).toBe(bottom());
     expect(newActivityButton()).toBeNull();
+  });
+
+  // J16's tablet run: the reader parked 140px above the end, and the reply that
+  // landed was filed as seen. The bottom band is part of the scroll region the
+  // transcript measures, so a band that gives a row back — the pill dropping, a
+  // waiting strip collapsing — grows `clientHeight` and shrinks the gap to the
+  // end with no scroll at all. A live-distance test then answers "caught up"
+  // for a reader who never moved, and the arrival under the fold is silent. The
+  // pill asks the reader's follow intent instead, which only their own scrolls
+  // (or a place this page chose: the send pin, a restore, Show newest) write.
+  it("a band that gives height back under a parked reader does not swallow the next reply", () => {
+    const { scroller } = open();
+
+    // Parked above the fold at the size the reader saw: 100px of unread content
+    // below, outside the 96px catch-up line.
+    scrollAway(scroller, 500);
+    expect(newActivityButton()).toBeNull();
+
+    // The band gives 40px back. No scroll fired; the reader is where they were.
+    VIEWPORT = 440;
+
+    // A short reply lands. The live gap is now 90px — inside the catch-up line
+    // — but it is still below a reader who has not asked to come down.
+    contentHeight = 1030;
+    appendReply();
+
+    expect(scroller.scrollTop).toBe(500);
+    expect(newActivityButton()).not.toBeNull();
   });
 
   // The place a restore still owes the reader outranks the send's pin: the

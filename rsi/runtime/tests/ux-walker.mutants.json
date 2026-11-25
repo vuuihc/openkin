@@ -68,5 +68,12 @@
     "test": "bash rsi/runtime/tests/test-ux-walker.sh",
     "old": "    if (listed.length && !files.length) {",
     "new": "    if (false) {"
+  },
+  {
+    "label": "an optional project-fold press is rejected again: J12's ten-row list scan offers no row fold, so the tree's own spec fails --check-spec",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "    if (!optionalStep(st) || isFoldClick(st)) return;",
+    "new": "    if (!optionalStep(st)) return;"
   }
 ]

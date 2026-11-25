@@ -21,9 +21,9 @@ const OPTIONS = [
   { id: "writer", label: "Writer", destructive: true },
 ];
 
-function viewport(wide: boolean) {
+function stubMedia(wide: boolean, coarse: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: query === "(min-width: 768px)" ? wide : false,
+    matches: query === "(min-width: 768px)" ? wide : query === "(pointer: coarse)" ? coarse : false,
     media: query,
     onchange: null,
     addEventListener: vi.fn(),
@@ -32,6 +32,28 @@ function viewport(wide: boolean) {
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(),
   }));
+}
+
+/**
+ * The input device the chip is being read on. The touch floor follows the
+ * pointer, not the viewport width: an iPad in portrait is 820px wide and still
+ * a thumb, so a width breakpoint stopped applying long before it needed to.
+ */
+function setPointer(coarse: boolean, wide = false) {
+  stubMedia(wide, coarse);
+}
+
+function viewport(wide: boolean) {
+  stubMedia(wide, false);
+}
+
+/**
+ * Whole class tokens, never substrings: a `max-md:min-h-11`-shaped utility must
+ * not satisfy `min-h-11`, or a rule that stops applying at the iPad would keep
+ * the test green.
+ */
+function classes(element: HTMLElement): string[] {
+  return element.className.split(/\s+/).filter(Boolean);
 }
 
 function setup(wide: boolean, value = "") {
@@ -174,5 +196,63 @@ describe("the sheet select on a phone", () => {
     // The sheet restores focus to whoever opened it; with React 19's ref
     // cleanup timing, the chip must still be that node when the row answers.
     expect(document.activeElement).toBe(chip);
+  });
+});
+
+describe("the sheet select's touch floor", () => {
+  // TASTE 21 / AGENTS.md §16: the floor follows the pointer, not the width.
+  // The phone's 44px came only from `.touch-lg`, and before KIN-CONTINUE-007
+  // item 5 that query stopped at 767.98px, so an iPad in portrait got a 24px
+  // chip beside 44px controls. The chip keeps its own floored classes: a
+  // coarse pointer past the floor's 1023.98px arm (an iPad in landscape) is
+  // still a thumb, and a fine pointer must stay dense.
+
+  it("gives the chip a 44×44 floor on a coarse pointer at 820", () => {
+    // `wide` makes this the MenuSelect branch a real 820 renders.
+    setPointer(true, true);
+    render(<SheetSelect label="Role" value="" options={OPTIONS} onChange={() => {}} />);
+
+    const chip = classes(screen.getByRole("button", { name: /^Role/ }));
+    // The floor is two-dimensional: a one-character value (a directory
+    // basename, a short role name) is content-sized and would otherwise be
+    // narrower than 44 wherever `.touch-lg` does not reach it (beyond the
+    // 1023.98px coarse arm, or under a fine pointer).
+    expect(chip).toContain("min-h-11");
+    expect(chip).toContain("min-w-11");
+  });
+
+  it("keeps the chip dense on a fine pointer at 1100", () => {
+    setPointer(false, true);
+    render(<SheetSelect label="Role" value="" options={OPTIONS} onChange={() => {}} />);
+
+    const chip = classes(screen.getByRole("button", { name: /^Role/ }));
+    expect(chip).not.toContain("min-h-11");
+    expect(chip).not.toContain("min-w-11");
+  });
+
+  it("keeps the chip's label and chevron on one line inside the coarse floor", () => {
+    // The routines page's longest chip is `目录：全部目录`. The 44px box must
+    // grow only in height: the label still truncates inside one line and the
+    // chevron stays its flex-none sibling, with no fixed height capping the
+    // floor back down.
+    setPointer(true);
+    render(
+      <SheetSelect
+        label="Role"
+        value=""
+        options={[]}
+        display="目录：全部目录"
+        onChange={() => {}}
+      />,
+    );
+
+    const chip = screen.getByRole("button", { name: /^Role/ });
+    const label = chip.querySelector("span.truncate");
+    const chevron = chip.querySelector("svg");
+    expect(label?.textContent).toBe("目录：全部目录");
+    expect(chevron).toBeTruthy();
+    // An SVG element's `className` is an SVGAnimatedString; read the attribute.
+    expect((chevron?.getAttribute("class") ?? "").split(/\s+/)).toContain("flex-none");
+    expect(classes(chip).some((token) => /^h-/.test(token))).toBe(false);
   });
 });
