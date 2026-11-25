@@ -37,7 +37,7 @@
   {
     "label": "the header draws no title, so a pushed conversation never says what it is (R-rn-header-title)",
     "file": "mobile-rn/src/screens/ConversationView.tsx",
-    "old": "        {/* The conversation's name, spoken as the screen's heading. It is\n            text, not a control: the row already has its back and usage\n            targets. One line, so a long name truncates rather than growing\n            the header. */}\n        <Text\n          accessibilityRole=\"header\"\n          numberOfLines={1}\n          style={styles.title}\n        >\n          {state.title.trim() === \"\" ? t(\"sessions.untitled\") : state.title}\n        </Text>\n",
+    "old": "        {/* The conversation's name, spoken as the screen's heading. It is\n            text, not a control: the row already has its back and usage\n            targets. One line, so a long name truncates rather than growing\n            the header. */}\n        <Text\n          accessibilityRole=\"header\"\n          numberOfLines={1}\n          ref={titleRef}\n          style={styles.title}\n          testID=\"conversation:title\"\n        >\n          {state.title.trim() === \"\" ? t(\"sessions.untitled\") : state.title}\n        </Text>\n",
     "new": "",
     "test": "cd mobile-rn && npx jest src/screens/Conversation.test.tsx -t \"KIN-MOBILE-001 §3: the header draws the conversation title\""
   },
