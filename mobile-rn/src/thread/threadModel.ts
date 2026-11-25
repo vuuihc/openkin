@@ -218,6 +218,13 @@ export type Thread = {
   start(): Promise<ThreadState>;
   /** Read the history only; `start()` also opens the stream. */
   load(): Promise<ThreadState>;
+  /**
+   * Rejoin a conversation whose live stream gave up, without the visible
+   * re-read `start()` does: the new connection resumes from the last applied
+   * seq and one bounded catch-up repairs what the dead stream missed. A no-op
+   * while the stream is healthy, before the first read, or after `close()`.
+   */
+  resume(): Promise<ThreadState>;
   send(text: string): Promise<SendOutcome>;
   cancelQueued(id: string): void;
   stop(): Promise<StopOutcome>;
@@ -238,6 +245,7 @@ export function createThread(options: ThreadOptions): Thread {
   // (AGENTS.md §11). A closed screen or a newer load bumps this, and the late
   // answer is dropped instead of repainting the conversation.
   let generation = 0;
+  let closed = false;
   let stream: TaskStream | null = null;
   let flushing = false;
   let recovering: Promise<void> | null = null;
@@ -378,7 +386,7 @@ export function createThread(options: ThreadOptions): Thread {
     if (status === "connected" && state.banner === "offline") publish({ banner: null });
   };
 
-  const startStream = (): void => {
+  const startStream = (afterSeq = highestContiguousSeq(events)): void => {
     if (stream) return;
     stream = startTaskStream({
       origin,
@@ -391,7 +399,7 @@ export function createThread(options: ThreadOptions): Thread {
           firstByteTimeoutMs: options.firstByteTimeoutMs,
           idleTimeoutMs: options.idleTimeoutMs,
         }),
-      afterSeq: highestContiguousSeq(events),
+      afterSeq,
       onEvent: applyEvent,
       onStatus: onStreamStatus,
       onReconnect: (afterSeq) => {
@@ -478,6 +486,33 @@ export function createThread(options: ThreadOptions): Thread {
       return state;
     },
 
+    async resume() {
+      // A closed screen owns nothing: its listeners are gone and the
+      // conversation may already be open elsewhere (AGENTS.md §11).
+      if (closed) return state;
+      // Before the first read there is nothing to continue, and the
+      // blank/expired screen keeps its own full-screen retry (`canRetry` in
+      // native/reconnect.ts), so neither is a resume.
+      if (state.status !== "ready") return state;
+      // Healthy: a live stream is in the slot and nothing says offline. A
+      // foreground return must not open a second connection.
+      if (state.banner !== "offline" && stream) return state;
+
+      // Resume from the last applied seq, not from zero: replaying would
+      // redraw what the reader already read. The dead stream is replaced (a
+      // no-op if it already stopped itself) and the bounded catch-up repairs
+      // what it missed while the screen was away.
+      const resumeAfter = highestContiguousSeq(events);
+      stream?.stop();
+      stream = null;
+      startStream(resumeAfter);
+      // No `status: "loading"` here, by design: the story asks for a silent
+      // refresh, and `turns`, `sendQueue`, `task` and `running` stay as they
+      // are. An unreachable catch-up only re-publishes the offline banner.
+      await applyGapFill(resumeAfter, generation);
+      return state;
+    },
+
     async send(text) {
       const trimmed = text.trim();
       if (!trimmed) return { ok: false, reason: "empty" };
@@ -538,6 +573,7 @@ export function createThread(options: ThreadOptions): Thread {
     },
 
     close() {
+      closed = true;
       generation += 1;
       stream?.stop();
       stream = null;
