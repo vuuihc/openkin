@@ -117,20 +117,27 @@ function response(status: number, body?: unknown): Response {
   } as unknown as Response;
 }
 
-/** A node that answers both reads from the given bodies. */
+/**
+ * A node that answers both reads from the given bodies. Per-path statuses are
+ * optional; without them both reads share `status` (the existing cases).
+ */
 function nodeFetch(options: {
   providers?: unknown;
   usage?: unknown;
   status?: () => number;
+  providersStatus?: () => number;
+  usageStatus?: () => number;
   calls?: Call[];
 }) {
   return jest.fn(async (url: string, init?: RequestInit) => {
     options.calls?.push({ url, init });
-    const status = options.status?.() ?? 200;
+    const providersRead = url.includes("/api/providers");
+    const status =
+      (providersRead ? options.providersStatus : options.usageStatus)?.() ??
+      options.status?.() ??
+      200;
     if (status !== 200) return response(status, { error: "fixture" });
-    const body = url.includes("/api/providers")
-      ? options.providers
-      : options.usage;
+    const body = providersRead ? options.providers : options.usage;
     return response(200, body);
   });
 }
@@ -476,5 +483,130 @@ describe("KIN-MOBILE-001 R6 provider/usage core", () => {
     expect(dropped.status).toBe("ready");
     expect(dropped.days).toBe(30);
     expect(dropped.usage).toEqual(USAGE_ROWS);
+  });
+
+  /**
+   * A paired device token may read `/api/usage/summary` and not
+   * `/api/providers` (operator-only, `internal/api/api.go:528`). The numbers are
+   * the sheet's subject, so that 403 degrades one block, not the sheet.
+   */
+  it("KIN-MOBILE-001 R6: a rejected provider list keeps the usage numbers (device token)", async () => {
+    const model = modelWith(
+      nodeFetch({
+        providers: { active_id: "", providers: PROVIDERS },
+        usage: USAGE_ROWS,
+        providersStatus: () => 403,
+      }),
+    );
+
+    const view = await model.load();
+
+    expect(view.status).toBe("ready");
+    expect(view.days).toBe(30);
+    expect(view.usage).toEqual(USAGE_ROWS);
+    // A device token never had a provider list to lose.
+    expect(view.providers).toEqual([]);
+    // The whole-sheet failure -- and its "link invalid" sentence -- must not fire.
+    expect(view.error).toBeUndefined();
+    expect(view.providerListError).toEqual({ reason: "rejected", stale: false });
+  });
+
+  it("KIN-MOBILE-001 R6: a rejected provider list cannot claim an empty device", async () => {
+    const model = modelWith(
+      nodeFetch({
+        providers: { active_id: "", providers: PROVIDERS },
+        usage: [],
+        providersStatus: () => 403,
+      }),
+    );
+
+    const view = await model.load();
+
+    // With the list unreadable, "this device has no providers" is unknowable:
+    // a quiet window is `ready`, never the device-level `empty`.
+    expect(view.status).toBe("ready");
+    expect(view.usage).toEqual([]);
+    expect(view.providerListError).toEqual({ reason: "rejected", stale: false });
+  });
+
+  it("KIN-MOBILE-001 R6: a usage failure still fails the whole sheet", async () => {
+    const model = modelWith(
+      nodeFetch({
+        providers: { active_id: "provider-primary", providers: PROVIDERS },
+        usage: USAGE_ROWS,
+        usageStatus: () => 403,
+      }),
+    );
+
+    const view = await model.load();
+
+    // The boundary this change must not cross: the usage read is the sheet.
+    expect(view.status).toBe("failed");
+    expect(view.error).toEqual({ reason: "rejected", stale: false });
+    expect(view.providerListError).toBeUndefined();
+  });
+
+  it("KIN-MOBILE-001 R6: an expired provider read is a pairing state, not a section", async () => {
+    const model = modelWith(
+      nodeFetch({
+        providers: { active_id: "provider-primary", providers: PROVIDERS },
+        usage: USAGE_ROWS,
+        providersStatus: () => 401,
+      }),
+    );
+
+    const view = await model.load();
+
+    // A token state is a pairing state: the whole sheet says so and keeps
+    // nothing, even though the usage read answered.
+    expect(view.status).toBe("failed");
+    expect(view.error).toEqual({ reason: "expired", stale: false });
+    expect(view.providers).toEqual([]);
+    expect(view.usage).toEqual([]);
+    expect(view.providerListError).toBeUndefined();
+  });
+
+  it("KIN-MOBILE-001 R6: a later good read clears the provider-list error", async () => {
+    let providersStatus = 403;
+    const model = modelWith(
+      nodeFetch({
+        providers: { active_id: "provider-primary", providers: PROVIDERS },
+        usage: USAGE_ROWS,
+        providersStatus: () => providersStatus,
+      }),
+    );
+
+    const degraded = await model.load();
+    expect(degraded.providerListError).toEqual({
+      reason: "rejected",
+      stale: false,
+    });
+
+    providersStatus = 200;
+    const healed = await model.load();
+
+    expect(healed.status).toBe("ready");
+    expect(healed.providerListError).toBeUndefined();
+    expect(healed.providers).toEqual(PROVIDERS);
+    expect(healed.usage).toEqual(USAGE_ROWS);
+  });
+
+  it("KIN-MOBILE-001 R6: an unreachable provider read degrades only the provider block", async () => {
+    const model = modelWith(
+      nodeFetch({
+        providers: { active_id: "", providers: PROVIDERS },
+        usage: USAGE_ROWS,
+        providersStatus: () => 500,
+      }),
+    );
+
+    const view = await model.load();
+
+    expect(view.status).toBe("ready");
+    expect(view.usage).toEqual(USAGE_ROWS);
+    expect(view.providerListError).toEqual({
+      reason: "unreachable",
+      stale: false,
+    });
   });
 });

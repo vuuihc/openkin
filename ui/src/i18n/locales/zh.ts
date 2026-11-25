@@ -1123,6 +1123,7 @@ const zh = {
     byAgent: "按 Agent",
     noData: "此范围内没有数据。",
     noAgentUsage: "尚无 Agent 用量。",
+    providerListUnavailable: "这台设备读不到 provider 列表；用量数字不受影响。",
     taskCount: "{count} 条对话",
     thisWeek: "本周",
     days30: "30 天",
