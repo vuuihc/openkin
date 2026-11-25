@@ -7,7 +7,15 @@
  * Routing, data loading and transport stay outside this component.
  */
 
-import { Pressable, SectionList, StyleSheet, Text, View } from "react-native";
+import { useRef } from "react";
+import {
+  Pressable,
+  SectionList,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import type {
   ConversationRow,
   DeviceGroup,
@@ -58,6 +66,12 @@ export type ConversationListProps = {
   onOpen: (taskId: string) => void;
   onRefresh: () => void;
   onToggleProject?: (deviceId: string, projectKey: string) => void;
+  /** The current search term; the container owns it and the fold it makes. */
+  query: string;
+  onQueryChange: (next: string) => void;
+  /** The offset a remount starts at, and every scroll the reader makes. */
+  initialOffset?: number;
+  onScrollOffset?: (offset: number) => void;
   /**
    * A network state, not a steady one: present only while the screen is
    * reconnecting or has given up. It draws above the list header and never
@@ -137,6 +151,10 @@ export default function ConversationList({
   onOpen,
   onRefresh,
   onToggleProject,
+  query,
+  onQueryChange,
+  initialOffset = 0,
+  onScrollOffset,
   resume,
 }: ConversationListProps) {
   // An empty device (`includeEmptyDevices`) still yields a section, and a
@@ -144,10 +162,30 @@ export default function ConversationList({
   // read would show a bare heading instead of the empty/offline words.
   const hasRows = state.groups.some((device) => device.count > 0);
   const sections = hasRows ? sectionsOf(state.groups) : [];
+  // A query is view state over the page the container already filtered; the
+  // project headings it opened are not the reader's folds, so toggling them
+  // during a search would write a fold nobody can see.
+  const searching = query.trim() !== "";
+  const listRef = useRef<SectionList<Entry, Section>>(null);
+  const restored = useRef(false);
 
   return (
     <SectionList<Entry, Section>
+      ref={listRef}
       sections={sections}
+      // iOS takes the restored offset before content lays out; the scroll
+      // responder below covers the platforms that ignore it.
+      contentOffset={{ x: 0, y: initialOffset }}
+      onContentSizeChange={() => {
+        if (restored.current || initialOffset === 0) return;
+        restored.current = true;
+        listRef.current
+          ?.getScrollResponder()
+          ?.scrollTo({ x: 0, y: initialOffset, animated: false });
+      }}
+      onScroll={(event) => onScrollOffset?.(event.nativeEvent.contentOffset.y)}
+      scrollEventThrottle={16}
+      testID="list-scroller"
       keyExtractor={(item) =>
         item.kind === "project"
           ? `project:${item.deviceId}:${item.project.key}`
@@ -166,7 +204,11 @@ export default function ConversationList({
           return (
             <Pressable
               accessibilityRole="button"
-              accessibilityState={{ expanded: item.project.open }}
+              accessibilityState={{
+                expanded: item.project.open,
+                disabled: searching,
+              }}
+              disabled={searching}
               onPress={() => onToggleProject?.(item.deviceId, item.project.key)}
               style={styles.project}
               testID={`project:${item.project.key}`}
@@ -218,32 +260,58 @@ export default function ConversationList({
         );
       }}
       ListHeaderComponent={
-        resume ||
-        (hasRows && (state.status === "failed" || state.status === "offline")) ? (
-          <View>
-            {resume ? <ResumeBand resume={resume} t={t} /> : null}
-            {/*
-              While the resume band is up it is the one band: the list's own
-              failure line would repeat the same sentence with a second retry.
-            */}
-            {!resume &&
-            hasRows &&
-            (state.status === "failed" || state.status === "offline") ? (
-              <View style={styles.banner}>
-                <Text accessibilityRole="alert" style={styles.bannerText}>
-                  {t(errorKey(state))}
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={onRefresh}
-                  style={styles.retry}
-                >
-                  <Text style={styles.retryText}>{t("pairing.retry")}</Text>
-                </Pressable>
-              </View>
-            ) : null}
+        <View>
+          {/*
+            The same catalogue word is the hint and the spoken name; the clear
+            control only exists while there is something to clear, and the
+            field itself is the list's own first stop.
+          */}
+          <View style={styles.searchBar}>
+            <TextInput
+              accessibilityLabel={t("sessions.searchPlaceholder")}
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={onQueryChange}
+              placeholder={t("sessions.searchPlaceholder")}
+              returnKeyType="search"
+              style={styles.searchInput}
+              testID="list-search"
+              value={query}
+            />
+            {query === "" ? null : (
+              <Pressable
+                accessibilityLabel={t("common.clear")}
+                accessibilityRole="button"
+                onPress={() => onQueryChange("")}
+                style={styles.searchClear}
+                testID="list-search-clear"
+              >
+                <Text style={styles.searchClearText}>{"×"}</Text>
+              </Pressable>
+            )}
           </View>
-        ) : undefined
+          {resume ? <ResumeBand resume={resume} t={t} /> : null}
+          {/*
+            While the resume band is up it is the one band: the list's own
+            failure line would repeat the same sentence with a second retry.
+          */}
+          {!resume &&
+          hasRows &&
+          (state.status === "failed" || state.status === "offline") ? (
+            <View style={styles.banner}>
+              <Text accessibilityRole="alert" style={styles.bannerText}>
+                {t(errorKey(state))}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={onRefresh}
+                style={styles.retry}
+              >
+                <Text style={styles.retryText}>{t("pairing.retry")}</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
       }
       ListEmptyComponent={
         <View style={styles.empty}>
@@ -292,6 +360,12 @@ export default function ConversationList({
                 </Pressable>
               </>
             )
+          ) : searching ? (
+            // The page is fine; the query simply has no row. Saying "no
+            // chats" here would blame the account for the reader's filter.
+            <Text style={styles.emptyTitle}>
+              {t("sessions.searchEmpty", { query: query.trim() })}
+            </Text>
           ) : null}
         </View>
       }
@@ -393,6 +467,33 @@ const styles = StyleSheet.create({
     color: "#0b57d0",
     fontSize: 15,
     fontWeight: "600",
+  },
+  searchBar: {
+    alignItems: "center",
+    borderBottomColor: "#ececec",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    minHeight: ROW_MIN_HEIGHT,
+    paddingLeft: 16,
+  },
+  searchClear: {
+    alignItems: "center",
+    justifyContent: "center",
+    // The signed touch floor, on the query's one control.
+    minHeight: ROW_MIN_HEIGHT,
+    minWidth: ROW_MIN_HEIGHT,
+  },
+  searchClearText: {
+    color: "#6b6b6b",
+    fontSize: 22,
+    lineHeight: 24,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    minHeight: ROW_MIN_HEIGHT,
+    paddingRight: 8,
+    paddingVertical: 8,
   },
   resumeBand: {
     alignItems: "center",
