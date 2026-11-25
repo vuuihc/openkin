@@ -10,6 +10,7 @@ import {
 import { listTasksPath } from "../api/transport";
 import type { Session } from "../auth/tokenStore";
 import { t } from "../i18n";
+import { createMemoryFoldStore } from "../list/listModel";
 import {
   MAX_RESUME_ATTEMPTS,
   RESUME_THRESHOLD_MS,
@@ -564,7 +565,7 @@ describe("KIN-MOBILE-001 R3 list route", () => {
         fetchImpl={fetchImpl}
         formatTime={formatTime}
         machines={MACHINES}
-        onNeedsPairing={jest.fn()}
+          onNeedsPairing={jest.fn()}
         onOpen={jest.fn()}
         readSessionImpl={readSessionImpl}
         selfDeviceId="dev-a"
@@ -581,5 +582,49 @@ describe("KIN-MOBILE-001 R3 list route", () => {
     await screen.rerender(element);
     expect(screen.queryByText("First conversation")).toBeNull();
     expect(screen.getByText("▸ alpha")).toBeTruthy();
+  });
+});
+
+describe("KIN-MOBILE-001 R3 list search", () => {
+  it("KIN-MOBILE-001 R3: a query opens a folded project without writing the fold store, and clearing restores the fold", async () => {
+    const store = createMemoryFoldStore();
+    const write = jest.spyOn(store, "write");
+    const fetchImpl = routedFetch((url) => {
+      if (!url.endsWith(listTasksPath())) return { body: [] };
+      return {
+        body: [
+          task({
+            id: "task-1",
+            title: "First conversation",
+            cwd: "/work/alpha",
+            created_at: 1000,
+          }),
+          task({
+            id: "task-2",
+            title: "Second conversation",
+            cwd: "/work/beta",
+            created_at: 900,
+          }),
+        ],
+      };
+    });
+    const screen = await renderList({ fetchImpl, store });
+    await waitFor(() => expect(screen.getByText("First conversation")).toBeTruthy());
+
+    // Only the newest project opens by default; beta's row is folded away.
+    expect(screen.queryByText("Second conversation")).toBeNull();
+    expect(screen.getByText("▸ beta")).toBeTruthy();
+
+    await fireEvent.changeText(screen.getByTestId("list-search"), "SECOND");
+    // The match is visible because the query opens its project for the
+    // duration of the search...
+    expect(screen.getByText("Second conversation")).toBeTruthy();
+    expect(screen.getByText("▾ beta")).toBeTruthy();
+    // ...without touching the reader's folds: clearing must hand them back.
+    expect(write).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId("list-search-clear"));
+    expect(screen.queryByText("Second conversation")).toBeNull();
+    expect(screen.getByText("▸ beta")).toBeTruthy();
   });
 });
