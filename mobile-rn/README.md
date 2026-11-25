@@ -130,8 +130,8 @@ Screenshots come from the same device without any GUI:
   covers the send button. Tapping the transcript dismisses the keyboard. R4
   (`R-rn-native-shell`) owns the keyboard-avoiding composer, safe areas, the
   glass header and push registration.
-- The iPad split layout (list beside conversation) is `rsi/rn-tablet-split`;
-  today the iPad shows the same single-column stack.
+- The iPad split layout (list beside conversation) landed as #721; a simulator
+  run on 2026-11-26 shows it at 820×1180 (`EVIDENCE.md`).
 - Push registration is not wired yet (`src/push/`, `rsi/rn-push-route`).
 
 ## Notes for maintainers
