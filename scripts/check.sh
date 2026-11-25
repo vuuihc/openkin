@@ -363,6 +363,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-lane-worker-contract.sh || return 1
   bash rsi/runtime/tests/test-lane-sendback-reserve.sh || return 1
   bash rsi/runtime/tests/test-lane-control-tree-guard.sh || return 1
+  bash rsi/runtime/tests/test-lane-empty-branch.sh || return 1
   bash rsi/runtime/tests/test-evidence-widths.sh || return 1
   bash rsi/runtime/tests/test-claim-copies.sh || return 1
   bash rsi/runtime/tests/test-lanes-facts.sh || return 1

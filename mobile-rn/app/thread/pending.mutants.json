@@ -1,0 +1,16 @@
+[
+  {
+    "label": "a decision in the split's conversation leaves the list's focus epoch alone, so the 待批 badge does not drop (R-rn-pending-badge-sync)",
+    "file": "mobile-rn/app/thread/[id].tsx",
+    "old": "          onPendingSettled={settlePending}",
+    "new": "          onPendingSettled={() => {}}",
+    "test": "cd mobile-rn && npx jest app/thread/pending.test.tsx -t \"KIN-MOBILE-001 R5: the split route re-reads the list when a pending decision settles\""
+  },
+  {
+    "label": "the phone route hands the conversation a settle callback for a list that is not mounted (R-rn-pending-badge-sync)",
+    "file": "mobile-rn/app/thread/[id].tsx",
+    "old": "    return <ConversationScreen onBack={leave} taskId={taskId} />;",
+    "new": "    return (\n      <ConversationScreen\n        onBack={leave}\n        onPendingSettled={settlePending}\n        taskId={taskId}\n      />\n    );",
+    "test": "cd mobile-rn && npx jest app/thread/pending.test.tsx -t \"KIN-MOBILE-001 R5: the phone route hands the conversation no settle callback\""
+  }
+]
