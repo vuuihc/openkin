@@ -289,11 +289,23 @@ export default function ProviderUsage({
         </>
       ) : null}
 
-      {state.providers.length > 0 ? (
+      {state.providers.length > 0 || state.providerListError ? (
         <View style={styles.providers}>
           {state.providers.map((provider) => (
             <ProviderRow key={provider.id} provider={provider} t={t} />
           ))}
+          {state.providerListError ? (
+            // The list alone is unreadable (a paired device token may not read
+            // the operator-only endpoint). The numbers above are this read's,
+            // and the whole-sheet notice must not claim the link is invalid.
+            <Text
+              accessibilityRole="alert"
+              style={styles.providerNotice}
+              testID="usage-provider-list-error"
+            >
+              {t("usage.providerListUnavailable")}
+            </Text>
+          ) : null}
         </View>
       ) : null}
     </ScrollView>
@@ -391,6 +403,10 @@ const styles = StyleSheet.create({
   },
   providers: {
     gap: 8,
+  },
+  providerNotice: {
+    color: "#6b6b6b",
+    fontSize: 14,
   },
   providerSummary: {
     color: "#6b6b6b",

@@ -54,6 +54,7 @@ import {
   type ApprovalsScreenProps,
 } from "./Approvals";
 import ProviderUsageSheet from "./ProviderUsageSheet";
+import { MessageBody } from "./TableBlock";
 
 /** The signed touch floor; every control on this screen meets it. */
 export const BACK_SIZE = 44;
@@ -322,6 +323,14 @@ function TurnBlock({
             onToggleStep={onToggleStep}
             t={t}
             turnIndex={index}
+          />
+        ) : item.kind === "message" ? (
+          // A message may hold a markdown table (KIN-MOBILE-001 R4); with no
+          // table its body is still the one <Text> it was.
+          <MessageBody
+            key={`${index}:${item.key}`}
+            text={item.text}
+            textStyle={styles.item}
           />
         ) : (
           <Text
@@ -610,6 +619,17 @@ export default function ConversationView({
         >
           <Text style={styles.backText}>{t("app.back")}</Text>
         </Pressable>
+        {/* The conversation's name, spoken as the screen's heading. It is
+            text, not a control: the row already has its back and usage
+            targets. One line, so a long name truncates rather than growing
+            the header. */}
+        <Text
+          accessibilityRole="header"
+          numberOfLines={1}
+          style={styles.title}
+        >
+          {state.title.trim() === "" ? t("sessions.untitled") : state.title}
+        </Text>
         {state.running ? (
           <Text style={styles.running}>{t("sessions.statusRunning")}</Text>
         ) : null}
@@ -872,6 +892,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     marginLeft: "auto",
+  },
+  // The header's one flexible cell: it takes the space between the back
+  // control and the trailing status/usage entries, and truncates on one line.
+  title: {
+    color: "#1d1d1d",
+    flex: 1,
+    fontSize: 17,
+    fontWeight: "600",
   },
   turn: {
     gap: 8,
