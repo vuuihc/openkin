@@ -158,20 +158,32 @@ export default function SessionRow({
   // metadata, so a screen reader hears "this is a run" before the actions.
   const routineRun = Boolean(row.task?.routine_id);
   // One status, in words (KIN-CONTINUE-007): what needs the person first, then
-  // what is still working, then where the run came from, then that it is over.
-  // A state the vocabulary does not name draws nothing — never a colour alone.
+  // what is still working, then a failed end before the routine marker, then
+  // that it is over. Every tone that can draw a dot names itself, so a state is
+  // never a colour alone.
   const agent = agentDisplayName(row.agentId);
   const at = formatRelativeTime(row.at, now);
+  const statusView = row.task ? taskCardStatusView(row.task.status) : null;
   const status =
     pendingCount > 0
       ? tr("sessions.statusPendingCount", { count: String(pendingCount) })
-      : row.task && taskCardStatusView(row.task.status).tone === "running"
-        ? tr("sessions.statusRunning")
-        : routineRun
-          ? tr("sessions.routineRun")
-          : row.task?.status === "succeeded"
-            ? tr("sessions.statusSucceeded")
-            : "";
+      : statusView?.tone === "approval"
+        ? tr(
+            row.task?.status === "waiting_input"
+              ? "sessions.statusWaitingInput"
+              : "sessions.statusWaitingApproval",
+          )
+        : statusView?.tone === "running"
+          ? tr("sessions.statusRunning")
+          : statusView?.tone === "failed"
+            ? tr("sessions.statusFailed")
+            : routineRun
+              ? tr("sessions.routineRun")
+              : statusView?.tone === "completed"
+                ? tr("sessions.statusSucceeded")
+                : statusView?.tone === "canceled"
+                  ? tr("sessions.statusCanceled")
+                  : "";
   // The row's second line says who ran it, when, and one status; a pinned row
   // additionally names its machine, because pinning lifts it out of the device
   // heading that says it for every other row. In the 304px column the line is
@@ -217,7 +229,7 @@ export default function SessionRow({
   // is information, not a lock: every edit below it stays available. It is only
   // added in the non-selection branch — while selecting, the menu is the one
   // way out.
-  const runningNow = row.task ? taskCardStatusView(row.task.status).tone === "running" : false;
+  const runningNow = statusView?.tone === "running";
   // A mode can end while its surface is open (the row is archived from
   // elsewhere, multi-select starts): the surface is gone with the trigger, or
   // its action set is about to change under the reader, so the state must not

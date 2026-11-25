@@ -168,6 +168,61 @@ describe("SessionRow", () => {
     ).toBeTruthy();
   });
 
+  it("names every status that draws a dot, so no state is colour alone", () => {
+    // The UX review found a failed row drawing only its red dot: the state was
+    // in colour and nowhere in words. Every tone that paints a dot must also
+    // name itself, on the line and in the row's sentence.
+    const failedRun = {
+      ...task("row-1", undefined, "failed"),
+      routine_id: "routine-1",
+    } as Task;
+    const cases: { label: string; row: PhoneSessionRow; dot?: string; word: string }[] = [
+      {
+        label: "failed",
+        row: taskRow({ task: task("row-1", undefined, "failed") }),
+        dot: "bg-kin-red",
+        word: "Failed",
+      },
+      // A failed run is a failure first: the dot is red, so the word is too.
+      {
+        label: "failed routine run",
+        row: taskRow({ task: failedRun }),
+        dot: "bg-kin-red",
+        word: "Failed",
+      },
+      {
+        label: "waiting for approval",
+        row: taskRow({ task: task("row-1", undefined, "waiting_approval") }),
+        dot: "bg-kin-orange",
+        word: "Awaiting approval",
+      },
+      {
+        label: "waiting for you",
+        row: taskRow({ task: task("row-1", undefined, "waiting_input") }),
+        dot: "bg-kin-blue",
+        word: "Awaiting you",
+      },
+      {
+        label: "canceled",
+        row: taskRow({ task: task("row-1", undefined, "canceled") }),
+        word: "Canceled",
+      },
+    ];
+
+    for (const { label, row, dot, word } of cases) {
+      const view = render(<SessionRow {...props({ row })} />);
+      const shell = rowButton();
+      const painted = shell.querySelector<HTMLElement>(":scope > span > span[aria-hidden]");
+      if (dot) expect(painted?.className, label).toContain(dot);
+      else expect(painted, label).toBeNull();
+      expect(view.container.querySelector("[data-session-status]")?.textContent, label).toContain(
+        word,
+      );
+      expect(shell.getAttribute("aria-label"), label).toContain(word);
+      view.unmount();
+    }
+  });
+
   it("opens the conversation on click and closes an already-open swipe instead when appropriate", async () => {
     const onOpen = vi.fn();
     const onSwipeOpenChange = vi.fn();
