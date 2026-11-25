@@ -28,6 +28,27 @@
     "test": "cd mobile-rn && npx jest src/native/reconnect.test.ts -t \"KIN-MOBILE-001 R7: a foreground return on the conversation screen reopens the dead stream\""
   },
   {
+    "label": "the offline banner also offers its retry on the blank error screen (R-rn-reconnect)",
+    "file": "mobile-rn/src/native/reconnect.ts",
+    "old": "  return state.banner === \"offline\" && state.status !== \"error\";",
+    "new": "  return state.banner === \"offline\";",
+    "test": "cd mobile-rn && npx jest src/native/reconnect.test.ts -t \"KIN-MOBILE-001 R7: the offline banner offers one retry that reopens the stream\""
+  },
+  {
+    "label": "a healthy conversation is torn down and reopened on every foreground return (R-rn-reconnect)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "      if (state.banner !== \"offline\" && stream) return state;",
+    "new": "      if (false) return state;",
+    "test": "cd mobile-rn && npx jest src/native/reconnect.test.ts -t \"KIN-MOBILE-001 R7: a healthy conversation is not reopened\""
+  },
+  {
+    "label": "a failed resume wipes the transcript and the queued send (R-rn-reconnect)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "      startStream(resumeAfter);",
+    "new": "      startStream(resumeAfter);\n      publish({ turns: [] });",
+    "test": "cd mobile-rn && npx jest src/native/reconnect.test.ts -t \"KIN-MOBILE-001 R7: a failed resume keeps the read content and the queued send\""
+  },
+  {
     "label": "a resume after close reopens the stream and paints the closed screen (R-rn-reconnect)",
     "file": "mobile-rn/src/thread/threadModel.ts",
     "old": "      if (closed) return state;",
