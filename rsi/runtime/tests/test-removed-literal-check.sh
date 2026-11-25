@@ -262,6 +262,8 @@ test_lane_pipeline_calls_the_seam() {
   fmt="$(grep -nF 'format-changed.sh" --write --commit --check' "$lane" | head -1 | cut -d: -f1)"
   rem="$(grep -nF 'REMOVED_EV="$(bash "$SELF" --removed-literal-check' "$lane" | head -1 | cut -d: -f1)"
   push="$(grep -nF 'push -q -u origin' "$lane" | head -1 | cut -d: -f1)"
+  # main moved the push into the git_push_retry helper; the seam must still precede it.
+  [ -n "$push" ] || push="$(grep -nF 'git_push_retry "$GIT" "$WT" "$BR"' "$lane" | head -1 | cut -d: -f1)"
   [ -n "$fmt" ] && [ -n "$rem" ] && [ -n "$push" ] || fail "pipeline: cannot locate format/removed/push lines"
   [ "$fmt" -lt "$rem" ] || fail "pipeline: removed-literal call is not after the format commit"
   [ "$rem" -lt "$push" ] || fail "pipeline: removed-literal call is not before the push block"

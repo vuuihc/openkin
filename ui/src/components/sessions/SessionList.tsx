@@ -34,7 +34,7 @@ import { useLocale, useT } from "../../i18n/react";
 import { settleArchiveBatch } from "../../lib/archiveBatch";
 import type { Machine } from "../../lib/devices";
 import { runGuardedNavigation } from "../../lib/leaveGuard";
-import { draftEntryState, listUrlFor, phonePush } from "../../lib/phoneNavigation";
+import { draftEntryState, isPhoneLayout, listUrlFor, phonePush } from "../../lib/phoneNavigation";
 import { rememberDeviceNewReturn, takeDeviceNewReturn } from "../../lib/placeReturn";
 import {
   DRAFT_PATH,
@@ -97,7 +97,7 @@ import {
   type TaskOrder,
 } from "../../lib/taskOrder";
 import { mergeTaskTail } from "../../lib/taskTail";
-import AgentSessionSheet from "./AgentSessionSheet";
+import AgentSessionSheet, { type AgentSessionSheetClose } from "./AgentSessionSheet";
 import ActionSheet from "../ui/ActionSheet";
 import Button from "../ui/Button";
 import InlineAlert from "../ui/InlineAlert";
@@ -1161,12 +1161,17 @@ export default function SessionList({
    * would land on `?agent=` again and reopen what the reader closed. The
    * parameter is cleared on the entry the sheet gives back instead.
    */
-  function closeAgentSheet() {
+  function closeAgentSheet(close?: AgentSessionSheetClose) {
     const urlAgent = (params.get("agent") ?? "").trim();
     setAgentSheet(null);
     if (!urlAgent) return;
-    dismissedAgent.current = urlAgent;
     setAgentEntry(null);
+    // A successful continue is not a dismissal on a Mac: the task it opens is
+    // pushed above this list entry, and Back must return to the sheet the
+    // reader left, still named by `?agent=`. The phone's close keeps its own
+    // meaning — the list is the parent Back reaches, not the sheet.
+    if (close?.reason === "attach" && !isPhoneLayout()) return;
+    dismissedAgent.current = urlAgent;
     const sheetEntryIsCurrent = Boolean(
       (window.history.state as { kinSheet?: string } | null)?.kinSheet,
     );

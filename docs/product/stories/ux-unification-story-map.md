@@ -54,7 +54,7 @@
 5. **浮层先退，dirty guard 再问，最后才回栈。** 页头、系统 Back、浏览器 Back、左缘右滑走同一 resolver；鉴权门是特殊面，进入前保留通知落点，通过后只消费一次。
 6. **Mac 保留自己的正常历史。** 四区侧栏始终可见，不是假手机栈；覆盖右侧内容时仍恢复触发器/选中项和列表滚动。手机 attach 导入会话的 replace 语义不套用到 Mac。
 
-验收路径：`ui/src/components/layout/AreaNavigation.dom.test.tsx`、`ui/src/lib/areaNavigation.test.ts`、`ui/src/lib/areas.test.ts`、`ui/src/lib/areaTransition.test.ts`、`ui/src/components/layout/AreaRoute.dom.test.tsx`、`ui/src/components/layout/PhoneNavigation.dom.test.tsx`、`ui/src/lib/phoneBack.test.ts`、`phoneDeepLinkParent.test.ts`、`notificationRoute.test.ts`、`NotificationTaps.dom.test.tsx`、`TaskDetailPage.dom.test.tsx`、`ProjectDetailPage.dom.test.tsx`、`RoutinesPage.dom.test.tsx`、`AgentSessionDetailPage.dom.test.tsx`、设置相关现有测试。`registry.json` 的测试数为 0 只表示它仍在草案阶段，不代表覆盖。
+验收路径：`ui/src/components/layout/AreaNavigation.dom.test.tsx`、`ui/src/lib/areaNavigation.test.ts`、`ui/src/lib/areas.test.ts`、`ui/src/lib/areaTransition.test.ts`、`ui/src/components/layout/AreaRoute.dom.test.tsx`、`ui/src/components/layout/PhoneNavigation.dom.test.tsx`、`ui/src/lib/phoneBack.test.ts`、`phoneDeepLinkParent.test.ts`、`notificationRoute.test.ts`、`NotificationTaps.dom.test.tsx`、`TaskDetailPage.dom.test.tsx`、`ProjectDetailPage.dom.test.tsx`、`RoutinesPage.dom.test.tsx`、`AgentSessionSheet.dom.test.tsx`、设置相关现有测试。`registry.json` 的测试数为 0 只表示它仍在草案阶段，不代表覆盖。
 
 ## 设置分区：改位置，不丢字段
 

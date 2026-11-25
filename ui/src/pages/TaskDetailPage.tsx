@@ -1177,15 +1177,22 @@ export default function TaskDetailPage({
     if (!didInitialScrollRef.current || !active) return;
     const el = scrollRef.current;
     if (!el || el.clientHeight <= 0) return;
-    // Ask the transcript where the reader is now, not whether a send still
-    // owns a pin. The layout effect above has already run for this commit, so
-    // a pin that placed these rows reads as the end here. A pin that is still
-    // owed (a restore holding the reader's place) or one the reader scrolled
-    // away from does not — and treating the send window as "seen" is how a
-    // reply that outran its POST landed in silence.
-    if (isNearBottom(el)) return;
+    // Everything is on screen: there is nothing below the fold to announce.
+    if (el.scrollHeight <= el.clientHeight) return;
+    // Ask the reader's own follow intent, not a fresh distance. `stickToBottom`
+    // is written by the reader's scrolls and by the places this page chooses
+    // (the send's pin, a restore, Show newest); the live distance is also moved
+    // by things the reader did not choose — the bottom band is part of
+    // `clientHeight`, so a composer that gives back a row, or a pill that
+    // drops, shrinks the gap under the "caught up" line with no scroll at all,
+    // and the arrival that lands next is filed as seen while it is still off
+    // screen. That is the 820×1180 tablet's incoming-activity miss. The layout
+    // effect above has already run for this commit, so a pin that placed these
+    // rows reads as the end here; a pin still owed (a restore holding the
+    // reader's place) or one the reader scrolled away from does not.
+    if (stickToBottomRef.current) return;
     setUnseen((count) => count + arrived);
-  }, [events.length, active, isNearBottom]);
+  }, [events.length, active]);
 
   // The counter belongs to the conversation it was raised for: another task
   // has its own transcript, its own place and its own unread output.

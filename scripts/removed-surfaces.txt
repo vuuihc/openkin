@@ -28,3 +28,8 @@ ui/src/components/project/ProjectOnePager.tsx
 ui/src/components/project/ProjectOnePager.dom.test.tsx
 ui/src/components/project/ProjectRootsBlock.tsx
 ui/src/design/heat.ts
+# KIN-CONTRACT-001 retired the imported-session full page; 5b deleted the page
+# itself too. The sheet over the list is the surface that holds the behaviour.
+ui/src/pages/AgentSessionDetailPage.dom.test.tsx
+ui/src/pages/AgentSessionDetailPage.historyBudget.dom.test.tsx
+ui/src/pages/AgentSessionDetailPage.tsx
