@@ -51,6 +51,13 @@ export type ProvidersView = {
   /** The window's rows exactly as the node returned them. */
   usage: UsageRow[];
   error?: ProvidersError;
+  /**
+   * Set when the usage read answered and only the provider list did not. A
+   * paired device token may read `/api/usage/summary` and not `/api/providers`
+   * (operator-only, `internal/api/api.go:528`), which is not a reason to hide
+   * the numbers the sheet exists to show: the screen degrades this one block.
+   */
+  providerListError?: ProvidersError;
 };
 
 export type ProvidersModelOptions = {
@@ -219,6 +226,31 @@ export function createProvidersModel(options: ProvidersModelOptions): ProvidersM
       // rows belong to the window that last settled -- `state.days` already
       // moved to the window this read asked for and never got.
       const expired = reason === "expired";
+      if (!expired && usageRead.ok && !providersRead.ok) {
+        // The provider list alone failed: a device token is not allowed to
+        // read `/api/providers` and the usage read answered, so degrade one
+        // block rather than telling the owner the pairing link is invalid.
+        // A usage failure and an expired token still fail the whole sheet:
+        // the numbers are the subject, and a token state is a pairing state.
+        const usage = readUsage(usageRead.data);
+        if (usage !== null) {
+          state = {
+            // Never "empty": with the list unreadable the device's provider
+            // count is unknowable, so a quiet window is a ready one.
+            status: "ready",
+            days,
+            providers: state.providers,
+            usage,
+            providerListError: {
+              reason: providersRead.reason,
+              stale: state.providers.length > 0,
+            },
+          };
+          lastSettled = state.status;
+          lastSettledDays = state.days;
+          return state;
+        }
+      }
       state = {
         ...state,
         status: reason === "unreachable" ? "offline" : "failed",
@@ -226,6 +258,8 @@ export function createProvidersModel(options: ProvidersModelOptions): ProvidersM
         providers: expired ? [] : state.providers,
         usage: expired ? [] : state.usage,
         error: { reason, stale: hadData && !expired },
+        // A block-level notice never outlives a whole-sheet failure.
+        providerListError: undefined,
       };
       lastSettled = state.status;
       lastSettledDays = state.days;
@@ -243,6 +277,7 @@ export function createProvidersModel(options: ProvidersModelOptions): ProvidersM
         status: "failed",
         days: hadData ? lastSettledDays : state.days,
         error: { reason: "rejected", stale: hadData },
+        providerListError: undefined,
       };
       lastSettled = state.status;
       lastSettledDays = state.days;
@@ -252,6 +287,7 @@ export function createProvidersModel(options: ProvidersModelOptions): ProvidersM
     // "Empty" is the device-level message ("this device has no usage yet"):
     // a configured provider with a quiet window stays `ready`, and the screen
     // can still say the window itself is empty because `usage` is [].
+    // Built fresh, so a provider-list error from an older read is dropped.
     state = {
       status: providers.length === 0 && usage.length === 0 ? "empty" : "ready",
       days,
