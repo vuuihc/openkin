@@ -153,6 +153,7 @@ const zh = {
     deletedCount: "已删除 {count} 个会话",
     deleteFailedCount: "{count} 个会话删除失败：{error}",
     deletingSelected: "正在删除…",
+    selectConversation: "在左侧选一条对话，在这里阅读。",
   },
   home: {
     slogan: "和 Kin 对话，编排你的 agent",
@@ -1110,7 +1111,7 @@ const zh = {
     openPhone: "打开用量详情",
     hideDetails: "收起详情",
     cacheReported: "已获取缓存用量",
-    cacheUnknown: "此任务未返回缓存用量",
+    cacheUnknown: "此对话未返回缓存用量",
     cacheUnsupported: "当前连接方式不支持缓存统计",
     cacheUnknownShort: "缓存数据不可用",
     cacheUnsupportedShort: "不支持缓存统计",

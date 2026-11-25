@@ -160,6 +160,7 @@ const en: MessageTree = {
     deletedCount: "Sessions deleted: {count}",
     deleteFailedCount: "{count} could not be deleted: {error}",
     deletingSelected: "Deleting…",
+    selectConversation: "Select a chat to read it here.",
   },
   home: {
     slogan: "Talk to Kin, orchestrate your agents",
@@ -1141,7 +1142,7 @@ const en: MessageTree = {
     openPhone: "Open usage details",
     hideDetails: "Hide details",
     cacheReported: "Cache usage reported",
-    cacheUnknown: "Cache usage was not returned for this task",
+    cacheUnknown: "Cache usage was not returned for this conversation",
     cacheUnsupported: "Cache statistics are not supported by this connection",
     cacheUnknownShort: "Cache data unavailable",
     cacheUnsupportedShort: "Cache statistics unsupported",

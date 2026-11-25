@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the split boundary slips from 768 to 769, so the signed 768pt surface keeps the phone stack (R-rn-tablet-split)",
+    "file": "mobile-rn/src/layout/split.ts",
+    "old": "  if (width < SPLIT_MIN_WIDTH) return { mode: \"stack\" };\n",
+    "new": "  if (width <= SPLIT_MIN_WIDTH) return { mode: \"stack\" };\n",
+    "test": "cd mobile-rn && npx jest src/layout/split.test.ts -t \"KIN-MOBILE-001: a 768pt window splits into a 304pt list and the conversation\""
+  }
+]
