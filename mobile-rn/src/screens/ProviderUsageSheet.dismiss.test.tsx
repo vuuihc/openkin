@@ -177,6 +177,9 @@ describe("KIN-MOBILE-001 R6 provider/usage sheet pull-down", () => {
     await fireEvent(handle, "responderTerminate", {
       nativeEvent: { pageY: far },
     });
+    // The cancel put the card back at rest: it was displaced by `far - 300`
+    // just before, so reading 0 here pins the reset itself.
+    expect(cardTranslateY(screen)).toBe(0);
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByTestId("usage-card")).toBeTruthy();
     // The cancel reset the gesture, so a release that still reports the far
@@ -210,6 +213,9 @@ describe("KIN-MOBILE-001 R6 provider/usage sheet pull-down", () => {
     });
     const style = StyleSheet.flatten(handle.props.style);
     expect(style.height).toBeGreaterThanOrEqual(44);
+    // Without this the strip never becomes the touch responder on device, so
+    // every other case's fired handler is a Jest-only illusion.
+    expect(handle.props.onStartShouldSetResponder?.()).toBe(true);
     // Decorative: the existing 关闭 button stays the only announced dismiss.
     expect(handle.props.accessibilityElementsHidden).toBe(true);
     expect(handle.props.importantForAccessibility).toBe("no-hide-descendants");

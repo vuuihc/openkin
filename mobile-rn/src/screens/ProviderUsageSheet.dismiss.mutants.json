@@ -42,6 +42,20 @@
     "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: (a cancelled gesture|the drag strip is at least 44)\""
   },
   {
+    "label": "a cancelled gesture leaves the card displaced, so the sheet stays half-dragged (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "    startPageY.current = null;\n    translateY.setValue(0);",
+    "new": "    startPageY.current = null;",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: (a cancelled gesture|the drag strip is at least 44)\""
+  },
+  {
+    "label": "the strip never claims the touch, so the pull-down gesture is dead on device (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "            onStartShouldSetResponder={() => true}",
+    "new": "            onStartShouldSetResponder={() => false}",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: (a cancelled gesture|the drag strip is at least 44)\""
+  },
+  {
     "label": "the drag strip shrinks under the 44pt touch floor, so the pull-down target is too small (R-rn-sheet-dismiss)",
     "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
     "old": "  handle: {\n    alignItems: \"center\",\n    height: 44,\n    justifyContent: \"center\",\n  },",
