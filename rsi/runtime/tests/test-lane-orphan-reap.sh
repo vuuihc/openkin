@@ -182,9 +182,63 @@ other="$(run 'rsi_other_live_lane "$1"' "$T/lanes/1.lock")"
 [ -z "$other" ] || fail "case 8: a dead lane's lock still counts: $other"
 pass "only a live other lane's lock holds the simulator shutdown"
 
-# 9. The shell gate job runs this suite, so a regression cannot land green.
+# 9. A successful lane must release host resources too. #724 covered only
+#    cleanup()'s failure path: on a `done` lane `rm -rf "$LK"; trap - EXIT`
+#    disarmed cleanup before it ran, stranding the worker's simulators and the
+#    sims-before snapshot (2026-11-25: two simulators kept load near 100-600).
+#    Runs lane.sh's own lane_release_host, extracted by awk so it cannot drift.
+RELEASE_FN="$(awk '/^lane_release_host\(\) \{/,/^\}/' "$LANE")"
+[ -n "$RELEASE_FN" ] || fail "case 9: lane.sh has no lane_release_host"
+mkdir -p "$T/state9/lanes/9.lock" "$T/wt9"
+cat > "$T/bin/xcrun" <<'SH'
+#!/bin/bash
+if [ "$1 $2" = "simctl list" ]; then
+  cat <<'JSON'
+{"devices":{"r":[{"udid":"UDID-A","state":"Booted"},{"udid":"UDID-B","state":"Booted"}]}}
+JSON
+  exit 0
+fi
+echo "$@" >> "$XCRUN_LOG"
+exit 0
+SH
+chmod +x "$T/bin/xcrun"
+printf 'UDID-A\n#complete\n' > "$T/state9/lanes/9.sims-before"
+: > "$T/xcrun.log"
+XCRUN_LOG="$T/xcrun.log" run '
+  eval "$1"
+  STATE="$2"; N=9; WT="$3"; LK="$STATE/lanes/$N.lock"
+  echo $$ > "$LK/pid"
+  lane_release_host
+' "$RELEASE_FN" "$T/state9" "$T/wt9" 2>"$T/e9"
+grep -qx 'simctl shutdown UDID-B' "$T/xcrun.log" \
+  || fail "case 9: lane-booted simulator not shut down: $(cat "$T/xcrun.log" 2>/dev/null) $(cat "$T/e9")"
+! grep -q 'UDID-A' "$T/xcrun.log" || fail "case 9: a pre-existing simulator was shut down"
+[ ! -f "$T/state9/lanes/9.sims-before" ] || fail "case 9: sims-before not removed"
+rm -f "$T/bin/xcrun"
+pass "a lane release shuts down simulators booted after the snapshot and removes sims-before"
+
+# 10. Wiring: the success path releases host resources while the lane is still
+#     advertised as running — before `finish done`, which makes lanes.py report
+#     the lane idle (merge.sh then stops skipping this PR and can start a
+#     verifier here while rsi_reap_cwd sweeps; a pulse can claim the still-locked
+#     lane for 25 min) — and before `rm -rf "$LK"; trap - EXIT`; cleanup() still
+#     calls it.
+#     `trap - EXIT` must stay: cleanup's pgrep -P kill loop would otherwise kill
+#     the nohup merge/pulse handoff launched right after.
+cleanup_ln="$(grep -n '^cleanup()' "$LANE" | cut -d: -f1)"
+awk -v c="$cleanup_ln" 'NR > c && /^  lane_release_host$/ { found = 1; exit } END { exit !found }' "$LANE" \
+  || fail "case 10: cleanup no longer calls lane_release_host"
+unlock_ln="$(grep -n '^rm -rf "$LK"; trap - EXIT$' "$LANE" | cut -d: -f1)"
+call_ln="$(grep -n '^lane_release_host$' "$LANE" | cut -d: -f1)"
+done_ln="$(grep -n '^finish done ' "$LANE" | cut -d: -f1)"
+[ -n "$call_ln" ] && [ -n "$done_ln" ] && [ -n "$unlock_ln" ] \
+  && [ "$call_ln" -lt "$done_ln" ] && [ "$done_ln" -lt "$unlock_ln" ] \
+  || fail "case 10: success path must release host resources before finish done (lane stays running during the sweep) and before dropping the lock"
+pass "lane.sh releases host resources on the success path before finish done and before dropping the lock"
+
+# 11. The shell gate job runs this suite, so a regression cannot land green.
 grep -q 'bash rsi/runtime/tests/test-lane-orphan-reap.sh || return 1' "$REPO/scripts/check.sh" \
-  || fail "case 9: scripts/check.sh does not run this suite"
+  || fail "case 11: scripts/check.sh does not run this suite"
 pass "scripts/check.sh runs this suite"
 
 echo "lane orphan reap: $n/$n cases passed"

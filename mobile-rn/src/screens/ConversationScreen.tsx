@@ -58,6 +58,7 @@ async function readStoredSession(): Promise<Session | null> {
 function expiredState(taskId: string): ThreadState {
   return {
     taskId,
+    title: "",
     status: "error",
     turns: [],
     running: false,
