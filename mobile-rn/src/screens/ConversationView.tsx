@@ -14,9 +14,11 @@
  * disagree with the web console about what belongs to a turn.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import {
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -25,6 +27,10 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
+import {
+  SafeAreaInsetsContext,
+  type EdgeInsets,
+} from "react-native-safe-area-context";
 import type {
   ChatItem,
   ToolStep,
@@ -35,6 +41,7 @@ import type {
   ProvidersView,
   UsageWindowDays,
 } from "../providers/providersModel";
+import { composerBottomInset, headerTopInset } from "../native/insets";
 import {
   initialFollow,
   onContentGrew,
@@ -50,6 +57,14 @@ import ProviderUsageSheet from "./ProviderUsageSheet";
 
 /** The signed touch floor; every control on this screen meets it. */
 export const BACK_SIZE = 44;
+
+/**
+ * The metrics of a device that reports no safe area. The view also is rendered
+ * on its own, without a provider, by the reading suites; reading the context
+ * directly (rather than `useSafeAreaInsets`, which throws) treats that as a
+ * device with no inset and keeps the compact header/composer.
+ */
+const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
 export type ConversationViewProps = {
   state: ThreadState;
@@ -327,6 +342,8 @@ type ComposerProps = {
   onSend: (text: string) => void;
   onStop?: () => void;
   onWithdraw?: (id: string) => void;
+  /** This device's home-indicator clearance (see `composerBottomInset`). */
+  bottomPadding: number;
 };
 
 /**
@@ -336,7 +353,14 @@ type ComposerProps = {
  * §11). A failed read, a stream event or a queued send repaints the view
  * without touching this state — that is what "offline keeps the draft" means.
  */
-function Composer({ state, t, onSend, onStop, onWithdraw }: ComposerProps) {
+function Composer({
+  state,
+  t,
+  onSend,
+  onStop,
+  onWithdraw,
+  bottomPadding,
+}: ComposerProps) {
   const [draft, setDraft] = useState({ taskId: state.taskId, text: "" });
   const text = draft.taskId === state.taskId ? draft.text : "";
   const offline = state.banner === "offline";
@@ -355,7 +379,10 @@ function Composer({ state, t, onSend, onStop, onWithdraw }: ComposerProps) {
   };
 
   return (
-    <View style={styles.composer}>
+    <View
+      style={[styles.composer, { paddingBottom: bottomPadding }]}
+      testID="conversation:composerBar"
+    >
       {state.sendQueue.length > 0 ? (
         <View style={styles.queue}>
           {state.sendQueue.map((item) => (
@@ -439,6 +466,9 @@ export default function ConversationView({
   onWithdraw,
   usage,
 }: ConversationViewProps) {
+  // The device's own insets; a missing provider is a device that reports none.
+  const insets = useContext(SafeAreaInsetsContext) ?? NO_INSETS;
+
   // Whether the sheet is up is the person's own transient UI, so it lives in
   // this view; the window choice and the rows are the model's (AGENTS.md §11).
   const [usageOpen, setUsageOpen] = useState(false);
@@ -559,8 +589,18 @@ export default function ConversationView({
     </>
   );
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    // The keyboard-avoiding box wraps the transcript and the composer: on iOS
+    // its padding moves the composer above the keyboard and shrinks the
+    // transcript; on Android the box shrinks by the keyboard's height.
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
+      style={styles.container}
+    >
+      <View
+        style={[styles.header, { paddingTop: headerTopInset(insets.top) }]}
+        testID="conversation:header"
+      >
         <Pressable
           accessibilityLabel={t("app.back")}
           accessibilityRole="button"
@@ -616,6 +656,7 @@ export default function ConversationView({
         // A sibling of the scroller, not a row inside it: the composer is
         // reachable at every scroll position.
         <Composer
+          bottomPadding={composerBottomInset(insets.bottom)}
           onSend={onSend}
           onStop={onStop}
           onWithdraw={onWithdraw}
@@ -638,7 +679,7 @@ export default function ConversationView({
           visible={usageOpen}
         />
       ) : null}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -685,7 +726,6 @@ const styles = StyleSheet.create({
     borderTopColor: "#dcdcdc",
     borderTopWidth: StyleSheet.hairlineWidth,
     gap: 8,
-    paddingBottom: 24,
     paddingHorizontal: 16,
     paddingTop: 8,
   },
@@ -723,7 +763,6 @@ const styles = StyleSheet.create({
     gap: 8,
     minHeight: 56,
     paddingHorizontal: 4,
-    paddingTop: 48,
   },
   input: {
     borderColor: "#c4c4c4",
