@@ -27,6 +27,7 @@ import {
 } from "../lifecycle/resume";
 import {
   createListController,
+  filterGroups,
   type FoldStore,
   type ListController,
   type ListViewState,
@@ -83,6 +84,8 @@ export default function ListScreen({
   focusEpoch = 0,
 }: ListScreenProps) {
   const [state, setState] = useState<ListViewState | null>(null);
+  // What the reader is looking for: view state over the page the model owns.
+  const [query, setQuery] = useState("");
   // The reconnect band is a network state, not a steady one: null whenever the
   // list is current.
   const [band, setBand] = useState<"resuming" | "offline" | null>(null);
@@ -207,6 +210,11 @@ export default function ListScreen({
     setState(controller.toggleProject(deviceId, projectKey));
   }, []);
 
+  /** The query narrows the page; it never changes it. */
+  const changeQuery = useCallback((next: string) => {
+    setQuery(next);
+  }, []);
+
   const open = useCallback((taskId: string) => {
     callbacks.current.onOpen(taskId);
   }, []);
@@ -236,13 +244,19 @@ export default function ListScreen({
     );
   }
 
+  // The page is the model's; the query only narrows what the reader sees.
+  // `filterGroups` returns the page object unchanged for a blank query.
+  const visibleGroups = filterGroups(state.groups, query);
+
   return (
     <ConversationList
       onOpen={open}
+      onQueryChange={changeQuery}
       onRefresh={refresh}
       onToggleProject={toggleProject}
+      query={query}
       resume={band ? { status: band, onRetry: retryResume } : undefined}
-      state={state}
+      state={{ ...state, groups: visibleGroups }}
       t={t}
     />
   );
