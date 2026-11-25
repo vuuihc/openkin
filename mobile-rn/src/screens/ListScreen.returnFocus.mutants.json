@@ -49,6 +49,13 @@
     "test": "cd mobile-rn && npx jest src/screens/ListScreen.returnFocus.test.tsx -t \"KIN-MOBILE-001 \u00a72: a return whose row arrives after the repaint moves the reader when it mounts\" --runInBand"
   },
   {
+    "label": "a query change leaves the waiting return armed, so it lands after the reader typed (R-rn-list-focus-return)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "              onChangeText={(next) => {\n                // A query the reader is typing changes which rows can paint;\n                // a return waiting for one of them is no longer their context.\n                dropPendingReturn();\n                onQueryChange(next);\n              }}",
+    "new": "              onChangeText={(next) => {\n                onQueryChange(next);\n              }}",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.returnFocus.test.tsx -t \"KIN-MOBILE-001 §2: a return still waiting for its row is dropped when the reader types a query\" --runInBand"
+  },
+  {
     "label": "the route treats its own mount focus event as a return, so the first frame moves the reader (R-rn-list-focus-return)",
     "file": "mobile-rn/app/list.tsx",
     "old": "      if (!showing.current) return;\n      setFocusEpoch((epoch) => epoch + 1);",

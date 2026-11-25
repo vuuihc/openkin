@@ -339,7 +339,12 @@ export default function ConversationList({
     event?.preventDefault?.();
     if (key === "Enter") {
       const target = openRow(rowIds, focusedId);
-      if (target !== null) onOpen(target);
+      if (target !== null) {
+        // The list is leaving for the conversation: a return still waiting
+        // for a row must not land behind it (AGENTS.md rule 11).
+        dropPendingReturn();
+        onOpen(target);
+      }
       return;
     }
     focusRow(moveRow(rowIds, focusedId, key), true);
@@ -460,7 +465,9 @@ export default function ConversationList({
             }}
             onPress={() => {
               // A tapped row is where the reader left the list, so the ring
-              // rests there when they come back.
+              // rests there when they come back. `focusRow` drops a waiting
+              // return too, but tapping the row already ringed early-returns.
+              dropPendingReturn();
               focusRow(row.id);
               onOpen(row.id);
             }}

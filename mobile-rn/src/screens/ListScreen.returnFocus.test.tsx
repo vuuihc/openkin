@@ -337,4 +337,14 @@ describe("KIN-MOBILE-001 §2 reader focus returns to the row", () => {
     await screen.rerender(conversationList(rowState(["a1", "a2", "a3"]), 1));
     expect(focusMock).not.toHaveBeenCalled();
   });
+
+  it("KIN-MOBILE-001 §2: a return still waiting for its row is dropped when the reader types a query", async () => {
+    const screen = await render(conversationList(rowState(["a1", "a2"]), 0));
+    await screen.rerender(conversationList(rowState(["a1", "a2"]), 1));
+    expect(focusMock).not.toHaveBeenCalled();
+
+    await fireEvent.changeText(screen.getByTestId("list-search"), "al");
+    await screen.rerender(conversationList(rowState(["a1", "a2", "a3"]), 1));
+    expect(focusMock).not.toHaveBeenCalled();
+  });
 });
