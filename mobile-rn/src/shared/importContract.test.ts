@@ -602,4 +602,38 @@ describe("KIN-MOBILE-001 R1 shared-import contract", () => {
       untouched,
     );
   });
+
+  it("KIN-MOBILE-001: metro never offers a test file to the route context", () => {
+    // expo-router builds its route table from require.context("./app"), whose
+    // pattern matches every .ts/.tsx file in the directory — test files
+    // included. Bundling one pulls @testing-library/react-native into the app
+    // graph, whose require("console") Hermes cannot resolve; on the simulator
+    // that is a red box before the first frame (2026-11-25). Metro's block
+    // list is the only seam that keeps them out of the file map, so a test
+    // file appearing under app/ must match it.
+    const blockList = metroConfig.resolver.blockList;
+    const patterns = (Array.isArray(blockList) ? blockList : [blockList]).filter(
+      (entry): entry is RegExp => entry instanceof RegExp,
+    );
+    const blocked = (file: string): boolean =>
+      patterns.some((pattern) => pattern.test(file));
+
+    const routeTests = listSources(path.join(MOBILE_ROOT, "app")).filter((file) =>
+      TEST_FILE.test(file),
+    );
+    // Today's route directory does carry one; the day it stops, this test must
+    // be re-read rather than silently pass on an empty list.
+    expect(routeTests.length).toBeGreaterThan(0);
+    for (const file of routeTests) {
+      expect({ file: repoPath(file), blocked: blocked(file) }).toEqual({
+        file: repoPath(file),
+        blocked: true,
+      });
+    }
+
+    // A real route stays in the file map: the block is about tests, not the
+    // route directory.
+    expect(blocked(path.join(MOBILE_ROOT, "app/list.tsx"))).toBe(false);
+    expect(blocked(path.join(MOBILE_ROOT, "app/thread/[id].tsx"))).toBe(false);
+  });
 });
