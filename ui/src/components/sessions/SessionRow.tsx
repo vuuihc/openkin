@@ -160,15 +160,16 @@ export default function SessionRow({
   // A state the vocabulary does not name draws nothing — never a colour alone.
   const agent = agentDisplayName(row.agentId);
   const at = formatRelativeTime(row.at, now);
-  const status = pendingCount > 0
-    ? tr("sessions.statusPendingCount", { count: String(pendingCount) })
-    : row.task && taskCardStatusView(row.task.status).tone === "running"
-      ? tr("sessions.statusRunning")
-      : routineRun
-        ? tr("sessions.routineRun")
-        : row.task?.status === "succeeded"
-          ? tr("sessions.statusSucceeded")
-          : "";
+  const status =
+    pendingCount > 0
+      ? tr("sessions.statusPendingCount", { count: String(pendingCount) })
+      : row.task && taskCardStatusView(row.task.status).tone === "running"
+        ? tr("sessions.statusRunning")
+        : routineRun
+          ? tr("sessions.routineRun")
+          : row.task?.status === "succeeded"
+            ? tr("sessions.statusSucceeded")
+            : "";
   // The row's second line says who ran it, when, and one status. The device is
   // not repeated: it is already the heading above the project. In the 304px
   // column the line is narrower than the three slots at caption size, so the
@@ -425,9 +426,7 @@ export default function SessionRow({
             className="flex min-w-0 items-center text-caption leading-ui text-kin-muted"
           >
             <span className="min-w-0 truncate">{agent}</span>
-            {at ? (
-              <span className="shrink-0 whitespace-pre">{agent ? ` · ${at}` : at}</span>
-            ) : null}
+            {at ? <span className="shrink-0 whitespace-pre">{agent ? ` · ${at}` : at}</span> : null}
             {status ? (
               <span data-session-status className="shrink-0 whitespace-pre">
                 {agent || at ? ` · ${status}` : status}

@@ -86,11 +86,7 @@ function pointer(kind: "fine" | "coarse") {
 
 let clock = 0;
 
-function task(
-  id: string,
-  cwd = "/work/alpha",
-  overrides: Partial<Task> = {},
-): Task {
+function task(id: string, cwd = "/work/alpha", overrides: Partial<Task> = {}): Task {
   return {
     id,
     title: id,
@@ -211,9 +207,7 @@ describe("the 820 conversation list", () => {
     // A remote row, under Studio's heading. The device is the heading above
     // the project, so neither the visible line nor the accessible name repeats
     // it.
-    fixtures.tasks = [
-      task("remote-work", "/srv/beta", { executing_device_id: "nas-1" }),
-    ];
+    fixtures.tasks = [task("remote-work", "/srv/beta", { executing_device_id: "nas-1" })];
     mount();
 
     const row = rowEl("remote-work");
@@ -230,9 +224,7 @@ describe("the 820 conversation list", () => {
     // Ten rows, one open project: the jsdom half of the contract (the real
     // screenful is the 820×1180 browser measurement). If the project row cap
     // came back below ten, only five would render and this would go red.
-    fixtures.tasks = Array.from({ length: 10 }, (_, index) =>
-      task(`ten-${index + 1}`),
-    );
+    fixtures.tasks = Array.from({ length: 10 }, (_, index) => task(`ten-${index + 1}`));
     mount();
 
     const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-session-row]"));
