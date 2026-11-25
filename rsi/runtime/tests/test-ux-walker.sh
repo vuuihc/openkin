@@ -52,7 +52,7 @@ PASSED=0
 # The expected case count is named here, so a case that stops running (a
 # deleted block, a stray early return) reds the suite instead of shrinking the
 # summary: "31/31" was a literal that kept saying 31 after cases were added.
-EXPECTED_CASES=36
+EXPECTED_CASES=39
 
 # common.sh rewrites PATH, so an exported function is the only stub that
 # survives into the child bash.
@@ -651,6 +651,93 @@ if not any(step[0] == "gone" and "user-question-card" in str(step[1]) for step i
 if len([step for step in steps if step[0] == "goto" and step[1] == "/tasks/task-q"]) != 1:
     raise SystemExit("the plan does not reload the conversation exactly once")
 PY
+pass "$case_name"
+
+# --- J1/J5/J7: the seeded targets resolve without a browser --------------------
+# J1, J5 and J7 stand for the phone's most important moments (approve/deny a
+# card, a running row's menu, a notification landing on its card), and each
+# one's spec is written against placeholders the seed's machine line fills.
+# Only J15's resolver was pinned here, so a stale target regex or a renamed
+# placeholder could only be discovered 15-45 minutes into a real walk — or be
+# read, wrongly, as "the seed cannot create these journeys" (the 2026-11-25
+# dogfood note). These cases resolve the exact lines the seed prints through
+# the same functions the walk uses, and pin the fail-closed skip.
+[ -n "$REAL_NODE" ] || fail "the J1/J5/J7 resolver cases need node on PATH; none found"
+
+case_name="j1_resolver_names_both_approval_cards"
+printf 'journeys seed: base http://127.0.0.1:1\nj1 targets approve conversation=task-a focus=apr-a deny conversation=task-d focus=apr-d\n' > "$T/seed-j1.log"
+out="$("$REAL_NODE" "$UXDIR/walk.mjs" --resolve-j1 "$T/seed-j1.log" 2>&1)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($out)"
+[ "$out" = "J1 approve /tasks/task-a?focus=apr-a deny /tasks/task-d?focus=apr-d" ] \
+  || fail "$case_name: got '$out', wanted both resolved deep links"
+# A half pair (an approve card with no deny card) must not resolve: the deny
+# leg would point at nothing, so the line is a skip like a missing one.
+printf 'journeys seed: base http://127.0.0.1:1\nj1 targets approve conversation=task-a focus=apr-a\n' > "$T/seed-j1-half.log"
+out="$("$REAL_NODE" "$UXDIR/walk.mjs" --resolve-j1 "$T/seed-j1-half.log" 2>&1)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: half exit $rc ($out)"
+[ "$out" = "J1 skip: no seeded approval targets" ] \
+  || fail "$case_name: a half pair resolved to '$out', wanted the skip line"
+printf 'journeys seed: base http://127.0.0.1:1\n' > "$T/seed-j1-none.log"
+out="$("$REAL_NODE" "$UXDIR/walk.mjs" --resolve-j1 "$T/seed-j1-none.log" 2>&1)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: none exit $rc ($out)"
+[ "$out" = "J1 skip: no seeded approval targets" ] \
+  || fail "$case_name: a missing line resolved to '$out', wanted the skip line"
+pass "$case_name"
+
+case_name="j5_resolver_names_the_running_rows_trigger"
+printf 'journeys seed: base http://127.0.0.1:1\nj5 target conversation=task-r title=[seed] Running the migration\n' > "$T/seed-j5.log"
+out="$("$REAL_NODE" "$UXDIR/walk.mjs" --resolve-j5 "$T/seed-j5.log" 2>&1)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($out)"
+[ "$out" = "J5 css=[data-row-actions][aria-describedby='session-row-title-task-r']" ] \
+  || fail "$case_name: got '$out', wanted the running row's trigger"
+printf 'journeys seed: base http://127.0.0.1:1\n' > "$T/seed-j5-none.log"
+out="$("$REAL_NODE" "$UXDIR/walk.mjs" --resolve-j5 "$T/seed-j5-none.log" 2>&1)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: none exit $rc ($out)"
+[ "$out" = "J5 skip: no seeded running conversation" ] \
+  || fail "$case_name: a missing line resolved to '$out', wanted the skip line"
+pass "$case_name"
+
+case_name="j7_resolver_names_the_notification_card_and_title"
+printf 'journeys seed: base http://127.0.0.1:1\nj7 target conversation=task-n focus=apr-n title=[seed] Answer the deploy\n' > "$T/seed-j7.log"
+out="$("$REAL_NODE" "$UXDIR/walk.mjs" --resolve-j7 "$T/seed-j7.log" 2>&1)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($out)"
+[ "$out" = "J7 /tasks/task-n?focus=apr-n" ] \
+  || fail "$case_name: got '$out', wanted the resolved deep link"
+plan="$("$REAL_NODE" "$UXDIR/walk.mjs" --resolve-j7-plan "$T/seed-j7.log" 2>&1)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: plan exit $rc ($plan)"
+printf '%s' "$plan" > "$T/j7-plan.json"
+python3 - "$T/j7-plan.json" <<'PY' || exit 1
+import json
+import sys
+
+plan = json.load(open(sys.argv[1], encoding="utf-8"))
+steps = plan.get("steps") or []
+text = "\n".join(" ".join(str(part) for part in step) for step in steps)
+if any(placeholder in text for placeholder in ("{conversation}", "{focus}", "{title}")):
+    raise SystemExit("the plan still carries a placeholder")
+if ["goto", "/tasks/task-n?focus=apr-n"] not in steps:
+    raise SystemExit("the plan has no resolved deep link")
+if ["wait", 'css=[data-pending-id="apr-n"]'] not in steps:
+    raise SystemExit("the plan never waits for the named card")
+if ["active", 'css=[data-pending-id="apr-n"]'] not in steps:
+    raise SystemExit("the plan never asserts the named card has focus")
+if ["click", '[data-session-row="task-n"]'] not in steps:
+    raise SystemExit("the plan never reopens the row the notification names")
+if plan.get("title") != "[seed] Answer the deploy":
+    raise SystemExit("the plan lost the title the seed printed")
+PY
+# The legacy two-field line still resolves the URL; the title stays absent
+# rather than invented.
+printf 'journeys seed: base http://127.0.0.1:1\nj7 target conversation=task-n focus=apr-n\n' > "$T/seed-j7-legacy.log"
+out="$("$REAL_NODE" "$UXDIR/walk.mjs" --resolve-j7 "$T/seed-j7-legacy.log" 2>&1)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: legacy exit $rc ($out)"
+[ "$out" = "J7 /tasks/task-n?focus=apr-n" ] \
+  || fail "$case_name: the legacy two-field line resolved to '$out'"
+printf 'journeys seed: base http://127.0.0.1:1\n' > "$T/seed-j7-none.log"
+out="$("$REAL_NODE" "$UXDIR/walk.mjs" --resolve-j7 "$T/seed-j7-none.log" 2>&1)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: none exit $rc ($out)"
+[ "$out" = "J7 skip: no seeded notification target" ] \
+  || fail "$case_name: a missing line resolved to '$out', wanted the skip line"
 pass "$case_name"
 
 # --- 10-13: J13's undrawable-file leg is walked, and only J13 gets a bridge ----
