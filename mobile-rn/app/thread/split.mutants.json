@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the conversation route ignores the wide window and never draws the list beside it, so rotating onto an iPad loses the list (R-rn-tablet-split)",
+    "file": "mobile-rn/app/thread/[id].tsx",
+    "old": "  const split = splitFor(width).mode === \"split\";\n",
+    "new": "  const split = false;\n",
+    "test": "cd mobile-rn && npx jest app/thread/split.test.tsx -t \"KIN-MOBILE-001: rotating 390 to 820 keeps the task id and draws the list beside it\""
+  }
+]

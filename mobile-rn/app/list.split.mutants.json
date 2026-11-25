@@ -1,0 +1,16 @@
+[
+  {
+    "label": "a row tap at 820 pushes a stack screen instead of rewriting the URL's task id, so the right pane never follows (R-rn-tablet-split)",
+    "file": "mobile-rn/app/list.tsx",
+    "old": "      if (layout.mode === \"split\") {\n",
+    "new": "      if (layout.mode === \"stack\") {\n",
+    "test": "cd mobile-rn && npx jest app/list.split.test.tsx -t \"KIN-MOBILE-001: at 820 a row tap shows that conversation beside the list and the URL carries the task id\""
+  },
+  {
+    "label": "a selection kept while the window is a phone is cleared but not opened, so shrinking 820 to 390 loses the conversation (R-rn-tablet-split)",
+    "file": "mobile-rn/app/list.tsx",
+    "old": "    router.setParams({ thread: undefined });\n    router.push(`/thread/${encodeURIComponent(selected)}`);\n",
+    "new": "    router.setParams({ thread: undefined });\n",
+    "test": "cd mobile-rn && npx jest app/list.split.test.tsx -t \"KIN-MOBILE-001: shrinking 820 to 390 keeps the task id on the stack route over the list\""
+  }
+]
