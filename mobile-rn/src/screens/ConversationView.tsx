@@ -53,6 +53,7 @@ import {
   ApprovalsSection,
   type ApprovalsScreenProps,
 } from "./Approvals";
+import ConversationSkeleton from "./ConversationSkeleton";
 import ProviderUsageSheet from "./ProviderUsageSheet";
 
 /** The signed touch floor; every control on this screen meets it. */
@@ -540,7 +541,13 @@ export default function ConversationView({
   // virtualized cells, so a repaint of the transcript cannot unmount them.
   const listHeader = (
     <>
-      {state.status === "loading" ? (
+      {state.status === "loading" && state.turns.length === 0 ? (
+        // Nothing read yet: the message area's shape, not a lone caption.
+        <ConversationSkeleton t={t} />
+      ) : null}
+      {state.status === "loading" && state.turns.length > 0 ? (
+        // A refresh with turns already read keeps them and adds the hint only
+        // (TASTE 15).
         <Text style={styles.notice}>{t("common.loading")}</Text>
       ) : null}
       {state.status === "error" ? (

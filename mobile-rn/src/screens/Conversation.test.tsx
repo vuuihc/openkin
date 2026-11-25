@@ -377,9 +377,14 @@ describe("KIN-MOBILE-001 R4 conversation", () => {
     }) as unknown as typeof fetch;
     const screen = await renderConversation({ fetchImpl });
 
+    // The first load draws the message area's shape; its container speaks the
+    // one loading word (KIN-MOBILE-001 §3 slow state).
     await waitFor(() =>
-      expect(screen.getByText(t("common.loading"))).toBeTruthy(),
+      expect(screen.getByTestId("conversation-skeleton")).toBeTruthy(),
     );
+    expect(
+      screen.getByTestId("conversation-skeleton").props.accessibilityLabel,
+    ).toBe(t("common.loading"));
     expect(pending).toHaveLength(2);
 
     await act(async () => {
@@ -388,6 +393,7 @@ describe("KIN-MOBILE-001 R4 conversation", () => {
     });
 
     await waitFor(() => expect(screen.getByText("all green")).toBeTruthy());
+    expect(screen.queryByTestId("conversation-skeleton")).toBeNull();
     expect(screen.queryByText(t("common.loading"))).toBeNull();
   });
 
