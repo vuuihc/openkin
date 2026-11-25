@@ -108,7 +108,7 @@ describe("KIN-MOBILE-001 R4 keyboard and safe areas", () => {
     expect(style.paddingBottom).toBe(42);
   });
 
-  it("KIN-MOBILE-001 R4: a zero-inset device renders the old 48/24 shape", async () => {
+  it("KIN-MOBILE-001 R4: a zero-inset device keeps the compact 12/24 shape", async () => {
     const screen = await render(withInsets(0, 0));
 
     const header = screen.getByTestId("conversation:header");
