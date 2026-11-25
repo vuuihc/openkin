@@ -8,6 +8,7 @@ import ConversationList, {
   ROW_MIN_HEIGHT,
   rowsOnScreen,
 } from "./ConversationList";
+import { t as realT } from "../i18n";
 import type {
   ConversationRow,
   DeviceGroup,
@@ -78,7 +79,9 @@ async function renderList(
   return render(
     <ConversationList
       onOpen={() => {}}
+      onQueryChange={() => {}}
       onRefresh={() => {}}
+      query=""
       state={state(overrides)}
       t={t}
       {...props}
@@ -287,4 +290,53 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     );
     expect(rowsOnScreen(1180)).toBeGreaterThanOrEqual(10);
   });
+
+  it("KIN-MOBILE-001 R3: the search field speaks the catalogue placeholder and reports what is typed", async () => {
+    const onQueryChange = jest.fn();
+    const screen = await renderList({}, { onQueryChange });
+    const field = screen.getByTestId("list-search");
+
+    // One catalogue word for the hint and the spoken name: a second string
+    // would be a second chance to say something else.
+    expect(field.props.accessibilityLabel).toBe("sessions.searchPlaceholder");
+    expect(field.props.placeholder).toBe("sessions.searchPlaceholder");
+
+    await fireEvent.changeText(field, "alpha");
+    expect(onQueryChange).toHaveBeenCalledWith("alpha");
+  });
+
+  it("KIN-MOBILE-001 R3: the search field and its clear button are each a 44pt target", async () => {
+    const screen = await renderList({}, { query: "alpha" });
+    const field = StyleSheet.flatten(
+      screen.getByTestId("list-search").props.style,
+    );
+    expect(Math.max(field.height ?? 0, field.minHeight ?? 0)).toBeGreaterThanOrEqual(44);
+
+    const clear = StyleSheet.flatten(
+      screen.getByTestId("list-search-clear").props.style,
+    );
+    expect(Math.max(clear.height ?? 0, clear.minHeight ?? 0)).toBeGreaterThanOrEqual(44);
+    expect(Math.max(clear.width ?? 0, clear.minWidth ?? 0)).toBeGreaterThanOrEqual(44);
+  });
+
+  it("KIN-MOBILE-001 R3: the clear button empties the query", async () => {
+    const onQueryChange = jest.fn();
+    const screen = await renderList({}, { query: "alpha", onQueryChange });
+    await fireEvent.press(screen.getByTestId("list-search-clear"));
+    expect(onQueryChange).toHaveBeenCalledWith("");
+  });
+
+  it("KIN-MOBILE-001 R3: a query with no match says so with the query substituted", async () => {
+    const screen = await renderList(
+      { status: "ready", groups: [] },
+      { query: "  zzz  ", t: realT },
+    );
+    // The shared catalogue carries the sentence on both locales; the screen
+    // passes the trimmed query as the parameter, never a second copy.
+    expect(
+      screen.getByText(realT("sessions.searchEmpty", { query: "zzz" })),
+    ).toBeTruthy();
+    expect(screen.queryByText(realT("sessions.empty"))).toBeNull();
+  });
+
 });
