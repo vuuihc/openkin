@@ -395,6 +395,10 @@ job_shell_test() {
   # A finished round survives one transient `git push` failure; a final failure leaves it
   # committed and marked delivered-unpushed instead of throwing the work away (R-lane-push-retry).
   bash rsi/runtime/tests/test-lane-push-retry.sh || return 1
+  # A worker that left its own process tree (setsid -> launchd, booted simulators)
+  # is still reaped: cleanup sweeps by worktree cwd and shuts down only the
+  # simulators this lane booted (2026-11-25 orphan-simulator incident).
+  bash rsi/runtime/tests/test-lane-orphan-reap.sh || return 1
   bash rsi/runtime/nas/tests/test-nas.sh || return 1
   bash rsi/runtime/nas/tests/test-install-preflight.sh || return 1
   bash rsi/runtime/ux/retry-test.sh || return 1
