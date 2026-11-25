@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { fireEvent, render } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
 import type { Approval, UserQuestion } from "@ui/api/contract";
@@ -7,7 +7,14 @@ import type {
   ApprovalsState,
   QuestionEntry,
 } from "../approvals/approvalsModel";
+import { focusNode } from "../a11y/focus";
 import Approvals, { type ApprovalsScreenProps } from "./Approvals";
+
+// The seam, not React Native: the screen only has to say where the reader
+// goes, and `focusNode` is the one function that talks to the platform.
+jest.mock("../a11y/focus", () => ({ focusNode: jest.fn(() => true) }));
+
+const focusMock = jest.mocked(focusNode);
 
 /**
  * KIN-MOBILE-001 R5b — the approvals and questions screen.
@@ -132,7 +139,22 @@ function liveRegions(node: unknown, politeness = "polite"): number {
   );
 }
 
+/** The props of the node the last recorded focus call landed on. */
+function focusedNodeProps(): Record<string, unknown> | undefined {
+  const calls = focusMock.mock.calls;
+  const call = calls[calls.length - 1];
+  const ref = call?.[0] as
+    | { current?: { props?: Record<string, unknown> } }
+    | null
+    | undefined;
+  return ref?.current?.props;
+}
+
 describe("KIN-MOBILE-001 R5 approvals and questions screen", () => {
+  beforeEach(() => {
+    focusMock.mockClear();
+  });
+
   it("KIN-MOBILE-001 R5: approving a card enters a waiting state, then keeps a handled row and drops the badge by one", async () => {
     const onApprove = jest.fn();
     const seen: Translation[] = [];
@@ -378,5 +400,154 @@ describe("KIN-MOBILE-001 R5 approvals and questions screen", () => {
     expect(failed.getByText("pairing.retry")).toBeTruthy();
     await fireEvent.press(failed.getByTestId("refresh"));
     expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("KIN-MOBILE-001 R5: approving moves the reader to the settled result row", async () => {
+    const first = approvalEntry("a1");
+    const screen = await render(view({ items: [first], pendingCount: 1 }));
+
+    // In flight: the pressed control stays mounted, so the reader stays on it.
+    const submitting: ApprovalEntry = { ...first, phase: "submitting" };
+    await screen.rerender(view({ items: [submitting], pendingCount: 1 }));
+    expect(focusMock).not.toHaveBeenCalled();
+
+    const resolved: ApprovalEntry = {
+      ...first,
+      approval: { ...approval("a1"), decision: "approved" },
+      phase: "resolved",
+      pending: false,
+      resolution: { kind: "approval", decision: "approved" },
+    };
+    await screen.rerender(view({ items: [resolved], pendingCount: 0 }));
+
+    expect(focusMock).toHaveBeenCalledTimes(1);
+    const node = focusedNodeProps();
+    expect(node?.testID).toBe("result:approval:a1");
+    expect(node?.accessible).toBe(true);
+    expect(node?.accessibilityRole).toBe("text");
+    // The reader hears the decision and the tool it applies to.
+    expect(node?.accessibilityLabel).toBe("approval.approvedTitle · Bash");
+  });
+
+  it("KIN-MOBILE-001 R5: answering a question moves the reader to the result row the chosen option left", async () => {
+    const pending = questionEntry("q1");
+    const screen = await render(view({ items: [pending], pendingCount: 1 }));
+
+    await fireEvent.press(screen.getByTestId("option:q1:0"));
+    await fireEvent.press(screen.getByTestId("submit:q1"));
+
+    const submitting: QuestionEntry = { ...pending, phase: "submitting" };
+    await screen.rerender(view({ items: [submitting], pendingCount: 1 }));
+    expect(focusMock).not.toHaveBeenCalled();
+
+    const resolved: QuestionEntry = {
+      ...pending,
+      phase: "resolved",
+      pending: false,
+      resolution: { kind: "question", text: "Yes" },
+    };
+    await screen.rerender(view({ items: [resolved], pendingCount: 0 }));
+
+    // The pressed option unmounted; focus lands on what replaced it.
+    expect(screen.queryByTestId("option:q1:0")).toBeNull();
+    expect(focusMock).toHaveBeenCalledTimes(1);
+    const node = focusedNodeProps();
+    expect(node?.testID).toBe("result:question:q1");
+    expect(node?.accessible).toBe(true);
+    expect(node?.accessibilityRole).toBe("text");
+    expect(String(node?.accessibilityLabel)).toContain("Proceed?");
+    expect(String(node?.accessibilityLabel)).toContain("Yes");
+  });
+
+  it("KIN-MOBILE-001 R5: a failed decision hands the reader to the reason and its retry", async () => {
+    const onRetry = jest.fn();
+    const first = approvalEntry("a1");
+    const screen = await render(
+      view({ items: [first], pendingCount: 1 }, { onRetry }),
+    );
+
+    const submitting: ApprovalEntry = { ...first, phase: "submitting" };
+    await screen.rerender(
+      view({ items: [submitting], pendingCount: 1 }, { onRetry }),
+    );
+    expect(focusMock).not.toHaveBeenCalled();
+
+    const failed: ApprovalEntry = {
+      ...first,
+      phase: "idle",
+      failure: { reason: "unreachable", status: null },
+    };
+    await screen.rerender(
+      view({ items: [failed], pendingCount: 1 }, { onRetry }),
+    );
+
+    expect(focusMock).toHaveBeenCalledTimes(1);
+    const node = focusedNodeProps();
+    expect(node?.testID).toBe("failure:a1");
+    expect(node?.accessible).toBe(true);
+    expect(node?.accessibilityRole).toBe("alert");
+    // The retry is the next control after the reason being read.
+    expect(screen.getByTestId("retry:a1")).toBeTruthy();
+
+    // A retry that settles follows the resolved rule: the result row takes over.
+    const retrying: ApprovalEntry = { ...first, phase: "submitting" };
+    await screen.rerender(
+      view({ items: [retrying], pendingCount: 1 }, { onRetry }),
+    );
+    const resolved: ApprovalEntry = {
+      ...first,
+      approval: { ...approval("a1"), decision: "approved" },
+      phase: "resolved",
+      pending: false,
+      resolution: { kind: "approval", decision: "approved" },
+    };
+    await screen.rerender(
+      view({ items: [resolved], pendingCount: 0 }, { onRetry }),
+    );
+    expect(focusMock).toHaveBeenCalledTimes(2);
+    expect(focusedNodeProps()?.testID).toBe("result:approval:a1");
+  });
+
+  it("KIN-MOBILE-001 R5: a card that was already handled when it arrived takes no focus", async () => {
+    const resolved = approvalEntry("a1", {
+      approval: { ...approval("a1"), decision: "approved" },
+      phase: "resolved",
+      pending: false,
+      resolution: { kind: "approval", decision: "approved" },
+    });
+    const failed = questionEntry("q1", {
+      failure: { reason: "rejected", status: 409 },
+    });
+    const screen = await render(
+      view({ items: [resolved, failed], pendingCount: 1 }),
+    );
+
+    // A reload mounts the settled rows; the list that asked owns that answer.
+    expect(focusMock).not.toHaveBeenCalled();
+
+    await screen.rerender(view({ items: [resolved, failed], pendingCount: 1 }));
+    expect(focusMock).not.toHaveBeenCalled();
+  });
+
+  it("KIN-MOBILE-001 R5: a submit in flight and an offline submit move no focus", async () => {
+    const first = approvalEntry("a1");
+    const screen = await render(view({ items: [first], pendingCount: 1 }));
+
+    const submitting: ApprovalEntry = { ...first, phase: "submitting" };
+    await screen.rerender(view({ items: [submitting], pendingCount: 1 }));
+    expect(focusMock).not.toHaveBeenCalled();
+
+    // Offline: the controls are disabled, so a press cannot start a submit.
+    const offline = approvalEntry("a2", {
+      approval: approval("a2", 2),
+      createdAt: 2,
+    });
+    await screen.rerender(
+      view({ items: [offline], pendingCount: 1, online: false }),
+    );
+    const approve = screen.getByTestId("approve:a2");
+    expect(approve.props.accessibilityState?.disabled).toBe(true);
+    await fireEvent.press(approve);
+    expect(focusMock).not.toHaveBeenCalled();
   });
 });

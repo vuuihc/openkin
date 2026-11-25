@@ -12,7 +12,17 @@ import { describe, expect, it } from "@jest/globals";
  */
 
 const CHECK_SH = path.resolve(__dirname, "../../../scripts/check.sh");
+const PACKAGE_JSON = path.resolve(__dirname, "../../package.json");
 const START_LINE = /^\s*start mobile-rn job_mobile_rn\s*$/;
+
+/**
+ * Jest's own per-test default is 5 000 ms. The merge gate runs this suite in
+ * parallel with the gate's other jobs on one Mac, and the same tree passes
+ * alone, so a 5 s ceiling turns machine load into a sendback for a defect that
+ * is not there. The manifest sets 20 s — still far below the gate's budget, so
+ * a real hang fails — and this floor only rejects a return to the default.
+ */
+const MIN_GATE_TEST_TIMEOUT_MS = 15_000;
 
 /** The `job_mobile_rn() { ... }` body, by brace balance, or null when absent. */
 function jobBody(source: string, name: string): string | null {
@@ -83,5 +93,19 @@ describe("KIN-MOBILE-001 R1 gate wiring", () => {
         /^if \[\[ "\$\(cat "\$stamp" 2>\/dev\/null\)" != "\$want" \]\]; then$/,
       );
     }
+  });
+
+  it("KIN-MOBILE-001 R1: the gate gives a loaded run more than jest's 5 s default", () => {
+    // The job's second command is a bare `npx jest --ci`, so the manifest is
+    // the only place the ceiling lives. Read it from disk: a jest key in a
+    // different package.json would not reach this suite.
+    const manifest = JSON.parse(fs.readFileSync(PACKAGE_JSON, "utf8")) as {
+      jest?: { preset?: string; testTimeout?: unknown };
+    };
+    expect(manifest.jest?.preset).toBe("jest-expo");
+    expect(typeof manifest.jest?.testTimeout).toBe("number");
+    expect(manifest.jest?.testTimeout as number).toBeGreaterThanOrEqual(
+      MIN_GATE_TEST_TIMEOUT_MS,
+    );
   });
 });
