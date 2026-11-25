@@ -36,6 +36,7 @@ import type {
   ToolStep,
   Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
+import { canRetry } from "../native/reconnect";
 import type {
   ProvidersView,
   UsageWindowDays,
@@ -71,6 +72,11 @@ export type ConversationViewProps = {
   onBack: () => void;
   /** The failed read's retry; absent when there is nothing to retry. */
   onRetry?: () => void;
+  /**
+   * Reopen the live stream after it gave up (KIN-MOBILE-001 R7). Offered as
+   * one press beside the offline banner; absent when there is no thread.
+   */
+  onReconnect?: () => void;
   /**
    * This task's pending approvals and questions, already scoped by the
    * container; absent when there is no session to read them with.
@@ -453,6 +459,7 @@ export default function ConversationView({
   t,
   onBack,
   onRetry,
+  onReconnect,
   approvals,
   onSend,
   onStop,
@@ -555,9 +562,24 @@ export default function ConversationView({
       ) : state.banner === "offline" ? (
         // A refresh that failed with the turns already read keeps them and
         // says why above them; the error block above owns the empty case.
-        <Text accessibilityRole="alert" style={styles.notice}>
-          {t("pairing.unreachable")}
-        </Text>
+        // R7: the dead stream offers exactly one manual retry beside the
+        // sentence, so the reader never has to leave the conversation to get
+        // live updates back.
+        <View style={styles.failed}>
+          <Text accessibilityRole="alert" style={styles.notice}>
+            {t("pairing.unreachable")}
+          </Text>
+          {onReconnect && canRetry(state) ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={onReconnect}
+              style={styles.retry}
+              testID="conversation:reconnect"
+            >
+              <Text style={styles.retryText}>{t("pairing.retry")}</Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
       {showApprovals && approvals ? (
         // Above the turns: this is what the next turn is waiting on. The

@@ -19,5 +19,26 @@
     "old": "        status: empty ? \"empty\" : \"ready\",\n",
     "new": "        status: pending ? (empty ? \"empty\" : \"ready\") : \"failed\",\n",
     "test": "cd mobile-rn && npx jest src/list/listModel.test.ts -t \"KIN-MOBILE-001 R5: a failed pending read keeps the last counts and does not fail the list\""
+  },
+  {
+    "label": "isCurrent accepts every generation, so a replaced mount's late answer writes the page (R-rn-list-restore)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "    isCurrent: (mine) => mine === generation,",
+    "new": "    isCurrent: () => true,",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a replaced mount's late answer cannot write the page while it is still mounted\""
+  },
+  {
+    "label": "the controller ignores the restored page and starts on loading, so a fold wipes the rows (R-rn-list-restore)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "  const initial = options.initialState;\n  let state: ListViewState =\n    initial && (initial.status === \"ready\" || initial.status === \"empty\")\n      ? initial\n      : { status: \"loading\", groups: [], error: null };",
+    "new": "  let state: ListViewState = { status: \"loading\", groups: [], error: null };",
+    "test": "cd mobile-rn && npx jest src/list/listModel.test.ts -t \"KIN-MOBILE-001 R3: a controller handed a restored page keeps its rows when a project folds\""
+  },
+  {
+    "label": "a stored failure is restored as the page instead of being re-read (R-rn-list-restore)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "    initial && (initial.status === \"ready\" || initial.status === \"empty\")\n      ? initial",
+    "new": "    initial\n      ? initial",
+    "test": "cd mobile-rn && npx jest src/list/listModel.test.ts -t \"KIN-MOBILE-001 R3: a stored failure is not a page and the mount reads again\""
   }
 ]

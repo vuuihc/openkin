@@ -721,6 +721,24 @@ cleanup() {
   for kid in $(pgrep -P $$ 2>/dev/null || true); do
     rsi_kill_tree "$kid"
   done
+  # The pgid and parent-pid walks miss a child that left the worker's tree
+  # (setsid -> reparented to launchd, e.g. `expo start`): sweep anything still
+  # holding a working directory under the lane worktree. WT is set after this
+  # trap is armed, so guard for the early-exit path. Failures print "no verdict"
+  # inside rsi_reap_cwd and never turn cleanup red.
+  if [ -n "${WT:-}" ]; then rsi_reap_cwd "$WT" || true; fi
+  # Simulators a worker booted are launchd-owned, never our children either.
+  # Shut down only the ones that were not booted when this lane launched — and
+  # only when no other live lane could still be using them.
+  if [ -f "$STATE/lanes/$N.sims-before" ]; then
+    other_live="$(rsi_other_live_lane "$LK")"
+    if [ -n "$other_live" ]; then
+      echo "left new simulators booted: lane ${other_live%.lock} is live" >&2
+    else
+      rsi_sim_shutdown_new "$STATE/lanes/$N.sims-before" || true
+    fi
+    rm -f "$STATE/lanes/$N.sims-before"
+  fi
   [ $FINISHED -eq 0 ] && python3 "$LANES_PY" finish "$N" --status crashed --note "lane.sh exited early"
   rm -rf "$LK"
 }
@@ -776,6 +794,12 @@ HDR="$STATE/lanes/$N.worker-brief.md"
 write_worker_brief > "$HDR"
 
 export BUDGET_GUARD="$LANE_BUDGET_USD" DISPATCH_MAX_SECS="$LANE_WORKER_SECS"
+# Snapshot booted simulators before the worker can boot its own: cleanup shuts
+# down only the difference, so a simulator that was already up stays up. The
+# marker records a query that succeeded; without it cleanup leaves every
+# simulator alone rather than reading a failed snapshot as "nothing was up".
+rsi_sim_booted > "$STATE/lanes/$N.sims-before" \
+  && echo '#complete' >> "$STATE/lanes/$N.sims-before"
 W_START=$(date +%s)
 # Run the worker in its own process group so timeout/exit can reap vitest/go/node/agy.
 python3 -c 'import os,sys; os.setpgrp(); os.execvp(sys.argv[1], sys.argv[1:])' \
