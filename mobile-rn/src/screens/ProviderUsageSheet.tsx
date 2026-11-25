@@ -68,6 +68,14 @@ export default function ProviderUsageSheet({
   // animating a card that no longer exists (AGENTS.md §11).
   useEffect(() => () => translateY.stopAnimation(), [translateY]);
 
+  // The sheet stays mounted while hidden, so a drag that ended in a close (or
+  // that was interrupted by another close path) can leave the card displaced.
+  // Reset at open, not at close: resetting inside `onClose()` would snap the
+  // card back up while the modal is still sliding out.
+  useEffect(() => {
+    if (visible) translateY.setValue(0);
+  }, [visible, translateY]);
+
   function handleGrant(event: GestureResponderEvent) {
     startPageY.current = event.nativeEvent.pageY;
   }
@@ -88,8 +96,6 @@ export default function ProviderUsageSheet({
       // The same close callback as the button and the scrim: one close path,
       // one place for the container to abandon its in-flight read.
       onClose();
-      // The sheet is going away; the next open must start at rest.
-      translateY.setValue(0);
       return;
     }
     // A tap or a short drag: spring back and leave the sheet open.

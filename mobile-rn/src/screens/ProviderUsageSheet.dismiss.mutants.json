@@ -16,9 +16,23 @@
   {
     "label": "the release handler drops its close call, so a pull-down never dismisses (R-rn-sheet-dismiss)",
     "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
-    "old": "      onClose();\n      // The sheet is going away; the next open must start at rest.\n",
-    "new": "      // The sheet is going away; the next open must start at rest.\n",
+    "old": "      onClose();\n      return;",
+    "new": "      return;",
     "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: dragging the sheet handle down past the threshold closes it once\""
+  },
+  {
+    "label": "the move handler ignores the finger and leaves the card at rest (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "    translateY.setValue(dragOffset(start, event.nativeEvent.pageY));",
+    "new": "    translateY.setValue(0);",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: the card follows the finger while the drag is under way\""
+  },
+  {
+    "label": "a reopen keeps the previous drag offset, so the hidden sheet comes back displaced (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "    if (visible) translateY.setValue(0);",
+    "new": "    if (visible) translateY.stopAnimation();",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: reopening the sheet starts the card at rest\""
   },
   {
     "label": "a cancelled gesture keeps its start point, so the next release dismisses a sheet already back at rest (R-rn-sheet-dismiss)",

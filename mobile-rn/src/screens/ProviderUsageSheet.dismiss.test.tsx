@@ -78,6 +78,17 @@ async function renderSheet() {
   return { screen, onClose };
 }
 
+/** The card's current downward travel, read off its rendered transform. */
+function cardTranslateY(
+  screen: Awaited<ReturnType<typeof renderSheet>>["screen"],
+): number {
+  const card = screen.getByTestId("usage-card");
+  const style = StyleSheet.flatten(card.props.style) as {
+    transform?: { translateY: number }[];
+  };
+  return style.transform?.[0]?.translateY ?? Number.NaN;
+}
+
 /** One finger travel: grant at `from`, move to `to`, release at `to`. */
 async function drag(
   screen: Awaited<ReturnType<typeof renderSheet>>["screen"],
@@ -106,6 +117,44 @@ describe("KIN-MOBILE-001 R6 provider/usage sheet pull-down", () => {
     await drag(screen, 300, 300 + SHEET_DISMISS_DISTANCE - 24);
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByTestId("usage-card")).toBeTruthy();
+  });
+
+  it("KIN-MOBILE-001 R6: the card follows the finger while the drag is under way", async () => {
+    const { screen } = await renderSheet();
+    const handle = screen.getByTestId("usage-drag-handle", {
+      includeHiddenElements: true,
+    });
+    // Before the release there is no spring and no dismissal yet: the card
+    // must sit exactly where the finger has pulled it.
+    await fireEvent(handle, "responderGrant", { nativeEvent: { pageY: 300 } });
+    await fireEvent(handle, "responderMove", { nativeEvent: { pageY: 420 } });
+    expect(cardTranslateY(screen)).toBe(120);
+  });
+
+  it("KIN-MOBILE-001 R6: reopening the sheet starts the card at rest", async () => {
+    const onClose = jest.fn();
+    const sheet = (visible: boolean) => (
+      <ProviderUsageSheet
+        onClose={onClose}
+        onRefresh={jest.fn()}
+        onSelectWindow={jest.fn()}
+        state={VIEW}
+        t={t}
+        visible={visible}
+      />
+    );
+    const screen = await render(sheet(true));
+    const handle = screen.getByTestId("usage-drag-handle", {
+      includeHiddenElements: true,
+    });
+    // A drag still under way when another close path (hardware back, a second
+    // finger on the scrim) hides the sheet: the card is left displaced.
+    await fireEvent(handle, "responderGrant", { nativeEvent: { pageY: 300 } });
+    await fireEvent(handle, "responderMove", { nativeEvent: { pageY: 420 } });
+    expect(cardTranslateY(screen)).toBe(120);
+    await screen.rerender(sheet(false));
+    await screen.rerender(sheet(true));
+    expect(cardTranslateY(screen)).toBe(0);
   });
 
   it("KIN-MOBILE-001 R6: an upward drag on the handle never closes the sheet", async () => {
