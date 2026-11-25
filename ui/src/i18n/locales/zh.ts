@@ -1111,7 +1111,7 @@ const zh = {
     openPhone: "打开用量详情",
     hideDetails: "收起详情",
     cacheReported: "已获取缓存用量",
-    cacheUnknown: "此任务未返回缓存用量",
+    cacheUnknown: "此对话未返回缓存用量",
     cacheUnsupported: "当前连接方式不支持缓存统计",
     cacheUnknownShort: "缓存数据不可用",
     cacheUnsupportedShort: "不支持缓存统计",
