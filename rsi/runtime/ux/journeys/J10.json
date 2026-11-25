@@ -113,6 +113,19 @@
     ],
     [
       "click",
+      "?/Search chats|搜索对话/"
+    ],
+    [
+      "fill",
+      "?input[type=search]",
+      "deploy"
+    ],
+    [
+      "wait",
+      "css=[data-session-row=\"{conversation}\"]"
+    ],
+    [
+      "click",
       "[data-session-row=\"{conversation}\"]"
     ],
     [
