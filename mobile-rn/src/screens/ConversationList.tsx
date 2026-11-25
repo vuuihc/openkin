@@ -29,6 +29,12 @@ export const ROW_MIN_HEIGHT = 44;
 /** Two lines (title + metadata) with room to breathe. */
 export const ROW_HEIGHT = 56;
 
+/**
+ * The paint a row or a project heading takes while a finger holds it. The
+ * held state is Pressable's own; this is the one colour both surfaces share.
+ */
+export const PRESSED_BG = "#ececec";
+
 /** The list header band, and the bottom tab bar the list sits above. */
 export const LIST_HEADER_HEIGHT = 56;
 export const BOTTOM_TAB_INSET = 64;
@@ -119,6 +125,27 @@ function ResumeBand({
   );
 }
 
+/**
+ * The list's shape before its first answer: one device heading bar and three
+ * row bars. The bars are decorative and are neither rows nor accessible stops;
+ * the one spoken word is the container's label (KIN-MOBILE-001 §2 慢 and
+ * 键盘与焦点: every real row is one stop, a bar is none).
+ */
+function ListSkeleton({ t }: { t: ConversationListProps["t"] }) {
+  return (
+    <View
+      accessible
+      accessibilityLabel={t("sessions.loading")}
+      testID="list-skeleton"
+    >
+      <View style={styles.skeletonHeading} testID="list-skeleton-heading" />
+      {[0, 1, 2].map((bar) => (
+        <View key={bar} style={styles.skeletonRow} testID="list-skeleton-row" />
+      ))}
+    </View>
+  );
+}
+
 /** The catalogue sentence for a failed read, by transport reason. */
 function errorKey(state: ListViewState): string {
   switch (state.error) {
@@ -162,6 +189,9 @@ export default function ConversationList({
   // read would show a bare heading instead of the empty/offline words.
   const hasRows = state.groups.some((device) => device.count > 0);
   const sections = hasRows ? sectionsOf(state.groups) : [];
+  // Nothing to show yet: no answer has landed and there is no cached page.
+  // A page being refreshed keeps its rows and draws no skeleton (TASTE 15).
+  const firstLoad = state.status === "loading" && !hasRows;
   // A query is view state over the page the container already filtered; the
   // project headings it opened are not the reader's folds, so toggling them
   // during a search would write a fold nobody can see.
@@ -210,7 +240,10 @@ export default function ConversationList({
               }}
               disabled={searching}
               onPress={() => onToggleProject?.(item.deviceId, item.project.key)}
-              style={styles.project}
+              style={({ pressed }) => [
+                styles.project,
+                pressed && styles.projectPressed,
+              ]}
               testID={`project:${item.project.key}`}
             >
               <Text style={styles.projectLabel}>
@@ -240,7 +273,7 @@ export default function ConversationList({
               .join(" · ")}
             accessibilityRole="button"
             onPress={() => onOpen(row.id)}
-            style={styles.row}
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
             testID={`row:${row.id}`}
           >
             <Text numberOfLines={1} style={styles.title}>
@@ -311,13 +344,13 @@ export default function ConversationList({
               </Pressable>
             </View>
           ) : null}
+          {/* The first frame is the list's own shape, under its header. */}
+          {firstLoad ? <ListSkeleton t={t} /> : null}
         </View>
       }
-      ListEmptyComponent={
+      ListEmptyComponent={firstLoad ? undefined : (
         <View style={styles.empty}>
-          {state.status === "loading" ? (
-            <Text style={styles.emptyTitle}>{t("sessions.loading")}</Text>
-          ) : state.status === "empty" ? (
+          {state.status === "empty" ? (
             <>
               <Text style={styles.emptyTitle}>{t("sessions.empty")}</Text>
               <Text style={styles.emptyHint}>{t("sessions.emptyHint")}</Text>
@@ -368,7 +401,7 @@ export default function ConversationList({
             </Text>
           ) : null}
         </View>
-      }
+      )}
       onRefresh={onRefresh}
       refreshing={state.status === "loading"}
       stickySectionHeadersEnabled={false}
@@ -451,6 +484,9 @@ const styles = StyleSheet.create({
     minHeight: ROW_MIN_HEIGHT,
     paddingHorizontal: 16,
   },
+  projectPressed: {
+    backgroundColor: PRESSED_BG,
+  },
   projectLabel: {
     color: "#1d1d1d",
     fontSize: 15,
@@ -529,6 +565,27 @@ const styles = StyleSheet.create({
     minHeight: ROW_MIN_HEIGHT,
     paddingHorizontal: 16,
     paddingVertical: 8,
+  },
+  rowPressed: {
+    backgroundColor: PRESSED_BG,
+  },
+  skeletonHeading: {
+    backgroundColor: "#dcdcdc",
+    borderRadius: 4,
+    height: 12,
+    marginHorizontal: 16,
+    // The device heading's own band, so the shape holds its rhythm.
+    marginVertical: (ROW_MIN_HEIGHT - 12) / 2,
+    width: 96,
+  },
+  skeletonRow: {
+    backgroundColor: "#ececec",
+    borderRadius: 4,
+    height: 14,
+    marginHorizontal: 16,
+    // Centred in the signed row height the real rows will take.
+    marginVertical: (ROW_HEIGHT - 14) / 2,
+    width: "62%",
   },
   title: {
     color: "#1d1d1d",
