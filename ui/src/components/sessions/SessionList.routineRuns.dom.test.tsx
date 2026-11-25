@@ -123,10 +123,10 @@ describe("routine runs in the conversation list", () => {
 
     const run = screen.getByRole("button", { name: /Morning brief/ });
     expect(run.textContent).toContain("Routine");
-    // The marker is part of the row's sentence, not a decoration a screen
-    // reader skips: the name says this row is a run, and what state it is in.
+    // The marker is the row's one status slot now, not a separate chip: the
+    // name says this row is a run, and that is the status it reports.
     expect(run.getAttribute("aria-label")).toContain("Routine");
-    expect(run.getAttribute("aria-label")).toContain("completed");
+    expect(run.getAttribute("aria-label")).not.toContain("Done");
 
     const chat = screen.getByRole("button", { name: /Afternoon chat/ });
     expect(chat.textContent).not.toContain("Routine");

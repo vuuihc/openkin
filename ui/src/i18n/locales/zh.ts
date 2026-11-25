@@ -121,6 +121,7 @@ const zh = {
     statusWaitingApproval: "待审批",
     statusWaitingInput: "待输入",
     pendingApprovals: "{count} 项待你处理",
+    statusPendingCount: "待批准 {count}",
     imported: "导入的会话（{count}）",
     importedLabel: "导入的会话",
     statusSucceeded: "已完成",
