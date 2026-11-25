@@ -111,6 +111,7 @@ describe("conversation vocabulary", () => {
     ["nav.newSessionIn", zh.nav.newSessionIn, en.nav.newSessionIn],
     ["task.notFound", zh.task.notFound, en.task.notFound],
     ["usage.taskSummary", zh.usage.taskSummary, en.usage.taskSummary],
+    ["usage.cacheUnknown", zh.usage.cacheUnknown, en.usage.cacheUnknown],
     ["usage.tasks", zh.usage.tasks, en.usage.tasks],
     ["usage.taskCount", zh.usage.taskCount, en.usage.taskCount],
     ["agents.tasksCount", zh.agents.tasksCount, en.agents.tasksCount],
