@@ -26,6 +26,8 @@ function state(
 ): ThreadState {
   return {
     taskId: TASK_ID,
+    // Required on main since the header names the conversation (#747).
+    title: "A conversation",
     status: "ready",
     turns,
     running: false,
