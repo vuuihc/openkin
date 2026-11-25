@@ -11,7 +11,12 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  AppState,
+  StyleSheet,
+  View,
+} from "react-native";
 import {
   createApprovals,
   entriesForTask,
@@ -21,11 +26,18 @@ import {
 import { readSession, secureStoreBackend, type Session } from "../auth/tokenStore";
 import { t } from "../i18n";
 import {
+  asAppStateStatus,
+  shouldResume,
+  type AppStateLike,
+  type AppStateStatus,
+} from "../native/reconnect";
+import {
   createProvidersModel,
   type ProvidersModel,
   type ProvidersView,
   type UsageWindowDays,
 } from "../providers/providersModel";
+import type { StreamSource } from "../thread/stream";
 import {
   createThread,
   type Thread,
@@ -61,6 +73,17 @@ export type ConversationScreenProps = {
   readSessionImpl?: () => Promise<Session | null>;
   /** Tests inject a recording fetch. */
   fetchImpl?: typeof fetch;
+  /**
+   * Tests inject the event source. Production lets the thread build the
+   * fetch reader, exactly as the web console's EventSource would.
+   */
+  source?: StreamSource;
+  /**
+   * Tests inject the platform app-state emitter. Production uses React
+   * Native's `AppState`; a foreground return reopens a dead stream
+   * (KIN-MOBILE-001 R7).
+   */
+  appState?: AppStateLike;
 };
 
 export default function ConversationScreen({
@@ -68,6 +91,8 @@ export default function ConversationScreen({
   onBack,
   readSessionImpl,
   fetchImpl,
+  source,
+  appState,
 }: ConversationScreenProps) {
   const [state, setState] = useState<ThreadState | null>(null);
   // The node-wide pending lists, scoped to this conversation at render time
@@ -91,6 +116,10 @@ export default function ConversationScreen({
 
   useEffect(() => {
     let live = true;
+    // The platform's app-state emitter, or the test's. The subscription is
+    // created below, after the session answers, and removed by this run's
+    // cleanup (a return after the screen is gone must resume nothing).
+    let appStateSubscription: { remove(): void } | null = null;
     // Whatever this run reads, no card from the previous run may paint in the
     // meantime — and an expired session shows no old approval at all.
     setApprovals(null);
@@ -109,13 +138,41 @@ export default function ConversationScreen({
           token: session.token,
           taskId,
           fetchImpl,
+          source,
         });
         threadRef.current = thread;
         unsubscribeRef.current = thread.subscribe((next) => {
           if (live) setState(next);
         });
         setState(thread.getState());
-        void thread.load();
+        // R7: a return from the background reopens a stream that gave up,
+        // silently and from the last applied seq. The listener is in place
+        // before `start()` so no transition can be missed while the first
+        // read is in flight; `resume()` itself no-ops until the thread is
+        // ready and while the stream is healthy.
+        const appStatePort: AppStateLike = appState ?? {
+          // RN's generated type is `string | null` until the platform sets it;
+          // anything outside the status union reads as `unknown`.
+          get currentState() {
+            return asAppStateStatus(AppState.currentState);
+          },
+          addEventListener(_type, listener) {
+            const subscription = AppState.addEventListener("change", listener);
+            return { remove: () => subscription.remove() };
+          },
+        };
+        let previousAppState: AppStateStatus = appStatePort.currentState;
+        appStateSubscription = appStatePort.addEventListener(
+          "change",
+          (next) => {
+            if (shouldResume(previousAppState, next)) void thread.resume();
+            previousAppState = next;
+          },
+        );
+        // `start()` is the read *and* the subscription: `load()` alone leaves
+        // the screen with a snapshot that never learns a sent message, its
+        // reply, or the round's end (2026-11-25, the simulator walk).
+        void thread.start();
 
         // One approvals model beside the thread, from the same session: the
         // conversation shows the card its next turn is blocked on.
@@ -153,6 +210,8 @@ export default function ConversationScreen({
       });
     return () => {
       live = false;
+      appStateSubscription?.remove();
+      appStateSubscription = null;
       // Drop the listeners first, then dispose/close: each model bumps its own
       // generation, so a read still in flight cannot publish to anyone
       // (AGENTS.md §11). The approvals read is abandoned with the screen.
@@ -168,10 +227,17 @@ export default function ConversationScreen({
       threadRef.current?.close();
       threadRef.current = null;
     };
-  }, [taskId, readSessionImpl, fetchImpl]);
+  }, [taskId, readSessionImpl, fetchImpl, source, appState]);
 
   const retry = useCallback(() => {
-    void threadRef.current?.load();
+    // A retry after a failed read must also (re)open the subscription: a
+    // load-only retry would leave the recovered screen unable to update.
+    void threadRef.current?.start();
+  }, []);
+  // The offline banner's one manual retry: reopen the stream without the
+  // visible re-read `start()` does, keeping the transcript and the draft.
+  const reconnect = useCallback(() => {
+    void threadRef.current?.resume();
   }, []);
 
   // One read path for the list and for a failed card's retry: re-reading the
@@ -273,6 +339,7 @@ export default function ConversationScreen({
       // rather than a button that does nothing. The same rule draws no
       // composer: a box that cannot post is not a composer.
       onRetry={threadRef.current === null ? undefined : retry}
+      onReconnect={threadRef.current === null ? undefined : reconnect}
       onSend={threadRef.current === null ? undefined : send}
       onStop={threadRef.current === null ? undefined : stop}
       onWithdraw={threadRef.current === null ? undefined : withdraw}
