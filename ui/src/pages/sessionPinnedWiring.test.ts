@@ -26,10 +26,12 @@ describe("the pinned section's machine label", () => {
   });
 
   it("shows the answer on the row and reads it out", () => {
-    // The row's accessible name comes from `aria-label`, which overrides its
-    // content: a label that left the device out would tell a screen reader a
-    // different story from the one the chip shows.
+    // `pinnedRowDeviceName` answers only for a pinned remote row, so the slot
+    // is empty for every row under a device heading and nothing is repeated.
+    // A pinned row sits outside that heading, and its `aria-label` overrides
+    // the content: a label that left the machine out would tell a screen
+    // reader a different story from the one the row shows.
     expect(ROW).toContain("{deviceLabel}");
-    expect(ROW).toContain('row.remote ? deviceLabel || tr("machine.remote") : ""');
+    expect(ROW).toContain("const label = [row.title, agent, at, status, deviceLabel]");
   });
 });
