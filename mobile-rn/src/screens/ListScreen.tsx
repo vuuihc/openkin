@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, StyleSheet, View } from "react-native";
+import { AppState } from "react-native";
 import type { Machine } from "../../../ui/src/lib/devices";
 import { readSession, secureStoreBackend, type Session } from "../auth/tokenStore";
 import { t } from "../i18n";
@@ -284,6 +284,12 @@ export default function ListScreen({
 
   /** Every scroll updates the place Back will restore. */
   const rememberOffset = useCallback((offset: number) => {
+    // A negative offset is never a resting place: iOS's refresh control
+    // reports one at mount (`RCTPullToRefreshViewComponentView`), and a
+    // rubber-band bounce reports the same. The pre-session frame mounts a
+    // refreshing list, so writing it here would erase the offset a remount
+    // was about to restore (KIN-MOBILE-001 §2 离开再回来).
+    if (offset < 0) return;
     memoryRef.current.write({ offset });
   }, []);
 
@@ -309,10 +315,21 @@ export default function ListScreen({
   }, [focusEpoch, refresh]);
 
   if (state === null) {
+    // Before the session read answers there is no page and no controller, but
+    // the screen already knows the list's shape: the real frame holds the
+    // first paint (KIN-MOBILE-001 §2「慢：先出设备标题骨架」).
     return (
-      <View style={styles.container}>
-        <ActivityIndicator accessibilityLabel={t("common.loading")} />
-      </View>
+      <ConversationList
+        onOpen={open}
+        onQueryChange={changeQuery}
+        onRefresh={refresh}
+        onScrollOffset={rememberOffset}
+        onToggleProject={toggleProject}
+        query={query}
+        resume={band ? { status: band, onRetry: retryResume } : undefined}
+        state={{ status: "loading", groups: [], error: null }}
+        t={t}
+      />
     );
   }
 
@@ -335,11 +352,3 @@ export default function ListScreen({
     />
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
-  },
-});

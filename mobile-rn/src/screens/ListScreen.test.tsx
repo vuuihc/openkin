@@ -524,9 +524,15 @@ describe("KIN-MOBILE-001 R3 list route", () => {
     const onNeedsPairing = jest.fn();
     const screen = await renderList({ onNeedsPairing, readSessionImpl: noSession });
     await waitFor(() => expect(onNeedsPairing).toHaveBeenCalledTimes(1));
-    // Nothing pretends a list was read: no rows, no empty-list words.
-    expect(screen.queryByText(t("sessions.empty"))).toBeNull();
+    // Nothing pretends a list was read: the boot frame is the list's shape,
+    // with no rows and no empty-list or failure words. The loading sentence
+    // is the shape's spoken label, not a drawn line.
+    expect(screen.getByTestId("list-skeleton").props.accessibilityLabel).toBe(
+      t("sessions.loading"),
+    );
     expect(screen.queryByText(t("sessions.loading"))).toBeNull();
+    expect(screen.queryByText(t("sessions.empty"))).toBeNull();
+    expect(screen.queryByText(t("sessions.loadError"))).toBeNull();
     expect(screen.queryByTestId("row:task-1")).toBeNull();
   });
 
@@ -585,6 +591,43 @@ describe("KIN-MOBILE-001 R3 list route", () => {
     await screen.rerender(element);
     expect(screen.queryByText("First conversation")).toBeNull();
     expect(screen.getByText("▸ alpha")).toBeTruthy();
+  });
+});
+
+describe("KIN-MOBILE-001 §2 first frame", () => {
+  it("KIN-MOBILE-001 §2: the boot frame draws the list's shape before the first read answers", async () => {
+    // The stored-session read is the boot decision, so holding *it* open puts
+    // the screen in the pre-controller frame. (Holding the list read alone
+    // would let a loading ConversationList answer for the boot frame and the
+    // test would pass without the new branch.)
+    let releaseSession!: () => void;
+    const sessionGate = new Promise<Session | null>((resolve) => {
+      releaseSession = () => resolve({ origin: ORIGIN, token: TOKEN });
+    });
+    const readSessionImpl = jest.fn(() => sessionGate);
+
+    const screen = await renderList({ readSessionImpl });
+    // The list's own shape holds the frame: a device bar and three rows, not
+    // a lone centred wheel.
+    expect(screen.getByTestId("list-skeleton")).toBeTruthy();
+    expect(screen.getByTestId("list-skeleton-heading")).toBeTruthy();
+    expect(screen.getAllByTestId("list-skeleton-row")).toHaveLength(3);
+    // The wheel is gone, not merely hidden behind the shape: no spinner node
+    // and no element carrying the old spinner's label.
+    const spinners =
+      screen.root?.queryAll((node) =>
+        /activityindicator/i.test(node.type),
+      ) ?? [];
+    expect(spinners).toHaveLength(0);
+    expect(screen.queryByLabelText(t("common.loading"))).toBeNull();
+
+    releaseSession();
+    await waitFor(() =>
+      expect(screen.getByText("First conversation")).toBeTruthy(),
+    );
+    // The answer replaces the shape with the rows it describes.
+    expect(screen.queryByTestId("list-skeleton")).toBeNull();
+    expect(screen.getByTestId("row:task-1")).toBeTruthy();
   });
 });
 
@@ -669,7 +712,7 @@ describe("KIN-MOBILE-001 R3 list memory and restore", () => {
       // The stored page answers the first paint: the rows are there without
       // a skeleton and without a second read.
       expect(second.getByText("First conversation")).toBeTruthy();
-      expect(second.queryByText(t("sessions.loading"))).toBeNull();
+      expect(second.queryByTestId("list-skeleton")).toBeNull();
       expect(taskReads).toBe(1);
 
       // The restored offset reached the list.
@@ -694,6 +737,57 @@ describe("KIN-MOBILE-001 R3 list memory and restore", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it("KIN-MOBILE-001 R3: a negative scroll on the boot frame does not erase the offset a remount restores", async () => {
+    const fetchImpl = routedFetch((url) =>
+      url.endsWith(listTasksPath()) ? { body: [task()] } : { body: [] },
+    );
+    const memory = createListMemory();
+
+    // A page the reader left at 180, so the remount has somewhere to restore.
+    const first = await renderList({ fetchImpl, memory });
+    await waitFor(() =>
+      expect(first.getByText("First conversation")).toBeTruthy(),
+    );
+    memory.write({ offset: 180 });
+    await first.unmount();
+
+    // Hold the session read so the screen stays on its pre-session frame — the
+    // one that mounts a refreshing SectionList. iOS's refresh control calls
+    // setContentOffset(y - height) at mount, and the scroll view reports that
+    // as onScroll; a top-edge bounce reports the same. Neither is a resting
+    // place, and neither may replace the place Back restores.
+    let release: (session: Session | null) => void = () => {};
+    const heldSession = new Promise<Session | null>((resolve) => {
+      release = resolve;
+    });
+    const second = await renderList({
+      fetchImpl,
+      memory,
+      readSessionImpl: () => heldSession,
+    });
+    await fireEvent.scroll(second.getByTestId("list-scroller"), {
+      nativeEvent: {
+        contentOffset: { x: 0, y: -60 },
+        contentSize: { width: 390, height: 4000 },
+        layoutMeasurement: { width: 390, height: 800 },
+      },
+    });
+    expect(memory.read().offset).toBe(180);
+
+    await act(async () => {
+      release({ origin: ORIGIN, token: TOKEN });
+    });
+    await waitFor(() =>
+      expect(second.getByText("First conversation")).toBeTruthy(),
+    );
+    // The page and the reader's place both came back untouched.
+    expect(second.getByTestId("list-scroller").props.contentOffset).toEqual({
+      x: 0,
+      y: 180,
+    });
+    await second.unmount();
   });
 
   it("KIN-MOBILE-001 R3: folding a project on a restored page keeps the rows", async () => {
@@ -739,7 +833,7 @@ describe("KIN-MOBILE-001 R3 list memory and restore", () => {
     await fireEvent.press(second.getByTestId("project:/work/beta"));
     expect(second.getByText("Second conversation")).toBeTruthy();
     expect(second.getByText("First conversation")).toBeTruthy();
-    expect(second.queryByText(t("sessions.loading"))).toBeNull();
+    expect(second.queryByTestId("list-skeleton")).toBeNull();
   });
 
   it("KIN-MOBILE-001 R3: a failed refresh on a restored page keeps its rows and the stored page", async () => {
@@ -877,7 +971,7 @@ describe("KIN-MOBILE-001 R3 list memory and restore", () => {
     // the restored rows stay and no loading skeleton takes their place.
     expect(second.getByText("First conversation")).toBeTruthy();
     expect(second.getByText("Second conversation")).toBeTruthy();
-    expect(second.queryByText(t("sessions.loading"))).toBeNull();
+    expect(second.queryByTestId("list-skeleton")).toBeNull();
     expect(
       second.getByTestId("list-scroller").props.contentOffset,
     ).toEqual({ x: 0, y: 180 });
