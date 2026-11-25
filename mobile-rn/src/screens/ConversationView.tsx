@@ -26,6 +26,7 @@ import {
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  type ViewInstance,
 } from "react-native";
 import {
   SafeAreaInsetsContext,
@@ -36,6 +37,7 @@ import type {
   ToolStep,
   Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
+import { focusNode } from "../a11y/focus";
 import { canRetry } from "../native/reconnect";
 import type {
   ProvidersView,
@@ -491,6 +493,8 @@ export default function ConversationView({
   // on every scroll frame and must never repaint the transcript (AGENTS.md §11).
   const follow = useRef<FollowState>(initialFollow());
   const listRef = useRef<FlatList<Turn>>(null);
+  // The conversation's name: the node the reader is placed on at entry.
+  const titleRef = useRef<ViewInstance | null>(null);
   // The thread whose first layout was already scrolled to the end, and the last
   // content height seen, so "grew" is a comparison rather than a guess.
   const openedFor = useRef<string | null>(null);
@@ -501,6 +505,15 @@ export default function ConversationView({
     openedFor.current = null;
     lastContentHeight.current = 0;
     setExpandedSteps({});
+  }, [state.taskId]);
+
+  // One entry is one reader move (KIN-MOBILE-001.md:80): the reader starts at
+  // the conversation's name, not in the writing box, and a streamed append or
+  // any other repaint must not move it again (AGENTS.md §11). A split route
+  // swapping the conversation in place is a new entry, so the task id is the
+  // dependency.
+  useEffect(() => {
+    focusNode(titleRef);
   }, [state.taskId]);
 
   const toggleStep = (key: string): void => {
@@ -626,7 +639,9 @@ export default function ConversationView({
         <Text
           accessibilityRole="header"
           numberOfLines={1}
+          ref={titleRef}
           style={styles.title}
+          testID="conversation:title"
         >
           {state.title.trim() === "" ? t("sessions.untitled") : state.title}
         </Text>

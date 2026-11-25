@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the entry effect is removed, so entering a conversation never moves the reader to its title (R-rn-conversation-entry-focus)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    focusNode(titleRef);\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.entryFocus.test.tsx -t \"KIN-MOBILE-001 §3: entering a conversation moves reader focus to the title, not the composer\""
+  },
+  {
+    "label": "the entry move lands on the transcript instead of the title, so VoiceOver starts below the screen's name (R-rn-conversation-entry-focus)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    focusNode(titleRef);",
+    "new": "    focusNode(listRef);",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.entryFocus.test.tsx -t \"KIN-MOBILE-001 §3: entering a conversation moves reader focus to the title, not the composer\""
+  },
+  {
+    "label": "the effect depends on the whole state, so every streamed append yanks the reader back to the title (R-rn-conversation-entry-focus)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    focusNode(titleRef);\n  }, [state.taskId]);",
+    "new": "    focusNode(titleRef);\n  }, [state]);",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.entryFocus.test.tsx -t \"KIN-MOBILE-001 §3: a later repaint or a streamed append does not move the reader again\""
+  },
+  {
+    "label": "the effect never reruns, so a conversation swapped in place keeps the previous conversation's title as the reader's stop (R-rn-conversation-entry-focus)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    focusNode(titleRef);\n  }, [state.taskId]);",
+    "new": "    focusNode(titleRef);\n  }, []);",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.entryFocus.test.tsx -t \"KIN-MOBILE-001 §3: another conversation in the same view focuses its own title once\""
+  }
+]
