@@ -33,5 +33,40 @@
     "old": "  const canSend = text.trim().length > 0 && !offline;",
     "new": "  const canSend = text.trim().length > 0;",
     "test": "cd mobile-rn && npx jest src/screens/Conversation.test.tsx -t \"KIN-MOBILE-001 R4: offline keeps the draft, disables sending and says why\""
+  },
+  {
+    "label": "the header draws no title, so a pushed conversation never says what it is (R-rn-header-title)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "        {/* The conversation's name, spoken as the screen's heading. It is\n            text, not a control: the row already has its back and usage\n            targets. One line, so a long name truncates rather than growing\n            the header. */}\n        <Text\n          accessibilityRole=\"header\"\n          numberOfLines={1}\n          style={styles.title}\n        >\n          {state.title.trim() === \"\" ? t(\"sessions.untitled\") : state.title}\n        </Text>\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.test.tsx -t \"KIN-MOBILE-001 §3: the header draws the conversation title\""
+  },
+  {
+    "label": "the read publishes an empty title, so every conversation reads Untitled chat (R-rn-header-title)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "      title: loadedTask?.title ?? \"\",",
+    "new": "      title: \"\",",
+    "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §3: the read carries the task's title into the view state\""
+  },
+  {
+    "label": "the header draws the task id instead of the title (R-rn-header-title)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "          {state.title.trim() === \"\" ? t(\"sessions.untitled\") : state.title}",
+    "new": "          {state.taskId}",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.test.tsx -t \"KIN-MOBILE-001 §3: the header draws the conversation title\""
+  },
+  {
+    "label": "an untitled conversation draws blank instead of the catalogue's Untitled chat (R-rn-header-title)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "          {state.title.trim() === \"\" ? t(\"sessions.untitled\") : state.title}",
+    "new": "          {state.title}",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.test.tsx -t \"KIN-MOBILE-001 §3: an untitled conversation says Untitled chat\""
+  },
+  {
+    "label": "the title may wrap to a second line, growing the header past its 56pt row (R-rn-header-title)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "          numberOfLines={1}",
+    "new": "          numberOfLines={2}",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.test.tsx -t \"KIN-MOBILE-001 §3: the title never replaces the back or the usage entry\""
   }
 ]

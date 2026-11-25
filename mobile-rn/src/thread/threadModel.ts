@@ -46,6 +46,11 @@ export type QueuedSend = {
 
 export type ThreadState = {
   taskId: string;
+  /**
+   * The task's name as the list knows it; `""` when the node reports none.
+   * The header draws it, falling back to the catalogue's `sessions.untitled`.
+   */
+  title: string;
   status: ThreadStatus;
   turns: Turn[];
   running: boolean;
@@ -126,6 +131,7 @@ export type ThreadSnapshot = ThreadState & {
 function emptyState(taskId: string): ThreadState {
   return {
     taskId,
+    title: "",
     status: "loading",
     turns: [],
     running: false,
@@ -176,6 +182,7 @@ export async function loadThread(
   const events = eventsResult.data;
   return {
     taskId,
+    title: task.title ?? "",
     status: "ready",
     turns: projectThread(events, task),
     running: !isTerminalStatus(task.status),
@@ -285,6 +292,7 @@ export function createThread(options: ThreadOptions): Thread {
     epoch = loadedTask?.event_epoch ?? 0;
     publish({
       status: "ready",
+      title: loadedTask?.title ?? "",
       turns: projectThread(events, loadedTask, state.turns),
       running: loadedTask ? !isTerminalStatus(loadedTask.status) : false,
       banner: null,

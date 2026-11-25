@@ -23,6 +23,7 @@ const TASK_ID = "task-safe-area";
 function state(): ThreadState {
   return {
     taskId: TASK_ID,
+    title: "Morning planning",
     status: "ready",
     turns: [],
     running: false,
