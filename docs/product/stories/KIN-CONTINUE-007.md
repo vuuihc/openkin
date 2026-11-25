@@ -1,6 +1,6 @@
 # KIN-CONTINUE-007 · 在 820 的列表里一屏扫到那条对话
 
-状态：approved
+状态：covered
 优先级：P0
 旅程：J1、J2
 归属面：`IA.md`「列表层级」
@@ -171,9 +171,31 @@
 ## 证据
 
 - 之前：2026-11-24 的 820 测量与 shipped 截图（`/tmp/shots-list-820/820x1180.png`，逐行数得 8 条；`measure-list-shell.mjs` JSON 记录列 304px、项目名 126.5px、标题 97.7px、行高 44px）。
-- 之后：交付时补 820/1100/390 截图与 ≥10 行的测试证据。
+- 实现：三片已落 `main`；本条只结算台账，不改产品代码。
+  - #705 `7c5f81f7`：项目默认折叠、只有最近项目展开、工作方式收成一行披露、10 行扫读面，以及折叠与行式的测试。
+  - #716 `6c6e7aee`：820 的两行行式——标题行 + 元数据行（agent · 时间 · 一个状态槽），状态永远是词，不只靠颜色。
+  - #712 `a61194a8`：item 5 / D4，`.touch-lg` 的粗指针臂扩到 1023.98px（宽度臂仍是 639.98px）。
+- 验收逐行（五个测试文件都登记在 `registry.json`，都提到 `KIN-CONTINUE-007`）：
+  - 单元 `ui/src/lib/sessionListFolds.test.ts`（6 例）：`opens only the most recent project by default`、`keeps a remembered open project and closes the others`、`keeps the imported group folded by default`、`does not let an empty project carry the open fold`、`never opens the pinned bucket in place of a project`、`honours a remembered closed latest project`。
+  - 组件 `ui/src/components/sessions/SessionList.listScan.dom.test.tsx`（6 例，`:165` / `:187` / `:206` / `:223` / `:238` / `:253`）：`renders one title line and one metadata line at 820`、`keeps the metadata line whole while the title truncates`、`drops the per-row device label under a device heading`、`fits ten conversations in one 820 screenful`、`opens only the most recent project by default`、`folds the project's working style to one disclosure line`。
+  - 组件 `ui/src/components/sessions/SessionRow.coarse.dom.test.tsx`：`keeps a 44px row and actions at 820 coarse`（`:88`）、`keeps the compact pointer density without going under 44px`（`:109`）；mutants manifest 是同目录的 `SessionRow.coarse.dom.test.tsx.mutants.json`。
+  - 回归 `ui/src/components/layout/Sidebar.dom.test.tsx:182`：`keeps the one sidebar list`。
+- 真浏览器（`rsi/state/shots/list-scan-b/measure.json`，2026-11-25T08:48:50Z 抓取；throwaway daemon + 种子数据，截图在同目录）：
+  - 820×1180 粗指针：`completeRows = 10`、`rowsInDom = 10`，列 304px，行高 54.4px；`820x1180.png`。
+  - 1100×760 细指针：`completeRows = 10`、`rowsInDom = 10`，列 304px，行高 46.4px；`1100x760.png`。
+  - 390×844 粗指针：`completeRows = 9`、`rowsInDom = 10`（第 10 行落到折叠线以下；本条只要求 820 一屏 ≥10）；`390x844.png`。
+  - 行状态：`820x1180-failed.png` 里失败行的第二行是 `Claude… · 27秒钟前 · 失败`——红点旁有「失败」这个词，不是只有颜色。
+  - 折叠切片自己的复测（`rsi/state/shots/list-scan-a/measure.json`）：820 / 1100 / 390 都是 `completeRows = 10`、`rowsInDom = 10`，Alpha 展开、Beta / Gamma 收起、工作方式收起。
+- 视觉：逐张对过 `KIN-CONTINUE-007.figma/frames/` 的 5 张帧。
+  - `820x1180.png` ↔ `01-820-list-default.svg`：设备标题 + 计数、只有一个项目展开、工作方式一行披露、每行标题 + 元数据、一屏 10 行。实拍里 agent 名在 304px 下先省略（`Claude…`），元数据行的时间与状态完整——这是 #716 记录的选择，帧上画的是完整 agent 名。
+  - `820x1180.png` ↔ `02-820-project-expanded.svg`：一个项目展开、其余折叠、行仍然扫得动的组成一致；02 独有的「工作方式展开成两句正文」没有实拍。
+  - `1100x760.png` ↔ `03-mac-1100-list.svg`：同一个 304px 左栏、同一条两行行式、工作方式收成一行；实测行高 46.4px（不低于 44px），帧底部的 Beta / Gamma 折叠条在 760 高度下落到折叠线以下。
+  - `390x844.png` ↔ `04-phone-390-list.svg`：同一行式、工作方式默认收起，放大镜 / 每设备新建 / 底栏都保持 KIN-CONTINUE-004 / 005 的样子；帧上的「此设备 · 在线」在实拍里是「此设备」+ 计数。
+  - `820x1180-failed.png` ↔ `05-row-states.svg`：第二行固定 agent · 时间 · 一个状态，状态不只靠颜色；失败态是 05 板子四态之外的第五个词，规则一致。
+- `unverified: 真浏览器一行差两处 —（a）820 的「展开另一个项目」：capture.mjs 不点项目折叠，measure.json 与 820 截图只有 Alpha 默认展开态；折叠交互由 J11 手机走查第 49 步点「展开项目 [seed] Project Beta」守住（rsi/state/shots/list-scan-b/journeys/walk.json 的 step 49；同目录 J11-phone-01-list.aria.txt 显示 Beta「收起项目 … [expanded]」且 Alpha「展开项目」），DOM 层另有 SessionList.projectFace.dom.test.tsx:296 的 Expand project Project Beta 与 Sidebar.dom.test.tsx:496 的 remembers a project fold by machine and project。（b）02-820-project-expanded 的「工作方式展开成两句正文」实拍 — 抓图只有收起态；展开、收起与按项目记忆由 SessionList.listScan.dom.test.tsx 的 folds the project's working style to one disclosure line 在 DOM 层守住，但没有 820 展开态截图。`
 
 ## 变更记录
 
 - 2026-11-24 创建（draft）。把 `KIN-CONTINUE-004` 的「下一条故事」与 `ui/src/index.css:273-276` 的待决交给本页；CEO 签字前不改产品代码。
 - 2026-11-24 · CEO 代签 `approved`（D4–D6 按审阅页推荐；记录见 `rsi/DECISIONS.md`）。实现这条故事的 PR 建三份测试、跑 820/1100/390 截图，并把本条翻 `covered`。
+- 2026-11-25 · 结算：三片（#705 / #712 / #716）已落 `main`，五行验收逐行对上证据、真浏览器一行带着写明的缺口（820 的「展开另一个项目」折叠交互只有手机走查与 DOM 层证据），`registry.json` 补四个实现测试文件，状态翻 `covered`（docs-only）。

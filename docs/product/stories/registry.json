@@ -752,7 +752,7 @@
     },
     {
       "id": "KIN-CONTINUE-007",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -767,6 +767,10 @@
       "surface": "",
       "ownerPaths": [],
       "tests": [
+        "ui/src/lib/sessionListFolds.test.ts",
+        "ui/src/components/sessions/SessionList.listScan.dom.test.tsx",
+        "ui/src/components/sessions/SessionRow.coarse.dom.test.tsx",
+        "ui/src/components/layout/Sidebar.dom.test.tsx",
         "ui/src/lib/surfacesContract.KIN-CONTINUE-007.test.ts"
       ],
       "blockedReason": null

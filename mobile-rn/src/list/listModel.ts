@@ -107,6 +107,60 @@ export function createMemoryFoldStore(
 }
 
 /**
+ * What must outlive the list route: what the reader was looking for, where
+ * they were, and the page they were reading.
+ */
+export type ListMemoryState = {
+  query: string;
+  offset: number;
+};
+
+/**
+ * The list route's small memory (KIN-MOBILE-001 R3「离开再回来」).
+ *
+ * The container owns it, so the pure screen stays pure and the model stays
+ * headless. It survives the route unmounting: Back from a conversation
+ * restores the query, the scroll offset and the rows without a second read.
+ * A mounted screen claims it; an answer from a mount that no longer owns it
+ * cannot write its page (AGENTS.md rule 11), and the page is keyed by node so
+ * a re-pairing to another origin never restores the old node's rows.
+ */
+export type ListMemory = {
+  read(): ListMemoryState;
+  write(patch: Partial<ListMemoryState>): void;
+  readSnapshot(origin: string): ListViewState | null;
+  writeSnapshot(origin: string, state: ListViewState): void;
+  claim(): number;
+  isCurrent(generation: number): boolean;
+};
+
+/** A fresh memory; tests inject one per case, the app uses `sharedListMemory`. */
+export function createListMemory(
+  initial: Partial<ListMemoryState> = {},
+): ListMemory {
+  let query = initial.query ?? "";
+  let offset = initial.offset ?? 0;
+  let generation = 0;
+  const snapshots = new Map<string, ListViewState>();
+  return {
+    read: () => ({ query, offset }),
+    write: (patch) => {
+      if (patch.query !== undefined) query = patch.query;
+      if (patch.offset !== undefined) offset = patch.offset;
+    },
+    readSnapshot: (origin) => snapshots.get(origin) ?? null,
+    writeSnapshot: (origin, state) => {
+      snapshots.set(origin, state);
+    },
+    claim: () => ++generation,
+    isCurrent: (mine) => mine === generation,
+  };
+}
+
+/** The app's one memory: the list route remounts onto it. */
+export const sharedListMemory: ListMemory = createListMemory();
+
+/**
  * One project heading's fold key.
  *
  * The device is part of it because the same cwd can be a heading under two
@@ -278,6 +332,12 @@ export type ListControllerOptions = BuildGroupsOptions & {
   store?: FoldStore;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /**
+   * The page a restored route already has. Without it the controller starts on
+   * `loading` with no rows, so a fold or a failed refresh would wipe the page
+   * the screen is showing (KIN-MOBILE-001 R3「离开再回来」).
+   */
+  initialState?: ListViewState | null;
 };
 
 export type ListController = {
@@ -333,7 +393,14 @@ export function createListController(
   const store = options.store ?? createMemoryFoldStore();
   let generation = 0;
   let lastCounts: ReadonlyMap<string, number> = new Map();
-  let state: ListViewState = { status: "loading", groups: [], error: null };
+  // Only ready and empty states are pages. A failure or offline read is a
+  // fact about the moment, so a route handed one reads again instead of
+  // restoring an error it never retries.
+  const initial = options.initialState;
+  let state: ListViewState =
+    initial && (initial.status === "ready" || initial.status === "empty")
+      ? initial
+      : { status: "loading", groups: [], error: null };
 
   const groupsOf = (
     tasks: readonly Task[],
