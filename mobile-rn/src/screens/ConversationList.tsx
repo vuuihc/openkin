@@ -7,7 +7,6 @@
  * Routing, data loading and transport stay outside this component.
  */
 
-import { useRef } from "react";
 import {
   Pressable,
   SectionList,
@@ -69,9 +68,6 @@ export type ConversationListProps = {
   /** The current search term; the container owns it and the fold it makes. */
   query: string;
   onQueryChange: (next: string) => void;
-  /** The offset a remount starts at, and every scroll the reader makes. */
-  initialOffset?: number;
-  onScrollOffset?: (offset: number) => void;
   /**
    * A network state, not a steady one: present only while the screen is
    * reconnecting or has given up. It draws above the list header and never
@@ -153,8 +149,6 @@ export default function ConversationList({
   onToggleProject,
   query,
   onQueryChange,
-  initialOffset = 0,
-  onScrollOffset,
   resume,
 }: ConversationListProps) {
   // An empty device (`includeEmptyDevices`) still yields a section, and a
@@ -166,28 +160,10 @@ export default function ConversationList({
   // project headings it opened are not the reader's folds, so toggling them
   // during a search would write a fold nobody can see.
   const searching = query.trim() !== "";
-  const listRef = useRef<SectionList<Entry, Section>>(null);
-  const restored = useRef(false);
 
   return (
     <SectionList<Entry, Section>
-      ref={listRef}
       sections={sections}
-      // iOS takes the restored offset before content lays out; the scroll
-      // responder below covers the platforms that ignore it.
-      contentOffset={{ x: 0, y: initialOffset }}
-      onContentSizeChange={() => {
-        if (restored.current || initialOffset === 0) return;
-        restored.current = true;
-        listRef.current
-          ?.getScrollResponder()
-          ?.scrollTo({ x: 0, y: initialOffset, animated: false });
-      }}
-      onScroll={(event) =>
-        onScrollOffset?.(event.nativeEvent.contentOffset.y)
-      }
-      scrollEventThrottle={16}
-      testID="list-scroller"
       keyExtractor={(item) =>
         item.kind === "project"
           ? `project:${item.deviceId}:${item.project.key}`

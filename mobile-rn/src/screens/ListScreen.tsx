@@ -28,10 +28,8 @@ import {
 import {
   createListController,
   filterGroups,
-  sharedListMemory,
   type FoldStore,
   type ListController,
-  type ListMemory,
   type ListViewState,
 } from "../list/listModel";
 import ConversationList from "./ConversationList";
@@ -60,12 +58,6 @@ export type ListScreenProps = {
   formatTime?: (at: number) => string;
   /** The fold store; production keeps the reader's folds in memory for now. */
   store?: FoldStore;
-  /**
-   * What the route must not forget when it unmounts: the query, the scroll
-   * offset and the last page. Production uses the app's one shared memory;
-   * tests inject a fresh one per case.
-   */
-  memory?: ListMemory;
   /** The AppState emitter; production uses react-native's. Tests inject one. */
   appState?: AppStateLike;
   /** Test seam; production uses the platform clock. */
@@ -87,27 +79,18 @@ export default function ListScreen({
   machines,
   formatTime,
   store,
-  memory = sharedListMemory,
   appState = AppState,
   now,
   focusEpoch = 0,
 }: ListScreenProps) {
   const [state, setState] = useState<ListViewState | null>(null);
-  // What the reader was looking for, and where they were. Both outlive the
-  // list route because they live in `memory`, not in this component.
-  const [query, setQuery] = useState(() => memory.read().query);
-  const [initialOffset, setInitialOffset] = useState(0);
+  // What the reader is looking for: view state over the page the model owns.
+  const [query, setQuery] = useState("");
   // The reconnect band is a network state, not a steady one: null whenever the
   // list is current.
   const [band, setBand] = useState<"resuming" | "offline" | null>(null);
   const controllerRef = useRef<ListController | null>(null);
   const resumeRef = useRef<ResumeController | null>(null);
-  // The mount that owns the memory right now, and the session its answers
-  // belong to. A load from a replaced mount must not write either.
-  const sessionRef = useRef<Session | null>(null);
-  const claimRef = useRef(0);
-  const memoryRef = useRef(memory);
-  memoryRef.current = memory;
   // The route callbacks are fresh closures on most renders; a ref keeps the
   // mount effect from tearing the controller down just because the parent
   // repainted.
@@ -119,28 +102,6 @@ export default function ListScreen({
   const options = useRef({ selfDeviceId, machines, formatTime, store });
   options.current = { selfDeviceId, machines, formatTime, store };
 
-  /**
-   * The one place a model state reaches both React and the route's memory.
-   * The page is written only while this mount still owns the memory, so a
-   * late answer from an older generation cannot become the page a later
-   * remount restores (AGENTS.md rule 11).
-   */
-  const publish = useCallback((next: ListViewState) => {
-    const origin = sessionRef.current?.origin;
-    // Only a page is worth remembering. A failure or an offline state is a
-    // network fact about the moment, not rows: storing it would make a later
-    // remount restore a failure it never retries.
-    const page = next.status === "ready" || next.status === "empty";
-    if (
-      page &&
-      origin !== undefined &&
-      memoryRef.current.isCurrent(claimRef.current)
-    ) {
-      memoryRef.current.writeSnapshot(origin, next);
-    }
-    setState(next);
-  }, []);
-
   useEffect(() => {
     let live = true;
     let list: ListController | null = null;
@@ -148,10 +109,6 @@ export default function ListScreen({
     // A rebuilt controller starts with no band: the previous one described a
     // list (and a retry target) this effect is about to replace.
     setBand(null);
-    // This mount owns the route's memory from here on. A load that lands for
-    // an earlier mount may not write its page over this one (rule 11).
-    const mine = memory.claim();
-    claimRef.current = mine;
     const read = readSessionImpl ?? readStoredSession;
     void read()
       .then((session) => {
@@ -162,22 +119,12 @@ export default function ListScreen({
           callbacks.current.onNeedsPairing();
           return;
         }
-        sessionRef.current = session;
         const {
           selfDeviceId: self,
           machines: devices,
           formatTime: clock,
           store: folds,
         } = options.current;
-        // Back on a route that unmounted: the stored page answers the first
-        // frame and the stored offset puts the reader back, so neither the
-        // list nor the reader pays for the same read again. A stored failure
-        // is not a page — restoring it would trap every remount on an error it
-        // never retries.
-        const cached = memory.readSnapshot(session.origin);
-        const restored =
-          cached !== null &&
-          (cached.status === "ready" || cached.status === "empty");
         list = createListController({
           origin: session.origin,
           token: session.token,
@@ -187,15 +134,9 @@ export default function ListScreen({
           formatTime: clock,
           store: folds,
           fetchImpl,
-          initialState: cached ?? undefined,
         });
         controllerRef.current = list;
-        if (restored) {
-          setState(cached);
-          setInitialOffset(memory.read().offset);
-        } else {
-          setState(list.state());
-        }
+        setState(list.state());
 
         // One resume controller for the mounted screen. Its refresh is the
         // list's own load, so the rows the reader already has are never
@@ -206,7 +147,7 @@ export default function ListScreen({
           appState,
           refreshList: async () => {
             const next = await mounted.load();
-            if (live && controllerRef.current === mounted) publish(next);
+            if (live && controllerRef.current === mounted) setState(next);
             return {
               ok: next.status !== "offline" && next.status !== "failed",
               reason: next.error ?? undefined,
@@ -230,15 +171,10 @@ export default function ListScreen({
         });
         resumeRef.current = resume;
 
-        // A restored page is the read for this mount; anything else starts
-        // with one.
-        if (restored) return;
         return mounted.load().then((next) => {
           // The controller drops an answer from an older generation; this guard
-          // drops the one that lands after the screen is gone, and the memory
-          // claim drops the one that belongs to a replaced mount.
-          if (!live || !memory.isCurrent(mine)) return;
-          publish(next);
+          // drops the one that lands after the screen is gone.
+          if (live) setState(next);
         });
       })
       .catch(() => {
@@ -253,39 +189,30 @@ export default function ListScreen({
       resume?.dispose();
       list = null;
     };
-  }, [readSessionImpl, fetchImpl, appState, now, memory, publish]);
+  }, [readSessionImpl, fetchImpl, appState, now]);
 
   const refresh = useCallback(() => {
     const controller = controllerRef.current;
     if (!controller) return;
     void controller.load().then((next) => {
       if (controllerRef.current !== controller) return;
-      publish(next);
+      setState(next);
       if (next.status === "offline" || next.status === "failed") return;
       // A manual read that worked makes the band's claim false; drop the
       // series that produced it so its retry cannot start a stale one.
       resumeRef.current?.invalidate();
     });
-  }, [publish]);
-
-  const toggleProject = useCallback(
-    (deviceId: string, projectKey: string) => {
-      const controller = controllerRef.current;
-      if (!controller) return;
-      publish(controller.toggleProject(deviceId, projectKey));
-    },
-    [publish],
-  );
-
-  /** The query is route state, not component state: it must outlive unmount. */
-  const changeQuery = useCallback((next: string) => {
-    setQuery(next);
-    memoryRef.current.write({ query: next });
   }, []);
 
-  /** Every scroll updates the place Back will restore. */
-  const rememberOffset = useCallback((offset: number) => {
-    memoryRef.current.write({ offset });
+  const toggleProject = useCallback((deviceId: string, projectKey: string) => {
+    const controller = controllerRef.current;
+    if (!controller) return;
+    setState(controller.toggleProject(deviceId, projectKey));
+  }, []);
+
+  /** The query narrows the page; it never changes it. */
+  const changeQuery = useCallback((next: string) => {
+    setQuery(next);
   }, []);
 
   const open = useCallback((taskId: string) => {
@@ -323,11 +250,9 @@ export default function ListScreen({
 
   return (
     <ConversationList
-      initialOffset={initialOffset}
       onOpen={open}
       onQueryChange={changeQuery}
       onRefresh={refresh}
-      onScrollOffset={rememberOffset}
       onToggleProject={toggleProject}
       query={query}
       resume={band ? { status: band, onRetry: retryResume } : undefined}

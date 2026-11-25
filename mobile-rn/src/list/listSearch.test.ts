@@ -1,13 +1,11 @@
 import { describe, expect, it, jest } from "@jest/globals";
 import {
   applyFolds,
-  createListMemory,
   createMemoryFoldStore,
   filterGroups,
   foldStateKey,
   type ConversationRow,
   type DeviceGroup,
-  type ListViewState,
 } from "./listModel";
 
 /**
@@ -138,54 +136,5 @@ describe("KIN-MOBILE-001 R3 list search", () => {
 
   it("KIN-MOBILE-001 R3: a query that matches nothing leaves no group", () => {
     expect(filterGroups(groups(), "zzz")).toEqual([]);
-  });
-});
-
-describe("KIN-MOBILE-001 R3 list memory", () => {
-  it("KIN-MOBILE-001 R3: a claim supersedes the earlier one and only the newest mount is current", () => {
-    const memory = createListMemory();
-    const first = memory.claim();
-    expect(memory.isCurrent(first)).toBe(true);
-
-    // A remount claims the same memory while the old one is still alive.
-    const second = memory.claim();
-    expect(second).not.toBe(first);
-    expect(memory.isCurrent(second)).toBe(true);
-    expect(memory.isCurrent(first)).toBe(false);
-    // An older generation never becomes current again.
-    expect(memory.isCurrent(second - 1)).toBe(false);
-    expect(memory.isCurrent(second + 1)).toBe(false);
-  });
-
-  it("KIN-MOBILE-001 R3: stored pages are keyed by origin, so another node's rows never restore", () => {
-    const memory = createListMemory();
-    const pageA: ListViewState = {
-      status: "ready",
-      groups: groups(),
-      error: null,
-    };
-    const pageB: ListViewState = { status: "empty", groups: [], error: null };
-
-    expect(memory.readSnapshot("https://a.example")).toBeNull();
-    memory.writeSnapshot("https://a.example", pageA);
-    memory.writeSnapshot("https://b.example", pageB);
-
-    expect(memory.readSnapshot("https://a.example")).toBe(pageA);
-    expect(memory.readSnapshot("https://b.example")).toBe(pageB);
-    // A re-pairing to a third node restores nothing.
-    expect(memory.readSnapshot("https://c.example")).toBeNull();
-  });
-
-  it("KIN-MOBILE-001 R3: the query and the offset survive the route and patch independently", () => {
-    const memory = createListMemory({ query: "seed" });
-    expect(memory.read()).toEqual({ query: "seed", offset: 0 });
-
-    memory.write({ offset: 180 });
-    memory.write({ query: "alpha" });
-    expect(memory.read()).toEqual({ query: "alpha", offset: 180 });
-
-    // A patch that names one field leaves the other alone.
-    memory.write({});
-    expect(memory.read()).toEqual({ query: "alpha", offset: 180 });
   });
 });
