@@ -54,5 +54,19 @@
     "test": "bash rsi/runtime/tests/test-wiring.sh",
     "old": "  bash rsi/runtime/tests/test-optional-grace.sh || return 1\n",
     "new": ""
+  },
+  {
+    "label": "a press that left its control is never excused, so the fold button that re-labelled mid-click reds the walk again",
+    "file": "rsi/runtime/ux/optional-grace.mjs",
+    "test": "node rsi/runtime/ux/optional-grace.test.mjs",
+    "old": "  return count === 0;",
+    "new": "  return false;"
+  },
+  {
+    "label": "the click entry stops asking whether the control left the page, so a press that acted is a hard failure",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-optional-grace.sh",
+    "old": "                if (await pressLeftControl(loc)) { log.push(`click ${sel} (the control left as it acted)`); break; }\n",
+    "new": ""
   }
 ]

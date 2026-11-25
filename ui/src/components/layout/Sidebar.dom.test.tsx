@@ -179,7 +179,7 @@ describe("the Mac sidebar list", () => {
     expect(screen.getAllByRole("searchbox")).toHaveLength(1);
   });
 
-  it("draws machine → project → conversation from the shared model", () => {
+  it("draws machine → project → conversation from the shared model", async () => {
     fixtures.tasks = [task("local-work", "/work/alpha"), task("remote-work", "/srv/beta", "nas-1")];
     render(sidebar());
 
@@ -189,7 +189,14 @@ describe("the Mac sidebar list", () => {
     expect(self?.textContent).toContain("alpha");
     expect(self?.textContent).toContain("local-work");
     expect(self?.textContent).not.toContain("remote-work");
+
+    // KIN-CONTINUE-007 opens only the newest project; the other is a heading
+    // with its rows one click away.
     expect(remote?.textContent).toContain("beta");
+    expect(remote?.textContent).not.toContain("remote-work");
+    await userEvent.click(
+      within(remote as HTMLElement).getByRole("button", { name: /Expand project/ }),
+    );
     expect(remote?.textContent).toContain("remote-work");
   });
 

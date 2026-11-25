@@ -187,34 +187,11 @@ function instructionsRegion(scope: HTMLElement = document.body): HTMLElement | n
   return within(scope).queryByRole("region", { name: /^How to work here/ });
 }
 
-/**
- * Make the list's clamped preview measure as overflowing. jsdom lays nothing
- * out, so without this the two-line clamp is 0px tall and the disclosure is
- * (correctly) never offered. Only the clamped paragraph answers; every other
- * element keeps jsdom's own zero.
- */
-function stubPreviewOverflow(): () => void {
-  const scroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
-  const client = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
-  const overflowing = function (this: HTMLElement): number {
-    return this.classList?.contains("line-clamp-2") ? 100 : 0;
-  };
-  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-    configurable: true,
-    get: overflowing,
-  });
-  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
-    configurable: true,
-    get(this: HTMLElement) {
-      return this.classList?.contains("line-clamp-2") ? 40 : 0;
-    },
-  });
-  return () => {
-    if (scroll) Object.defineProperty(HTMLElement.prototype, "scrollHeight", scroll);
-    else delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
-    if (client) Object.defineProperty(HTMLElement.prototype, "clientHeight", client);
-    else delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
-  };
+/** KIN-CONTINUE-007: the block is one collapsed disclosure line by default. */
+async function disclose(scope: HTMLElement = document.body): Promise<HTMLElement> {
+  const toggle = await within(scope).findByRole("button", { name: "How to work here" });
+  if (toggle.getAttribute("aria-expanded") !== "true") await userEvent.click(toggle);
+  return toggle;
 }
 
 const INSTRUCTIONS =
@@ -250,6 +227,8 @@ describe("a project's work instructions in the conversation list", () => {
     // The read starts with the expand, not with the list's mount.
     await waitFor(() => expect(readOnePager).toHaveBeenCalledWith("p-alpha"));
     expect(readOnePager).toHaveBeenCalledTimes(1);
+    // The text is one disclosure click away, not two clamped lines always on.
+    await disclose();
     expect(await screen.findByText(/run make check first/)).toBeTruthy();
     expect(screen.getByText("How to work here")).toBeTruthy();
   });
@@ -258,6 +237,7 @@ describe("a project's work instructions in the conversation list", () => {
     readOnePager.mockResolvedValue(onePager("# Project Alpha\n\n## 摘要\n\nA summary only.\n"));
     list();
 
+    await disclose();
     expect(await screen.findByText("No working instructions yet")).toBeTruthy();
     const launcher = screen.getByRole("link", { name: /Ask Kin to write…/ });
     const href = launcher.getAttribute("href") ?? "";
@@ -278,6 +258,7 @@ describe("a project's work instructions in the conversation list", () => {
     // A failed instructions read never costs the project its conversations.
     expect(screen.getByRole("button", { name: /alpha-work/ })).toBeTruthy();
 
+    await disclose();
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText(/run make check first/)).toBeTruthy();
     expect(readOnePager).toHaveBeenCalledTimes(2);
@@ -289,7 +270,12 @@ describe("a project's work instructions in the conversation list", () => {
       project("p-alpha", "Project Alpha", "/work/alpha"),
       project("p-beta", "Project Beta", "/work/beta"),
     ];
-    collapseProject("/work/beta");
+    // Both folds stated: KIN-CONTINUE-007's default opens only the newest
+    // project, and this test is about which project's answer paints where.
+    localStorage.setItem(
+      "kin_session_folds",
+      JSON.stringify({ "mac-1::/work/alpha": true, "mac-1::/work/beta": false }),
+    );
     const alphaReads: Deferred<OnePager>[] = [];
     const betaRead = deferred<OnePager>();
     readOnePager.mockImplementation((id: string) => {
@@ -308,12 +294,14 @@ describe("a project's work instructions in the conversation list", () => {
     // Leave Alpha and open Beta: Beta's block paints its own text.
     await userEvent.click(screen.getByRole("button", { name: "Collapse project Project Alpha" }));
     await userEvent.click(screen.getByRole("button", { name: "Expand project Project Beta" }));
+    await disclose(bucketSection("Project Beta"));
     await waitFor(() => expect(readOnePager).toHaveBeenCalledWith("p-beta"));
     betaRead.resolve(onePager("## 工作方式\n\n- beta only\n"));
     expect(await screen.findByText(/beta only/)).toBeTruthy();
 
     // Re-open Alpha: a second read supersedes the first.
     await userEvent.click(screen.getByRole("button", { name: "Expand project Project Alpha" }));
+    await disclose(bucketSection("Project Alpha"));
     await waitFor(() => expect(alphaReads).toHaveLength(2));
     alphaReads[1].resolve(onePager("## 工作方式\n\n- alpha newest\n"));
     expect(await screen.findByText(/alpha newest/)).toBeTruthy();
@@ -340,20 +328,31 @@ describe("a project's work instructions in the conversation list", () => {
     ];
     list();
 
+    // The remote copy of the same path draws the same heading name, so the
+    // local one is looked up inside this machine's section. The pinned bucket
+    // is not a project, so the newest real project keeps the default-open fold.
+    const thisMachine = screen.getByRole("region", { name: /This machine/ });
+    // The heading is named by the project record, which loads after the rows.
+    await within(thisMachine).findByRole("button", { name: "Project Alpha" });
+
     // The local project is the only heading that carries a block and a read.
+    await disclose(bucketSection("Project Alpha", thisMachine));
     expect(await screen.findByText(/run make check first/)).toBeTruthy();
     await waitFor(() => expect(readOnePager.mock.calls.map(([id]) => id)).toEqual(["p-alpha"]));
-    // The remote copy of the same path draws the same heading name, so the
-    // local one is looked up inside this machine's section.
-    const thisMachine = screen.getByRole("region", { name: /This machine/ });
     expect(instructionsRegion(bucketSection("Project Alpha", thisMachine))).toBeTruthy();
 
-    // Pinned and No-project are synthetic buckets: no project record, no block.
-    expect(instructionsRegion(bucketSection("Pinned"))).toBeNull();
-    expect(instructionsRegion(bucketSection("No project"))).toBeNull();
+    // Pinned and No-project are synthetic buckets: no project record, no block
+    // even when opened.
+    for (const heading of ["Pinned", "No project"]) {
+      const section = bucketSection(heading);
+      await userEvent.click(within(section).getByRole("button", { name: /Expand project/ }));
+      expect(instructionsRegion(section)).toBeNull();
+    }
 
-    // The remote copy of the same path is not this machine's project.
+    // The remote copy of the same path is not this machine's project — opened
+    // under Studio's heading, it still carries no block.
     const studio = screen.getByRole("region", { name: /Studio/ });
+    await userEvent.click(within(studio).getByRole("button", { name: /Expand project/ }));
     expect(instructionsRegion(studio)).toBeNull();
 
     // The imported index is not a project either, even when opened.
@@ -367,6 +366,7 @@ describe("a project's work instructions in the conversation list", () => {
   it("the launcher opens a new-chat draft with the edit request prefilled", async () => {
     list();
 
+    await disclose();
     await userEvent.click(await screen.findByRole("link", { name: /Ask Kin to edit…/ }));
 
     // The same draft "New conversation in Project Alpha" opens, with the
@@ -383,6 +383,7 @@ describe("a project's work instructions in the conversation list", () => {
     list();
 
     const block = await screen.findByRole("region", { name: /^How to work here/ });
+    await disclose();
     await within(block).findByText(/run make check first/);
     // Reading the text is the promise; changing it happens in a chat.
     expect(within(block).queryByRole("textbox")).toBeNull();
@@ -390,7 +391,7 @@ describe("a project's work instructions in the conversation list", () => {
     expect(block.querySelector('[contenteditable]:not([contenteditable="false"])')).toBeNull();
   });
 
-  it("keeps the list compact: one caption, a clamped preview and the project in the region name", async () => {
+  it("keeps the block to one line until it is opened, with no clamp inside", async () => {
     list();
 
     const block = await screen.findByRole("region", {
@@ -400,9 +401,17 @@ describe("a project's work instructions in the conversation list", () => {
     // repeated each other and pushed the conversations down.
     expect(within(block).queryByText("Kin receives this when a new chat starts")).toBeNull();
     expect(within(block).queryByText("New chats receive this text as written")).toBeNull();
+    // Collapsed: one disclosure line, no body copy at all (KIN-CONTINUE-007).
+    const toggle = within(block).getByRole("button", { name: "How to work here" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.className).toContain("min-h-11");
+    expect(within(block).queryByText(/run make check first/)).toBeNull();
+    expect(Array.from(block.querySelectorAll("p"))).toHaveLength(0);
+
+    // Opened: the whole body, with no two-line clamp and no third meta line.
+    await userEvent.click(toggle);
     const body = await within(block).findByText(/run make check first/);
-    expect(body.className).toContain("line-clamp-2");
-    // Two lines of body, one launcher, one title row — no third meta line.
+    expect(body.className).not.toContain("line-clamp-2");
     expect(Array.from(block.querySelectorAll("p")).map((p) => p.textContent)).toEqual([
       "- run make check first\n- keep commits small",
     ]);
@@ -425,52 +434,45 @@ describe("a project's work instructions in the conversation list", () => {
     readOnePager.mockResolvedValue(onePager("# Project Alpha\n\n## 摘要\n\nA summary only.\n"));
     list();
 
+    await disclose();
     expect(await screen.findByText("No working instructions yet")).toBeTruthy();
     expect(screen.queryByText("New chats will not receive this section")).toBeNull();
     expect(screen.queryByText("Kin receives this when a new chat starts")).toBeNull();
     expect(screen.getByRole("link", { name: /Ask Kin to write…/ })).toBeTruthy();
   });
 
-  it("the title discloses the clamped body once it is measured to overflow", async () => {
-    const restore = stubPreviewOverflow();
-    try {
-      list();
+  it("offers the disclosure without waiting to measure an overflow", async () => {
+    list();
 
-      const toggle = await screen.findByRole("button", { name: "How to work here" });
-      expect(toggle.getAttribute("aria-expanded")).toBe("false");
-      const body = await screen.findByText(/run make check first/);
-      expect(body.className).toContain("line-clamp-2");
+    // The disclosure is part of the block's contract now, not a control that
+    // appears only when the body happens to be taller than two clamped lines.
+    const toggle = await screen.findByRole("button", { name: "How to work here" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText(/run make check first/)).toBeNull();
 
-      await userEvent.click(toggle);
+    await userEvent.click(toggle);
 
-      expect(toggle.getAttribute("aria-expanded")).toBe("true");
-      expect(body.className).not.toContain("line-clamp-2");
-    } finally {
-      restore();
-    }
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const body = await screen.findByText(/run make check first/);
+    expect(body.className).not.toContain("line-clamp-2");
   });
 
   it("keeps the disclosure title and its chevron on one line", async () => {
-    const restore = stubPreviewOverflow();
-    try {
-      list();
+    list();
 
-      const toggle = await screen.findByRole("button", { name: "How to work here" });
-      // The title shares its row with the edit launcher, and at 820 the row is
-      // narrower than both labels want. Astryx's content span is a block, so a
-      // bare label plus a block SVG stacks the chevron under 工作方式 and adds a
-      // line to every expanded project; the label and glyph must ride one
-      // nowrap row inside the button, and the glyph must not be squeezed out.
-      const row = toggle.querySelector("span.inline-flex");
-      expect(row).toBeTruthy();
-      expect(row!.className).toContain("items-center");
-      expect(row!.className).toContain("whitespace-nowrap");
-      const chevron = row!.querySelector("svg");
-      expect(chevron).toBeTruthy();
-      expect(chevron!.getAttribute("class") ?? "").toContain("shrink-0");
-    } finally {
-      restore();
-    }
+    const toggle = await screen.findByRole("button", { name: "How to work here" });
+    // The title shares its row with the edit launcher, and at 820 the row is
+    // narrower than both labels want. Astryx's content span is a block, so a
+    // bare label plus a block SVG stacks the chevron under 工作方式 and adds a
+    // line to every expanded project; the label and glyph must ride one
+    // nowrap row inside the button, and the glyph must not be squeezed out.
+    const row = toggle.querySelector("span.inline-flex");
+    expect(row).toBeTruthy();
+    expect(row!.className).toContain("items-center");
+    expect(row!.className).toContain("whitespace-nowrap");
+    const chevron = row!.querySelector("svg");
+    expect(chevron).toBeTruthy();
+    expect(chevron!.getAttribute("class") ?? "").toContain("shrink-0");
   });
 });
 

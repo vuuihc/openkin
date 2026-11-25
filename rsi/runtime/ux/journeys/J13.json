@@ -10,6 +10,7 @@
   },
   "steps": [
     ["goto", "/sessions"],
+    ["click", "css=section:has-text('[seed] Project Beta'):not(:has(section)) button[aria-label^='展开项目'], section:has-text('[seed] Project Beta'):not(:has(section)) button[aria-label^='Expand project']"],
     ["wait", "css=[data-session-row=\"{conversation}\"]"],
     ["click", "css=[data-session-row=\"{conversation}\"]"],
     ["url", "^/tasks/{conversation}"],

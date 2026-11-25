@@ -245,11 +245,11 @@ describe("the list's recovery and paging controls", () => {
     localStorage.clear();
 
     // Show all: a disclosure, so it keeps quiet weight and its aria-expanded.
-    const ids = ["alpha-1", "alpha-2", "alpha-3", "alpha-4", "alpha-5", "alpha-6"];
+    const ids = Array.from({ length: 11 }, (_, index) => `alpha-${index + 1}`);
     fixtures.tasks = ids.map((id) => task(id));
     const tall = mount("sidebar");
 
-    const showAll = screen.getByRole("button", { name: "Show all (6)" });
+    const showAll = screen.getByRole("button", { name: "Show all (11)" });
     expect(showAll.className).toContain("kin-btn");
     expect(showAll.className).not.toContain("kin-btn-primary");
     expect(showAll.className).toContain("text-kin-muted!");

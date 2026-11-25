@@ -1476,7 +1476,12 @@ class WalkJ7ContractTest(unittest.TestCase):
         card = 'css=[data-pending-id="appr-1"]'
         self.assertIn(["wait", card], steps, steps)
         self.assertIn(["active", card], steps, steps)
-        self.assertIn(["wait", "text=[seed] Answer the deploy"], steps, steps)
+        # The folded list hides the row behind its project bucket, so the
+        # reopen goes through the search box with the seeded title and then
+        # waits on the resolved row id before pressing it.
+        self.assertIn(["click", "?/Search chats|搜索对话/"], steps, steps)
+        self.assertIn(["fill", "?input[type=search]", "deploy"], steps, steps)
+        self.assertIn(["wait", 'css=[data-session-row="task-1"]'], steps, steps)
         # The row opens by pointer tap: J7 must prove the tap target itself is
         # reachable, so no keyboard reopen stands in for the click.
         self.assertIn(["click", '[data-session-row="task-1"]'], steps, steps)
@@ -2233,16 +2238,35 @@ class WalkJ12ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("four fixture conversations", out)
 
-    def test_j12_contract_rejects_an_optional_fold_press(self) -> None:
-        def optional_fold(steps: list) -> None:
-            for step in steps:
-                if step[0] == "click" and "展开全部" in str(step[1]):
-                    step[1] = "?" + str(step[1]).lstrip("?")
+    def test_j12_contract_accepts_an_optional_fold_only_with_the_row_wait(self) -> None:
+        # ROWS_BEFORE_SHOW_ALL is 10, so the seeded bucket plus four fixtures
+        # may offer no fold at all and the press must be optional. An optional
+        # press is accepted only while a mandatory seeded-row wait follows it:
+        # a fold that silently stops matching would otherwise hide a row that
+        # is not there. The shipped spec is the accept case.
+        steps = load_spec()["journeys"]["J12"]["steps"]
+        folds = [i for i, step in enumerate(steps)
+                 if step[0] == "click" and "展开全部" in str(step[1])]
+        self.assertTrue(folds)
+        for index in folds:
+            self.assertTrue(str(steps[index][1]).startswith("?"),
+                            "the shipped fold press must be optional")
+            wait = next(
+                i for i, step in enumerate(steps)
+                if i > index and step[0] == "wait"
+                and "Morning planning" in str(step[1])
+                and not str(step[1]).startswith("?"))
+            with self.subTest(step=index, wait=wait):
+                def unmandate_the_row_wait(steps: list) -> None:
+                    steps[wait][1] = "?" + str(steps[wait][1])
 
-        code, out = self.check(self.copy_with(optional_fold))
-        self.assertEqual(code, 1, out)
-        self.assertIn("project fold", out)
-        self.assertIn("optional", out)
+                code, out = self.check(self.copy_with(unmandate_the_row_wait))
+                self.assertEqual(code, 1, out)
+                self.assertIn("mandatory seeded-row wait", out)
+
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J12", out)
 
     def test_j12_contract_rejects_a_generic_seeded_row_click(self) -> None:
         def generic_row(steps: list) -> None:
@@ -2825,24 +2849,35 @@ class WalkJ14ContractTest(unittest.TestCase):
         steps = load_spec()["journeys"]["J14"]["steps"]
         phone = self.at(steps, lambda step: step[0] == "vp" and step[1] == "phone")
         goto_i = self.at(steps, lambda step: step[0] == "goto" and step[1] == "/", phone + 1)
+        # The project level is proved twice now — the heading's project button
+        # and the expanded bucket's 工作方式 region both name `[seed] Project
+        # Alpha` — so removing either wait alone leaves the level still proved.
+        project_waits = [
+            i for i, step in enumerate(steps)
+            if i > goto_i and step[0] == "wait"
+            and "[seed] Project Alpha" in str(step[1])
+        ]
+        self.assertGreaterEqual(len(project_waits), 2, steps)
         targets = {
-            "device heading": self.at(
+            "device heading": [self.at(
                 steps, lambda step: step[0] == "wait"
-                and ("此设备" in str(step[1]) or "This machine" in str(step[1])), goto_i + 1),
-            "project button": self.at(
-                steps, lambda step: step[0] == "wait"
-                and "[seed] Project Alpha" in str(step[1]), goto_i + 1),
-            "session row": self.at(
+                and ("此设备" in str(step[1]) or "This machine" in str(step[1])), goto_i + 1)],
+            "project level": project_waits,
+            "session row": [self.at(
                 steps, lambda step: step[0] == "wait"
                 and "data-session-row" in str(step[1])
-                and "Morning planning" in str(step[1]), goto_i + 1),
-            "one-row count": self.at(
+                and "Morning planning" in str(step[1]), goto_i + 1)],
+            "one-row count": [self.at(
                 steps, lambda step: step[0] == "count"
-                and "data-session-row" in str(step[1]) and str(step[2]) == "1", goto_i + 1),
+                and "data-session-row" in str(step[1]) and str(step[2]) == "1", goto_i + 1)],
         }
-        for label, index in targets.items():
+        for label, indices in targets.items():
             with self.subTest(removed=label):
-                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                def drop(steps: list, indices: tuple = tuple(indices)) -> None:
+                    for index in sorted(indices, reverse=True):
+                        steps.pop(index)
+
+                code, out = self.check(self.copy_with(drop))
                 self.assertEqual(code, 1, out)
                 self.assertIn("spec red: J14", out)
                 self.assertIn("one list", out)
@@ -3431,10 +3466,18 @@ class WalkJ5ContractTest(unittest.TestCase):
         # first has no 运行中 line to pin. aria-describedby is the trigger's
         # existing accessible description, not new scaffolding.
         clicks = [step for step in steps if step[0] == "click"]
-        self.assertEqual(len(clicks), 1, steps)
-        self.assertFalse(clicks[0][1].startswith("?"), "the row-menu click is optional")
-        self.assertIn("[data-row-actions]", clicks[0][1])
-        self.assertIn("{j5.conversation}", clicks[0][1])
+        self.assertEqual(len(clicks), 2, steps)
+        # The list folds projects now: Gamma's bucket is expanded first, and
+        # that press is optional because a bucket holding the newest row is
+        # already open. Only the fold may be optional.
+        expand, trigger = clicks
+        self.assertTrue(expand[1].startswith("?"), "the project-expand press must be optional")
+        self.assertIn("[seed] Project Gamma", expand[1])
+        self.assertIn("展开项目", expand[1])
+        self.assertIn("Expand project", expand[1])
+        self.assertFalse(trigger[1].startswith("?"), "the row-menu click is optional")
+        self.assertIn("[data-row-actions]", trigger[1])
+        self.assertIn("{j5.conversation}", trigger[1])
 
         # The shipped actions, in both languages, as required steps.
         for zh, en in (("改名", "Rename"), ("置顶", "Pin"), ("归档", "Archive"), ("删除", "Delete")):
@@ -3460,7 +3503,7 @@ class WalkJ5ContractTest(unittest.TestCase):
 
         # The photograph is of a menu that was read, not one that might be.
         running_at = steps.index(counts[0])
-        self.assertGreater(running_at, steps.index(clicks[0]))
+        self.assertGreater(running_at, steps.index(trigger))
         shot_at = steps.index(next(step for step in steps if step[0] == "shot" and step[1] == "row-actions"))
         self.assertGreater(shot_at, running_at)
 
