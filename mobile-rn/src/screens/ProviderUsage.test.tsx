@@ -421,4 +421,70 @@ describe("KIN-MOBILE-001 R6 provider/usage screen", () => {
     expect(offline.queryByText("settings.disconnected")).toBeNull();
     expect(offline.queryAllByTestId(/^tile:/)).toHaveLength(0);
   });
+
+  it("KIN-MOBILE-001 R6: a device token still reads its usage tiles", async () => {
+    const onRefresh = jest.fn();
+    const screen = await render(
+      <ProviderUsage
+        onRefresh={onRefresh}
+        onSelectWindow={() => {}}
+        state={view({
+          status: "ready",
+          providers: [],
+          providerListError: { reason: "rejected", stale: false },
+        })}
+        t={t}
+      />,
+    );
+
+    // The numbers are the sheet's subject and this read has them.
+    for (const key of TILE_KEYS) {
+      expect(tileValue(screen, key, THIRTY_DAY_ROWS)).toBe(
+        foldValue(THIRTY_DAY_ROWS, key),
+      );
+    }
+    // The reader must not be told the pairing link is invalid: it is not, and
+    // re-pairing would not help.
+    expect(screen.queryByText("pairing.rejected")).toBeNull();
+    expect(screen.queryByTestId("usage-retry")).toBeNull();
+    expect(screen.getByTestId("usage-provider-list-error")).toBeTruthy();
+    expect(screen.getByText("usage.providerListUnavailable")).toBeTruthy();
+  });
+
+  it("KIN-MOBILE-001 R6: the provider rows stay beside the degraded line", async () => {
+    const screen = await render(
+      <ProviderUsage
+        onSelectWindow={() => {}}
+        state={view({ providerListError: { reason: "rejected", stale: true } })}
+        t={t}
+      />,
+    );
+
+    expect(screen.getByTestId("provider:provider-primary")).toBeTruthy();
+    expect(screen.getByTestId("provider:provider-fast")).toBeTruthy();
+    expect(screen.getByTestId("usage-provider-list-error")).toBeTruthy();
+    expect(screen.getByText("usage.providerListUnavailable")).toBeTruthy();
+  });
+
+  it("KIN-MOBILE-001 R6: a whole-sheet failure still offers the retry", async () => {
+    const onRefresh = jest.fn();
+    const screen = await render(
+      <ProviderUsage
+        onRefresh={onRefresh}
+        onSelectWindow={() => {}}
+        state={view({
+          status: "failed",
+          error: { reason: "rejected", stale: false },
+        })}
+        t={t}
+      />,
+    );
+
+    // The control for the notice path: a failed read keeps the whole-sheet
+    // sentence and its retry, and never the section-level line.
+    expect(screen.getByText("pairing.rejected")).toBeTruthy();
+    expect(screen.getByTestId("usage-retry")).toBeTruthy();
+    expect(screen.queryByTestId("usage-provider-list-error")).toBeNull();
+    expect(screen.queryByText("usage.providerListUnavailable")).toBeNull();
+  });
 });

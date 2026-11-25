@@ -1154,6 +1154,8 @@ const en: MessageTree = {
     byAgent: "By agent",
     noData: "No data for this range.",
     noAgentUsage: "No agent usage yet.",
+    providerListUnavailable:
+      "The provider list is not available on this device; your usage numbers are unaffected.",
     taskCount: "{count} conversations",
     thisWeek: "This week",
     days30: "30 days",
