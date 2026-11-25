@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the coarse row loses its 44px floor at 820 (KIN-CONTINUE-007)",
+    "file": "ui/src/components/sessions/SessionRow.tsx",
+    "old": "    dense ? \"min-h-9 py-1.5\" : \"min-h-11 py-2.5\",",
+    "new": "    dense ? \"min-h-9 py-1.5\" : \"min-h-9 py-1.5\",",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run src/components/sessions/SessionRow.coarse.dom.test.tsx"
+  },
+  {
+    "label": "the coarse row's actions shrink to a mouse-sized target at 820 (KIN-CONTINUE-007)",
+    "file": "ui/src/components/sessions/SessionRow.tsx",
+    "old": "        \"h-11 w-11 flex-none rounded-md bg-transparent p-0 text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text hover:brightness-100\",",
+    "new": "        \"h-9 w-9 flex-none rounded-md bg-transparent p-0 text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text hover:brightness-100\",",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run src/components/sessions/SessionRow.coarse.dom.test.tsx"
+  }
+]
