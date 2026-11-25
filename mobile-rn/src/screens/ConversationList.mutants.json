@@ -47,5 +47,33 @@
     "old": "      contentOffset={{ x: 0, y: initialOffset }}",
     "new": "      contentOffset={{ x: 0, y: 0 }}",
     "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 R3: the list starts at the offset the memory restored\""
+  },
+  {
+    "label": "a held conversation row never paints its pressed background (R-rn-list-press-skeleton)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}",
+    "new": "            style={({ pressed }) => [styles.row, false && styles.rowPressed]}",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: pressing a conversation row paints a pressed state\""
+  },
+  {
+    "label": "a held project heading never paints its pressed background (R-rn-list-press-skeleton)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "              style={({ pressed }) => [\n                styles.project,\n                pressed && styles.projectPressed,\n              ]}",
+    "new": "              style={({ pressed }) => [\n                styles.project,\n                false && styles.projectPressed,\n              ]}",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: pressing a project heading paints a pressed state\""
+  },
+  {
+    "label": "a refresh draws the first-load skeleton over the rows it already has (R-rn-list-press-skeleton)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "  const firstLoad = state.status === \"loading\" && !hasRows;",
+    "new": "  const firstLoad = state.status === \"loading\";",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: a refresh with rows keeps them and draws no skeleton\""
+  },
+  {
+    "label": "the first-load skeleton drops its spoken loading label (R-rn-list-press-skeleton)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "      accessibilityLabel={t(\"sessions.loading\")}\n      testID=\"list-skeleton\"",
+    "new": "      testID=\"list-skeleton\"",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: the first load draws the list's shape, not a lone wheel\""
   }
 ]

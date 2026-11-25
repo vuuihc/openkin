@@ -1,9 +1,15 @@
 import { describe, expect, it, jest } from "@jest/globals";
-import { fireEvent, render } from "@testing-library/react-native";
+import {
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react-native";
 import { SectionList, StyleSheet } from "react-native";
 import ConversationList, {
   BOTTOM_TAB_INSET,
   LIST_HEADER_HEIGHT,
+  PRESSED_BG,
   ROW_HEIGHT,
   ROW_MIN_HEIGHT,
   rowsOnScreen,
@@ -70,6 +76,29 @@ function state(overrides: Partial<ListViewState> = {}): ListViewState {
     },
   ];
   return { status: "ready", groups, error: null, ...overrides };
+}
+
+/**
+ * The synthetic touch a responder event carries. `Pressable` resolves its
+ * `style` function from Pressability's own press-in signal, so a test that
+ * wants the held state has to deliver that signal, not call a handler.
+ */
+function touchEvent() {
+  return {
+    currentTarget: { measure: () => {} },
+    nativeEvent: {
+      changedTouches: [],
+      identifier: 0,
+      locationX: 0,
+      locationY: 0,
+      pageX: 0,
+      pageY: 0,
+      target: 0,
+      timestamp: Date.now(),
+      touches: [],
+    },
+    persist: () => {},
+  };
 }
 
 async function renderList(
@@ -161,9 +190,121 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     expect(onToggleProject).toHaveBeenCalledWith("dev-a", "/work/beta");
   });
 
+  it("KIN-MOBILE-001 §2: pressing a conversation row paints a pressed state", async () => {
+    const screen = await renderList();
+    const resting = StyleSheet.flatten(
+      screen.getByTestId("row:a1").props.style,
+    );
+    expect(resting.backgroundColor).not.toBe(PRESSED_BG);
+
+    // A finger lands: Pressability's grant/activation turns the row's style
+    // function into the held array before any navigation can happen.
+    await fireEvent(
+      screen.getByTestId("row:a1"),
+      "responderGrant",
+      touchEvent(),
+    );
+    expect(
+      StyleSheet.flatten(screen.getByTestId("row:a1").props.style)
+        .backgroundColor,
+    ).toBe(PRESSED_BG);
+
+    // Lifting the finger returns the row to its resting paint. Pressable holds
+    // the pressed state for its minimum press duration, so the release is a
+    // transition to wait for, not a synchronous repaint.
+    await fireEvent(
+      screen.getByTestId("row:a1"),
+      "responderRelease",
+      touchEvent(),
+    );
+    await waitFor(() =>
+      expect(
+        StyleSheet.flatten(screen.getByTestId("row:a1").props.style)
+          .backgroundColor,
+      ).toBe(resting.backgroundColor),
+    );
+    expect(
+      StyleSheet.flatten(screen.getByTestId("row:a1").props.style)
+        .backgroundColor,
+    ).not.toBe(PRESSED_BG);
+  });
+
+  it("KIN-MOBILE-001 §2: pressing a project heading paints a pressed state", async () => {
+    const screen = await renderList();
+    const resting = StyleSheet.flatten(
+      screen.getByTestId("project:/work/alpha").props.style,
+    );
+    expect(resting.backgroundColor).not.toBe(PRESSED_BG);
+
+    await fireEvent(
+      screen.getByTestId("project:/work/alpha"),
+      "responderGrant",
+      touchEvent(),
+    );
+    expect(
+      StyleSheet.flatten(screen.getByTestId("project:/work/alpha").props.style)
+        .backgroundColor,
+    ).toBe(PRESSED_BG);
+
+    await fireEvent(
+      screen.getByTestId("project:/work/alpha"),
+      "responderRelease",
+      touchEvent(),
+    );
+    await waitFor(() =>
+      expect(
+        StyleSheet.flatten(
+          screen.getByTestId("project:/work/alpha").props.style,
+        ).backgroundColor,
+      ).toBe(resting.backgroundColor),
+    );
+  });
+
+  it("KIN-MOBILE-001 §2: the first load draws the list's shape, not a lone wheel", async () => {
+    const screen = await renderList({ status: "loading", groups: [] });
+
+    const skeleton = screen.getByTestId("list-skeleton");
+    // The loading sentence is spoken once by the shape's container; the bars
+    // themselves carry no words (the old lone sentence is no longer drawn).
+    expect(skeleton.props.accessibilityLabel).toBe("sessions.loading");
+    expect(screen.getByTestId("list-skeleton-heading")).toBeTruthy();
+    expect(screen.getAllByTestId("list-skeleton-row")).toHaveLength(3);
+    expect(screen.queryByText("sessions.loading")).toBeNull();
+  });
+
+  it("KIN-MOBILE-001 §2: a refresh with rows keeps them and draws no skeleton", async () => {
+    // A cached page being refreshed is a page, not a first load: the rows stay
+    // and no skeleton takes their place (TASTE 15).
+    const screen = await renderList({ status: "loading" });
+    expect(screen.getByText("a1 title")).toBeTruthy();
+    expect(screen.getByTestId("row:a1")).toBeTruthy();
+    expect(screen.queryByTestId("list-skeleton")).toBeNull();
+  });
+
+  it("KIN-MOBILE-001 §2: the skeleton is not a row", async () => {
+    const onOpen = jest.fn();
+    const screen = await renderList(
+      { status: "loading", groups: [] },
+      { onOpen },
+    );
+    const skeleton = screen.getByTestId("list-skeleton");
+
+    // Each real row is one accessible stop; a decorative bar is none.
+    expect(within(skeleton).queryAllByTestId(/^row:/)).toHaveLength(0);
+    expect(
+      skeleton.queryAll((node) => node.props.accessibilityRole === "button"),
+    ).toHaveLength(0);
+
+    for (const bar of screen.getAllByTestId("list-skeleton-row")) {
+      expect(bar.props.accessibilityRole).toBeUndefined();
+      await fireEvent.press(bar);
+    }
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
   it("KIN-MOBILE-001 R3: loading, empty, failed and expired each say something", async () => {
     const loading = await renderList({ status: "loading", groups: [] });
-    expect(loading.getByText("sessions.loading")).toBeTruthy();
+    expect(loading.getByTestId("list-skeleton")).toBeTruthy();
 
     const empty = await renderList({ status: "empty", groups: [] });
     expect(empty.getByText("sessions.empty")).toBeTruthy();
