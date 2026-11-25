@@ -192,10 +192,10 @@
   - `1100x760.png` ↔ `03-mac-1100-list.svg`：同一个 304px 左栏、同一条两行行式、工作方式收成一行；实测行高 46.4px（不低于 44px），帧底部的 Beta / Gamma 折叠条在 760 高度下落到折叠线以下。
   - `390x844.png` ↔ `04-phone-390-list.svg`：同一行式、工作方式默认收起，放大镜 / 每设备新建 / 底栏都保持 KIN-CONTINUE-004 / 005 的样子；帧上的「此设备 · 在线」在实拍里是「此设备」+ 计数。
   - `820x1180-failed.png` ↔ `05-row-states.svg`：第二行固定 agent · 时间 · 一个状态，状态不只靠颜色；失败态是 05 板子四态之外的第五个词，规则一致。
-- `unverified: 02-820-project-expanded 的「工作方式展开成两句正文」实拍 — 抓图只有收起态；展开、收起与按项目记忆由 SessionList.listScan.dom.test.tsx 的 folds the project's working style to one disclosure line 在 DOM 层守住，但没有 820 展开态截图。`
+- `unverified: 真浏览器一行差两处 —（a）820 的「展开另一个项目」：capture.mjs 不点项目折叠，measure.json 与 820 截图只有 Alpha 默认展开态；折叠交互由 J11 手机走查第 49 步点「展开项目 [seed] Project Beta」守住（rsi/state/shots/list-scan-b/journeys/walk.json 的 step 49；同目录 J11-phone-01-list.aria.txt 显示 Beta「收起项目 … [expanded]」且 Alpha「展开项目」），DOM 层另有 SessionList.projectFace.dom.test.tsx:296 的 Expand project Project Beta 与 Sidebar.dom.test.tsx:496 的 remembers a project fold by machine and project。（b）02-820-project-expanded 的「工作方式展开成两句正文」实拍 — 抓图只有收起态；展开、收起与按项目记忆由 SessionList.listScan.dom.test.tsx 的 folds the project's working style to one disclosure line 在 DOM 层守住，但没有 820 展开态截图。`
 
 ## 变更记录
 
 - 2026-11-24 创建（draft）。把 `KIN-CONTINUE-004` 的「下一条故事」与 `ui/src/index.css:273-276` 的待决交给本页；CEO 签字前不改产品代码。
 - 2026-11-24 · CEO 代签 `approved`（D4–D6 按审阅页推荐；记录见 `rsi/DECISIONS.md`）。实现这条故事的 PR 建三份测试、跑 820/1100/390 截图，并把本条翻 `covered`。
-- 2026-11-25 · 结算：三片（#705 / #712 / #716）已落 `main`，六行验收逐行对上证据，`registry.json` 补四个实现测试文件，状态翻 `covered`（docs-only）。
+- 2026-11-25 · 结算：三片（#705 / #712 / #716）已落 `main`，五行验收逐行对上证据、真浏览器一行带着写明的缺口（820 的「展开另一个项目」折叠交互只有手机走查与 DOM 层证据），`registry.json` 补四个实现测试文件，状态翻 `covered`（docs-only）。
