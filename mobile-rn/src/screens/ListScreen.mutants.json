@@ -33,5 +33,12 @@
     "old": "        const restored =\n          cached !== null &&\n          (cached.status === \"ready\" || cached.status === \"empty\");",
     "new": "        const restored = cached !== null;",
     "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a stored failure is not a page and the mount reads again\""
+  },
+  {
+    "label": "the boot frame's negative refresh-control offset overwrites the reader's place (R-rn-list-press-skeleton)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "    if (offset < 0) return;\n    memoryRef.current.write({ offset });",
+    "new": "    memoryRef.current.write({ offset });",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a negative scroll on the boot frame does not erase the offset a remount restores\""
   }
 ]
