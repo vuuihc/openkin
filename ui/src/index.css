@@ -255,35 +255,36 @@
       padding-top: env(safe-area-inset-top);
     }
   }
-  /* Phone-only floor for the app's controls, which are drawn at desktop density
+  /* The 44px floor for the app's controls, which are drawn at desktop density
      (17–40px). One wrapper around everything a thumb can reach, instead of a
      per-page set of sizes. The `pointer: coarse` arm is what keeps the floor on
      a phone held sideways, where the width arm alone would stop applying.
 
-     It stops at `md`, and that boundary is load-bearing. At ≥768px the console
-     switches to its desktop layout — a 304px list column (`w-list`) with the
-     row's actions revealed on hover. The old 248px column (measured 2026-10-23)
-     lost its project name when five floored buttons shared a 230px row; that was
-     the old layout, not this one. At the configured 304px the project header
-     draws two 44px controls (the fold chevron and the project menu) beside a
-     172px heading whose name keeps 126.5px, and the row's 44px trigger leaves
-     its conversation title 97.7px. Widening this rule's width arm over
-     768–1023.98 changes neither name (measured 2026-11-23,
-     `rsi/runtime/ux/measure-list-shell.mjs`). Whether the floor belongs in that
-     band is a layout decision for the signed story (row 13 `R-list-scan`,
-     GOAL P17), not something this comment settles; until it lands, the floor
-     stays sub-`md`. */
+     The coarse arm runs to 1023.98px — the whole iPad band — because the signed
+     story KIN-CONTINUE-007 item 5 (D4, 2026-11-24) requires it, and AGENTS 16
+     says a control reachable at ≥768px takes its floor from the pointer, never
+     from a width breakpoint. The width arm stays at 639.98px: a narrow Mac
+     window with a mouse keeps its compact density. The floor costs the list
+     column neither name. At the shipped 304px list column (`w-list`) the
+     project header draws two 44px controls (the fold chevron and the project
+     menu) beside a 172px heading whose name keeps 126.5px, and the row's 44px
+     trigger leaves its conversation title 97.7px; both readings hold with the
+     floor on across 768–1023 (measured 2026-11-23,
+     `rsi/runtime/ux/measure-list-shell.mjs`, at 820×1180, 768×1024 and
+     1023×768). The old 248px column (measured 2026-10-23) lost its project
+     name when five floored buttons shared a 230px row; that was the old
+     layout, not this one. */
   /* The mirror of `.touch-hide`, and it needs both halves: hidden is the
      default, flex is the touch case. Some actions only exist behind a hover
      (`opacity-0 group-hover:…`), so a touch screen has no way to reach them at
      all; `.touch-hide` drops them from the cramped row and `.touch-only` puts
      the same actions back in the row's expanded body, where 44pt controls fit
-     without squeezing the name. Its query is deliberately wider than the
-     floor's — see the block below. */
+     without squeezing the name. Its query now matches the floor's, both
+     reaching the iPad band — see the block below. */
   .touch-only {
     display: none;
   }
-  @media (max-width: 639.98px), ((pointer: coarse) and (max-width: 767.98px)) {
+  @media (max-width: 639.98px), ((pointer: coarse) and (max-width: 1023.98px)) {
     .touch-lg button:not([data-touch-mini]),
     .touch-lg select,
     .touch-lg [role="button"],
@@ -300,13 +301,13 @@
   /* A control revealed by `:hover` does not exist on a touch screen — the
      first tap fires the hover *and* whatever sits under the finger. Drop
      those rather than floor them, which also returns their width to the label
-     beside them. This arm runs wider than the floor above, to the iPad's
-     portrait widths: the console draws its desktop two-column shell at ≥768,
-     so a hover-only 24px row icon would otherwise be drawn on a touch screen
-     that has no hover and no 44px floor. Hiding it costs no width, and the
-     action lives in the row/project menu; the crush that flooring the row
-     caused in the old 248px layout is recorded at `:263-275` (and no longer
-     reproduces at the shipped 304px). */
+     beside them. This arm reaches the same 1023.98px the floor does, to the
+     iPad's portrait widths: the console draws its desktop two-column shell at
+     ≥768, so a hover-only 24px row icon would otherwise be drawn on a touch
+     screen that has no hover and no 44px floor. Hiding it costs no width, and
+     the action lives in the row/project menu; the crush that flooring the row
+     caused in the old 248px layout is recorded in the floor's comment above
+     (and no longer reproduces at the shipped 304px). */
   @media (max-width: 639.98px), ((pointer: coarse) and (max-width: 1023.98px)) {
     .touch-hide {
       display: none;
@@ -382,9 +383,10 @@
   }
   /* One chip, not a shell-wide floor. The `/new` draft's 打开封面 link renders
      75×27.9 on the owner's iPad (820×1180, coarse pointer, measured): the
-     `.touch-lg` floor above stops at 767.98px, and the chip's own
-     `sm:min-h-0` drops `min-h-11` at ≥640px. Flooring the whole 768–1023
-     shell is the crush recorded above, so the one control that is a thumb
+     `.touch-lg` floor above selects buttons, selects, `[role="button"]` and
+     inputs — not an anchor — and the chip's own `sm:min-h-0` drops `min-h-11`
+     at ≥640px. Its coarse arm now reaches 1023.98px, but the selector list
+     still does not match this link, so the one control that is a thumb
      target there names this class instead. The doubled class is load-bearing
      for the reason `.kin-composer-input` records below: `sm:min-h-0` is
      emitted in Tailwind's trailing responsive block and would win at equal
