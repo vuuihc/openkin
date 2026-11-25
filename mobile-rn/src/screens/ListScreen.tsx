@@ -97,6 +97,9 @@ export default function ListScreen({
   // list route because they live in `memory`, not in this component.
   const [query, setQuery] = useState(() => memory.read().query);
   const [initialOffset, setInitialOffset] = useState(0);
+  // The row the keyboard ring was on when the route unmounted (KIN-MOBILE-001
+  // §2 离开再回来). Read once with the query; every move writes it back.
+  const [initialFocusId] = useState(() => memory.read().focusedRowId);
   // The reconnect band is a network state, not a steady one: null whenever the
   // list is current.
   const [band, setBand] = useState<"resuming" | "offline" | null>(null);
@@ -282,6 +285,11 @@ export default function ListScreen({
     memoryRef.current.write({ query: next });
   }, []);
 
+  /** Every ring move updates the row Back will put the reader on. */
+  const rememberFocus = useCallback((rowId: string) => {
+    memoryRef.current.write({ focusedRowId: rowId });
+  }, []);
+
   /** Every scroll updates the place Back will restore. */
   const rememberOffset = useCallback((offset: number) => {
     // A negative offset is never a resting place: iOS's refresh control
@@ -320,6 +328,8 @@ export default function ListScreen({
     // first paint (KIN-MOBILE-001 §2「慢：先出设备标题骨架」).
     return (
       <ConversationList
+        initialFocusId={initialFocusId}
+        onFocusChange={rememberFocus}
         onOpen={open}
         onQueryChange={changeQuery}
         onRefresh={refresh}
@@ -339,7 +349,9 @@ export default function ListScreen({
 
   return (
     <ConversationList
+      initialFocusId={initialFocusId}
       initialOffset={initialOffset}
+      onFocusChange={rememberFocus}
       onOpen={open}
       onQueryChange={changeQuery}
       onRefresh={refresh}
