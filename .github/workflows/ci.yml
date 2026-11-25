@@ -16,8 +16,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A markdown-only diff outside ui/, web/ and mobile-rn/ cannot break a
+  # compile, a test or a boot — it is the same rule the local merge gate's
+  # docs scope uses (AGENTS.md/CLAUDE.md stay code because tests pin their
+  # contents). Skipping build, smoke and desktop for it turns ~7 min of CI
+  # into seconds; their SKIPPED conclusions read as green to merge.sh's ci()
+  # (rsi/runtime/merge.sh treats SKIPPED like SUCCESS). The classifier fails
+  # safe: an unusable base, an unreadable diff or an empty list means code.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          code=true
+          base="$BASE_SHA"
+          if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2>/dev/null; then
+            files="$(git diff --name-only "$base"...HEAD 2>/dev/null)" || files=""
+            if [ -n "$files" ]; then
+              code=false
+              while IFS= read -r p; do
+                [ -z "$p" ] && continue
+                case "$p" in
+                  *.md) ;;
+                  *) code=true ;;
+                esac
+                case "$p" in
+                  ui/*|web/*|mobile-rn/*|AGENTS.md|*/AGENTS.md|CLAUDE.md|*/CLAUDE.md) code=true ;;
+                esac
+              done <<<"$files"
+            fi
+          fi
+          echo "classified ${base:-none} as code=$code"
+          echo "code=$code" >>"$GITHUB_OUTPUT"
+
   build:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -157,7 +200,8 @@ jobs:
   # or a migration that only fails on a real database used to reach a user.
   smoke:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, changes]
+    if: needs.changes.outputs.code == 'true'
     # The script bounds every request and every wait; this is the backstop for
     # the one thing it cannot bound — a hung process the shell itself is stuck
     # waiting on. GitHub's default is six hours.
@@ -186,6 +230,8 @@ jobs:
   # esbuild reads; the package's own type definitions are what typecheck needs.
   desktop:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v4
 
