@@ -8,20 +8,31 @@ ONLY=""
 if [ "${1:-}" = "--only" ]; then ONLY="${2:?--only needs step[,step]}"; shift 2; fi
 
 # scope_of <file>: `rn` when the changed-file list is non-empty and every path is under
-# mobile-rn/ or is the RN gate ADR (docs/adr/0036-*); anything else, including an empty
-# list, is `full`. 2026-11-24 measurement: .gate.lock was held 21.5 h across 100 runs and
-# 11.2 h of it was RN/docs PRs, each paying ~10 min of repo-wide check jobs it cannot use.
+# mobile-rn/ or is the RN gate ADR (docs/adr/0036-*); `docs` when it is non-empty and every
+# path is markdown outside ui/, web/ and mobile-rn/ that is not an AGENTS.md or CLAUDE.md
+# (those two pin counts full-gate tests assert); anything else, including an empty list,
+# is `full`. Precedence is rn > docs > full. 2026-11-24 measurement: .gate.lock was held
+# 21.5 h across 100 runs and 11.2 h of it was RN/docs PRs, each paying ~10 min of
+# repo-wide check jobs it cannot use.
 scope_of() {
-  local n=0 bad=0 line
+  local n=0 rn=1 docs=1 line
   while IFS= read -r line || [ -n "$line" ]; do
     [ -z "$line" ] && continue
     n=$((n + 1))
     case "$line" in
       mobile-rn/*|docs/adr/0036-*) ;;
-      *) bad=1 ;;
+      *) rn=0 ;;
+    esac
+    case "$line" in
+      ui/*|web/*|mobile-rn/*|AGENTS.md|*/AGENTS.md|CLAUDE.md|*/CLAUDE.md) docs=0 ;;
+      *.md) ;;
+      *) docs=0 ;;
     esac
   done <"$1"
-  { [ "$n" -gt 0 ] && [ "$bad" -eq 0 ]; } && echo rn || echo full
+  [ "$n" -eq 0 ] && { echo full; return; }
+  [ "$rn" -eq 1 ] && { echo rn; return; }
+  [ "$docs" -eq 1 ] && { echo docs; return; }
+  echo full
 }
 # gate.sh --scope-of <file> prints that scope for a changed-file list, then exits.
 if [ "${1:-}" = "--scope-of" ]; then scope_of "${2:?--scope-of needs a file}"; exit 0; fi
@@ -164,19 +175,25 @@ echo "changed files: $(echo "$changed" | grep -c .)"
 scope_list="$(mktemp "${TMPDIR:-/tmp}/gate-changed.XXXXXX")"
 printf '%s\n' "$changed" >"$scope_list"
 scope="$(scope_of "$scope_list")"
-rm -f "$scope_list"
-[ "$scope" = rn ] && echo "scope: rn-only ($(echo "$changed" | grep -c .) files)"
+# docs scope hands the same list to check.sh as KIN_CHECK_CHANGED; the other scopes
+# do not need it, so the temp file is only kept alive for that one branch.
+[ "$scope" = docs ] || rm -f "$scope_list"
+[ "$scope" != full ] && echo "scope: $scope-only ($(echo "$changed" | grep -c .) files)"
 lines="$($GIT diff --shortstat origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json')"
 echo "diff size: $lines"
 echo "$changed" | grep -qE '^(web/dist/assets/|\.env|.*secret)' && { echo "FAIL: forbidden path in diff"; fail=1; why="$why forbidden-path"; }
 [ -n "$($GIT status --porcelain)" ] && { echo "FAIL: working tree not clean (commit or discard)"; $GIT status --short | head; fail=1; why="$why dirty-tree"; }
 echo "$changed" | grep -q '^ui/' && needs_node_stamp && step node-stamp ui_node_stamp
 if [ -x scripts/check.sh ] && selected check; then
-  if [ "$scope" = rn ]; then
-    step check env KIN_CHECK_SCOPE=rn ./scripts/check.sh
-  else
-    step check ./scripts/check.sh
-  fi
+  case "$scope" in
+    rn)
+      step check env KIN_CHECK_SCOPE=rn ./scripts/check.sh ;;
+    docs)
+      step check env KIN_CHECK_SCOPE=docs "KIN_CHECK_CHANGED=$scope_list" ./scripts/check.sh
+      rm -f "$scope_list" ;;
+    *)
+      step check ./scripts/check.sh ;;
+  esac
 fi
 if echo "$changed" | grep -q '^ui/'; then
   selected lint && step lint bash -c 'cd ui && npm run lint'

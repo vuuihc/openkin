@@ -83,8 +83,10 @@ i=0
   || fail "scope-of: mobile-rn + ui/ should be full"
 [ "$(scope_of mobile-rn/src/App.tsx rsi/runtime/x.sh)" = full ] \
   || fail "scope-of: mobile-rn + rsi/ should be full"
-[ "$(scope_of docs/adr/0035-x.md)" = full ] \
-  || fail "scope-of: a non-0036 ADR alone should be full"
+# A non-0036 ADR alone is markdown-only outside mobile-rn/, so since the docs scope
+# landed it is `docs`, not `full` — the rn assertion is that it is not `rn`.
+[ "$(scope_of docs/adr/0035-x.md)" = docs ] \
+  || fail "scope-of: a non-0036 ADR alone should be docs (rn loses precedence but is not full)"
 : >"$T/empty"
 [ "$(bash "$GATE" --scope-of "$T/empty")" = full ] \
   || fail "scope-of: an empty list should be full"
