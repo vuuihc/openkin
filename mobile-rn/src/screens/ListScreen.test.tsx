@@ -19,6 +19,7 @@ import {
   type AppStateStatus,
 } from "../lifecycle/resume";
 import ListScreen from "./ListScreen";
+import { FOCUS_RING } from "./ConversationList";
 
 /**
  * KIN-MOBILE-001 R3 — the list route wired to the stored session.
@@ -975,6 +976,63 @@ describe("KIN-MOBILE-001 R3 list memory and restore", () => {
     expect(
       second.getByTestId("list-scroller").props.contentOffset,
     ).toEqual({ x: 0, y: 180 });
+  });
+
+  it("KIN-MOBILE-001 §2: the ring is on the row the reader left", async () => {
+    // Restated here so a reverted ConversationList (which exports nothing)
+    // cannot make both sides of a ring assertion undefined.
+    const RING = "#0b57d0";
+    expect(FOCUS_RING).toBe(RING);
+    const fetchImpl = routedFetch((url) => {
+      if (!url.endsWith(listTasksPath())) return { body: [] };
+      // One project, so the visual row order is exactly a1, a2, a3.
+      const rows = [
+        { id: "a1", title: "Alpha one", at: 1000 },
+        { id: "a2", title: "Alpha two", at: 900 },
+        { id: "a3", title: "Alpha three", at: 800 },
+      ];
+      return {
+        body: rows.map(({ id, title, at }) =>
+          task({
+            id,
+            title,
+            cwd: "/work/alpha",
+            created_at: at,
+            started_at: at,
+            finished_at: at,
+          }),
+        ),
+      };
+    });
+    const memory = createListMemory();
+
+    const first = await renderList({ fetchImpl, memory });
+    await waitFor(() => expect(first.getByTestId("row:a1")).toBeTruthy());
+
+    const scroller = first.getByTestId("list-scroller");
+    await fireEvent(scroller, "keyDown", { nativeEvent: { key: "ArrowDown" } });
+    await fireEvent(scroller, "keyDown", { nativeEvent: { key: "ArrowDown" } });
+    expect(
+      StyleSheet.flatten(first.getByTestId("row:a2").props.style).borderColor,
+    ).toBe(RING);
+    // The ring is route state, not a paint: the memory holds the row.
+    expect(memory.read().focusedRowId).toBe("a2");
+    await first.unmount();
+
+    // Back from the conversation: the ring is on the row the reader left and
+    // the arrows continue from there.
+    const second = await renderList({ fetchImpl, memory });
+    await waitFor(() => expect(second.getByTestId("row:a2")).toBeTruthy());
+    expect(
+      StyleSheet.flatten(second.getByTestId("row:a2").props.style).borderColor,
+    ).toBe(RING);
+
+    await fireEvent(second.getByTestId("list-scroller"), "keyDown", {
+      nativeEvent: { key: "ArrowDown" },
+    });
+    expect(
+      StyleSheet.flatten(second.getByTestId("row:a3").props.style).borderColor,
+    ).toBe(RING);
   });
 
   it("KIN-MOBILE-001 R3: a stored failure is not a page and the mount reads again", async () => {

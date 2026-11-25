@@ -108,11 +108,14 @@ export function createMemoryFoldStore(
 
 /**
  * What must outlive the list route: what the reader was looking for, where
- * they were, and the page they were reading.
+ * they were, the row their keyboard ring was on, and the page they were
+ * reading.
  */
 export type ListMemoryState = {
   query: string;
   offset: number;
+  /** The row the ring was on; empty until the reader moves it (KIN-MOBILE-001 §2). */
+  focusedRowId: string;
 };
 
 /**
@@ -140,13 +143,15 @@ export function createListMemory(
 ): ListMemory {
   let query = initial.query ?? "";
   let offset = initial.offset ?? 0;
+  let focusedRowId = initial.focusedRowId ?? "";
   let generation = 0;
   const snapshots = new Map<string, ListViewState>();
   return {
-    read: () => ({ query, offset }),
+    read: () => ({ query, offset, focusedRowId }),
     write: (patch) => {
       if (patch.query !== undefined) query = patch.query;
       if (patch.offset !== undefined) offset = patch.offset;
+      if (patch.focusedRowId !== undefined) focusedRowId = patch.focusedRowId;
     },
     readSnapshot: (origin) => snapshots.get(origin) ?? null,
     writeSnapshot: (origin, state) => {

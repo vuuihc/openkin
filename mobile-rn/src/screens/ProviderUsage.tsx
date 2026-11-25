@@ -23,12 +23,21 @@
  * exactly as R5b's `Approvals` landed before R5c mounted it.
  */
 
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef } from "react";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type ViewInstance,
+} from "react-native";
 import {
   cacheRateLabel,
   formatTokenCount,
   summarizeUsage,
 } from "../../../ui/src/lib/usage";
+import { focusNode } from "../a11y/focus";
 import {
   USAGE_WINDOWS,
   type ProviderEntry,
@@ -36,6 +45,7 @@ import {
   type ProvidersView,
   type UsageWindowDays,
 } from "../providers/providersModel";
+import UsageSkeleton from "./UsageSkeleton";
 
 type Translate = (
   key: string,
@@ -48,6 +58,12 @@ export type ProviderUsageScreenProps = {
   onSelectWindow: (days: UsageWindowDays) => void;
   onRefresh?: () => void;
   onClose?: () => void;
+  /**
+   * Ask for the reader's focus on the title once, at mount. The sheet passes
+   * this while it is visible (`KIN-MOBILE-001.md:124`: the sheet is modal, so
+   * focus enters its title); the screen alone never moves the reader.
+   */
+  autoFocus?: boolean;
 };
 
 const WINDOW_LABEL_KEYS: Record<UsageWindowDays, string> = {
@@ -133,7 +149,16 @@ export default function ProviderUsage({
   onSelectWindow,
   onRefresh,
   onClose,
+  autoFocus,
 }: ProviderUsageScreenProps) {
+  const titleRef = useRef<ViewInstance | null>(null);
+  // One open is one mount: the sheet's Modal unmounts this subtree while it is
+  // hidden, so the reader is moved once per open and never on an in-place
+  // update (`Approvals.tsx:70-79` is the same one-transition rule).
+  useEffect(() => {
+    if (autoFocus) focusNode(titleRef);
+  }, [autoFocus]);
+
   const totals = summarizeUsage(state.usage);
   // The model's two kinds of "nothing" (`providersModel.ts:252-258`).
   const deviceEmpty = state.status === "empty";
@@ -147,6 +172,10 @@ export default function ProviderUsage({
   // that failed must not put four "—" tiles where nothing was ever read.
   const showTiles =
     !deviceEmpty && !expired && (state.status === "ready" || hasData);
+  // The first read has nothing to show, so its slow state is the sheet's
+  // skeleton (`KIN-MOBILE-001.md:123`). A refresh keeps the rows and numbers
+  // already read (`providersModel.ts:202-229`) and must not cover them.
+  const showSkeleton = state.status === "loading" && !hasData;
 
   // One line for the state that is not a plain success. Offline wins when it
   // kept rows: it names the network, which is the actionable fact; a stale
@@ -171,7 +200,12 @@ export default function ProviderUsage({
       testID="provider-usage-screen"
     >
       <View style={styles.header}>
-        <Text accessibilityRole="header" style={styles.headerTitle}>
+        <Text
+          accessibilityRole="header"
+          ref={titleRef}
+          style={styles.headerTitle}
+          testID="usage-title"
+        >
           {t("usage.title")}
         </Text>
         {onClose ? (
@@ -218,9 +252,7 @@ export default function ProviderUsage({
         })}
       </View>
 
-      {state.status === "loading" ? (
-        <Text style={styles.status}>{t("usage.loading")}</Text>
-      ) : null}
+      {showSkeleton ? <UsageSkeleton t={t} /> : null}
 
       {notice ? (
         <View style={styles.notice}>
@@ -419,10 +451,6 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
-  },
-  status: {
-    color: "#6b6b6b",
-    fontSize: 14,
   },
   tile: {
     backgroundColor: "#f4f4f4",

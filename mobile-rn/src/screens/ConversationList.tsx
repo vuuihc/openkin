@@ -7,7 +7,7 @@
  * Routing, data loading and transport stay outside this component.
  */
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Pressable,
   SectionList,
@@ -15,7 +15,10 @@ import {
   Text,
   TextInput,
   View,
+  type PressableInstance,
 } from "react-native";
+import { focusNode } from "../a11y/focus";
+import { isRowKey, moveRow, openRow } from "../list/listKeys";
 import type {
   ConversationRow,
   DeviceGroup,
@@ -35,9 +38,22 @@ export const ROW_HEIGHT = 56;
  */
 export const PRESSED_BG = "#ececec";
 
+/**
+ * The keyboard ring's colour (KIN-MOBILE-001 §2). Visual only: the ring never
+ * becomes a second accessibility element, and it paints on the row's own box
+ * so the 56pt height does not move.
+ */
+export const FOCUS_RING = "#0b57d0";
+
 /** The list header band, and the bottom tab bar the list sits above. */
 export const LIST_HEADER_HEIGHT = 56;
 export const BOTTOM_TAB_INSET = 64;
+
+/**
+ * How long a failed scroll waits for the list to lay an off-window row out
+ * before placing it again. One retry only; a newer move supersedes it.
+ */
+const SCROLL_RETRY_MS = 100;
 
 /**
  * Whole rows one 820×1180 coarse-pointer screenful holds, computed from the
@@ -78,12 +94,32 @@ export type ConversationListProps = {
   /** The offset a remount starts at, and every scroll the reader makes. */
   initialOffset?: number;
   onScrollOffset?: (offset: number) => void;
+  /** The row the ring is on when the list mounts (KIN-MOBILE-001 §2). */
+  initialFocusId?: string;
+  /** Every move of the ring, so the route can remember where the reader was. */
+  onFocusChange?: (rowId: string) => void;
+  /**
+   * Bumped only when the list route itself regains focus (Back from a pushed
+   * conversation). Distinct from the data epoch the container re-reads on: a
+   * split open/switch/close is not a return and must not move the reader.
+   */
+  returnFocusEpoch?: number;
   /**
    * A network state, not a steady one: present only while the screen is
    * reconnecting or has given up. It draws above the list header and never
    * over a row.
    */
   resume?: ResumeBandState;
+};
+
+/**
+ * The slice of React Native's key event this screen reads. `KeyDownEvent` is
+ * assignable to it; the test renderer can deliver the same two fields without
+ * a native key pipeline.
+ */
+type ListKeyEvent = {
+  nativeEvent: { key: string };
+  preventDefault?: () => void;
 };
 
 /**
@@ -172,6 +208,24 @@ function sectionsOf(groups: readonly DeviceGroup[]): Section[] {
   });
 }
 
+/**
+ * Where a row sits for `scrollToLocation`: its section and its item index in
+ * that section's data. Project headings occupy item indices too, so a row is
+ * not at its position among rows alone.
+ */
+function locateRow(
+  sections: readonly Section[],
+  rowId: string,
+): { sectionIndex: number; itemIndex: number } | null {
+  for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex += 1) {
+    const itemIndex = sections[sectionIndex]!.data.findIndex(
+      (entry) => entry.kind === "row" && entry.row.id === rowId,
+    );
+    if (itemIndex !== -1) return { sectionIndex, itemIndex };
+  }
+  return null;
+}
+
 export default function ConversationList({
   state,
   t,
@@ -182,6 +236,9 @@ export default function ConversationList({
   onQueryChange,
   initialOffset = 0,
   onScrollOffset,
+  initialFocusId = "",
+  onFocusChange,
+  returnFocusEpoch = 0,
   resume,
 }: ConversationListProps) {
   // An empty device (`includeEmptyDevices`) still yields a section, and a
@@ -198,10 +255,126 @@ export default function ConversationList({
   const searching = query.trim() !== "";
   const listRef = useRef<SectionList<Entry, Section>>(null);
   const restored = useRef(false);
+  // The visible conversation rows in paint order. Project headings are not
+  // rows: the arrows skip them and Enter on one does nothing.
+  const rowIds = sections.flatMap((section) =>
+    section.data.flatMap((entry) =>
+      entry.kind === "row" ? [entry.row.id] : [],
+    ),
+  );
+  // The ring's row. A row that a fold or a query hides keeps the id: no ring
+  // is drawn while it is gone, and it comes back when the row does.
+  const [focusedId, setFocusedId] = useState(initialFocusId);
+  // While the caret is in the search field the arrows belong to the text.
+  const [searchFocused, setSearchFocused] = useState(false);
+  // The row the last keyboard move asked the list to reveal. A failed scroll
+  // retries against it, and a newer move replaces it (AGENTS.md rule 11).
+  const pendingScroll = useRef<{
+    sectionIndex: number;
+    itemIndex: number;
+  } | null>(null);
+  // The row nodes a return can move the reader to. SectionList paints only
+  // the rows near the viewport, so the ringed row may not be committed yet.
+  const rowRefs = useRef(new Map<string, PressableInstance>());
+  // The row a return is still waiting to see painted. Its ref callback is the
+  // only signal that the row exists now: no timer, no retry loop (AGENTS §13).
+  const pendingReturn = useRef<string | null>(null);
+  // The epoch this list mounted with is the baseline: only a later change is a
+  // return, so the first paint (including a restored ring) moves nothing.
+  const returnBaseline = useRef(returnFocusEpoch);
+
+  // KIN-MOBILE-001 §2「返回时焦点回到那一行」: when the route reports that the
+  // list itself regained focus, move the reader once to the row the ring is on.
+  // The split's data-only epoch never reaches this prop, so opening, switching
+  // or closing the conversation beside the list cannot steal the reader.
+  useEffect(() => {
+    if (returnBaseline.current === returnFocusEpoch) return;
+    returnBaseline.current = returnFocusEpoch;
+    // A deep link straight into a conversation never had an originating row:
+    // nothing to return to, and the first row is not it.
+    if (focusedId === "") return;
+    const node = rowRefs.current.get(focusedId);
+    if (node == null) {
+      pendingReturn.current = focusedId;
+      return;
+    }
+    pendingReturn.current = null;
+    focusNode({ current: node });
+  }, [returnFocusEpoch, focusedId]);
+
+  /**
+   * A reader action that moves them off the rows drops a return still waiting
+   * for its row to paint: a focus move that lands later would steal them from
+   * wherever they are now (AGENTS.md rule 11).
+   */
+  const dropPendingReturn = () => {
+    pendingReturn.current = null;
+  };
+
+  const focusRow = (rowId: string, scroll = false) => {
+    if (rowId === focusedId) return;
+    // A newer move supersedes a return still waiting for its row to paint.
+    dropPendingReturn();
+    setFocusedId(rowId);
+    onFocusChange?.(rowId);
+    if (!scroll) return;
+    // The list is virtualized: a row past the fold is painted nowhere, so the
+    // ring would be invisible and Enter would open a row the reader cannot
+    // see. Reveal the row the ring lands on.
+    const where = locateRow(sections, rowId);
+    if (where === null) return;
+    pendingScroll.current = where;
+    listRef.current?.scrollToLocation({
+      ...where,
+      animated: true,
+      viewPosition: 0.5,
+    });
+  };
+
+  const handleKeyDown = (event: ListKeyEvent) => {
+    if (searchFocused) return;
+    const key = event?.nativeEvent?.key;
+    if (typeof key !== "string" || !isRowKey(key)) return;
+    // A handled key never scrolls the list or moves the caret instead.
+    event?.preventDefault?.();
+    if (key === "Enter") {
+      const target = openRow(rowIds, focusedId);
+      if (target !== null) {
+        // The list is leaving for the conversation: a return still waiting
+        // for a row must not land behind it (AGENTS.md rule 11).
+        dropPendingReturn();
+        onOpen(target);
+      }
+      return;
+    }
+    focusRow(moveRow(rowIds, focusedId, key), true);
+  };
 
   return (
     <SectionList<Entry, Section>
       ref={listRef}
+      // The handler seam, and the pure map behind it, are landed here; RN
+      // 0.88.1 delivers key-down to Views only on Android and only with the
+      // native `enableKeyEvents` flag, which no app-level prop turns on. A
+      // native key source (or a future RN) drives this path; see the PR body.
+      onKeyDown={handleKeyDown}
+      onScrollToIndexFailed={(info) => {
+        // The row is past the rendered window, so it has no measured frame:
+        // jump near its estimated offset, then place it once it is laid out.
+        listRef.current
+          ?.getScrollResponder()
+          ?.scrollTo({ y: info.averageItemLength * info.index, animated: false });
+        const target = pendingScroll.current;
+        if (target === null) return;
+        setTimeout(() => {
+          if (pendingScroll.current !== target) return;
+          listRef.current?.scrollToLocation({
+            ...target,
+            animated: true,
+            viewPosition: 0.5,
+          });
+        }, SCROLL_RETRY_MS);
+      }}
       sections={sections}
       // iOS takes the restored offset before content lays out; the scroll
       // responder below covers the platforms that ignore it.
@@ -239,7 +412,12 @@ export default function ConversationList({
                 disabled: searching,
               }}
               disabled={searching}
-              onPress={() => onToggleProject?.(item.deviceId, item.project.key)}
+              onPress={() => {
+                // The reader folded or unfolded a project; a return that was
+                // waiting for a hidden row must not land after that.
+                dropPendingReturn();
+                onToggleProject?.(item.deviceId, item.project.key);
+              }}
               style={({ pressed }) => [
                 styles.project,
                 pressed && styles.projectPressed,
@@ -266,14 +444,38 @@ export default function ConversationList({
           row.pending > 0
             ? t("sessions.pendingApprovals", { count: row.pending })
             : null;
+        const focused = row.id === focusedId;
         return (
           <Pressable
             accessibilityLabel={[row.title, meta, pendingLabel]
               .filter(Boolean)
               .join(" · ")}
             accessibilityRole="button"
-            onPress={() => onOpen(row.id)}
-            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+            ref={(node) => {
+              if (node === null) {
+                rowRefs.current.delete(row.id);
+                return;
+              }
+              rowRefs.current.set(row.id, node);
+              // A return that landed before this row was painted waits here;
+              // the first committed ref is the row's arrival.
+              if (pendingReturn.current !== row.id) return;
+              pendingReturn.current = null;
+              focusNode({ current: node });
+            }}
+            onPress={() => {
+              // A tapped row is where the reader left the list, so the ring
+              // rests there when they come back. `focusRow` drops a waiting
+              // return too, but tapping the row already ringed early-returns.
+              dropPendingReturn();
+              focusRow(row.id);
+              onOpen(row.id);
+            }}
+            style={({ pressed }) => [
+              styles.row,
+              pressed && styles.rowPressed,
+              focused && styles.rowFocused,
+            ]}
             testID={`row:${row.id}`}
           >
             <Text numberOfLines={1} style={styles.title}>
@@ -304,7 +506,17 @@ export default function ConversationList({
               accessibilityLabel={t("sessions.searchPlaceholder")}
               autoCapitalize="none"
               autoCorrect={false}
-              onChangeText={onQueryChange}
+              onChangeText={(next) => {
+                // A query the reader is typing changes which rows can paint;
+                // a return waiting for one of them is no longer their context.
+                dropPendingReturn();
+                onQueryChange(next);
+              }}
+              onBlur={() => setSearchFocused(false)}
+              onFocus={() => {
+                dropPendingReturn();
+                setSearchFocused(true);
+              }}
               placeholder={t("sessions.searchPlaceholder")}
               returnKeyType="search"
               style={styles.searchInput}
@@ -568,6 +780,12 @@ const styles = StyleSheet.create({
   },
   rowPressed: {
     backgroundColor: PRESSED_BG,
+  },
+  rowFocused: {
+    // A ring on the row's own box: the fixed height absorbs the border, so
+    // neither ROW_HEIGHT nor the 44pt floor moves.
+    borderColor: FOCUS_RING,
+    borderWidth: 2,
   },
   skeletonHeading: {
     backgroundColor: "#dcdcdc",

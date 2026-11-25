@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the first-load condition forgets there is nothing read yet, so a refresh replaces turns with a skeleton (R-rn-conversation-skeleton)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      {state.status === \"loading\" && state.turns.length === 0 ? (",
+    "new": "      {state.status === \"loading\" ? (",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.loading.test.tsx -t \"KIN-MOBILE-001 R4: a refresh that already has turns keeps them and draws no skeleton\""
+  },
+  {
+    "label": "the skeleton container is no reader stop, so a slow first load is silent to VoiceOver (R-rn-conversation-skeleton)",
+    "file": "mobile-rn/src/screens/ConversationSkeleton.tsx",
+    "old": "      accessible\n      accessibilityLabel={t(\"common.loading\")}",
+    "new": "      accessibilityLabel={t(\"common.loading\")}",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.loading.test.tsx -t \"KIN-MOBILE-001 R4: the skeleton speaks one loading word and exposes no bars to the reader\""
+  },
+  {
+    "label": "the skeleton draws on every status, so a failed read shows fake message shapes instead of the error block (R-rn-conversation-skeleton)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      {state.status === \"loading\" && state.turns.length === 0 ? (",
+    "new": "      {state.turns.length === 0 ? (",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.loading.test.tsx -t \"KIN-MOBILE-001 R4: a failed first read draws the error block, not a skeleton\""
+  },
+  {
+    "label": "the tool-shaped bar drops below the signed touch floor, shrinking the shape the real tool row takes (R-rn-conversation-skeleton)",
+    "file": "mobile-rn/src/screens/ConversationSkeleton.tsx",
+    "old": "    minHeight: 44,",
+    "new": "    minHeight: 43,",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.loading.test.tsx -t \"KIN-MOBILE-001 R4: the tool-shaped bar keeps the 44-point row height\""
+  }
+]
