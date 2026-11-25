@@ -40,5 +40,12 @@
     "old": "  resumeRetry: {\n    alignItems: \"center\",\n    justifyContent: \"center\",\n    // The signed touch floor, on the one control the band offers.\n    minHeight: ROW_MIN_HEIGHT,\n    minWidth: ROW_MIN_HEIGHT,",
     "new": "  resumeRetry: {\n    alignItems: \"center\",\n    justifyContent: \"center\",\n    // The signed touch floor, on the one control the band offers.\n    minHeight: 28,\n    minWidth: 28,",
     "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 R7: the offline band's retry meets the 44pt floor and calls back once\""
+  },
+  {
+    "label": "the list ignores the restored offset and starts at the top (R-rn-list-restore)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "      contentOffset={{ x: 0, y: initialOffset }}",
+    "new": "      contentOffset={{ x: 0, y: 0 }}",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 R3: the list starts at the offset the memory restored\""
   }
 ]

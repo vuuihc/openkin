@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from "@jest/globals";
 import { fireEvent, render } from "@testing-library/react-native";
-import { StyleSheet } from "react-native";
+import { SectionList, StyleSheet } from "react-native";
 import ConversationList, {
   BOTTOM_TAB_INSET,
   LIST_HEADER_HEIGHT,
@@ -339,4 +339,56 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     expect(screen.queryByText(realT("sessions.empty"))).toBeNull();
   });
 
+});
+
+describe("KIN-MOBILE-001 R3 list place", () => {
+  it("KIN-MOBILE-001 R3: the list starts at the offset the memory restored", async () => {
+    const scrollTo = jest.fn();
+    const spy = jest
+      .spyOn(SectionList.prototype, "getScrollResponder")
+      .mockReturnValue({
+        scrollTo,
+      } as unknown as ReturnType<
+        SectionList<never, never>["getScrollResponder"]
+      >);
+    try {
+      const screen = await renderList({}, { initialOffset: 240 });
+      const scroller = screen.getByTestId("list-scroller");
+
+      // iOS places the list at the restored offset before content lays out;
+      // the cross-platform restore lands once, after it does.
+      expect(scroller.props.contentOffset).toEqual({ x: 0, y: 240 });
+      await fireEvent(scroller, "contentSizeChange", 390, 4000);
+      await fireEvent(scroller, "contentSizeChange", 390, 4200);
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(scrollTo).toHaveBeenCalledWith({ x: 0, y: 240, animated: false });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("KIN-MOBILE-001 R3: every scroll reports its offset back to the container", async () => {
+    const onScrollOffset = jest.fn();
+    const screen = await renderList({}, { initialOffset: 240, onScrollOffset });
+    const scroller = screen.getByTestId("list-scroller");
+
+    await fireEvent.scroll(scroller, {
+      nativeEvent: {
+        contentOffset: { x: 0, y: 180 },
+        contentSize: { width: 390, height: 4000 },
+        layoutMeasurement: { width: 390, height: 800 },
+      },
+    });
+    expect(onScrollOffset).toHaveBeenCalledWith(180);
+
+    // A fresh scroll reports its own place, not the restored one.
+    await fireEvent.scroll(scroller, {
+      nativeEvent: {
+        contentOffset: { x: 0, y: 420 },
+        contentSize: { width: 390, height: 4000 },
+        layoutMeasurement: { width: 390, height: 800 },
+      },
+    });
+    expect(onScrollOffset).toHaveBeenLastCalledWith(420);
+  });
 });
