@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from "@jest/globals";
-import { render } from "@testing-library/react-native";
+import { render, within } from "@testing-library/react-native";
 import type {
   ChatItem,
   ToolStep,
@@ -22,6 +22,7 @@ const TASK_ID = "task-table";
 function state(turns: Turn[]): ThreadState {
   return {
     taskId: TASK_ID,
+    title: "A table answer",
     status: "ready",
     turns,
     running: false,
@@ -89,7 +90,10 @@ describe("KIN-MOBILE-001 R4 a table in the conversation", () => {
     const view = await renderView([agentTurn([message("m1", ANSWER)])]);
 
     expect(view.getByTestId("conversation:table:0").props.horizontal).toBe(true);
-    expect(view.getAllByRole("header")).toHaveLength(2);
+    // Scoped to the table: the screen title is a third header.
+    expect(
+      within(view.getByTestId("conversation:table:0")).getAllByRole("header"),
+    ).toHaveLength(2);
     expect(view.getByText("跑完的结果如下：")).toBeTruthy();
     expect(view.getByText("全部通过。")).toBeTruthy();
   });
