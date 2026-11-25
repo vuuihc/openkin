@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the action control drops below the signed 44pt touch floor (R-rn-approvals-screen)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "    minHeight: 44,\n    minWidth: 44,",
+    "new": "    minHeight: 32,\n    minWidth: 32,",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.test.tsx -t \"KIN-MOBILE-001 R5: every action is a labelled control that speaks its action and object\""
+  },
+  {
+    "label": "offline stops disabling approve, deny and submit, so a dead network posts anyway (R-rn-approvals-screen)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "  return online && entry.phase === \"idle\";",
+    "new": "  return entry.phase === \"idle\";",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.test.tsx -t \"KIN-MOBILE-001 R5: offline disables submit and already-read approvals stay visible\""
+  },
+  {
+    "label": "a failed card's controls stay disabled, so the reason it names cannot be retried (R-rn-approvals-screen)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "  return online && entry.phase === \"idle\";",
+    "new": "  return online && entry.phase === \"idle\" && !entry.failure;",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.test.tsx -t \"KIN-MOBILE-001 R5: a failed decision restores the card as operable and names the reason\""
+  }
+]

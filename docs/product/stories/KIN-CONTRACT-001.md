@@ -134,7 +134,7 @@ owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任�
 | `/agents` | `/settings?tab=operations` | Agent Ops 留在 operations tab | 已落地 |
 | `/usage` | `/settings?tab=operations` | 用量界面不动（composer footer 的 popover 仍是入口） | 已落地 |
 | `/routines` 里的运行列表 | `/sessions` | 每个运行是一条任务行，带例行任务名；「看运行」带筛选跳转 | 本条 |
-| `/agent-sessions/:id` | `/tasks/:id` | agent 状态进会话动作表 | `R-agent-status` |
+| `/agent-sessions/:id` | `/sessions?agent=<id>` | 旧整页 URL 落到列表，该会话的 sheet 开在列表上方；继续即落到 `/tasks/<id>` | `已落地` |
 | `/machines/:device/tasks/:id` | `/tasks/:id?device=` | 同一份任务详情 | 本条 |
 | Settings 的 `agents` 安装检测（探测状态与能力徽标） | `/settings?tab=agents` | 导入会话与角色默认**保留**；探测重做后再决定展示什么 | `R-agents-detect`（独立 story） |
 | `/` | `/sessions` | 入口 redirect（手机回列表，桌面回上次任务或 `/new`），不是页面 | 已落地 |
