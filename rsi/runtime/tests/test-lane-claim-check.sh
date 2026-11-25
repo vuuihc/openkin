@@ -30,13 +30,16 @@ CTRL="$T/ctrl"; mkdir -p "$CTRL/rsi/state/lanes" "$CTRL/rsi/runtime"
 # lane.sh sources $RSI_DIR/runtime/lane-pr.sh before any seam; each seam reads its checker from
 # the same deployed path, so a copy keeps the suite hermetic and proves the real rules run. The
 # red-first seam sits in the same pre-push span this suite extracts, so it needs its checker too
-# (a body with no Claims block is NA, which is what these claim-check cases exercise).
+# (a body with no Claims block is NA, which is what these claim-check cases exercise). The
+# removed-literal seam sits in that span as well, and is NA on these docs-only fixtures.
 printf '#!/bin/bash\n# stub: the seams never create a PR\n' > "$CTRL/rsi/runtime/lane-pr.sh"
 printf '#!/bin/bash\n# stub: the seams never push\n' > "$CTRL/rsi/runtime/lane-push.sh"
 cp "$REPO/rsi/runtime/claim_check.py" "$CTRL/rsi/runtime/claim_check.py" \
   || { echo "FAIL cannot copy claim_check.py" >&2; exit 1; }
 cp "$REPO/rsi/runtime/red_first.py" "$CTRL/rsi/runtime/red_first.py" \
   || { echo "FAIL cannot copy red_first.py" >&2; exit 1; }
+cp "$REPO/rsi/runtime/removed_literal.py" "$CTRL/rsi/runtime/removed_literal.py" \
+  || { echo "FAIL cannot copy removed_literal.py" >&2; exit 1; }
 # common.sh is the production environment; the retry's pause is wrapped in its `bounded_run`
 # watchdog, and the clamp case needs the same watchdog around the whole hand-off so a missing
 # clamp cannot hang the suite. RSI_CTRL points into the temp dir before the source, so STATE and

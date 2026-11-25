@@ -1,0 +1,51 @@
+[
+  {
+    "label": "the lane never runs the removed-literal seam before pushing",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_lane_pipeline_calls_the_seam bash rsi/runtime/tests/test-removed-literal-check.sh",
+    "old": "if ! REMOVED_EV=\"$(bash \"$SELF\" --removed-literal-check \"$WT\" 2>&1)\"; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "a literal that moved to another loop file is treated as removed",
+    "file": "rsi/runtime/removed_literal.py",
+    "test": "RSI_TEST_ONLY=test_literal_still_used_in_loop_code_is_ok bash rsi/runtime/tests/test-removed-literal-check.sh",
+    "old": "    surviving = [n for n in needles if n not in production]",
+    "new": "    surviving = list(needles)"
+  },
+  {
+    "label": "a sub-8-character removed value is treated as a needle",
+    "file": "rsi/runtime/removed_literal.py",
+    "test": "RSI_TEST_ONLY=test_short_literal_is_ignored bash rsi/runtime/tests/test-removed-literal-check.sh",
+    "old": "MIN_NEEDLE = 8",
+    "new": "MIN_NEEDLE = 1"
+  },
+  {
+    "label": "a stale mutant anchor is skipped instead of red",
+    "file": "rsi/runtime/removed_literal.py",
+    "test": "RSI_TEST_ONLY=test_stale_mutant_anchor_is_red bash rsi/runtime/tests/test-removed-literal-check.sh",
+    "old": "                if len(line.strip()) >= MIN_NEEDLE and line.strip() in old:",
+    "new": "                if False:"
+  },
+  {
+    "label": "a test file the branch itself changed is still a finding",
+    "file": "rsi/runtime/removed_literal.py",
+    "test": "RSI_TEST_ONLY=test_modified_test_is_not_a_finding bash rsi/runtime/tests/test-removed-literal-check.sh",
+    "old": "    test_files = [p for p in tracked if p not in changed and is_test_candidate(p)]",
+    "new": "    test_files = [p for p in tracked if is_test_candidate(p)]"
+  },
+  {
+    "label": "an anchor whose old text still exists in its target is treated as stale",
+    "file": "rsi/runtime/removed_literal.py",
+    "test": "RSI_TEST_ONLY=test_anchor_old_text_still_in_target_is_not_stale bash rsi/runtime/tests/test-removed-literal-check.sh",
+    "old": "            if os.path.isfile(target_path) and old in read_text(target_path):\n                continue",
+    "new": "            if False:\n                continue"
+  },
+  {
+    "label": "the gate no longer runs the new suite",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-removed-literal-check.sh || return 1",
+    "new": "  true"
+  }
+]
