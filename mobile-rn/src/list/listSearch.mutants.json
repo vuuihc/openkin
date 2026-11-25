@@ -12,5 +12,68 @@
     "old": "  // The page is the model's; the query only narrows what the reader sees.\n  // `filterGroups` returns the page object unchanged for a blank query.\n  const visibleGroups = filterGroups(state.groups, query);",
     "new": "  const visibleGroups = filterGroups(state.groups, query);\n  if (query.trim()) {\n    const folds = options.current.store;\n    if (folds) {\n      for (const device of visibleGroups) {\n        for (const project of device.projects) {\n          folds.write(`${device.id}:${project.key}`, true);\n        }\n      }\n    }\n  }",
     "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a query opens a folded project without writing the fold store, and clearing restores the fold\""
+  },
+  {
+    "label": "the restored page is not handed to the controller, so a fold wipes it (R-rn-list-search)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "          initialState: cached ?? undefined,",
+    "new": "          initialState: undefined,",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: folding a project on a restored page keeps the rows\""
+  },
+  {
+    "label": "the controller ignores the restored page and starts on loading (R-rn-list-search)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "  let state: ListViewState = options.initialState ?? {\n    status: \"loading\",\n    groups: [],\n    error: null,\n  };",
+    "new": "  let state: ListViewState = {\n    status: \"loading\",\n    groups: [],\n    error: null,\n  };",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: folding a project on a restored page keeps the rows\""
+  },
+  {
+    "label": "a failed refresh overwrites the stored page (R-rn-list-search)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "    const page = next.status === \"ready\" || next.status === \"empty\";",
+    "new": "    const page = true;",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a failed refresh on a restored page keeps its rows and the stored page\""
+  },
+  {
+    "label": "a stored failure is restored as the page instead of being re-read (R-rn-list-search)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "        const restored =\n          cached !== null &&\n          (cached.status === \"ready\" || cached.status === \"empty\");",
+    "new": "        const restored = cached !== null;",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a stored failure is not a page and the mount reads again\""
+  },
+  {
+    "label": "claim stops advancing the generation, so the replaced mount stays current (R-rn-list-search)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "    claim: () => ++generation,",
+    "new": "    claim: () => generation,",
+    "test": "cd mobile-rn && npx jest src/list/listSearch.test.ts -t \"KIN-MOBILE-001 R3: a claim supersedes the earlier one and only the newest mount is current\""
+  },
+  {
+    "label": "isCurrent accepts every generation, so a replaced mount's late answer writes the page (R-rn-list-search)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "    isCurrent: (mine) => mine === generation,",
+    "new": "    isCurrent: () => true,",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a replaced mount's late answer cannot write the page while it is still mounted\""
+  },
+  {
+    "label": "stored pages ignore the origin, so another node's rows restore (R-rn-list-search)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "    readSnapshot: (origin) => snapshots.get(origin) ?? null,",
+    "new": "    readSnapshot: () => snapshots.values().next().value ?? null,",
+    "test": "cd mobile-rn && npx jest src/list/listSearch.test.ts -t \"KIN-MOBILE-001 R3: stored pages are keyed by origin, so another node's rows never restore\""
+  },
+  {
+    "label": "a memory write resets the field it was not given (R-rn-list-search)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "    write: (patch) => {\n      if (patch.query !== undefined) query = patch.query;\n      if (patch.offset !== undefined) offset = patch.offset;\n    },",
+    "new": "    write: (patch) => {\n      query = patch.query ?? \"\";\n      offset = patch.offset ?? 0;\n    },",
+    "test": "cd mobile-rn && npx jest src/list/listSearch.test.ts -t \"KIN-MOBILE-001 R3: the query and the offset survive the route and patch independently\""
+  },
+  {
+    "label": "a failed first read is stored as the page, so the remount does not retry (R-rn-list-search)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "    const page = next.status === \"ready\" || next.status === \"empty\";",
+    "new": "    const page = true;",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a remount after a failed first read retries instead of restoring the failure\""
   }
 ]

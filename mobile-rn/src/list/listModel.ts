@@ -332,6 +332,12 @@ export type ListControllerOptions = BuildGroupsOptions & {
   store?: FoldStore;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /**
+   * The page a restored route already has. Without it the controller starts on
+   * `loading` with no rows, so a fold or a failed refresh would wipe the page
+   * the screen is showing (KIN-MOBILE-001 R3「离开再回来」).
+   */
+  initialState?: ListViewState;
 };
 
 export type ListController = {
@@ -387,7 +393,11 @@ export function createListController(
   const store = options.store ?? createMemoryFoldStore();
   let generation = 0;
   let lastCounts: ReadonlyMap<string, number> = new Map();
-  let state: ListViewState = { status: "loading", groups: [], error: null };
+  let state: ListViewState = options.initialState ?? {
+    status: "loading",
+    groups: [],
+    error: null,
+  };
 
   const groupsOf = (
     tasks: readonly Task[],

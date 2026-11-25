@@ -127,7 +127,15 @@ export default function ListScreen({
    */
   const publish = useCallback((next: ListViewState) => {
     const origin = sessionRef.current?.origin;
-    if (origin !== undefined && memoryRef.current.isCurrent(claimRef.current)) {
+    // Only a page is worth remembering. A failure or an offline state is a
+    // network fact about the moment, not rows: storing it would make a later
+    // remount restore a failure it never retries.
+    const page = next.status === "ready" || next.status === "empty";
+    if (
+      page &&
+      origin !== undefined &&
+      memoryRef.current.isCurrent(claimRef.current)
+    ) {
       memoryRef.current.writeSnapshot(origin, next);
     }
     setState(next);
@@ -161,6 +169,15 @@ export default function ListScreen({
           formatTime: clock,
           store: folds,
         } = options.current;
+        // Back on a route that unmounted: the stored page answers the first
+        // frame and the stored offset puts the reader back, so neither the
+        // list nor the reader pays for the same read again. A stored failure
+        // is not a page — restoring it would trap every remount on an error it
+        // never retries.
+        const cached = memory.readSnapshot(session.origin);
+        const restored =
+          cached !== null &&
+          (cached.status === "ready" || cached.status === "empty");
         list = createListController({
           origin: session.origin,
           token: session.token,
@@ -170,13 +187,10 @@ export default function ListScreen({
           formatTime: clock,
           store: folds,
           fetchImpl,
+          initialState: cached ?? undefined,
         });
         controllerRef.current = list;
-        // Back on a route that unmounted: the stored page answers the first
-        // frame and the stored offset puts the reader back, so neither the
-        // list nor the reader pays for the same read again.
-        const cached = memory.readSnapshot(session.origin);
-        if (cached) {
+        if (restored) {
           setState(cached);
           setInitialOffset(memory.read().offset);
         } else {
@@ -218,7 +232,7 @@ export default function ListScreen({
 
         // A restored page is the read for this mount; anything else starts
         // with one.
-        if (cached) return;
+        if (restored) return;
         return mounted.load().then((next) => {
           // The controller drops an answer from an older generation; this guard
           // drops the one that lands after the screen is gone, and the memory
