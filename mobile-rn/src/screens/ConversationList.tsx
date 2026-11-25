@@ -48,6 +48,12 @@ export const LIST_HEADER_HEIGHT = 56;
 export const BOTTOM_TAB_INSET = 64;
 
 /**
+ * How long a failed scroll waits for the list to lay an off-window row out
+ * before placing it again. One retry only; a newer move supersedes it.
+ */
+const SCROLL_RETRY_MS = 100;
+
+/**
  * Whole rows one 820×1180 coarse-pointer screenful holds, computed from the
  * same constants the rows use. The signed floor is 10 (KIN-CONTINUE-007).
  */
@@ -194,6 +200,24 @@ function sectionsOf(groups: readonly DeviceGroup[]): Section[] {
   });
 }
 
+/**
+ * Where a row sits for `scrollToLocation`: its section and its item index in
+ * that section's data. Project headings occupy item indices too, so a row is
+ * not at its position among rows alone.
+ */
+function locateRow(
+  sections: readonly Section[],
+  rowId: string,
+): { sectionIndex: number; itemIndex: number } | null {
+  for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex += 1) {
+    const itemIndex = sections[sectionIndex]!.data.findIndex(
+      (entry) => entry.kind === "row" && entry.row.id === rowId,
+    );
+    if (itemIndex !== -1) return { sectionIndex, itemIndex };
+  }
+  return null;
+}
+
 export default function ConversationList({
   state,
   t,
@@ -234,11 +258,29 @@ export default function ConversationList({
   const [focusedId, setFocusedId] = useState(initialFocusId);
   // While the caret is in the search field the arrows belong to the text.
   const [searchFocused, setSearchFocused] = useState(false);
+  // The row the last keyboard move asked the list to reveal. A failed scroll
+  // retries against it, and a newer move replaces it (AGENTS.md rule 11).
+  const pendingScroll = useRef<{
+    sectionIndex: number;
+    itemIndex: number;
+  } | null>(null);
 
-  const focusRow = (rowId: string) => {
+  const focusRow = (rowId: string, scroll = false) => {
     if (rowId === focusedId) return;
     setFocusedId(rowId);
     onFocusChange?.(rowId);
+    if (!scroll) return;
+    // The list is virtualized: a row past the fold is painted nowhere, so the
+    // ring would be invisible and Enter would open a row the reader cannot
+    // see. Reveal the row the ring lands on.
+    const where = locateRow(sections, rowId);
+    if (where === null) return;
+    pendingScroll.current = where;
+    listRef.current?.scrollToLocation({
+      ...where,
+      animated: true,
+      viewPosition: 0.5,
+    });
   };
 
   const handleKeyDown = (event: ListKeyEvent) => {
@@ -252,13 +294,34 @@ export default function ConversationList({
       if (target !== null) onOpen(target);
       return;
     }
-    focusRow(moveRow(rowIds, focusedId, key));
+    focusRow(moveRow(rowIds, focusedId, key), true);
   };
 
   return (
     <SectionList<Entry, Section>
       ref={listRef}
+      // The handler seam, and the pure map behind it, are landed here; RN
+      // 0.88.1 delivers key-down to Views only on Android and only with the
+      // native `enableKeyEvents` flag, which no app-level prop turns on. A
+      // native key source (or a future RN) drives this path; see the PR body.
       onKeyDown={handleKeyDown}
+      onScrollToIndexFailed={(info) => {
+        // The row is past the rendered window, so it has no measured frame:
+        // jump near its estimated offset, then place it once it is laid out.
+        listRef.current
+          ?.getScrollResponder()
+          ?.scrollTo({ y: info.averageItemLength * info.index, animated: false });
+        const target = pendingScroll.current;
+        if (target === null) return;
+        setTimeout(() => {
+          if (pendingScroll.current !== target) return;
+          listRef.current?.scrollToLocation({
+            ...target,
+            animated: true,
+            viewPosition: 0.5,
+          });
+        }, SCROLL_RETRY_MS);
+      }}
       sections={sections}
       // iOS takes the restored offset before content lays out; the scroll
       // responder below covers the platforms that ignore it.

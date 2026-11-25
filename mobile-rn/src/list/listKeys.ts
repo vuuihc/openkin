@@ -19,8 +19,10 @@ export function isRowKey(key: string): key is RowKey {
  *
  * `current` may name a row the visible page no longer holds (a project folded
  * or a search narrowed it away): down then enters at the first visible row and
- * up at the last. An empty page keeps the id it cannot move, and the ends hold
- * instead of wrapping.
+ * up at the last. With no ring yet (`""`) both arrows enter at the first row —
+ * the last row of a fresh list is off-screen and must not be reachable blind.
+ * An empty page keeps the id it cannot move, and the ends hold instead of
+ * wrapping.
  */
 export function moveRow(
   ids: readonly string[],
@@ -28,6 +30,7 @@ export function moveRow(
   key: "ArrowUp" | "ArrowDown",
 ): string {
   if (ids.length === 0) return current;
+  if (current === "") return ids[0]!;
   const index = ids.indexOf(current);
   if (index === -1) {
     return key === "ArrowDown" ? ids[0]! : ids[ids.length - 1]!;

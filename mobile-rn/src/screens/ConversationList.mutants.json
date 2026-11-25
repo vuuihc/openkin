@@ -117,5 +117,19 @@
     "old": "  const rememberFocus = useCallback((rowId: string) => {\n    memoryRef.current.write({ focusedRowId: rowId });\n  }, []);",
     "new": "  const rememberFocus = useCallback((rowId: string) => {\n    void rowId;\n  }, []);",
     "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 §2: the ring is on the row the reader left\""
+  },
+  {
+    "label": "a fresh list's first ArrowUp falls into the hidden-id branch and lands on the last row (R-rn-list-keyboard)",
+    "file": "mobile-rn/src/list/listKeys.ts",
+    "old": "  if (ids.length === 0) return current;\n  if (current === \"\") return ids[0]!;",
+    "new": "  if (ids.length === 0) return current;",
+    "test": "cd mobile-rn && npx jest src/list/listKeys.test.ts -t \"KIN-MOBILE-001 §2: a fresh list enters at the first row from either arrow\""
+  },
+  {
+    "label": "a keyboard move never reveals the row it lands on, so the ring can sit off-screen (R-rn-list-keyboard)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "    pendingScroll.current = where;\n    listRef.current?.scrollToLocation({",
+    "new": "    pendingScroll.current = where;\n    void listRef.current;",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: a move past the fold reveals the row it lands on\""
   }
 ]

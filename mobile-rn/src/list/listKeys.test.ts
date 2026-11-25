@@ -23,6 +23,14 @@ describe("KIN-MOBILE-001 §2 list keys", () => {
     expect(moveRow(ids, "a1", "ArrowUp")).toBe("a1");
   });
 
+  it("KIN-MOBILE-001 §2: a fresh list enters at the first row from either arrow", () => {
+    const ids = ["a1", "a2", "a3"];
+    // No ring yet: ArrowUp must not fall into the hidden-id branch and land
+    // on the off-screen last row.
+    expect(moveRow(ids, "", "ArrowDown")).toBe("a1");
+    expect(moveRow(ids, "", "ArrowUp")).toBe("a1");
+  });
+
   it("KIN-MOBILE-001 §2: a folded-away row does not trap the arrows", () => {
     const ids = ["a1", "a2", "a3"];
     // The ring stayed on a row a fold or a search hid: down enters at the

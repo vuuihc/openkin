@@ -1,4 +1,11 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
 import {
   fireEvent,
   render,
@@ -545,6 +552,21 @@ describe("KIN-MOBILE-001 §2 list keyboard focus", () => {
    */
   const RING = "#0b57d0";
 
+  /**
+   * Every move now asks the list to reveal the row it landed on. The real
+   * `scrollToLocation` reaches VirtualizedList's index machinery, which the
+   * test renderer does not measure; the spy records the request instead.
+   */
+  let scrollToLocation: ReturnType<typeof jest.spyOn>;
+  beforeEach(() => {
+    scrollToLocation = jest
+      .spyOn(SectionList.prototype, "scrollToLocation")
+      .mockImplementation(() => {});
+  });
+  afterEach(() => {
+    scrollToLocation.mockRestore();
+  });
+
   /** A row's flattened paint; the ring is the border colour, nothing else. */
   function ringOf(
     screen: Awaited<ReturnType<typeof renderList>>,
@@ -595,6 +617,65 @@ describe("KIN-MOBILE-001 §2 list keyboard focus", () => {
     await fireEvent(scroller, "keyDown", { nativeEvent: { key: "Enter" } });
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(onOpen).toHaveBeenCalledWith("a1");
+  });
+
+  it("KIN-MOBILE-001 §2: a fresh list's first ArrowUp lands on the first row, not the last", async () => {
+    const onOpen = jest.fn();
+    const screen = await renderList({}, { onOpen });
+    const scroller = screen.getByTestId("list-scroller");
+
+    // No ring yet: up must not enter at the hidden last row and open it.
+    await fireEvent(scroller, "keyDown", { nativeEvent: { key: "ArrowUp" } });
+    expect(ringOf(screen, "a1")).toBe(RING);
+    expect(ringOf(screen, "a2")).toBeUndefined();
+
+    await fireEvent(scroller, "keyDown", { nativeEvent: { key: "Enter" } });
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith("a1");
+  });
+
+  it("KIN-MOBILE-001 §2: a move past the fold reveals the row it lands on", async () => {
+    const rows = Array.from({ length: 18 }, (_, index) =>
+      row(`r${index + 1}`, `r${index + 1} title`, 1000 - index),
+    );
+    const groups: DeviceGroup[] = [
+      {
+        id: "dev-a",
+        label: "Laptop",
+        isSelf: true,
+        online: true,
+        count: rows.length,
+        projects: [
+          {
+            key: "/work/long",
+            label: "Long",
+            open: true,
+            lastActivityAt: 1000,
+            rows,
+          },
+        ],
+      },
+    ];
+    const screen = await renderList({ groups });
+    const scroller = screen.getByTestId("list-scroller");
+
+    // 18 rows is more than one phone screenful (rowsOnScreen(844) is 12), so
+    // the later moves land on rows the first frame never painted.
+    for (let press = 0; press < 14; press += 1) {
+      await fireEvent(scroller, "keyDown", {
+        nativeEvent: { key: "ArrowDown" },
+      });
+    }
+
+    // The project heading is item 0, so the fourteenth row, r14, is item 14
+    // of section 0 — and every move asked the list to reveal it.
+    expect(scrollToLocation).toHaveBeenCalledTimes(14);
+    expect(scrollToLocation).toHaveBeenLastCalledWith({
+      sectionIndex: 0,
+      itemIndex: 14,
+      animated: true,
+      viewPosition: 0.5,
+    });
   });
 
   it("KIN-MOBILE-001 §2: typing in the search field keeps the arrows for the caret", async () => {
