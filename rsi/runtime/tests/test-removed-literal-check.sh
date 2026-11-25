@@ -280,6 +280,53 @@ test_dispatcher_usage() {
   pass test_dispatcher_usage
 }
 
+# 11. An anchor is stale only when its `old` is really gone from the target: a branch that deletes
+#    a common line (here a bare `return 0`) elsewhere in the same file is not a reason to flag an
+#    untouched manifest entry whose `old` block still exists in the target.
+test_anchor_old_text_still_in_target_is_not_stale() {
+  new_repo anchor-kept
+  cat > "$R/rsi/runtime/loop.sh" <<'EOF'
+#!/bin/bash
+guard() {
+  return 0
+}
+other() {
+  return 0
+}
+EOF
+  cat > "$R/rsi/runtime/tests/demo.mutants.json" <<'EOF'
+[
+  {
+    "label": "the guard is skipped",
+    "file": "rsi/runtime/loop.sh",
+    "test": "bash rsi/runtime/tests/sentinel.sh",
+    "old": "guard() {\n  return 0\n}",
+    "new": "guard() {\n  return 1\n}"
+  }
+]
+EOF
+  cat > "$R/rsi/runtime/tests/sentinel.sh" <<'EOF'
+#!/bin/bash
+touch "$(dirname "$0")/sentinel-ran"
+EOF
+  chmod +x "$R/rsi/runtime/tests/sentinel.sh"
+  base_commit
+  # The branch deletes the second copy of the common line; the anchor's block is untouched.
+  cat > "$R/rsi/runtime/loop.sh" <<'EOF'
+#!/bin/bash
+guard() {
+  return 0
+}
+other() {
+}
+EOF
+  commit_branch drop-common-line
+  seam
+  [ "$RC" -eq 0 ] || fail "anchor-kept: expected exit 0, got $RC: $OUT"
+  seam_has 'REMOVED_LITERAL_OK' || fail "anchor-kept: expected OK, got: $OUT"
+  pass test_anchor_old_text_still_in_target_is_not_stale
+}
+
 # --- runner ------------------------------------------------------------------------------------
 ALL_CASES="test_removed_literal_in_untouched_test_is_red
 test_passing_untouched_test_is_ok
@@ -290,7 +337,8 @@ test_stale_mutant_anchor_is_red
 test_no_loop_change_is_na
 test_unresolvable_origin_main_is_na
 test_lane_pipeline_calls_the_seam
-test_dispatcher_usage"
+test_dispatcher_usage
+test_anchor_old_text_still_in_target_is_not_stale"
 
 if [ -n "$ONLY" ]; then
   grep -qxF "$ONLY" <<<"$ALL_CASES" || fail "unknown RSI_TEST_ONLY case: $ONLY"

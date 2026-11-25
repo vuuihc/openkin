@@ -198,6 +198,12 @@ def stale_anchor(wt, manifests, changed, removed_by_file):
             old = entry.get("old")
             if not isinstance(target, str) or not isinstance(old, str):
                 continue
+            # An anchor is stale only when its `old` is gone from the target. A branch that deleted
+            # some other copy of a common line (`return 0`, `continue`) or moved a line within the
+            # same file leaves this entry valid, and ``scripts/mutants.py`` would still find it.
+            target_path = os.path.join(wt, target)
+            if os.path.isfile(target_path) and old in read_text(target_path):
+                continue
             for line in removed_by_file.get(target, ()):
                 if len(line.strip()) >= MIN_NEEDLE and line.strip() in old:
                     return ("stale", manifest, entry.get("label") or "(unlabelled)", line.strip(), target)

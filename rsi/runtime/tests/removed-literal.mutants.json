@@ -35,6 +35,13 @@
     "new": "    test_files = [p for p in tracked if is_test_candidate(p)]"
   },
   {
+    "label": "an anchor whose old text still exists in its target is treated as stale",
+    "file": "rsi/runtime/removed_literal.py",
+    "test": "RSI_TEST_ONLY=test_anchor_old_text_still_in_target_is_not_stale bash rsi/runtime/tests/test-removed-literal-check.sh",
+    "old": "            if os.path.isfile(target_path) and old in read_text(target_path):\n                continue",
+    "new": "            if False:\n                continue"
+  },
+  {
     "label": "the gate no longer runs the new suite",
     "file": "scripts/check.sh",
     "test": "bash rsi/runtime/tests/test-wiring.sh",
