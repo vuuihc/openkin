@@ -334,6 +334,40 @@ describe("a menu whose trigger sits near the bottom edge (R-menu-clip-1100)", ()
     expect(row.textContent).toContain("The agent is still working");
     expect(Number.parseFloat(dialog.style.maxHeight)).toBeGreaterThanOrEqual(320);
   });
+
+  it("keeps the preferred side when that side can show the measured content", async () => {
+    setViewport(1100, 760);
+    // The same trigger and the same 146px below / 546px above. The content is
+    // only 120px, so the preferred side can show all of it and must be kept:
+    // flipping a well-fitting menu moves it for no reason. This is the
+    // keep-preferred branch of the decision, and the case where both sides fit.
+    vi.spyOn(HTMLButtonElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 800,
+      y: 560,
+      top: 560,
+      bottom: 600,
+      left: 800,
+      right: 876,
+      width: 76,
+      height: 40,
+      toJSON: () => ({}),
+    });
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(120);
+    const items: MenuItem[] = Array.from({ length: 3 }, (_, index) => ({
+      id: `action-${index}`,
+      label: `Action ${index + 1}`,
+      onSelect: vi.fn(),
+    }));
+
+    render(<RowMenuHost items={items} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Row actions" });
+    // 760 − 600 − 8 (edge) − 6 (gap) = 146px below, which fits the 120px of
+    // content, so the panel stays under the trigger instead of flipping up.
+    expect(dialog.style.top).toBe("606px");
+    expect(dialog.style.bottom).toBe("");
+    expect(dialog.style.maxHeight).toBe("146px");
+  });
 });
 
 describe("focus containment with controls nobody can see", () => {
