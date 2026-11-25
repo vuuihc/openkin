@@ -3,6 +3,7 @@ import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import Menu, { type MenuItem } from "./Menu";
 import Popover, { type PopoverProps } from "./Popover";
 
 /**
@@ -250,6 +251,122 @@ describe("the anchored popover", () => {
     expect(dialog.style.top).toBe("");
     expect(dialog.style.bottom).toBe("106px");
     expect(dialog.style.maxHeight).toBe("360px");
+  });
+});
+
+/**
+ * A real `Menu` on a trigger near the bottom edge, which is the surface that
+ * reported the clip: the conversation row's `⋯` menu at 1100×760. jsdom has no
+ * layout, so the trigger's rect and the panel's content height are stubs; the
+ * placement decision they feed is the code under test.
+ */
+function RowMenuHost({ items }: { items: MenuItem[] }) {
+  const [open, setOpen] = useState(true);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  return (
+    <div>
+      <button ref={triggerRef} type="button" aria-expanded={open} onClick={() => setOpen(true)}>
+        Row actions
+      </button>
+      <Menu
+        open={open}
+        onOpenChange={setOpen}
+        triggerRef={triggerRef}
+        label="Row actions"
+        items={items}
+      />
+    </div>
+  );
+}
+
+describe("a menu whose trigger sits near the bottom edge (R-menu-clip-1100)", () => {
+  it("opens on the side that can show a menu's rows", async () => {
+    setViewport(1100, 760);
+    // 1100×760 with the trigger 160px above the bottom: below leaves
+    // 760 − 600 − 8 (edge) − 6 (gap) = 146px, above leaves 560 − 14 = 546px.
+    // The old FLIP_BELOW=120 rule kept this menu below and clamped it to
+    // 146px, cutting the last rows off a panel whose scrollbar is invisible.
+    vi.spyOn(HTMLButtonElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 800,
+      y: 560,
+      top: 560,
+      bottom: 600,
+      left: 800,
+      right: 876,
+      width: 76,
+      height: 40,
+      toJSON: () => ({}),
+    });
+    // The panel's content is taller than the room below and shorter than the
+    // 360px a menu allows: a running row with its reason line plus enough
+    // actions to push the last one past the clip.
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(320);
+    const items: MenuItem[] = [
+      {
+        id: "running",
+        label: "Running",
+        description: "The agent is still working",
+        disabled: true,
+        onSelect: vi.fn(),
+      },
+      ...Array.from({ length: 7 }, (_, index) => ({
+        id: `action-${index}`,
+        label: `Action ${index + 1}`,
+        onSelect: vi.fn(),
+      })),
+    ];
+
+    render(<RowMenuHost items={items} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Row actions" });
+    // Above: bottom is set and top is not, so the panel grows upward from the
+    // trigger instead of being pinned below with 146px of room.
+    expect(dialog.style.bottom).toBe("206px");
+    expect(dialog.style.top).toBe("");
+    expect(dialog.style.maxHeight).toBe("360px");
+
+    // The disabled row, its label and its reason are inside the scrollport,
+    // and the panel is tall enough for the content that was measured.
+    const row = screen.getByRole("menuitem", { name: /Running/ });
+    expect(dialog.contains(row)).toBe(true);
+    expect(row.getAttribute("aria-disabled")).toBe("true");
+    expect(row.textContent).toContain("Running");
+    expect(row.textContent).toContain("The agent is still working");
+    expect(Number.parseFloat(dialog.style.maxHeight)).toBeGreaterThanOrEqual(320);
+  });
+
+  it("keeps the preferred side when that side can show the measured content", async () => {
+    setViewport(1100, 760);
+    // The same trigger and the same 146px below / 546px above. The content is
+    // only 120px, so the preferred side can show all of it and must be kept:
+    // flipping a well-fitting menu moves it for no reason. This is the
+    // keep-preferred branch of the decision, and the case where both sides fit.
+    vi.spyOn(HTMLButtonElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 800,
+      y: 560,
+      top: 560,
+      bottom: 600,
+      left: 800,
+      right: 876,
+      width: 76,
+      height: 40,
+      toJSON: () => ({}),
+    });
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(120);
+    const items: MenuItem[] = Array.from({ length: 3 }, (_, index) => ({
+      id: `action-${index}`,
+      label: `Action ${index + 1}`,
+      onSelect: vi.fn(),
+    }));
+
+    render(<RowMenuHost items={items} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Row actions" });
+    // 760 − 600 − 8 (edge) − 6 (gap) = 146px below, which fits the 120px of
+    // content, so the panel stays under the trigger instead of flipping up.
+    expect(dialog.style.top).toBe("606px");
+    expect(dialog.style.bottom).toBe("");
+    expect(dialog.style.maxHeight).toBe("146px");
   });
 });
 
