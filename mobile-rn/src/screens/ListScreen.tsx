@@ -76,6 +76,12 @@ export type ListScreenProps = {
    * when this value changes after the one it mounted with.
    */
   focusEpoch?: number;
+  /**
+   * Bumped by the route only on that same return, never on a split
+   * open/switch/close (which bumps `focusEpoch` alone). The list moves reader
+   * focus on this change; the data epoch must not move it.
+   */
+  returnFocusEpoch?: number;
 };
 
 export default function ListScreen({
@@ -91,6 +97,7 @@ export default function ListScreen({
   appState = AppState,
   now,
   focusEpoch = 0,
+  returnFocusEpoch = 0,
 }: ListScreenProps) {
   const [state, setState] = useState<ListViewState | null>(null);
   // What the reader was looking for, and where they were. Both outlive the
@@ -329,6 +336,7 @@ export default function ListScreen({
     return (
       <ConversationList
         initialFocusId={initialFocusId}
+        returnFocusEpoch={returnFocusEpoch}
         onFocusChange={rememberFocus}
         onOpen={open}
         onQueryChange={changeQuery}
@@ -351,6 +359,7 @@ export default function ListScreen({
     <ConversationList
       initialFocusId={initialFocusId}
       initialOffset={initialOffset}
+      returnFocusEpoch={returnFocusEpoch}
       onFocusChange={rememberFocus}
       onOpen={open}
       onQueryChange={changeQuery}
