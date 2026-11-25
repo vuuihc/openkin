@@ -122,6 +122,38 @@ i=0
   || fail "scope-of: an empty list should be full"
 echo "PASS scope-of-docs"
 
+# --- a test that reads a docs-only path downgrades the scope to full -------------------------
+# doc-refs fails closed on a ui/Go/Python test that names the changed doc — coverage the
+# docs scope cannot run — so without a downgrade such a PR fails the gate forever (the
+# three sendbacks on the mobile-contract-settle lane). The greps run in the caller's
+# cwd, so each case cd's into a temp repo holding the doc and the referencing test.
+SR="$T/scope-repo"; mkdir -p "$SR/docs" "$SR/ui/src" "$SR/internal"
+scope_of_in() { # <repo> <paths...> — --scope-of run with cwd inside the temp repo
+  local repo="$1"; shift
+  local f="$T/paths.$((i += 1))"
+  printf '%s\n' "$@" >"$f"
+  ( cd "$repo" && bash "$GATE" --scope-of "$f" )
+}
+printf 'it("reads docs/x.md", () => {});\n' >"$SR/ui/src/a.test.ts"
+[ "$(scope_of_in "$SR" docs/x.md)" = full ] \
+  || fail "docs-scope-downgrades-when-ui-test-reads-doc: expected full, got docs"
+echo "PASS docs-scope-downgrades-when-ui-test-reads-doc"
+
+printf 'it("reads x.md", () => {});\n' >"$SR/ui/src/a.test.ts"
+[ "$(scope_of_in "$SR" docs/x.md)" = full ] \
+  || fail "docs-scope-downgrades-on-basename: expected full, got docs"
+echo "PASS docs-scope-downgrades-on-basename"
+
+printf 'it("reads docs/y.md", () => {});\n' >"$SR/ui/src/a.test.ts"
+[ "$(scope_of_in "$SR" docs/x.md)" = docs ] \
+  || fail "docs-scope-kept-when-no-test-reads-doc: expected docs, no over-downgrade"
+echo "PASS docs-scope-kept-when-no-test-reads-doc"
+
+printf 'package internal\n// TestX opens docs/x.md\n' >"$SR/internal/x_test.go"
+[ "$(scope_of_in "$SR" docs/x.md)" = full ] \
+  || fail "docs-scope-downgrades-when-go-test-reads-doc: expected full, got docs"
+echo "PASS docs-scope-downgrades-when-go-test-reads-doc"
+
 # --- docs --list is exactly the three jobs that judge a docs diff, in start order ------------
 grep -q 'KIN_CHECK_SCOPE' "$CHECK" \
   || fail "docs-list: $CHECK has no KIN_CHECK_SCOPE handling; refusing to run it"

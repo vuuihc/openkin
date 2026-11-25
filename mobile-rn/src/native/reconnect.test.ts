@@ -395,6 +395,7 @@ describe("KIN-MOBILE-001 R7 reconnect", () => {
     ];
     const offline: ThreadState = {
       taskId: TASK_ID,
+      title: "Morning planning",
       status: "ready",
       turns,
       running: false,

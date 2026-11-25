@@ -329,6 +329,34 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
     });
   });
 
+  it("KIN-MOBILE-001 §3: the read carries the task's title into the view state", async () => {
+    const fetchImpl = routedFetch((url) =>
+      url.endsWith("/events")
+        ? { body: HISTORY }
+        : { body: task({ title: "Release notes", status: "succeeded" }) },
+    );
+    const model = liveThread(fetchImpl, fakeStream().source);
+
+    await model.load();
+
+    expect(model.getState().status).toBe("ready");
+    expect(model.getState().title).toBe("Release notes");
+  });
+
+  it("KIN-MOBILE-001 §3: a task with no title carries the empty string, not the id", async () => {
+    const fetchImpl = routedFetch((url) =>
+      url.endsWith("/events")
+        ? { body: HISTORY }
+        : { body: task({ title: "", status: "succeeded" }) },
+    );
+    const model = liveThread(fetchImpl, fakeStream().source);
+
+    await model.load();
+
+    expect(model.getState().title).toBe("");
+    expect(model.getState().title).not.toBe(TASK_ID);
+  });
+
   it("KIN-MOBILE-001 R4: a late load answer does not repaint a newer one", async () => {
     type Pending = { url: string; resolve: (response: Response) => void };
     const pending: Pending[] = [];

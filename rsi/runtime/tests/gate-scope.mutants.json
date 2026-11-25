@@ -19,5 +19,12 @@
     "test": "bash rsi/runtime/tests/test-check-docs-scope.sh",
     "old": "DOCS_SCOPE_JOBS=\"stories ux-spec-refs doc-refs\"",
     "new": "DOCS_SCOPE_JOBS=\"stories ux-spec-refs\""
+  },
+  {
+    "label": "the docs→full downgrade is gone, so a doc a test reads fails the gate forever",
+    "file": "rsi/runtime/gate.sh",
+    "test": "bash rsi/runtime/tests/test-check-docs-scope.sh",
+    "old": "      if test_refs_doc \"$line\"; then",
+    "new": "      if false; then"
   }
 ]

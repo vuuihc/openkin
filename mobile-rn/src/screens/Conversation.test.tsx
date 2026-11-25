@@ -4,9 +4,12 @@ import {
   fireEvent,
   render,
   waitFor,
+  within,
 } from "@testing-library/react-native";
+import { Children, type ReactElement } from "react";
 import { StyleSheet } from "react-native";
 import type { Task, TaskEvent } from "../../../ui/src/api/contract";
+import type { ProvidersView } from "../providers/providersModel";
 import {
   projectThread,
   type ThreadState,
@@ -298,6 +301,7 @@ async function renderConversation(
 function readyState(overrides: Partial<ThreadState> = {}): ThreadState {
   return {
     taskId: TASK_ID,
+    title: "A conversation",
     status: "ready",
     turns: [],
     running: false,
@@ -307,6 +311,14 @@ function readyState(overrides: Partial<ThreadState> = {}): ThreadState {
     ...overrides,
   };
 }
+
+/** The empty usage view the header's trailing entry needs to be drawn. */
+const EMPTY_USAGE: ProvidersView = {
+  status: "empty",
+  days: 30,
+  providers: [],
+  usage: [],
+};
 
 describe("KIN-MOBILE-001 R4 conversation", () => {
   it("KIN-MOBILE-001 R4: history renders grouped as the shared projection groups it", async () => {
@@ -452,6 +464,67 @@ describe("KIN-MOBILE-001 R4 conversation", () => {
 
     await fireEvent.press(control);
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("KIN-MOBILE-001 §3: the header draws the conversation title", async () => {
+    const screen = await render(
+      <ConversationView
+        onBack={jest.fn()}
+        state={readyState({ title: "Release notes" })}
+        t={t}
+      />,
+    );
+    const header = screen.getByTestId("conversation:header");
+    const title = within(header).getByText("Release notes");
+
+    // A heading, not a control: VoiceOver starts at the conversation's name.
+    expect(title.props.accessibilityRole).toBe("header");
+  });
+
+  it("KIN-MOBILE-001 §3: an untitled conversation says Untitled chat", async () => {
+    const screen = await render(
+      <ConversationView onBack={jest.fn()} state={readyState({ title: "" })} t={t} />,
+    );
+    const header = screen.getByTestId("conversation:header");
+
+    expect(within(header).getByText(t("sessions.untitled"))).toBeTruthy();
+    // The id is an implementation detail, never the fallback name.
+    expect(within(header).queryByText(TASK_ID)).toBeNull();
+  });
+
+  it("KIN-MOBILE-001 §3: the title never replaces the back or the usage entry", async () => {
+    const screen = await render(
+      <ConversationView
+        onBack={jest.fn()}
+        state={readyState({ title: "Release notes", running: true })}
+        t={t}
+        usage={{ state: EMPTY_USAGE, onSelectWindow: jest.fn() }}
+      />,
+    );
+    const header = screen.getByTestId("conversation:header");
+    const children = Children.toArray(
+      header.props.children,
+    ) as ReactElement<Record<string, unknown>>[];
+    const position = (matches: (child: ReactElement<Record<string, unknown>>) => boolean) =>
+      children.findIndex(matches);
+
+    const back = position((child) => child.props.testID === "conversation:back");
+    const title = position(
+      (child) => child.props.accessibilityRole === "header",
+    );
+    const running = position(
+      (child) => child.props.children === t("sessions.statusRunning"),
+    );
+    const usage = position((child) => child.props.testID === "conversation:usage");
+
+    expect(back).toBe(0);
+    expect(title).toBeGreaterThan(back);
+    expect(running).toBeGreaterThan(title);
+    expect(usage).toBeGreaterThan(running);
+    // One line, so a long name truncates instead of growing the 56pt row.
+    expect(children[title]?.props.numberOfLines).toBe(1);
+    expect(within(header).getByText(t("sessions.statusRunning"))).toBeTruthy();
+    expect(within(header).getByText(t("usage.title"))).toBeTruthy();
   });
 
   it("KIN-MOBILE-001 R4: the composer sends the typed message and clears the draft", async () => {
