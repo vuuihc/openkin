@@ -1,0 +1,65 @@
+[
+  {
+    "label": "shouldDismiss ignores the threshold, so a short drag closes the sheet (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/sheetDrag.ts",
+    "old": "  return offset > SHEET_DISMISS_DISTANCE;",
+    "new": "  return offset >= 0;",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: a short downward drag springs back and leaves the sheet open\""
+  },
+  {
+    "label": "dragOffset takes the absolute value, so an upward pull moves and closes the sheet (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/sheetDrag.ts",
+    "old": "  return Math.max(0, pageY - startPageY);",
+    "new": "  return Math.abs(pageY - startPageY);",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: an upward drag on the handle never closes the sheet\""
+  },
+  {
+    "label": "the release handler drops its close call, so a pull-down never dismisses (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "      onClose();\n      return;",
+    "new": "      return;",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: dragging the sheet handle down past the threshold closes it once\""
+  },
+  {
+    "label": "the move handler ignores the finger and leaves the card at rest (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "    translateY.setValue(dragOffset(start, event.nativeEvent.pageY));",
+    "new": "    translateY.setValue(0);",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: the card follows the finger while the drag is under way\""
+  },
+  {
+    "label": "a reopen keeps the previous drag offset, so the hidden sheet comes back displaced (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "    if (visible) translateY.setValue(0);",
+    "new": "    if (visible) translateY.stopAnimation();",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: reopening the sheet starts the card at rest\""
+  },
+  {
+    "label": "a cancelled gesture keeps its start point, so the next release dismisses a sheet already back at rest (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "    startPageY.current = null;\n    translateY.setValue(0);",
+    "new": "    translateY.setValue(0);",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: (a cancelled gesture|the drag strip is at least 44)\""
+  },
+  {
+    "label": "a cancelled gesture leaves the card displaced, so the sheet stays half-dragged (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "    startPageY.current = null;\n    translateY.setValue(0);",
+    "new": "    startPageY.current = null;",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: (a cancelled gesture|the drag strip is at least 44)\""
+  },
+  {
+    "label": "the strip never claims the touch, so the pull-down gesture is dead on device (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "            onStartShouldSetResponder={() => true}",
+    "new": "            onStartShouldSetResponder={() => false}",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: (a cancelled gesture|the drag strip is at least 44)\""
+  },
+  {
+    "label": "the drag strip shrinks under the 44pt touch floor, so the pull-down target is too small (R-rn-sheet-dismiss)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "  handle: {\n    alignItems: \"center\",\n    height: 44,\n    justifyContent: \"center\",\n  },",
+    "new": "  handle: {\n    alignItems: \"center\",\n    height: 32,\n    justifyContent: \"center\",\n  },",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: (a cancelled gesture|the drag strip is at least 44)\""
+  }
+]

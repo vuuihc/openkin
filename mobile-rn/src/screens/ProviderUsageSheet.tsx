@@ -11,14 +11,29 @@
  * `usage.title` and `usage-close` (`ProviderUsage.tsx:171-190`), so this shell
  * draws neither a second header nor a second ×. The scrim is a close target
  * because a modal must always be dismissable (TASTE 10).
+ *
+ * The card also answers the platform sheet gesture: a 44pt grabber strip above
+ * the embedded scroller follows a downward drag and closes past
+ * `SHEET_DISMISS_DISTANCE`, while an upward drag clamps at rest. The strip, not
+ * the card, owns the responder, so `ProviderUsage`'s ScrollView keeps its
+ * vertical scroll.
  */
 
-import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useRef } from "react";
+import {
+  Animated,
+  Modal,
+  Pressable,
+  StyleSheet,
+  View,
+  type GestureResponderEvent,
+} from "react-native";
 import type {
   ProvidersView,
   UsageWindowDays,
 } from "../providers/providersModel";
 import ProviderUsage from "./ProviderUsage";
+import { dragOffset, shouldDismiss } from "./sheetDrag";
 
 type Translate = (
   key: string,
@@ -42,6 +57,62 @@ export default function ProviderUsageSheet({
   onRefresh,
   onClose,
 }: ProviderUsageSheetProps) {
+  // The card's downward travel. An Animated.Value, not React state, so a move
+  // updates the transform without re-rendering the embedded ScrollView.
+  const translateY = useRef(new Animated.Value(0)).current;
+  // Where the finger started, in page coordinates; null when no drag owns the
+  // strip (a fresh tap, or a touch the system cancelled).
+  const startPageY = useRef<number | null>(null);
+
+  // A spring that is still settling when the sheet goes away must not keep
+  // animating a card that no longer exists (AGENTS.md §11).
+  useEffect(() => () => translateY.stopAnimation(), [translateY]);
+
+  // The sheet stays mounted while hidden, so a drag that ended in a close (or
+  // that was interrupted by another close path) can leave the card displaced.
+  // Reset at open, not at close: resetting inside `onClose()` would snap the
+  // card back up while the modal is still sliding out.
+  useEffect(() => {
+    if (visible) translateY.setValue(0);
+  }, [visible, translateY]);
+
+  function handleGrant(event: GestureResponderEvent) {
+    startPageY.current = event.nativeEvent.pageY;
+  }
+
+  function handleMove(event: GestureResponderEvent) {
+    const start = startPageY.current;
+    if (start === null) return;
+    translateY.setValue(dragOffset(start, event.nativeEvent.pageY));
+  }
+
+  function handleRelease(event: GestureResponderEvent) {
+    const start = startPageY.current;
+    // The gesture is over whether it closes or springs back.
+    startPageY.current = null;
+    const offset =
+      start === null ? 0 : dragOffset(start, event.nativeEvent.pageY);
+    if (shouldDismiss(offset)) {
+      // The same close callback as the button and the scrim: one close path,
+      // one place for the container to abandon its in-flight read.
+      onClose();
+      return;
+    }
+    // A tap or a short drag: spring back and leave the sheet open.
+    Animated.spring(translateY, {
+      bounciness: 0,
+      toValue: 0,
+      useNativeDriver: true,
+    }).start();
+  }
+
+  function handleTerminate() {
+    // The system took the touch (e.g. an incoming call). A cancelled gesture
+    // is not a dismissal, and it must not leave the card displaced either.
+    startPageY.current = null;
+    translateY.setValue(0);
+  }
+
   return (
     <Modal
       animationType="slide"
@@ -69,7 +140,31 @@ export default function ProviderUsageSheet({
           this app does not otherwise use (`react-native-safe-area-context` is
           installed but no sibling screen reads insets yet).
         */}
-        <View accessibilityViewIsModal style={styles.card} testID="usage-card">
+        <Animated.View
+          accessibilityViewIsModal
+          style={[styles.card, { transform: [{ translateY }] }]}
+          testID="usage-card"
+        >
+          {/*
+            The pull-down lives on a 44pt grabber strip above the content, not
+            on the card: a responder on the card would fight the embedded
+            `ProviderUsage` ScrollView. The strip is decorative to the reader
+            (the header's 关闭 stays the only announced dismiss), so it adds no
+            label and no new sentence.
+          */}
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            onResponderGrant={handleGrant}
+            onResponderMove={handleMove}
+            onResponderRelease={handleRelease}
+            onResponderTerminate={handleTerminate}
+            onStartShouldSetResponder={() => true}
+            style={styles.handle}
+            testID="usage-drag-handle"
+          >
+            <View style={styles.handleBar} testID="usage-drag-bar" />
+          </View>
           <ProviderUsage
             onClose={onClose}
             onRefresh={onRefresh}
@@ -77,7 +172,7 @@ export default function ProviderUsageSheet({
             state={state}
             t={t}
           />
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -89,6 +184,18 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     height: "85%",
+  },
+  /** The 44pt finger target; the visible affordance is the bar inside it. */
+  handle: {
+    alignItems: "center",
+    height: 44,
+    justifyContent: "center",
+  },
+  handleBar: {
+    backgroundColor: "#d0d0d0",
+    borderRadius: 2.5,
+    height: 5,
+    width: 36,
   },
   root: {
     flex: 1,
