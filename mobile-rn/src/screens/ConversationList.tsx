@@ -302,10 +302,19 @@ export default function ConversationList({
     focusNode({ current: node });
   }, [returnFocusEpoch, focusedId]);
 
+  /**
+   * A reader action that moves them off the rows drops a return still waiting
+   * for its row to paint: a focus move that lands later would steal them from
+   * wherever they are now (AGENTS.md rule 11).
+   */
+  const dropPendingReturn = () => {
+    pendingReturn.current = null;
+  };
+
   const focusRow = (rowId: string, scroll = false) => {
     if (rowId === focusedId) return;
     // A newer move supersedes a return still waiting for its row to paint.
-    pendingReturn.current = null;
+    dropPendingReturn();
     setFocusedId(rowId);
     onFocusChange?.(rowId);
     if (!scroll) return;
@@ -398,7 +407,12 @@ export default function ConversationList({
                 disabled: searching,
               }}
               disabled={searching}
-              onPress={() => onToggleProject?.(item.deviceId, item.project.key)}
+              onPress={() => {
+                // The reader folded or unfolded a project; a return that was
+                // waiting for a hidden row must not land after that.
+                dropPendingReturn();
+                onToggleProject?.(item.deviceId, item.project.key);
+              }}
               style={({ pressed }) => [
                 styles.project,
                 pressed && styles.projectPressed,
@@ -485,9 +499,17 @@ export default function ConversationList({
               accessibilityLabel={t("sessions.searchPlaceholder")}
               autoCapitalize="none"
               autoCorrect={false}
-              onChangeText={onQueryChange}
+              onChangeText={(next) => {
+                // A query the reader is typing changes which rows can paint;
+                // a return waiting for one of them is no longer their context.
+                dropPendingReturn();
+                onQueryChange(next);
+              }}
               onBlur={() => setSearchFocused(false)}
-              onFocus={() => setSearchFocused(true)}
+              onFocus={() => {
+                dropPendingReturn();
+                setSearchFocused(true);
+              }}
               placeholder={t("sessions.searchPlaceholder")}
               returnKeyType="search"
               style={styles.searchInput}

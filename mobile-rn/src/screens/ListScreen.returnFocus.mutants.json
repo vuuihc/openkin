@@ -42,6 +42,20 @@
     "test": "cd mobile-rn && npx jest src/screens/ListScreen.returnFocus.test.tsx -t \"KIN-MOBILE-001 §2: a ring move after the return does not move reader focus again\" --runInBand"
   },
   {
+    "label": "the row's own ref callback never completes a waiting return, so a virtualized row never receives the reader (R-rn-list-focus-return)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "              rowRefs.current.set(row.id, node);\n              // A return that landed before this row was painted waits here;\n              // the first committed ref is the row's arrival.\n              if (pendingReturn.current !== row.id) return;\n              pendingReturn.current = null;\n              focusNode({ current: node });",
+    "new": "              rowRefs.current.set(row.id, node);",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.returnFocus.test.tsx -t \"KIN-MOBILE-001 §2: a return whose row arrives after the repaint moves the reader when it mounts\" --runInBand"
+  },
+  {
+    "label": "the route treats its own mount focus event as a return, so the first frame moves the reader (R-rn-list-focus-return)",
+    "file": "mobile-rn/app/list.tsx",
+    "old": "      if (!showing.current) return;\n      setFocusEpoch((epoch) => epoch + 1);",
+    "new": "      setFocusEpoch((epoch) => epoch + 1);",
+    "test": "cd mobile-rn && npx jest app/list.focus.test.tsx -t \"KIN-MOBILE-001 §2: the list route bumps the return-focus epoch when the screen regains focus, and not at mount\" --runInBand"
+  },
+  {
     "label": "the route never bumps the return-focus epoch, so Back leaves the reader where the platform dropped them (R-rn-list-focus-return)",
     "file": "mobile-rn/app/list.tsx",
     "old": "      setReturnFocusEpoch((epoch) => epoch + 1);",

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { act, render, waitFor } from "@testing-library/react-native";
+import { useEffect as mockUseEffect } from "react";
 import { Text } from "react-native";
 
 /**
@@ -41,6 +42,12 @@ jest.mock("expo-router", () => ({
   useRouter: () => mockRouter,
   useFocusEffect: (callback: () => void) => {
     mockFocusCallbacks.push(callback);
+    // React Navigation runs the callback once when a screen mounts focused.
+    // Recording it without running it would leave the route's mount guard
+    // (`showing.current`) unpinned: deleting the guard would still be green.
+    mockUseEffect(() => {
+      callback();
+    }, [callback]);
   },
   // The route reads the split selection from the URL even when this suite only
   // cares about focus; no selection means the stack at any width.

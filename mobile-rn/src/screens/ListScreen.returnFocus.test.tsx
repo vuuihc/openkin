@@ -6,8 +6,14 @@ import type { Machine } from "../../../ui/src/lib/devices";
 import { focusNode } from "../a11y/focus";
 import { listTasksPath } from "../api/transport";
 import type { Session } from "../auth/tokenStore";
-import { createListMemory, type ListMemory } from "../list/listModel";
-import { FOCUS_RING } from "./ConversationList";
+import {
+  createListMemory,
+  type ConversationRow,
+  type DeviceGroup,
+  type ListMemory,
+  type ListViewState,
+} from "../list/listModel";
+import ConversationList, { FOCUS_RING } from "./ConversationList";
 import ListScreen from "./ListScreen";
 
 // The seam, not React Native: the screen only has to say where the reader
@@ -119,6 +125,57 @@ function listProps(memory: ListMemory = createListMemory()) {
     readSessionImpl: storedSession,
     selfDeviceId: "dev-a",
   };
+}
+
+/** A view state with exactly the given rows, in one open project. */
+function rowState(ids: readonly string[]): ListViewState {
+  const rows: ConversationRow[] = ids.map((id, index) => ({
+    id,
+    title: `${id} title`,
+    agentId: "kin",
+    at: 1000 - index,
+    timeLabel: `t${1000 - index}`,
+    statusKey: "sessions.statusSucceeded",
+    pending: 0,
+    remote: false,
+  }));
+  const groups: DeviceGroup[] = [
+    {
+      id: "dev-a",
+      label: "Laptop",
+      isSelf: true,
+      online: true,
+      count: rows.length,
+      projects: [
+        {
+          key: "/work/alpha",
+          label: "Alpha",
+          open: true,
+          lastActivityAt: 1000,
+          rows,
+        },
+      ],
+    },
+  ];
+  return { status: "ready", groups, error: null };
+}
+
+const t = (key: string): string => key;
+
+/** The pure list, with a ring row the first paint does not hold. */
+function conversationList(state: ListViewState, returnFocusEpoch: number) {
+  return (
+    <ConversationList
+      initialFocusId="a3"
+      onOpen={() => {}}
+      onQueryChange={() => {}}
+      onRefresh={() => {}}
+      query=""
+      returnFocusEpoch={returnFocusEpoch}
+      state={state}
+      t={t}
+    />
+  );
 }
 
 /** The props of the node the last recorded focus call landed on. */
@@ -253,5 +310,31 @@ describe("KIN-MOBILE-001 §2 reader focus returns to the row", () => {
     ).toBe(FOCUS_RING);
     expect(focusMock).toHaveBeenCalledTimes(1);
     expect(focusedNodeProps()?.testID).toBe("row:a2");
+  });
+
+  it("KIN-MOBILE-001 §2: a return whose row arrives after the repaint moves the reader when it mounts", async () => {
+    // The ring row is not in the page yet (a data refresh still on its way).
+    const screen = await render(conversationList(rowState(["a1", "a2"]), 0));
+    expect(screen.queryByTestId("row:a3")).toBeNull();
+
+    await screen.rerender(conversationList(rowState(["a1", "a2"]), 1));
+    // No node to focus: the return waits for the row's own ref callback.
+    expect(focusMock).not.toHaveBeenCalled();
+
+    await screen.rerender(conversationList(rowState(["a1", "a2", "a3"]), 1));
+    expect(focusMock).toHaveBeenCalledTimes(1);
+    expect(focusedNodeProps()?.testID).toBe("row:a3");
+  });
+
+  it("KIN-MOBILE-001 §2: a return still waiting for its row is dropped when the reader moves to search", async () => {
+    const screen = await render(conversationList(rowState(["a1", "a2"]), 0));
+    await screen.rerender(conversationList(rowState(["a1", "a2"]), 1));
+    expect(focusMock).not.toHaveBeenCalled();
+
+    // The reader moves to the search field: a return that lands after this
+    // would pull them off the control they are on (AGENTS.md rule 11).
+    await fireEvent(screen.getByTestId("list-search"), "focus");
+    await screen.rerender(conversationList(rowState(["a1", "a2", "a3"]), 1));
+    expect(focusMock).not.toHaveBeenCalled();
   });
 });
