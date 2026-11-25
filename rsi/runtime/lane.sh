@@ -93,6 +93,7 @@ You are the WORKER for RSI item $item in worktree \`$wt\` on branch \`$br\`. Mod
 - Evidence, not a placeholder: the 820×1180 one must be the surface's real reading state (a conversation surface means a long answer containing a markdown table), never an empty or placeholder view — a blank 820 is a rework round, not evidence.
 - If \`ui/\` changed and you added or changed any user-visible string: put it in **both** \`ui/src/i18n/locales/en.ts\` and \`ui/src/i18n/locales/zh.ts\` in the same commit, and run \`cd ui && npx vitest run src/i18n/locales.test.ts\` (same keys, no blank values, same placeholders). When you replace existing copy, \`grep -rn\` the old sentence in \`ui/src/\` including \`*.test.*\`: an assertion on the old English is red CI that the gate charges to this PR.
 - Loop code (\`rsi/runtime/**\` or \`scripts/**\` ending \`.sh\`, \`.bash\`, \`.py\`, \`.mjs\`, \`.js\` or \`.ts\`; not \`rsi/runtime/{tests,runs,prompts}/**\`, \`rsi/runtime/ux/journeys/**\`, \`rsi/state/**\` or a deleted file): add or update an entry in a \`*.mutants.json\` manifest this branch adds or modifies for every changed file, with \`file\` set to that path, and that entry's test must fail while its mutant is applied. A manifest already on main does not cover your edit, so an already-covered file still needs a new entry. Make the mutant break the behaviour you changed, not an unrelated line. Run \`bash rsi/runtime/lane.sh --mutant-evidence-check "\$PWD"\` from your worktree before you finish: only \`MUTANT_EVIDENCE_OK\` (or \`MUTANT_EVIDENCE_SKIP\` when no loop code changed) proves the hand-off; a missing entry prints \`MUTANT_EVIDENCE_MISSING\` and a surviving mutant prints \`MUTANT_EVIDENCE_RED\`. The lane runs the same seam before pushing, and either verdict there fails the lane.
+- If you remove a quoted value, backticked span, \`--flag\` or UPPER_SNAKE constant of 8+ characters from loop code, untouched tests and \`*.mutants.json\` anchors that still assert it are stale. Run \`bash rsi/runtime/lane.sh --removed-literal-check "\$PWD"\` before you finish: only \`REMOVED_LITERAL_OK\` (or \`REMOVED_LITERAL_NA\` with a reason) proves the hand-off; a \`REMOVED_LITERAL_RED\` names the literal, the file it left and the \`path:line\` that still asserts it. The lane runs the same seam before pushing, and a RED there fails the lane.
 - UI ratchet: \`python3 scripts/check-ui-inventory.py\` must not grow. If your change IS the sanctioned primitive/facade (its own raw \`<button>\`, \`createPortal\`, \`role="dialog"\`, \`useAnchoredPanel\` use is the point), run \`python3 scripts/check-ui-inventory.py --update\`, commit the baseline, and say so in the PR body (Risk section). Also run the focused UI suites your change touches plus the design-token test: \`cd ui && npx vitest run <the suites you touched> src/design/tokens.test.ts\` (e.g. focus ring must use \`outline-kin-focus-ring\`). The merge gate owns the full suite; a worker does not run it.
 - Commit everything with Conventional Commits and explicit paths. Do NOT push, do NOT open the PR, do NOT touch other worktrees.
 - Run \`bash rsi/runtime/format-changed.sh --write --commit\` as the last step before writing the hand-off body: the lane repeats that format commit after you exit, so a rewrite it makes moves the line numbers the body claims (2026-11-23: 786e847d shifted AgentSessionSheet.tsx 240/256/277 → 235/251/272 after the body was written, and the claim seam failed the round).
@@ -403,6 +404,28 @@ red_first_check() { # <worktree> <body-file> — prints one RED_FIRST_* verdict;
   return "$rc"
 }
 
+# --- removed literal: a removed value must not leave an untouched test asserting it --------------
+# A branch deletes a flag, a command fragment or a config value from loop code and leaves an
+# untouched test file (or an untouched *.mutants.json anchor) still asserting it. Nothing notices
+# until the full gate or a reviewer runs, so the PR is sent back after a whole round.
+# rsi/runtime/removed_literal.py is the rule: it derives the literals this branch removed, finds the
+# untouched tests and manifests that still assert them, runs only those tests (bounded) and names
+# the literal, the file it left and the path:line that still asserts it. This seam runs it in the
+# lane before the push and gives the whole run one watchdog; the checker owns the per-file bound.
+# A branch that cannot be measured is NA, never a green (see the checker).
+removed_literal_check() { # <worktree> — prints one REMOVED_LITERAL_* verdict; exits with the checker's code
+  local wt="$1" out rc secs
+  [ -d "$wt" ] || { echo "REMOVED_LITERAL_NA: $wt · worktree not found"; return 0; }
+  secs="${RSI_REMOVED_LITERAL_SECS:-240}"
+  case "$secs" in ''|*[!0-9]*) secs=240 ;; esac
+  [ "$secs" -gt 300 ] && secs=300
+  out="$(bounded_run "$((secs + 5))" python3 "$RSI_DIR/runtime/removed_literal.py" "$wt" 2>&1)"; rc=$?
+  printf '%s\n' "$out"
+  # The watchdog's timeout is no verdict: report NA rather than a fabricated pass.
+  [ "$rc" -eq 124 ] && { echo "REMOVED_LITERAL_NA: the check did not finish within ${secs}s"; return 0; }
+  return "$rc"
+}
+
 if [ "$CMD" = _sendback-order ]; then sendback_order; exit 0; fi
 
 # Seams. --worker-contract-check prints the contract and exits before PAUSE, locks, fetch,
@@ -420,6 +443,10 @@ fi
 if [ "$CMD" = --red-first-check ]; then
   [ "$#" -eq 3 ] || { echo "usage: lane.sh --red-first-check <worktree> <body-file>" >&2; exit 2; }
   red_first_check "$2" "$3"; exit $?
+fi
+if [ "$CMD" = --removed-literal-check ]; then
+  [ "$#" -eq 2 ] || { echo "usage: lane.sh --removed-literal-check <worktree>" >&2; exit 2; }
+  removed_literal_check "$2"; exit $?
 fi
 if [ "$CMD" = --pr-body-check ]; then
   [ "$#" -eq 4 ] || { echo "usage: lane.sh --pr-body-check <worktree> <pr-number> <local-body-file>" >&2; exit 2; }
@@ -737,6 +764,19 @@ if ! RED_EV="$(bash "$SELF" --red-first-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; 
   exit 1
 fi
 [ -n "$RED_EV" ] && printf '%s\n' "$RED_EV"
+
+# A removed literal must not leave an untouched test or mutant anchor asserting it. The worker
+# runs this same seam first (worker_contract); this pass is authoritative. On RED the branch stays
+# committed and unpushed, and the verdict names the literal, the file it left and the asserting
+# path:line. NA is honest (nothing measurable) and does not stop the hand-off.
+if ! REMOVED_EV="$(bash "$SELF" --removed-literal-check "$WT" 2>&1)"; then
+  [ -n "$REMOVED_EV" ] && printf '%s\n' "$REMOVED_EV"
+  printf '%s\n' "${REMOVED_EV:-check produced no output}" > "$STATE/lanes/$N.removed-literal.txt"
+  REMOVED_NOTE="$(printf '%s' "$REMOVED_EV" | tr '\n' ' ' | sed 's/  */ /g')"
+  finish failed "" "removed literal: ${REMOVED_NOTE:-check produced no output} (evidence: $STATE/lanes/$N.removed-literal.txt)"
+  exit 1
+fi
+[ -n "$REMOVED_EV" ] && printf '%s\n' "$REMOVED_EV"
 
 # push + PR (normal push only)
 if ! $GIT -C "$WT" push -q -u origin "$BR" 2>"$STATE/lanes/$N.push.err"; then
