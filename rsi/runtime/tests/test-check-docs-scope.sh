@@ -11,6 +11,9 @@
 # the loop's shell suites and fails closed on coverage it cannot run (ui test, python
 # test, Go test). This suite pins the seam:
 #
+#   * gate.sh's check step runs check.sh with KIN_CHECK_SCOPE=rn, and with =docs plus the
+#     changed-path list, proven by a stub check.sh in a temp repo (without it, deleting either
+#     arm falls back to the full check while the gate still prints a scoped label);
 #   * --scope-of: md-only → docs; ui/web md, AGENTS.md/CLAUDE.md, md + code, empty → full;
 #     mobile-rn md and the 0036 ADR → rn (rn wins precedence);
 #   * KIN_CHECK_SCOPE=docs --list is exactly `stories`, `ux-spec-refs`, `doc-refs`;
@@ -33,6 +36,60 @@ T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 
 fail() { echo "FAIL $*" >&2; exit 1; }
+
+# --- gate.sh's check step hands the scope it computed to check.sh ---------------------------
+# The cases below pin the classifier (--scope-of) and check.sh's own reading of KIN_CHECK_SCOPE;
+# neither proves gate.sh wires the two together. Deleting either arm of its check step left every
+# suite green, so the gate could fall back to the full check while still printing "scope:
+# docs-only". This case runs the real gate.sh against a temp repo whose check.sh records its
+# environment — the only seam that sees the hand-off. It comes first so a gate.sh without the
+# wiring fails here, naming this case, before it can fail on --scope-of (the red-first lane runs
+# this suite against an origin/main gate.sh).
+export GIT_AUTHOR_NAME=docs-scope-test GIT_AUTHOR_EMAIL=docs-scope@example.com
+export GIT_COMMITTER_NAME=docs-scope-test GIT_COMMITTER_EMAIL=docs-scope@example.com
+export GIT_TERMINAL_PROMPT=0
+export GIT=/usr/bin/git
+mkdir -p "$T/ctrl/rsi/state"
+
+gate_applies_scope() { # <case> <changed-path> <expected-scope>
+  local name="$1" path="$2" want="$3" repo="$T/gate-scope-$1"
+  local envf="$T/gate-scope-$1.env" changedf="$T/gate-scope-$1.changed" out rc
+  rm -rf "$repo"; mkdir -p "$repo/scripts" "$repo/$(dirname "$path")"
+  cat >"$repo/scripts/check.sh" <<SH
+#!/bin/bash
+printf '%s\n' "\${KIN_CHECK_SCOPE:-unset}" >"$envf"
+if [ -n "\${KIN_CHECK_CHANGED:-}" ] && [ -f "\$KIN_CHECK_CHANGED" ]; then
+  cp "\$KIN_CHECK_CHANGED" "$changedf"
+fi
+SH
+  chmod +x "$repo/scripts/check.sh"
+  echo base >"$repo/README.md"
+  /usr/bin/git init -q -b main "$repo" || fail "gate-applies-scope-$name: git init"
+  /usr/bin/git -C "$repo" add -A || fail "gate-applies-scope-$name: git add"
+  /usr/bin/git -C "$repo" commit -qm base || fail "gate-applies-scope-$name: base commit"
+  /usr/bin/git -C "$repo" update-ref refs/remotes/origin/main HEAD \
+    || fail "gate-applies-scope-$name: origin/main"
+  echo x >"$repo/$path"
+  /usr/bin/git -C "$repo" add -A || fail "gate-applies-scope-$name: git add $path"
+  /usr/bin/git -C "$repo" commit -qm "$name" || fail "gate-applies-scope-$name: commit $path"
+  out="$T/gate-scope-$name.out"
+  ( cd "$repo" && RSI_CTRL="$T/ctrl" bash "$GATE" --only check "$repo" ) >"$out" 2>&1
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "gate-applies-scope-$name: gate exited $rc: $(tr '\n' ' ' <"$out")"
+  grep -q "^scope: $want-only " "$out" \
+    || fail "gate-applies-scope-$name: no 'scope: $want-only' label: $(tr '\n' ' ' <"$out")"
+  [ -f "$envf" ] || fail "gate-applies-scope-$name: check.sh never ran: $(tr '\n' ' ' <"$out")"
+  [ "$(cat "$envf")" = "$want" ] \
+    || fail "gate-applies-scope-$name: check.sh saw KIN_CHECK_SCOPE=$(cat "$envf"), want $want"
+}
+
+gate_applies_scope rn mobile-rn/one.ts rn
+echo "PASS gate-applies-scope-rn"
+
+gate_applies_scope docs docs/x.md docs
+grep -qx 'docs/x.md' "$T/gate-scope-docs.changed" 2>/dev/null \
+  || fail "gate-applies-scope-docs: KIN_CHECK_CHANGED did not name docs/x.md"
+echo "PASS gate-applies-scope-docs"
 
 # --- --scope-of: docs only for a non-empty, markdown-only, unprotected list ------------------
 grep -q -- '--scope-of' "$GATE" || fail "scope-of: $GATE has no --scope-of seam"
