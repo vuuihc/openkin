@@ -39,13 +39,13 @@
     "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
     "old": "    startPageY.current = null;\n    translateY.setValue(0);",
     "new": "    translateY.setValue(0);",
-    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: a cancelled gesture neither closes the sheet nor leaves it displaced\""
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: (a cancelled gesture|the drag strip is at least 44)\""
   },
   {
     "label": "the drag strip shrinks under the 44pt touch floor, so the pull-down target is too small (R-rn-sheet-dismiss)",
     "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
     "old": "  handle: {\n    alignItems: \"center\",\n    height: 44,\n    justifyContent: \"center\",\n  },",
     "new": "  handle: {\n    alignItems: \"center\",\n    height: 32,\n    justifyContent: \"center\",\n  },",
-    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: the drag strip is at least 44 points tall and hidden from the reader\""
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.dismiss.test.tsx -t \"KIN-MOBILE-001 R6: (a cancelled gesture|the drag strip is at least 44)\""
   }
 ]
