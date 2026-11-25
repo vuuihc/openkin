@@ -158,6 +158,48 @@ export function applyFolds(
   }));
 }
 
+/**
+ * Narrow the grouped page to the rows a query matches (KIN-MOBILE-001 R3).
+ *
+ * Title and agent are the two fields a row shows, so they are the two the
+ * search reads; the match is case-insensitive and around surrounding
+ * whitespace. A project that holds a match opens for the duration of the
+ * query — a fold is the reader's durable state and this filter is pure, so it
+ * never writes the fold store and clearing the query hands the folds back
+ * exactly as they were. Device and project headings that kept no row
+ * disappear, and a heading's number becomes the matching rows' count.
+ *
+ * A blank query is not a filter: the input object is returned unchanged, so
+ * the screen does not re-render a page the reader never narrowed.
+ */
+export function filterGroups(
+  groups: DeviceGroup[],
+  query: string,
+): DeviceGroup[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return groups;
+  const matched: DeviceGroup[] = [];
+  for (const device of groups) {
+    const projects: ProjectGroup[] = [];
+    for (const project of device.projects) {
+      const rows = project.rows.filter(
+        (row) =>
+          row.title.toLowerCase().includes(needle) ||
+          row.agentId.toLowerCase().includes(needle),
+      );
+      if (rows.length === 0) continue;
+      projects.push({ ...project, open: true, rows });
+    }
+    if (projects.length === 0) continue;
+    matched.push({
+      ...device,
+      count: projects.reduce((sum, project) => sum + project.rows.length, 0),
+      projects,
+    });
+  }
+  return matched;
+}
+
 export type BuildGroupsOptions = {
   selfDeviceId: string;
   machines?: readonly Machine[];
