@@ -36,6 +36,11 @@ export default function ThreadRoute() {
     seenTask.current = taskId;
     setFocusEpoch((epoch) => epoch + 1);
   }, [taskId]);
+  // A decision made in the right pane settles a card the left pane counts:
+  // the list must re-read so its 待批 badge drops without leaving the route.
+  const settlePending = useCallback(() => {
+    setFocusEpoch((epoch) => epoch + 1);
+  }, []);
 
   // The conversation closes to the list, whether it arrived by a phone push
   // (rotate onto the iPad) or by a deep link with nothing beneath it.
@@ -59,12 +64,20 @@ export default function ThreadRoute() {
   }, [leave, split]);
 
   if (!split) {
+    // No list is mounted on a phone, so a settle callback here would re-read a
+    // screen that does not exist. Going back remounts the list, which reads.
     return <ConversationScreen onBack={leave} taskId={taskId} />;
   }
 
   return (
     <SplitListLayout
-      conversation={<ConversationScreen onBack={leave} taskId={taskId} />}
+      conversation={
+        <ConversationScreen
+          onBack={leave}
+          onPendingSettled={settlePending}
+          taskId={taskId}
+        />
+      }
       emptyLabel={t("sessions.selectConversation")}
       list={
         <ListScreen
