@@ -12,5 +12,12 @@
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.overlap.dom.test.tsx",
     "old": "      covers(stripRect, raised ? \"[data-kin-reading], [data-session-row]\" : \"[data-kin-reading]\");",
     "new": "      covers(stripRect, raised ? \"[data-kin-reading], [data-session-row]\" : \"[data-kin-reading], [data-kin-hit-row]\");"
+  },
+  {
+    "label": "the phone-band gate widens to every width",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.overlap.dom.test.tsx",
+    "old": "    const hitRowSelector =\n      viewportWidth < 768\n        ? \"[data-kin-hit-row]\"\n        : \"[data-kin-hit-row]:not([data-kin-hit-row='phone'])\";",
+    "new": "    const hitRowSelector = \"[data-kin-hit-row]\";"
   }
 ]
