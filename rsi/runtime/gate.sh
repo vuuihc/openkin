@@ -6,6 +6,25 @@
 set -u
 ONLY=""
 if [ "${1:-}" = "--only" ]; then ONLY="${2:?--only needs step[,step]}"; shift 2; fi
+
+# scope_of <file>: `rn` when the changed-file list is non-empty and every path is under
+# mobile-rn/ or is the RN gate ADR (docs/adr/0036-*); anything else, including an empty
+# list, is `full`. 2026-11-24 measurement: .gate.lock was held 21.5 h across 100 runs and
+# 11.2 h of it was RN/docs PRs, each paying ~10 min of repo-wide check jobs it cannot use.
+scope_of() {
+  local n=0 bad=0 line
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -z "$line" ] && continue
+    n=$((n + 1))
+    case "$line" in
+      mobile-rn/*|docs/adr/0036-*) ;;
+      *) bad=1 ;;
+    esac
+  done <"$1"
+  { [ "$n" -gt 0 ] && [ "$bad" -eq 0 ]; } && echo rn || echo full
+}
+# gate.sh --scope-of <file> prints that scope for a changed-file list, then exits.
+if [ "${1:-}" = "--scope-of" ]; then scope_of "${2:?--scope-of needs a file}"; exit 0; fi
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 source "$(cd "$(dirname "$0")" && pwd)/gate-env.sh"
@@ -142,12 +161,23 @@ ui_node_stamp() { node_stamp_ensure ui; }
 $GIT fetch -q origin main 2>/dev/null
 changed="$($GIT diff --name-only origin/main...HEAD)"
 echo "changed files: $(echo "$changed" | grep -c .)"
+scope_list="$(mktemp "${TMPDIR:-/tmp}/gate-changed.XXXXXX")"
+printf '%s\n' "$changed" >"$scope_list"
+scope="$(scope_of "$scope_list")"
+rm -f "$scope_list"
+[ "$scope" = rn ] && echo "scope: rn-only ($(echo "$changed" | grep -c .) files)"
 lines="$($GIT diff --shortstat origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json')"
 echo "diff size: $lines"
 echo "$changed" | grep -qE '^(web/dist/assets/|\.env|.*secret)' && { echo "FAIL: forbidden path in diff"; fail=1; why="$why forbidden-path"; }
 [ -n "$($GIT status --porcelain)" ] && { echo "FAIL: working tree not clean (commit or discard)"; $GIT status --short | head; fail=1; why="$why dirty-tree"; }
 echo "$changed" | grep -q '^ui/' && needs_node_stamp && step node-stamp ui_node_stamp
-[ -x scripts/check.sh ] && selected check && step check ./scripts/check.sh
+if [ -x scripts/check.sh ] && selected check; then
+  if [ "$scope" = rn ]; then
+    step check env KIN_CHECK_SCOPE=rn ./scripts/check.sh
+  else
+    step check ./scripts/check.sh
+  fi
+fi
 if echo "$changed" | grep -q '^ui/'; then
   selected lint && step lint bash -c 'cd ui && npm run lint'
   selected test && step test ui_vitest_gate

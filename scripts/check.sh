@@ -5,6 +5,9 @@
 #   ./scripts/check.sh            # the checks CI does not run, scoped to the change set
 #   ./scripts/check.sh --all      # every check, including the eight CI runs on every push
 #   ./scripts/check.sh --list     # print the job names this run would start, then exit
+#   KIN_CHECK_SCOPE=rn ./scripts/check.sh
+#                               # RN-only gate scope: just the jobs that judge a
+#                               # mobile-rn/-only diff (mobile-rn + stories)
 #
 # CI (.github/workflows/ci.yml) already runs vet, go test ./..., the console suite and
 # typecheck, the desktop suite and typecheck, the inventory ratchet and the added-file
@@ -31,16 +34,34 @@ for arg in "$@"; do
   esac
 done
 
+# gate.sh sets KIN_CHECK_SCOPE=rn when every changed path is mobile-rn/... or the RN ADR
+# (docs/adr/0036-*): on 2026-11-24 the gate lock sat 11.2 h of 21.5 h on RN/docs PRs, each
+# paying ~10 min for repo-wide jobs (job_shell_test's ~90 suites) that cannot judge the
+# diff. rn starts only RN_SCOPE_JOBS; --all always wins; any other value is a caller bug.
+SCOPE="${KIN_CHECK_SCOPE:-}"
+case "$SCOPE" in
+  ""|rn) ;;
+  *) echo "check.sh: unknown KIN_CHECK_SCOPE: '$SCOPE'" >&2; exit 2 ;;
+esac
+RN_SCOPE_JOBS="mobile-rn stories"
+SCOPED=0
+[ "$SCOPE" = rn ] && [ "$ALL" -eq 0 ] && SCOPED=1
+# rn_jobs <name> — true when name survives an rn-scoped run. --list and start() both read
+# this one set, so the printed plan cannot drift from what a run starts.
+rn_jobs() { [[ " $RN_SCOPE_JOBS " == *" $1 "* ]]; }
+
 # --list prints the names the start lines below would start, in start order, and exits
 # before any job (or temp dir) is created. It reads those lines from this file, so the
 # printed list cannot drift from what a run starts; the block between the markers is
 # the --all-only set and is skipped unless --all was given.
 if [[ "$LIST" == "1" ]]; then
-  awk -v all="$ALL" '
+  awk -v all="$ALL" -v scoped="$SCOPED" -v rnj=" $RN_SCOPE_JOBS " '
     /^# BEGIN all-only jobs/ { block = 1; next }
     /^# END all-only jobs/   { block = 0; next }
     /^[[:space:]]*start [A-Za-z0-9._-]+ job_[A-Za-z0-9_]+$/ {
-      if (!block || all == 1) print $2
+      if (block && all != 1) next
+      if (scoped == 1 && index(rnj, " " $2 " ") == 0) next
+      print $2
     }
   ' "$SELF" || exit 1
   exit 0
@@ -87,6 +108,8 @@ trap 'on_interrupt INT' INT
 start() { # name function
   local name="$1"
   shift
+  # Same RN_SCOPE_JOBS set --list filters on, so a scoped run starts what it printed.
+  [[ "$SCOPED" == "1" ]] && ! rn_jobs "$name" && return 0
   NAMES+=("$name")
   if [ -n "${RSI_CHECK_JOB_STUB:-}" ]; then
     ( bash -c "$RSI_CHECK_JOB_STUB" "$name" ) >"$LOG_DIR/$name.log" 2>&1 &
@@ -284,6 +307,8 @@ job_shell_test() {
   # The default gate starts only the jobs CI does not run; this pins the split and the
   # premises that make dropping the rest safe (R-gate-ci-dedupe).
   bash rsi/runtime/tests/test-check-job-parity.sh || return 1
+  # An RN-only PR scopes the gate's check step to mobile-rn + stories (KIN_CHECK_SCOPE=rn).
+  bash rsi/runtime/tests/test-check-rn-scope.sh || return 1
   bash rsi/runtime/tests/test-rename-copy-check.sh || return 1
   bash rsi/runtime/tests/test-ux-carry-key.sh || return 1
   bash rsi/runtime/tests/test-verifier-ci-hold.sh || return 1
