@@ -10,16 +10,16 @@ import type { AgentSession, Project, Task } from "../../api/client";
 /**
  * KIN-CONTINUE-007: one screenful of conversations at 820.
  *
- * Projects are folded except the one the person was last in, the row cap lets
- * ten conversations render, and a project's 「工作方式」 is one disclosure line.
- * These tests pin that shape in jsdom.
+ * The rows are scanned, not browsed: a title line, a metadata line, projects
+ * folded except the one the person was last in, and a project's 「工作方式」
+ * reduced to one disclosure line. These tests pin that shape in jsdom.
  *
  * The "ten in one 820 screenful" contract is a *measurement*, and jsdom has no
  * layout: the screenful itself is proven only by the 820×1180 coarse-pointer
  * browser measurement in the delivery (shots under rsi/state/shots/
  * list-scan-a/). What is asserted here is the part a unit test can hold — ten
- * conversations render with the row cap out of the way, and only the newest
- * project is open. It does not fake a height.
+ * conversations render, each with the two-line shape, with the row cap out of
+ * the way. It does not fake a height.
  */
 
 const fixtures = vi.hoisted(() => ({
@@ -129,6 +129,18 @@ function rowEl(id: string): HTMLElement {
   return element as HTMLElement;
 }
 
+function titleEl(row: HTMLElement): HTMLElement {
+  const element = row.querySelector<HTMLElement>("[data-session-title]");
+  expect(element).not.toBeNull();
+  return element as HTMLElement;
+}
+
+function metaEl(row: HTMLElement): HTMLElement {
+  const element = row.querySelector<HTMLElement>("[data-session-meta]");
+  expect(element).not.toBeNull();
+  return element as HTMLElement;
+}
+
 /** The project heading's fold chevron: the icon button that says expanded. */
 function projectChevron(name: string): HTMLElement {
   const button = screen
@@ -150,6 +162,64 @@ beforeEach(() => {
 });
 
 describe("the 820 conversation list", () => {
+  it("renders one title line and one metadata line at 820", () => {
+    mount();
+
+    const row = rowEl("alpha-work");
+    expect(titleEl(row).textContent).toBe("alpha-work");
+    // agent · relative time · one status: exactly the three slots, no device.
+    const parts = (metaEl(row).textContent ?? "").split(" · ");
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).toBe("Kin");
+    expect(parts[1]).not.toBe("");
+    expect(parts[2]).toBe("Done");
+
+    // The status is pinned outside the truncating lead. In the 304px column
+    // the lead is what ellipsizes, so the one status stays readable — the
+    // 820×1180 browser shot shows it; this holds the mechanism in jsdom.
+    const lead = metaEl(row).firstElementChild as HTMLElement;
+    const status = metaEl(row).querySelector<HTMLElement>("[data-session-status]");
+    expect(lead.className).toContain("truncate");
+    expect(status?.className).toContain("shrink-0");
+    expect(lead.contains(status)).toBe(false);
+  });
+
+  it("keeps the metadata line whole while the title truncates", () => {
+    fixtures.tasks = [
+      task("long-title", "/work/alpha", {
+        title:
+          "A deliberately long conversation title that cannot fit a 304px list column without truncating somewhere",
+      }),
+    ];
+    mount();
+
+    const row = rowEl("long-title");
+    const title = titleEl(row);
+    const meta = metaEl(row);
+    // The title is the only line that truncates; the metadata is a sibling
+    // line, so the title's length can never squeeze it out.
+    expect(title.className).toContain("truncate");
+    expect(title.contains(meta)).toBe(false);
+    expect(meta.textContent).toMatch(/^Kin · .+ · Done$/);
+  });
+
+  it("drops the per-row device label under a device heading", () => {
+    // A remote row, under Studio's heading. The device is the heading above
+    // the project, so neither the visible line nor the accessible name repeats
+    // it.
+    fixtures.tasks = [task("remote-work", "/srv/beta", { executing_device_id: "nas-1" })];
+    mount();
+
+    const row = rowEl("remote-work");
+    expect(row.textContent).not.toContain("Studio");
+    // Exactly the three slots: the old row's "Remote" fallback is gone too.
+    const parts = (metaEl(row).textContent ?? "").split(" · ");
+    expect(parts).toHaveLength(3);
+    expect(parts).not.toContain("Remote");
+    expect(row.getAttribute("aria-label")).toMatch(/^remote-work · Kin · .+ · Done$/);
+    expect(row.getAttribute("aria-label")).not.toContain("Remote");
+  });
+
   it("fits ten conversations in one 820 screenful", () => {
     // Ten rows, one open project: the jsdom half of the contract (the real
     // screenful is the 820×1180 browser measurement). If the project row cap
@@ -159,6 +229,10 @@ describe("the 820 conversation list", () => {
 
     const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-session-row]"));
     expect(rows).toHaveLength(10);
+    for (const row of rows) {
+      expect(row.querySelector("[data-session-title]")).not.toBeNull();
+      expect(row.querySelector("[data-session-meta]")).not.toBeNull();
+    }
   });
 
   it("opens only the most recent project by default", () => {
