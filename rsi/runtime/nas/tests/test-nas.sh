@@ -914,6 +914,27 @@ case_bundle_apply_updates_origin_main() {
     [ "$(git --git-dir="$T/work/openkin.git" rev-parse refs/heads/main)" = "$old" ]
 }
 
+# A worker-side `git fetch origin` in a linked worktree advances the bare repo's
+# refs/remotes/origin/main past the head the Mac shipped, so the apply must rewind it: a plain
+# (non-force) refspec rejects that non-fast-forward and every lane then fails on the base pick.
+case_force_apply_rewinds_a_ref_ahead_of_the_bundle() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git -C "$T/ctrl" update-ref refs/remotes/origin/main main
+  git -C "$T/ctrl" bundle create "$T/work/jobs/s1/origin-main.bundle" refs/remotes/origin/main >/dev/null
+  echo later >> "$T/ctrl/docs/base.md"; git -C "$T/ctrl" add -A; git -C "$T/ctrl" commit -qm later
+  local ahead; ahead="$(git -C "$T/ctrl" rev-parse main)"
+  git --git-dir="$T/work/openkin.git" fetch -q "$T/ctrl" main   # objects only; refs stay put
+  git --git-dir="$T/work/openkin.git" update-ref refs/remotes/origin/main "$ahead"
+  check "NAS base: the fixture leaves origin/main ahead of the shipped head" \
+    bash -c "[ \"\$(git --git-dir='$T/work/openkin.git' rev-parse refs/remotes/origin/main)\" = '$ahead' ] && [ '$ahead' != '$new' ]"
+  local out; out="$(nas_base "$T" s1)"
+  check "NAS base: the bundle is force-applied over a ref ahead of it" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse "$out")" = "$new" ]
+  check "NAS base: the ref ahead of the bundle is rewound to the bundle head" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse refs/remotes/origin/main)" = "$new" ]
+}
+
 case_no_bundle_falls_back_to_repo_main() {
   local T; sandbox; T=$T
   local old new; read -r old new <<<"$(nas_seed "$T" s1)"
@@ -1000,6 +1021,7 @@ t_pulse_start_failure
 t_pulse_ship_failure
 case_stale_origin_main_does_not_win_over_the_shipped_bundle
 case_bundle_apply_updates_origin_main
+case_force_apply_rewinds_a_ref_ahead_of_the_bundle
 case_no_bundle_falls_back_to_repo_main
 case_bundle_head_under_refs_heads_main_still_applies
 case_recorded_base_is_the_picked_base

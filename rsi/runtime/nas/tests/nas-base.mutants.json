@@ -14,6 +14,20 @@
     "new": "true"
   },
   {
+    "label": "the bundle apply drops the force flag, so a ref ahead of the shipped head rejects the update",
+    "file": "rsi/runtime/nas/nas-side/nas-base.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh case_force_apply_rewinds_a_ref_ahead_of_the_bundle",
+    "old": "case \"$HEADS\" in *refs/remotes/origin/main*) SPECS+=('+refs/remotes/origin/main:refs/remotes/origin/main');; esac",
+    "new": "case \"$HEADS\" in *refs/remotes/origin/main*) SPECS+=('refs/remotes/origin/main:refs/remotes/origin/main');; esac"
+  },
+  {
+    "label": "the force-apply fixture leaves the bare ref at the bundle head instead of ahead of it",
+    "file": "rsi/runtime/nas/tests/test-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh case_force_apply_rewinds_a_ref_ahead_of_the_bundle",
+    "old": "  git --git-dir=\"$T/work/openkin.git\" update-ref refs/remotes/origin/main \"$ahead\"",
+    "new": "  git --git-dir=\"$T/work/openkin.git\" update-ref refs/remotes/origin/main \"$new\""
+  },
+  {
     "label": "the lane builds from the bare repo's origin/main instead of the shipped bundle head",
     "file": "rsi/runtime/nas/nas-side/nas-lane.sh",
     "test": "bash rsi/runtime/nas/tests/test-nas.sh case_recorded_base_is_the_picked_base",
