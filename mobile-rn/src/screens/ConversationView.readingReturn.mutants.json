@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the saved place is ignored, so reopening lands on the newest segment again (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      const saved = readingMemory.read(state.taskId);",
+    "new": "      const saved = null as ReadingPlace | null;",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: reopening lands where the reader was\""
+  },
+  {
+    "label": "leaving never stores the place, so the next mount has nothing to restore (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      const last = place.current;\n      if (last !== null) readingMemory.write(forTask, last);",
+    "new": "      // dropped: the place is observed and never stored",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: reopening lands where the reader was\""
+  },
+  {
+    "label": "a restored reader is still pinned, so the next streamed append yanks them to the end (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "        follow.current = { pinned: false };",
+    "new": "        follow.current = initialFollow();",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §4 离开再回来: a streamed append after a restored place does not yank the page\""
+  },
+  {
+    "label": "a place at the live edge is restored as a stale offset instead of the newest segment (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      if (saved !== null && !saved.pinned) {",
+    "new": "      if (saved !== null) {",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: a reader who left at the live edge still opens at the newest segment\""
+  }
+]

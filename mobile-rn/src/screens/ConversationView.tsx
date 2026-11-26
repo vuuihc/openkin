@@ -54,6 +54,11 @@ import {
   onScroll as followOnScroll,
   type FollowState,
 } from "../thread/follow";
+import {
+  sharedReadingMemory,
+  type ReadingMemory,
+  type ReadingPlace,
+} from "../thread/readingMemory";
 import type { SendOutcome, ThreadState } from "../thread/threadModel";
 import {
   ApprovalsSection,
@@ -110,6 +115,14 @@ export type ConversationViewProps = {
    * words. A harness rendering the view alone gets the shared store.
    */
   draftMemory?: DraftMemory;
+  /**
+   * Where each conversation was left, so a re-opened route lands where the
+   * reader was (KIN-MOBILE-001 §3/§4 离开再回来). Injected like the composer's
+   * memory; the app hands in its one shared store, so Back and a re-open land
+   * on the same place. A harness rendering the view alone gets the shared
+   * store.
+   */
+  readingMemory?: ReadingMemory;
   /**
    * This conversation's provider/usage sheet, already wired by the container;
    * absent when there is no session to read with, and then the header draws no
@@ -614,6 +627,7 @@ export default function ConversationView({
   onStop,
   onWithdraw,
   draftMemory = sharedDraftMemory,
+  readingMemory = sharedReadingMemory,
   usage,
 }: ConversationViewProps) {
   // The device's own insets; a missing provider is a device that reports none.
@@ -631,6 +645,10 @@ export default function ConversationView({
   // Following the live edge is a scroll decision, not React state: it changes
   // on every scroll frame and must never repaint the transcript (AGENTS.md §11).
   const follow = useRef<FollowState>(initialFollow());
+  // The place the reader was last seen at, beside the follow flag and for the
+  // same reason: a scroll frame must never repaint the transcript (AGENTS.md
+  // §11). The leave cleanup below writes it to the injected memory.
+  const place = useRef<ReadingPlace | null>(null);
   const listRef = useRef<FlatList<Turn>>(null);
   // The conversation's name: the node the reader is placed on at entry.
   const titleRef = useRef<ViewInstance | null>(null);
@@ -648,6 +666,20 @@ export default function ConversationView({
     lastContentHeight.current = 0;
     setExpandedSteps({});
   }, [state.taskId]);
+
+  // The place this mount last observed belongs to the task it was observed in
+  // (AGENTS.md §11): the task id is captured here, so a route swap stores the
+  // old conversation's place under the old id rather than the new one's. A
+  // mount the reader never scrolled stores nothing, so a conversation opened
+  // and left at its newest segment reopens there.
+  useEffect(() => {
+    const forTask = state.taskId;
+    return () => {
+      const last = place.current;
+      if (last !== null) readingMemory.write(forTask, last);
+      place.current = null;
+    };
+  }, [state.taskId, readingMemory]);
 
   // One entry is one reader move (KIN-MOBILE-001.md:80): the reader starts at
   // the conversation's name, not in the writing box, and a streamed append or
@@ -678,6 +710,9 @@ export default function ConversationView({
       contentHeight: contentSize.height,
       viewportHeight: layoutMeasurement.height,
     });
+    // The place the reader was last seen at: observed on the frame, stored
+    // when the route leaves.
+    place.current = { offset: contentOffset.y, pinned: follow.current.pinned };
   };
 
   const handleContentSize = (_width: number, height: number): void => {
@@ -688,6 +723,23 @@ export default function ConversationView({
     if (openedFor.current !== state.taskId) {
       if (state.turns.length === 0 || height <= 0) return;
       openedFor.current = state.taskId;
+      // Where this conversation was left (KIN-MOBILE-001 §3/§4 离开再回来).
+      // A place away from the live edge is the reader's, and restoring it must
+      // also leave the follow flag unpinned *before* any growth can be folded
+      // in, or the next streamed append would pull them back to the end. A
+      // place at the edge, or none at all, opens on the newest segment: the
+      // content may have grown while they were away, so a stale offset must
+      // never beat it for a reader who was following.
+      const saved = readingMemory.read(state.taskId);
+      if (saved !== null && !saved.pinned) {
+        follow.current = { pinned: false };
+        listRef.current?.scrollToOffset({
+          offset: saved.offset,
+          animated: false,
+        });
+        return;
+      }
+      follow.current = initialFollow();
       listRef.current?.scrollToEnd({ animated: false });
       return;
     }
