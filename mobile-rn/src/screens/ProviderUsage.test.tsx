@@ -198,7 +198,10 @@ describe("KIN-MOBILE-001 R6 provider/usage screen", () => {
         t={t}
       />,
     );
-    expect(device.getByText("agents.emptyUsage")).toBeTruthy();
+    // A device that never ran a session is a device fact, not a window one:
+    // the range sentence would tell the reader to try another range.
+    expect(device.getByText("agents.emptyUsageDevice")).toBeTruthy();
+    expect(device.queryByText("agents.emptyUsage")).toBeNull();
     expect(device.getByText("agents.emptyUsageHint")).toBeTruthy();
     expect(device.queryAllByText("$0.000")).toHaveLength(0);
     expect(device.queryAllByText("$0.00")).toHaveLength(0);
@@ -215,6 +218,7 @@ describe("KIN-MOBILE-001 R6 provider/usage screen", () => {
     // A configured provider with a quiet window: the range line, not the
     // device-level hint (providersModel.ts:252-258).
     expect(quiet.getByText("agents.emptyUsage")).toBeTruthy();
+    expect(quiet.queryByText("agents.emptyUsageDevice")).toBeNull();
     expect(quiet.queryByText("agents.emptyUsageHint")).toBeNull();
     for (const key of TILE_KEYS) {
       expect(
