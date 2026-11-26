@@ -2605,10 +2605,14 @@ function ProjectBucket({
         {/* eslint-disable-next-line kin/no-raw-button --
             The heading is the project's own navigation row, not an action:
             opening its cover and folding its rows are its two tap targets,
-            and the design system has no row primitive. */}
+            and the design system has no row primitive. It carries the shared
+            unscoped `data-kin-hit-row` marker so the floating approval yields
+            to it exactly as it yields to a conversation row: the strip once
+            covered this heading and ate the tap meant to fold the group. */}
         <button
           ref={headingRef}
           type="button"
+          data-kin-hit-row=""
           onClick={openable ? onOpenProject : onToggle}
           aria-label={heading}
           aria-expanded={openable ? undefined : !collapsed}

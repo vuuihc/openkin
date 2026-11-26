@@ -17,7 +17,7 @@
     "label": "the strip hides instead of collapsing the card",
     "file": "ui/src/components/cards/FloatingApproval.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.overlap.dom.test.tsx",
-    "old": "      covers(stripRect, raised ? \"[data-kin-reading], [data-session-row]\" : \"[data-kin-reading]\");",
+    "old": "      covers(\n        stripRect,\n        raised\n          ? \"[data-kin-reading], [data-session-row], [data-kin-hit-row]\"\n          : \"[data-kin-reading]\",\n      );",
     "new": "      covers(stripRect, raised ? \"[data-kin-reading], [data-session-row]\" : \"[data-kin-reading], [data-kin-hit-row]\");"
   },
   {
