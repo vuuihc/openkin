@@ -298,3 +298,63 @@ describe("KIN-MOBILE-001 R4 stream", () => {
     expect(statuses).toContain("offline");
   });
 });
+
+describe("R-rn-hub-signin stream auth", () => {
+  function recording() {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const impl = jest.fn(async (input: string, init?: RequestInit) => {
+      calls.push({ url: input, init: init ?? {} });
+      return {
+        status: 200,
+        body: {
+          getReader() {
+            return {
+              read: async () => ({ done: true, value: undefined }),
+              cancel: async () => undefined,
+            };
+          },
+        },
+      } as unknown as Response;
+    });
+    return { impl: impl as unknown as typeof fetch, calls };
+  }
+
+  async function open(
+    impl: typeof fetch,
+    request: Pick<StreamRequest, "session">,
+  ): Promise<void> {
+    const source = createFetchStreamSource({ fetchImpl: impl });
+    const connection = await source.open({
+      url: eventsStreamUrl(ORIGIN),
+      afterSeq: 0,
+      signal: new AbortController().signal,
+      ...request,
+    });
+    // Drain the empty body so the stream's cleanup runs before the assertion.
+    for await (const _chunk of connection.chunks) {
+      // no chunks in the fixture
+    }
+  }
+
+  it("R-rn-hub-signin: a node session streams with the bearer header", async () => {
+    const { impl, calls } = recording();
+
+    await open(impl, {
+      session: { kind: "node", origin: ORIGIN, token: "fixture-token-not-real" },
+    });
+
+    const headers = calls[0].init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer fixture-token-not-real");
+    expect(calls[0].init.credentials).toBeUndefined();
+  });
+
+  it("R-rn-hub-signin: a hub session streams with the cookie and no bearer", async () => {
+    const { impl, calls } = recording();
+
+    await open(impl, { session: { kind: "hub", origin: ORIGIN } });
+
+    const headers = calls[0].init.headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
+    expect(calls[0].init.credentials).toBe("include");
+  });
+});

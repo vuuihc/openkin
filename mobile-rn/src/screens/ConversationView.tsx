@@ -48,7 +48,14 @@ import type {
   ProvidersView,
   UsageWindowDays,
 } from "../providers/providersModel";
-import { composerBottomInset, headerTopInset } from "../native/insets";
+import {
+  composerBottomInset,
+  HEADER_ROW_HEIGHT,
+  headerTopInset,
+  headerTotalHeight,
+} from "../native/insets";
+import GlassSurface, { useReduceTransparency } from "../native/GlassSurface";
+import { GLASS_FALLBACK_COLOR, glassFor } from "../native/glass";
 import {
   initialFollow,
   onContentGrew,
@@ -644,9 +651,26 @@ export default function ConversationView({
   // The device's own insets; a missing provider is a device that reports none.
   const insets = useContext(SafeAreaInsetsContext) ?? NO_INSETS;
 
+  // The bar's surface, from the same preference the usage sheet reads:
+  // reduced transparency and Android keep today's opaque bar, every other
+  // phone blurs the transcript that scrolls beneath it (`native/glass.ts`).
+  const glass = glassFor({
+    reduceTransparency: useReduceTransparency(),
+    platform: Platform.OS,
+  });
+
   // Whether the sheet is up is the person's own transient UI, so it lives in
   // this view; the window choice and the rows are the model's (AGENTS.md §11).
   const [usageOpen, setUsageOpen] = useState(false);
+  // The 用量 entry that opened the sheet: closing it puts the reader back on
+  // this control, not wherever the vanished modal left them
+  // (`KIN-MOBILE-001.md:124`). It is the header's own node, so the return move
+  // lives in this view rather than in the sheet (`ProviderUsageSheet.tsx`).
+  const usageRef = useRef<ViewInstance | null>(null);
+  // Whether the sheet was up on the previous render, so the return move fires
+  // on the close transition only: a mount with the sheet closed and a repaint
+  // while it stays closed move nothing (`Approvals.tsx:70-79`, AGENTS.md §11).
+  const usageWasOpen = useRef(false);
   // The reading surface's own transient UI: which tool rows are open. Keyed by
   // the step's key (see `toolRowKey`), so a streamed append cannot collapse a
   // row the person opened; a different conversation starts closed.
@@ -715,6 +739,17 @@ export default function ConversationView({
     movedFor.current = state.taskId;
     focusNode(titleRef);
   }, [state.taskId, state.title, state.status]);
+
+  // Closing the usage sheet is the person's own way back: the reader returns
+  // to the 用量 entry that opened it, once per close (`KIN-MOBILE-001.md:124`).
+  // The sheet's `Modal` has already unmounted when this effect runs, so the
+  // entry is the only surface left to land on; opening the sheet, mounting
+  // with it closed and repainting while it stays closed move nothing
+  // (AGENTS.md §11).
+  useEffect(() => {
+    if (usageWasOpen.current && !usageOpen) focusNode(usageRef);
+    usageWasOpen.current = usageOpen;
+  }, [usageOpen]);
 
   const toggleStep = (key: string): void => {
     setExpandedSteps((current) => ({ ...current, [key]: current[key] !== true }));
@@ -813,6 +848,15 @@ export default function ConversationView({
   // virtualized cells, so a repaint of the transcript cannot unmount them.
   const listHeader = (
     <>
+      {/* The bar is lifted out of the flow, so the transcript's first content
+          reserves its full height: at rest the first turn opens below the
+          glass, never under it. Decoration only, so no reader stops here. */}
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={{ height: headerTotalHeight(insets.top) }}
+        testID="conversation:header-spacer"
+      />
       {state.status === "loading" && state.turns.length === 0 ? (
         // Nothing read yet: the message area's shape, not a lone caption.
         <ConversationSkeleton t={t} />
@@ -877,9 +921,19 @@ export default function ConversationView({
       style={styles.container}
     >
       <View
-        style={[styles.header, { paddingTop: headerTopInset(insets.top) }]}
+        style={[
+          styles.header,
+          glass.kind === "blur" ? styles.headerGlass : styles.headerOpaque,
+          { paddingTop: headerTopInset(insets.top) },
+        ]}
         testID="conversation:header"
       >
+        {/*
+          The surface behind the row, not a cover over it: the header's own
+          background stays transparent while the blur shows, so the transcript
+          passing underneath tints the chrome.
+        */}
+        <GlassSurface style={StyleSheet.absoluteFill} />
         <Pressable
           accessibilityLabel={t("app.back")}
           accessibilityRole="button"
@@ -915,6 +969,7 @@ export default function ConversationView({
               setUsageOpen(true);
               usage.onOpen?.();
             }}
+            ref={usageRef}
             style={styles.usageEntry}
             testID="conversation:usage"
           >
@@ -1070,12 +1125,33 @@ const styles = StyleSheet.create({
     color: "#a1261b",
     fontSize: 15,
   },
+  /**
+   * Chrome, not a panel in the flow: the bar floats over the transcript so the
+   * content scrolls beneath it, and the hairline is the same line the composer
+   * draws at the bottom. Its colour belongs to the glass branch below, so the
+   * blur is never covered by a bar paint.
+   */
   header: {
     alignItems: "center",
+    borderBottomColor: "#dcdcdc",
+    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: 8,
-    minHeight: 56,
+    left: 0,
+    minHeight: HEADER_ROW_HEIGHT,
     paddingHorizontal: 4,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    zIndex: 1,
+  },
+  /** The blur branch: the transcript behind the bar is what paints it. */
+  headerGlass: {
+    backgroundColor: "transparent",
+  },
+  /** Reduced transparency / Android: today's opaque bar, unchanged. */
+  headerOpaque: {
+    backgroundColor: GLASS_FALLBACK_COLOR,
   },
   input: {
     borderColor: "#c4c4c4",

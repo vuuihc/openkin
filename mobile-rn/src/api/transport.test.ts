@@ -1,5 +1,6 @@
 import { describe, expect, it, jest } from "@jest/globals";
 import { apiFetch, listProjectsPath, listTasksPath } from "./transport";
+import type { Session } from "../auth/tokenStore";
 
 /**
  * KIN-MOBILE-001 R2 — the transport's two bounds (AGENTS.md §13).
@@ -98,7 +99,12 @@ describe("KIN-MOBILE-001 R2 transport contract", () => {
         fetchImpl: impl,
       });
 
-      expect(result).toEqual({ ok: false, status, reason: "rejected" });
+      expect(result).toEqual({
+        ok: false,
+        status,
+        reason: "rejected",
+        data: {},
+      });
     },
   );
 
@@ -109,7 +115,12 @@ describe("KIN-MOBILE-001 R2 transport contract", () => {
       fetchImpl: impl,
     });
 
-    expect(result).toEqual({ ok: false, status: 503, reason: "unreachable" });
+    expect(result).toEqual({
+      ok: false,
+      status: 503,
+      reason: "unreachable",
+      data: {},
+    });
   });
 
   it("KIN-MOBILE-001 R2: builds the absolute URL from the origin and always accepts JSON", async () => {
@@ -149,5 +160,100 @@ describe("KIN-MOBILE-001 R2 transport contract", () => {
     // reads; the list controller's fourth read depends on this exact path, and
     // `holderOnly` on the server lets a paired device token read it.
     expect(listProjectsPath).toBe("/api/projects");
+  });
+});
+
+describe("R-rn-hub-signin transport auth", () => {
+  type Call = { url: string; init: RequestInit };
+
+  function recording(status = 200) {
+    const calls: Call[] = [];
+    const impl = jest.fn(async (input: string, init?: RequestInit) => {
+      calls.push({ url: input, init: init ?? {} });
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        json: async () => ({}),
+        text: async () => "",
+      } as unknown as Response;
+    });
+    return { impl: impl as unknown as typeof fetch, calls };
+  }
+
+  function header(call: Call, name: string): string | undefined {
+    return (call.init.headers as Record<string, string> | undefined)?.[name];
+  }
+
+  it("R-rn-hub-signin: a refusal keeps its body so the caller can read the code", async () => {
+    const impl = jest.fn(
+      async () =>
+        ({
+          ok: false,
+          status: 401,
+          json: async () => ({
+            error: "email or password is incorrect",
+            code: "invalid_credentials",
+          }),
+        }) as unknown as Response,
+    );
+
+    const result = await apiFetch<unknown>(ORIGIN, "/api/auth/login", {
+      method: "POST",
+      credentials: "include",
+      fetchImpl: impl as unknown as typeof fetch,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      status: 401,
+      reason: "expired",
+      data: {
+        error: "email or password is incorrect",
+        code: "invalid_credentials",
+      },
+    });
+  });
+
+  it("R-rn-hub-signin: a node session sends the bearer exactly as before", async () => {
+    const node: Session = {
+      kind: "node",
+      origin: ORIGIN,
+      token: TOKEN,
+    };
+    const { impl, calls } = recording();
+
+    await apiFetch<unknown>(ORIGIN, listTasksPath(), {
+      session: node,
+      fetchImpl: impl,
+    });
+
+    expect(header(calls[0], "Authorization")).toBe(`Bearer ${TOKEN}`);
+    expect(calls[0].init.credentials).toBeUndefined();
+  });
+
+  it("R-rn-hub-signin: a hub session sends no Authorization and asks for the cookie", async () => {
+    const hub: Session = { kind: "hub", origin: ORIGIN };
+    const { impl, calls } = recording();
+
+    await apiFetch<unknown>(ORIGIN, listTasksPath(), {
+      session: hub,
+      fetchImpl: impl,
+    });
+
+    expect(header(calls[0], "Authorization")).toBeUndefined();
+    expect(calls[0].init.credentials).toBe("include");
+  });
+
+  it("R-rn-hub-signin: credentials can be asked for before a session exists", async () => {
+    const { impl, calls } = recording();
+
+    await apiFetch<unknown>(ORIGIN, "/api/auth/login", {
+      method: "POST",
+      credentials: "include",
+      fetchImpl: impl,
+    });
+
+    expect(calls[0].init.credentials).toBe("include");
+    expect(header(calls[0], "Authorization")).toBeUndefined();
   });
 });

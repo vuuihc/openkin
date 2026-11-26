@@ -39,6 +39,7 @@ import {
   type UsageWindowDays,
 } from "../providers/providersModel";
 import { sharedDraftMemory, type DraftMemory } from "../thread/draftMemory";
+import { sharedQueueMemory, type QueueMemory } from "../thread/queueMemory";
 import {
   sharedReadingMemory,
   type ReadingMemory,
@@ -95,6 +96,13 @@ export type ConversationScreenProps = {
    */
   draftMemory?: DraftMemory;
   /**
+   * What the route must not forget when it unmounts: the sends this
+   * conversation still owes (KIN-MOBILE-001 §5 离开再回来). Production uses the
+   * app's one shared memory, so Back and a re-open land on the same queue;
+   * tests inject a fresh one per case.
+   */
+  queueMemory?: QueueMemory;
+  /**
    * What the route must not forget when it unmounts: where this conversation
    * was being read (KIN-MOBILE-001 §3/§4 离开再回来). Production uses the app's
    * one shared memory, so Back and a re-open land on the same place; tests
@@ -121,6 +129,7 @@ export default function ConversationScreen({
   readSessionImpl,
   fetchImpl,
   draftMemory = sharedDraftMemory,
+  queueMemory = sharedQueueMemory,
   readingMemory = sharedReadingMemory,
   source,
   appState,
@@ -166,10 +175,11 @@ export default function ConversationScreen({
         }
         const thread = createThread({
           origin: session.origin,
-          token: session.token,
+          session,
           taskId,
           fetchImpl,
           source,
+          queueMemory,
         });
         threadRef.current = thread;
         unsubscribeRef.current = thread.subscribe((next) => {
@@ -209,7 +219,7 @@ export default function ConversationScreen({
         // conversation shows the card its next turn is blocked on.
         const approvalsModel = createApprovals({
           origin: session.origin,
-          token: session.token,
+          session,
           fetchImpl,
         });
         approvalsRef.current = approvalsModel;
@@ -225,7 +235,7 @@ export default function ConversationScreen({
         // endpoint (external-integration UX gate).
         const providersModel = createProvidersModel({
           origin: session.origin,
-          token: session.token,
+          session,
           fetchImpl,
         });
         providersRef.current = providersModel;
@@ -258,7 +268,7 @@ export default function ConversationScreen({
       threadRef.current?.close();
       threadRef.current = null;
     };
-  }, [taskId, readSessionImpl, fetchImpl, source, appState]);
+  }, [taskId, readSessionImpl, fetchImpl, source, appState, queueMemory]);
 
   const retry = useCallback(() => {
     // A retry after a failed read must also (re)open the subscription: a

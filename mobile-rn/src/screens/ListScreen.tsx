@@ -189,7 +189,7 @@ export default function ListScreen({
           (cached.status === "ready" || cached.status === "empty");
         list = createListController({
           origin: session.origin,
-          token: session.token,
+          session,
           selfDeviceId: self,
           machines: devices,
           t,

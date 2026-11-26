@@ -212,7 +212,7 @@ const RUNNING_HISTORY: TaskEvent[] = [
 ];
 
 function storedSession(): Promise<Session | null> {
-  return Promise.resolve({ origin: ORIGIN, token: TOKEN });
+  return Promise.resolve({ kind: "node", origin: ORIGIN, token: TOKEN });
 }
 
 /** The default router: the task row and its event log, and the empty pending
@@ -517,7 +517,14 @@ describe("KIN-MOBILE-001 R4 conversation", () => {
     );
     const usage = position((child) => child.props.testID === "conversation:usage");
 
-    expect(back).toBe(0);
+    // The glass layer is the header's first child and is decoration: the back
+    // control is still the first thing the reader can reach.
+    const firstControl = position(
+      (child) =>
+        typeof child.props.onPress === "function" ||
+        child.props.accessibilityRole === "button",
+    );
+    expect(firstControl).toBe(back);
     expect(title).toBeGreaterThan(back);
     expect(running).toBeGreaterThan(title);
     expect(usage).toBeGreaterThan(running);
