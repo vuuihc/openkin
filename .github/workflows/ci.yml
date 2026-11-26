@@ -43,9 +43,13 @@ jobs:
       #          desktop and journeys.
       #   rn   — mobile-rn can be affected (its own files, or ui/src, which it
       #          imports through ../../../ui/src and @ui/*): run mobile-rn.
-      # rsi/** is the loop's own code; nothing CI runs reads it unless a test
-      # names the path, and the local merge gate's shell-test owns it. Markdown
-      # is the same unless a test names it. Fails safe: an unusable base, an
+      # rsi/** is the loop's own code; most of it is read only by the local
+      # merge gate's shell-test, so a path there is code only when a test CI
+      # runs names it. rsi/runtime/ux/** is the exception: the journeys suites
+      # CI runs resolve the journey index through rsi/runtime/ux/spec.py, so
+      # that tree is always code. Markdown follows the same test-name rule, for
+      # both answers: a path a mobile-rn suite names (ADR 0036,
+      # scripts/check.sh) also turns rn on. Fails safe: an unusable base, an
       # unreadable diff or an empty list means code=true and rn=true.
       - id: classify
         env:
@@ -81,8 +85,9 @@ jobs:
                   mobile-rn/*) rn=true ;;
                   ui/*) code=true; rn=true ;;
                   web/*|AGENTS.md|*/AGENTS.md|CLAUDE.md|*/CLAUDE.md) code=true ;;
-                  rsi/*|*.md) named_by_test "$p" && code=true ;;
-                  *) code=true ;;
+                  rsi/runtime/ux/*) code=true ;;
+                  rsi/*|*.md) named_by_test "$p" && code=true; named_by_rn_test "$p" && rn=true ;;
+                  *) code=true; named_by_rn_test "$p" && rn=true ;;
                 esac
               done <<<"$files"
             fi
