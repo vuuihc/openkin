@@ -13,6 +13,7 @@
  * never reaches for `localStorage` and can be tested without a device.
  */
 
+import type { Project } from "../../../ui/src/api/client";
 import type {
   Approval,
   Task,
@@ -20,9 +21,12 @@ import type {
 } from "../../../ui/src/api/contract";
 import type { Machine } from "../../../ui/src/lib/devices";
 import {
+  bucketKeyFor,
   groupProjectBucketsByDevice,
   phoneProjectBuckets,
+  UNASSIGNED_PROJECT,
   type PhoneBucketCopy,
+  type PhoneProjectRecord,
 } from "../../../ui/src/lib/phoneSessionBuckets";
 import {
   pendingApprovalsPath,
@@ -30,6 +34,7 @@ import {
 } from "../approvals/approvalsModel";
 import {
   apiFetch,
+  listProjectsPath,
   listTasksPath,
   type TransportReason,
 } from "../api/transport";
@@ -263,6 +268,12 @@ export type BuildGroupsOptions = {
   selfDeviceId: string;
   machines?: readonly Machine[];
   pendingByTask?: ReadonlyMap<string, number>;
+  /**
+   * The `/api/projects` records. They are the authority for a project's
+   * identity and name; a cwd is only one of its addresses. Without them every
+   * cwd is its own project, which is what a node with no records means.
+   */
+  projects?: readonly PhoneProjectRecord[];
   /** Catalogue lookups; the caller owns every user-visible word. */
   t: (key: string, params?: Record<string, string | number>) => string;
   /** The shared relative-time formatter, injected for the same reason. */
@@ -279,11 +290,26 @@ export function buildListGroups(
     noProject: options.t("sessions.noProject"),
     imported: options.t("sessions.importedLabel"),
   };
+  // The same adapter the web list builds (`ui/src/components/sessions/
+  // SessionList.tsx`): every root of a record is a way in, keyed the way the
+  // shared module keys a cwd, and the first record wins on a duplicate root so
+  // a heading never depends on iteration order.
+  const projectByCwd = new Map<string, PhoneProjectRecord>();
+  for (const record of options.projects ?? []) {
+    for (const root of record.roots) {
+      const key = bucketKeyFor(root);
+      if (key === UNASSIGNED_PROJECT || projectByCwd.has(key)) continue;
+      projectByCwd.set(key, record);
+    }
+  }
   const buckets = phoneProjectBuckets(
     tasks,
     [],
     options.selfDeviceId,
     copy,
+    [],
+    "active",
+    (cwd) => projectByCwd.get(bucketKeyFor(cwd)),
   );
   const machines = options.machines ?? [];
   const devices = groupProjectBucketsByDevice(
@@ -326,6 +352,34 @@ export function buildListGroups(
       }),
     })),
   }));
+}
+
+/**
+ * The API's project records, reduced to what the list's rules read.
+ *
+ * `/api/projects` answers a bare array; the shared module needs only an id, a
+ * non-blank name and the roots, so the adapter narrows here instead of teaching
+ * the shared rule the endpoint's shape. A record with a blank name or no usable
+ * root cannot name a heading, so it is skipped and its folders keep their
+ * directory names. The body is untrusted input: a field of the wrong shape is
+ * skipped the same way, never a reason to fail the page.
+ */
+function projectRecordsFrom(
+  projects: readonly Project[],
+): PhoneProjectRecord[] {
+  const records: PhoneProjectRecord[] = [];
+  for (const project of projects) {
+    if (!project || typeof project.name !== "string") continue;
+    const name = project.name.trim();
+    if (!name) continue;
+    const roots = (Array.isArray(project.roots) ? project.roots : []).filter(
+      (root) =>
+        typeof root === "string" && bucketKeyFor(root) !== UNASSIGNED_PROJECT,
+    );
+    if (roots.length === 0) continue;
+    records.push({ id: project.id, name, roots });
+  }
+  return records;
 }
 
 /** Every wait is bounded; the transport applies this to the whole request. */
@@ -386,10 +440,11 @@ function countPendingByTask(
  * reader already has — losing them because the network blipped is the failure
  * the story's "已加载行不清空" row forbids.
  *
- * Each load also reads the node-wide pending approvals and questions, and the
- * counts it derives are the server's answer, never a local decrement. The
- * pair is only usable whole: one failed read keeps the last counts (no partial
- * number, no zeroing) and never changes the list's status — the task page
+ * Each load also reads the node-wide pending approvals, questions and project
+ * records. The counts it derives are the server's answer, never a local
+ * decrement, and the records are the names its headings carry. Both are
+ * supporting reads: one failing keeps its last good answer (the counts whole,
+ * the names as they were) and never changes the list's status — the task page
  * alone decides loading/ready/empty/failed/offline.
  */
 export function createListController(
@@ -398,6 +453,9 @@ export function createListController(
   const store = options.store ?? createMemoryFoldStore();
   let generation = 0;
   let lastCounts: ReadonlyMap<string, number> = new Map();
+  // The names the list last learned. A failed or unreadable projects read
+  // keeps them, exactly the way `lastCounts` survives a failed pending read.
+  let lastProjects: readonly PhoneProjectRecord[] = [];
   // Only ready and empty states are pages. A failure or offline read is a
   // fact about the moment, so a route handed one reads again instead of
   // restoring an error it never retries.
@@ -410,9 +468,10 @@ export function createListController(
   const groupsOf = (
     tasks: readonly Task[],
     pendingByTask: ReadonlyMap<string, number>,
+    projects: readonly PhoneProjectRecord[],
   ): DeviceGroup[] =>
     applyFolds(
-      buildListGroups(tasks, { ...options, pendingByTask }),
+      buildListGroups(tasks, { ...options, pendingByTask, projects }),
       store,
     );
 
@@ -424,9 +483,10 @@ export function createListController(
       if (state.groups.length === 0) {
         state = { status: "loading", groups: [], error: null };
       }
-      // Three reads under one generation. Each keeps its own bound (rule 13),
-      // and the pending pair cannot fail the page.
-      const [result, approvals, questions] = await Promise.all([
+      // Four reads under one generation. Each keeps its own bound (rule 13).
+      // The pending pair and the project records are supporting reads: they
+      // name and count the rows but never decide whether the page loaded.
+      const [result, approvals, questions, projects] = await Promise.all([
         apiFetch<Task[]>(options.origin, listTasksPath(), {
           token: options.token,
           fetchImpl: options.fetchImpl,
@@ -438,6 +498,11 @@ export function createListController(
           timeoutMs: options.timeoutMs ?? LIST_TIMEOUT_MS,
         }),
         apiFetch<UserQuestion[]>(options.origin, pendingQuestionsPath, {
+          token: options.token,
+          fetchImpl: options.fetchImpl,
+          timeoutMs: options.timeoutMs ?? LIST_TIMEOUT_MS,
+        }),
+        apiFetch<Project[]>(options.origin, listProjectsPath, {
           token: options.token,
           fetchImpl: options.fetchImpl,
           timeoutMs: options.timeoutMs ?? LIST_TIMEOUT_MS,
@@ -472,7 +537,15 @@ export function createListController(
         counts = countPendingByTask(pending.approvals, pending.questions);
         lastCounts = counts;
       }
-      const groups = groupsOf(result.data, counts);
+      // A usable projects answer is an array; a failed or unreadable one keeps
+      // the names the list already learned. The answer belongs to this
+      // generation, so a late one was dropped above with the page it named.
+      let records = lastProjects;
+      if (projects.ok && Array.isArray(projects.data)) {
+        records = projectRecordsFrom(projects.data);
+        lastProjects = records;
+      }
+      const groups = groupsOf(result.data, counts, records);
       const empty = groups.every((device) =>
         device.projects.every((project) => project.rows.length === 0),
       );

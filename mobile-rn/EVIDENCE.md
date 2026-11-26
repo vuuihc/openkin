@@ -98,9 +98,13 @@ npx jest --ci --runInBand
 - 扫码未实现（parked）。
 - 手机上还没有「新建对话」入口。
 - 列表里的项目标题是工作目录名（`alpha` / `beta` / `gamma` / `reading-cwd`），不是
-  项目名（种子里的 `[seed] Project Alpha`）。本次只记录，未定性：标签来自设备目录的
-  bucket（`mobile-rn/src/list/listModel.ts:302` 直接取 `bucket.label`），是否该由服务端
-  换成项目名，留给下一轮决定。
+  项目名（种子里的 `[seed] Project Alpha`）：标签来自设备目录的 bucket
+  （`mobile-rn/src/list/listModel.ts` 直接取 `bucket.label`）。
+
+  | 问题 | 已定（2026-11-26，R-rn-project-headings） |
+  | --- | --- |
+  | 标题由谁命名 | 手机端读现有的 `GET /api/projects`（`holderOnly`，配对设备可读），按项目记录命名；一条记录的多个 root 归一个标题，无记录认领的目录继续显示目录名 |
+  | 要不要改服务端 | 不要：记录接口已存在，本次是纯客户端改动，不改接口、不改 schema |
 
 ## 运行经验（给下一个人）
 
