@@ -40,5 +40,19 @@
     "old": "        : state.error\n          ? t(failureKey(state.error.reason))\n          : null;",
     "new": "        : state.providerListError\n          ? t(failureKey(state.providerListError.reason))\n          : null;",
     "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a device token still reads its usage tiles\""
+  },
+  {
+    "label": "the device-empty state falls back to the range sentence, so \"this window\" and \"this device\" read the same (R-rn-usage-empty-words)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "          <Text style={styles.emptyTitle}>{t(\"agents.emptyUsageDevice\")}</Text>",
+    "new": "          <Text style={styles.emptyTitle}>{t(\"agents.emptyUsage\")}</Text>",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a device with no usage says so in words instead of a zero\""
+  },
+  {
+    "label": "a quiet window under a configured provider borrows the device sentence (R-rn-usage-empty-words)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "            <Text style={styles.quiet}>{t(\"agents.emptyUsage\")}</Text>",
+    "new": "            <Text style={styles.quiet}>{t(\"agents.emptyUsageDevice\")}</Text>",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a device with no usage says so in words instead of a zero\""
   }
 ]

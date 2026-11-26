@@ -26,7 +26,7 @@ AGENTS.md, docs/product/TASTE.md, docs/product/IA.md, docs/plans/2026-11-14-ux-u
 <test names / behaviours>
 
 ## Constraints
-- <=800 changed lines excluding lockfile and web/dist/index.html. Split rather than exceed; say what remains in the PR body.
+- Target ≤800 changed lines, hard cap 1000 — measure with `bash rsi/runtime/diff-size.sh .` (the same count the merge lane enforces: excludes lockfiles and web/dist/index.html). Split rather than exceed; say what remains in the PR body.
 - **Format only the files you changed**: `./rsi/runtime/format-changed.sh --write` (then `--check`). That script exists on `main`; there is no `scripts/format-changed.sh`. Never run a repo-wide `prettier --write .` or `gofmt -w ./...`: it turns a 600-line slice into a 1,500-line diff and the PR is sent back for churn, not for scope. Check `git diff --numstat origin/main | awk '$1+$2>0'` before pushing — the file count should match the slice's footprint.
 - No new dependencies, no ui/package.json / go.mod / migrations / auth changes (unless the item id is F1-F3). No secrets, no personal paths/emails in code, tests, docs or the PR (public repo).
 - UI inventory ratchet: `python3 scripts/check-ui-inventory.py` must not grow; a facade/primitive slice that must add its own raw `<button>`/portal/dialog runs `--update` and says so in the PR body. Migration slices should lower the baseline in the same PR.
