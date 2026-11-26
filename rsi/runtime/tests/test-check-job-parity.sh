@@ -41,6 +41,12 @@ trap 'rm -rf "$T"' EXIT
 
 fail() { echo "FAIL $*" >&2; exit 1; }
 
+# RSI_TEST_ONLY=<case> restricts the ci.yml classifier cases at the bottom to one
+# case, so a mutants manifest can show a red run per case. The parity cases above
+# still run; they are cheap and do not read the classifier.
+ONLY="${RSI_TEST_ONLY:-}"
+CLASSIFY_CASES_RUN=0
+
 # The 15 jobs CI does not run, and the eight it does: the names the two --list modes print.
 LOCAL_ONLY=(gofmt probe api-contract api-coverage shell-syntax shell-test
   python-syntax stories removed-surfaces ux-spec-refs walk-contract
@@ -220,4 +226,207 @@ if [ -z "${RSI_CI_NEGATIVE:-}" ]; then
   grep -q 'ci-parity' <<<"$out" \
     || fail "negative-desktop-scope: output does not report ci-parity: $out"
   echo "PASS negative-desktop-scope"
+fi
+
+# --- cases 6-11: the workflow's docs classifier --------------------------------------------
+# The `changes` job's `- id: classify` run block decides, from the changed file
+# list, whether the build and mobile-rn jobs run. Nothing else tested it: a
+# regression there silently skips CI and the PR still merges green-looking.
+# These cases execute the workflow's own text — extracted from $CI by indentation,
+# never copied — against temp git repositories and assert both answers.
+#
+# Hermetic: every fixture is committed in a mktemp repo with a local identity, so
+# no global git config or network is involved.
+
+# extract_classify_block <ci-file> <out-script> — write the `- id: classify`
+# step's `run: |` body, de-indented. The block starts after that `run: |` line
+# and ends at the first non-empty line indented no deeper than the `run:` key.
+extract_classify_block() {
+  awk '
+    function lead(s,  i) { i = 0; while (substr(s, i + 1, 1) == " ") i++; return i }
+    /^[[:space:]]*- id: classify[[:space:]]*$/ { step = 1; next }
+    step && !run && /^[[:space:]]*run:[[:space:]]*\|[[:space:]]*$/ {
+      key = lead($0); run = 1; next
+    }
+    step && run {
+      if ($0 ~ /^[[:space:]]*$/) { buf[++n] = ""; next }
+      ind = lead($0)
+      if (ind <= key) exit
+      buf[++n] = $0
+      if (!have || ind < min) { min = ind; have = 1 }
+    }
+    END {
+      if (!run) exit 3
+      print "#!/bin/bash"
+      for (i = 1; i <= n; i++) {
+        if (buf[i] == "") { print ""; continue }
+        print substr(buf[i], min + 1)
+      }
+    }
+  ' "$1" > "$2"
+}
+
+# gitf <repo> <git args...> — git with a fixture identity, independent of the
+# container's global config (a bare runner has none, and signing is off).
+gitf() {
+  git -c user.name=fixture -c user.email=fixture@example.com \
+    -c commit.gpgsign=false -C "$1" "${@:2}"
+}
+
+# new_repo <tag> — a temp repo with one base commit; prints its path.
+new_repo() {
+  local repo="$T/repo-$1-$RANDOM"
+  mkdir -p "$repo"
+  git -c init.defaultBranch=main init -q "$repo"
+  printf 'base\n' > "$repo/README.md"
+  gitf "$repo" add README.md
+  gitf "$repo" commit -qm base
+  printf '%s\n' "$repo"
+}
+
+# classify_run <ci-file> <repo> <base> — run the extracted block inside <repo>
+# with BASE_SHA and a fresh GITHUB_OUTPUT, then print the code=/rn= lines.
+classify_run() {
+  local ci="$1" repo="$2" base="$3" scr out log
+  scr="$(mktemp "$T/classify-XXXXXX")"
+  out="$(mktemp "$T/github-output-XXXXXX")"
+  log="$(mktemp "$T/classify-XXXXXX")"
+  extract_classify_block "$ci" "$scr" \
+    || fail "classify: no '- id: classify' run block in $ci"
+  # GitHub runs `run:` steps with `bash -eo pipefail`; mirror that so a mutant
+  # that lets an unusable base reach the diff aborts here instead of coasting.
+  ( cd "$repo" && BASE_SHA="$base" GITHUB_OUTPUT="$out" \
+      bash -eo pipefail "$scr" ) >"$log" 2>&1 \
+    || { cat "$log" >&2; fail "classify: the extracted block exited nonzero (ci=$ci base=${base:-<empty>})"; }
+  cat "$out"
+}
+
+# expect_classify <label> <ci-file> <repo> <base> <code> <rn>
+expect_classify() {
+  local got
+  got="$(classify_run "$2" "$3" "$4")" || exit 1
+  if ! grep -qx "code=$5" <<<"$got" || ! grep -qx "rn=$6" <<<"$got"; then
+    fail "classify: $1 expected code=$5 rn=$6, got: $(tr '\n' ' ' <<<"$got")"
+  fi
+}
+
+# A doc no test names is not code.
+case_unreferenced_doc() {
+  local repo base doc
+  repo="$(new_repo unreferenced)"; base="$(gitf "$repo" rev-parse HEAD)"
+  doc="docs/notes-$RANDOM$RANDOM.md"
+  mkdir -p "$repo/docs"; printf 'notes\n' > "$repo/$doc"
+  gitf "$repo" add -A; gitf "$repo" commit -qm "add a doc"
+  expect_classify "an unreferenced doc is not code" "$CI" "$repo" "$base" false false
+  echo "PASS classify-unreferenced-doc"
+}
+
+# A doc a ui test names is code. The naming test is in the base commit, so the
+# doc is the only changed path: code=true can only come from the lookup.
+case_ui_named_doc() {
+  local repo base doc ts
+  repo="$(new_repo ui-named)"
+  doc="docs/named-$RANDOM$RANDOM.md"
+  ts="ui/src/lib/named-$RANDOM$RANDOM.test.ts"
+  mkdir -p "$repo/ui/src/lib" "$repo/docs"
+  printf '// names %s\n' "$doc" > "$repo/$ts"
+  gitf "$repo" add -A; gitf "$repo" commit -qm "a ui test names a doc"
+  base="$(gitf "$repo" rev-parse HEAD)"
+  printf 'named\n' > "$repo/$doc"
+  gitf "$repo" add -A; gitf "$repo" commit -qm "add the named doc"
+  expect_classify "a doc a ui test names is code" "$CI" "$repo" "$base" true false
+  echo "PASS classify-ui-named-doc"
+}
+
+# A doc a mobile-rn test names turns rn on. Same base-commit trick.
+case_rn_named_doc() {
+  local repo base doc ts
+  repo="$(new_repo rn-named)"
+  doc="mobile-rn/docs/named-$RANDOM$RANDOM.md"
+  ts="mobile-rn/src/named-$RANDOM$RANDOM.test.ts"
+  mkdir -p "$repo/mobile-rn/docs" "$repo/mobile-rn/src"
+  printf '// names %s\n' "$doc" > "$repo/$ts"
+  gitf "$repo" add -A; gitf "$repo" commit -qm "an rn test names a doc"
+  base="$(gitf "$repo" rev-parse HEAD)"
+  printf 'named\n' > "$repo/$doc"
+  gitf "$repo" add -A; gitf "$repo" commit -qm "add the named rn doc"
+  expect_classify "a doc a mobile-rn test names turns rn on" "$CI" "$repo" "$base" false true
+  echo "PASS classify-rn-named-doc"
+}
+
+# A real rename in the repo: with --no-renames the deleted shell path stays in
+# the list and is code; without it git reports only docs/tool.md, which is not.
+case_rename_out_of_shell() {
+  local repo base
+  repo="$(new_repo rename)"
+  printf '#!/bin/sh\n' > "$repo/tool.sh"
+  gitf "$repo" add -A; gitf "$repo" commit -qm "add tool.sh"
+  base="$(gitf "$repo" rev-parse HEAD)"
+  mkdir -p "$repo/docs"
+  gitf "$repo" mv tool.sh docs/tool.md
+  gitf "$repo" commit -qm "rename the shell file to markdown"
+  expect_classify "a rename out of a shell file is code" "$CI" "$repo" "$base" true false
+  echo "PASS classify-rename-out-of-shell"
+}
+
+# An empty base and a non-existent sha both fail safe: code and rn stay on.
+case_unusable_base() {
+  local repo
+  repo="$(new_repo unusable)"
+  printf 'changed\n' > "$repo/note-$RANDOM.md"
+  gitf "$repo" add -A; gitf "$repo" commit -qm "add a note"
+  expect_classify "an empty base fails safe" "$CI" "$repo" "" true true
+  expect_classify "a bogus base fails safe" "$CI" "$repo" \
+    ffffffffffffffffffffffffffffffffffffffff true true
+  echo "PASS classify-unusable-base"
+}
+
+# The harness executes the extracted text, not a baked-in copy: the same fixture
+# answers true through the real workflow and false through a copy whose only
+# change is the markdown branch's ui-test lookup.
+case_block_is_real() {
+  local repo base doc ts copy changed
+  repo="$(new_repo real-block)"
+  doc="docs/named-$RANDOM$RANDOM.md"
+  ts="ui/src/lib/named-$RANDOM$RANDOM.test.ts"
+  mkdir -p "$repo/ui/src/lib" "$repo/docs"
+  printf '// names %s\n' "$doc" > "$repo/$ts"
+  gitf "$repo" add -A; gitf "$repo" commit -qm "a ui test names a doc"
+  base="$(gitf "$repo" rev-parse HEAD)"
+  printf 'named\n' > "$repo/$doc"
+  gitf "$repo" add -A; gitf "$repo" commit -qm "add the named doc"
+
+  expect_classify "the block is read from the workflow" "$CI" "$repo" "$base" true false
+
+  copy="$T/ci-$RANDOM.yml"
+  python3 - "$CI" "$copy" <<'PY' || fail "classify: could not build the mutated workflow copy"
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+old = 'named_by_test "$p" && code=true'
+text = open(src, encoding="utf-8").read()
+if text.count(old) != 1:
+    sys.exit("expected exactly one %r, found %d" % (old, text.count(old)))
+open(dst, "w", encoding="utf-8").write(text.replace(old, ":"))
+PY
+  changed="$(diff "$CI" "$copy" | grep -cE '^[<>]')"
+  [ "$changed" -eq 2 ] || fail "classify: the copy differs by $changed line(s), expected one"
+  expect_classify "the answer follows the workflow text" "$copy" "$repo" "$base" false false
+  echo "PASS classify-block-is-real"
+}
+
+run_classifier_case() { # <case> <function> — skip unless RSI_TEST_ONLY names it
+  [ -z "$ONLY" ] || [ "$ONLY" = "$1" ] || return 0
+  CLASSIFY_CASES_RUN=$((CLASSIFY_CASES_RUN + 1))
+  "$2"
+}
+
+run_classifier_case classify-unreferenced-doc case_unreferenced_doc
+run_classifier_case classify-ui-named-doc case_ui_named_doc
+run_classifier_case classify-rn-named-doc case_rn_named_doc
+run_classifier_case classify-rename-out-of-shell case_rename_out_of_shell
+run_classifier_case classify-unusable-base case_unusable_base
+run_classifier_case classify-block-is-real case_block_is_real
+
+if [ -n "$ONLY" ] && [ "$CLASSIFY_CASES_RUN" -eq 0 ]; then
+  fail "RSI_TEST_ONLY='$ONLY' matched no classifier case"
 fi
