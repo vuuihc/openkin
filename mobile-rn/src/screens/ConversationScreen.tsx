@@ -38,6 +38,7 @@ import {
   type ProvidersView,
   type UsageWindowDays,
 } from "../providers/providersModel";
+import { sharedDraftMemory, type DraftMemory } from "../thread/draftMemory";
 import type { StreamSource } from "../thread/stream";
 import {
   createThread,
@@ -83,6 +84,13 @@ export type ConversationScreenProps = {
   /** Tests inject a recording fetch. */
   fetchImpl?: typeof fetch;
   /**
+   * What the route must not forget when it unmounts: the words left in this
+   * conversation's composer (KIN-MOBILE-001 §5 离开再回来). Production uses the
+   * app's one shared memory, so Back and a re-open land on the same words;
+   * tests inject a fresh one per case.
+   */
+  draftMemory?: DraftMemory;
+  /**
    * Tests inject the event source. Production lets the thread build the
    * fetch reader, exactly as the web console's EventSource would.
    */
@@ -101,6 +109,7 @@ export default function ConversationScreen({
   onPendingSettled,
   readSessionImpl,
   fetchImpl,
+  draftMemory = sharedDraftMemory,
   source,
   appState,
 }: ConversationScreenProps) {
@@ -368,6 +377,7 @@ export default function ConversationScreen({
   return (
     <ConversationView
       approvals={approvalsProps}
+      draftMemory={draftMemory}
       onBack={onBack}
       // With no thread there is no read to retry, so the control is absent
       // rather than a button that does nothing. The same rule draws no
