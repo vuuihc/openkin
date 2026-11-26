@@ -46,10 +46,7 @@ describe("R-shared-markdown-table parseTable", () => {
   });
 
   it("R-shared-markdown-table: the divider never appears in rows", () => {
-    const table = parseTable(
-      ["| a | b |", "| :---: | ---: |", "| one | two |"],
-      0,
-    );
+    const table = parseTable(["| a | b |", "| :---: | ---: |", "| one | two |"], 0);
 
     expect(table).not.toBeNull();
     expect(table?.header).toEqual(["a", "b"]);
@@ -58,10 +55,7 @@ describe("R-shared-markdown-table parseTable", () => {
   });
 
   it("R-shared-markdown-table: short rows pad to the header width and long rows trim to it", () => {
-    const table = parseTable(
-      ["| a | b |", "| --- | --- |", "| one |", "| x | y | z |"],
-      0,
-    );
+    const table = parseTable(["| a | b |", "| --- | --- |", "| one |", "| x | y | z |"], 0);
 
     expect(table?.rows).toEqual([
       ["one", ""],
