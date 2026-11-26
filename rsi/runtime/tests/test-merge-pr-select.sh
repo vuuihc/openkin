@@ -211,6 +211,21 @@ never_queued_orders_by_number() {
     || fail "never-queued-orders-by-number: order is '$got', want 'rework-loop,settings-coarse-links' ($OUT)"
 }
 
+# A PR that has never been eligible still comes after one that has waited: only #790 has a
+# .queued_at (120 minutes old), and #784 must sort after it. If the never-queued default
+# regresses from sys.maxsize to 0, a brand-new PR jumps every PR already in the queue and
+# only this case notices.
+never_queued_after_waiting() {
+  rm -rf "$T/ctrl/rsi/state/merge"; mkdir -p "$T/ctrl/rsi/state/merge"
+  echo $(( $(date +%s) - 120 * 60 )) > "$T/ctrl/rsi/state/merge/settings-coarse-links.queued_at"
+  run_select "$T/fifo.json"
+  local got
+  [ "$RC" -eq 0 ] || fail "never-queued-after-waiting: selection failed rc=$RC ($OUT)"
+  got="$(printf '%s\n' "$OUT" | cut -f2 | paste -sd, -)"
+  [ "$got" = "settings-coarse-links,rework-loop" ] \
+    || fail "never-queued-after-waiting: order is '$got', want 'settings-coarse-links,rework-loop' ($OUT)"
+}
+
 # The backpressure counter shares the same predicate: a CEO-named PR is active again, a dream
 # PR is not. Total counts every open PR, as before.
 backpressure_counts_ceo_pr() {
@@ -270,6 +285,7 @@ run needs-ceo-label-skipped needs_ceo_label_skipped
 run small-before-large small_before_large
 run longest-waiting-first longest_waiting_first
 run never-queued-orders-by-number never_queued_orders_by_number
+run never-queued-after-waiting never_queued_after_waiting
 run backpressure-counts-ceo-pr backpressure_counts_ceo_pr
 run shared-predicate-wired shared_predicate_wired
 echo ALL-PASS
