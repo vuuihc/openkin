@@ -1,118 +1,136 @@
-# KIN-MOBILE-001 证据：RN 客户端在 iOS 模拟器里的四个面
+# KIN-MOBILE-001 证据：RN 客户端的代码复核与历史模拟器画面
 
-**结论：8 张截图全部拿到（四面对 × 手机/平板）。两个真实缺陷：对话里的 GFM 表格
-按原文竖线渲染；用量 sheet 在配对设备上整张失败（`/api/providers` 对 device token
-是 403）。** 运行时间 2026-11-26，本机模拟器，Expo Go，一次性节点。
+**结论：本轮没有新截图。空闲内存低于 4 GB，按门槛跳过模拟器，只复核代码和测试。
+`6cd5f5cd` 已包含 D1 表格、D2 用量降级、项目标题和键盘避让的修复；对应回归与
+类型检查通过。下方八张图仍是 `14918d30` 的历史记录，不能证明当前画面或真机表现。**
 
 ## 这次运行
 
 | 项 | 值 |
 |---|---|
-| 日期 | 2026-11-26（本机） |
-| 提交 | `14918d30`（`git rev-parse --short HEAD`） |
-| 手机 | iPhone 17e，**390×844** 逻辑（截图 1170×2532，@3x） |
-| 平板 | iPad Air 11-inch (M4)，**820×1180** 逻辑（截图 1640×2360，@2x） |
-| 模拟器运行时 | iOS 27.2 (24B8117) |
-| Expo Go | 58.0.7；`mobile-rn/package.json` 的 `expo` 是 58.0.26 |
-| Metro | `npx expo start --offline --port 8081`（离线，仅本机） |
-| 节点 | 一次性 `kin serve --port 50346`，`KIN_STATE_DIR` 是 `mktemp -d` 目录；未触碰 `:7777` 或 `~/.kin` |
-| 种子 | `KIN_BASE=http://127.0.0.1:50346 KIN_TOKEN=<token> python3 scripts/journeys_seed.py`，`scripts/journeys_fake_agent` 固定在 `PATH` 首位并设 `KIN_CLAUDE_BIN`；结果 `created 24, existing 0, skipped 1` |
-| 阅读夹具 | 通过同一个公开 API 新建一条 prompt 为 `[seed] reading` 的对话，fake agent 回一段长文 + 5 行 GFM 表格（`scripts/journeys_fake_agent/claude:308-311`） |
-| 配对 | 节点 mint 一次性 secret，链接 `http://127.0.0.1:50346/pair?token=<secret>&pairing=1`；`pairing=1` 是必需的（`src/auth/pairingLink.ts:82`），少了它 app 把 secret 当 device token 而显示「链接已过期」 |
-| 截图 | `rsi/state/shots/rn-sim-evidence/`（本地，不入库） |
+| 日期 | 2026-11-26（证据刷新；历史截图也在同日拍摄） |
+| 复核提交 | `6cd5f5cd`（本轮开始时的 `origin/main`，也是分支基线） |
+| 方式 | Phase B：只复核代码与测试；未启动 Metro、节点或模拟器，未操作 `:7777` 或节点状态目录 |
+| 内存门槛 | `vm_stat`：每页 16384 bytes，`Pages free: 4421`，约 69 MiB，低于 4 GB；`vm.swapusage`：total 8192.00M / used 7200.50M / free 991.50M |
+| 模拟器条件 | `xcrun simctl list devices available` 有 iOS 27.2；内存门槛已触发，未进行新走查 |
+| 新截图 | 无；不以测试通过代替视觉验收 |
+| 历史截图提交 | `14918d30`；此后 main 已合入下方「已修」的改动 |
+| 历史设备 | iPhone 17e，390×844 逻辑，截图 1170×2532；iPad Air 11-inch (M4)，820×1180 逻辑，截图 1640×2360 |
+| 历史环境 | iOS 27.2 (24B8117)，Expo Go 58.0.7，Expo 58.0.26；Metro 离线运行在 8081 |
+| 历史节点与种子 | 一次性 `kin serve --port 50346`，临时状态目录；`scripts/journeys_seed.py` 记录 `created 24, existing 0, skipped 1`；非本轮重跑结果 |
+| 历史阅读夹具 | `[seed] reading`：长回答 + 5 行 GFM 表格，来源 `scripts/journeys_fake_agent/claude:308` |
+| 历史配对 | 一次性 secret 链接 `http://127.0.0.1:50346/pair?token=<secret>&pairing=1`；`src/auth/pairingLink.ts:82` 区分 secret 与 device token |
+| 历史截图目录 | `rsi/state/shots/rn-sim-evidence/`（本地，不入库；本轮未重新拍摄或复查图像文件） |
 
-检查命令与结果（在本分支 `mobile-rn/` 下）：
+以下命令在本分支 `mobile-rn/` 执行，均退出 0。`--no-install` 使用已有依赖，Jest
+串行运行，避免与其他 lane 争抢 worker。测试名称与代码锚点见「已修」和「已知」。
 
+```bash
+npx --no-install jest src/screens/ConversationView.table.test.tsx --ci --runInBand
+# Test Suites: 1 passed, 1 total
+# Tests:       3 passed, 3 total
+npx --no-install jest src/providers/providersModel.test.ts -t "a rejected provider list keeps the usage numbers" --ci --runInBand
+# Test Suites: 1 passed, 1 total
+# Tests:       20 skipped, 1 passed, 21 total
+npx --no-install jest src/list/listModel.test.ts -t "a project record names the heading" --ci --runInBand
+# Test Suites: 1 passed, 1 total
+# Tests:       22 skipped, 1 passed, 23 total
+npx --no-install jest src/screens/Conversation.safearea.test.tsx --ci --runInBand
+# Test Suites: 1 passed, 1 total
+# Tests:       3 passed, 3 total
+npx --no-install tsc --noEmit
+# 无输出，退出 0
+npx --no-install jest --ci --runInBand
+# Test Suites: 46 passed, 46 total
+# Tests:       408 passed, 408 total
 ```
-npx tsc --noEmit        # 无输出，退出 0
-npx jest --ci --runInBand
-# Test Suites: 29 passed, 29 total
-# Tests:       284 passed, 284 total
-```
 
-（默认并行跑时 5 个用例在 5s 上超时——同一台机器上还有别的 lane 在跑；`--runInBand`
-全绿，失败都是超时而非断言。）
+全量 Jest 在断言通过后打印 `Jest did not exit one second after the test run has completed.`，
+随后自行退出 0；本轮未定位未停止的异步操作，不把它记作已解决。
 
 ## 截图
 
-| 面 | 设备 | 文件 | 判定 | 画面 |
-|---|---|---|---|---|
-| 列表 | 390 | `390-list.png` | 通过 | 设备（此设备，11 条）→ 项目（alpha / beta / gamma / reading-cwd，beta 与 reading-cwd 展开）→ 对话行，行上带 `claude-code · 状态 · N 项待你处理` |
-| 对话 | 390 | `390-conversation.png` | 缺陷 | 打开 `[seed] reading` 的长回答；表格以 `\| Surface \| Before \| …` 原文出现（见 D1） |
-| 审批 | 390 | `390-approvals.png` | 通过 | 对话顶部一张待批卡片：需要权限 / Bash / `git status --short` / 批准 · 拒绝；下方是历史里的失败工具行 |
-| 用量 | 390 | `390-usage.png` | 缺陷 | 用量 sheet 打开，本周 / 30 天 / 90 天在，但整张显示「链接无效或已被拒绝 · 重试」（见 D2） |
-| 列表 | 820 | `820-list.png` | 通过 | 分栏：左侧列表列（与手机同一套设备→项目→对话），右侧「在左侧选一条对话，在这里阅读。」 |
-| 对话 | 820 | `820-conversation.png` | 缺陷 | 左侧列表 + 右侧 `[seed] reading` 长回答（分栏已随 #721 落地）；表格同样是原文竖线（D1） |
-| 审批 | 820 | `820-approvals.png` | 通过 | 左侧列表 + 右侧待批卡片（批准 · 拒绝） |
-| 用量 | 820 | `820-usage.png` | 缺陷 | 左侧列表 + 右侧用量 sheet，同样「链接无效或已被拒绝」（D2） |
+**历史截图表：以下均拍摄于 `14918d30`，判定仅描述当时记录；不是 `6cd5f5cd` 的视觉验收。**
 
-820 的会话截图是真实阅读态：右栏是一屏内可见的完整长回答（390 上才需要滚动），
-末尾就是那张 5 行表格。
+| 面 | 设备 | 文件 | 当时判定 | 当时画面 |
+|---|---|---|---|---|
+| 列表 | 390 | `390-list.png` | 历史通过 | 设备（此设备，11 条）→ 项目（alpha / beta / gamma / reading-cwd）→ 对话行；项目标题尚取目录名，现状见已修 D3 |
+| 对话 | 390 | `390-conversation.png` | 历史缺陷 D1 | `[seed] reading` 长回答里的表格以原文竖线出现 |
+| 审批 | 390 | `390-approvals.png` | 历史通过 | 顶部待批卡片：需要权限 / Bash / `git status --short` / 批准 · 拒绝；下方历史失败工具行 |
+| 用量 | 390 | `390-usage.png` | 历史缺陷 D2 | 本周 / 30 天 / 90 天可见，整张显示「链接无效或已被拒绝 · 重试」 |
+| 列表 | 820 | `820-list.png` | 历史通过 | 左侧设备→项目→对话列表，右侧「在左侧选一条对话，在这里阅读。」 |
+| 对话 | 820 | `820-conversation.png` | 历史缺陷 D1 | 左侧列表 + 右侧 `[seed] reading` 长回答与原文竖线表格 |
+| 审批 | 820 | `820-approvals.png` | 历史通过 | 左侧列表 + 右侧待批卡片（批准 · 拒绝） |
+| 用量 | 820 | `820-usage.png` | 历史缺陷 D2 | 左侧列表 + 右侧用量 sheet，同样「链接无效或已被拒绝」 |
+
+原记录里的 820 会话图是长回答与 5 行表格的阅读态。下一次重拍仍须使用这条夹具，
+不能用空白分栏或占位页代替；本轮不对修复后的表格布局作视觉结论。
 
 ## 缺陷
 
-### D1 对话把 GFM 表格当普通文本渲染
+### 已修
 
-- 证据：`390-conversation.png`、`820-conversation.png`。屏幕上逐字出现
+#### D1 对话把 GFM 表格当普通文本渲染
+
+- 历史症状：`390-conversation.png`、`820-conversation.png` 逐字显示
   `| Surface | Before | After | Owner |` 和 `| --- | --- | --- | --- |`。
-- 期望行为（可写成测试）：一段含 `| a | b |` + `| --- | --- |` 的回答在
-  `ConversationView` 里渲染成表格（与 web 控制台一致），或至少不把分隔行当正文。
-  测试可放进 `src/screens/ConversationView.reading.test.tsx`：给一个表格 turn，断言
-  表头/单元格文本各自成节点，且不出现 `\| --- \|`。
-- 不要的做法：直接把 `ui/src/components/Markdown.tsx` 搬进 RN——它按 ADR 0036 属于
-  DOM 侧，含 `react-dom` 依赖；也不要在 projection 里把表格拍平成一行。
-- 照抄的同类：web 端用 `ui/src/components/Markdown.tsx:11` 渲染 markdown；RN 端
-  `mobile-rn/src/screens/ConversationView.tsx:312` 用纯 `<Text>` 输出 `itemBody(item)`。
+- 已合入：#750，`6b1419a2`。`mobile-rn/src/screens/ConversationView.tsx:64`
+  导入 `MessageBody`，`:370` 将消息交给它绘制表格；不是复制 DOM 侧 markdown 组件。
+- 回归：`mobile-rn/src/screens/ConversationView.table.test.tsx:89`，
+  `KIN-MOBILE-001 R4: an agent answer draws its table and the paragraphs around it`。
+  本轮该套件 3 项通过，覆盖消息表格、邻接工具/meta 行及含竖线的错误文本。
+- 边界：代码与回归已核对，390 / 820 当前画面未重拍。
 
-### D2 用量 sheet 在配对设备上整张失败
+#### D2 用量 sheet 在配对设备上整张失败
 
-- 证据：`390-usage.png`、`820-usage.png` 都显示「链接无效或已被拒绝 · 重试」。
-- 根因（本次实测）：`createProvidersModel.load()` 同时读 `/api/providers` 和
-  `/api/usage/summary`（`mobile-rn/src/providers/providersModel.ts:205-208`），任一失败
-  就把整张 sheet 置为 failed；而 `/api/providers` 是 operator-only
-  （`internal/api/api.go:528` 的 `operatorOnly`），配对设备拿的是 device token。用两个
-  token 直接打这两个路由：
+- 历史症状：两张用量图都显示「链接无效或已被拒绝 · 重试」。原走查记录是 device
+  请求 providers 为 403、usage 为 200，master 两项均为 200；本轮未重新请求这些端点。
+- 已合入：#746，`5bee6ad6`。`mobile-rn/src/providers/providersModel.ts:229`
+  在用量成功、provider 列表失败且不是 token 过期时，只降级 provider 区块，保留数字。
+  `/api/providers` 仍是 operator-only（`internal/api/api.go:528`），没有放宽权限。
+- 回归：`mobile-rn/src/providers/providersModel.test.ts:493`，
+  `KIN-MOBILE-001 R6: a rejected provider list keeps the usage numbers (device token)`。
+  本轮该用例通过；断言 ready、保留用量、没有整张错误，并带 provider 局部错误。
+- 边界：本轮证明的是模型的 403/200 降级行为，没有新的设备配对或 sheet 截图。
 
-  ```
-  device  /api/providers            -> 403
-  device  /api/usage/summary?days=30 -> 200
-  master  /api/providers            -> 200
-  master  /api/usage/summary?days=30 -> 200
-  ```
+#### D3 列表项目标题只取工作目录名
 
-- 期望行为（可写成测试）：device token 打开用量 sheet 时，能读到的数字照常显示；
-  provider 列表被拒只让 provider 一行降级，不把整张 sheet 变成拒绝态。测试放进
-  `src/providers/providersModel.test.ts`：providers 403 + usage 200 → 状态不是
-  `failed`，`usage` 行仍返回。
-- 不要的做法：把 `/api/providers` 的 `operatorOnly` 放宽给 device token（同一组路由里
-  还有创建/修改/删除 provider，权限模型会一起松动）；也不要把 403 当成 token 过期去
-  清空会话（`providersModel.ts:217-230` 只对 401 这么做，是对的）。
-- 照抄的同类：手机端已有只读 usage 的路径 `usageSummaryPath`
-  （`mobile-rn/src/providers/providersModel.ts:81`），它对 device token 是 200；缺的是
-  provider 列表这一半的降级。
+- 历史症状：图里是 `alpha` / `beta` / `gamma` / `reading-cwd`，没有使用项目记录的名字。
+- 已合入：#758，`2316a815`。`mobile-rn/src/api/transport.ts:49` 声明
+  `/api/projects`，`mobile-rn/src/list/listModel.ts:505` 读取记录，`:298` 将各 root
+  交给共享分组；有记录的项目按记录命名，多 root 归一组，未认领目录仍显示目录名。
+- 回归：`mobile-rn/src/list/listModel.test.ts:716`，
+  `KIN-MOBILE-001 R3: a project record names the heading and all its roots file under it`。
+  本轮该用例通过；不再把目录名标题列为当前缺陷，当前列表画面仍待重拍。
 
 ## 已知（不要再报）
 
-- 输入框尚不避让键盘（`#733` 在飞）；键盘盖住发送键，点稿件区可收起键盘。
-- 推送注册与玻璃栏未接（ADR 0036 依赖未落地，parked）。
-- 扫码未实现（parked）。
-- 手机上还没有「新建对话」入口。
-- 列表里的项目标题是工作目录名（`alpha` / `beta` / `gamma` / `reading-cwd`），不是
-  项目名（种子里的 `[seed] Project Alpha`）：标签来自设备目录的 bucket
-  （`mobile-rn/src/list/listModel.ts` 直接取 `bucket.label`）。
-
-  | 问题 | 已定（2026-11-26，R-rn-project-headings） |
-  | --- | --- |
-  | 标题由谁命名 | 手机端读现有的 `GET /api/projects`（`holderOnly`，配对设备可读），按项目记录命名；一条记录的多个 root 归一个标题，无记录认领的目录继续显示目录名 |
-  | 要不要改服务端 | 不要：记录接口已存在，本次是纯客户端改动，不改接口、不改 schema |
+- **键盘避让代码已落地，真机未验。** #733，`445dffab`；
+  `mobile-rn/src/screens/ConversationView.tsx:772` 用 `KeyboardAvoidingView` 包住正文与
+  composer。`mobile-rn/src/screens/Conversation.safearea.test.tsx:98` 的
+  `KIN-MOBILE-001 R4: the composer sits above the keyboard` 本轮通过，所在套件 3 项通过。
+  这证明组件配置，不证明真机键盘动画、遮挡或玻璃 blur 体感；这些仍需人验，不记作 done。
+- 推送注册尚未接入；`mobile-rn/package.json` 没有 `expo-notifications`，
+  `mobile-rn/src/push/route.ts` 是点开通知后的路由逻辑，不是注册与投递的真机证据。
+- 玻璃层尚未接入本轮基线；`mobile-rn/package.json` 没有 `expo-blur`。
+  用量 **sheet** 由 #768 跟进（本轮查询仍 open），不能据此宣布玻璃头部完成；头部仍待接入。
+- 扫码未实现；`mobile-rn/app/pair.tsx` 当前配对表单只有链接输入与提交，本轮没有扫码验收。
+- 手机上还没有「新建对话」入口；`docs/product/stories/KIN-MOBILE-001.md` §2
+  的空态行与 §「变更记录」将该入口留给另立的 start 故事，不把本轮列表图当入口交付。
 
 ## 运行经验（给下一个人）
 
-- **Expo Go 的悬浮 dev 按钮会盖住会话头部右上角的「用量」入口**（390 和 820 都是）。
-  它的点击热区比图标大，点头部右上角只会打开 dev menu；先把按钮拖到屏幕中部再点
-  `conversation:usage`。这是 Expo Go 的壳，不是产品控件。
-- Maestro 的 `inputText` 对受控 `TextInput` 一次输入长串时只留最后一截；配对框要
-  **一次 `inputText` + `pressKey: Enter`**。输入框是单行、会横向滚动，**看起来只剩尾部
-  字符是正常的**——用 `maestro hierarchy` 读 `value` 才能确认整串在不在。
-- 会话头的 `用量` 可访问名是「打开用量详情」，文本选择器要匹配完整串（或直接用
-  testID `conversation:usage`）。
+- **先量内存再决定是否启动模拟器。** 本轮空闲约 69 MiB，swap 已用 7200.50M，
+  即使有 iOS runtime 也跳过。未重拍就保留历史日期、提交和判定，测试通过不改写旧图。
+- 按 `README.md` 一次只走一个设备：先 iPhone 17e 390×844，关闭后再走
+  iPad Air 11-inch (M4) 820×1180；不要同时启动两个模拟器。
+- 沿用历史走查的隔离方式：临时 `KIN_STATE_DIR`、绑定 `127.0.0.1:0` 选择端口，
+  `scripts/journeys_fake_agent` 放 `PATH` 首位并设 `KIN_CLAUDE_BIN`，再运行
+  `scripts/journeys_seed.py`。不使用正在工作的节点；配对链接必须带 `&pairing=1`。
+- **Expo Go 的悬浮 dev 按钮会盖住「用量」入口**，这是历史走查在两个宽度上的经验。
+  先把按钮拖到屏幕中部，再点 `conversation:usage`；不是产品控件的遮挡结论。
+- 配对框用 **一次 `inputText` + `pressKey: Enter`**，避免分段输入或点击坐标提交。
+  单行框会横向滚动，尾部可见不表示整串缺失；用 `maestro hierarchy` 的 `value` 核对。
+  Enter 的代码入口是 `mobile-rn/app/pair.tsx` 的 `onSubmitEditing`。
+- 「用量」的可访问名是「打开用量详情」，文本选择器匹配完整串，或用
+  testID `conversation:usage`。本轮没有新的交互经验。
