@@ -556,8 +556,8 @@ test_carries_rn_pr_past_another_rn_screen_move() {
   set_line "$R/mobile-rn/src/screens/Queue.test.tsx" 1 main
   move_main r1
   check r1 mobile-rn/src/screens/Queue.tsx mobile-rn/src/screens/Queue.test.tsx
-  expect_carry r1
-  grep -q 'mobile-rn tsc+jest+stories green' "$T/r1.out" || fail "r1: carry reason does not name the RN step ($(cat "$T/r1.out"))"
+  expect_carry test_carries_rn_pr_past_another_rn_screen_move
+  grep -q 'mobile-rn tsc+jest+stories green' "$T/r1.out" || fail "test_carries_rn_pr_past_another_rn_screen_move: carry reason does not name the RN step ($(cat "$T/r1.out"))"
 }
 
 # Main moving the RN PR's own file invalidates the gate.
@@ -583,8 +583,8 @@ test_regates_when_main_moves_the_rn_toolchain() {
     set_line "$R/$f" 2 main
     move_main r3
     check r3 "$f"
-    expect_regate r3
-    grep -q 'RN toolchain moved' "$T/r3.out" || fail "r3: $f re-gated for the wrong reason ($(cat "$T/r3.out"))"
+    expect_regate test_regates_when_main_moves_the_rn_toolchain
+    grep -q 'RN toolchain moved' "$T/r3.out" || fail "test_regates_when_main_moves_the_rn_toolchain: $f re-gated for the wrong reason ($(cat "$T/r3.out"))"
   done
 }
 
