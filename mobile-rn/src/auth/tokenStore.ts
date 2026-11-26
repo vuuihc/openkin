@@ -10,8 +10,15 @@
 /** The one Keychain entry. Changing this name logs every installed phone out. */
 export const SESSION_KEY = "kin.session";
 
-/** What is stored: the node this phone is paired with, and its token. */
-export type Session = { origin: string; token: string };
+/**
+ * What is stored: either a node this phone is paired with (origin + device
+ * token), or a Hub this phone signed in to. A Hub session carries no secret:
+ * its credential is the `kin_session` cookie in the platform cookie jar, which
+ * `fetch` sends when the caller asks for `credentials: "include"`.
+ */
+export type NodeSession = { kind: "node"; origin: string; token: string };
+export type HubSession = { kind: "hub"; origin: string };
+export type Session = NodeSession | HubSession;
 
 /** The three calls the auth core needs; tests inject an in-memory stand-in. */
 export type SecureBackend = {
@@ -53,14 +60,56 @@ export function isNodeOrigin(value: unknown): value is string {
   );
 }
 
+/** A loopback host may use http; every other Hub must be https. */
+export function isLoopbackHost(host: string): boolean {
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "[::1]" ||
+    host === "::1"
+  );
+}
+
+/**
+ * A Hub origin: https, or http only on loopback. A Hub cookie is a credential,
+ * so a plaintext origin off this machine is refused before any request.
+ */
+export function isHubOrigin(value: unknown): value is string {
+  if (!isNodeOrigin(value)) return false;
+  const parsed = new URL(value);
+  return parsed.protocol === "https:" || isLoopbackHost(parsed.hostname);
+}
+
+function tokenOf(record: Record<string, unknown>): string | null {
+  return typeof record.token === "string" && record.token.trim() !== ""
+    ? record.token
+    : null;
+}
+
+/**
+ * The stored shape, normalized. An entry written before the union has no
+ * `kind`; it reads as a node session, which is what it was.
+ */
 export function isSession(value: unknown): value is Session {
   if (value === null || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
-  return (
-    isNodeOrigin(record.origin) &&
-    typeof record.token === "string" &&
-    record.token.trim() !== ""
-  );
+  if (record.kind === "hub") {
+    return isHubOrigin(record.origin);
+  }
+  if (record.kind !== undefined && record.kind !== "node") return false;
+  return isNodeOrigin(record.origin) && tokenOf(record) !== null;
+}
+
+function normalizeSession(value: unknown): Session | null {
+  if (!isSession(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.kind === "hub") {
+    return { kind: "hub", origin: record.origin as string };
+  }
+  const token = tokenOf(record);
+  return token === null
+    ? null
+    : { kind: "node", origin: record.origin as string, token };
 }
 
 /** Read the stored session, or null when there is none or it is malformed. */
@@ -75,7 +124,7 @@ export async function readSession(
   } catch {
     return null;
   }
-  return isSession(parsed) ? parsed : null;
+  return normalizeSession(parsed);
 }
 
 export async function writeSession(

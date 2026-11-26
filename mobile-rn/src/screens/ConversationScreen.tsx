@@ -166,7 +166,7 @@ export default function ConversationScreen({
         }
         const thread = createThread({
           origin: session.origin,
-          token: session.token,
+          session,
           taskId,
           fetchImpl,
           source,
@@ -209,7 +209,7 @@ export default function ConversationScreen({
         // conversation shows the card its next turn is blocked on.
         const approvalsModel = createApprovals({
           origin: session.origin,
-          token: session.token,
+          session,
           fetchImpl,
         });
         approvalsRef.current = approvalsModel;
@@ -225,7 +225,7 @@ export default function ConversationScreen({
         // endpoint (external-integration UX gate).
         const providersModel = createProvidersModel({
           origin: session.origin,
-          token: session.token,
+          session,
           fetchImpl,
         });
         providersRef.current = providersModel;
