@@ -1,0 +1,37 @@
+[
+  {
+    "label": "a local send copy is never appended, so the words vanish until the server echoes them (R-rn-sent-echo)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "  if (pending.length === 0) return reused;",
+    "new": "  if (pending.length >= 0) return reused;",
+    "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5 立刻看到: the sent words are drawn while the prompt request is still unanswered\""
+  },
+  {
+    "label": "settling ignores when the send began, so an older message with the same words eats the new bubble (R-rn-sent-echo)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "    pending = settlePendingSends(pending, events);",
+    "new": "    pending = pending.filter((send) => !events.some((event) => JSON.stringify(event.payload ?? {}).includes(send.text)));",
+    "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5: an older message with the same words cannot settle a later send\""
+  },
+  {
+    "label": "a refused send keeps its local copy, so the restored draft and the bubble show the words twice (R-rn-sent-echo)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "        pending = pending.filter((item) => item.id !== local.id);",
+    "new": "        pending = pending.filter(() => true);",
+    "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5 失败: a refused prompt drops the local copy so the restored draft is the only copy\""
+  },
+  {
+    "label": "the first read drops a send made while it was in flight, so the copy draws and then vanishes (R-rn-sent-echo)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "    const replaced = epoch !== -1;\n    epoch = next;\n    if (replaced) pending = [];",
+    "new": "    epoch = next;\n    pending = [];",
+    "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5: a send during the first read stays drawn when that read lands\""
+  },
+  {
+    "label": "a flushed queue item drops its row without handing the words to the transcript, so they vanish for one round trip (R-rn-sent-echo)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "        pending = settlePendingSends([...pending, local], events);",
+    "new": "        pending = [...pending];",
+    "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5: a flushed queue item hands its words to the transcript in the same update that removes its queue row\""
+  }
+]
