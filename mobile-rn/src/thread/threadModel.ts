@@ -309,6 +309,17 @@ export function createThread(options: ThreadOptions): Thread {
     pending = settlePendingSends(pending, events);
   };
 
+  // A retry can rewrite the tail at a new epoch, where earlier seqs no longer
+  // mean what they did (the same reason `applyEvent` drops the old events). A
+  // local copy's `startSeq` came from the old timeline, and its echo's new seq
+  // can sit at or below that mark, so the copy could never settle there:
+  // drop the copies along with the timeline they belonged to.
+  const adoptEpoch = (next: number): void => {
+    if (next === epoch) return;
+    epoch = next;
+    pending = [];
+  };
+
   /** The turns to draw now: the durable projection plus the local copies. */
   const project = (previous: readonly Turn[], current: Task | null = task): Turn[] =>
     projectThread(events, current, previous, pending);
@@ -338,7 +349,7 @@ export function createThread(options: ThreadOptions): Thread {
     // The task row carries the current epoch (`event_epoch >= 0` in the
     // contract). Deriving it from the events alone left `-1` on an empty
     // history, so a gap-fill filtered out every real epoch-0 event.
-    epoch = loadedTask?.event_epoch ?? 0;
+    adoptEpoch(loadedTask?.event_epoch ?? 0);
     settlePending();
     publish({
       status: "ready",
@@ -413,7 +424,7 @@ export function createThread(options: ThreadOptions): Thread {
       // A retry rewrote the tail: earlier seqs no longer mean what they did,
       // and a repair still fetching the old epoch must not answer for the new
       // one, so drop it from the slot before the next gap asks.
-      epoch = event.event_epoch;
+      adoptEpoch(event.event_epoch);
       events = [];
       recovering = null;
     }
@@ -497,6 +508,12 @@ export function createThread(options: ThreadOptions): Thread {
         const item = state.sendQueue[0];
         if (!item) return;
         const myGeneration = generation;
+        // The transcript's high-water mark before this prompt leaves. The
+        // daemon writes the visible user event at accept time, so its echo
+        // can reach the stream before the POST answers; stamping the copy
+        // after the await would put its `startSeq` at or past that echo and
+        // it could never settle.
+        const local = pendingSend(item.text, events);
         const result = await postPrompt(item.text);
         if (myGeneration !== generation) return;
         if (!result.ok) {
@@ -507,8 +524,9 @@ export function createThread(options: ThreadOptions): Thread {
         const running = !isTerminalStatus(result.data.status);
         // The queue row stood in for these words while the send waited; the
         // same update that removes it hands them to the transcript, so no
-        // frame goes by with neither drawn.
-        pending = [...pending, pendingSend(item.text, events)];
+        // frame goes by with neither drawn. If the echo already landed, this
+        // settle is what keeps the words drawn exactly once.
+        pending = settlePendingSends([...pending, local], events);
         publish({
           sendQueue: state.sendQueue.filter((queued) => queued.id !== item.id),
           running,

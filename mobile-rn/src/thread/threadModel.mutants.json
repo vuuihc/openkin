@@ -23,7 +23,7 @@
   {
     "label": "a flushed queue item drops its row without handing the words to the transcript, so they vanish for one round trip (R-rn-sent-echo)",
     "file": "mobile-rn/src/thread/threadModel.ts",
-    "old": "        pending = [...pending, pendingSend(item.text, events)];",
+    "old": "        pending = settlePendingSends([...pending, local], events);",
     "new": "        pending = [...pending];",
     "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5: a flushed queue item hands its words to the transcript in the same update that removes its queue row\""
   }

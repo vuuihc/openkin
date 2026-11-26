@@ -1182,6 +1182,121 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
     model.close();
   });
 
+  it("KIN-MOBILE-001 §5: an epoch bump drops a local copy from the rewritten timeline", async () => {
+    const fake = fakeStream();
+    const answer = deferred<Reply>();
+    const fetchImpl = routedFetch((url) => {
+      if (url.endsWith("/prompt")) return answer.promise;
+      return url.endsWith("/events") ? { body: HISTORY } : { body: task({ status: "succeeded" }) };
+    });
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+    const sending = model.send("ship it");
+    expect(pendingTurns(model.getState().turns)).toHaveLength(1);
+
+    // A retry rewrites the tail at a new epoch; the old seqs no longer mean
+    // what they did, so a copy whose send began in the old timeline could
+    // never be settled by anything in the new one.
+    fake.connections[0].push(
+      frame({
+        ...event(1, "message", {
+          speaker: "kin",
+          content: "rewritten",
+          visibility: { user: true, task: true },
+        }),
+        event_epoch: 1,
+      }),
+    );
+    await settle();
+    expect(pendingTurns(model.getState().turns)).toEqual([]);
+
+    answer.resolve({ body: task() });
+    await sending;
+    expect(pendingTurns(model.getState().turns)).toEqual([]);
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 §5: a reload that finds a new epoch drops the local copy too", async () => {
+    const answer = deferred<Reply>();
+    let rewritten = false;
+    const fetchImpl = routedFetch((url) => {
+      if (url.endsWith("/prompt")) return answer.promise;
+      if (url.endsWith("/events")) {
+        return {
+          body: rewritten
+            ? [
+                {
+                  ...event(1, "message", {
+                    speaker: "kin",
+                    content: "rewritten",
+                    visibility: { user: true, task: true },
+                  }),
+                  event_epoch: 1,
+                },
+              ]
+            : HISTORY,
+        };
+      }
+      return { body: task({ status: "succeeded", event_epoch: rewritten ? 1 : 0 }) };
+    });
+    const model = liveThread(fetchImpl, fakeStream().source);
+
+    await model.load();
+    const sending = model.send("ship it");
+    expect(pendingTurns(model.getState().turns)).toHaveLength(1);
+
+    // The read finds the rewritten timeline: the copy from the old one goes
+    // with it, rather than sitting at the end of the new transcript forever.
+    rewritten = true;
+    await model.load();
+    expect(pendingTurns(model.getState().turns)).toEqual([]);
+
+    answer.resolve({ body: task() });
+    await sending;
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 §5: a flush whose echo lands before the POST answers still draws the words once", async () => {
+    const fake = fakeStream();
+    const answer = deferred<Reply>();
+    const fetchImpl = routedFetch((url) => {
+      if (url.endsWith("/prompt")) return answer.promise;
+      return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
+    });
+    const model = liveThread(fetchImpl, fake.source);
+
+    await model.start();
+    await settle();
+    await model.send("flushed");
+
+    fake.connections[0].push(frame(event(4, "result", { is_error: false })));
+    await settle();
+    // The daemon writes the visible user event at accept time, so the echo can
+    // reach the stream while the flush's POST is still unanswered.
+    fake.connections[0].push(
+      frame(
+        event(5, "message", {
+          speaker: "user",
+          role: "user",
+          content: "flushed",
+          visibility: { user: true, task: true },
+        }),
+      ),
+    );
+    await settle();
+    expect(userTexts(model.getState().turns)).toEqual(["do it", "flushed"]);
+
+    answer.resolve({ body: task() });
+    await settle();
+
+    expect(model.getState().sendQueue).toEqual([]);
+    expect(pendingTurns(model.getState().turns)).toEqual([]);
+    expect(userTexts(model.getState().turns)).toEqual(["do it", "flushed"]);
+    model.close();
+  });
+
   it("KIN-MOBILE-001 §5 离开再回来: closing the conversation drops the local copy", async () => {
     const answer = deferred<Reply>();
     const fetchImpl = routedFetch((url) => {
