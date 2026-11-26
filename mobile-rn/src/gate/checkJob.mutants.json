@@ -2,15 +2,29 @@
   {
     "label": "the manifest loses testTimeout entirely, so jest's 5 s default returns and a loaded merge gate turns machine load into a sendback (R-gate-rn-timeout)",
     "file": "mobile-rn/package.json",
-    "old": "\"preset\": \"jest-expo\",\n    \"testTimeout\": 20000",
+    "old": "\"preset\": \"jest-expo\",\n    \"testTimeout\": 60000",
     "new": "\"preset\": \"jest-expo\"",
     "test": "cd mobile-rn && npx jest src/gate/checkJob.test.ts -t \"KIN-MOBILE-001 R1: the gate gives a loaded run more than jest's 5 s default\""
   },
   {
     "label": "the manifest keeps a testTimeout but writes jest's 5 s default back, which is the ceiling the parallel gate already exceeds (R-gate-rn-timeout)",
     "file": "mobile-rn/package.json",
-    "old": "\"testTimeout\": 20000",
+    "old": "\"testTimeout\": 60000",
     "new": "\"testTimeout\": 5000",
     "test": "cd mobile-rn && npx jest src/gate/checkJob.test.ts -t \"KIN-MOBILE-001 R1: the gate gives a loaded run more than jest's 5 s default\""
+  },
+  {
+    "label": "the manifest loses maxWorkers, so jest fans out across every core inside a gate that already runs 21 other jobs on one Mac (R-rn-gate-jest-budget)",
+    "file": "mobile-rn/package.json",
+    "old": "\"testTimeout\": 60000,\n    \"maxWorkers\": 2",
+    "new": "\"testTimeout\": 60000",
+    "test": "cd mobile-rn && npx jest src/gate/checkJob.test.ts -t \"KIN-MOBILE-001 R1: the RN jest run does not fan out across every core beside the gate's other jobs\""
+  },
+  {
+    "label": "the manifest caps workers above the gate's budget, which recreates the all-core fan-out it was meant to stop (R-rn-gate-jest-budget)",
+    "file": "mobile-rn/package.json",
+    "old": "\"maxWorkers\": 2",
+    "new": "\"maxWorkers\": 7",
+    "test": "cd mobile-rn && npx jest src/gate/checkJob.test.ts -t \"KIN-MOBILE-001 R1: the RN jest run does not fan out across every core beside the gate's other jobs\""
   }
 ]
