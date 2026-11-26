@@ -40,5 +40,26 @@
     "old": "    initial && (initial.status === \"ready\" || initial.status === \"empty\")\n      ? initial",
     "new": "    initial\n      ? initial",
     "test": "cd mobile-rn && npx jest src/list/listModel.test.ts -t \"KIN-MOBILE-001 R3: a stored failure is not a page and the mount reads again\""
+  },
+  {
+    "label": "the list ignores the project records, so every heading keeps its folder's name (R-rn-project-headings)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "    (cwd) => projectByCwd.get(bucketKeyFor(cwd)),\n",
+    "new": "    undefined,\n",
+    "test": "cd mobile-rn && npx jest src/list/listModel.test.ts -t \"KIN-MOBILE-001 R3: a project record names the heading and all its roots file under it\""
+  },
+  {
+    "label": "a failed projects read marks the whole list failed even though the task page answered (R-rn-project-headings)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "        status: empty ? \"empty\" : \"ready\",\n",
+    "new": "        status: projects.ok ? (empty ? \"empty\" : \"ready\") : \"failed\",\n",
+    "test": "cd mobile-rn && npx jest src/list/listModel.test.ts -t \"KIN-MOBILE-001 R3: a failed projects read keeps the rows and the last names\""
+  },
+  {
+    "label": "load() drops the /api/projects read, so a heading never learns its project's name (R-rn-project-headings)",
+    "file": "mobile-rn/src/list/listModel.ts",
+    "old": "        apiFetch<Project[]>(options.origin, listProjectsPath, {\n          token: options.token,\n          fetchImpl: options.fetchImpl,\n          timeoutMs: options.timeoutMs ?? LIST_TIMEOUT_MS,\n        }),\n",
+    "new": "        Promise.resolve({\n          ok: true as const,\n          status: 200,\n          data: [] as Project[],\n        }),\n",
+    "test": "cd mobile-rn && npx jest src/list/listModel.test.ts -t \"KIN-MOBILE-001 R3: the list controller reads /api/projects and names the heading\""
   }
 ]
