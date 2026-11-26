@@ -32,8 +32,7 @@ const en: MessageTree = {
       "This Hub signs in with a provider. Provider sign-in from the app is not in this update yet; use the Hub in a browser.",
     hubNodeTitle: "Pair with one node",
     hubBack: "Use a different Hub",
-    hubRejected:
-      "The Hub refused this sign-in. Check the address and the account, then try again.",
+    hubRejected: "The Hub refused this sign-in. Check the address and the account, then try again.",
     hubInsecure: "Use an https:// Hub address. http is allowed only on this device.",
     hubNoAccounts:
       "This Hub has no accounts yet. Set it up in a browser, or pair with a node link.",
