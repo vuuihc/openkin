@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the composer opens empty, so a popped route's draft is gone",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  const [draft, setDraft] = useState(() => ({\n    taskId: state.taskId,\n    text: draftMemory.read(state.taskId),\n  }));",
+    "new": "  const [draft, setDraft] = useState(() => ({\n    taskId: state.taskId,\n    text: \"\",\n  }));",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.draftReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §5 离开再回来: a draft survives the conversation unmounting and coming back\""
+  },
+  {
+    "label": "the memory ignores the task key and hands the last draft to any conversation",
+    "file": "mobile-rn/src/thread/draftMemory.ts",
+    "old": "    read: (taskId) => drafts.get(taskId) ?? \"\",",
+    "new": "    read: () => [...drafts.values()].at(-1) ?? \"\",",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.draftReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §5 离开再回来: another conversation never shows the first conversation's draft\""
+  },
+  {
+    "label": "an accepted send leaves its words in the memory, so reopening shows them again",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    draftMemory.write(forTask, \"\");",
+    "new": "    // dropped: the sent words stay in the memory for the next mount",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.draftReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §5 离开再回来: a sent draft is still cleared when the conversation is reopened\""
+  },
+  {
+    "label": "a refused send restores the box but not the memory, so a leave loses the words",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    if (draftMemory.read(forTask) === \"\") {\n      draftMemory.write(forTask, sent);\n    }",
+    "new": "    // dropped: a refusal only restores the box, never the memory",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.draftReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §5 失败: a refused send's restored words also survive a leave\""
+  }
+]

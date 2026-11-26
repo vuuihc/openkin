@@ -39,6 +39,10 @@ import type {
 } from "../../../ui/src/components/chat/transcriptProjection";
 import { focusNode } from "../a11y/focus";
 import { canRetry } from "../native/reconnect";
+import {
+  sharedDraftMemory,
+  type DraftMemory,
+} from "../thread/draftMemory";
 import type {
   ProvidersView,
   UsageWindowDays,
@@ -99,6 +103,13 @@ export type ConversationViewProps = {
   onStop?: () => void;
   /** Drop a queued send the round has not taken yet. */
   onWithdraw?: (id: string) => void;
+  /**
+   * The words each conversation's composer keeps while its route is gone
+   * (KIN-MOBILE-001 §5 离开再回来). Injected like the list's memory; the app
+   * hands in its one shared store, so Back and a re-open land on the same
+   * words. A harness rendering the view alone gets the shared store.
+   */
+  draftMemory?: DraftMemory;
   /**
    * This conversation's provider/usage sheet, already wired by the container;
    * absent when there is no session to read with, and then the header draws no
@@ -380,23 +391,29 @@ type ComposerProps = {
   onSend: (text: string) => void;
   onStop?: () => void;
   onWithdraw?: (id: string) => void;
+  /** The words that outlive this component, keyed by conversation. */
+  draftMemory: DraftMemory;
   /** This device's home-indicator clearance (see `composerBottomInset`). */
   bottomPadding: number;
 };
 
 /**
- * The draft is this component's own state and is tagged with the task it was
- * typed for: a screen that swapped conversations draws an empty box, so the
- * old words can neither return nor be posted under the new task (AGENTS.md
- * §11). A failed read, a stream event or a queued send repaints the view
- * without touching this state — that is what "offline keeps the draft" means.
+ * The draft is the person's own text. Its live copy is component state tagged
+ * with the task it was typed for, and its copy for the next mount is the
+ * injected `DraftMemory` (KIN-MOBILE-001 §5 离开再回来): Back pops the route,
+ * and reopening reads the words back. The task tag stays, so a screen that
+ * swapped conversations draws an empty box rather than another conversation's
+ * words (AGENTS.md §11). A failed read, a stream event or a queued send
+ * repaints the view without touching the draft — that is what "offline keeps
+ * the draft" means.
  *
  * A press clears the box as it always has, and the model's answer decides
- * whether the words come back: a send the node refused restores them and names
- * the reason in one line (KIN-MOBILE-001 §5 失败), while an accepted send
- * leaves the box empty for the next thought. A message typed while the first
- * post is still in flight is what could post twice — the empty box no longer
- * guards it, so the in-flight guard has to be explicit.
+ * whether the words come back: a send the node refused restores them in the
+ * box and in the memory, and names the reason in one line (KIN-MOBILE-001 §5
+ * 失败), while an accepted send leaves both empty for the next thought.
+ * A message typed while the first post is still in flight is what could post
+ * twice — the empty box no longer guards it, so the in-flight guard has to be
+ * explicit.
  */
 function Composer({
   state,
@@ -404,9 +421,15 @@ function Composer({
   onSend,
   onStop,
   onWithdraw,
+  draftMemory,
   bottomPadding,
 }: ComposerProps) {
-  const [draft, setDraft] = useState({ taskId: state.taskId, text: "" });
+  // The box opens on the words this conversation left behind: the route may
+  // have popped since they were typed.
+  const [draft, setDraft] = useState(() => ({
+    taskId: state.taskId,
+    text: draftMemory.read(state.taskId),
+  }));
   const text = draft.taskId === state.taskId ? draft.text : "";
   const offline = state.banner === "offline";
   // The post this composer is waiting on. A ref, not only the disabled state
@@ -437,8 +460,10 @@ function Composer({
   /**
    * The post came back. A refusal puts the words back into a box the person
    * has not already filled with a newer thought, and names the reason; words
-   * typed during the flight win, because they are the draft now. An answer
-   * that reports nothing is not a refusal, so it changes nothing.
+   * typed during the flight win, because they are the draft now. The memory
+   * gets the same restored words, so a leave after the refusal still finds
+   * them. An answer that reports nothing is not a refusal, so it changes
+   * nothing.
    */
   const settle = (
     forTask: string,
@@ -450,6 +475,11 @@ function Composer({
     setSending(false);
     const outcome = sendAnswer(answer);
     if (outcome === undefined || outcome.ok) return;
+    // A newer thought in the memory is the draft now, so the refusal must not
+    // replace it with the words the node turned down.
+    if (draftMemory.read(forTask) === "") {
+      draftMemory.write(forTask, sent);
+    }
     setDraft((current) =>
       current.taskId === forTask && current.text === ""
         ? { taskId: forTask, text: sent }
@@ -466,8 +496,10 @@ function Composer({
     setSending(true);
     setFailure(null);
     // The words go to the model, not into the box: clear first, so the next
-    // thought is never appended to the one already sent. The guard above is
-    // what keeps them when the node cannot take them at all.
+    // thought is never appended to the one already sent. The memory clears
+    // with it, so a re-opened conversation shows an empty box. The guard above
+    // is what keeps them when the node cannot take them at all.
+    draftMemory.write(forTask, "");
     setDraft({ taskId: forTask, text: "" });
     void Promise.resolve(onSend(trimmed)).then((outcome) =>
       settle(forTask, trimmed, outcome),
@@ -524,6 +556,9 @@ function Composer({
           accessibilityLabel={t("composer.placeholder")}
           multiline
           onChangeText={(next) => {
+            // The memory is the copy the next mount reads, so a change writes
+            // both; an emptied box forgets its entry.
+            draftMemory.write(state.taskId, next);
             setDraft({ taskId: state.taskId, text: next });
             // Typing is a new attempt: the last refusal described words that
             // are no longer the draft.
@@ -578,6 +613,7 @@ export default function ConversationView({
   onSend,
   onStop,
   onWithdraw,
+  draftMemory = sharedDraftMemory,
   usage,
 }: ConversationViewProps) {
   // The device's own insets; a missing provider is a device that reports none.
@@ -811,6 +847,7 @@ export default function ConversationView({
         // reachable at every scroll position.
         <Composer
           bottomPadding={composerBottomInset(insets.bottom)}
+          draftMemory={draftMemory}
           onSend={onSend}
           onStop={onStop}
           onWithdraw={onWithdraw}
