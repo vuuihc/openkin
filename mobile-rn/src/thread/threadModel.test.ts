@@ -827,6 +827,10 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
     await first.start();
     await settle();
     expect(await first.send("first")).toEqual({ ok: true, queued: true });
+    // The queue is owed in the shared memory before the round ends, so the
+    // empty memory after the close is a settlement, not a store that never
+    // held anything.
+    expect(memory.read(TASK_ID).map((item) => item.text)).toEqual(["first"]);
 
     // The round ends and the queued prompt is dispatched; its POST is still
     // unanswered, so the row is still drawn.
