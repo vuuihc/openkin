@@ -32,10 +32,11 @@ import {
   SafeAreaInsetsContext,
   type EdgeInsets,
 } from "react-native-safe-area-context";
-import type {
-  ChatItem,
-  ToolStep,
-  Turn,
+import {
+  shouldShowGenericThinking,
+  type ChatItem,
+  type ToolStep,
+  type Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
 import { focusNode } from "../a11y/focus";
 import { canRetry } from "../native/reconnect";
@@ -177,6 +178,16 @@ function reasonKey(reason: SendFailure | null): string {
     default:
       return "sessions.loadErrorHint";
   }
+}
+
+/**
+ * The projection's turns as the flat item list the shared predicates read: a
+ * person's or standalone turn is its one item, an agent turn its column.
+ */
+function transcriptItems(turns: Turn[]): ChatItem[] {
+  return turns.flatMap((turn) =>
+    turn.kind === "agent" ? turn.items : [turn.item],
+  );
 }
 
 /** What a non-progress item says; a progress item is drawn row by row. */
@@ -788,6 +799,16 @@ export default function ConversationView({
       approvals.state.status === "error" ||
       !approvals.state.online);
 
+  // An open round that has not spoken yet ends the transcript with one working
+  // line (signed §4 慢: keep what arrived and show the activity row). The shared
+  // predicate is the web console's own, so the two surfaces agree on when a
+  // round is silent; the gate keeps the first load's skeleton the only cue
+  // (TASTE 15) and a settled conversation free of the line.
+  const showThinking =
+    state.status === "ready" &&
+    state.turns.length > 0 &&
+    shouldShowGenericThinking(transcriptItems(state.turns), state.running);
+
   // The list header keeps the read's notices above the turns and outside the
   // virtualized cells, so a repaint of the transcript cannot unmount them.
   const listHeader = (
@@ -907,6 +928,20 @@ export default function ConversationView({
         initialNumToRender={10}
         keyExtractor={(_turn, index) => `${state.taskId}:${index}`}
         ListHeaderComponent={listHeader}
+        // At the end of the content, so it scrolls with the transcript and can
+        // never cover the composer below. One polite line, never a control.
+        ListFooterComponent={
+          showThinking ? (
+            <Text
+              accessibilityLabel={t("chat.thinking")}
+              accessibilityLiveRegion="polite"
+              style={styles.notice}
+              testID="conversation:thinking"
+            >
+              {t("chat.thinking")}
+            </Text>
+          ) : undefined
+        }
         onContentSizeChange={handleContentSize}
         onScroll={handleScroll}
         // A reader who starts scrolling while the content is still arriving
