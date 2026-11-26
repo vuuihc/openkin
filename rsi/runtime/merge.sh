@@ -1668,8 +1668,10 @@ for p in json.load(sys.stdin):
         out=subprocess.run(["python3",os.environ["TIERPY"],"--title",p["title"],"--item",item,"--attempts",str(att),"--gh-json","-"],input=json.dumps(p.get("files") or []),capture_output=True,text=True,timeout=20).stdout.split()
         tier=out[0] if out else "large"
     except Exception: pass
-    rows.append((0 if tier=="small" else 1, p["number"], slug, p["title"].replace("\t"," "), tier, ",".join(sorted(l["name"] for l in p["labels"]))))
-for _,n,slug,title,tier,labs in sorted(rows):   # small-safe first, then PR number
+    try: queued=int(open("%s/merge/%s.queued_at" % (st,slug)).read().strip())
+    except Exception: queued=sys.maxsize   # never queued: after waiting PRs, then by number
+    rows.append((0 if tier=="small" else 1, queued, p["number"], slug, p["title"].replace("\t"," "), tier, ",".join(sorted(l["name"] for l in p["labels"]))))
+for _,_,n,slug,title,tier,labs in sorted(rows):   # small-safe first, then longest-waiting, then PR number
     print("%d\t%s\t%s\t%s\t%s" % (n,slug,title,tier,labs))'
 }
 
