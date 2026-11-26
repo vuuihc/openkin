@@ -3,15 +3,15 @@
     "label": "R-phone-approval-entry: the pill stops yielding to a conversation row",
     "file": "ui/src/components/cards/FloatingApproval.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.dom.test.tsx",
-    "old": "covers(stripRect, raised ? \"[data-kin-reading], [data-session-row]\" : \"[data-kin-reading]\")",
+    "old": "covers(\n        stripRect,\n        raised\n          ? \"[data-kin-reading], [data-session-row], [data-kin-hit-row]\"\n          : \"[data-kin-reading]\",\n      )",
     "new": "covers(stripRect, \"[data-kin-reading]\")"
   },
   {
     "label": "R-phone-approval-entry: a wide sidebar's row yields the pill on a conversation",
     "file": "ui/src/components/cards/FloatingApproval.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.dom.test.tsx",
-    "old": "covers(stripRect, raised ? \"[data-kin-reading], [data-session-row]\" : \"[data-kin-reading]\")",
-    "new": "covers(stripRect, \"[data-kin-reading], [data-session-row]\")"
+    "old": "covers(\n        stripRect,\n        raised\n          ? \"[data-kin-reading], [data-session-row], [data-kin-hit-row]\"\n          : \"[data-kin-reading]\",\n      )",
+    "new": "covers(stripRect, raised ? \"[data-kin-reading]\" : \"[data-kin-reading]\")"
   },
   {
     "label": "R-phone-approval-entry: the pill ignores a row that arrives under it",
@@ -40,5 +40,19 @@
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/sessionViewed.test.ts",
     "old": "  if (status === \"waiting_approval\") return \"bg-kin-orange\";",
     "new": "  if (status === \"waiting_approval\") return \"bg-kin-blue animate-pulse\";"
+  },
+  {
+    "label": "R-phone-heading-yield: the strip stops yielding to a project heading",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.headingYield.dom.test.tsx",
+    "old": "          ? \"[data-kin-reading], [data-session-row], [data-kin-hit-row]\"\n          : \"[data-kin-reading]\",",
+    "new": "          ? \"[data-kin-reading], [data-session-row]\"\n          : \"[data-kin-reading]\","
+  },
+  {
+    "label": "R-phone-heading-yield: the project heading stops marking itself as a row",
+    "file": "ui/src/components/sessions/SessionList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/SessionList.headingYield.dom.test.tsx",
+    "old": "          type=\"button\"\n          data-kin-hit-row=\"\"\n          onClick={openable ? onOpenProject : onToggle}",
+    "new": "          type=\"button\"\n          onClick={openable ? onOpenProject : onToggle}"
   }
 ]

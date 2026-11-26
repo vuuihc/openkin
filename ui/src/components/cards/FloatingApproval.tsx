@@ -298,13 +298,21 @@ export default function FloatingApproval({
       };
     }
     // Where the list is the screen (a phone tab root) a laid-out conversation
-    // row is the entry, so the pill yields to it too. A wide screen keeps its
-    // card: there the list is a column beside the conversation, and a sidebar
-    // row sharing the pill's x-band (reported at 360–364 at 768) is not what
-    // the pill floats over — yielding there would take the surface away.
+    // row or a project heading is the entry, so the pill yields to both. The
+    // heading is a row in that same list — it carries `data-kin-hit-row` — and
+    // a pill that yielded only to conversation rows stayed over it and ate the
+    // tap that folds the group. A wide screen keeps its card: there the list
+    // is a column beside the conversation, and a sidebar row sharing the
+    // pill's x-band (reported at 360–364 at 768) is not what the pill floats
+    // over — yielding there would take the surface away.
     const stripHit =
       stripRect !== null &&
-      covers(stripRect, raised ? "[data-kin-reading], [data-session-row]" : "[data-kin-reading]");
+      covers(
+        stripRect,
+        raised
+          ? "[data-kin-reading], [data-session-row], [data-kin-hit-row]"
+          : "[data-kin-reading]",
+      );
     if (stripHit !== hidden) setHidden(stripHit);
   }, [currentId, raised, panelOpen, bottom, covered, hidden]);
 
