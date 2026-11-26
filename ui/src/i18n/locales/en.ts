@@ -2084,6 +2084,7 @@ const en: MessageTree = {
     intervalUpdating: "Updating…",
     intervalFailed: "Couldn't load that range; showing the last one.",
     emptyUsage: "No usage in this range",
+    emptyUsageDevice: "No usage on this device yet",
     emptyUsageHint: "Usage from this machine's sessions adds up here.",
     loadingMachine: "Reading this machine's agents and usage…",
     smokeOne: "Smoke test",

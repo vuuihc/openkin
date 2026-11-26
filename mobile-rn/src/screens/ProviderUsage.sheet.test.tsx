@@ -429,7 +429,7 @@ describe("KIN-MOBILE-001 R6 provider/usage sheet mount", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByText(t("agents.emptyUsage"))).toBeTruthy(),
+      expect(screen.getByText(t("agents.emptyUsageDevice"))).toBeTruthy(),
     );
     expect(screen.getByText(t("agents.emptyUsageHint"))).toBeTruthy();
     // Four zero tiles would be a lie: the sheet passes the empty branch
