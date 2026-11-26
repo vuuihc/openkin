@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the rn arm is gone, so an RN-only PR runs the full check under a scoped label",
+    "file": "rsi/runtime/gate.sh",
+    "test": "bash rsi/runtime/tests/test-check-docs-scope.sh",
+    "old": "      step check env KIN_CHECK_SCOPE=rn ./scripts/check.sh ;;",
+    "new": "      step check ./scripts/check.sh ;;"
+  },
+  {
+    "label": "the docs arm drops the changed-path list, so doc-refs is handed nothing",
+    "file": "rsi/runtime/gate.sh",
+    "test": "bash rsi/runtime/tests/test-check-docs-scope.sh",
+    "old": "      step check env KIN_CHECK_SCOPE=docs \"KIN_CHECK_CHANGED=$scope_list\" ./scripts/check.sh",
+    "new": "      step check env KIN_CHECK_SCOPE=docs ./scripts/check.sh"
+  },
+  {
+    "label": "the docs scope starts no doc-refs job, so nothing greps the changed doc",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-check-docs-scope.sh",
+    "old": "DOCS_SCOPE_JOBS=\"stories ux-spec-refs doc-refs\"",
+    "new": "DOCS_SCOPE_JOBS=\"stories ux-spec-refs\""
+  },
+  {
+    "label": "the docs→full downgrade is gone, so a doc a test reads fails the gate forever",
+    "file": "rsi/runtime/gate.sh",
+    "test": "bash rsi/runtime/tests/test-check-docs-scope.sh",
+    "old": "      if test_refs_doc \"$line\"; then",
+    "new": "      if false; then"
+  }
+]

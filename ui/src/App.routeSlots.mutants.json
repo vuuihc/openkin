@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the route wrapper keeps its flex-1 slot instead of collapsing when empty",
+    "file": "ui/src/components/layout/AreaRoute.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/App.routeSlots.dom.test.tsx",
+    "old": "className=\"kin-route flex min-h-0 min-w-0 flex-1 flex-col empty:hidden\"",
+    "new": "className=\"kin-route flex min-h-0 min-w-0 flex-1 flex-col\""
+  },
+  {
+    "label": "the CSS rule that collapses an empty route wrapper is deleted",
+    "file": "ui/src/index.css",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/App.routeSlots.dom.test.tsx",
+    "old": ".kin-route:empty {\n  display: none;\n}",
+    "new": ".kin-route-empty-mutant {\n  display: none;\n}"
+  }
+]

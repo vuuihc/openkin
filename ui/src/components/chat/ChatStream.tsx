@@ -1008,10 +1008,11 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
             // an opacity-0 row that still takes pointer events is a tap target
             // nobody can see. Focus stays a reveal so Tab reaches the buttons.
             // A coarse pointer also floors each action's own width at 44px
-            // (`min-w-11`): at 820 the desktop density draws 重试/分叉 at
-            // 40.5px, and the global touch floor stops at 768. Height already
-            // reaches 44 through the Button facade at this width; the width is
-            // the part nothing floored.
+            // (`min-w-11`): the desktop density draws 重试/分叉 at 40.5px, and
+            // the global touch floor now reaches the iPad band (coarse, up to
+            // 1023.98px), where it floors this width too. Past 1023.98px
+            // (iPad landscape) the floor does not reach, so the explicit
+            // `min-w-11` is what keeps the width at 44px there.
             "flex items-center gap-1 transition-opacity",
             coarsePointer
               ? revealed

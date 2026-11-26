@@ -95,28 +95,36 @@ describe("locale catalogs", () => {
 
 /**
  * One object — the thing a person opens, sends a message to, and comes back to
- * — had three names in Chinese: 会话 in the project row's menu, 任务 in the
+ * — had several names in Chinese: 会话 in the project row's menu, 任务 in the
  * usage bar and on the not-found page. The list heading and its new button
- * already said 对话, so the drift was visible within one screen.
+ * already said 对话, so the drift was visible within one screen: on
+ * 设置 → 运维 the usage tile, its table header and every per-agent cell said
+ * 任务 for the same count.
  *
- * The three keys below are the drifted ones. `task.notFound` is only read by
- * the conversation detail page; routine tasks keep their own vocabulary.
+ * The keys below are the drifted ones, including the usage tile, its table
+ * header and the per-agent count (desktop cell and phone `MobileRow`).
+ * `task.notFound` is only read by the conversation detail page; routine tasks
+ * keep their own vocabulary.
  */
 describe("conversation vocabulary", () => {
   const drifted = [
     ["nav.newSessionIn", zh.nav.newSessionIn, en.nav.newSessionIn],
     ["task.notFound", zh.task.notFound, en.task.notFound],
     ["usage.taskSummary", zh.usage.taskSummary, en.usage.taskSummary],
+    ["usage.cacheUnknown", zh.usage.cacheUnknown, en.usage.cacheUnknown],
+    ["usage.tasks", zh.usage.tasks, en.usage.tasks],
+    ["usage.taskCount", zh.usage.taskCount, en.usage.taskCount],
+    ["agents.tasksCount", zh.agents.tasksCount, en.agents.tasksCount],
   ] as const;
 
-  it("names the object 对话 in the three drifted zh keys", () => {
+  it("names a conversation 对话 in every drifted zh key", () => {
     for (const [path, value] of drifted) {
       expect({ path, names: value.includes("对话") }).toEqual({ path, names: true });
       expect({ path, drifted: /会话|任务/.test(value) }).toEqual({ path, drifted: false });
     }
   });
 
-  it("names the object a conversation in the three drifted en keys", () => {
+  it("names a conversation in every drifted en key", () => {
     for (const [path, , value] of drifted) {
       expect({ path, names: /conversation/i.test(value) }).toEqual({ path, names: true });
       expect({ path, drifted: /session|task/i.test(value) }).toEqual({ path, drifted: false });

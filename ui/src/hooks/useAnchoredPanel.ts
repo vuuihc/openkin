@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 /** Viewport coordinates for a panel that floats above the page. */
 export type PanelAnchor = {
@@ -23,9 +23,42 @@ type Options = {
   maxHeight?: number;
   gap?: number;
   edge?: number;
+  /**
+   * The panel this anchor positions. Once it is mounted its own content height
+   * decides which side can show it: a trigger near the bottom edge leaves a
+   * short column below, and a menu that is clamped to it looks like it simply
+   * lacks its last rows (the panel's scrollbar is invisible). Omit it and the
+   * anchor falls back to the coarse room test.
+   */
+  panelRef?: RefObject<HTMLElement | null> | null;
 };
 
 const FLIP_BELOW = 120;
+
+/**
+ * Which side the panel opens on.
+ *
+ * The caller's preferred side only holds while it can show the panel's content
+ * (the measured content height, already clamped by `maxHeight`). Otherwise the
+ * side with more room wins, so a menu is never cut on the side that shows less
+ * when the other side shows more. A tie keeps the preferred side. Before the
+ * panel is mounted there is nothing to measure, so the coarse 120px rule keeps
+ * the first painted frame on the side a person expects; the panel's own commit
+ * re-places it with the measurement before anything is painted.
+ */
+function opensUp(
+  preferAbove: boolean,
+  preferredRoom: number,
+  otherRoom: number,
+  contentHeight: number | null,
+): boolean {
+  if (contentHeight != null) {
+    if (preferredRoom >= contentHeight) return preferAbove;
+    if (otherRoom >= contentHeight) return !preferAbove;
+    return otherRoom > preferredRoom ? !preferAbove : preferAbove;
+  }
+  return preferredRoom < FLIP_BELOW && otherRoom > preferredRoom ? !preferAbove : preferAbove;
+}
 
 /**
  * Where to put a panel, in viewport coordinates, measured from its trigger.
@@ -56,9 +89,15 @@ export function useAnchoredPanel(
     maxHeight = 360,
     gap = 6,
     edge = 8,
+    panelRef = null,
   }: Options = {},
 ): PanelAnchor | null {
   const [anchor, setAnchor] = useState<PanelAnchor | null>(null);
+  // The latest placement pass, so the panel-mount effect can re-run it without
+  // re-registering the window listeners on every render.
+  const placeRef = useRef<(() => void) | null>(null);
+  const panelObserver = useRef<ResizeObserver | null>(null);
+  const observedPanel = useRef<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -84,9 +123,16 @@ export function useAnchoredPanel(
       const preferAbove = placement === "above";
       const preferred = preferAbove ? above : below;
       const other = preferAbove ? below : above;
+      // What the panel needs. `scrollHeight` is the whole content even while a
+      // clamped panel scrolls, so a side is judged by what it would show, not
+      // by the box the last pass happened to leave. A panel that has not been
+      // laid out (or jsdom, which has no layout) reports 0: that is "unknown",
+      // not "needs nothing", and falls back to the coarse room test.
+      const measured = panelRef?.current?.scrollHeight ?? 0;
+      const contentHeight = measured > 0 ? Math.min(maxHeight, measured) : null;
       // A side with no room is not a side: opening upward from a trigger 100px
       // below the top edge would paint the panel off the top of the screen.
-      const openUp = preferred < FLIP_BELOW && other > preferred ? !preferAbove : preferAbove;
+      const openUp = opensUp(preferAbove, preferred, other, contentHeight);
       const next: PanelAnchor = {
         left,
         width: panelWidth,
@@ -106,6 +152,7 @@ export function useAnchoredPanel(
           : next,
       );
     };
+    placeRef.current = place;
     place();
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
@@ -124,7 +171,40 @@ export function useAnchoredPanel(
       viewport?.removeEventListener("scroll", place);
       observer?.disconnect();
     };
-  }, [open, anchorRef, placement, align, width, maxWidth, maxHeight, gap, edge]);
+  }, [open, anchorRef, placement, align, width, maxWidth, maxHeight, gap, edge, panelRef]);
+
+  // The panel is portaled a render after the anchor exists, so the pass above
+  // ran before there was content to measure. Once the panel is in the DOM,
+  // place again in the same commit — before paint — with its real height, and
+  // keep watching it: filtering a list or wrapping a reason line changes what
+  // the chosen side has to show. A layout effect without dependencies is
+  // deliberate: the render that mounts the portal changes no option, so there
+  // is no dependency to hang this on.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const panel = panelRef?.current ?? null;
+    if (panel !== observedPanel.current) {
+      panelObserver.current?.disconnect();
+      panelObserver.current = null;
+      observedPanel.current = panel;
+      if (panel && typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(() => placeRef.current?.());
+        observer.observe(panel);
+        panelObserver.current = observer;
+      }
+    }
+    placeRef.current?.();
+  });
+
+  // The panel observer outlives the placement effect's cleanup because the
+  // panel mounts after it; it must still not outlive the hook.
+  useLayoutEffect(
+    () => () => {
+      panelObserver.current?.disconnect();
+      panelObserver.current = null;
+    },
+    [],
+  );
 
   return anchor;
 }
