@@ -1,0 +1,37 @@
+[
+  {
+    "label": "the header draws no glass, so the bar is a flat strip again (R-rn-header-glass)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "        <GlassSurface style={StyleSheet.absoluteFill} />\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.glass.test.tsx -t \"KIN-MOBILE-001 R7: the conversation header draws glass behind its row\""
+  },
+  {
+    "label": "the header's total height forgets the status-bar air, so the first turn hides under the bar (R-rn-header-glass)",
+    "file": "mobile-rn/src/native/insets.ts",
+    "old": "export function headerTotalHeight(insetTop: number): number {\n  return HEADER_ROW_HEIGHT + headerTopInset(insetTop);\n}",
+    "new": "export function headerTotalHeight(insetTop: number): number {\n  return HEADER_ROW_HEIGHT;\n}",
+    "test": "cd mobile-rn && npx jest src/native/insets.test.ts -t \"KIN-MOBILE-001 R7: the header's total height adds the status-bar air to its row\""
+  },
+  {
+    "label": "the header scrolls with the transcript instead of staying chrome (R-rn-header-glass)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    position: \"absolute\",\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.glass.test.tsx -t \"KIN-MOBILE-001 R7: the header stays chrome above the transcript while the composer keeps the bottom\""
+  },
+  {
+    "label": "reduced transparency paints the bar transparent instead of the readable fallback (R-rn-header-glass)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  headerOpaque: {\n    backgroundColor: GLASS_FALLBACK_COLOR,\n  },",
+    "new": "  headerOpaque: {\n    backgroundColor: \"transparent\",\n  },",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.glass.test.tsx -t \"KIN-MOBILE-001 R7: reduce transparency swaps the header's blur for an opaque bar\""
+  },
+  {
+    "label": "the transcript starts under the glass because the list header keeps no spacer (R-rn-header-glass)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      <View\n        accessibilityElementsHidden\n        importantForAccessibility=\"no-hide-descendants\"\n        style={{ height: headerTotalHeight(insets.top) }}\n        testID=\"conversation:header-spacer\"\n      />\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.glass.test.tsx -t \"KIN-MOBILE-001 R7: the transcript's first line rests below the header, never under it\""
+  }
+]
