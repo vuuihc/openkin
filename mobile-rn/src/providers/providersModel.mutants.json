@@ -1,0 +1,16 @@
+[
+  {
+    "label": "a providers-only failure takes the whole sheet down again, hiding numbers this device can read (R-rn-usage-provider-degrade)",
+    "file": "mobile-rn/src/providers/providersModel.ts",
+    "old": "      if (!expired && usageRead.ok && !providersRead.ok) {",
+    "new": "      if (!expired && usageRead.ok && providersRead.ok) {",
+    "test": "cd mobile-rn && npx jest src/providers/providersModel.test.ts -t \"KIN-MOBILE-001 R6: a rejected provider list keeps the usage numbers\""
+  },
+  {
+    "label": "a later good read keeps the old provider-list error, so the block stays degraded forever (R-rn-usage-provider-degrade)",
+    "file": "mobile-rn/src/providers/providersModel.ts",
+    "old": "    state = {\n      status: providers.length === 0 && usage.length === 0 ? \"empty\" : \"ready\",\n      days,\n      providers,\n      usage,\n    };",
+    "new": "    state = {\n      ...state,\n      status: providers.length === 0 && usage.length === 0 ? \"empty\" : \"ready\",\n      days,\n      providers,\n      usage,\n    };",
+    "test": "cd mobile-rn && npx jest src/providers/providersModel.test.ts -t \"KIN-MOBILE-001 R6: a later good read clears the provider-list error\""
+  }
+]

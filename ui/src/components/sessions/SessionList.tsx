@@ -34,7 +34,7 @@ import { useLocale, useT } from "../../i18n/react";
 import { settleArchiveBatch } from "../../lib/archiveBatch";
 import type { Machine } from "../../lib/devices";
 import { runGuardedNavigation } from "../../lib/leaveGuard";
-import { draftEntryState, listUrlFor, phonePush } from "../../lib/phoneNavigation";
+import { draftEntryState, isPhoneLayout, listUrlFor, phonePush } from "../../lib/phoneNavigation";
 import { rememberDeviceNewReturn, takeDeviceNewReturn } from "../../lib/placeReturn";
 import {
   DRAFT_PATH,
@@ -81,6 +81,7 @@ import { consumeRowReturn, rememberRowReturn, takeRowReturn } from "../../lib/ro
 import { sortSessionBuckets } from "../../lib/sessionBucketOrder";
 import { sessionFeedTasks } from "../../lib/sessionFeed";
 import { readSessionFolds, setSessionFold } from "../../lib/sessionFolds";
+import { resolveSessionListFolds, type SessionListFoldCandidate } from "../../lib/sessionListFolds";
 import { sessionListParams } from "../../lib/sessionListParams";
 import { rowSelectable, selectableTaskIds } from "../../lib/sessionSelection";
 import {
@@ -97,7 +98,7 @@ import {
   type TaskOrder,
 } from "../../lib/taskOrder";
 import { mergeTaskTail } from "../../lib/taskTail";
-import AgentSessionSheet from "./AgentSessionSheet";
+import AgentSessionSheet, { type AgentSessionSheetClose } from "./AgentSessionSheet";
 import ActionSheet from "../ui/ActionSheet";
 import Button from "../ui/Button";
 import InlineAlert from "../ui/InlineAlert";
@@ -172,7 +173,7 @@ function listStateQuery(params: URLSearchParams, extra: Record<string, string> =
   return text ? `?${text}` : "";
 }
 
-const ROWS_BEFORE_SHOW_ALL = 5;
+const ROWS_BEFORE_SHOW_ALL = 10;
 const EMPTY_IDS: ReadonlySet<string> = new Set();
 const SEARCH_DEBOUNCE_MS = 200;
 // How long a closing deep-linked sheet waits for its own history entry to be
@@ -340,6 +341,12 @@ export default function SessionList({
   const [viewTick, setViewTick] = useState(0);
   useEffect(() => subscribeSessionViewed(() => setViewTick((n) => n + 1)), []);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  // Which projects have their 「工作方式」 disclosure open. Keyed by project
+  // record id, not by the fold key: the answer belongs to the project, so it
+  // survives folding the project or narrowing the list, and the row comes back
+  // the way the person left it. In memory, because the story adds no storage
+  // key (KIN-CONTINUE-007).
+  const [openInstructions, setOpenInstructions] = useState<ReadonlySet<string>>(() => new Set());
   const [pinnedIds, setPinnedIds] = useState<ReadonlySet<string>>(
     () => new Set(getPinnedTaskIds()),
   );
@@ -836,15 +843,43 @@ export default function SessionList({
     taskList.error,
     sessionsFailed,
   ]);
+  // The groups the default-fold rule has to decide about, in the order they
+  // are drawn. A group with no conversations still has a heading and a count,
+  // so it is a candidate too — it just can never be "the latest".
+  const foldCandidates = useMemo(() => {
+    const candidates: SessionListFoldCandidate[] = [];
+    if (pinnedBucket) {
+      candidates.push({
+        stateKey: pinnedBucket.key,
+        imported: false,
+        pinned: true,
+        lastActivityAt: pinnedBucket.lastActivityAt,
+      });
+    }
+    for (const group of deviceGroups) {
+      for (const bucket of group.buckets) {
+        candidates.push({
+          stateKey: `${group.id}::${bucket.key}`,
+          imported: isImportedBucket(bucket.key),
+          lastActivityAt: bucket.lastActivityAt,
+        });
+      }
+    }
+    return candidates;
+  }, [pinnedBucket, deviceGroups]);
+  const resolvedFolds = useMemo(
+    () => resolveSessionListFolds(foldCandidates, folds),
+    [foldCandidates, folds],
+  );
   const foldSets = useMemo(() => {
     const collapsed = new Set<string>();
     const openImported = new Set<string>();
-    for (const [key, open] of Object.entries(folds)) {
+    for (const [key, open] of Object.entries(resolvedFolds)) {
       if (open) openImported.add(key);
       else collapsed.add(key);
     }
     return { collapsed, openImported };
-  }, [folds]);
+  }, [resolvedFolds]);
   const selectableCount = selectableTaskIds(listed, scope).length;
   useEffect(() => {
     if (selectedIds.size === 0) return;
@@ -975,12 +1010,21 @@ export default function SessionList({
   }
 
   function foldIsOpen(stateKey: string, imported: boolean): boolean {
-    return folds[stateKey] ?? !imported;
+    return resolvedFolds[stateKey] ?? !imported;
   }
 
   function toggleFold(stateKey: string, imported: boolean) {
     setSessionFold(stateKey, !foldIsOpen(stateKey, imported));
     setFoldTick((n) => n + 1);
+  }
+
+  function toggleInstructions(projectId: string) {
+    setOpenInstructions((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
   }
 
   function renderBucket(bucket: PhoneProjectBucket, stateKey: string) {
@@ -1093,6 +1137,12 @@ export default function SessionList({
         offline={offline}
         instructionsProjectId={instructionsProject?.id ?? null}
         instructions={instructionsProject ? projectInstructions[instructionsProject.id] : undefined}
+        instructionsOpen={
+          instructionsProject ? openInstructions.has(instructionsProject.id) : false
+        }
+        onToggleInstructions={() => {
+          if (instructionsProject) toggleInstructions(instructionsProject.id);
+        }}
         instructionsHref={instructionsHref}
         onReadInstructions={readProjectInstructions}
         onEditInstructions={(event) => {
@@ -1161,12 +1211,17 @@ export default function SessionList({
    * would land on `?agent=` again and reopen what the reader closed. The
    * parameter is cleared on the entry the sheet gives back instead.
    */
-  function closeAgentSheet() {
+  function closeAgentSheet(close?: AgentSessionSheetClose) {
     const urlAgent = (params.get("agent") ?? "").trim();
     setAgentSheet(null);
     if (!urlAgent) return;
-    dismissedAgent.current = urlAgent;
     setAgentEntry(null);
+    // A successful continue is not a dismissal on a Mac: the task it opens is
+    // pushed above this list entry, and Back must return to the sheet the
+    // reader left, still named by `?agent=`. The phone's close keeps its own
+    // meaning — the list is the parent Back reaches, not the sheet.
+    if (close?.reason === "attach" && !isPhoneLayout()) return;
+    dismissedAgent.current = urlAgent;
     const sheetEntryIsCurrent = Boolean(
       (window.history.state as { kinSheet?: string } | null)?.kinSheet,
     );
@@ -2239,6 +2294,8 @@ function ProjectInstructionsRow({
   loadError,
   markdown,
   offline,
+  expanded,
+  onToggle,
   launcherHref,
   onLauncherClick,
   onRetry,
@@ -2249,32 +2306,19 @@ function ProjectInstructionsRow({
   loadError: string | null;
   markdown: string;
   offline: boolean;
+  /** Open state is the list's, keyed by project, so folding the project or
+   *  leaving the list and coming back does not forget it. */
+  expanded: boolean;
+  onToggle: () => void;
   launcherHref: string | null;
   onLauncherClick: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
   onRetry: () => void;
 }) {
   const tr = useT();
   const bodyId = useId();
-  const [expanded, setExpanded] = useState(false);
-  const [clipped, setClipped] = useState(false);
-  const bodyRef = useRef<HTMLParagraphElement | null>(null);
   const { text, truncated } = projectInstructions(markdown);
   const disabled = offline || launcherHref === null;
   const launcherLabel = text ? tr("projects.instructionsAsk") : tr("projects.instructionsWrite");
-  // Only offer the disclosure when the preview actually overflows. Measured on
-  // the closed clamp and kept once seen, so the control does not vanish when
-  // opening removes the clamp. A resize re-measures; a browser without
-  // ResizeObserver keeps the initial reading.
-  useEffect(() => {
-    const body = bodyRef.current;
-    if (!body || expanded) return;
-    const measure = () => setClipped(body.scrollHeight > body.clientHeight + 1);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(body);
-    return () => observer.disconnect();
-  }, [expanded, text]);
   const caption = [
     offline && text ? tr("projects.instructionsOffline") : "",
     truncated ? tr("projects.instructionsTruncated") : "",
@@ -2286,40 +2330,39 @@ function ProjectInstructionsRow({
     <div
       role="region"
       aria-label={`${tr("projects.instructionsTitle")} · ${projectName}`}
-      className="rounded-lg bg-kin-panel px-3 py-1.5"
+      className="rounded-lg bg-kin-panel px-3"
     >
       <div className="flex min-h-11 items-center justify-between gap-2">
-        <h3 className="min-w-0 text-caption font-medium uppercase tracking-label text-kin-secondary">
-          {text && !loadError && (clipped || expanded) ? (
-            <Button
-              variant="quiet"
-              aria-label={tr("projects.instructionsTitle")}
-              aria-expanded={expanded}
-              aria-controls={bodyId}
-              onClick={() => setExpanded((open) => !open)}
-              className="-my-1 min-h-9 gap-1 px-0 text-caption font-medium uppercase tracking-label text-kin-secondary! hover:bg-transparent!"
-            >
-              {/* One nowrap row inside the button: Astryx's content span is a
-                  block, so a bare label + block SVG stacks the chevron under
-                  the text and the row grows by a line at 820. */}
-              <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                {tr("projects.instructionsTitle")}
-                <IconChevronDown
-                  size={12}
-                  strokeWidth={2.25}
-                  className={
-                    expanded
-                      ? "shrink-0 rotate-180 transition-transform"
-                      : "shrink-0 transition-transform"
-                  }
-                />
-              </span>
-            </Button>
-          ) : (
-            tr("projects.instructionsTitle")
-          )}
-        </h3>
-        {loaded && !loadError ? (
+        <Button
+          variant="quiet"
+          aria-expanded={expanded}
+          aria-controls={bodyId}
+          onClick={onToggle}
+          className="-my-1 min-h-11 gap-1 px-0 text-caption font-medium uppercase tracking-label text-kin-secondary! hover:bg-transparent!"
+        >
+          {/* One nowrap row inside the button: Astryx's content span is a
+              block, so a bare label + block SVG stacks the chevron under
+              the text and the row grows by a line at 820. */}
+          <span className="inline-flex items-center gap-1 whitespace-nowrap">
+            <IconChevronDown
+              size={12}
+              strokeWidth={2.25}
+              className={[
+                "shrink-0 transition-transform",
+                // Collapsed is a right-pointing ▸, the design's one-line
+                // disclosure; open turns it down.
+                expanded ? "" : "-rotate-90",
+              ].join(" ")}
+            />
+            {tr("projects.instructionsTitle")}
+          </span>
+        </Button>
+        {loadError && !expanded ? (
+          <span className="min-w-0 flex-1 truncate text-right text-caption text-kin-muted">
+            {loadError}
+          </span>
+        ) : null}
+        {expanded && loaded && !loadError ? (
           disabled ? (
             <span className="flex-none text-caption text-kin-muted">{launcherLabel}</span>
           ) : (
@@ -2335,36 +2378,33 @@ function ProjectInstructionsRow({
         ) : null}
       </div>
 
-      {loadError ? (
-        <InlineAlert>
-          <p>{loadError}</p>
-          <Button variant="secondary" onClick={onRetry} className="mt-2 text-strong">
-            {tr("common.retry")}
-          </Button>
-        </InlineAlert>
-      ) : !loaded ? (
-        loading ? (
-          <SkeletonLine />
-        ) : null
-      ) : (
-        <>
-          {text ? (
-            <p
-              id={bodyId}
-              ref={bodyRef}
-              className={[
-                "whitespace-pre-wrap text-caption leading-prose text-kin-text",
-                expanded ? "" : "line-clamp-2",
-              ].join(" ")}
-            >
-              {text}
-            </p>
+      {expanded ? (
+        <div id={bodyId} className="pb-2">
+          {loadError ? (
+            <InlineAlert>
+              <p>{loadError}</p>
+              <Button variant="secondary" onClick={onRetry} className="mt-2 text-strong">
+                {tr("common.retry")}
+              </Button>
+            </InlineAlert>
+          ) : !loaded ? (
+            loading ? (
+              <SkeletonLine />
+            ) : null
           ) : (
-            <p className="text-caption text-kin-muted">{tr("projects.instructionsEmpty")}</p>
+            <>
+              {text ? (
+                <p className="whitespace-pre-wrap text-caption leading-prose text-kin-text">
+                  {text}
+                </p>
+              ) : (
+                <p className="text-caption text-kin-muted">{tr("projects.instructionsEmpty")}</p>
+              )}
+              {caption ? <p className="mt-1 text-caption text-kin-muted">{caption}</p> : null}
+            </>
           )}
-          {caption ? <p className="mt-1 text-caption text-kin-muted">{caption}</p> : null}
-        </>
-      )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2420,6 +2460,8 @@ function ProjectBucket({
   onEditRoots,
   instructionsProjectId,
   instructions,
+  instructionsOpen,
+  onToggleInstructions,
   instructionsHref,
   onReadInstructions,
   onEditInstructions,
@@ -2485,6 +2527,9 @@ function ProjectBucket({
   /** The local project record this bucket is, or null when it has none. */
   instructionsProjectId: string | null;
   instructions?: ProjectInstructionsEntry;
+  /** Whether this project's 「工作方式」 disclosure is open. */
+  instructionsOpen: boolean;
+  onToggleInstructions: () => void;
   /** The edit draft, or null when the bucket has no record to read. */
   instructionsHref: string | null;
   onReadInstructions: (projectId: string) => void;
@@ -2560,10 +2605,14 @@ function ProjectBucket({
         {/* eslint-disable-next-line kin/no-raw-button --
             The heading is the project's own navigation row, not an action:
             opening its cover and folding its rows are its two tap targets,
-            and the design system has no row primitive. */}
+            and the design system has no row primitive. It carries the shared
+            unscoped `data-kin-hit-row` marker so the floating approval yields
+            to it exactly as it yields to a conversation row: the strip once
+            covered this heading and ate the tap meant to fold the group. */}
         <button
           ref={headingRef}
           type="button"
+          data-kin-hit-row=""
           onClick={openable ? onOpenProject : onToggle}
           aria-label={heading}
           aria-expanded={openable ? undefined : !collapsed}
@@ -2737,6 +2786,8 @@ function ProjectBucket({
                 loadError={instructions?.failed ? tr("projects.summaryLoadFailed") : null}
                 markdown={instructions?.markdown ?? ""}
                 offline={offline}
+                expanded={instructionsOpen}
+                onToggle={onToggleInstructions}
                 launcherHref={instructionsHref}
                 onLauncherClick={onEditInstructions}
                 onRetry={() => onReadInstructions(instructionsProjectId)}

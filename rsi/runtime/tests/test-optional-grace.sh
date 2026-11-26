@@ -25,3 +25,14 @@ if [ "$calls" -ne 2 ]; then
   exit 1
 fi
 echo "PASS optional grace is wired into both optional entry points ($calls call sites)"
+
+# The other end of a press: the click entry must ask whether the control left
+# the page as it acted. The helper suite proves the rule; only this pin proves
+# the click entry consults it, because a removed call is invisible to a
+# browser-free unit test (same reason as above).
+presses="$(grep -c 'pressLeftControl(loc)' "$UNIX_WALK")"
+if [ "$presses" -ne 1 ]; then
+  echo "FAIL optional-press-pin: walk.mjs has $presses pressLeftControl call(s), want 1 (the click entry)" >&2
+  exit 1
+fi
+echo "PASS a press whose control left the page is not a failure"

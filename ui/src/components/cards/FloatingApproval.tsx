@@ -259,7 +259,13 @@ export default function FloatingApproval({
       return false;
     };
 
-    const hit = covers(box, "[data-kin-hit-row]") || covers(box, "[data-kin-reading]");
+    // Every interactive row in the stream carries the same unscoped marker:
+    // a changed-file row, a conversation row, and a question card's
+    // custom-answer and submit rows all say `data-kin-hit-row=""`. The card
+    // yields to it at every width — a tablet or Mac column is not a licence to
+    // cover a field the reader types into, or the button that sends it.
+    const hitRowSelector = "[data-kin-hit-row]";
+    const hit = covers(box, hitRowSelector) || covers(box, "[data-kin-reading]");
     if (hit !== covered) setCovered(hit);
 
     // The strip's own pill: measured directly whenever it is mounted, and
@@ -292,13 +298,21 @@ export default function FloatingApproval({
       };
     }
     // Where the list is the screen (a phone tab root) a laid-out conversation
-    // row is the entry, so the pill yields to it too. A wide screen keeps its
-    // card: there the list is a column beside the conversation, and a sidebar
-    // row sharing the pill's x-band (reported at 360–364 at 768) is not what
-    // the pill floats over — yielding there would take the surface away.
+    // row or a project heading is the entry, so the pill yields to both. The
+    // heading is a row in that same list — it carries `data-kin-hit-row` — and
+    // a pill that yielded only to conversation rows stayed over it and ate the
+    // tap that folds the group. A wide screen keeps its card: there the list
+    // is a column beside the conversation, and a sidebar row sharing the
+    // pill's x-band (reported at 360–364 at 768) is not what the pill floats
+    // over — yielding there would take the surface away.
     const stripHit =
       stripRect !== null &&
-      covers(stripRect, raised ? "[data-kin-reading], [data-session-row]" : "[data-kin-reading]");
+      covers(
+        stripRect,
+        raised
+          ? "[data-kin-reading], [data-session-row], [data-kin-hit-row]"
+          : "[data-kin-reading]",
+      );
     if (stripHit !== hidden) setHidden(stripHit);
   }, [currentId, raised, panelOpen, bottom, covered, hidden]);
 

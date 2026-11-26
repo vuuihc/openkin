@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the thinking row is drawn over content that already landed (R-rn-thinking-row)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    shouldShowGenericThinking(transcriptItems(state.turns), state.running);",
+    "new": "    state.running;",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.thinking.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 R4: the first token takes the thinking row away\""
+  },
+  {
+    "label": "the thinking row is never drawn, so a silent round reads as unresponsive (R-rn-thinking-row)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    shouldShowGenericThinking(transcriptItems(state.turns), state.running);",
+    "new": "    false;",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.thinking.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 R4: an open round with no agent content yet draws the thinking row\""
+  },
+  {
+    "label": "the skeleton and the thinking row are drawn at once on a first load (R-rn-thinking-row)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  const showThinking =\n    state.status === \"ready\" &&\n    state.turns.length > 0 &&\n    shouldShowGenericThinking(transcriptItems(state.turns), state.running);",
+    "new": "  const showThinking = shouldShowGenericThinking(\n    transcriptItems(state.turns),\n    state.running,\n  );",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.thinking.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 R4: the first load's skeleton is the only cue\""
+  },
+  {
+    "label": "the thinking row is never announced when it appears (R-rn-thinking-row)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "              accessibilityLiveRegion=\"polite\"\n              style={styles.notice}",
+    "new": "              style={styles.notice}",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.thinking.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 R4: the thinking row is a polite status, not a control\""
+  }
+]

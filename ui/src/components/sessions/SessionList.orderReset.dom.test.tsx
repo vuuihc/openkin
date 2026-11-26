@@ -64,6 +64,14 @@ vi.mock("../../hooks/useMachines", () => ({
   }),
 }));
 
+/**
+ * KIN-CONTINUE-007 opens only the newest real project; the synthetic pinned
+ * bucket is a heading until someone opens it.
+ */
+async function openPinned(): Promise<void> {
+  await userEvent.click(await screen.findByRole("button", { name: "Expand project Pinned" }));
+}
+
 function viewport(pointer: "fine" | "coarse") {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === "(pointer: coarse)" ? pointer === "coarse" : false,
@@ -130,6 +138,7 @@ describe("restoring time order in a synthetic bucket", () => {
     // The hand-made order is the reverse of the clock's.
     localStorage.setItem("kin_task_order", JSON.stringify({ __pinned__: ["p-low", "p-high"] }));
     mount();
+    await openPinned();
     await waitFor(() => expect(order()).toEqual(["p-low", "p-high"]));
 
     await user.click(resetIn("Pinned"));
@@ -168,7 +177,10 @@ describe("restoring time order in a synthetic bucket", () => {
     fixtures.tasks = [task("pinned-1", "/work/alpha", 100), task("loose-1", "", 200)];
     localStorage.setItem("kin_pinned_tasks", JSON.stringify(["pinned-1"]));
     mount();
-    await waitFor(() => expect(order()).toEqual(["pinned-1", "loose-1"]));
+    // Only the newest bucket opens by default (KIN-CONTINUE-007); open the
+    // synthetic Pinned bucket, which folds the other one.
+    await openPinned();
+    await waitFor(() => expect(order()).toEqual(["pinned-1"]));
 
     expect(screen.queryByRole("button", { name: /restore time order/i })).toBeNull();
   });
@@ -178,6 +190,7 @@ describe("restoring time order in a synthetic bucket", () => {
     localStorage.setItem("kin_pinned_tasks", JSON.stringify(["p-low", "p-high"]));
     localStorage.setItem("kin_task_order", JSON.stringify({ __pinned__: ["p-low", "p-high"] }));
     mount();
+    await openPinned();
     await waitFor(() => expect(order()).toEqual(["p-low", "p-high"]));
 
     const button = resetIn("Pinned");
@@ -194,6 +207,7 @@ describe("restoring time order in a synthetic bucket", () => {
     localStorage.setItem("kin_pinned_tasks", JSON.stringify(["p-low", "p-high"]));
     localStorage.setItem("kin_task_order", JSON.stringify({ __pinned__: ["p-low", "p-high"] }));
     mount();
+    await openPinned();
     await waitFor(() => expect(order()).toEqual(["p-low", "p-high"]));
 
     resetIn("Pinned").focus();
@@ -226,6 +240,7 @@ describe("restoring time order in a synthetic bucket", () => {
     localStorage.setItem("kin_pinned_tasks", JSON.stringify(["p-low", "p-high"]));
     localStorage.setItem("kin_task_order", JSON.stringify({ __pinned__: ["p-low", "p-high"] }));
     mount();
+    await openPinned();
     await waitFor(() => expect(order()).toEqual(["p-low", "p-high"]));
 
     const button = resetIn("Pinned");

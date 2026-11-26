@@ -53,6 +53,7 @@ OWN_FILE_MOVE='internal/thing/thing.go'
 SAME_PKG_MOVE='internal/thing/helper.go'
 SHARED_MOVE='scripts/check.sh'
 UI_LEAF_MOVE='ui/src/components/chat/ChatRow.tsx'
+RN_LEAF_MOVE='mobile-rn/src/screens/Queue.tsx'
 
 # diff_hash — the review key the merge lane computes for the PR's own diff (step 4's DH).
 diff_hash() { g diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16; }
@@ -122,6 +123,15 @@ test_pass_ui_leaf_move_holds() {
   decide green "$UI_LEAF_MOVE" "$PR_CHANGED"
   expect_hold pass_ui_leaf_move_holds "touch no path this PR verifies"
   case "$OUT" in *CARRY-UI*) ;; *) fail "pass_ui_leaf_move_holds: reason '$OUT' does not name CARRY-UI" ;; esac
+}
+
+# An RN leaf is disjoint from the PR's own Go file too: the classifier says CARRY-RN and the same
+# hold applies, so one RN PR landing under another no longer cancels the green run.
+test_pass_rn_leaf_move_holds() {
+  new_repo; write_cache
+  decide green "$RN_LEAF_MOVE" "$PR_CHANGED"
+  expect_hold test_pass_rn_leaf_move_holds "touch no path this PR verifies"
+  case "$OUT" in *"(CARRY-RN)"*) ;; *) fail "test_pass_rn_leaf_move_holds: reason '$OUT' does not name CARRY-RN" ;; esac
 }
 
 # Main moving the PR's own file changes what the gate checked: sync and re-gate.
@@ -262,6 +272,7 @@ run() {
 
 run test_pass_disjoint_move_holds
 run test_pass_ui_leaf_move_holds
+run test_pass_rn_leaf_move_holds
 run test_pass_own_file_move_syncs
 run test_pass_same_package_move_syncs
 run test_pass_shared_surface_move_syncs

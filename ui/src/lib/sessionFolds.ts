@@ -4,9 +4,10 @@
  * The list has one fold state per place, not per shell: the same project folded
  * in the Mac sidebar is folded in the phone page, and a reload keeps it. The
  * key carries the device because the same cwd can be a heading under two
- * machines, and folding one must not fold the other. Imported groups default
- * open=false — they are folded until someone opens them — while projects
- * default open=true.
+ * machines, and folding one must not fold the other. What a group nobody has
+ * folded yet does is `sessionListFolds.ts`'s rule: only the project holding
+ * the newest conversation opens, and imported groups stay folded until
+ * someone opens them.
  */
 const KEY = "kin_session_folds";
 

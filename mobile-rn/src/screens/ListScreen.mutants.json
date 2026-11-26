@@ -1,0 +1,44 @@
+[
+  {
+    "label": "a changed focus epoch no longer re-reads the list, so a badge decided in the conversation stays up (R-rn-approvals-count)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "  useEffect(() => {\n    if (seenFocus.current === focusEpoch) return;\n    seenFocus.current = focusEpoch;\n    refresh();\n  }, [focusEpoch, refresh]);\n",
+    "new": "  useEffect(() => {}, [focusEpoch, refresh]);\n",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R5: returning to the list re-reads the server and the approved row's badge is gone\""
+  },
+  {
+    "label": "the restored page is not handed to the controller, so a fold wipes it (R-rn-list-restore)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "          initialState: restored ? cached : undefined,",
+    "new": "          initialState: undefined,",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: folding a project on a restored page keeps the rows\""
+  },
+  {
+    "label": "a failed refresh overwrites the stored page (R-rn-list-restore)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "    const page = next.status === \"ready\" || next.status === \"empty\";",
+    "new": "    const page = true;",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a failed refresh on a restored page keeps its rows and the stored page\""
+  },
+  {
+    "label": "the publish guard stops asking whether this mount still owns the memory (R-rn-list-restore)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "    if (\n      page &&\n      origin !== undefined &&\n      memoryRef.current.isCurrent(claimRef.current)\n    ) {",
+    "new": "    if (page && origin !== undefined) {",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a replaced mount's late answer cannot write the page while it is still mounted\""
+  },
+  {
+    "label": "a stored failure is restored as the page instead of being re-read (R-rn-list-restore)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "        const restored =\n          cached !== null &&\n          (cached.status === \"ready\" || cached.status === \"empty\");",
+    "new": "        const restored = cached !== null;",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a stored failure is not a page and the mount reads again\""
+  },
+  {
+    "label": "the boot frame's negative refresh-control offset overwrites the reader's place (R-rn-list-press-skeleton)",
+    "file": "mobile-rn/src/screens/ListScreen.tsx",
+    "old": "    if (offset < 0) return;\n    memoryRef.current.write({ offset });",
+    "new": "    memoryRef.current.write({ offset });",
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 R3: a negative scroll on the boot frame does not erase the offset a remount restores\""
+  }
+]

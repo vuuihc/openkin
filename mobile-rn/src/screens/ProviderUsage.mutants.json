@@ -1,0 +1,58 @@
+[
+  {
+    "label": "the chip, close and retry controls drop below the signed 44pt touch floor (R-rn-provider-usage-screen)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "    minHeight: 44,\n    minWidth: 44,",
+    "new": "    minHeight: 32,\n    minWidth: 32,",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: the provider list is read-only and every control clears 44pt\""
+  },
+  {
+    "label": "a stale failed refresh stops marking the kept numbers, so old data reads as this read (R-rn-provider-usage-screen)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "      : state.error?.stale\n        ? t(\"agents.intervalFailed\")\n        : state.error",
+    "new": "      : state.error",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a failed refresh keeps the last numbers and marks them stale\""
+  },
+  {
+    "label": "the device-level empty state stops branching and draws tiles instead of the sentence (R-rn-provider-usage-screen)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "  const deviceEmpty = state.status === \"empty\";",
+    "new": "  const deviceEmpty = false;",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a device with no usage says so in words instead of a zero\""
+  },
+  {
+    "label": "a first-read offline says it is showing the last values when nothing was ever read (R-rn-provider-usage-screen)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "    state.status === \"offline\" && (hasData || state.error?.stale)\n      ? t(\"settings.disconnected\")",
+    "new": "    state.status === \"offline\"\n      ? t(\"settings.disconnected\")",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a first read with nothing cached shows its reason instead of em-dash tiles\""
+  },
+  {
+    "label": "a first read in flight or failed puts four em-dash tiles where nothing was read (R-rn-provider-usage-screen)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "    !deviceEmpty && !expired && (state.status === \"ready\" || hasData);",
+    "new": "    !deviceEmpty && !expired;",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a first read with nothing cached shows its reason instead of em-dash tiles\""
+  },
+  {
+    "label": "a degraded provider list fires the whole-sheet 'link invalid' notice, telling the reader to re-pair for a permission it cannot change (R-rn-usage-provider-degrade)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "        : state.error\n          ? t(failureKey(state.error.reason))\n          : null;",
+    "new": "        : state.providerListError\n          ? t(failureKey(state.providerListError.reason))\n          : null;",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a device token still reads its usage tiles\""
+  },
+  {
+    "label": "the device-empty state falls back to the range sentence, so \"this window\" and \"this device\" read the same (R-rn-usage-empty-words)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "          <Text style={styles.emptyTitle}>{t(\"agents.emptyUsageDevice\")}</Text>",
+    "new": "          <Text style={styles.emptyTitle}>{t(\"agents.emptyUsage\")}</Text>",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a device with no usage says so in words instead of a zero\""
+  },
+  {
+    "label": "a quiet window under a configured provider borrows the device sentence (R-rn-usage-empty-words)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "            <Text style={styles.quiet}>{t(\"agents.emptyUsage\")}</Text>",
+    "new": "            <Text style={styles.quiet}>{t(\"agents.emptyUsageDevice\")}</Text>",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.test.tsx -t \"KIN-MOBILE-001 R6: a device with no usage says so in words instead of a zero\""
+  }
+]

@@ -5,5 +5,12 @@
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/usage/TaskUsageSummary.dom.test.tsx",
     "old": "          <span className=\"whitespace-nowrap\">\n            {total} {tr(\"usage.tokens\")}\n          </span>",
     "new": "          {total}"
+  },
+  {
+    "label": "the tablet usage sheet goes back to the md-hidden phone sheet and dies at 820",
+    "file": "ui/src/components/usage/TaskUsageSummary.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/usage/TaskUsageSummary.dom.test.tsx -t \"R-usage-sheet-820: the tablet trigger's sheet stays open past 768\"",
+    "old": "        <Sheet open={open} onClose={() => setOpen(false)} title={tr(\"usage.taskSummary\")} dialog>",
+    "new": "        <Sheet open={open} onClose={() => setOpen(false)} title={tr(\"usage.taskSummary\")}>"
   }
 ]

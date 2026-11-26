@@ -5,5 +5,19 @@
     "old": "    searchPlaceholder: \"搜索例行任务\",",
     "new": "    searchPlaceholder: \"搜索 Routine\",",
     "test": "cd ui && VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run src/i18n/locales.test.ts"
+  },
+  {
+    "label": "the usage tile calls a conversation a task again (R-usage-vocabulary)",
+    "file": "ui/src/i18n/locales/zh.ts",
+    "old": "    tasks: \"对话\",",
+    "new": "    tasks: \"任务\",",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run src/i18n/locales.test.ts"
+  },
+  {
+    "label": "the cache hint calls a conversation a task again (R-usage-cache-unknown)",
+    "file": "ui/src/i18n/locales/zh.ts",
+    "old": "    cacheUnknown: \"此对话未返回缓存用量\",",
+    "new": "    cacheUnknown: \"此任务未返回缓存用量\",",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run src/i18n/locales.test.ts"
   }
 ]

@@ -47,6 +47,11 @@ export type Pairing = {
   resume(): Promise<AppState>;
   /** The boot decision: where the next frame starts. */
   startRoute(): Promise<AppState>;
+  /**
+   * A successful Hub sign-in is a fresh credential; a node token retired
+   * before it must not bounce the next boot back to `/pair?reason=expired`.
+   */
+  clearRetired(): void;
 };
 
 export function createPairing(options: PairingOptions = {}): Pairing {
@@ -135,7 +140,7 @@ export function createPairing(options: PairingOptions = {}): Pairing {
     myFlow: number,
   ): Promise<AppState> {
     const result = await apiFetch<Task[]>(session.origin, listTasksPath(), {
-      token: session.token,
+      session,
       fetchImpl: options.fetchImpl,
     });
     if (myFlow !== flowId) return current;
@@ -199,7 +204,7 @@ export function createPairing(options: PairingOptions = {}): Pairing {
     if (result.ok) {
       const store = await backend();
       if (myFlow !== flowId) return current;
-      await writeSession({ origin, token }, store);
+      await writeSession({ kind: "node", origin, token }, store);
       if (myFlow !== flowId) return current;
       tasks = result.data;
       return state("list", "none", origin, result.data);
@@ -236,7 +241,15 @@ export function createPairing(options: PairingOptions = {}): Pairing {
     return readList(session, myFlow);
   }
 
-  return { pairWithLink, resume, startRoute: resume };
+  /**
+   * Forget a retired node token. A Hub sign-in writes a different session, and
+   * the next `startRoute` must read it instead of replaying the old expiry.
+   */
+  function clearRetired(): void {
+    retired = false;
+  }
+
+  return { pairWithLink, resume, startRoute: resume, clearRetired };
 }
 
 /** The app-wide instance. R2b's pairing screen and list route use this. */
