@@ -1,0 +1,37 @@
+[
+  {
+    "label": "the upload drops -authenticationKeyIssuerID",
+    "file": "mobile/scripts/lib/export-args.sh",
+    "test": "cd mobile-rn && npx jest src/release/exportArgs.test.ts --ci --maxWorkers=2",
+    "old": "    -authenticationKeyIssuerID \"$issuer_id\"\n",
+    "new": ""
+  },
+  {
+    "label": "a partial ASC key trio is accepted instead of refused",
+    "file": "mobile/scripts/lib/export-args.sh",
+    "test": "cd mobile-rn && npx jest src/release/exportArgs.test.ts --ci --maxWorkers=2",
+    "old": "  if [ -n \"$missing\" ]; then",
+    "new": "  if false; then"
+  },
+  {
+    "label": "a no-key run is refused as an incomplete key instead of using the Xcode account",
+    "file": "mobile/scripts/lib/export-args.sh",
+    "test": "cd mobile-rn && npx jest src/release/exportArgs.test.ts --ci --maxWorkers=2",
+    "old": "  if [ -z \"$key_path\" ] && [ -z \"$key_id\" ] && [ -z \"$issuer_id\" ]; then\n    return 0\n  fi",
+    "new": "  if [ -z \"$key_path\" ] && [ -z \"$key_id\" ] && [ -z \"$issuer_id\" ]; then\n    :\n  fi"
+  },
+  {
+    "label": "the key path is not checked for being a readable file",
+    "file": "mobile/scripts/lib/export-args.sh",
+    "test": "cd mobile-rn && npx jest src/release/exportArgs.test.ts --ci --maxWorkers=2",
+    "old": "  if [ ! -f \"$key_path\" ] || [ ! -r \"$key_path\" ]; then",
+    "new": "  if false; then"
+  },
+  {
+    "label": "the key id and issuer id are swapped",
+    "file": "mobile/scripts/lib/export-args.sh",
+    "test": "cd mobile-rn && npx jest src/release/exportArgs.test.ts --ci --maxWorkers=2",
+    "old": "    -authenticationKeyID \"$key_id\"\n    -authenticationKeyIssuerID \"$issuer_id\"",
+    "new": "    -authenticationKeyID \"$issuer_id\"\n    -authenticationKeyIssuerID \"$key_id\""
+  }
+]
