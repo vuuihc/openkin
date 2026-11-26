@@ -483,7 +483,7 @@
         "ui/src/pages/macKeyboardWiring.test.ts",
         "ui/src/pages/SettingsPage.leaveGuard.dom.test.tsx",
         "ui/src/pages/settingsTabsWiring.test.ts",
-        "ui/src/pages/AgentSessionDetailPage.dom.test.tsx"
+        "ui/src/components/sessions/AgentSessionSheet.dom.test.tsx"
       ],
       "blockedReason": null
     },
@@ -709,7 +709,7 @@
     },
     {
       "id": "KIN-CONTRACT-001",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -727,7 +727,8 @@
       "ownerPaths": [],
       "tests": [
         "ui/src/lib/surfacesContract.KIN-CONTRACT-001.test.ts",
-        "ui/src/pages/RoutinesPage.dom.test.tsx"
+        "ui/src/pages/RoutinesPage.dom.test.tsx",
+        "ui/src/pages/SettingsPage.leaveGuard.dom.test.tsx"
       ],
       "blockedReason": null
     },
@@ -751,7 +752,7 @@
     },
     {
       "id": "KIN-CONTINUE-007",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -766,6 +767,10 @@
       "surface": "",
       "ownerPaths": [],
       "tests": [
+        "ui/src/lib/sessionListFolds.test.ts",
+        "ui/src/components/sessions/SessionList.listScan.dom.test.tsx",
+        "ui/src/components/sessions/SessionRow.coarse.dom.test.tsx",
+        "ui/src/components/layout/Sidebar.dom.test.tsx",
         "ui/src/lib/surfacesContract.KIN-CONTINUE-007.test.ts"
       ],
       "blockedReason": null

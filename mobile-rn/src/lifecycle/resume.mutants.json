@@ -1,0 +1,16 @@
+[
+  {
+    "label": "an expired token retries instead of stopping at the expired status (R-rn-resume-wire)",
+    "file": "mobile-rn/src/lifecycle/resume.ts",
+    "old": "    if (reason === \"expired\") {\n      settle(\"expired\");\n      return;\n    }\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/lifecycle/resume.test.ts -t \"KIN-MOBILE-001 R7: a manual retry while resuming, after dispose, or after expired is a no-op\""
+  },
+  {
+    "label": "retry() starts a series from any status, so a press while resuming or expired re-reads (R-rn-resume-wire)",
+    "file": "mobile-rn/src/lifecycle/resume.ts",
+    "old": "      // trying again. The reader's press starts a fresh, equally bounded run.\n      if (status !== \"offline\") return;\n",
+    "new": "      // trying again. The reader's press starts a fresh, equally bounded run.\n",
+    "test": "cd mobile-rn && npx jest src/lifecycle/resume.test.ts -t \"KIN-MOBILE-001 R7: a manual retry while resuming, after dispose, or after expired is a no-op\""
+  }
+]

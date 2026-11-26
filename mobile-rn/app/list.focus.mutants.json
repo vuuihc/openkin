@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the list route's focus callback is a no-op, so returning from a conversation never bumps the epoch (R-rn-approvals-count)",
+    "file": "mobile-rn/app/list.tsx",
+    "old": "      if (!showing.current) return;\n      setFocusEpoch((epoch) => epoch + 1);\n",
+    "new": "      if (!showing.current) return;\n",
+    "test": "cd mobile-rn && npx jest app/list.focus.test.tsx -t \"KIN-MOBILE-001 R5: the list route bumps the focus epoch when the screen regains focus\""
+  }
+]

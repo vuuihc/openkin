@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // What the 768–1023 conversation list costs the project name at its real
-// 304px width — and what the same row would cost if the phone's 44px floor
-// were extended over it.
+// 304px width now that the 44px coarse floor is shipped over the whole iPad
+// band (KIN-CONTINUE-007 item 5 / D4, 2026-11-24) — and whether repeating that
+// floor as an unlayered control moves anything.
 //
 //   node measure-list-shell.mjs [--kin <binary>] [--json] [--out DIR]
 //                               [--shots DIR] [--viewports all|820x1180,…]
@@ -15,16 +16,18 @@
 //   · the list column's width (`[data-kin-list-column] aside.w-list`);
 //   · the project header's inline controls and their boxes;
 //   · the truncating project-name element's width as shipped;
-//   · the same name width with the shipped `.touch-lg` floor injected at
-//     runtime under a widened width arm (1023.98px instead of 767.98px).
+//   · the same name width with the shipped `.touch-lg` floor repeated at
+//     runtime as an unlayered control.
 //
-// The injection is a measurement instrument, never a proposal: it repeats the
-// shipped selectors with only the query widened, over one page, and it is
-// removed before the next reading. Nothing here writes to the repository.
+// The injection is a control, never a proposal: it repeats the shipped
+// selectors at the shipped arms, over one page, and it is removed before the
+// next reading. Nothing here writes to the repository. A non-zero delta means
+// a utility opts one control out of the layered floor, or that the tool and
+// the stylesheet disagree; the shipped columns are the reading that counts.
 //
-// The delta between the two name widths is the answer to "does extending the
-// floor crush the name at 304px". A viewport whose rows did not render is
-// reported as unmeasured and exits 2 — no number is interpolated (Watch 79).
+// The shipped reading answers "does the floor crush the name at 304px". A
+// viewport whose rows did not render is reported as unmeasured and exits 2 —
+// no number is interpolated (Watch 79).
 //
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome,
 // loaded exactly as rsi/runtime/ux/switch-latency.mjs and walk.mjs do. Exit 0 =
@@ -61,14 +64,20 @@ function bounded(promise, ms, what) {
 }
 
 // ---------------------------------------------------------------- the injection
-// The shipped rule is ui/src/index.css's `.touch-lg` block: the floor applies
-// at `max-width: 639.98px` and to a coarse pointer up to `767.98px`. The
-// instrument below repeats those selectors and widens BOTH width arms to
-// 1023.98px, so the same floor covers the whole 768–1023 band this row asks
-// about. No other declaration changes.
-const SHIPPED_FLOOR_ARM = 767.98;
-const WIDENED_FLOOR_ARM = 1023.98;
-const INJECTED_FLOOR_CSS = `@media (max-width: ${WIDENED_FLOOR_ARM}px), ((pointer: coarse) and (max-width: ${WIDENED_FLOOR_ARM}px)) {
+// The shipped rule is ui/src/index.css's `.touch-lg` block: since
+// KIN-CONTINUE-007 item 5 (D4, 2026-11-24) the floor applies at
+// `max-width: 639.98px` and to a coarse pointer up to `1023.98px`, so it
+// already covers the whole 768–1023 band. The instrument below repeats those
+// selectors at the same arms as an unlayered control: it must not move a
+// control the layered rule governs, and where it does move one, a utility is
+// opting that control out. No other declaration changes.
+const SHIPPED_WIDTH_ARM = 639.98;
+const SHIPPED_FLOOR_ARM = 1023.98;
+const CONTROL_FLOOR_ARM = 1023.98;
+// The same query the stylesheet ships, built from the constants so the reading
+// cannot drift from the arms `--self-test` checks against index.css.
+const SHIPPED_FLOOR_QUERY = `(max-width: ${SHIPPED_WIDTH_ARM}px), ((pointer: coarse) and (max-width: ${SHIPPED_FLOOR_ARM}px))`;
+const INJECTED_FLOOR_CSS = `@media (max-width: ${SHIPPED_WIDTH_ARM}px), ((pointer: coarse) and (max-width: ${CONTROL_FLOOR_ARM}px)) {
   .touch-lg button:not([data-touch-mini]),
   .touch-lg select,
   .touch-lg [role="button"],
@@ -107,22 +116,30 @@ function requestedViewports() {
 }
 
 // ---------------------------------------------------------------- self-test
-// The mutant seam: the instrument's whole point is that its arm is WIDER than
-// the shipped one. If that constant is broken (equal to the shipped arm, or
-// past the Mac's 1100 window), every number measured with it is not the
-// extension this row is about, so fail before a browser is launched.
+// The mutant seam: the repeat is only a control if it repeats the arm the
+// stylesheet actually ships. If it drifts back to the old 767.98px, the iPad
+// band is never reached and every reading there is of a page the CSS does not
+// describe, so fail before a browser is launched.
 function selfTest() {
   const fail = (m) => { console.error(`SELF_TEST_FAIL: ${m}`); process.exit(1); };
-  if (!(WIDENED_FLOOR_ARM > SHIPPED_FLOOR_ARM)) fail(`widened arm ${WIDENED_FLOOR_ARM} does not exceed the shipped ${SHIPPED_FLOOR_ARM}`);
+  if (CONTROL_FLOOR_ARM !== SHIPPED_FLOOR_ARM) fail(`the control arm ${CONTROL_FLOOR_ARM} does not repeat the shipped ${SHIPPED_FLOOR_ARM}`);
   for (const decl of ['.touch-lg button:not([data-touch-mini])', 'min-width: 44px', 'min-height: 44px', '[role="button"]', 'label:has(input[type="radio"])']) {
     if (!INJECTED_FLOOR_CSS.includes(decl)) fail(`the injected floor lost ${decl}`);
   }
   const css = fs.readFileSync(path.join(repo, 'ui/src/index.css'), 'utf8');
-  const shipped = css.match(/@media \(max-width: 639\.98px\), \(\(pointer: coarse\) and \(max-width: ([0-9.]+)px\)\)/);
-  if (!shipped) fail('the shipped .touch-lg media query is not in ui/src/index.css');
-  if (Number(shipped[1]) !== SHIPPED_FLOOR_ARM) fail(`shipped arm is ${shipped[1]}px, the tool assumes ${SHIPPED_FLOOR_ARM}px`);
-  if (!css.includes('.touch-lg button:not([data-touch-mini])')) fail('the shipped .touch-lg selectors are gone');
-  console.log('SELF_TEST_OK: the injected floor repeats the shipped selectors and widens 767.98px to 1023.98px');
+  // Read the arms off the `.touch-lg` rule itself: `.touch-hide` carries the
+  // same query text further down, so matching the first media query would let
+  // the two blocks drift apart unnoticed.
+  const selectorAt = css.indexOf('.touch-lg button:not([data-touch-mini])');
+  if (selectorAt < 0) fail('the shipped .touch-lg selectors are gone');
+  const mediaAt = css.lastIndexOf('@media ', selectorAt);
+  const query = mediaAt < 0 ? '' : css.slice(mediaAt, css.indexOf('{', mediaAt));
+  const widthArm = query.match(/^@media \(max-width: ([0-9.]+)px\)/);
+  const coarseArm = query.match(/\(pointer: coarse\) and \(max-width: ([0-9.]+)px\)/);
+  if (!widthArm || !coarseArm) fail(`the .touch-lg floor has no width/coarse arm pair: ${query.trim()}`);
+  if (Number(widthArm[1]) !== SHIPPED_WIDTH_ARM) fail(`the width arm is ${widthArm[1]}px, the tool assumes ${SHIPPED_WIDTH_ARM}px`);
+  if (Number(coarseArm[1]) !== SHIPPED_FLOOR_ARM) fail(`shipped arm is ${coarseArm[1]}px, the tool assumes ${SHIPPED_FLOOR_ARM}px`);
+  console.log(`SELF_TEST_OK: the injected control repeats the shipped selectors at the shipped ${SHIPPED_WIDTH_ARM}px / coarse ${SHIPPED_FLOOR_ARM}px arms`);
 }
 
 // ---------------------------------------------------------------- daemon boot
@@ -222,7 +239,7 @@ function resolveBinary(tmp) {
 // ---------------------------------------------------------------- in-page read
 // Runs in the page. Returns plain numbers only; every selector is resolved
 // here so the caller never depends on a page handle surviving a style change.
-function readPage() {
+function readPage(floorQuery) {
   const box = (el) => {
     const r = el.getBoundingClientRect();
     return { x: Math.round(r.x * 10) / 10, y: Math.round(r.y * 10) / 10, w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10 };
@@ -288,8 +305,7 @@ function readPage() {
   return {
     viewport: { width: window.innerWidth, height: window.innerHeight, devicePixelRatio: window.devicePixelRatio },
     pointerCoarse: window.matchMedia('(pointer: coarse)').matches,
-    shippedFloorMatches: window.matchMedia('(max-width: 639.98px), ((pointer: coarse) and (max-width: 767.98px))').matches,
-    widenedFloorMatches: window.matchMedia('(max-width: 1023.98px), ((pointer: coarse) and (max-width: 1023.98px))').matches,
+    shippedFloorMatches: window.matchMedia(floorQuery).matches,
     touchLgWrapper: Boolean(document.querySelector('.touch-lg')),
     column: box(column),
     project: {
@@ -324,8 +340,9 @@ async function main() {
     schema: 1,
     startedAt: new Date().toISOString(),
     injectedCss: INJECTED_FLOOR_CSS,
+    shippedWidthArm: SHIPPED_WIDTH_ARM,
     shippedFloorArm: SHIPPED_FLOOR_ARM,
-    widenedFloorArm: WIDENED_FLOOR_ARM,
+    controlFloorArm: CONTROL_FLOOR_ARM,
     machine: { platform: os.platform(), release: os.release(), arch: os.arch(), cpus: os.cpus().length },
     node: process.version,
     viewports: {},
@@ -393,7 +410,7 @@ async function main() {
         }
 
         await page.waitForSelector('[data-kin-list-column] aside', { state: 'visible', timeout: 15000 });
-        const shipped = await bounded(page.evaluate(readPage), 15000, `${vp.name} shipped read`);
+        const shipped = await bounded(page.evaluate(readPage, SHIPPED_FLOOR_QUERY), 15000, `${vp.name} shipped read`);
         if (shipped.error) { doc.unmeasured.push({ viewport: vp.name, reason: shipped.error }); log(`[${vp.name}] UNMEASURED: ${shipped.error}`); continue; }
 
         if (shotsDir) {
@@ -403,7 +420,7 @@ async function main() {
 
         const injected = await bounded(page.addStyleTag({ content: INJECTED_FLOOR_CSS }), 15000, `${vp.name} floor injection`);
         await bounded(page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))), 15000, `${vp.name} reflow`);
-        const floored = await bounded(page.evaluate(readPage), 15000, `${vp.name} floored read`);
+        const floored = await bounded(page.evaluate(readPage, SHIPPED_FLOOR_QUERY), 15000, `${vp.name} floored read`);
         // Removed by handle, so the element taken out is the one added above.
         await bounded(injected.evaluate((el) => el.remove()), 15000, `${vp.name} floor removal`);
         await bounded(page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve))), 15000, `${vp.name} settle`);
@@ -416,7 +433,6 @@ async function main() {
           page: shipped.viewport,
           pointerCoarse: shipped.pointerCoarse,
           shippedFloorMatches: shipped.shippedFloorMatches,
-          widenedFloorMatches: shipped.widenedFloorMatches,
           touchLgWrapper: shipped.touchLgWrapper,
           column: shipped.column,
           project: {
@@ -468,8 +484,8 @@ async function main() {
 function num(n) { return Number.isInteger(n) ? String(n) : n.toFixed(1); }
 function printTable(doc) {
   const rows = Object.values(doc.viewports);
-  console.log(`list shell — 44px floor read at ${rows.length} viewport(s) · deviceScaleFactor 1 · blessed 2026-11-23`);
-  console.log('viewport   column  pointer  floor-now  project name   +floor   row name   +floor  project/row controls');
+  console.log(`list shell — 44px floor read at ${rows.length} viewport(s) · deviceScaleFactor 1 · re-blessed 2026-11-25 (floor shipped over the band)`);
+  console.log('viewport   column  pointer  floor-now  project name   ctrl     row name   ctrl    project/row controls');
   for (const v of rows) {
     console.log([
       v.viewport.padEnd(11),
@@ -486,11 +502,11 @@ function printTable(doc) {
   for (const v of rows) {
     console.log(`\n${v.viewport} · project "${v.project.label}" · name ${JSON.stringify(v.project.name.text)}${v.project.name.truncated ? ' (truncated)' : ''}`);
     for (const c of v.project.controls) console.log(`  control ${String(c.w + 'x' + c.h).padEnd(9)} min ${c.minWidth}/${c.minHeight}  ${c.absolute ? 'overlay ' : 'inline  '}${c.floorMatches ? 'floor-matches ' : 'no-floor     '}${c.label}`);
-    for (const c of v.project.controlsAfterFloor) console.log(`  floored ${String(c.w + 'x' + c.h).padEnd(9)} min ${c.minWidth}/${c.minHeight}  ${c.absolute ? 'overlay ' : 'inline  '}${c.floorMatches ? 'floor-matches ' : 'no-floor     '}${c.label}`);
+    for (const c of v.project.controlsAfterFloor) console.log(`  repeat  ${String(c.w + 'x' + c.h).padEnd(9)} min ${c.minWidth}/${c.minHeight}  ${c.absolute ? 'overlay ' : 'inline  '}${c.floorMatches ? 'floor-matches ' : 'no-floor     '}${c.label}`);
     console.log(`  row "${v.conversation.title}" name ${JSON.stringify(v.conversation.name.text)}${v.conversation.name.truncated ? ' (truncated)' : ''}`);
     for (const c of v.conversation.controls) console.log(`  control ${String(c.w + 'x' + c.h).padEnd(9)} min ${c.minWidth}/${c.minHeight}  ${c.absolute ? 'overlay ' : 'inline  '}${c.label}`);
   }
-  console.log(`\ninjected at runtime only: ${doc.shippedFloorArm}px arm widened to ${doc.widenedFloorArm}px, selectors unchanged`);
+  console.log(`\ninjected at runtime only: the shipped selectors repeated at the same ${doc.controlFloorArm}px coarse arm as a control; the shipped columns are the reading that counts`);
 }
 
 main().catch((e) => {
