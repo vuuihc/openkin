@@ -585,12 +585,13 @@ describe("KIN-MOBILE-001 R4 conversation", () => {
     // The sent words are already on screen from the local copy (KIN-MOBILE-001
     // §5 立刻看到), so waiting for them no longer proves this rerender's read
     // landed: the screen drops the composer while it builds the replacement
-    // thread. The composer coming back is the proof, and with it the loaded
-    // transcript still carries the words.
-    await waitFor(() =>
-      expect(screen.getByTestId("conversation:composer").props.value).toBe(""),
-    );
-    expect(screen.getByText("also check the lint")).toBeTruthy();
+    // thread. Both facts are asserted in one wait because an empty composer is
+    // also true of that loading render; only the ready publish, whose loaded
+    // transcript carries the words, satisfies both at once.
+    await waitFor(() => {
+      expect(screen.getByTestId("conversation:composer").props.value).toBe("");
+      expect(screen.getByText("also check the lint")).toBeTruthy();
+    });
     // One send is one prompt: the publish did not post the text again.
     expect(promptCalls(first.calls)).toHaveLength(1);
   });

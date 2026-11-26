@@ -21,6 +21,13 @@
     "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5 失败: a refused prompt drops the local copy so the restored draft is the only copy\""
   },
   {
+    "label": "the first read drops a send made while it was in flight, so the copy draws and then vanishes (R-rn-sent-echo)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "    const replaced = epoch !== -1;\n    epoch = next;\n    if (replaced) pending = [];",
+    "new": "    epoch = next;\n    pending = [];",
+    "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5: a send during the first read stays drawn when that read lands\""
+  },
+  {
     "label": "a flushed queue item drops its row without handing the words to the transcript, so they vanish for one round trip (R-rn-sent-echo)",
     "file": "mobile-rn/src/thread/threadModel.ts",
     "old": "        pending = settlePendingSends([...pending, local], events);",

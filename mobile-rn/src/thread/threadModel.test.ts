@@ -1258,6 +1258,39 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
     model.close();
   });
 
+  it("KIN-MOBILE-001 §5: a send during the first read stays drawn when that read lands", async () => {
+    const firstTask = deferred<Reply>();
+    const firstEvents = deferred<Reply>();
+    let reads = 0;
+    const fetchImpl = routedFetch((url) => {
+      if (url.endsWith("/prompt")) return { body: task({ status: "succeeded" }) };
+      reads += 1;
+      // The first load's two GETs stay open until after the send.
+      if (reads <= 2) {
+        return url.endsWith("/events") ? firstEvents.promise : firstTask.promise;
+      }
+      return url.endsWith("/events") ? { body: HISTORY } : { body: task({ status: "succeeded" }) };
+    });
+    const model = liveThread(fetchImpl, fakeStream().source);
+
+    // The composer is live while the shell's first read is in flight (signed
+    // §3), and that read was served before the daemon accepted the prompt, so
+    // the history it brings cannot carry the echo.
+    const loading = model.load();
+    await model.send("ship it");
+    expect(pendingTurns(model.getState().turns)).toHaveLength(1);
+
+    firstTask.resolve({ body: task({ status: "succeeded" }) });
+    firstEvents.resolve({ body: HISTORY });
+    await loading;
+
+    // The first timeline lands under the copy, not over it: `startSeq 0` means
+    // the copy's own echo can still settle it once the stream delivers it.
+    expect(pendingTurns(model.getState().turns)).toHaveLength(1);
+    expect(userTexts(model.getState().turns)).toEqual(["run the tests", "ship it"]);
+    model.close();
+  });
+
   it("KIN-MOBILE-001 §5: a flush whose echo lands before the POST answers still draws the words once", async () => {
     const fake = fakeStream();
     const answer = deferred<Reply>();

@@ -316,8 +316,13 @@ export function createThread(options: ThreadOptions): Thread {
   // drop the copies along with the timeline they belonged to.
   const adoptEpoch = (next: number): void => {
     if (next === epoch) return;
+    // Only a replaced timeline invalidates the copies. The first successful
+    // read (−1 → 0) lands under what the screen already draws: a send made
+    // while that read was in flight carries `startSeq 0`, so its echo can
+    // settle it in the timeline the read delivers.
+    const replaced = epoch !== -1;
     epoch = next;
-    pending = [];
+    if (replaced) pending = [];
   };
 
   /** The turns to draw now: the durable projection plus the local copies. */
