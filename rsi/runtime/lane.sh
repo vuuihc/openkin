@@ -750,6 +750,10 @@ lane_release_host() {
     fi
     rm -f "$STATE/lanes/$N.sims-before"
   fi
+  # Hand back the simulator slot only while its pid file still names this lane:
+  # a slot another live lane reclaimed after this one died is theirs to release.
+  slot="${RSI_SIM_SLOT:-$STATE/.sim-slot}"
+  if [ "$(cat "$slot/pid" 2>/dev/null || true)" = "$$" ]; then rm -rf "$slot"; fi
 }
 trap cleanup EXIT
 finish() { FINISHED=1; python3 "$LANES_PY" finish "$N" --status "$1" --pr "${2:-}" --note "${3:-}"; }
@@ -817,6 +821,10 @@ HDR="$STATE/lanes/$N.worker-brief.md"
 write_worker_brief > "$HDR"
 
 export BUDGET_GUARD="$LANE_BUDGET_USD" DISPATCH_MAX_SECS="$LANE_WORKER_SECS"
+# The xcrun shim (rsi/runtime/shim/xcrun) gives the machine's simulator to one
+# lane at a time: the slot dir names this lane so a second lane's `simctl boot`
+# waits instead of thrashing the host (2026-11-25: two RN lanes, load ~900).
+export RSI_LANE_PID=$$ RSI_LANE_N=$N RSI_SIM_SLOT="$STATE/.sim-slot"
 # Snapshot booted simulators before the worker can boot its own: cleanup shuts
 # down only the difference, so a simulator that was already up stays up. The
 # marker records a query that succeeded; without it cleanup leaves every
