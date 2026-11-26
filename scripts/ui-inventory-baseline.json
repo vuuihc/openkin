@@ -12,12 +12,12 @@
     "role_listbox": {"label": "role=\"listbox\"", "occurrences": 8, "files": 5},
     "role_dialog": {"label": "role=\"dialog\"", "occurrences": 12, "files": 7},
     "role_tab": {"label": "role=\"tab\"", "occurrences": 4, "files": 4},
-    "role_status": {"label": "role=\"status\"", "occurrences": 30, "files": 19},
+    "role_status": {"label": "role=\"status\"", "occurrences": 28, "files": 18},
     "role_alert": {"label": "role=\"alert\"", "occurrences": 21, "files": 10},
     "use_anchored_panel": {"label": "useAnchoredPanel", "occurrences": 5, "files": 2},
     "create_portal": {"label": "createPortal", "occurrences": 8, "files": 4},
     "push_toast": {"label": "pushToast", "occurrences": 122, "files": 15},
-    "rounded_border_surface": {"label": "rounded-* + border 表面", "occurrences": 104, "files": 48},
+    "rounded_border_surface": {"label": "rounded-* + border 表面", "occurrences": 103, "files": 47},
     "magic_z": {"label": "z-[n] 数字层级", "occurrences": 4, "files": 4}
   }
 }
