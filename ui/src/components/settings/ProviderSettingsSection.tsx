@@ -529,7 +529,7 @@ export function ProviderSettingsSection({
               // to the list (KIN-CONTINUE-002). Settings answers for unsaved
               // edits first, through the page's leave guard.
               onClick={(event) => onGuardedLinkClick(event, navigate, location, "/agents")}
-              className="inline-flex min-h-11 items-center text-caption text-kin-blue-ink hover:underline sm:min-h-0 sm:mt-1"
+              className="inline-flex min-h-11 touch-floor items-center text-caption text-kin-blue-ink hover:underline sm:min-h-0 sm:mt-1"
             >
               {tr("agents.manageLink")}
             </Link>
