@@ -318,7 +318,8 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
 
     const empty = await renderList({ status: "empty", groups: [] });
     expect(empty.getByText("sessions.empty")).toBeTruthy();
-    expect(empty.getByText("sessions.emptyHint")).toBeTruthy();
+    // The phone client draws no 新建 entry, so the empty list must not name one.
+    expect(empty.queryByText("sessions.emptyHint")).toBeNull();
 
     const expired = await renderList({
       status: "failed",
@@ -328,6 +329,21 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     expect(expired.getByText("sessions.loadError")).toBeTruthy();
     expect(expired.getByText("pairing.expired")).toBeTruthy();
     expect(expired.getByText("pairing.retry")).toBeTruthy();
+  });
+
+  it("KIN-MOBILE-001 §2 空: the empty list names no entry the client does not draw", async () => {
+    // The phone client draws no 新建 entry — no bottom bar, no + row — so the
+    // empty list must not tell the reader to tap one. The real catalogue is
+    // used here: the identity `t` other cases pass would never carry the words.
+    const screen = await renderList(
+      { status: "empty", groups: [] },
+      { t: realT },
+    );
+    expect(screen.getByText(realT("sessions.empty"))).toBeTruthy();
+    expect(screen.queryByText(realT("sessions.emptyHint"))).toBeNull();
+    // Not only that key: no rendered word names the missing control.
+    expect(screen.queryByText(/新建/)).toBeNull();
+    expect(screen.queryByText(/New chat/)).toBeNull();
   });
 
   it("KIN-MOBILE-001 R3: an empty-device group does not hide the empty or offline state", async () => {
@@ -346,7 +362,7 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     ];
     const empty = await renderList({ status: "empty", groups });
     expect(empty.getByText("sessions.empty")).toBeTruthy();
-    expect(empty.getByText("sessions.emptyHint")).toBeTruthy();
+    expect(empty.queryByText("sessions.emptyHint")).toBeNull();
     expect(empty.queryByText("Empty machine")).toBeNull();
 
     const offline = await renderList({
