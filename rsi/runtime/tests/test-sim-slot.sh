@@ -168,9 +168,21 @@ launch_line="$(grep -n 'dispatch.sh" worker' "$LANE" | head -1 | cut -d: -f1)"
 grep -q 'rm -rf "$slot"' "$LANE" || fail "case h: lane.sh never releases the slot"
 pass "lane.sh exports the slot env before the worker launch"
 
-# i. The shell gate job runs this suite, so a regression cannot land green.
+# i. Workers reach the shim by PATH lookup, which skips non-executable files —
+#    so the file must carry mode 100755 in git (this repo sets core.fileMode=false;
+#    a chmod alone never reaches the index — #769 review). Every case above already
+#    resolves `xcrun` through PATH; this one pins the mode explicitly.
+mode="$(git -C "$REPO" ls-files -s rsi/runtime/shim/xcrun | awk '{print $1}')"
+[ "$mode" = "100755" ] || fail "case i: shim is $mode in git, want 100755 — PATH lookup would skip it"
+xc RSI_LANE_PID="$$" RSI_LANE_N=8 RSI_SIM_SLOT="$SLOT" xcrun simctl boot UDID-PATH \
+  || fail "case i: PATH-resolved shim boot failed"
+grep -qx 'simctl boot UDID-PATH' "$LOG" || fail "case i: PATH lookup did not reach the shim"
+rm -rf "$SLOT"
+pass "the shim is executable in git and reachable by PATH lookup"
+
+# j. The shell gate job runs this suite, so a regression cannot land green.
 grep -q 'bash rsi/runtime/tests/test-sim-slot.sh || return 1' "$REPO/scripts/check.sh" \
-  || fail "case i: scripts/check.sh does not run this suite"
+  || fail "case j: scripts/check.sh does not run this suite"
 pass "scripts/check.sh runs this suite"
 
 echo "sim slot: $n/$n cases passed"
