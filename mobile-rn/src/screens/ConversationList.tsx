@@ -563,10 +563,9 @@ export default function ConversationList({
       ListEmptyComponent={firstLoad ? undefined : (
         <View style={styles.empty}>
           {state.status === "empty" ? (
-            <>
-              <Text style={styles.emptyTitle}>{t("sessions.empty")}</Text>
-              <Text style={styles.emptyHint}>{t("sessions.emptyHint")}</Text>
-            </>
+            // The phone client draws no 新建 entry, so the empty list names
+            // none (KIN-MOBILE-001 §2 空; the entry is a separate start story).
+            <Text style={styles.emptyTitle}>{t("sessions.empty")}</Text>
           ) : state.status === "failed" || state.status === "offline" ? (
             resume ? (
               // The band already carries the reason and the one retry; with no
