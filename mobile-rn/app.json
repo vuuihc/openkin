@@ -2,13 +2,21 @@
   "expo": {
     "name": "Kin",
     "slug": "kin",
-    "version": "0.0.0",
+    "version": "1.0",
     "scheme": "kin",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "icon": "./assets/icon.png",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.openkin.ios",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
     },
     "android": {},
     "plugins": ["expo-router"]
