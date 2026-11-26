@@ -12,7 +12,7 @@
 // network. Run with `node rsi/runtime/ux/optional-grace.test.mjs`.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OPTIONAL_GRACE_MS, awaitOptionalVisible } from './optional-grace.mjs';
+import { OPTIONAL_GRACE_MS, awaitOptionalVisible, pressLeftControl } from './optional-grace.mjs';
 
 // A clock the stubs advance themselves, so every case finishes in milliseconds
 // and `waitedMs` is deterministic rather than wall-clock dependent.
@@ -101,4 +101,24 @@ test('test_optional_grace_default_is_at_most_1500ms', () => {
   assert.ok(Number.isFinite(OPTIONAL_GRACE_MS), 'OPTIONAL_GRACE_MS must be a number');
   assert.ok(OPTIONAL_GRACE_MS >= 800, `OPTIONAL_GRACE_MS ${OPTIONAL_GRACE_MS} is below the measured need (a list can paint in ~1 s)`);
   assert.ok(OPTIONAL_GRACE_MS <= 1500, `OPTIONAL_GRACE_MS ${OPTIONAL_GRACE_MS} exceeds the row's 1.5 s budget`);
+});
+
+// The other end of a press: the click entry asks `pressLeftControl` whether
+// the control left the page as it acted, which is the J7/phone fold button
+// re-labelling 展开项目 → 收起项目 mid-click. A control gone after the press is
+// the page having acted (the next mandatory step proves it); one still on
+// screen is a press that never landed; an unreadable locator is "cannot tell"
+// (AGENTS §13), so neither of those is excused.
+test('test_press_left_control_only_when_the_control_is_gone', async () => {
+  const gone = stubLocator({ count: 0 });
+  assert.equal(await pressLeftControl(gone), true, 'a control gone after the press is the page having acted on it');
+  const still = stubLocator({ count: 1 });
+  assert.equal(await pressLeftControl(still), false, 'a control still on screen is a press that did not land');
+  const two = stubLocator({ count: 2 });
+  assert.equal(await pressLeftControl(two), false, 'a strict-mode-like pair is not evidence the press acted');
+});
+
+test('test_press_left_control_does_not_guess_when_the_locator_cannot_be_counted', async () => {
+  const unreadable = { count: async () => { throw new Error('Execution context was destroyed'); } };
+  assert.equal(await pressLeftControl(unreadable), false, 'cannot tell is never a skip (AGENTS §13)');
 });

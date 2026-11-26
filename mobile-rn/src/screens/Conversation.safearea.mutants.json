@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the composer ignores the home indicator, so Send sits under it (R-rn-native-shell)",
+    "file": "mobile-rn/src/native/insets.ts",
+    "old": "  return insetBottom > 0 ? insetBottom + 8 : 24;",
+    "new": "  return 24;",
+    "test": "cd mobile-rn && npx jest src/native/insets.test.ts -t \"KIN-MOBILE-001 R4: insets: the composer clears the home indicator and stays at 24 without one\""
+  },
+  {
+    "label": "the keyboard box has no behavior, so the keyboard covers the composer (R-rn-native-shell)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      behavior={Platform.OS === \"ios\" ? \"padding\" : \"height\"}",
+    "new": "      behavior={undefined}",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.safearea.test.tsx -t \"KIN-MOBILE-001 R4: the composer sits above the keyboard\""
+  },
+  {
+    "label": "the header ignores the notch and keeps a fixed padding (R-rn-native-shell)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "        style={[\n          styles.header,\n          glass.kind === \"blur\" ? styles.headerGlass : styles.headerOpaque,\n          { paddingTop: headerTopInset(insets.top) },\n        ]}",
+    "new": "        style={styles.header}",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.safearea.test.tsx -t \"KIN-MOBILE-001 R4: the header's top padding is the device's inset plus 8\""
+  }
+]

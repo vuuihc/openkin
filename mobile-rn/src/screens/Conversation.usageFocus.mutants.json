@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the return move is removed, so closing the usage sheet drops the reader where the modal vanished instead of back on 用量 (R-rn-usage-focus-return)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    if (usageWasOpen.current && !usageOpen) focusNode(usageRef);\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.usageFocus.test.tsx -t \"KIN-MOBILE-001 §7: closing the usage sheet returns the reader to the 用量 entry\""
+  },
+  {
+    "label": "the return move no longer waits for a close, so a conversation that opens with the sheet closed puts the reader on 用量 (R-rn-usage-focus-return)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    if (usageWasOpen.current && !usageOpen) focusNode(usageRef);",
+    "new": "    if (!usageOpen) focusNode(usageRef);",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.usageFocus.test.tsx -t \"KIN-MOBILE-001 §7: a sheet the reader never opened moves no focus\""
+  },
+  {
+    "label": "the pull-down close is left without a return move, so the reader stays where the sheet vanished (R-rn-usage-focus-return)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    if (usageWasOpen.current && !usageOpen) focusNode(usageRef);\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.usageFocus.test.tsx -t \"KIN-MOBILE-001 §7: a pull-down close returns the reader to the 用量 entry\""
+  },
+  {
+    "label": "the 用量 entry is never attached to the ref, so the close asks to move the reader to nothing (R-rn-usage-focus-return)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "            ref={usageRef}\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.usageFocus.test.tsx -t \"KIN-MOBILE-001 §7: closing the usage sheet returns the reader to the 用量 entry\""
+  }
+]

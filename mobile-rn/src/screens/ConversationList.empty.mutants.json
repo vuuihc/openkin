@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the empty list names a 新建 entry the phone client does not draw (R-rn-empty-hint)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "            <Text style={styles.emptyTitle}>{t(\"sessions.empty\")}</Text>\n          ) : state.status === \"failed\" || state.status === \"offline\" ? (",
+    "new": "            <>\n              <Text style={styles.emptyTitle}>{t(\"sessions.empty\")}</Text>\n              <Text style={styles.emptyHint}>{t(\"sessions.emptyHint\")}</Text>\n            </>\n          ) : state.status === \"failed\" || state.status === \"offline\" ? (",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2 空: the empty list names no entry the client does not draw\""
+  }
+]
