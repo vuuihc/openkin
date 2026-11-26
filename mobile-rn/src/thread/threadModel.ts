@@ -12,6 +12,7 @@
  * generation rule that keeps a late answer from repainting a newer one.
  */
 
+import type { Session } from "../auth/tokenStore";
 import type { Task, TaskEvent } from "../../../ui/src/api/contract";
 import {
   buildChatItems,
@@ -149,6 +150,7 @@ function turnSignature(turn: Turn): string {
 }
 
 export type LoadThreadOptions = {
+  session?: Session | null;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -179,11 +181,12 @@ function emptyState(taskId: string): ThreadState {
  */
 export async function loadThread(
   origin: string,
-  token: string,
+  token: string | undefined,
   taskId: string,
   options: LoadThreadOptions = {},
 ): Promise<ThreadSnapshot> {
   const request = {
+    session: options.session,
     token,
     fetchImpl: options.fetchImpl,
     signal: options.signal,
@@ -236,7 +239,9 @@ export type StopOutcome =
 
 export type ThreadOptions = {
   origin: string;
-  token: string;
+  /** The stored session; a Hub session sends its cookie instead of a token. */
+  session?: Session | null;
+  token?: string;
   taskId: string;
   fetchImpl?: typeof fetch;
   /** Tests inject a chunk source; production builds the fetch reader. */
@@ -273,7 +278,8 @@ export type Thread = {
 let nextFallbackId = 0;
 
 export function createThread(options: ThreadOptions): Thread {
-  const { origin, token, taskId, fetchImpl, schedule, timeoutMs } = options;
+  const { origin, session, token, taskId, fetchImpl, schedule, timeoutMs } =
+    options;
   const newId = options.newId ?? (() => `send-${++nextFallbackId}`);
 
   let state = emptyState(taskId);
@@ -329,14 +335,18 @@ export function createThread(options: ThreadOptions): Thread {
   const project = (previous: readonly Turn[], current: Task | null = task): Turn[] =>
     projectThread(events, current, previous, pending);
 
-  const request = { token, fetchImpl, timeoutMs };
+  const request = { session, token, fetchImpl, timeoutMs };
 
   // One read, generation-guarded, through the same `loadThread` the tests call
   // so the model and the pure read cannot disagree about the projection.
   const read = async (): Promise<ThreadState> => {
     const myGeneration = ++generation;
     publish({ status: "loading", reason: null });
-    const snapshot = await loadThread(origin, token, taskId, { fetchImpl, timeoutMs });
+    const snapshot = await loadThread(origin, token, taskId, {
+      session,
+      fetchImpl,
+      timeoutMs,
+    });
     if (myGeneration !== generation) return state;
     if (snapshot.status === "error") {
       // An offline read keeps whatever the screen already had.
@@ -466,6 +476,7 @@ export function createThread(options: ThreadOptions): Thread {
     if (stream) return;
     stream = startTaskStream({
       origin,
+      session,
       token,
       taskId,
       source:

@@ -212,7 +212,7 @@ const RUNNING_HISTORY: TaskEvent[] = [
 ];
 
 function storedSession(): Promise<Session | null> {
-  return Promise.resolve({ origin: ORIGIN, token: TOKEN });
+  return Promise.resolve({ kind: "node", origin: ORIGIN, token: TOKEN });
 }
 
 /** The default router: the task row and its event log, and the empty pending

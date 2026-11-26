@@ -480,7 +480,11 @@ describe("KIN-MOBILE-001 R7 reconnect", () => {
         appState: appState.port,
         fetchImpl,
         onBack: () => undefined,
-        readSessionImpl: async () => ({ origin: ORIGIN, token: TOKEN }),
+        readSessionImpl: async () => ({
+          kind: "node" as const,
+          origin: ORIGIN,
+          token: TOKEN,
+        }),
         source: fake.source,
         taskId: TASK_ID,
       }),

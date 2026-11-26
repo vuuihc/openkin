@@ -4,6 +4,7 @@ import type {
   UserQuestion,
   UserQuestionResponse,
 } from "@ui/api/contract";
+import type { Session } from "../auth/tokenStore";
 import {
   apiFetch,
   DEFAULT_TIMEOUT_MS,
@@ -112,6 +113,8 @@ export type SubmitResult =
 
 export type ApprovalsOptions = {
   origin: string;
+  /** The stored session; a Hub session sends its cookie instead of a token. */
+  session?: Session | null;
   token?: string | null;
   /** Tests inject a recording fetch; production uses the platform fetch. */
   fetchImpl?: typeof fetch;
@@ -243,6 +246,7 @@ export function createApprovals(options: ApprovalsOptions): ApprovalsModel {
       method: init.method,
       headers: init.headers,
       body: init.body,
+      session: options.session,
       token: options.token,
       fetchImpl: options.fetchImpl,
       timeoutMs,
