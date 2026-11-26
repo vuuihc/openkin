@@ -78,11 +78,13 @@ describe("the floating approval's wiring", () => {
     expect(floating).toContain('"[data-kin-hit-row]"');
     // Reading content is the same measured rule, and the pill itself is not a
     // fallback that gets to stay: when its own box covers a cell — or a
-    // conversation row on the list — the whole surface is unmounted (`hidden`),
-    // not `stripOnly`. The pill is for screens with no conversation list; where
-    // the list is the screen, the row is the entry. Session rows already carry
-    // `data-session-row`, so the yield is one selector over both kinds.
-    expect(floating).toContain('"[data-kin-reading], [data-session-row]"');
+    // conversation row or project heading on the list — the whole surface is
+    // unmounted (`hidden`), not `stripOnly`. The pill is for screens with no
+    // conversation list; where the list is the screen, the row is the entry.
+    // Session rows carry `data-session-row` and project headings carry the
+    // shared `data-kin-hit-row` marker, so the yield is one selector over both
+    // kinds of row.
+    expect(floating).toContain('"[data-kin-reading], [data-session-row], [data-kin-hit-row]"');
     expect(floating).toMatch(/if \(stripHit !== hidden\) setHidden\(stripHit\);/);
     // The yield has to be measured on a phone tab root too: the card is not
     // mounted there (`raised`), but the strip is, so `raised` must not
