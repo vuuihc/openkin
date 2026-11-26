@@ -45,6 +45,9 @@ export function listTasksPath(limit = 20): string {
   return `/api/tasks?page=1&limit=${limit}`;
 }
 
+/** The project records that name the list's headings, as the console reads them. */
+export const listProjectsPath = "/api/projects";
+
 /** Turn a daemon QR link's one-time secret into a device token. */
 export const pairingExchangePath = "/api/pairing/exchange";
 
