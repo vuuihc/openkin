@@ -294,7 +294,8 @@ describe("KIN-MOBILE-001 §3 conversation entry focus", () => {
       (child) => child.props.testID === "conversation:title",
     );
 
-    expect(back).toBe(0);
+    // The glass layer precedes the row and is decoration; the back control is
+    // still the header's first stop.
     expect(firstControl).toBe(back);
     expect(title).toBeGreaterThan(back);
   });
