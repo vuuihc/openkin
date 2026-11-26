@@ -979,7 +979,7 @@ export default function SettingsPage() {
               href="https://github.com/BerriAI/litellm"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex min-h-11 items-center text-caption text-kin-blue-ink hover:underline shrink-0 sm:min-h-0"
+              className="inline-flex min-h-11 touch-floor items-center text-caption text-kin-blue-ink hover:underline shrink-0 sm:min-h-0"
               title={tr("settings.price.sourceHint")}
             >
               {tr("settings.price.sourceName")} ↗
