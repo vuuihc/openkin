@@ -1,0 +1,30 @@
+[
+  {
+    "label": "glassFor ignores reduced transparency, so a reader who asked for an opaque surface gets a blur (R-rn-usage-glass)",
+    "file": "mobile-rn/src/native/glass.ts",
+    "old": "  if (opts.reduceTransparency || opts.platform === \"android\") {",
+    "new": "  if (opts.platform === \"android\") {",
+    "test": "cd mobile-rn && npx jest src/native/glass.test.ts -t \"KIN-MOBILE-001 R7: reduce transparency keeps the sheet readable over an opaque surface\""
+  },
+  {
+    "label": "glassFor always returns the opaque spec, so a normal phone never gets the blur (R-rn-usage-glass)",
+    "file": "mobile-rn/src/native/glass.ts",
+    "old": "  return {\n    kind: \"blur\",\n    intensity: GLASS_INTENSITY,\n    tint: \"systemMaterial\",\n  };",
+    "new": "  return {\n    kind: \"opaque\",\n    color: GLASS_FALLBACK_COLOR,\n  };",
+    "test": "cd mobile-rn && npx jest src/native/glass.test.ts -t \"KIN-MOBILE-001 R7: a normal phone gets the blurred glass, not the flat card\""
+  },
+  {
+    "label": "the sheet stops rendering the glass surface and falls back to the flat card (R-rn-usage-glass)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "          <GlassSurface style={StyleSheet.absoluteFill} />\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.glass.test.tsx -t \"KIN-MOBILE-001 §7: the usage sheet draws a glass surface over the conversation\""
+  },
+  {
+    "label": "the glass branch paints the card white again, covering the blur it asked for (R-rn-usage-glass)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "  cardGlass: {\n    backgroundColor: \"transparent\",\n  },",
+    "new": "  cardGlass: {\n    backgroundColor: \"#ffffff\",\n  },",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsageSheet.glass.test.tsx -t \"KIN-MOBILE-001 §7: the usage sheet draws a glass surface over the conversation\""
+  }
+]
