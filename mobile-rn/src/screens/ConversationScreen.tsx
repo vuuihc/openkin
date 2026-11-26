@@ -41,6 +41,7 @@ import {
 import type { StreamSource } from "../thread/stream";
 import {
   createThread,
+  type SendOutcome,
   type Thread,
   type ThreadState,
 } from "../thread/threadModel";
@@ -285,10 +286,15 @@ export default function ConversationScreen({
   );
 
   // The composer's three writes go to the thread model, which owns the queue,
-  // the stop and the offline refusal; this container only forwards. A press
-  // after unmount reaches a null ref and posts nothing.
-  const send = useCallback((text: string) => {
-    void threadRef.current?.send(text);
+  // the stop and the offline refusal; this container only forwards. `send`
+  // carries the model's answer back, because a refused send is the composer's
+  // business: it is the only place that can put the words back and say why
+  // (KIN-MOBILE-001 §5 失败). A press after unmount reaches a null ref and
+  // posts nothing — and reports a refusal, so the words are not silently lost.
+  const send = useCallback((text: string): Promise<SendOutcome> => {
+    const thread = threadRef.current;
+    if (thread === null) return Promise.resolve({ ok: false, reason: "stale" });
+    return thread.send(text);
   }, []);
   const stop = useCallback(() => {
     void threadRef.current?.stop();
