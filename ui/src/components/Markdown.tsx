@@ -1,4 +1,5 @@
 import { memo, type ReactNode } from "react";
+import { parseTable } from "../lib/markdownTable";
 import CodeBlock from "./CodeBlock";
 import MermaidBlock from "./MermaidBlock";
 
@@ -195,20 +196,12 @@ function splitBlocks(src: string): Block[] {
       out.push({ type: "quote", lines: q });
       continue;
     }
-    // GFM table: header | --- | body rows
-    if (isTableHeader(line) && i + 1 < lines.length && isTableDivider(lines[i + 1])) {
+    // GFM table: header | --- | body rows, parsed by the seam the phone shares.
+    const table = parseTable(lines, i);
+    if (table) {
       flush();
-      const header = splitTableRow(line);
-      i += 2; // skip header + divider
-      const rows: string[][] = [];
-      while (i < lines.length && isTableRow(lines[i])) {
-        const cells = splitTableRow(lines[i]);
-        // Pad / trim to header width for stable columns.
-        while (cells.length < header.length) cells.push("");
-        rows.push(cells.slice(0, header.length));
-        i++;
-      }
-      out.push({ type: "table", header, rows });
+      out.push({ type: "table", header: table.header, rows: table.rows });
+      i = table.next;
       continue;
     }
     // unordered list
@@ -243,30 +236,6 @@ function splitBlocks(src: string): Block[] {
   }
   flush();
   return out;
-}
-
-function isTableRow(line: string): boolean {
-  const t = line.trim();
-  return t.includes("|") && !isTableDivider(t);
-}
-
-function isTableHeader(line: string): boolean {
-  return isTableRow(line);
-}
-
-function isTableDivider(line: string): boolean {
-  // e.g. | --- | :---: | ---: |
-  const t = line.trim();
-  if (!t.includes("-")) return false;
-  // Must look like a GFM separator row.
-  return /^\|?(\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?$/.test(t);
-}
-
-function splitTableRow(line: string): string[] {
-  let t = line.trim();
-  if (t.startsWith("|")) t = t.slice(1);
-  if (t.endsWith("|")) t = t.slice(0, -1);
-  return t.split("|").map((c) => c.trim());
 }
 
 const INLINE_RE = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*]+\*|_[^_]+_|\[[^\]]+\]\([^)]+\))/g;

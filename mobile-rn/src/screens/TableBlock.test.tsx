@@ -7,7 +7,7 @@ import { MessageBody } from "./TableBlock";
  * KIN-MOBILE-001 R4 — how one table is drawn on the phone.
  *
  * The web keeps a table at its natural width and lets the wrapper scroll
- * (`ui/src/components/Markdown.tsx:82-85`); the phone's equivalent is a
+ * (`ui/src/components/Markdown.tsx:81-86`); the phone's equivalent is a
  * horizontal ScrollView whose cells are never told to shrink, so a table
  * wider than 390 scrolls instead of squeezing its first column. The header
  * row is exposed as headers so a screen reader announces the column, and no
