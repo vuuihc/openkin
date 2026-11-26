@@ -32,51 +32,69 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.classify.outputs.code }}
+      rn: ${{ steps.classify.outputs.rn }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # Two answers, mirroring rsi/runtime/gate.sh's scopes:
+      #   code — Go/UI/desktop/journeys can be affected: run build, smoke,
+      #          desktop and journeys.
+      #   rn   — mobile-rn can be affected (its own files, or ui/src, which it
+      #          imports through ../../../ui/src and @ui/*): run mobile-rn.
+      # rsi/** is the loop's own code; most of it is read only by the local
+      # merge gate's shell-test, so a path there is code only when a test CI
+      # runs names it. rsi/runtime/ux/** is the exception: the journeys suites
+      # CI runs resolve the journey index through rsi/runtime/ux/spec.py, so
+      # that tree is always code. Markdown follows the same test-name rule, for
+      # both answers: a path a mobile-rn suite names (ADR 0036,
+      # scripts/check.sh) also turns rn on. Fails safe: an unusable base, an
+      # unreadable diff or an empty list means code=true and rn=true.
       - id: classify
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          code=true
+          code=true; rn=true
           base="$BASE_SHA"
+          # named_by_test <path>: a test CI runs names the path or its
+          # basename (ui vitest, Go, Python suites).
+          named_by_test() {
+            local b="${1##*/}"
+            grep -rlF --include='*.test.*' --exclude-dir=node_modules \
+                 -e "$1" -e "$b" ui >/dev/null 2>&1 ||
+            grep -rlF --include='*_test.go' --include='*_test.py' \
+                 --include='*.test.py' --exclude-dir=.git \
+                 --exclude-dir=node_modules -e "$1" -e "$b" . >/dev/null 2>&1
+          }
+          # named_by_rn_test <path>: a mobile-rn jest suite names it.
+          named_by_rn_test() {
+            grep -rlF --include='*.test.*' --exclude-dir=node_modules \
+                 -e "$1" -e "${1##*/}" mobile-rn >/dev/null 2>&1
+          }
           if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2>/dev/null; then
             # --no-renames keeps the old path in the list: a rename out of a
             # non-markdown file (git mv tool.sh docs/tool.md) is still code.
             files="$(git diff --no-renames --name-only "$base"...HEAD 2>/dev/null)" || files=""
             if [ -n "$files" ]; then
-              code=false
+              code=false; rn=false
               while IFS= read -r p; do
                 [ -z "$p" ] && continue
                 case "$p" in
-                  *.md)
-                    # Mirror scripts/check.sh's job_doc_refs: a doc is code when
-                    # a test CI runs names it. The vitest suites assert several
-                    # repo docs (docs/product/IA.md, NAVIGATION.md, the signed
-                    # stories, ADR 0036, rsi/DECISIONS.md), so a docs-only edit
-                    # to one of them must still run `build`.
-                    b="${p##*/}"
-                    if grep -rlF --include='*.test.*' --exclude-dir=node_modules \
-                         -e "$p" -e "$b" ui >/dev/null 2>&1 ||
-                       grep -rlF --include='*_test.go' --include='*_test.py' \
-                         --include='*.test.py' --exclude-dir=.git \
-                         --exclude-dir=node_modules -e "$p" -e "$b" . >/dev/null 2>&1; then
-                      code=true
-                    fi
-                    ;;
-                  *) code=true ;;
-                esac
-                case "$p" in
-                  ui/*|web/*|mobile-rn/*|AGENTS.md|*/AGENTS.md|CLAUDE.md|*/CLAUDE.md) code=true ;;
+                  mobile-rn/*.md) named_by_rn_test "$p" && rn=true ;;
+                  mobile-rn/*) rn=true ;;
+                  ui/*) code=true; rn=true ;;
+                  web/*|AGENTS.md|*/AGENTS.md|CLAUDE.md|*/CLAUDE.md) code=true ;;
+                  rsi/runtime/ux/*) code=true ;;
+                  rsi/*|*.md) named_by_test "$p" && code=true; named_by_rn_test "$p" && rn=true ;;
+                  *) code=true; named_by_rn_test "$p" && rn=true ;;
                 esac
               done <<<"$files"
             fi
           fi
-          echo "classified ${base:-none} as code=$code"
+          echo "classified ${base:-none} as code=$code rn=$rn"
           echo "code=$code" >>"$GITHUB_OUTPUT"
+          echo "rn=$rn" >>"$GITHUB_OUTPUT"
 
   build:
     runs-on: ubuntu-latest
@@ -282,6 +300,8 @@ jobs:
   # instead of silently retiring the two suites.
   journeys:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     # Backstop only: the suites bound their own waits and sleeps.
     timeout-minutes: 10
     steps:
@@ -293,3 +313,36 @@ jobs:
         run: |
           python3 -B scripts/journeys_seed_test.py
           python3 -B scripts/journeys_fake_agent_test.py
+
+  # ADR 0036 §4's light gate in a clean checkout: the local merge gate runs it
+  # on a warm machine, and before this job no CI step compiled mobile-rn at all
+  # while RN-only PRs paid for the Go/UI build.
+  mobile-rn:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.rn == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # mobile-rn imports ui/src (../../../ui/src, @ui/*), so its tsc read the
+      # console's types; without ui/node_modules the fresh-clone tsc fails on
+      # 'zustand' and implicit-any before a single mobile-rn file is checked.
+      # --ignore-scripts: the console's compile does not run here, so the
+      # postinstall steps the build job needs are not this job's cost.
+      - name: UI install (types only, for mobile-rn's ui/src imports)
+        working-directory: ui
+        run: npm ci --ignore-scripts
+
+      - name: Typecheck + jest
+        working-directory: mobile-rn
+        run: |
+          npm install --no-package-lock --no-audit --no-fund
+          npx tsc --noEmit
+          npx jest --ci
