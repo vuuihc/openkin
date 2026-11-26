@@ -50,6 +50,7 @@ cat > "$T/rn-stub.sh" <<'SH'
 set -eu
 [ -d mobile-rn ] || exit 1
 [ "${STUB_RN_FAIL:-0}" = 1 ] && exit 1
+[ "${STUB_RN_SLEEP:-0}" = 1 ] && sleep 30
 exit 0
 SH
 
@@ -127,6 +128,7 @@ check() {
   RSI_DIST_BUILD_CMD="bash $T/dist-stub.sh" \
   RSI_INV_CHECK_CMD="bash $T/inv-stub.sh" \
   RSI_RN_CHECK_CMD="bash $T/rn-stub.sh" STUB_RN_FAIL="${STUB_RN_FAIL:-0}" \
+  RSI_RN_CHECK_TIMEOUT="${RSI_RN_CHECK_TIMEOUT:-900}" STUB_RN_SLEEP="${STUB_RN_SLEEP:-0}" \
   STUB_DIST_FAIL="${STUB_DIST_FAIL:-0}" STUB_INV_FAIL="${STUB_INV_FAIL:-0}" \
   STUB_DIST_TEXT="${STUB_DIST_TEXT:-dist-ok}" \
     bash "$MERGE" --carry-check "$R" "$T/$name.incoming" "$T/$name.ch" "$V" "$NEWSHA" reviewer \
@@ -144,7 +146,7 @@ expect_regate() { # name
   [ ! -e "$V" ] || fail "$1: gate file still present after a re-gate"
 }
 
-reset_stubs() { unset STUB_DIST_FAIL STUB_INV_FAIL STUB_DIST_TEXT STUB_RN_FAIL; }
+reset_stubs() { unset STUB_DIST_FAIL STUB_INV_FAIL STUB_DIST_TEXT STUB_RN_FAIL STUB_RN_SLEEP RSI_RN_CHECK_TIMEOUT; }
 
 # --- queue-time seam helpers -------------------------------------------------------------------
 
@@ -170,6 +172,7 @@ queue_check() {
   RSI_DIST_BUILD_CMD="bash $T/dist-stub.sh" \
   RSI_INV_CHECK_CMD="bash $T/inv-stub.sh" \
   RSI_RN_CHECK_CMD="bash $T/rn-stub.sh" STUB_RN_FAIL="${STUB_RN_FAIL:-0}" \
+  RSI_RN_CHECK_TIMEOUT="${RSI_RN_CHECK_TIMEOUT:-900}" STUB_RN_SLEEP="${STUB_RN_SLEEP:-0}" \
   STUB_DIST_FAIL="${STUB_DIST_FAIL:-0}" STUB_INV_FAIL="${STUB_INV_FAIL:-0}" \
   STUB_DIST_TEXT="${STUB_DIST_TEXT:-dist-ok}" \
     bash "$MERGE" --queue-carry-check "$R" "$old" "$NEWSHA" "$T/$name.qincoming" "$T/$name.ch" \
@@ -598,6 +601,23 @@ test_regates_when_the_rn_safety_step_fails() {
   reset_stubs
 }
 
+# The RN safety step is bounded: a hung tsc/jest on the merged tree must re-gate inside the timeout
+# window instead of wedging the land loop (AGENTS.md rule 13).
+test_regates_when_the_rn_safety_step_times_out() {
+  reset_stubs; new_repo r7
+  set_line "$R/mobile-rn/src/screens/Usage.tsx" 1 pr
+  commit_pr r7
+  g checkout -q main
+  set_line "$R/mobile-rn/src/screens/Queue.tsx" 1 main
+  move_main r7
+  RSI_RN_CHECK_TIMEOUT=1 STUB_RN_SLEEP=1
+  check r7 mobile-rn/src/screens/Queue.tsx
+  expect_regate test_regates_when_the_rn_safety_step_times_out
+  grep -q 'rn safety step failed' "$T/r7.out" \
+    || fail "test_regates_when_the_rn_safety_step_times_out: re-gate reason does not name the RN step ($(cat "$T/r7.out"))"
+  reset_stubs
+}
+
 # A ui leaf and an RN leaf landing together need both safety steps: either one red re-gates.
 test_carry_ui_rn_runs_both_steps() {
   reset_stubs; new_repo r5
@@ -819,6 +839,7 @@ run test_carries_rn_pr_past_another_rn_screen_move
 run test_regates_when_main_moves_the_rn_prs_own_file
 run test_regates_when_main_moves_the_rn_toolchain
 run test_regates_when_the_rn_safety_step_fails
+run test_regates_when_the_rn_safety_step_times_out
 run test_carry_ui_rn_runs_both_steps
 run test_carries_ui_pr_past_an_rn_leaf_move
 run test_queue_rn_leaf_safety_failure_regates
