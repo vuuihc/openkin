@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the settings scroller stops carrying the approval clearance class",
+    "file": "ui/src/components/settings/SettingsPrimitives.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/settings/SettingsPrimitives.approvalClearance.dom.test.tsx",
+    "old": "phone-footer-clearance phone-approval-clearance",
+    "new": "phone-footer-clearance"
+  }
+]
