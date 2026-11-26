@@ -6,6 +6,7 @@ import {
   mergeProcessRuns,
   type Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
+import { createQueueMemory } from "./queueMemory";
 import {
   createThread,
   loadThread,
@@ -717,6 +718,171 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
     expect(prompts).toEqual(["keep", "keep"]);
     expect(model.getState().sendQueue).toEqual([]);
     model.close();
+  });
+
+  it("KIN-MOBILE-001 §5 离开再回来: a queued message is still queued when the conversation is closed and reopened", async () => {
+    const memory = createQueueMemory();
+    const prompts: string[] = [];
+    const fetchImpl = routedFetch((url, init) => {
+      if (url.endsWith("/prompt")) {
+        const body = JSON.parse(String(init?.body)) as { prompt: string };
+        prompts.push(body.prompt);
+        return { body: task() };
+      }
+      return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
+    });
+
+    const firstFake = fakeStream();
+    const first = liveThread(fetchImpl, firstFake.source, { queueMemory: memory });
+    await first.start();
+    await settle();
+    expect(await first.send("first")).toEqual({ ok: true, queued: true });
+    expect(await first.send("second")).toEqual({ ok: true, queued: true });
+    const second = first.getState().sendQueue[1];
+    first.cancelQueued(second.id);
+    expect(first.getState().sendQueue.map((item) => item.text)).toEqual(["first"]);
+    expect(memory.read(TASK_ID).map((item) => item.text)).toEqual(["first"]);
+
+    // Back to the list: the whole route and its model go away.
+    first.close();
+
+    // The same conversation opened again lands on the same queue, with the
+    // row still addressed by the id the withdraw control knows.
+    const reopenedFake = fakeStream();
+    const reopened = liveThread(fetchImpl, reopenedFake.source, { queueMemory: memory });
+    await reopened.start();
+    await settle();
+    expect(reopened.getState().sendQueue.map((item) => item.text)).toEqual(["first"]);
+    expect(reopened.getState().sendQueue[0]?.id).toBe(first.getState().sendQueue[0]?.id);
+    // The round that was running is still running: reopening reads it, and
+    // must not post the queued words a second time.
+    expect(reopened.getState().running).toBe(true);
+    expect(prompts).toEqual([]);
+
+    // The reopened round ends: now the restored item is sent, exactly once.
+    reopenedFake.connections[0].push(frame(event(4, "result", { is_error: false })));
+    await settle();
+    expect(prompts).toEqual(["first"]);
+    expect(reopened.getState().sendQueue).toEqual([]);
+    reopened.close();
+  });
+
+  it("KIN-MOBILE-001 §5 离开再回来: a restored queue on an idle conversation sends its first item once", async () => {
+    const memory = createQueueMemory();
+    memory.write(TASK_ID, [
+      { id: "q1", text: "first" },
+      { id: "q2", text: "second" },
+    ]);
+    const fake = fakeStream();
+    const prompts: string[] = [];
+    const fetchImpl = routedFetch((url, init) => {
+      if (url.endsWith("/prompt")) {
+        const body = JSON.parse(String(init?.body)) as { prompt: string };
+        prompts.push(body.prompt);
+        return { body: task() };
+      }
+      // The conversation was left after its round finished; nothing is running
+      // to carry the queue, so the reopen itself is what has to send it.
+      return url.endsWith("/events")
+        ? { body: HISTORY }
+        : { body: task({ status: "succeeded" }) };
+    });
+    const model = liveThread(fetchImpl, fake.source, { queueMemory: memory });
+
+    await model.start();
+    await settle();
+    // One prompt opens one round; the rest waits for that round's `result`.
+    expect(prompts).toEqual(["first"]);
+    expect(model.getState().sendQueue.map((item) => item.text)).toEqual(["second"]);
+    expect(memory.read(TASK_ID).map((item) => item.text)).toEqual(["second"]);
+
+    fake.connections[0].push(frame(event(8, "result", { is_error: false })));
+    await settle();
+    expect(prompts).toEqual(["first", "second"]);
+    expect(model.getState().sendQueue).toEqual([]);
+    expect(memory.read(TASK_ID)).toEqual([]);
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 §5 离开再回来: a prompt the node accepted before the screen closed is not sent again on reopen", async () => {
+    const memory = createQueueMemory();
+    const prompts: string[] = [];
+    const accepted = deferred<Reply>();
+    let didAccept = false;
+    const fetchImpl = routedFetch((url, init) => {
+      if (url.endsWith("/prompt")) {
+        const body = JSON.parse(String(init?.body)) as { prompt: string };
+        prompts.push(body.prompt);
+        return accepted.promise;
+      }
+      // Before the answer the round the accepted prompt opened is running;
+      // after it the conversation is idle and the history is the durable log.
+      return url.endsWith("/events")
+        ? { body: didAccept ? HISTORY : RUNNING }
+        : { body: didAccept ? task({ status: "succeeded" }) : task() };
+    });
+
+    const firstFake = fakeStream();
+    const first = liveThread(fetchImpl, firstFake.source, { queueMemory: memory });
+    await first.start();
+    await settle();
+    expect(await first.send("first")).toEqual({ ok: true, queued: true });
+    // The queue is owed in the shared memory before the round ends, so the
+    // empty memory after the close is a settlement, not a store that never
+    // held anything.
+    expect(memory.read(TASK_ID).map((item) => item.text)).toEqual(["first"]);
+
+    // The round ends and the queued prompt is dispatched; its POST is still
+    // unanswered, so the row is still drawn.
+    firstFake.connections[0].push(frame(event(4, "result", { is_error: false })));
+    await settle();
+    expect(prompts).toEqual(["first"]);
+    expect(first.getState().sendQueue.map((item) => item.text)).toEqual(["first"]);
+
+    // Back while that answer is in flight: the node may have accepted it, and
+    // the answer cannot land on this closed model to settle the row.
+    first.close();
+    didAccept = true;
+    accepted.resolve({ body: task({ status: "running" }) });
+    await settle();
+    expect(memory.read(TASK_ID)).toEqual([]);
+
+    // The conversation opened again is idle (the accepted prompt's round is
+    // over): a memory that still owed the words would post them a second time.
+    const reopened = liveThread(fetchImpl, fakeStream().source, { queueMemory: memory });
+    await reopened.start();
+    await settle();
+    expect(reopened.getState().sendQueue).toEqual([]);
+    expect(prompts).toEqual(["first"]);
+    reopened.close();
+  });
+
+  it("KIN-MOBILE-001 §5 离开再回来: a stop the node accepted after the screen closed still drops the queue", async () => {
+    const memory = createQueueMemory();
+    const cancel = deferred<Reply>();
+    const fetchImpl = routedFetch((url) =>
+      url.endsWith("/cancel")
+        ? cancel.promise
+        : url.endsWith("/events")
+          ? { body: RUNNING }
+          : { body: task() },
+    );
+    const fake = fakeStream();
+    const model = liveThread(fetchImpl, fake.source, { queueMemory: memory });
+    await model.start();
+    await settle();
+    expect(await model.send("first")).toEqual({ ok: true, queued: true });
+    expect(memory.read(TASK_ID).map((item) => item.text)).toEqual(["first"]);
+
+    // Stop is tapped and Back follows before the node answers.
+    const stopping = model.stop();
+    model.close();
+    cancel.resolve({ body: task({ status: "canceled" }) });
+    expect(await stopping).toEqual({ ok: false, reason: "stale" });
+    await settle();
+
+    // The stop was accepted, so the reopen must not send what was stopped.
+    expect(memory.read(TASK_ID)).toEqual([]);
   });
 
   it("KIN-MOBILE-001 R4: a streamed result settles the task row the projection folds on", async () => {
