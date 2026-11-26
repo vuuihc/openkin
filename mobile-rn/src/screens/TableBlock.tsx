@@ -2,7 +2,7 @@
  * KIN-MOBILE-001 R4 — a markdown table in an agent message, drawn as a table.
  *
  * The web's table sits at its natural width inside a scrolling wrapper
- * (`ui/src/components/Markdown.tsx:82-85`) because squeezing it to the prose
+ * (`ui/src/components/Markdown.tsx:81-86`) because squeezing it to the prose
  * measure wrapped the first column one character per line. RN has the same
  * shape: a horizontal `ScrollView` whose cells are never told to shrink.
  *
