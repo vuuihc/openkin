@@ -85,7 +85,7 @@ worker_contract() { # <item> <mode> <worktree> <branch> — the text every worke
   cat <<HD
 # Lane worker contract (read first)
 You are the WORKER for RSI item $item in worktree \`$wt\` on branch \`$br\`. Mode: $mode.
-- Budget: finish in about 45 minutes and at most about \$8 (Astryx programme slices are up to ~800 changed lines). If the slice is bigger than that, deliver the smallest green first slice, commit it, and list what remains in \`$STATE/followups.md\` (append).
+- Budget: finish in about 45 minutes and at most about \$8. Size: target ≤800 changed lines, hard cap 1000 — the merge lane holds anything bigger, and this lane stops an oversize branch before the push. Measure yours with \`bash rsi/runtime/diff-size.sh .\` (same count the merge lane uses: excludes web/dist/index.html and lockfiles). If the slice is bigger than that, deliver the smallest green first slice, commit it, and list what remains in \`$STATE/followups.md\` (append).
 - Stay inside your declared paths; do not touch files other lanes may be editing. Declared paths: $paths
 - Test first. Run FOCUSED checks only (typecheck, lint on changed files, the tests you wrote/touched, \`go test\` for touched packages). The merge lane runs the full gate (\`gate.sh\`) and an independent review afterwards. Use \`VITEST_MAX_WORKERS=2\` for vitest; other lanes are running on the same machine.
 - Concurrency test ordering: set the shared state (the flag, channel or map the goroutine reads) before you start the goroutine. Never start the goroutine and then write the flag it reads — that order is the race the gate and the reviewer are looking for.
@@ -562,6 +562,17 @@ PY
   return 1
 }
 
+# The merge lane's 1000-line cap, applied before the push: merge.sh sends an oversize PR back as
+# hold-size anyway, so stopping the lane here saves a gate slot and a rework round. The waiver is
+# the same file merge.sh honours, so a CEO-waived slice is never stopped twice.
+oversize_verdict() { # <worktree> <waiver-file> -> prints "OK <n>" | "OVERSIZE <n>" (rc 1)
+  local n
+  n="$(GIT="$GIT" bash "$RSI_DIR/runtime/diff-size.sh" "$1" 2>/dev/null || echo 0)"
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  if [ "$n" -gt 1000 ] && [ ! -f "$2" ]; then echo "OVERSIZE $n"; return 1; fi
+  echo "OK $n"
+}
+
 if [ "$CMD" = _sendback-order ]; then sendback_order; exit 0; fi
 
 # Seams. --worker-contract-check prints the contract and exits before PAUSE, locks, fetch,
@@ -591,6 +602,10 @@ fi
 if [ "$CMD" = --renamed-copy-check ]; then
   [ "$#" -eq 2 ] || { echo "usage: lane.sh --renamed-copy-check <worktree>" >&2; exit 2; }
   renamed_copy_check "$2"; exit $?
+fi
+if [ "$CMD" = --diff-size-check ]; then
+  [ "$#" -eq 3 ] || { echo "usage: lane.sh --diff-size-check <worktree> <waiver-file>" >&2; exit 2; }
+  oversize_verdict "$2" "$3"; exit $?
 fi
 if [ "$CMD" = --worker-contract-check ]; then
   [ "$#" -eq 5 ] || { echo "usage: lane.sh --worker-contract-check <item> <mode> <worktree> <branch>" >&2; exit 2; }
@@ -990,6 +1005,18 @@ if ! RENAME_EV="$(bash "$SELF" --renamed-copy-check "$WT" 2>&1)"; then
   exit 1
 fi
 [ -n "$RENAME_EV" ] && printf '%s\n' "$RENAME_EV"
+
+# The merge lane's 1000-line cap at the producer: an oversize PR is sent back as hold-size anyway
+# (44 done sendbacks say "split it"), so failing the lane here saves a gate slot and a rework
+# round. The branch stays committed and unpushed; the followups line is the next slice's brief.
+SIZE_EV="$(bash "$SELF" --diff-size-check "$WT" "$STATE/merge/$SLUG.size-ok" 2>&1)" || {
+  printf '%s\n' "$SIZE_EV"
+  printf -- '- %s %s rsi/%s: oversize (%s changed lines >1000). Split it: deliver the smallest green first slice, then re-queue the rest. CEO waiver: touch %s.\n' \
+    "$(date '+%F %H:%M')" "$ITEM" "$SLUG" "$(printf '%s' "$SIZE_EV" | awk '{print $2}')" "$STATE/merge/$SLUG.size-ok" >> "$STATE/followups.md"
+  finish failed "" "oversize $(printf '%s' "$SIZE_EV" | awk '{print $2}')>1000: split"
+  exit 1
+}
+[ -n "$SIZE_EV" ] && printf '%s\n' "$SIZE_EV"
 
 # push + PR (normal push only)
 # A transient transport failure must not throw away a finished round; git_push_retry retries

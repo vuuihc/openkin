@@ -342,6 +342,9 @@ job_shell_test() {
   bash rsi/runtime/tests/test-merge-rework-stalled.sh || return 1
   bash rsi/runtime/tests/test-merge-batch.sh || return 1
   bash rsi/runtime/tests/test-merge-ceo-ok.sh || return 1
+  bash rsi/runtime/tests/test-diff-size.sh || return 1
+  bash rsi/runtime/tests/test-ci-early-red.sh || return 1
+  bash rsi/runtime/tests/test-ingest-rn-selfcheck.sh || return 1
   bash rsi/runtime/tests/test-gate-lock-timeout.sh || return 1
   bash rsi/runtime/tests/test-gate-no-verdict.sh || return 1
   # The walk mutant's red proof builds the UI twice, so the gate runs only the
