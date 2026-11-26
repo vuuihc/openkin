@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { fireEvent, render } from "@testing-library/react-native";
 import { FlatList, StyleSheet } from "react-native";
 import type {
@@ -8,6 +8,10 @@ import type {
   Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
 import type { ThreadState } from "../thread/threadModel";
+import {
+  createReadingMemory,
+  type ReadingMemory,
+} from "../thread/readingMemory";
 import { t } from "../i18n";
 import ConversationView from "./ConversationView";
 
@@ -95,9 +99,27 @@ function agentTurn(items: ChatItem[]): Turn {
 
 const onBack = jest.fn();
 
+/**
+ * Each case reads a conversation nobody has left before. These cases render
+ * the view directly, and a case that scrolls leaves a reading place behind on
+ * unmount (KIN-MOBILE-001 §3 离开再回来); a shared store would hand that place
+ * to the next case's mount. The list suite keeps the same rule.
+ */
+let readingMemory: ReadingMemory;
+
+beforeEach(() => {
+  readingMemory = createReadingMemory();
+});
+
 function element(turns: Turn[], extra: ViewProps = {}) {
   return (
-    <ConversationView onBack={onBack} state={state(turns)} t={t} {...extra} />
+    <ConversationView
+      onBack={onBack}
+      readingMemory={readingMemory}
+      state={state(turns)}
+      t={t}
+      {...extra}
+    />
   );
 }
 

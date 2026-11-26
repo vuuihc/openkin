@@ -39,6 +39,10 @@ import {
   type UsageWindowDays,
 } from "../providers/providersModel";
 import { sharedDraftMemory, type DraftMemory } from "../thread/draftMemory";
+import {
+  sharedReadingMemory,
+  type ReadingMemory,
+} from "../thread/readingMemory";
 import type { StreamSource } from "../thread/stream";
 import {
   createThread,
@@ -91,6 +95,13 @@ export type ConversationScreenProps = {
    */
   draftMemory?: DraftMemory;
   /**
+   * What the route must not forget when it unmounts: where this conversation
+   * was being read (KIN-MOBILE-001 §3/§4 离开再回来). Production uses the app's
+   * one shared memory, so Back and a re-open land on the same place; tests
+   * inject a fresh one per case.
+   */
+  readingMemory?: ReadingMemory;
+  /**
    * Tests inject the event source. Production lets the thread build the
    * fetch reader, exactly as the web console's EventSource would.
    */
@@ -110,6 +121,7 @@ export default function ConversationScreen({
   readSessionImpl,
   fetchImpl,
   draftMemory = sharedDraftMemory,
+  readingMemory = sharedReadingMemory,
   source,
   appState,
 }: ConversationScreenProps) {
@@ -387,6 +399,7 @@ export default function ConversationScreen({
       onSend={threadRef.current === null ? undefined : send}
       onStop={threadRef.current === null ? undefined : stop}
       onWithdraw={threadRef.current === null ? undefined : withdraw}
+      readingMemory={readingMemory}
       state={state}
       t={t}
       usage={usageProps}
