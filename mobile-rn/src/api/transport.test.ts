@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from "@jest/globals";
-import { apiFetch, listTasksPath } from "./transport";
+import { apiFetch, listProjectsPath, listTasksPath } from "./transport";
 
 /**
  * KIN-MOBILE-001 R2 — the transport's two bounds (AGENTS.md §13).
@@ -142,5 +142,12 @@ describe("KIN-MOBILE-001 R2 transport contract", () => {
     });
 
     expect(header(anonymous.calls[0], "Authorization")).toBeUndefined();
+  });
+
+  it("KIN-MOBILE-001 R2: the projects read asks the endpoint the console asks", () => {
+    // The phone learns a project's name from the same records the web console
+    // reads; the list controller's fourth read depends on this exact path, and
+    // `holderOnly` on the server lets a paired device token read it.
+    expect(listProjectsPath).toBe("/api/projects");
   });
 });
