@@ -1,0 +1,65 @@
+[
+  {
+    "label": "the saved place is ignored, so reopening lands on the newest segment again (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      const saved = readingMemory.read(state.taskId);",
+    "new": "      const saved = null as ReadingPlace | null;",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: reopening lands where the reader was\""
+  },
+  {
+    "label": "leaving never stores the place, so the next mount has nothing to restore (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      const last = place.current;\n      if (last !== null) readingMemory.write(forTask, last);",
+    "new": "      // dropped: the place is observed and never stored",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: reopening lands where the reader was\""
+  },
+  {
+    "label": "growth after a restored place follows the newest segment instead of the reader's place (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    const target = restoring.current;\n    if (target !== null) {\n      // The first layout held only the list's initial window, so the restore\n      // clamped short of a deep place. The content that makes it reachable is\n      // here now, so move again rather than follow the newest segment.\n      listRef.current?.scrollToOffset({ offset: target, animated: false });\n      return;\n    }\n    if (onContentGrew(follow.current).scrollToEnd) {\n      listRef.current?.scrollToEnd({ animated: false });\n    }",
+    "new": "    listRef.current?.scrollToEnd({ animated: false });",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §4 离开再回来: a streamed append after a restored place does not yank the page\""
+  },
+  {
+    "label": "a place at the live edge is restored as a stale offset instead of the newest segment (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      if (saved !== null && !saved.pinned) {",
+    "new": "      if (saved !== null) {",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: a reader who left at the live edge still opens at the newest segment\""
+  },
+  {
+    "label": "the memory ignores the task key and hands the last place to any conversation (R-rn-reading-place)",
+    "file": "mobile-rn/src/thread/readingMemory.ts",
+    "old": "    read: (taskId) => {\n      const place = places.get(taskId);\n      return place === undefined ? null : { ...place };\n    },",
+    "new": "    read: () => {\n      const place = [...places.values()].at(-1);\n      return place === undefined ? null : { ...place };\n    },",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: another conversation never restores the first conversation's place\""
+  },
+  {
+    "label": "the view reads a place without its conversation, so another conversation's place is restored (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      const saved = readingMemory.read(state.taskId);",
+    "new": "      const saved = readingMemory.read(\"\");",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: another conversation never restores the first conversation's place\""
+  },
+  {
+    "label": "an in-place conversation swap never stores the place that was read, because the leave is keyed only by the memory (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  }, [state.taskId, readingMemory]);",
+    "new": "  }, [readingMemory]);",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: an in-place conversation swap stores the place under the conversation that was read\""
+  },
+  {
+    "label": "the restore always targets the top, so a deep place reopens at the start (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "          offset: saved.offset,",
+    "new": "          offset: 0,",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: a deep place survives the short first layout\""
+  },
+  {
+    "label": "a drag during the restore keeps the restore alive, so the arriving content pulls the reader back to the saved place (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "        onScrollBeginDrag={() => {\n          restoring.current = null;\n        }}",
+    "new": "        onScrollBeginDrag={() => {}}",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: a drag during the restore takes over from it\""
+  }
+]

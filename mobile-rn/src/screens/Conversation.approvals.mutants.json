@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the conversation keeps every node-wide card, so another task's approval mounts above this transcript (R-rn-approvals-mount)",
+    "file": "mobile-rn/src/approvals/approvalsModel.ts",
+    "old": "      ? entry.approval.task_id === taskId\n      : entry.question.task_id === taskId,",
+    "new": "      ? true\n      : true,",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.approvals.test.tsx -t \"KIN-MOBILE-001 R5: only this conversation's pending cards mount above the transcript\""
+  },
+  {
+    "label": "the conversation's approve button sends a denial, so the card reports the wrong decision (R-rn-approvals-mount)",
+    "file": "mobile-rn/src/screens/ConversationScreen.tsx",
+    "old": "      void approvalsRef.current?.approve(id).then(settled);",
+    "new": "      void approvalsRef.current?.deny(id).then(settled);",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.approvals.test.tsx -t \"KIN-MOBILE-001 R5: approving from the conversation sends the decision and the card becomes handled\""
+  },
+  {
+    "label": "leaving the conversation never disposes the approvals model, so its pending read outlives the screen (R-rn-approvals-mount)",
+    "file": "mobile-rn/src/screens/ConversationScreen.tsx",
+    "old": "      approvalsRef.current?.dispose();\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.approvals.test.tsx -t \"KIN-MOBILE-001 R5: leaving the conversation aborts the pending read and drops its answer\""
+  }
+]

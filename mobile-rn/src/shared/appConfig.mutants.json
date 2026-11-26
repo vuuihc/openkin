@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the archive is aimed at a bundle id App Store Connect does not know (R-rn-testflight)",
+    "file": "mobile-rn/app.json",
+    "old": "\"bundleIdentifier\": \"dev.openkin.ios\"",
+    "new": "\"bundleIdentifier\": \"dev.openkin.ios.rn\"",
+    "test": "cd mobile-rn && npx jest src/shared/appConfig.test.ts -t \"R-rn-testflight: the archive targets the TestFlight app record\""
+  },
+  {
+    "label": "the export compliance answer flips, so every build sits in Missing Compliance (R-rn-testflight)",
+    "file": "mobile-rn/app.json",
+    "old": "\"ITSAppUsesNonExemptEncryption\": false",
+    "new": "\"ITSAppUsesNonExemptEncryption\": true",
+    "test": "cd mobile-rn && npx jest src/shared/appConfig.test.ts -t \"R-rn-testflight: the export compliance answer rides in the archive\""
+  }
+]

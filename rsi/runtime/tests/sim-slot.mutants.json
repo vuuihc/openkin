@@ -1,0 +1,58 @@
+[
+  {
+    "label": "a live lane's simulator slot is stolen as if its holder were dead",
+    "file": "rsi/runtime/shim/xcrun",
+    "test": "bash rsi/runtime/tests/test-sim-slot.sh",
+    "old": "    if [ -n \"$owner\" ] && kill -0 \"$owner\" 2>/dev/null; then continue; fi",
+    "new": "    if [ -n \"$owner\" ] && ! kill -0 \"$owner\" 2>/dev/null; then continue; fi"
+  },
+  {
+    "label": "the wait is skipped, so a slot that frees mid-wait still reports busy",
+    "file": "rsi/runtime/shim/xcrun",
+    "test": "bash rsi/runtime/tests/test-sim-slot.sh",
+    "old": "  while [ \"$waited\" -lt \"$WAIT\" ]; do",
+    "new": "  while [ \"$waited\" -lt 0 ]; do"
+  },
+  {
+    "label": "the lane-pid guard is dropped, so a boot outside any lane takes the slot",
+    "file": "rsi/runtime/shim/xcrun",
+    "test": "bash rsi/runtime/tests/test-sim-slot.sh",
+    "old": "   || [ -z \"${RSI_LANE_PID:-}\" ] || [ -z \"${RSI_SIM_SLOT:-}\" ]; then",
+    "new": "   || [ -z \"${RSI_SIM_SLOT:-}\" ]; then"
+  },
+  {
+    "label": "a busy slot boots anyway after the wait instead of reporting no verdict",
+    "file": "rsi/runtime/shim/xcrun",
+    "test": "bash rsi/runtime/tests/test-sim-slot.sh",
+    "old": "  exit 75",
+    "new": "  exec \"$REAL\" \"$@\""
+  },
+  {
+    "label": "the lane that holds the slot can no longer re-boot without waiting",
+    "file": "rsi/runtime/shim/xcrun",
+    "test": "bash rsi/runtime/tests/test-sim-slot.sh",
+    "old": "  [ \"$owner\" = \"$RSI_LANE_PID\" ] && exec \"$REAL\" \"$@\"",
+    "new": "  [ \"$owner\" != \"$RSI_LANE_PID\" ] && exec \"$REAL\" \"$@\""
+  },
+  {
+    "label": "lane.sh drops the owner check and removes a slot another live lane holds",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-sim-slot.sh",
+    "old": "  if [ \"$(cat \"$slot/pid\" 2>/dev/null || true)\" = \"$$\" ]; then rm -rf \"$slot\"; fi",
+    "new": "  rm -rf \"$slot\""
+  },
+  {
+    "label": "lane.sh never exports the slot path, so the shim inside workers is inert",
+    "file": "rsi/runtime/lane.sh",
+    "test": "bash rsi/runtime/tests/test-sim-slot.sh",
+    "old": "export RSI_LANE_PID=$$ RSI_LANE_N=$N RSI_SIM_SLOT=\"$STATE/.sim-slot\"",
+    "new": "export RSI_LANE_PID=$$ RSI_LANE_N=$N"
+  },
+  {
+    "label": "the shell gate job stops running the sim-slot suite",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-sim-slot.sh",
+    "old": "  bash rsi/runtime/tests/test-sim-slot.sh || return 1",
+    "new": "  bash rsi/runtime/tests/test-sim-slot.sh || true"
+  }
+]

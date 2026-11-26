@@ -1,0 +1,16 @@
+[
+  {
+    "label": "growth scrolls the reader back to the bottom even after they scrolled up (R-rn-reading)",
+    "file": "mobile-rn/src/thread/follow.ts",
+    "old": "  return { pinned: state.pinned, scrollToEnd: state.pinned };",
+    "new": "  return { pinned: state.pinned, scrollToEnd: true };",
+    "test": "cd mobile-rn && npx jest src/thread/follow.test.ts -t \"KIN-MOBILE-001 R4: a drag beyond the 48pt band unpins, and growth never scrolls\""
+  },
+  {
+    "label": "tool expansion is keyed by position, so a streamed item collapses the row the person opened (R-rn-reading)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  return stepKey;",
+    "new": "  return `${_turnIndex}:${_itemIndex}`;",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.reading.test.tsx -t \"KIN-MOBILE-001 R4: expanding a tool step survives a later streamed item\""
+  }
+]

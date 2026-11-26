@@ -1,0 +1,23 @@
+[
+  {
+    "label": "a refused send clears the words anyway and the 500 loses the draft",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    setDraft((current) =>\n      current.taskId === forTask && current.text === \"\"\n        ? { taskId: forTask, text: sent }\n        : current,\n    );",
+    "new": "    // dropped: a refused send's words are never put back",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.failedSend.test.tsx -t \"KIN-MOBILE-001 §5 失败: a refused send keeps the words and draws the reason\""
+  },
+  {
+    "label": "the Send control ignores the post in flight so a second tap is offered",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  const canSend = text.trim().length > 0 && !offline && !sending;",
+    "new": "  const canSend = text.trim().length > 0 && !offline;",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.failedSend.test.tsx -t \"KIN-MOBILE-001 §5: a second tap while the post is in flight posts once\""
+  },
+  {
+    "label": "an accepted send keeps its words in the box so Send stays offered",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    setDraft({ taskId: forTask, text: \"\" });",
+    "new": "    // dropped: the box is never cleared, so the sent words stay",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.failedSend.test.tsx -t \"KIN-MOBILE-001 §5: an accepted send still clears the box at once\""
+  }
+]

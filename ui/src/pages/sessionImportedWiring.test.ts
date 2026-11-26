@@ -21,12 +21,17 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
+const FOLDS = readFileSync(join(UI, "src/lib/sessionListFolds.ts"), "utf8");
 
 describe("the phone list's imported group", () => {
   it("folds a machine's imports until the reader opens them", () => {
-    // Imports start closed: a project defaults open, an import defaults folded,
-    // and both persist one entry per machine + place.
-    expect(SOURCE).toContain("folds[stateKey] ?? !imported");
+    // Imports start closed: the default-fold rule keeps an imported group
+    // folded whatever its rows' clock says, a real project opens only when it
+    // holds the newest conversation, and both persist one entry per machine +
+    // place. KIN-CONTINUE-007 moved the default out of this file and into the
+    // pure resolver, so the page must ask it rather than re-derive it.
+    expect(SOURCE).toContain("resolveSessionListFolds(foldCandidates, folds)");
+    expect(FOLDS).toContain("resolved[candidate.stateKey] = candidate.imported");
     expect(SOURCE).toContain("setSessionFold(stateKey, !foldIsOpen(stateKey, imported))");
     expect(SOURCE).toContain("collapsed={isBucketCollapsed({");
   });

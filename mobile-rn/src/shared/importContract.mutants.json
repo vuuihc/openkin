@@ -1,0 +1,30 @@
+[
+  {
+    "label": "a name that declares or labels counts as a browser global again (R-rn-usage-shared)",
+    "file": "mobile-rn/src/shared/importContract.test.ts",
+    "old": "      if (!locallyBound && !isDeclaredOrLabel(node)) hits.add(node.text);",
+    "new": "      if (!locallyBound) hits.add(node.text);",
+    "test": "cd mobile-rn && npx jest src/shared/importContract.test.ts -t \"KIN-MOBILE-001: a name that declares or labels is not a browser global\""
+  },
+  {
+    "label": "a method name is treated as a body binding again, hiding a real global read (R-rn-usage-shared)",
+    "file": "mobile-rn/src/shared/importContract.test.ts",
+    "old": "    (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) &&\n    node.name !== undefined",
+    "new": "    (ts.isFunctionDeclaration(node) ||\n      ts.isFunctionExpression(node) ||\n      ts.isMethodDeclaration(node)) &&\n    ts.isIdentifier(node.name)",
+    "test": "cd mobile-rn && npx jest src/shared/importContract.test.ts -t \"KIN-MOBILE-001: a name that declares or labels is not a browser global\""
+  },
+  {
+    "label": "the DOM scan stops reporting value uses altogether (R-rn-usage-shared)",
+    "file": "mobile-rn/src/shared/importContract.test.ts",
+    "old": "    if (ts.isIdentifier(node) && DOM_IDENTIFIERS.has(node.text)) {",
+    "new": "    if (false && ts.isIdentifier(node) && DOM_IDENTIFIERS.has(node.text)) {",
+    "test": "cd mobile-rn && npx jest src/shared/importContract.test.ts -t \"KIN-MOBILE-001: a name that declares or labels is not a browser global\""
+  },
+  {
+    "label": "the shared usage formatter type-imports the web client again (R-rn-usage-shared)",
+    "file": "ui/src/lib/usage.ts",
+    "old": "export type UsageRowLike = {",
+    "new": "import type { UsageRow } from \"../api/client\";\n\nexport type UsageRowLike = {",
+    "test": "cd mobile-rn && npx jest src/shared/importContract.test.ts -t \"KIN-MOBILE-001: the shared usage formatter imports nothing, so the RN typecheck stays light\""
+  }
+]

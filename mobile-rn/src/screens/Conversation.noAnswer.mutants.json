@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the no-answer predicate stops excluding a live round (R-rn-no-answer)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    state.status === \"ready\" &&\n    !state.running &&\n    state.turns.length > 0 &&\n    state.turns[state.turns.length - 1].kind === \"user\"",
+    "new": "    state.status === \"ready\" &&\n    state.turns.length > 0 &&\n    state.turns[state.turns.length - 1].kind === \"user\"",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.noAnswer.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3: a live round draws the thinking row and not 还没有回答\""
+  },
+  {
+    "label": "a settled answered conversation draws the no-answer line (R-rn-no-answer)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    state.turns.length > 0 &&\n    state.turns[state.turns.length - 1].kind === \"user\"",
+    "new": "    state.turns.length > 0",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.noAnswer.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3: an answered conversation draws no 还没有回答\""
+  },
+  {
+    "label": "a failed read claims the agent never answered (R-rn-no-answer)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    state.status === \"ready\" &&\n    !state.running &&",
+    "new": "    !state.running &&",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.noAnswer.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3: a failed read keeps the error block and adds no 还没有回答\""
+  },
+  {
+    "label": "the no-answer line becomes a button that can be pressed (R-rn-no-answer)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "            <Text\n              accessibilityLabel={t(\"chat.noAnswer\")}\n              style={styles.notice}\n              accessibilityLiveRegion=\"polite\"\n              testID=\"conversation:no-answer\"\n            >\n              {t(\"chat.noAnswer\")}\n            </Text>",
+    "new": "            <Pressable\n              accessibilityLabel={t(\"chat.noAnswer\")}\n              style={styles.notice}\n              accessibilityLiveRegion=\"polite\"\n              accessibilityRole=\"button\"\n              onPress={() => {}}\n              testID=\"conversation:no-answer\"\n            >\n              {t(\"chat.noAnswer\")}\n            </Pressable>",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.noAnswer.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3: the line is a polite status, not a control\""
+  }
+]

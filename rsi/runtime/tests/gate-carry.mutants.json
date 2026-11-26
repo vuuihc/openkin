@@ -19,5 +19,12 @@
     "test": "RSI_TEST_ONLY=test_reverify_reason_is_written_at_gate_start bash rsi/runtime/tests/test-gate-carry.sh",
     "old": "\"${QUEUE_CARRY_REASON:-}\" \"$SHA\")\"",
     "new": "\"${QUEUE_CARRY_REASON:-}\" \"\")\""
+  },
+  {
+    "label": "the RN safety step runs unbounded, so a hung tsc/jest wedges the land loop instead of re-gating",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_regates_when_the_rn_safety_step_times_out bash rsi/runtime/tests/test-gate-carry.sh",
+    "old": "        if ! ( cd \"$wt\" && with_timeout \"$RN_CHECK_TIMEOUT\" bash -c \"$RN_CHECK\" ) >/dev/null 2>&1; then",
+    "new": "        if ! ( cd \"$wt\" && bash -c \"$RN_CHECK\" ) >/dev/null 2>&1; then"
   }
 ]

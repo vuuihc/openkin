@@ -45,6 +45,11 @@ NON_TEST_HINTS = re.compile(
     r"undefined: |cannot find package)",
     re.I,
 )
+# 2026-11-25 (#712): an overloaded machine (load avg ~370) starves the vitest
+# worker pool and fails test files wholesale, in-footprint ones included.
+VITEST_POOL_STARVED = re.compile(
+    r"\[vitest-pool(?:-runner)?\]: (?:Timeout waiting for worker to respond|Failed to start \w+ worker)"
+)
 # CI check names (first column of `gh pr checks`) that run the test suites
 # this classifier understands. Anything else failing is not mechanical.
 TEST_CHECK_NAMES = {"build", "test", "unit", "go", "ci"}
@@ -229,6 +234,17 @@ def classify(
     failures, saw_non_test = parse_failures(log_text, mod)
     if saw_non_test:
         return False, "log contains a non-test failure (typecheck/lint/inventory/build)"
+    # 2026-11-25 (#712): a starved vitest worker pool is machine load, not the
+    # diff — even when a failed file sits in the PR footprint. Placed after
+    # the non-test check so tsc/lint/inventory failures still send the PR back.
+    starved_msg = None
+    for raw in log_text.splitlines():
+        m = VITEST_POOL_STARVED.search(normalize(raw))
+        if m:
+            starved_msg = m.group(0)
+            break
+    if starved_msg:
+        return True, f"vitest worker pool starved ({starved_msg}): machine load, not the diff"
     if not failures:
         return False, "no failing tests parsed from the log"
     touched = touched_packages(changed, mod)
@@ -412,6 +428,26 @@ build	Run go test ./...	2026-11-15T11:49:13.4234567Z	FAIL	github.com/vuuihc/open
     # Without a locale change the same UI test is still an outside rerun-once.
     ok, reason = classify(copy_vitest, ["ui/src/main.tsx"], set(), mod, None)
     assert ok and "outside PR footprint" in reason, reason
+
+    # 2026-11-25 (#712): a starved vitest worker pool is machine load, so even
+    # an in-footprint failure is a rerun-once — but without pool lines the
+    # footprint still rules, and a non-test failure still sends the PR back.
+    design_change = ["ui/src/design/x.ts"]
+    starved_log = (
+        "FAIL  src/design/tailwind.test.ts > cascade foundation\n"
+        "\x1b[31m\x1b[1mError\x1b[22m: [vitest-pool]: Failed to start forks worker for test files /x.ts.\x1b[39m\n"
+        "Caused by: Error: [vitest-pool-runner]: Timeout waiting for worker to respond\n"
+    )
+    ok, reason = classify(starved_log, design_change, set(), mod, None)
+    assert ok and "starved" in reason, reason
+
+    in_scope_no_starve = "FAIL  src/design/tailwind.test.ts > cascade foundation\n"
+    ok, reason = classify(in_scope_no_starve, design_change, set(), mod, None)
+    assert not ok and "touched package" in reason, reason
+
+    starved_tsc = starved_log + "ui  Typecheck  2026-11-25T08:00:00.0Z  error TS2322: Type 'X' is not assignable\n"
+    ok, reason = classify(starved_tsc, design_change, set(), mod, None)
+    assert not ok and "non-test" in reason, reason
 
     print("self-test: ALL-PASS")
     return 0

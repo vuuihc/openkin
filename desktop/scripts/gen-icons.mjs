@@ -8,8 +8,8 @@
  * One painter, three files: the phone app and the menu-bar app are the same
  * product and must not drift into two different icons.
  */
-import { deflateSync } from "node:zlib";
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { deflateSync, inflateSync } from "node:zlib";
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
@@ -35,6 +35,45 @@ function chunk(type, data) {
   const crc = crc32(Buffer.concat([typeBuf, data]));
   crcBuf.writeUInt32BE(crc);
   return Buffer.concat([len, typeBuf, data, crcBuf]);
+}
+
+/**
+ * True when `path` already holds a PNG with this exact IHDR and these raw
+ * scanlines. The IDAT bytes depend on the zlib build (Node 20/22 and a
+ * Homebrew Node 26 compress the same artwork differently), so a rebuild must
+ * compare pixels, not files: the checkout stays clean when the picture is
+ * unchanged, whichever Node runs the generator.
+ */
+function pixelsAlreadyMatch(path, ihdr, raw) {
+  let png;
+  try {
+    png = readFileSync(path);
+  } catch {
+    return false; // absent: write it
+  }
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (png.length < 8 || !png.subarray(0, 8).equals(Buffer.from(signature))) {
+    return false;
+  }
+  let offset = 8;
+  let existingIhdr = null;
+  const idat = [];
+  while (offset + 12 <= png.length) {
+    const length = png.readUInt32BE(offset);
+    const type = png.toString("ascii", offset + 4, offset + 8);
+    const data = png.subarray(offset + 8, offset + 8 + length);
+    if (type === "IHDR") existingIhdr = data;
+    else if (type === "IDAT") idat.push(data);
+    else if (type === "IEND") break;
+    offset += 12 + length;
+  }
+  if (existingIhdr === null || idat.length === 0) return false;
+  if (!existingIhdr.equals(ihdr)) return false;
+  try {
+    return inflateSync(Buffer.concat(idat)).equals(raw);
+  } catch {
+    return false; // corrupt: overwrite it
+  }
 }
 
 /** Write a grayscale+alpha PNG (8-bit, color type 4). */
@@ -65,7 +104,7 @@ function writeGrayAlphaPng(path, size, paint) {
     chunk("IDAT", deflateSync(raw, { level: 9 })),
     chunk("IEND", Buffer.alloc(0)),
   ]);
-  writeFileSync(path, png);
+  if (!pixelsAlreadyMatch(path, ihdr, raw)) writeFileSync(path, png);
 }
 
 /** Write an 8-bit RGB PNG with no alpha channel (color type 2). */
@@ -97,7 +136,7 @@ function writeRgbPng(path, size, paint) {
     chunk("IDAT", deflateSync(raw, { level: 9 })),
     chunk("IEND", Buffer.alloc(0)),
   ]);
-  writeFileSync(path, png);
+  if (!pixelsAlreadyMatch(path, ihdr, raw)) writeFileSync(path, png);
 }
 
 /** "K" glyph for tray template (black, transparent bg). */
