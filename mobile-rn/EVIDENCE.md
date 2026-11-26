@@ -45,7 +45,7 @@ npx --no-install tsc --noEmit
 # 无输出，退出 0
 npx --no-install jest --ci --runInBand
 # Test Suites: 46 passed, 46 total
-# Tests:       408 passed, 408 total
+# Tests:       409 passed, 409 total
 ```
 
 全量 Jest 在断言通过后打印 `Jest did not exit one second after the test run has completed.`，
