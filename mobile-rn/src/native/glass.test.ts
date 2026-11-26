@@ -17,7 +17,7 @@ describe("KIN-MOBILE-001 R7 glass surface", () => {
     expect(glassFor({ reduceTransparency: false, platform: "ios" })).toEqual({
       kind: "blur",
       intensity: 60,
-      tint: "systemMaterial",
+      tint: "systemMaterialLight",
     });
   });
 

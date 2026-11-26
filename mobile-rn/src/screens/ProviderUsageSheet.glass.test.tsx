@@ -1,5 +1,20 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
+import {
+  act,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react-native";
+import { StrictMode } from "react";
 import { AccessibilityInfo, StyleSheet } from "react-native";
 import { t } from "../i18n";
 import { GLASS_FALLBACK_COLOR } from "../native/glass";
@@ -76,12 +91,49 @@ const isReduceTransparencyEnabled = jest.spyOn(
 );
 const addEventListener = jest.spyOn(AccessibilityInfo, "addEventListener");
 
+/** One live `reduceTransparencyChanged` handler per registered reader. */
+type TransparencyListener = (enabled: boolean) => void;
+
+/** The remove handle the platform handed back for one registration. */
+type TransparencySubscription = { remove: jest.Mock };
+
+function transparencyListeners(): TransparencyListener[] {
+  return addEventListener.mock.calls.map(
+    (call) => call[1] as unknown as TransparencyListener,
+  );
+}
+
+function transparencySubscriptions(): TransparencySubscription[] {
+  return addEventListener.mock.results.map(
+    (result) => result.value as unknown as TransparencySubscription,
+  );
+}
+
+/**
+ * Rejections nobody handled. A platform that cannot answer must fall back to
+ * the blur (`GlassSurface.tsx` catches the query); a rejection that escapes is
+ * the failure that fallback exists to prevent.
+ */
+const unhandledRejections: unknown[] = [];
+function recordUnhandledRejection(reason: unknown) {
+  unhandledRejections.push(reason);
+}
+
+beforeAll(() => {
+  process.on("unhandledRejection", recordUnhandledRejection);
+});
+afterAll(() => {
+  process.off("unhandledRejection", recordUnhandledRejection);
+});
+
 beforeEach(() => {
+  unhandledRejections.length = 0;
   // The platform default is an unobstructed surface; the reduced-transparency
   // case overrides it.
   isReduceTransparencyEnabled.mockResolvedValue(false);
-  // A listener that is never fired: the initial read is what this suite pins.
-  addEventListener.mockReturnValue({ remove: jest.fn() } as never);
+  // One handle per registration, so a test can prove each reader stops
+  // listening when the sheet goes away.
+  addEventListener.mockImplementation(() => ({ remove: jest.fn() }) as never);
 });
 
 afterEach(() => {
@@ -139,6 +191,143 @@ describe("KIN-MOBILE-001 §7 provider/usage sheet glass", () => {
       screen.getByTestId("glass-opaque").props.style,
     ) as { backgroundColor?: string };
     expect(opaqueStyle.backgroundColor).toBe(GLASS_FALLBACK_COLOR);
+  });
+
+  it("KIN-MOBILE-001 §7: a live preference change swaps the surface and unmount stops listening", async () => {
+    const { screen } = await renderSheet();
+    const listeners = transparencyListeners();
+    const subscriptions = transparencySubscriptions();
+
+    // The sheet and its background layer each read the preference once, so
+    // every registration has exactly one handle to remove.
+    expect(listeners.length).toBeGreaterThan(0);
+    expect(subscriptions.length).toBe(listeners.length);
+    expect(screen.getByTestId("glass-blur")).toBeTruthy();
+
+    // iOS announces the reader turning reduced transparency on while the sheet
+    // is open: the live handler, not a remount, is what must repaint it.
+    await act(async () => {
+      listeners.forEach((listener) => listener(true));
+    });
+    expect(screen.getByTestId("glass-opaque")).toBeTruthy();
+    expect(screen.queryByTestId("glass-blur")).toBeNull();
+
+    // And turning it back off restores the blur.
+    await act(async () => {
+      listeners.forEach((listener) => listener(false));
+    });
+    expect(screen.getByTestId("glass-blur")).toBeTruthy();
+    expect(screen.queryByTestId("glass-opaque")).toBeNull();
+
+    await screen.unmount();
+
+    // A closed sheet that keeps its listener keeps the platform answering a
+    // surface nobody sees (AGENTS.md §11).
+    subscriptions.forEach((subscription) =>
+      expect(subscription.remove).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it("KIN-MOBILE-001 §7: a platform that cannot answer keeps the blur", async () => {
+    isReduceTransparencyEnabled.mockRejectedValue(
+      new Error("accessibility info unavailable"),
+    );
+    const { screen } = await renderSheet();
+
+    // A failed query is not a preference for opaque: the sheet keeps the
+    // default surface and the rejection is handled, not left dangling.
+    await waitFor(() => expect(screen.getByTestId("glass-blur")).toBeTruthy());
+    expect(screen.queryByTestId("glass-opaque")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(unhandledRejections).toEqual([]);
+  });
+
+  it("KIN-MOBILE-001 §7: an answer that lands after the sheet closed is dropped", async () => {
+    const answers: Array<(enabled: boolean) => void> = [];
+    isReduceTransparencyEnabled.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          answers.push(resolve);
+        }),
+    );
+    const { screen } = await renderSheet();
+    expect(screen.getByTestId("glass-blur")).toBeTruthy();
+
+    // The reader closed the sheet while iOS was still answering. The answer
+    // belongs to a surface that is gone: resolving it must not throw, warn, or
+    // repaint anything (AGENTS.md §11).
+    const errors: unknown[][] = [];
+    const consoleError = jest
+      .spyOn(console, "error")
+      .mockImplementation((...args: unknown[]) => {
+        errors.push(args);
+      });
+    try {
+      await screen.unmount();
+      await act(async () => {
+        answers.forEach((answer) => answer(true));
+        await Promise.resolve();
+      });
+      expect(errors).toEqual([]);
+      expect(unhandledRejections).toEqual([]);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("KIN-MOBILE-001 §7: an answer from a replaced registration cannot repaint the sheet", async () => {
+    const answers: Array<(enabled: boolean) => void> = [];
+    isReduceTransparencyEnabled.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          answers.push(resolve);
+        }),
+    );
+    const onClose = jest.fn();
+    // StrictMode makes React Native's own `findNodeHandle` path warn on every
+    // host view; the warning is about the renderer, not about this sheet.
+    const consoleError = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      const screen = await render(
+        <ProviderUsageSheet
+          onClose={onClose}
+          onRefresh={jest.fn()}
+          onSelectWindow={jest.fn()}
+          state={VIEW}
+          t={t}
+          visible
+        />,
+        { wrapper: StrictMode },
+      );
+
+      // StrictMode replaces every registration once at mount. The first
+      // generation was cleaned up already, so its answer is a late answer even
+      // though the sheet is still on screen — the same drop AGENTS.md §11 asks
+      // for when the sheet closes mid-query. The sheet and its glass layer are
+      // the two readers, so the last two answers are the live generation.
+      const replayed = answers.slice(0, -2);
+      expect(replayed.length).toBeGreaterThan(0);
+
+      // The live generation answers first: the sheet keeps the default blur.
+      await act(async () => {
+        answers.slice(-2).forEach((answer) => answer(false));
+        await Promise.resolve();
+      });
+      expect(screen.getByTestId("glass-blur")).toBeTruthy();
+
+      // Then the replaced generation answers "reduced transparency". It must
+      // not repaint a surface it no longer speaks for.
+      await act(async () => {
+        replayed.forEach((answer) => answer(true));
+        await Promise.resolve();
+      });
+      expect(screen.getByTestId("glass-blur")).toBeTruthy();
+      expect(screen.queryByTestId("glass-opaque")).toBeNull();
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("KIN-MOBILE-001 §7: the glass sheet still dismisses three ways", async () => {

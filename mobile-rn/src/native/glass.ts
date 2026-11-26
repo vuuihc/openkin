@@ -13,7 +13,7 @@
 
 /** The two shapes a glass surface can take. */
 export type GlassSpec =
-  | { kind: "blur"; intensity: number; tint: "systemMaterial" }
+  | { kind: "blur"; intensity: number; tint: "systemMaterialLight" }
   | { kind: "opaque"; color: string };
 
 /**
@@ -45,6 +45,6 @@ export function glassFor(opts: {
   return {
     kind: "blur",
     intensity: GLASS_INTENSITY,
-    tint: "systemMaterial",
+    tint: "systemMaterialLight",
   };
 }
