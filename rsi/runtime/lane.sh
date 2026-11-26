@@ -90,7 +90,7 @@ You are the WORKER for RSI item $item in worktree \`$wt\` on branch \`$br\`. Mod
 - Test first. Run FOCUSED checks only (typecheck, lint on changed files, the tests you wrote/touched, \`go test\` for touched packages). The merge lane runs the full gate (\`gate.sh\`) and an independent review afterwards. Use \`VITEST_MAX_WORKERS=2\` for vitest; other lanes are running on the same machine.
 - Concurrency test ordering: set the shared state (the flag, channel or map the goroutine reads) before you start the goroutine. Never start the goroutine and then write the flag it reads — that order is the race the gate and the reviewer are looking for.
 - A new or changed Go test self-checks with \`go test -count=5 -race ./internal/<touched-package>/...\` on the touched package(s) before you finish. One green run of a concurrency test is not evidence; five runs under \`-race\` are what make it trustworthy.
-- If \`ui/\` changed: \`cd ui && npm run build\`, commit \`web/dist/index.html\` only (never \`web/dist/assets/\`). For visible UI also save 390×844, 820×1180 and 1100×760 before/after screenshots under \`$STATE/shots/$slug/\`.
+- If \`ui/\` changed: \`cd ui && npm run build\`, commit \`web/dist/index.html\` only (never \`web/dist/assets/\`). For visible UI also save 390×844, 820×1180 and 1100×760 before/after screenshots under \`$STATE/shots/$slug/\`. The shots dir holds ONLY .png/.aria.txt/walk.json evidence: never copy the kin binary, web/dist, node_modules or source trees into it — before/after daemons boot from a mktemp dir you delete when the round ends.
 - Evidence, not a placeholder: the 820×1180 one must be the surface's real reading state (a conversation surface means a long answer containing a markdown table), never an empty or placeholder view — a blank 820 is a rework round, not evidence.
 - If \`ui/\` changed and you added or changed any user-visible string: put it in **both** \`ui/src/i18n/locales/en.ts\` and \`ui/src/i18n/locales/zh.ts\` in the same commit, and run \`cd ui && npx vitest run src/i18n/locales.test.ts\` (same keys, no blank values, same placeholders). When you replace existing copy, \`grep -rn\` the old sentence in \`ui/src/\` including \`*.test.*\`: an assertion on the old English is red CI that the gate charges to this PR.
 - Run \`bash rsi/runtime/lane.sh --renamed-copy-check "\$PWD"\` before you finish: only \`RENAME_COPY_OK\` or \`RENAME_COPY_NA\` proves the hand-off. \`RENAME_COPY_RED\` names the removed value, the untouched test still quoting it and the failing test line; the lane runs the same seam before pushing and a RED stops the push.
@@ -912,9 +912,14 @@ if ! CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1
   # contract is unchanged. A genuine body problem still fails: two runs, one sleep, no loop.
   CLAIM_ATTEMPTS="$STATE/lanes/$N.claim-attempts.txt"
   printf 'attempt 1: %s\n' "$(printf '%s' "${CLAIM_EV:-check produced no output}" | head -1)" > "$CLAIM_ATTEMPTS"
-  CLAIM_RETRY_SECS_USE="${RSI_CLAIM_RETRY_SECS:-1}"
-  case "$CLAIM_RETRY_SECS_USE" in ''|*[!0-9]*) CLAIM_RETRY_SECS_USE=1 ;; esac
+  CLAIM_RETRY_SECS_REQ="${RSI_CLAIM_RETRY_SECS:-1}"
+  case "$CLAIM_RETRY_SECS_REQ" in ''|*[!0-9]*) CLAIM_RETRY_SECS_REQ=1 ;; esac
+  CLAIM_RETRY_SECS_USE="$CLAIM_RETRY_SECS_REQ"
   [ "$CLAIM_RETRY_SECS_USE" -gt 5 ] && CLAIM_RETRY_SECS_USE=5
+  # The lane's own evidence of its bounded pause: requested vs used. A suite reads the clamp here
+  # instead of timing the sleep, so a loaded host cannot turn a green guard red, and the record
+  # still shows an unclamped pause (used=999s) when the clamp is removed.
+  printf 'retry pause: requested=%ss used=%ss\n' "$CLAIM_RETRY_SECS_REQ" "$CLAIM_RETRY_SECS_USE" >> "$CLAIM_ATTEMPTS"
   CLAIM_RETRY_OK=0
   if [ "$CLAIM_RETRY_SECS_USE" -gt 0 ]; then
     # The pause is bounded twice: by the clamp above and by bounded_run's own watchdog.

@@ -21,6 +21,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parent
 ROOT = SCRIPTS.parent
 CHECKER = SCRIPTS / "check-ui-inventory.py"
+SHIPPED_BASELINE = SCRIPTS / "ui-inventory-baseline.json"
 
 sys.path.insert(0, str(SCRIPTS))
 import ui_inventory  # noqa: E402
@@ -134,6 +135,46 @@ class CheckerTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         for key in ("raw_button", "create_portal", "magic_z"):
             self.assertIn(key, result.stdout)
+
+    def test_re_added_raw_button_fails_against_the_shipped_baseline(self) -> None:
+        # The durable file the gate reads, not a hand-written fixture baseline:
+        # a re-added raw <button> must be refused by exactly that file. Build a
+        # tree that measures to the shipped numbers by reading them, so this
+        # case tightens with the baseline instead of pinning today's counts.
+        shipped = json.loads(SHIPPED_BASELINE.read_text(encoding="utf-8"))["metrics"]
+        for key, row in shipped.items():
+            occurrences, files = row["occurrences"], row["files"]
+            spread, extra = divmod(occurrences, files) if files else (0, 0)
+            for index in range(files):
+                body = "\n".join([SAMPLES[key]] * (spread + (1 if index < extra else 0)))
+                self.fixture.write(f"shipped/{key}/{index}.tsx", body)
+
+        self.assertEqual(
+            self.fixture.measured(),
+            {
+                key: {"occurrences": row["occurrences"], "files": row["files"]}
+                for key, row in shipped.items()
+            },
+        )
+        self.fixture.baseline.write_text(
+            SHIPPED_BASELINE.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+        # Exactly at the shipped numbers the gate is green...
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("UI_INVENTORY_OK", result.stdout)
+
+        # ...and one more raw button in a file that already has some must fail,
+        # naming the row, while no metric's file count moves.
+        target = self.fixture.src / "shipped" / "raw_button" / "0.tsx"
+        target.write_text(
+            target.read_text(encoding="utf-8") + "\n" + SAMPLES["raw_button"] + "\n",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("raw_button", result.stdout)
 
     def test_equal_counts_pass(self) -> None:
         self.fixture.write("components/A.tsx", SAMPLES["raw_button"] + "\n" + SAMPLES["magic_z"])
