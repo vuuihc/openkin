@@ -4,11 +4,12 @@ import { splitTableBlocks } from "./tableBlock";
 /**
  * KIN-MOBILE-001 R4 — a markdown table in an agent answer.
  *
- * The phone mirrors the web console's table parse
- * (`ui/src/components/Markdown.tsx:198-260`) rather than inventing a richer
+ * The phone runs the web console's table parse
+ * (`ui/src/lib/markdownTable.ts:43-58`) rather than inventing a richer
  * markdown: a table is a pipe line immediately above a GFM divider row, the
  * divider is consumed, and body rows pad or trim to the header's width. Text
- * the parser does not recognise stays text, byte for byte.
+ * the parser does not recognise stays text, byte for byte, and a fenced code
+ * sample is skipped before any table test.
  */
 
 describe("KIN-MOBILE-001 R4 table blocks", () => {
@@ -96,6 +97,23 @@ describe("KIN-MOBILE-001 R4 table blocks", () => {
 
   it("KIN-MOBILE-001 R4: a pipe line with no divider under it is not a table", () => {
     const text = "| a | b |\nplain text after the pipe line";
+
+    expect(splitTableBlocks(text)).toEqual([{ kind: "text", text }]);
+  });
+
+  it("KIN-MOBILE-001 R4: a fenced code sample that looks like a table stays text", () => {
+    // The author wrote a code sample; its pipes are syntax, not columns. The
+    // shared fence walk tells the table parse to skip the whole region, so the
+    // message comes back as the one text block it went in as.
+    const text = [
+      "Run this sample:",
+      "```",
+      "| step | state |",
+      "| --- | --- |",
+      "| open | done |",
+      "```",
+      "and then read it.",
+    ].join("\n");
 
     expect(splitTableBlocks(text)).toEqual([{ kind: "text", text }]);
   });
