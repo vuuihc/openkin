@@ -16,8 +16,8 @@
   {
     "label": "a sent message stays in the composer, so the next thought is appended to it and the person sends it twice (R-rn-wire-b)",
     "file": "mobile-rn/src/screens/ConversationView.tsx",
-    "old": "    setDraft({ taskId: state.taskId, text: \"\" });\n    onSend(trimmed);",
-    "new": "    onSend(trimmed);",
+    "old": "    setDraft({ taskId: forTask, text: \"\" });",
+    "new": "    // dropped: the sent words stay in the box",
     "test": "cd mobile-rn && npx jest src/screens/Conversation.test.tsx -t \"KIN-MOBILE-001 R4: the composer sends the typed message and clears the draft\""
   },
   {
@@ -30,8 +30,8 @@
   {
     "label": "the send control stays enabled while the node is offline, so the only feedback is a silent no-op (R-rn-wire-b)",
     "file": "mobile-rn/src/screens/ConversationView.tsx",
-    "old": "  const canSend = text.trim().length > 0 && !offline;",
-    "new": "  const canSend = text.trim().length > 0;",
+    "old": "  const canSend = text.trim().length > 0 && !offline && !sending;",
+    "new": "  const canSend = text.trim().length > 0 && !sending;",
     "test": "cd mobile-rn && npx jest src/screens/Conversation.test.tsx -t \"KIN-MOBILE-001 R4: offline keeps the draft, disables sending and says why\""
   },
   {
