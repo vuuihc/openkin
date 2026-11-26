@@ -50,7 +50,7 @@ import {
   onScroll as followOnScroll,
   type FollowState,
 } from "../thread/follow";
-import type { ThreadState } from "../thread/threadModel";
+import type { SendOutcome, ThreadState } from "../thread/threadModel";
 import {
   ApprovalsSection,
   type ApprovalsScreenProps,
@@ -87,10 +87,14 @@ export type ConversationViewProps = {
    */
   approvals?: ApprovalsScreenProps;
   /**
-   * Hand the composer's text to the model. Absent when there is no thread to
-   * post through, and the composer is not drawn at all.
+   * Hand the composer's text to the model and answer with what the node said
+   * (`SendOutcome`). The composer keeps a refused send's words and names the
+   * reason; an accepted send clears the box, exactly as before. A handler that
+   * reports nothing is not a refusal, so the box stays cleared as it shipped.
+   * Absent when there is no thread to post through, and the composer is not
+   * drawn at all.
    */
-  onSend?: (text: string) => void;
+  onSend?: (text: string) => unknown;
   /** End the running round; the stopped note comes back from the model. */
   onStop?: () => void;
   /** Drop a queued send the round has not taken yet. */
@@ -113,11 +117,33 @@ export type ConversationViewProps = {
 };
 
 /**
- * The catalogue sentence for a failed read, by transport reason — the same
- * mapping the conversation list uses, so one failure never reads two ways.
+ * Why a send the node refused, as the model reports it; the transport half of
+ * the union is what a failed read carries too.
  */
-function errorKey(state: ThreadState): string {
-  switch (state.reason) {
+type SendFailure = Extract<SendOutcome, { ok: false }>["reason"];
+
+/**
+ * The model's answer to a send, when the handler gave one. The handler is an
+ * injected boundary — the container answers `SendOutcome`, while a suite may
+ * hand in a bare mock — so the shape is checked here once and narrowed, rather
+ * than trusted at the call site.
+ */
+function sendAnswer(value: unknown): SendOutcome | void {
+  if (typeof value !== "object" || value === null || !("ok" in value)) {
+    return undefined;
+  }
+  return value as SendOutcome;
+}
+
+/**
+ * The catalogue sentence for a failure, by the reason the model reported —
+ * the same mapping the conversation list uses, so one failure never reads two
+ * ways. A refused send and a failed read speak one sentence for one reason;
+ * a reason with no transport sentence of its own (`offline`, `stale`, `empty`)
+ * falls back to the read hint.
+ */
+function reasonKey(reason: SendFailure | null): string {
+  switch (reason) {
     case "expired":
       return "pairing.expired";
     case "rejected":
@@ -364,6 +390,13 @@ type ComposerProps = {
  * old words can neither return nor be posted under the new task (AGENTS.md
  * §11). A failed read, a stream event or a queued send repaints the view
  * without touching this state — that is what "offline keeps the draft" means.
+ *
+ * A press clears the box as it always has, and the model's answer decides
+ * whether the words come back: a send the node refused restores them and names
+ * the reason in one line (KIN-MOBILE-001 §5 失败), while an accepted send
+ * leaves the box empty for the next thought. A message typed while the first
+ * post is still in flight is what could post twice — the empty box no longer
+ * guards it, so the in-flight guard has to be explicit.
  */
 function Composer({
   state,
@@ -376,18 +409,69 @@ function Composer({
   const [draft, setDraft] = useState({ taskId: state.taskId, text: "" });
   const text = draft.taskId === state.taskId ? draft.text : "";
   const offline = state.banner === "offline";
+  // The post this composer is waiting on. A ref, not only the disabled state
+  // below: two taps in one frame both read the last rendered `sending` before
+  // React repaints, and the guard must hold for the second one too.
+  const inFlight = useRef(false);
+  // A post answers on the node's time, so it can land after the screen left;
+  // the words then belong to nobody and are dropped (AGENTS.md §11).
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+  const [sending, setSending] = useState(false);
+  // The last refused send's reason, tagged with the task it was typed for so a
+  // swapped conversation never shows another conversation's failure.
+  const [failure, setFailure] = useState<{
+    taskId: string;
+    reason: SendFailure;
+  } | null>(null);
   // An offline node takes nothing, so Send is closed; the transcript above
-  // states why. An empty box has nothing to send.
-  const canSend = text.trim().length > 0 && !offline;
+  // states why. An empty box has nothing to send, and a post already in flight
+  // must not be posted a second time.
+  const canSend = text.trim().length > 0 && !offline && !sending;
+
+  /**
+   * The post came back. A refusal puts the words back into a box the person
+   * has not already filled with a newer thought, and names the reason; words
+   * typed during the flight win, because they are the draft now. An answer
+   * that reports nothing is not a refusal, so it changes nothing.
+   */
+  const settle = (
+    forTask: string,
+    sent: string,
+    answer: unknown,
+  ): void => {
+    inFlight.current = false;
+    if (!live.current) return;
+    setSending(false);
+    const outcome = sendAnswer(answer);
+    if (outcome === undefined || outcome.ok) return;
+    setDraft((current) =>
+      current.taskId === forTask && current.text === ""
+        ? { taskId: forTask, text: sent }
+        : current,
+    );
+    setFailure({ taskId: forTask, reason: outcome.reason });
+  };
 
   const send = (): void => {
     const trimmed = text.trim();
-    if (!trimmed || offline) return;
+    if (!trimmed || offline || inFlight.current) return;
+    const forTask = state.taskId;
+    inFlight.current = true;
+    setSending(true);
+    setFailure(null);
     // The words go to the model, not into the box: clear first, so the next
     // thought is never appended to the one already sent. The guard above is
     // what keeps them when the node cannot take them at all.
-    setDraft({ taskId: state.taskId, text: "" });
-    onSend(trimmed);
+    setDraft({ taskId: forTask, text: "" });
+    void Promise.resolve(onSend(trimmed)).then((outcome) =>
+      settle(forTask, trimmed, outcome),
+    );
   };
 
   return (
@@ -422,11 +506,29 @@ function Composer({
           ))}
         </View>
       ) : null}
+      {failure !== null && failure.taskId === state.taskId ? (
+        // One line beside the draft, the same size and colour as the offline
+        // notice above (TASTE: not a card, not a new visual object). The
+        // sentence is the catalogue's for the reason the model reported, so a
+        // refusal and a failed read never describe one cause two ways.
+        <Text
+          accessibilityRole="alert"
+          style={styles.notice}
+          testID="conversation:sendFailure"
+        >
+          {t(reasonKey(failure.reason))}
+        </Text>
+      ) : null}
       <View style={styles.composerRow}>
         <TextInput
           accessibilityLabel={t("composer.placeholder")}
           multiline
-          onChangeText={(next) => setDraft({ taskId: state.taskId, text: next })}
+          onChangeText={(next) => {
+            setDraft({ taskId: state.taskId, text: next });
+            // Typing is a new attempt: the last refusal described words that
+            // are no longer the draft.
+            setFailure(null);
+          }}
           placeholder={t("composer.placeholder")}
           placeholderTextColor="#8a8a8a"
           style={styles.input}
@@ -585,7 +687,7 @@ export default function ConversationView({
       {state.status === "error" ? (
         <View style={styles.failed}>
           <Text accessibilityRole="alert" style={styles.failure}>
-            {t(errorKey(state))}
+            {t(reasonKey(state.reason))}
           </Text>
           {onRetry ? (
             <Pressable
