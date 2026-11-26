@@ -1,0 +1,16 @@
+[
+  {
+    "label": "R-settings-coarse-links: the Providers 管理 Agents link drops back to a 16.5px text row on a coarse iPad",
+    "file": "ui/src/components/settings/ProviderSettingsSection.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.coarseLinks.dom.test.tsx",
+    "old": "className=\"inline-flex min-h-11 touch-floor items-center text-caption text-kin-blue-ink hover:underline sm:min-h-0 sm:mt-1\"",
+    "new": "className=\"inline-flex min-h-11 items-center text-caption text-kin-blue-ink hover:underline sm:min-h-0 sm:mt-1\""
+  },
+  {
+    "label": "R-settings-coarse-links: the Advanced LiteLLM link drops back to a 16.5px text row on a coarse iPad",
+    "file": "ui/src/pages/SettingsPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.coarseLinks.dom.test.tsx",
+    "old": "className=\"inline-flex min-h-11 touch-floor items-center text-caption text-kin-blue-ink hover:underline shrink-0 sm:min-h-0\"",
+    "new": "className=\"inline-flex min-h-11 items-center text-caption text-kin-blue-ink hover:underline shrink-0 sm:min-h-0\""
+  }
+]
