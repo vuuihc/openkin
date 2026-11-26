@@ -1976,6 +1976,7 @@ const zh = {
     intervalUpdating: "更新中",
     intervalFailed: "区间读取失败，已回到上次的区间。",
     emptyUsage: "这段时间没有用量",
+    emptyUsageDevice: "这台设备还没有用量",
     emptyUsageHint: "本机会话运行后，用量会累计在这里。",
     loadingMachine: "正在读取本机 Agent 与用量…",
     smokeOne: "smoke 测试",
