@@ -517,7 +517,14 @@ describe("KIN-MOBILE-001 R4 conversation", () => {
     );
     const usage = position((child) => child.props.testID === "conversation:usage");
 
-    expect(back).toBe(0);
+    // The glass layer is the header's first child and is decoration: the back
+    // control is still the first thing the reader can reach.
+    const firstControl = position(
+      (child) =>
+        typeof child.props.onPress === "function" ||
+        child.props.accessibilityRole === "button",
+    );
+    expect(firstControl).toBe(back);
     expect(title).toBeGreaterThan(back);
     expect(running).toBeGreaterThan(title);
     expect(usage).toBeGreaterThan(running);

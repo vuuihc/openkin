@@ -1,5 +1,10 @@
 import { describe, expect, it } from "@jest/globals";
-import { composerBottomInset, headerTopInset } from "./insets";
+import {
+  composerBottomInset,
+  HEADER_ROW_HEIGHT,
+  headerTopInset,
+  headerTotalHeight,
+} from "./insets";
 
 /**
  * KIN-MOBILE-001 R4 — the phone's safe-area arithmetic, without React.
@@ -24,5 +29,24 @@ describe("KIN-MOBILE-001 R4 safe-area arithmetic", () => {
     expect(composerBottomInset(34)).toBe(42);
     // No inset: the composer keeps the 24pt it has always had.
     expect(composerBottomInset(0)).toBe(24);
+  });
+});
+
+describe("KIN-MOBILE-001 R7 header height", () => {
+  it("KIN-MOBILE-001 R7: the header's total height adds the status-bar air to its row", () => {
+    // A notched iPhone: the 56pt row plus the 67pt the header already pads
+    // above it. The list's spacer is this number, so no turn starts under the
+    // glass.
+    expect(headerTotalHeight(59)).toBe(HEADER_ROW_HEIGHT + 67);
+    // No inset: the compact 12pt padding is still air above the same row.
+    expect(headerTotalHeight(0)).toBe(HEADER_ROW_HEIGHT + 12);
+  });
+
+  it("KIN-MOBILE-001 R7: the header row is one constant", () => {
+    // The stylesheet's minHeight and the list's spacer both read this one
+    // number, so they cannot drift apart.
+    expect(HEADER_ROW_HEIGHT).toBe(56);
+    expect(headerTotalHeight(59)).toBe(HEADER_ROW_HEIGHT + headerTopInset(59));
+    expect(headerTotalHeight(0)).toBe(HEADER_ROW_HEIGHT + headerTopInset(0));
   });
 });
