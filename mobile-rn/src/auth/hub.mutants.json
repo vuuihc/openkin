@@ -1,0 +1,44 @@
+[
+  {
+    "label": "a Hub read stops asking for the cookie jar (R-rn-hub-signin)",
+    "file": "mobile-rn/src/api/transport.ts",
+    "old": "    (options.session?.kind === \"hub\" ? \"include\" : undefined);",
+    "new": "    (options.session?.kind === \"hub\" ? undefined : undefined);",
+    "test": "cd mobile-rn && npx jest src/api/transport.test.ts -t \"R-rn-hub-signin: a hub session sends no Authorization and asks for the cookie\""
+  },
+  {
+    "label": "a Hub session sends a bearer header with no token (R-rn-hub-signin)",
+    "file": "mobile-rn/src/api/transport.ts",
+    "old": "  if (options.session?.kind === \"node\") {",
+    "new": "  if (options.session !== undefined) {",
+    "test": "cd mobile-rn && npx jest src/api/transport.test.ts -t \"R-rn-hub-signin: a hub session sends no Authorization and asks for the cookie\""
+  },
+  {
+    "label": "the hub session is written before /api/auth/me proves it (R-rn-hub-signin)",
+    "file": "mobile-rn/src/auth/hub.ts",
+    "old": "    if (!me.ok) {\n      return { ok: false, reason: signInFailure(me.reason), origin };\n    }\n\n    const store = await backend();\n    await writeSession({ kind: \"hub\", origin }, store);",
+    "new": "    const store = await backend();\n    await writeSession({ kind: \"hub\", origin }, store);\n    if (!me.ok) {\n      return { ok: false, reason: signInFailure(me.reason), origin };\n    }",
+    "test": "cd mobile-rn && npx jest src/auth/hub.test.ts -t \"R-rn-hub-signin: a login that passes but /me refuses writes nothing\""
+  },
+  {
+    "label": "an entry from before the session union stops reading as a node (R-rn-hub-signin)",
+    "file": "mobile-rn/src/auth/tokenStore.ts",
+    "old": "  if (record.kind !== undefined && record.kind !== \"node\") return false;",
+    "new": "  if (record.kind !== \"node\") return false;",
+    "test": "cd mobile-rn && npx jest src/auth/tokenStore.test.ts -t \"R-rn-hub-signin: an entry written before the union reads as a node session\""
+  },
+  {
+    "label": "a plaintext Hub address off loopback is accepted (R-rn-hub-signin)",
+    "file": "mobile-rn/src/auth/hub.ts",
+    "old": "  if (parsed.protocol === \"http:\" && !isLoopbackHost(parsed.hostname)) return null;",
+    "new": "  if (false) return null;",
+    "test": "cd mobile-rn && npx jest src/auth/hub.test.ts -t \"R-rn-hub-signin: a Hub is https, or http only on loopback\""
+  },
+  {
+    "label": "the event stream sends a bearer for a Hub session (R-rn-hub-signin)",
+    "file": "mobile-rn/src/thread/stream.ts",
+    "old": "      if (request.session?.kind === \"node\") {",
+    "new": "      if (request.session !== undefined) {",
+    "test": "cd mobile-rn && npx jest src/thread/stream.test.ts -t \"R-rn-hub-signin: a hub session streams with the cookie and no bearer\""
+  }
+]

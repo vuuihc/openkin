@@ -19,6 +19,25 @@ const en: MessageTree = {
     back: "Back",
   },
   pairing: {
+    hubTitle: "Sign in to your Hub",
+    hubHint: "The Hub’s address. Signing in reaches every node connected to it.",
+    hubPlaceholder: "https://kin.example.com",
+    hubContinue: "Continue",
+    hubChecking: "Checking the Hub…",
+    hubPasswordHint: "Use the account this Hub was set up with.",
+    hubSignIn: "Sign in",
+    hubSigningIn: "Signing in…",
+    hubNodeInstead: "Pair with a node link instead",
+    hubOidcPending:
+      "This Hub signs in with a provider. Provider sign-in from the app is not in this update yet; use the Hub in a browser.",
+    hubNodeTitle: "Pair with one node",
+    hubBack: "Use a different Hub",
+    hubRejected: "The Hub refused this sign-in. Check the address and the account, then try again.",
+    hubInsecure: "Use an https:// Hub address. http is allowed only on this device.",
+    hubNoAccounts:
+      "This Hub has no accounts yet. Set it up in a browser, or pair with a node link.",
+    hubNeedsOwner:
+      "This Hub has no owner yet. Open it in a browser to claim it, then sign in here.",
     title: "Connect this device",
     hint: "Paste the link the node printed",
     placeholder: "Paste the pairing link",
