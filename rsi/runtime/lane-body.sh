@@ -45,7 +45,7 @@ The lane ran the same pre-push seams it runs for every hand-off. Evidence captur
 
 ## Claims
 
-none: the worker did not write a Claims block before it exited (partial hand-off).
+Claim check: none: the worker did not write a claim before it exited (partial hand-off).
 
 ## Screenshots
 
