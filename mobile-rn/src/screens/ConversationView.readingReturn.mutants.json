@@ -33,5 +33,19 @@
     "old": "    read: (taskId) => {\n      const place = places.get(taskId);\n      return place === undefined ? null : { ...place };\n    },",
     "new": "    read: () => {\n      const place = [...places.values()].at(-1);\n      return place === undefined ? null : { ...place };\n    },",
     "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: another conversation never restores the first conversation's place\""
+  },
+  {
+    "label": "the view reads a place without its conversation, so another conversation's place is restored (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      const saved = readingMemory.read(state.taskId);",
+    "new": "      const saved = readingMemory.read(\"\");",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: another conversation never restores the first conversation's place\""
+  },
+  {
+    "label": "an in-place conversation swap never stores the place that was read, because the leave is keyed only by the memory (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  }, [state.taskId, readingMemory]);",
+    "new": "  }, [readingMemory]);",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: an in-place conversation swap stores the place under the conversation that was read\""
   }
 ]
