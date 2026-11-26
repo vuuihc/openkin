@@ -26,5 +26,12 @@
     "old": "      if (saved !== null && !saved.pinned) {",
     "new": "      if (saved !== null) {",
     "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: a reader who left at the live edge still opens at the newest segment\""
+  },
+  {
+    "label": "the memory ignores the task key and hands the last place to any conversation (R-rn-reading-place)",
+    "file": "mobile-rn/src/thread/readingMemory.ts",
+    "old": "    read: (taskId) => {\n      const place = places.get(taskId);\n      return place === undefined ? null : { ...place };\n    },",
+    "new": "    read: () => {\n      const place = [...places.values()].at(-1);\n      return place === undefined ? null : { ...place };\n    },",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: another conversation never restores the first conversation's place\""
   }
 ]
