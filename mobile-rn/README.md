@@ -169,10 +169,14 @@ Screenshots come from the same device without any GUI:
 - Push registration and the glass header remain unwired on the reviewed
   `6cd5f5cd` baseline. #768 tracks the glass usage sheet, not the header.
 - QR scanning and the phone's new-conversation entry are still absent.
-- The iPad split layout is visible in the historical `14918d30` screenshots.
-  This refresh captured no new screenshots because the memory gate failed.
-  Table rendering, partial usage failure and project-record headings now have
-  passing regressions; see `EVIDENCE.md` §已修 for the commits and checks.
+- The iPad split layout is visible only in the historical `14918d30`
+  screenshots. This refresh captured two 390 screens (`390-list.png` and
+  `390-conversation.png` in `rsi/state/shots/rn-evidence-refresh/`, local and
+  not committed) showing the record-named headings and the rendered table; no
+  fresh 820 screen was captured because the memory gate skipped the full
+  four-surface walk. Table rendering, partial usage failure and project-record
+  headings also have passing regressions; see `EVIDENCE.md` §已修 for the
+  commits and checks.
 
 ## Notes for maintainers
 
