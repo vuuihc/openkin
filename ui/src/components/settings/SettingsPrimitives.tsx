@@ -196,7 +196,13 @@ export function SettingsLayout({
   return (
     <div
       ref={scrollRef}
-      className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll phone-footer-clearance"
+      // The footer class is the floor; the approval class reserves the band a
+      // waiting 等待处理 strip publishes, so the last section row can be
+      // scrolled clear of it on a phone (2026-11-26 dogfood: the strip covered
+      // the lower 17px of 高级 and a touch there opened the waiting
+      // conversation). The routines pane carries the same pair; with nothing
+      // pending the `0px` fallbacks make it exactly today's clearance.
+      className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll phone-footer-clearance phone-approval-clearance"
     >
       <div
         className={classes(
