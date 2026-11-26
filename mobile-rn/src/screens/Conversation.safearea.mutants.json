@@ -16,7 +16,7 @@
   {
     "label": "the header ignores the notch and keeps a fixed padding (R-rn-native-shell)",
     "file": "mobile-rn/src/screens/ConversationView.tsx",
-    "old": "        style={[styles.header, { paddingTop: headerTopInset(insets.top) }]}",
+    "old": "        style={[\n          styles.header,\n          glass.kind === \"blur\" ? styles.headerGlass : styles.headerOpaque,\n          { paddingTop: headerTopInset(insets.top) },\n        ]}",
     "new": "        style={styles.header}",
     "test": "cd mobile-rn && npx jest src/screens/Conversation.safearea.test.tsx -t \"KIN-MOBILE-001 R4: the header's top padding is the device's inset plus 8\""
   }

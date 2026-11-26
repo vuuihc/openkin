@@ -64,7 +64,7 @@ function task(overrides: Partial<Task> = {}): Task {
 }
 
 function storedSession(): Promise<Session | null> {
-  return Promise.resolve({ origin: ORIGIN, token: TOKEN });
+  return Promise.resolve({ kind: "node", origin: ORIGIN, token: TOKEN });
 }
 
 function ok(body: unknown, status = 200): Response {
