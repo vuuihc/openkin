@@ -12,6 +12,11 @@
 # `sleep`s) and state live under mktemp -d. No real simulators, no network.
 # Prints "ok: <case>" per case and exits non-zero on the first failure.
 set -u
+# This suite is often run from inside a lane (check.sh in a lane worker, or the
+# merge.sh a lane spawns), which exports the slot env to its children; the
+# "outside a lane" cases must not inherit it. Every case that needs these
+# passes them explicitly through `env` in xc().
+unset RSI_LANE_PID RSI_LANE_N RSI_SIM_SLOT RSI_SIM_SLOT_WAIT
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
 SHIMDIR="$REPO/rsi/runtime/shim"
