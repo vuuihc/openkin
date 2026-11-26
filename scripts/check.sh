@@ -400,6 +400,9 @@ job_shell_test() {
   # is still reaped: cleanup sweeps by worktree cwd and shuts down only the
   # simulators this lane booted (2026-11-25 orphan-simulator incident).
   bash rsi/runtime/tests/test-lane-orphan-reap.sh || return 1
+  # A second lane's `simctl boot` waits on the machine-wide simulator slot
+  # instead of booting next to a live lane (2026-11-25 load-~900 incident).
+  bash rsi/runtime/tests/test-sim-slot.sh || return 1
   bash rsi/runtime/nas/tests/test-nas.sh || return 1
   bash rsi/runtime/nas/tests/test-install-preflight.sh || return 1
   bash rsi/runtime/ux/retry-test.sh || return 1
