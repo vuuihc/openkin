@@ -31,6 +31,7 @@ import {
   type PendingSend,
 } from "../../../ui/src/lib/pendingSend";
 import { apiFetch, type TransportReason } from "../api/transport";
+import { createQueueMemory, type QueueMemory } from "./queueMemory";
 import {
   createFetchStreamSource,
   startTaskStream,
@@ -247,6 +248,12 @@ export type ThreadOptions = {
   idleTimeoutMs?: number;
   timeoutMs?: number;
   newId?: () => string;
+  /**
+   * What the queue must not forget when the route unmounts (KIN-MOBILE-001
+   * §5 离开再回来). Production injects the app's one shared memory; a model
+   * built without one gets its own, so every existing test stays isolated.
+   */
+  queueMemory?: QueueMemory;
   onState?: (state: ThreadState) => void;
 };
 
@@ -275,8 +282,12 @@ let nextFallbackId = 0;
 export function createThread(options: ThreadOptions): Thread {
   const { origin, token, taskId, fetchImpl, schedule, timeoutMs } = options;
   const newId = options.newId ?? (() => `send-${++nextFallbackId}`);
+  const queueMemory = options.queueMemory ?? createQueueMemory();
 
-  let state = emptyState(taskId);
+  // The queue outlives this model (the route unmounts it on Back), so the
+  // first state is seeded from the memory: the rows a previous visit left are
+  // drawn again before the read answers, with their original ids.
+  let state: ThreadState = { ...emptyState(taskId), sendQueue: queueMemory.read(taskId) };
   let events: TaskEvent[] = [];
   let task: Task | null = null;
   let epoch = -1;
@@ -292,6 +303,11 @@ export function createThread(options: ThreadOptions): Thread {
 
   const publish = (patch: Partial<ThreadState>): void => {
     state = { ...state, ...patch };
+    // The queue's one write-through. Enqueue, withdraw, a flushed item, a
+    // stop and the restored flush all land in a publish, so the memory and
+    // the rows cannot disagree about what is still owed; writing at each call
+    // site instead would leave one path silently out of the memory.
+    if (patch.sendQueue !== undefined) queueMemory.write(taskId, patch.sendQueue);
     listeners.forEach((listener) => listener(state));
     options.onState?.(state);
   };
@@ -570,6 +586,11 @@ export function createThread(options: ThreadOptions): Thread {
         stream?.stop();
         stream = null;
         startStream();
+        // A queue restored from a previous visit may belong to a round that
+        // already ended while the route was gone: nobody is left to carry it,
+        // so the reopen is the send. A running round already gets its flush
+        // from that round's own `result`; sending here would race it.
+        if (!state.running && state.sendQueue.length > 0) void flushQueue();
       }
       return state;
     },

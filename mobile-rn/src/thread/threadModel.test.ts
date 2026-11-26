@@ -6,6 +6,7 @@ import {
   mergeProcessRuns,
   type Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
+import { createQueueMemory } from "./queueMemory";
 import {
   createThread,
   loadThread,
@@ -716,6 +717,90 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
     await settle();
     expect(prompts).toEqual(["keep", "keep"]);
     expect(model.getState().sendQueue).toEqual([]);
+    model.close();
+  });
+
+  it("KIN-MOBILE-001 §5 离开再回来: a queued message is still queued when the conversation is closed and reopened", async () => {
+    const memory = createQueueMemory();
+    const prompts: string[] = [];
+    const fetchImpl = routedFetch((url, init) => {
+      if (url.endsWith("/prompt")) {
+        const body = JSON.parse(String(init?.body)) as { prompt: string };
+        prompts.push(body.prompt);
+        return { body: task() };
+      }
+      return url.endsWith("/events") ? { body: RUNNING } : { body: task() };
+    });
+
+    const firstFake = fakeStream();
+    const first = liveThread(fetchImpl, firstFake.source, { queueMemory: memory });
+    await first.start();
+    await settle();
+    expect(await first.send("first")).toEqual({ ok: true, queued: true });
+    expect(await first.send("second")).toEqual({ ok: true, queued: true });
+    const second = first.getState().sendQueue[1];
+    first.cancelQueued(second.id);
+    expect(first.getState().sendQueue.map((item) => item.text)).toEqual(["first"]);
+    expect(memory.read(TASK_ID).map((item) => item.text)).toEqual(["first"]);
+
+    // Back to the list: the whole route and its model go away.
+    first.close();
+
+    // The same conversation opened again lands on the same queue, with the
+    // row still addressed by the id the withdraw control knows.
+    const reopenedFake = fakeStream();
+    const reopened = liveThread(fetchImpl, reopenedFake.source, { queueMemory: memory });
+    await reopened.start();
+    await settle();
+    expect(reopened.getState().sendQueue.map((item) => item.text)).toEqual(["first"]);
+    expect(reopened.getState().sendQueue[0]?.id).toBe(first.getState().sendQueue[0]?.id);
+    // The round that was running is still running: reopening reads it, and
+    // must not post the queued words a second time.
+    expect(reopened.getState().running).toBe(true);
+    expect(prompts).toEqual([]);
+
+    // The reopened round ends: now the restored item is sent, exactly once.
+    reopenedFake.connections[0].push(frame(event(4, "result", { is_error: false })));
+    await settle();
+    expect(prompts).toEqual(["first"]);
+    expect(reopened.getState().sendQueue).toEqual([]);
+    reopened.close();
+  });
+
+  it("KIN-MOBILE-001 §5 离开再回来: a restored queue on an idle conversation sends its first item once", async () => {
+    const memory = createQueueMemory();
+    memory.write(TASK_ID, [
+      { id: "q1", text: "first" },
+      { id: "q2", text: "second" },
+    ]);
+    const fake = fakeStream();
+    const prompts: string[] = [];
+    const fetchImpl = routedFetch((url, init) => {
+      if (url.endsWith("/prompt")) {
+        const body = JSON.parse(String(init?.body)) as { prompt: string };
+        prompts.push(body.prompt);
+        return { body: task() };
+      }
+      // The conversation was left after its round finished; nothing is running
+      // to carry the queue, so the reopen itself is what has to send it.
+      return url.endsWith("/events")
+        ? { body: HISTORY }
+        : { body: task({ status: "succeeded" }) };
+    });
+    const model = liveThread(fetchImpl, fake.source, { queueMemory: memory });
+
+    await model.start();
+    await settle();
+    // One prompt opens one round; the rest waits for that round's `result`.
+    expect(prompts).toEqual(["first"]);
+    expect(model.getState().sendQueue.map((item) => item.text)).toEqual(["second"]);
+    expect(memory.read(TASK_ID).map((item) => item.text)).toEqual(["second"]);
+
+    fake.connections[0].push(frame(event(8, "result", { is_error: false })));
+    await settle();
+    expect(prompts).toEqual(["first", "second"]);
+    expect(model.getState().sendQueue).toEqual([]);
+    expect(memory.read(TASK_ID)).toEqual([]);
     model.close();
   });
 

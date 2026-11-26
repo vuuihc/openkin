@@ -33,5 +33,33 @@
     "old": "        pending = settlePendingSends([...pending, local], events);",
     "new": "        pending = [...pending];",
     "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5: a flushed queue item hands its words to the transcript in the same update that removes its queue row\""
+  },
+  {
+    "label": "a reopened conversation starts with no queue, so the rows the previous visit left vanish (R-rn-queue-survives-leave)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "let state: ThreadState = { ...emptyState(taskId), sendQueue: queueMemory.read(taskId) };",
+    "new": "let state: ThreadState = { ...emptyState(taskId), sendQueue: [] };",
+    "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5 离开再回来: a queued message is still queued when the conversation is closed and reopened\""
+  },
+  {
+    "label": "a restored queue on an idle conversation is never sent, so the words wait forever (R-rn-queue-survives-leave)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "        if (!state.running && state.sendQueue.length > 0) void flushQueue();",
+    "new": "        if (!state.running && state.sendQueue.length < 0) void flushQueue();",
+    "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5 离开再回来: a restored queue on an idle conversation sends its first item once\""
+  },
+  {
+    "label": "the queue change never reaches the memory, so a leave still loses it (R-rn-queue-survives-leave)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "    if (patch.sendQueue !== undefined) queueMemory.write(taskId, patch.sendQueue);",
+    "new": "    if (patch.sendQueue !== undefined) { /* memory skipped */ }",
+    "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5 离开再回来: a queued message is still queued when the conversation is closed and reopened\""
+  },
+  {
+    "label": "the route builds its thread without the shared queue memory, so a remount draws no queued row (R-rn-queue-survives-leave)",
+    "file": "mobile-rn/src/screens/ConversationScreen.tsx",
+    "old": "          source,\n          queueMemory,\n        });",
+    "new": "          source,\n        });",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.queueReturn.test.tsx -t \"KIN-MOBILE-001 §5 离开再回来: the queued rows are still drawn after the conversation remounts\""
   }
 ]
