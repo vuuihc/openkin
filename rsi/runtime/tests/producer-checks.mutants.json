@@ -1,0 +1,37 @@
+[
+  {
+    "label": "the CI-red short-circuit never runs, so a red PR still pays for the gate and review",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_call_site_precedes_gate bash rsi/runtime/tests/test-ci-early-red.sh",
+    "old": "if ci_early_red \"$N\" \"$SLUG\" \"$STATE/merge/$SLUG.ci.txt\"; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "the merge lane stops sharing the producer formula, so the cap it enforces can drift",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-diff-size.sh",
+    "old": "SIZE=\"$(GIT=\"$GIT\" bash \"$RSI_DIR/runtime/diff-size.sh\" \"$WT\")\"",
+    "new": "SIZE=0"
+  },
+  {
+    "label": "the lane's cap rises to 99999, so oversize branches still reach the push",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_lane_oversize_refuses_without_waiver bash rsi/runtime/tests/test-diff-size.sh",
+    "old": "if [ \"$n\" -gt 1000 ] && [ ! -f \"$2\" ]; then echo \"OVERSIZE $n\"; return 1; fi",
+    "new": "if [ \"$n\" -gt 99999 ] && [ ! -f \"$2\" ]; then echo \"OVERSIZE $n\"; return 1; fi"
+  },
+  {
+    "label": "no path is ever RN-relevant, so the mobile-rn self-check never runs again",
+    "file": "rsi/runtime/nas/ingest-nas.sh",
+    "test": "RSI_TEST_ONLY=test_rn_section_runs_for_rn_paths bash rsi/runtime/tests/test-ingest-rn-selfcheck.sh",
+    "old": "    printf '%s\\n' \"$RN_PATHS\" | grep -qE '^(mobile-rn/|ui/src/)' && RN_REQ=1",
+    "new": "    false"
+  },
+  {
+    "label": "the ingest cap rises to 99999, so oversize NAS results are published again",
+    "file": "rsi/runtime/nas/ingest-nas.sh",
+    "test": "RSI_TEST_ONLY=test_ingest_holds_oversize bash rsi/runtime/tests/test-diff-size.sh",
+    "old": "if [ \"$NAS_SIZE\" -gt 1000 ] && [ ! -f \"$STATE/merge/$SLUG.size-ok\" ]; then",
+    "new": "if [ \"$NAS_SIZE\" -gt 99999 ] && [ ! -f \"$STATE/merge/$SLUG.size-ok\" ]; then"
+  }
+]

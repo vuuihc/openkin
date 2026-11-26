@@ -1847,6 +1847,27 @@ PY
   return 0
 }
 
+# The CI-red short-circuit (step 3b). `gh pr checks` reports buckets computed from the head's
+# statusCheckRollup; bucket=fail is a COMPLETED check whose conclusion is FAILURE. That verdict
+# already decided what step 6's land loop reads, so the gate and the review must not run first —
+# before this check, a PR whose CI went red during the gate still paid for both (#778's RN tsc
+# failure sat red through a full gate and a strong review). Pending/cancelled/skipped are not
+# verdicts; an unreadable checks list fails open to the gate exactly as before. The failing
+# check names land in <slug>.ci.txt as the sendback's report file. Top-level (before the
+# dispatcher `if`): the --one worker path and the --ci-early-red-check seam share this one
+# function, so it must exist in both branches of the dispatcher.
+ci_early_red() { # <pr> <slug> <ci-txt> -> 0 when a completed FAILURE exists on the PR head
+  local n="$1" slug="$2" cif="$3" out fails
+  out="$($GH pr checks "$n" --repo "$GH_REPO" --json name,bucket,link 2>&1)"
+  echo "$out" | grep -qi 'no checks reported' && return 1
+  fails="$(printf '%s\n' "$out" | python3 -c 'import json,sys
+try: checks=json.load(sys.stdin)
+except Exception: sys.exit(1)
+print(" ".join(c.get("name","?") for c in checks if c.get("bucket")=="fail"))' 2>/dev/null)"
+  [ -n "$fails" ] || return 1
+  printf '%s\nfailing checks: %s\n' "$out" "$fails" > "$cif"
+}
+
 # ------------------------------------------------------------------ dispatcher
 if [ "${1:-}" != "--one" ]; then
   [ "${1:-}" = "--resolve-generated" ] && { gen_resolve "${2:?worktree required}"; exit $?; }
@@ -1963,6 +1984,13 @@ if [ "${1:-}" != "--one" ]; then
       echo "HOLD $CI_FIRST_REASON"; exit 0
     fi
     echo "SYNC $CI_FIRST_REASON"; exit 1
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-ci-early-red.sh: the same ci_early_red() step 3b
+  # calls, with the checks read stubbed through RSI_GH. No lock, fetch, gate, review or dispatch.
+  if [ "${1:-}" = "--ci-early-red-check" ]; then
+    [ $# -ge 4 ] || { echo "usage: merge.sh --ci-early-red-check <pr> <slug> <ci-txt>" >&2; exit 2; }
+    if ci_early_red "$2" "$3" "$4"; then echo "RED"; exit 0; fi
+    echo "PROCEED"; exit 1
   fi
   # Hermetic seam for rsi/runtime/tests/test-gate-lock-timeout.sh: the same mklock() and
   # gate_lock_decision() the gate body calls, against a state dir whose .gate.lock may be held
@@ -2381,7 +2409,9 @@ if queue_carry_step "$WT" "$OLDHEAD" "$QUEUE_INCOMING" "$SHA" "$CH" "$V" "$RV"; 
 elif [ "$OLDHEAD" != "$SHA" ]; then
   say "#$N $SLUG: queue-time carry declined: $QUEUE_CARRY_REASON"
 fi
-SIZE="$($GIT -C "$WT" diff --numstat origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | awk '{s+=$1+$2} END{print s+0}')"
+# The one formula producers and this lane share (runtime/diff-size.sh): lane.sh and ingest-nas.sh
+# stop the same oversized diff before it ever costs a gate slot or a sendback round.
+SIZE="$(GIT="$GIT" bash "$RSI_DIR/runtime/diff-size.sh" "$WT")"
 # CEO 2026-11-16 EMPTY-DELIVERY: a PR whose tree equals main delivers nothing; never merge it.
 if [ "$SIZE" = 0 ] && $GIT -C "$WT" diff --quiet origin/main HEAD; then
   say "#$N $SLUG: EMPTY delivery (tree == origin/main), not merging"
@@ -2431,6 +2461,14 @@ if echo "$CH" | grep -qE '^ui/src/.*\.tsx$' && ! echo "$CH" | grep -qE '^ui/src/
     echo "UI .tsx changed but no screenshots in $STATE/shots/$SLUG/ and no 'Screenshots:' line with a link/image or 'none: <reason>' in the PR body (MANDATE 5). Capture 390x844, 820x1180 and 1100x760 before/after, or state why nothing is visible." > "$STATE/merge/$SLUG.err"
     sendback "$SLUG" "$ITEM" "missing screenshots" "$STATE/merge/$SLUG.err" "hold-screenshots" - -; exit 0
   fi
+fi
+# 3b. CI already concluded red on this head: send back before paying for a serialised gate and a
+# strong review — the verdict step 6 reads is already decided. ci_early_red fails open on a
+# pending/cancelled/unreadable rollup, so only a completed FAILURE reaches the sendback.
+if ci_early_red "$N" "$SLUG" "$STATE/merge/$SLUG.ci.txt"; then
+  say "#$N $SLUG: CI already red on ${SHA:0:8} — sending back before the gate and review run"
+  sendback "$SLUG" "$ITEM" "CI failed" "$STATE/merge/$SLUG.ci.txt" "ci" - "gh pr checks $N --repo $GH_REPO"
+  exit 0
 fi
 
 # 4. gate and review IN PARALLEL. Review is keyed by the PR's own diff (web/dist/index.html and lockfile excluded), the gate by head SHA.
