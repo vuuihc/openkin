@@ -577,8 +577,9 @@ case_batch_off_is_today() {
   local log="$T/start-off.log"
   : > "$log"
   run_dispatch "$log" 0
-  # Today's path, unchanged: dispatch_rows orders small-safe first, then by PR number, and the
-  # loop starts one --one verifier per eligible PR. No batch is formed and none is recorded.
+  # Today's path, unchanged: dispatch_rows orders small-safe first, then longest-waiting, then
+  # PR number, and the loop starts one --one verifier per eligible PR. No batch is formed and
+  # none is recorded.
   [ "$(cat "$log")" = "one 102 p2
 one 101 p1" ] || fail "off: start lines differ from today's singles ($(cat "$log"))"
   if ls "$LSTATE/merge"/batch-*.members >/dev/null 2>&1; then fail "off: a members file was written"; fi

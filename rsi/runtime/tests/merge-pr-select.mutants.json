@@ -33,5 +33,19 @@
     "test": "RSI_TEST_ONLY=dream-compact-date-skipped bash rsi/runtime/tests/test-merge-pr-select.sh",
     "old": "(?:\\d{8}|\\d{4}-\\d{2}-\\d{2})",
     "new": "(?:\\d{4}-\\d{2}-\\d{2})"
+  },
+  {
+    "label": "the dispatcher sorts by PR number again, so a small that re-queues after every rework starves the longer-waiting one (#790)",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=longest-waiting-first bash rsi/runtime/tests/test-merge-pr-select.sh",
+    "old": "    try: queued=int(open(\"%s/merge/%s.queued_at\" % (st,slug)).read().strip())",
+    "new": "    try: queued=0"
+  },
+  {
+    "label": "a never-queued PR sorts before one that has waited, so a brand-new PR jumps a queue it never joined",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=never-queued-after-waiting bash rsi/runtime/tests/test-merge-pr-select.sh",
+    "old": "    except Exception: queued=sys.maxsize   # never queued: after waiting PRs, then by number",
+    "new": "    except Exception: queued=0"
   }
 ]
