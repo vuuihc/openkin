@@ -122,7 +122,13 @@ vi.mock("../hooks/useMachines", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../hooks/useMachines")>();
   return {
     ...actual,
-    useMachines: () => ({ machines: [], agents: [], loading: false, failed: false, refresh: () => {} }),
+    useMachines: () => ({
+      machines: [],
+      agents: [],
+      loading: false,
+      failed: false,
+      refresh: () => {},
+    }),
     refreshMachines: vi.fn(async () => []),
   };
 });
