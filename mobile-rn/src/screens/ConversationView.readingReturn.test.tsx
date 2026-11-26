@@ -138,6 +138,82 @@ describe("KIN-MOBILE-001 §3/§4 reopening a conversation", () => {
     }
   });
 
+  it("KIN-MOBILE-001 §3 离开再回来: a deep place survives the short first layout", async () => {
+    const scrollToEnd = jest.spyOn(FlatList.prototype, "scrollToEnd");
+    const scrollToOffset = jest.spyOn(FlatList.prototype, "scrollToOffset");
+    try {
+      const memory = createReadingMemory();
+      const turns = [turn("one"), turn("two")];
+
+      // The reader leaves 3000pt down a 4000pt thread.
+      const first = await renderView(turns, { readingMemory: memory });
+      await contentHeight(first, 4000);
+      await scrollTo(first, 3000, 4000);
+      await first.unmount();
+      expect(memory.read(TASK_ID)).toEqual({ offset: 3000, pinned: false });
+
+      // The reopening lays out only the list's initial window, so the restore
+      // clamps at that short content's own end...
+      scrollToEnd.mockClear();
+      const reopened = await renderView(turns, { readingMemory: memory });
+      await contentHeight(reopened, 1200);
+      await scrollTo(reopened, 400, 1200);
+
+      // ...and the rest of the thread lays out. The clamp is not the reader
+      // arriving: growth re-issues the move instead of following the end.
+      await contentHeight(reopened, 4000);
+      expect(scrollToOffset).toHaveBeenCalledTimes(2);
+      expect(scrollToOffset).toHaveBeenNthCalledWith(1, {
+        offset: 3000,
+        animated: false,
+      });
+      expect(scrollToOffset).toHaveBeenNthCalledWith(2, {
+        offset: 3000,
+        animated: false,
+      });
+      expect(scrollToEnd).not.toHaveBeenCalled();
+
+      // The platform delivers the restored offset: the restore is settled, so
+      // later growth neither retries it nor jumps to the newest segment.
+      await scrollTo(reopened, 3000, 4000);
+      await contentHeight(reopened, 4400);
+      expect(scrollToOffset).toHaveBeenCalledTimes(2);
+      expect(scrollToEnd).not.toHaveBeenCalled();
+    } finally {
+      scrollToOffset.mockRestore();
+      scrollToEnd.mockRestore();
+    }
+  });
+
+  it("KIN-MOBILE-001 §3 离开再回来: a drag during the restore takes over from it", async () => {
+    const scrollToEnd = jest.spyOn(FlatList.prototype, "scrollToEnd");
+    const scrollToOffset = jest.spyOn(FlatList.prototype, "scrollToOffset");
+    try {
+      const memory = createReadingMemory();
+      const turns = [turn("one"), turn("two")];
+
+      const first = await renderView(turns, { readingMemory: memory });
+      await contentHeight(first, 4000);
+      await scrollTo(first, 3000, 4000);
+      await first.unmount();
+
+      // The restore is still short of its target when the reader drags: their
+      // place wins, and the arriving content must not drag them back.
+      scrollToEnd.mockClear();
+      const reopened = await renderView(turns, { readingMemory: memory });
+      await contentHeight(reopened, 1200);
+      await fireEvent(list(reopened), "scrollBeginDrag");
+      await scrollTo(reopened, 100, 1200);
+      await contentHeight(reopened, 4000);
+
+      expect(scrollToOffset).toHaveBeenCalledTimes(1);
+      expect(scrollToEnd).not.toHaveBeenCalled();
+    } finally {
+      scrollToOffset.mockRestore();
+      scrollToEnd.mockRestore();
+    }
+  });
+
   it("KIN-MOBILE-001 §3 离开再回来: a reader who left at the live edge still opens at the newest segment", async () => {
     const scrollToEnd = jest.spyOn(FlatList.prototype, "scrollToEnd");
     const scrollToOffset = jest.spyOn(FlatList.prototype, "scrollToOffset");

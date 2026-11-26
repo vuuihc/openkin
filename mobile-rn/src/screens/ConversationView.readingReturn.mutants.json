@@ -14,10 +14,10 @@
     "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: reopening lands where the reader was\""
   },
   {
-    "label": "a restored reader is still pinned, so the next streamed append yanks them to the end (R-rn-reading-place)",
+    "label": "growth after a restored place follows the newest segment instead of the reader's place (R-rn-reading-place)",
     "file": "mobile-rn/src/screens/ConversationView.tsx",
-    "old": "        follow.current = { pinned: false };",
-    "new": "        follow.current = initialFollow();",
+    "old": "    const target = restoring.current;\n    if (target !== null) {\n      // The first layout held only the list's initial window, so the restore\n      // clamped short of a deep place. The content that makes it reachable is\n      // here now, so move again rather than follow the newest segment.\n      listRef.current?.scrollToOffset({ offset: target, animated: false });\n      return;\n    }\n    if (onContentGrew(follow.current).scrollToEnd) {\n      listRef.current?.scrollToEnd({ animated: false });\n    }",
+    "new": "    listRef.current?.scrollToEnd({ animated: false });",
     "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §4 离开再回来: a streamed append after a restored place does not yank the page\""
   },
   {
@@ -47,5 +47,19 @@
     "old": "  }, [state.taskId, readingMemory]);",
     "new": "  }, [readingMemory]);",
     "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: an in-place conversation swap stores the place under the conversation that was read\""
+  },
+  {
+    "label": "the restore always targets the top, so a deep place reopens at the start (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "          offset: saved.offset,",
+    "new": "          offset: 0,",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: a deep place survives the short first layout\""
+  },
+  {
+    "label": "a drag during the restore keeps the restore alive, so the arriving content pulls the reader back to the saved place (R-rn-reading-place)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "        onScrollBeginDrag={() => {\n          restoring.current = null;\n        }}",
+    "new": "        onScrollBeginDrag={() => {}}",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationView.readingReturn.test.tsx --maxWorkers=2 -t \"KIN-MOBILE-001 §3 离开再回来: a drag during the restore takes over from it\""
   }
 ]
