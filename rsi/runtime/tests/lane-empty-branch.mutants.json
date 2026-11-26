@@ -1,0 +1,23 @@
+[
+  {
+    "label": "old defect restored: a leftover empty branch fails every dispatch forever",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_leftover_empty_branch_is_reused bash rsi/runtime/tests/test-lane-empty-branch.sh",
+    "old": "  if ! $GIT -C \"$RSI_CTRL\" worktree add \"$WT\" -b \"$BR\" origin/main >/dev/null 2>&1; then\n    if $GIT -C \"$RSI_CTRL\" rev-parse --verify -q \"refs/heads/$BR\" >/dev/null \\\n       && [ \"$($GIT -C \"$RSI_CTRL\" rev-list --count \"origin/main..$BR\" 2>/dev/null || echo 1)\" = 0 ] \\\n       && $GIT -C \"$RSI_CTRL\" worktree add \"$WT\" \"$BR\" >/dev/null 2>&1 \\\n       && $GIT -C \"$WT\" merge -q --ff-only origin/main >/dev/null 2>&1; then\n      echo \"reusing leftover empty branch $BR\"\n    else\n      finish failed \"\" \"cannot create worktree $WT\"; count_fail \"lane $N\" \"worktree $WT\"; exit 1\n    fi\n  fi",
+    "new": "  $GIT -C \"$RSI_CTRL\" worktree add \"$WT\" -b \"$BR\" origin/main >/dev/null 2>&1 || { finish failed \"\" \"cannot create worktree $WT\"; count_fail \"lane $N\" \"worktree $WT\"; exit 1; }"
+  },
+  {
+    "label": "emptiness check weakened: a branch holding someone's commits is adopted",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_branch_ahead_still_fails bash rsi/runtime/tests/test-lane-empty-branch.sh",
+    "old": "[ \"$($GIT -C \"$RSI_CTRL\" rev-list --count \"origin/main..$BR\" 2>/dev/null || echo 1)\" = 0 ]",
+    "new": "[ \"$($GIT -C \"$RSI_CTRL\" rev-list --count \"origin/main..$BR\" 2>/dev/null || echo 1)\" -ge 0 ]"
+  },
+  {
+    "label": "fast-forward dropped: the reused worktree stays behind origin/main",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_leftover_empty_branch_is_reused bash rsi/runtime/tests/test-lane-empty-branch.sh",
+    "old": "       && $GIT -C \"$WT\" merge -q --ff-only origin/main >/dev/null 2>&1; then",
+    "new": "       && $GIT -C \"$WT\" merge -q --ff-only \"$BR\" >/dev/null 2>&1; then"
+  }
+]

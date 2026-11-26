@@ -1,0 +1,9 @@
+[
+  {
+    "label": "R-coarse-floors: the settings tab floor shrinks by width again on a coarse pointer",
+    "file": "ui/src/components/settings/SettingsPrimitives.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/settings/SettingsPrimitives.test.ts",
+    "old": "                      coarse ? null : \"sm:min-h-10\",",
+    "new": "                      \"sm:min-h-10\","
+  }
+]

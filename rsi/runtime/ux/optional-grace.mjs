@@ -15,9 +15,31 @@
 // it buys one paint, not a whole reply. Every probe is `.catch`-guarded, so a
 // detached frame or a torn-down context is "not yet", never an exception or a
 // fabricated verdict (AGENTS §13).
+//
+// The same charter covers the other end of an optional step: a press whose
+// control leaves the page as it acts is not a failure — `pressLeftControl`
+// below is that rule, and the walker's click entry asks it only after the
+// press already threw.
 export const OPTIONAL_GRACE_MS = 1500;
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// → true when a press that threw took its own control off the page.
+//
+// A press can land and take its control with it: the project fold button
+// re-labels 展开项目 → 收起项目 as the bucket opens, so Playwright's locator
+// stops matching between the press and the rest of its action, and the call
+// rejects with a timeout *after* the page already acted (J7/phone,
+// 2026-11-25). The next mandatory step is still the proof that the page did
+// what the journey came for, so a press whose control is gone is not a
+// failure. A control still on screen is a press that did not land, and a
+// locator that cannot be counted is "cannot tell" — neither is a skip
+// (AGENTS §13: no fabricated verdict).
+export async function pressLeftControl(loc) {
+  let count;
+  try { count = await loc.count(); } catch (_) { return false; }
+  return count === 0;
+}
 
 // → { state: 'visible' | 'hidden' | 'absent', waitedMs }
 //   visible — some match is painted; the caller should run the step

@@ -1,0 +1,16 @@
+[
+  {
+    "label": "a measured menu keeps the old 120px flip rule and clips its last rows",
+    "file": "ui/src/hooks/useAnchoredPanel.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/Popover.dom.test.tsx",
+    "old": "  if (contentHeight != null) {\n    if (preferredRoom >= contentHeight) return preferAbove;\n    if (otherRoom >= contentHeight) return !preferAbove;\n    return otherRoom > preferredRoom ? !preferAbove : preferAbove;\n  }\n  return preferredRoom < FLIP_BELOW && otherRoom > preferredRoom ? !preferAbove : preferAbove;",
+    "new": "  if (contentHeight != null) {\n    void contentHeight;\n  }\n  return preferredRoom < FLIP_BELOW && otherRoom > preferredRoom ? !preferAbove : preferAbove;"
+  },
+  {
+    "label": "a measured menu flips even when the preferred side can show its content",
+    "file": "ui/src/hooks/useAnchoredPanel.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/Popover.dom.test.tsx",
+    "old": "  if (contentHeight != null) {\n    if (preferredRoom >= contentHeight) return preferAbove;\n    if (otherRoom >= contentHeight) return !preferAbove;",
+    "new": "  if (contentHeight != null) {\n    if (otherRoom >= contentHeight) return !preferAbove;"
+  }
+]

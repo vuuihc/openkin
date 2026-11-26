@@ -88,6 +88,11 @@ async function readOpeningHistory(id: string): Promise<{
   return { items: loaded.slice(start), cut };
 }
 
+/** Why the sheet is closing. A successful continue is not a dismissal: on a
+ *  Mac the list keeps its `?agent=` entry under the task it opens, so Back
+ *  returns to the sheet the reader left. */
+export type AgentSessionSheetClose = { reason?: "attach" };
+
 export type AgentSessionSheetProps = {
   open: boolean;
   /**
@@ -100,7 +105,7 @@ export type AgentSessionSheetProps = {
   /** The shell's channel state: a disconnected console can read what it has
    *  but cannot start the task the composer would start. */
   offline?: boolean;
-  onClose: () => void;
+  onClose: (close?: AgentSessionSheetClose) => void;
 };
 
 /**
@@ -286,7 +291,7 @@ export default function AgentSessionSheet({
         return;
       }
       pendingTask.current = result.task.id;
-      onClose();
+      onClose({ reason: "attach" });
     } catch (e) {
       const message = e instanceof Error ? e.message : tr("agentSession.continueFailed");
       setAttachError(message);
@@ -353,7 +358,7 @@ export default function AgentSessionSheet({
           follows the pointer, not the width (AGENTS 16). */}
       <Button
         variant="quiet"
-        onClick={onClose}
+        onClick={() => onClose()}
         aria-label={tr("common.close")}
         className={`${coarse ? "h-11 w-11" : "h-7 w-7"} flex-none p-0`}
       >

@@ -1,0 +1,37 @@
+[
+  {
+    "label": "re-add the deleted page composer band to the measured routes",
+    "file": "ui/src/components/layout/AppShell.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/floatingApprovalWiring.test.ts",
+    "old": "  const measuredBottomBand = selectedTaskId !== null || draftActive;",
+    "new": "  const measuredBottomBand = selectedTaskId !== null || location.pathname.startsWith(\"/agent-sessions/\") || draftActive;"
+  },
+  {
+    "label": "the retired page is dropped from the removed-surface record",
+    "file": "scripts/removed-surfaces.txt",
+    "test": "python3 scripts/check-removed-surfaces.test.py",
+    "old": "ui/src/pages/AgentSessionDetailPage.historyBudget.dom.test.tsx\nui/src/pages/AgentSessionDetailPage.tsx",
+    "new": "ui/src/pages/AgentSessionDetailPage.historyBudget.dom.test.tsx"
+  },
+  {
+    "label": "the removed-surface test forgets the page it now counts",
+    "file": "scripts/check-removed-surfaces.test.py",
+    "test": "python3 scripts/check-removed-surfaces.test.py",
+    "old": "        self.assertEqual(len(paths), 24, paths)",
+    "new": "        self.assertEqual(len(paths), 23, paths)"
+  },
+  {
+    "label": "land the old session URL on the task instead of the list",
+    "file": "ui/src/lib/surfacesContract.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/surfacesContract.KIN-CONTRACT-001.test.ts -t \"the story's exit table and EXIT_ROWS are the same rows, in order\"",
+    "old": "    to: \"/sessions?agent=<id>\",",
+    "new": "    to: \"/tasks/:id\","
+  },
+  {
+    "label": "the pill trusts a live distance the bottom band can move",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.newActivityPin.dom.test.tsx",
+    "old": "    if (stickToBottomRef.current) return;",
+    "new": "    if (isNearBottom(el)) return;"
+  }
+]
