@@ -185,3 +185,4 @@
 - 2026-11-24 创建（draft）。把 ADR 0035 的 RN 方向落成可交付的 parity 合同；不重画已签屏幕。
 - 2026-11-24 · CEO 代签 `approved`（owner 授权，见 `rsi/DECISIONS.md` 2026-11-24「RN phone client starts now」）。签字依据：ADR 0036 固定布局、in-place 共享 TS、轻闸门与依赖豁免；审阅页无待拍板决定。签字后 R1 才建 `mobile-rn/`。
 - 2026-11-26 · CEO 定：§2「底部导航」「新建入口」、§3「文件 · ⋯」与 §2「该项目下一行」四处按 RN 的实际面改写（对话头今天只画返回 · 用量，标题按已签帧待补；见 `rsi/DECISIONS.md` 2026-11-26「RN contract cells settled」）；新建入口另立 start 故事（draft，待签）。验收表与 做/不做 未动。
+- 2026-11-26 · §5 两处按已落地的 RN 面改写 — 立刻看到（每条排队消息各占一行、标「排队中」、显示原文与「撤回消息」，不另造计数串，对齐 R4 `Conversation.test.tsx:593`）与 键盘与焦点（回车插入换行、发送是「发送」按钮，外接键盘 Enter 发送不在本条，见 `rsi/DECISIONS.md:183`）；`## 验收` 与 做/不做 未动.
