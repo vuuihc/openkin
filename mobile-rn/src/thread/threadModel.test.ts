@@ -804,6 +804,83 @@ describe("KIN-MOBILE-001 R4 thread model", () => {
     model.close();
   });
 
+  it("KIN-MOBILE-001 §5 离开再回来: a prompt the node accepted before the screen closed is not sent again on reopen", async () => {
+    const memory = createQueueMemory();
+    const prompts: string[] = [];
+    const accepted = deferred<Reply>();
+    let didAccept = false;
+    const fetchImpl = routedFetch((url, init) => {
+      if (url.endsWith("/prompt")) {
+        const body = JSON.parse(String(init?.body)) as { prompt: string };
+        prompts.push(body.prompt);
+        return accepted.promise;
+      }
+      // Before the answer the round the accepted prompt opened is running;
+      // after it the conversation is idle and the history is the durable log.
+      return url.endsWith("/events")
+        ? { body: didAccept ? HISTORY : RUNNING }
+        : { body: didAccept ? task({ status: "succeeded" }) : task() };
+    });
+
+    const firstFake = fakeStream();
+    const first = liveThread(fetchImpl, firstFake.source, { queueMemory: memory });
+    await first.start();
+    await settle();
+    expect(await first.send("first")).toEqual({ ok: true, queued: true });
+
+    // The round ends and the queued prompt is dispatched; its POST is still
+    // unanswered, so the row is still drawn.
+    firstFake.connections[0].push(frame(event(4, "result", { is_error: false })));
+    await settle();
+    expect(prompts).toEqual(["first"]);
+    expect(first.getState().sendQueue.map((item) => item.text)).toEqual(["first"]);
+
+    // Back while that answer is in flight: the node may have accepted it, and
+    // the answer cannot land on this closed model to settle the row.
+    first.close();
+    didAccept = true;
+    accepted.resolve({ body: task({ status: "running" }) });
+    await settle();
+    expect(memory.read(TASK_ID)).toEqual([]);
+
+    // The conversation opened again is idle (the accepted prompt's round is
+    // over): a memory that still owed the words would post them a second time.
+    const reopened = liveThread(fetchImpl, fakeStream().source, { queueMemory: memory });
+    await reopened.start();
+    await settle();
+    expect(reopened.getState().sendQueue).toEqual([]);
+    expect(prompts).toEqual(["first"]);
+    reopened.close();
+  });
+
+  it("KIN-MOBILE-001 §5 离开再回来: a stop the node accepted after the screen closed still drops the queue", async () => {
+    const memory = createQueueMemory();
+    const cancel = deferred<Reply>();
+    const fetchImpl = routedFetch((url) =>
+      url.endsWith("/cancel")
+        ? cancel.promise
+        : url.endsWith("/events")
+          ? { body: RUNNING }
+          : { body: task() },
+    );
+    const fake = fakeStream();
+    const model = liveThread(fetchImpl, fake.source, { queueMemory: memory });
+    await model.start();
+    await settle();
+    expect(await model.send("first")).toEqual({ ok: true, queued: true });
+    expect(memory.read(TASK_ID).map((item) => item.text)).toEqual(["first"]);
+
+    // Stop is tapped and Back follows before the node answers.
+    const stopping = model.stop();
+    model.close();
+    cancel.resolve({ body: task({ status: "canceled" }) });
+    expect(await stopping).toEqual({ ok: false, reason: "stale" });
+    await settle();
+
+    // The stop was accepted, so the reopen must not send what was stopped.
+    expect(memory.read(TASK_ID)).toEqual([]);
+  });
+
   it("KIN-MOBILE-001 R4: a streamed result settles the task row the projection folds on", async () => {
     const openRound = HISTORY.slice(0, 6); // the same transcript, no `result` yet
     for (const expected of [

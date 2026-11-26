@@ -298,6 +298,10 @@ export function createThread(options: ThreadOptions): Thread {
   let closed = false;
   let stream: TaskStream | null = null;
   let flushing = false;
+  // The queued item whose prompt POST is in flight. The node may already have
+  // accepted it, so leaving the screen must settle it rather than leave it in
+  // the shared memory for the next visit to post again.
+  let inFlightId: string | null = null;
   let recovering: Promise<void> | null = null;
   const listeners = new Set<(state: ThreadState) => void>();
 
@@ -535,7 +539,9 @@ export function createThread(options: ThreadOptions): Thread {
         // after the await would put its `startSeq` at or past that echo and
         // it could never settle.
         const local = pendingSend(item.text, events);
+        inFlightId = item.id;
         const result = await postPrompt(item.text);
+        inFlightId = null;
         if (myGeneration !== generation) return;
         if (!result.ok) {
           if (result.reason === "unreachable") publish({ banner: "offline" });
@@ -669,14 +675,22 @@ export function createThread(options: ThreadOptions): Thread {
       if (!state.running) return { ok: false, reason: "not_running" };
       const myGeneration = generation;
       const result = await postStop();
-      if (myGeneration !== generation) return { ok: false, reason: "stale" };
       if (!result.ok) {
+        if (myGeneration !== generation) return { ok: false, reason: "stale" };
         publish({
           banner: result.reason === "unreachable" ? "offline" : state.banner,
           reason: result.reason,
         });
         return { ok: false, reason: result.reason };
       }
+      // The node accepted the stop, so the queue is dropped whether or not
+      // this screen is still the live one: an answer that lands after Back
+      // must still clear the shared memory, or the reopen sends the prompts
+      // the person stopped. A newer read is repainted by its own publish,
+      // which carries this state.
+      state = { ...state, sendQueue: [] };
+      queueMemory.write(taskId, []);
+      if (myGeneration !== generation) return { ok: false, reason: "stale" };
       task = result.data;
       // The durable fact is the task's status. Projecting the events we hold
       // with that status is what puts the stopped meta row on the transcript,
@@ -701,6 +715,16 @@ export function createThread(options: ThreadOptions): Thread {
       if (pending.length > 0) {
         pending = [];
         state = { ...state, turns: projectThread(events, task, state.turns) };
+      }
+      // The same rule for the queued item whose prompt was already dispatched:
+      // the node may have accepted it, and its answer cannot land on a closed
+      // model to settle it. Leaving it in the shared memory would make the
+      // reopen post the same words twice (「不重复发送」).
+      if (inFlightId !== null) {
+        const next = state.sendQueue.filter((item) => item.id !== inFlightId);
+        state = { ...state, sendQueue: next };
+        queueMemory.write(taskId, next);
+        inFlightId = null;
       }
       stream?.stop();
       stream = null;

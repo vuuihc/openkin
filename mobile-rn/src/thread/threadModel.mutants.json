@@ -56,6 +56,20 @@
     "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5 离开再回来: a queued message is still queued when the conversation is closed and reopened\""
   },
   {
+    "label": "a prompt already dispatched at Back stays owed, so the reopen sends it twice (R-rn-queue-survives-leave)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "      if (inFlightId !== null) {",
+    "new": "      if (inFlightId === null) {",
+    "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5 离开再回来: a prompt the node accepted before the screen closed is not sent again on reopen\""
+  },
+  {
+    "label": "a stop accepted after Back leaves the queue in the memory, so the reopen sends what was stopped (R-rn-queue-survives-leave)",
+    "file": "mobile-rn/src/thread/threadModel.ts",
+    "old": "      queueMemory.write(taskId, []);",
+    "new": "      queueMemory.read(taskId);",
+    "test": "cd mobile-rn && npx jest src/thread/threadModel.test.ts -t \"KIN-MOBILE-001 §5 离开再回来: a stop the node accepted after the screen closed still drops the queue\""
+  },
+  {
     "label": "the route builds its thread without the shared queue memory, so a remount draws no queued row (R-rn-queue-survives-leave)",
     "file": "mobile-rn/src/screens/ConversationScreen.tsx",
     "old": "          source,\n          queueMemory,\n        });",
