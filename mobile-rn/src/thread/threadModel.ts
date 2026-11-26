@@ -32,6 +32,7 @@ import {
   type PendingSend,
 } from "../../../ui/src/lib/pendingSend";
 import { apiFetch, type TransportReason } from "../api/transport";
+import { createQueueMemory, type QueueMemory } from "./queueMemory";
 import {
   createFetchStreamSource,
   startTaskStream,
@@ -252,6 +253,12 @@ export type ThreadOptions = {
   idleTimeoutMs?: number;
   timeoutMs?: number;
   newId?: () => string;
+  /**
+   * What the queue must not forget when the route unmounts (KIN-MOBILE-001
+   * §5 离开再回来). Production injects the app's one shared memory; a model
+   * built without one gets its own, so every existing test stays isolated.
+   */
+  queueMemory?: QueueMemory;
   onState?: (state: ThreadState) => void;
 };
 
@@ -281,8 +288,12 @@ export function createThread(options: ThreadOptions): Thread {
   const { origin, session, token, taskId, fetchImpl, schedule, timeoutMs } =
     options;
   const newId = options.newId ?? (() => `send-${++nextFallbackId}`);
+  const queueMemory = options.queueMemory ?? createQueueMemory();
 
-  let state = emptyState(taskId);
+  // The queue outlives this model (the route unmounts it on Back), so the
+  // first state is seeded from the memory: the rows a previous visit left are
+  // drawn again before the read answers, with their original ids.
+  let state: ThreadState = { ...emptyState(taskId), sendQueue: queueMemory.read(taskId) };
   let events: TaskEvent[] = [];
   let task: Task | null = null;
   let epoch = -1;
@@ -293,11 +304,20 @@ export function createThread(options: ThreadOptions): Thread {
   let closed = false;
   let stream: TaskStream | null = null;
   let flushing = false;
+  // The queued item whose prompt POST is in flight. The node may already have
+  // accepted it, so leaving the screen must settle it rather than leave it in
+  // the shared memory for the next visit to post again.
+  let inFlightId: string | null = null;
   let recovering: Promise<void> | null = null;
   const listeners = new Set<(state: ThreadState) => void>();
 
   const publish = (patch: Partial<ThreadState>): void => {
     state = { ...state, ...patch };
+    // The queue's one write-through. Enqueue, withdraw, a flushed item, a
+    // stop and the restored flush all land in a publish, so the memory and
+    // the rows cannot disagree about what is still owed; writing at each call
+    // site instead would leave one path silently out of the memory.
+    if (patch.sendQueue !== undefined) queueMemory.write(taskId, patch.sendQueue);
     listeners.forEach((listener) => listener(state));
     options.onState?.(state);
   };
@@ -530,7 +550,9 @@ export function createThread(options: ThreadOptions): Thread {
         // after the await would put its `startSeq` at or past that echo and
         // it could never settle.
         const local = pendingSend(item.text, events);
+        inFlightId = item.id;
         const result = await postPrompt(item.text);
+        inFlightId = null;
         if (myGeneration !== generation) return;
         if (!result.ok) {
           if (result.reason === "unreachable") publish({ banner: "offline" });
@@ -581,6 +603,11 @@ export function createThread(options: ThreadOptions): Thread {
         stream?.stop();
         stream = null;
         startStream();
+        // A queue restored from a previous visit may belong to a round that
+        // already ended while the route was gone: nobody is left to carry it,
+        // so the reopen is the send. A running round already gets its flush
+        // from that round's own `result`; sending here would race it.
+        if (!state.running && state.sendQueue.length > 0) void flushQueue();
       }
       return state;
     },
@@ -659,14 +686,22 @@ export function createThread(options: ThreadOptions): Thread {
       if (!state.running) return { ok: false, reason: "not_running" };
       const myGeneration = generation;
       const result = await postStop();
-      if (myGeneration !== generation) return { ok: false, reason: "stale" };
       if (!result.ok) {
+        if (myGeneration !== generation) return { ok: false, reason: "stale" };
         publish({
           banner: result.reason === "unreachable" ? "offline" : state.banner,
           reason: result.reason,
         });
         return { ok: false, reason: result.reason };
       }
+      // The node accepted the stop, so the queue is dropped whether or not
+      // this screen is still the live one: an answer that lands after Back
+      // must still clear the shared memory, or the reopen sends the prompts
+      // the person stopped. A newer read is repainted by its own publish,
+      // which carries this state.
+      state = { ...state, sendQueue: [] };
+      queueMemory.write(taskId, []);
+      if (myGeneration !== generation) return { ok: false, reason: "stale" };
       task = result.data;
       // The durable fact is the task's status. Projecting the events we hold
       // with that status is what puts the stopped meta row on the transcript,
@@ -691,6 +726,16 @@ export function createThread(options: ThreadOptions): Thread {
       if (pending.length > 0) {
         pending = [];
         state = { ...state, turns: projectThread(events, task, state.turns) };
+      }
+      // The same rule for the queued item whose prompt was already dispatched:
+      // the node may have accepted it, and its answer cannot land on a closed
+      // model to settle it. Leaving it in the shared memory would make the
+      // reopen post the same words twice (「不重复发送」).
+      if (inFlightId !== null) {
+        const next = state.sendQueue.filter((item) => item.id !== inFlightId);
+        state = { ...state, sendQueue: next };
+        queueMemory.write(taskId, next);
+        inFlightId = null;
       }
       stream?.stop();
       stream = null;
