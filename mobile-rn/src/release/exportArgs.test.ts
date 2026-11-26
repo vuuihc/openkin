@@ -65,8 +65,8 @@ function writeKeyFile(): string {
   return keyPath;
 }
 
-function cleanEnv(): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = { ...process.env };
+function cleanEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.KIN_ASC_KEY_PATH;
   delete env.KIN_ASC_KEY_ID;
   delete env.KIN_ASC_ISSUER_ID;
