@@ -9,7 +9,7 @@ import {
   pendingApprovalsPath,
   pendingQuestionsPath,
 } from "../approvals/approvalsModel";
-import { listTasksPath } from "../api/transport";
+import { listProjectsPath, listTasksPath } from "../api/transport";
 import { t as realT } from "../i18n";
 import {
   applyFolds,
@@ -298,9 +298,9 @@ describe("KIN-MOBILE-001 R3 list model — request state", () => {
     const state = await controller.load();
     expect(state.status).toBe("failed");
     expect(state.error).toBe("expired");
-    // One read per endpoint (the page plus the two pending lists), and not a
-    // single retry of the dead token.
-    expect(calls).toBe(3);
+    // One read per endpoint (the page, the two pending lists and the project
+    // records), and not a single retry of the dead token.
+    expect(calls).toBe(4);
     expect(taskCalls).toBe(1);
   });
 
@@ -363,7 +363,7 @@ function serverQuestion(taskId: string, id = `question-${taskId}`): UserQuestion
 }
 
 /**
- * One fake node for the controller's three parallel reads, routed by path.
+ * One fake node for the controller's four parallel reads, routed by path.
  * Handlers receive their own call number, so a test can make the second
  * pending read fail while the first stays good.
  */
@@ -371,10 +371,12 @@ function controllerFetch(handlers: {
   tasks: (call: number) => Response | Promise<Response>;
   approvals?: (call: number) => Response | Promise<Response>;
   questions?: (call: number) => Response | Promise<Response>;
+  projects?: (call: number) => Response | Promise<Response>;
 }): typeof fetch {
   let taskCalls = 0;
   let approvalCalls = 0;
   let questionCalls = 0;
+  let projectCalls = 0;
   return ((input: string) => {
     const url = String(input);
     if (url.endsWith(listTasksPath())) {
@@ -390,6 +392,11 @@ function controllerFetch(handlers: {
       questionCalls += 1;
       const answer = handlers.questions ?? (() => response([]));
       return Promise.resolve(answer(questionCalls));
+    }
+    if (url.endsWith(listProjectsPath)) {
+      projectCalls += 1;
+      const answer = handlers.projects ?? (() => response([]));
+      return Promise.resolve(answer(projectCalls));
     }
     throw new Error(`unexpected request: ${url}`);
   }) as unknown as typeof fetch;
@@ -688,5 +695,131 @@ describe("KIN-MOBILE-001 R3 list memory", () => {
       initialState: { status: "empty", groups: [], error: null },
     });
     expect(empty.state().status).toBe("empty");
+  });
+});
+
+/**
+ * KIN-MOBILE-001 R3 — the heading's name comes from the project record.
+ *
+ * `/api/projects` is the authority for a project's identity and name; a cwd is
+ * only one of its addresses. The web list already adapts those records in
+ * `ui/src/components/sessions/SessionList.tsx:670-692`; the phone reads the
+ * same endpoint through the same shared bucketing rule.
+ */
+describe("KIN-MOBILE-001 R3 list model — project names", () => {
+  const alphaRecord = {
+    id: "p1",
+    name: "[seed] Project Alpha",
+    roots: ["/work/alpha"],
+  };
+
+  it("KIN-MOBILE-001 R3: a project record names the heading and all its roots file under it", () => {
+    const tasks = [
+      task({ id: "pa1", cwd: "/work/alpha", created_at: 300 }),
+      task({ id: "pa2", cwd: "/work/alpha2", created_at: 200 }),
+      task({ id: "pb1", cwd: "/work/beta", created_at: 100 }),
+    ];
+    const groups = buildListGroups(tasks, {
+      selfDeviceId: "dev-a",
+      t,
+      formatTime,
+      projects: [
+        {
+          id: "p1",
+          name: "[seed] Project Alpha",
+          roots: ["/work/alpha", "/work/alpha2"],
+        },
+      ],
+    });
+
+    expect(groups).toHaveLength(1);
+    const projects = groups[0]!.projects;
+    expect(projects.map((project) => project.label)).toEqual([
+      "[seed] Project Alpha",
+      "beta",
+    ]);
+    // The heading keeps the record's first root as its key, so folds, search
+    // and the stored order keep answering to the same bucket; both roots' rows
+    // file under it.
+    expect(projects[0]!.key).toBe("/work/alpha");
+    expect(projects[0]!.rows.map((row) => row.id)).toEqual(["pa1", "pa2"]);
+    // A folder no record claims keeps its own heading and the folder's name.
+    expect(projects[1]!.key).toBe("/work/beta");
+    expect(projects[1]!.rows.map((row) => row.id)).toEqual(["pb1"]);
+  });
+
+  it("KIN-MOBILE-001 R3: the list controller reads /api/projects and names the heading", async () => {
+    const urls: string[] = [];
+    const controller = createListController({
+      origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
+      t,
+      formatTime,
+      fetchImpl: ((input: string) => {
+        const url = String(input);
+        urls.push(url);
+        if (url.endsWith(listProjectsPath)) {
+          return Promise.resolve(response([alphaRecord]));
+        }
+        if (url.endsWith(listTasksPath())) {
+          return Promise.resolve(response([pageTask("a1", 1000)]));
+        }
+        return Promise.resolve(response([]));
+      }) as unknown as typeof fetch,
+    });
+
+    const state = await controller.load();
+
+    expect(state.groups[0]!.projects[0]!.label).toBe("[seed] Project Alpha");
+    expect(urls.some((url) => url.endsWith(listProjectsPath))).toBe(true);
+  });
+
+  it("KIN-MOBILE-001 R3: a failed projects read keeps the rows and the last names", async () => {
+    let projectsFail = false;
+    const controller = createListController({
+      origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
+      t,
+      formatTime,
+      fetchImpl: controllerFetch({
+        tasks: () => response([pageTask("a1", 1000)]),
+        projects: () =>
+          projectsFail
+            ? response({ error: "boom" }, 500)
+            : response([alphaRecord]),
+      }),
+    });
+
+    await controller.load();
+    expect(controller.state().groups[0]!.projects[0]!.label).toBe(
+      "[seed] Project Alpha",
+    );
+
+    // The task page keeps answering; only the names' read is down. The list
+    // keeps its rows and the names it already learned — a failed name read is
+    // not a failed page.
+    projectsFail = true;
+    const state = await controller.load();
+    expect(state.status).toBe("ready");
+    expect(state.groups[0]!.projects[0]!.label).toBe("[seed] Project Alpha");
+    expect(state.groups[0]!.projects[0]!.rows.map((row) => row.id)).toEqual([
+      "a1",
+    ]);
+
+    // A controller that never read the records is not failed either: with no
+    // record, the folder's own name is the honest heading.
+    const fresh = createListController({
+      origin: "http://kin.example.com",
+      selfDeviceId: "dev-a",
+      t,
+      formatTime,
+      fetchImpl: controllerFetch({
+        tasks: () => response([pageTask("a1", 1000)]),
+        projects: () => response({ error: "boom" }, 500),
+      }),
+    });
+    const first = await fresh.load();
+    expect(first.status).toBe("ready");
+    expect(first.groups[0]!.projects[0]!.label).toBe("alpha");
   });
 });
