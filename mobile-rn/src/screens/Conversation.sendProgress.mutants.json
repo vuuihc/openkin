@@ -1,0 +1,37 @@
+[
+  {
+    "label": "the slow post draws no cue at all, so the control looks dead",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "              <ActivityIndicator\n                accessibilityLabel={t(\"composer.sending\")}\n                style={StyleSheet.absoluteFill}\n                testID=\"conversation:sending\"\n              />",
+    "new": "            {null}",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.sendProgress.test.tsx -t \"KIN-MOBILE-001 §5 慢: a post in flight draws the sending indicator\""
+  },
+  {
+    "label": "the hidden word stays in the accessibility tree, so the reader hears both the label and the cue",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "              <Text\n                aria-hidden\n                style={[styles.actionText, styles.actionTextHidden]}\n              >",
+    "new": "              <Text\n                style={[styles.actionText, styles.actionTextHidden]}\n              >",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.sendProgress.test.tsx -t \"KIN-MOBILE-001 §5 慢: a post in flight draws the sending indicator\""
+  },
+  {
+    "label": "the control never announces itself busy, so a screen reader says nothing is happening",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "          accessibilityState={{ disabled: !canSend, busy: sending }}",
+    "new": "          accessibilityState={{ disabled: !canSend, busy: false }}",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.sendProgress.test.tsx -t \"KIN-MOBILE-001 §5 慢: a post in flight draws the sending indicator\""
+  },
+  {
+    "label": "the cue is drawn only when nothing is in flight, so it never clears when the post settles",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "          {sending ? (",
+    "new": "          {!sending ? (",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.sendProgress.test.tsx -t \"KIN-MOBILE-001 §5 慢: the indicator clears when the post settles\""
+  },
+  {
+    "label": "the composer is locked while the post is in flight, so the next thought cannot be typed",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "          accessibilityLabel={t(\"composer.placeholder\")}\n          multiline",
+    "new": "          accessibilityLabel={t(\"composer.placeholder\")}\n          editable={!sending}\n          multiline",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.sendProgress.test.tsx -t \"KIN-MOBILE-001 §5 慢: the draft stays editable while the post is in flight\""
+  }
+]
