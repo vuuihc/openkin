@@ -54,6 +54,11 @@ import {
   onScroll as followOnScroll,
   type FollowState,
 } from "../thread/follow";
+import {
+  sharedReadingMemory,
+  type ReadingMemory,
+  type ReadingPlace,
+} from "../thread/readingMemory";
 import type { SendOutcome, ThreadState } from "../thread/threadModel";
 import {
   ApprovalsSection,
@@ -110,6 +115,14 @@ export type ConversationViewProps = {
    * words. A harness rendering the view alone gets the shared store.
    */
   draftMemory?: DraftMemory;
+  /**
+   * Where each conversation was left, so a re-opened route lands where the
+   * reader was (KIN-MOBILE-001 §3/§4 离开再回来). Injected like the composer's
+   * memory; the app hands in its one shared store, so Back and a re-open land
+   * on the same place. A harness rendering the view alone gets the shared
+   * store.
+   */
+  readingMemory?: ReadingMemory;
   /**
    * This conversation's provider/usage sheet, already wired by the container;
    * absent when there is no session to read with, and then the header draws no
@@ -614,6 +627,7 @@ export default function ConversationView({
   onStop,
   onWithdraw,
   draftMemory = sharedDraftMemory,
+  readingMemory = sharedReadingMemory,
   usage,
 }: ConversationViewProps) {
   // The device's own insets; a missing provider is a device that reports none.
@@ -631,6 +645,17 @@ export default function ConversationView({
   // Following the live edge is a scroll decision, not React state: it changes
   // on every scroll frame and must never repaint the transcript (AGENTS.md §11).
   const follow = useRef<FollowState>(initialFollow());
+  // The place the reader was last seen at, beside the follow flag and for the
+  // same reason: a scroll frame must never repaint the transcript (AGENTS.md
+  // §11). The leave cleanup below writes it to the injected memory.
+  const place = useRef<ReadingPlace | null>(null);
+  // The offset a restore is still travelling to, or null when no restore is in
+  // flight. A virtualized list lays out only its first window without
+  // `getItemLayout`, so a deep place's first `scrollToOffset` clamps short of
+  // it: while set, a scroll frame is that clamp rather than the reader, and
+  // growth re-issues the move instead of following the end
+  // (`ui/src/components/mobile/MobileList.tsx:70-82`, `:154-160`).
+  const restoring = useRef<number | null>(null);
   const listRef = useRef<FlatList<Turn>>(null);
   // The conversation's name: the node the reader is placed on at entry.
   const titleRef = useRef<ViewInstance | null>(null);
@@ -644,10 +669,25 @@ export default function ConversationView({
 
   useEffect(() => {
     follow.current = initialFollow();
+    restoring.current = null;
     openedFor.current = null;
     lastContentHeight.current = 0;
     setExpandedSteps({});
   }, [state.taskId]);
+
+  // The place this mount last observed belongs to the task it was observed in
+  // (AGENTS.md §11): the task id is captured here, so a route swap stores the
+  // old conversation's place under the old id rather than the new one's. A
+  // mount the reader never scrolled stores nothing, so a conversation opened
+  // and left at its newest segment reopens there.
+  useEffect(() => {
+    const forTask = state.taskId;
+    return () => {
+      const last = place.current;
+      if (last !== null) readingMemory.write(forTask, last);
+      place.current = null;
+    };
+  }, [state.taskId, readingMemory]);
 
   // One entry is one reader move (KIN-MOBILE-001.md:80): the reader starts at
   // the conversation's name, not in the writing box, and a streamed append or
@@ -673,11 +713,26 @@ export default function ConversationView({
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ): void => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const target = restoring.current;
+    if (target !== null) {
+      // A restore the content has not caught up with yet: this frame is the
+      // clamp, not the reader arriving, so it must neither re-pin the follow
+      // flag (growth would then jump to the newest segment) nor replace the
+      // place with the clamped offset. The restore is settled only when the
+      // offset actually reaches it.
+      follow.current = { pinned: false };
+      if (contentOffset.y >= target) restoring.current = null;
+      place.current = { offset: target, pinned: false };
+      return;
+    }
     follow.current = followOnScroll(follow.current, {
       offset: contentOffset.y,
       contentHeight: contentSize.height,
       viewportHeight: layoutMeasurement.height,
     });
+    // The place the reader was last seen at: observed on the frame, stored
+    // when the route leaves.
+    place.current = { offset: contentOffset.y, pinned: follow.current.pinned };
   };
 
   const handleContentSize = (_width: number, height: number): void => {
@@ -688,11 +743,37 @@ export default function ConversationView({
     if (openedFor.current !== state.taskId) {
       if (state.turns.length === 0 || height <= 0) return;
       openedFor.current = state.taskId;
+      // Where this conversation was left (KIN-MOBILE-001 §3/§4 离开再回来).
+      // A place away from the live edge is the reader's, and restoring it must
+      // also leave the follow flag unpinned *before* any growth can be folded
+      // in, or the next streamed append would pull them back to the end. A
+      // place at the edge, or none at all, opens on the newest segment: the
+      // content may have grown while they were away, so a stale offset must
+      // never beat it for a reader who was following.
+      const saved = readingMemory.read(state.taskId);
+      if (saved !== null && !saved.pinned) {
+        follow.current = { pinned: false };
+        restoring.current = saved.offset;
+        listRef.current?.scrollToOffset({
+          offset: saved.offset,
+          animated: false,
+        });
+        return;
+      }
+      follow.current = initialFollow();
       listRef.current?.scrollToEnd({ animated: false });
       return;
     }
     // Growth while the reader is away from the end must not move the page.
     if (height <= previous) return;
+    const target = restoring.current;
+    if (target !== null) {
+      // The first layout held only the list's initial window, so the restore
+      // clamped short of a deep place. The content that makes it reachable is
+      // here now, so move again rather than follow the newest segment.
+      listRef.current?.scrollToOffset({ offset: target, animated: false });
+      return;
+    }
     if (onContentGrew(follow.current).scrollToEnd) {
       listRef.current?.scrollToEnd({ animated: false });
     }
@@ -828,6 +909,12 @@ export default function ConversationView({
         ListHeaderComponent={listHeader}
         onContentSizeChange={handleContentSize}
         onScroll={handleScroll}
+        // A reader who starts scrolling while the content is still arriving
+        // has chosen a new place: stop restoring rather than fight them
+        // (`ui/src/components/mobile/MobileList.tsx:105-107`).
+        onScrollBeginDrag={() => {
+          restoring.current = null;
+        }}
         ref={listRef}
         renderItem={({ item, index }) => (
           <TurnBlock

@@ -750,6 +750,10 @@ lane_release_host() {
     fi
     rm -f "$STATE/lanes/$N.sims-before"
   fi
+  # Hand back the simulator slot only while its pid file still names this lane:
+  # a slot another live lane reclaimed after this one died is theirs to release.
+  slot="${RSI_SIM_SLOT:-$STATE/.sim-slot}"
+  if [ "$(cat "$slot/pid" 2>/dev/null || true)" = "$$" ]; then rm -rf "$slot"; fi
 }
 trap cleanup EXIT
 finish() { FINISHED=1; python3 "$LANES_PY" finish "$N" --status "$1" --pr "${2:-}" --note "${3:-}"; }
@@ -817,6 +821,10 @@ HDR="$STATE/lanes/$N.worker-brief.md"
 write_worker_brief > "$HDR"
 
 export BUDGET_GUARD="$LANE_BUDGET_USD" DISPATCH_MAX_SECS="$LANE_WORKER_SECS"
+# The xcrun shim (rsi/runtime/shim/xcrun) gives the machine's simulator to one
+# lane at a time: the slot dir names this lane so a second lane's `simctl boot`
+# waits instead of thrashing the host (2026-11-25: two RN lanes, load ~900).
+export RSI_LANE_PID=$$ RSI_LANE_N=$N RSI_SIM_SLOT="$STATE/.sim-slot"
 # Snapshot booted simulators before the worker can boot its own: cleanup shuts
 # down only the difference, so a simulator that was already up stays up. The
 # marker records a query that succeeded; without it cleanup leaves every
@@ -912,9 +920,14 @@ if ! CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1
   # contract is unchanged. A genuine body problem still fails: two runs, one sleep, no loop.
   CLAIM_ATTEMPTS="$STATE/lanes/$N.claim-attempts.txt"
   printf 'attempt 1: %s\n' "$(printf '%s' "${CLAIM_EV:-check produced no output}" | head -1)" > "$CLAIM_ATTEMPTS"
-  CLAIM_RETRY_SECS_USE="${RSI_CLAIM_RETRY_SECS:-1}"
-  case "$CLAIM_RETRY_SECS_USE" in ''|*[!0-9]*) CLAIM_RETRY_SECS_USE=1 ;; esac
+  CLAIM_RETRY_SECS_REQ="${RSI_CLAIM_RETRY_SECS:-1}"
+  case "$CLAIM_RETRY_SECS_REQ" in ''|*[!0-9]*) CLAIM_RETRY_SECS_REQ=1 ;; esac
+  CLAIM_RETRY_SECS_USE="$CLAIM_RETRY_SECS_REQ"
   [ "$CLAIM_RETRY_SECS_USE" -gt 5 ] && CLAIM_RETRY_SECS_USE=5
+  # The lane's own evidence of its bounded pause: requested vs used. A suite reads the clamp here
+  # instead of timing the sleep, so a loaded host cannot turn a green guard red, and the record
+  # still shows an unclamped pause (used=999s) when the clamp is removed.
+  printf 'retry pause: requested=%ss used=%ss\n' "$CLAIM_RETRY_SECS_REQ" "$CLAIM_RETRY_SECS_USE" >> "$CLAIM_ATTEMPTS"
   CLAIM_RETRY_OK=0
   if [ "$CLAIM_RETRY_SECS_USE" -gt 0 ]; then
     # The pause is bounded twice: by the clamp above and by bounded_run's own watchdog.
