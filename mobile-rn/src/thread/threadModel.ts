@@ -25,6 +25,11 @@ import {
   highestContiguousSeq,
   mergeEventsBySeq,
 } from "../../../ui/src/lib/eventStream";
+import {
+  pendingSend,
+  settlePendingSends,
+  type PendingSend,
+} from "../../../ui/src/lib/pendingSend";
 import { apiFetch, type TransportReason } from "../api/transport";
 import {
   createFetchStreamSource,
@@ -87,11 +92,18 @@ export function isTerminalStatus(status: string): boolean {
  * Turn an event list into turns exactly as the web transcript does. `previous`
  * lets a later read reuse the turn objects whose projected content did not
  * change, so an earlier turn is not redrawn (and a memoized row can skip).
+ *
+ * `pending` are the sends the composer already handed over whose own user
+ * event the daemon has not echoed yet (`ui/src/lib/pendingSend.ts`). They are
+ * appended after the projection, exactly where the web console draws them
+ * (`ChatStream.tsx`): they have no event, so they start no round and carry no
+ * seq, but they do have a place — after everything the transcript knows.
  */
 export function projectThread(
   events: readonly TaskEvent[],
   task: Pick<Task, "agent" | "model" | "status"> | null,
   previous: readonly Turn[] = [],
+  pending: readonly PendingSend[] = [],
 ): Turn[] {
   const hostSpeaker = task?.agent || "kin";
   const hostModel = normalizeModel(task?.model);
@@ -106,10 +118,30 @@ export function projectThread(
     !finalized,
   );
   const next = groupIntoTurns(items, hostSpeaker, hostModel);
-  return next.map((turn, index) => {
+  const reused = next.map((turn, index) => {
     const before = previous[index];
     return before && turnSignature(before) === turnSignature(turn) ? before : turn;
   });
+  if (pending.length === 0) return reused;
+  // After the `previous`-reuse map, never inside it: a local copy has no
+  // projected counterpart to compare against, and inserting it earlier would
+  // shift every following turn's index onto the wrong previous object.
+  return [
+    ...reused,
+    ...pending.map(
+      (send): Turn => ({
+        kind: "user",
+        item: {
+          kind: "message",
+          key: send.id,
+          speaker: "user",
+          text: send.text,
+          images: send.images,
+          partial: false,
+        },
+      }),
+    ),
+  ];
 }
 
 function turnSignature(turn: Turn): string {
@@ -264,6 +296,23 @@ export function createThread(options: ThreadOptions): Thread {
     options.onState?.(state);
   };
 
+  // The local copy of every direct send (and flushed queue item) whose own
+  // user event the transcript has not carried yet. The composer clears at tap
+  // (KIN-MOBILE-001 §5 「立刻看到」), so until the daemon writes the message
+  // back this is the only copy the screen can draw.
+  let pending: readonly PendingSend[] = [];
+
+  // Settle before projecting: an event list that now carries a send's own user
+  // message takes that local copy over. The shared helper owns the rule — one
+  // event settles one send, and only an event after the send began can.
+  const settlePending = (): void => {
+    pending = settlePendingSends(pending, events);
+  };
+
+  /** The turns to draw now: the durable projection plus the local copies. */
+  const project = (previous: readonly Turn[], current: Task | null = task): Turn[] =>
+    projectThread(events, current, previous, pending);
+
   const request = { token, fetchImpl, timeoutMs };
 
   // One read, generation-guarded, through the same `loadThread` the tests call
@@ -290,10 +339,11 @@ export function createThread(options: ThreadOptions): Thread {
     // contract). Deriving it from the events alone left `-1` on an empty
     // history, so a gap-fill filtered out every real epoch-0 event.
     epoch = loadedTask?.event_epoch ?? 0;
+    settlePending();
     publish({
       status: "ready",
       title: loadedTask?.title ?? "",
-      turns: projectThread(events, loadedTask, state.turns),
+      turns: project(state.turns, loadedTask),
       running: loadedTask ? !isTerminalStatus(loadedTask.status) : false,
       banner: null,
       reason: null,
@@ -321,6 +371,7 @@ export function createThread(options: ThreadOptions): Thread {
     // Nothing new: do not repaint a transcript that is already correct.
     if (merged.length === events.length) return;
     events = merged;
+    settlePending();
     // A recovered `result` is the round's durable end even when the live
     // stream skipped it: settle the task row before projecting (the shared
     // projection folds the settled process card on that status), stop the
@@ -337,7 +388,7 @@ export function createThread(options: ThreadOptions): Thread {
       };
     }
     publish({
-      turns: projectThread(events, task, state.turns),
+      turns: project(state.turns),
       ...(ended ? { running: false } : {}),
     });
     if (ended) void flushQueue();
@@ -370,6 +421,7 @@ export function createThread(options: ThreadOptions): Thread {
     const merged = mergeEventsBySeq(events, [event]);
     if (merged.length === events.length) return; // duplicate seq
     events = merged;
+    settlePending();
     const roundEnded = event.type === "result" || event.type === "error";
     if (event.type === "result" && task) {
       // The task row is the durable fact the shared projection folds a settled
@@ -381,7 +433,7 @@ export function createThread(options: ThreadOptions): Thread {
       };
     }
     publish({
-      turns: projectThread(events, task, state.turns),
+      turns: project(state.turns),
       ...(roundEnded ? { running: false } : {}),
       banner: null,
     });
@@ -453,9 +505,14 @@ export function createThread(options: ThreadOptions): Thread {
         }
         task = result.data;
         const running = !isTerminalStatus(result.data.status);
+        // The queue row stood in for these words while the send waited; the
+        // same update that removes it hands them to the transcript, so no
+        // frame goes by with neither drawn.
+        pending = [...pending, pendingSend(item.text, events)];
         publish({
           sendQueue: state.sendQueue.filter((queued) => queued.id !== item.id),
           running,
+          turns: project(state.turns),
         });
         // One prompt per round: an accepted prompt opens a new round, so the
         // rest of the queue waits for that round's `result` (which flushes
@@ -532,10 +589,20 @@ export function createThread(options: ThreadOptions): Thread {
         return { ok: true, queued: true };
       }
       const myGeneration = generation;
+      // The composer cleared at tap; draw the words now rather than after the
+      // round trip. The daemon writes the same message when it accepts the
+      // prompt, and that event settles this copy.
+      const local = pendingSend(trimmed, events);
+      pending = [...pending, local];
+      publish({ turns: project(state.turns) });
       const result = await postPrompt(trimmed);
       if (myGeneration !== generation) return { ok: false, reason: "stale" };
       if (!result.ok) {
+        // A refused send is handed back to the composer; keeping the local
+        // copy too would draw the same words twice.
+        pending = pending.filter((item) => item.id !== local.id);
         publish({
+          turns: project(state.turns),
           banner: result.reason === "unreachable" ? "offline" : state.banner,
           reason: result.reason,
         });
@@ -570,10 +637,11 @@ export function createThread(options: ThreadOptions): Thread {
       // The durable fact is the task's status. Projecting the events we hold
       // with that status is what puts the stopped meta row on the transcript,
       // and the same call after a reload puts the same row back.
+      settlePending();
       publish({
         running: false,
         sendQueue: [],
-        turns: projectThread(events, result.data, state.turns),
+        turns: project(state.turns, result.data),
         banner: null,
         reason: null,
       });
@@ -583,6 +651,13 @@ export function createThread(options: ThreadOptions): Thread {
     close() {
       closed = true;
       generation += 1;
+      // A closed screen owns nothing, including a local copy whose POST is
+      // still in flight: a late answer cannot put it back on a newer flow
+      // (AGENTS.md §11), and a reopen reads the durable log only.
+      if (pending.length > 0) {
+        pending = [];
+        state = { ...state, turns: projectThread(events, task, state.turns) };
+      }
       stream?.stop();
       stream = null;
       listeners.clear();
