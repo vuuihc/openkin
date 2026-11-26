@@ -254,6 +254,8 @@ GEN_STORIES="$GEN_COVERAGE $GEN_PLAN"   # the pair regenerated together (the fol
 DIST_BUILD="${RSI_DIST_BUILD_CMD:-npm run build}"
 INV_UPDATE="${RSI_INV_UPDATE_CMD:-python3 scripts/check-ui-inventory.py --update}"
 INV_CHECK="${RSI_INV_CHECK_CMD:-python3 scripts/check-ui-inventory.py}"
+RN_CHECK="${RSI_RN_CHECK_CMD:-cd mobile-rn && npx tsc --noEmit && npx jest --ci && cd .. && python3 scripts/stories.py}"
+RN_CHECK_TIMEOUT="${RSI_RN_CHECK_TIMEOUT:-900}"
 STORIES_UPDATE="${RSI_STORIES_CMD:-python3 scripts/stories.py --write-coverage}"
 # The live PR head, overridable so rsi/runtime/tests/test-loop-sendback-stale.sh can stub it.
 PR_HEAD_CMD="${RSI_PR_HEAD_CMD:-}"   # test seam; empty = the real gh call
@@ -502,11 +504,13 @@ sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 tr
   return 0
 }
 
-main_move_verdict() { # <incoming-paths> <pr-changed-paths> — sets MOVE_TAG (CARRY|CARRY-UI|REGATE)
+main_move_verdict() { # <incoming-paths> <pr-changed-paths> — sets MOVE_TAG (CARRY|CARRY-UI|CARRY-RN|CARRY-UI-RN|REGATE)
   # and MOVE_REASON. The one disjoint classifier: origin/main moved under a verified PR. CARRY when
   # every incoming path is disjoint from the PR's own files and packages and from the shared
   # surfaces (a scripts/ path is shared only when the gate runs it or the PR is in scripts/ or ui/),
-  # CARRY-UI when a ui leaf moved (alone or beside disjoint Go packages), REGATE otherwise. The callers decide what a CARRY
+  # CARRY-UI when a ui leaf moved (alone or beside disjoint Go packages), CARRY-RN when a mobile-rn
+  # leaf (not the PR's own file, not the RN toolchain) moved, CARRY-UI-RN when both did, REGATE
+  # otherwise. The callers decide what a CARRY
   # means (carry the gate across a merge, or skip the step-1 sync entirely). Bias: every path this
   # cannot positively classify re-gates.
   # A here-document inside $( ) is mis-parsed by the macOS /bin/bash 3.2 this script runs on
@@ -559,9 +563,14 @@ GATE_SCRIPTS = {
 pr_pkgs = {"/".join(p.split("/")[:2]) + "/" for p in pr_files
            if p.startswith("internal/") and p.count("/") >= 2}
 pr_root_files = {p for p in pr_files if "/" not in p}
+RN_TOOLCHAIN = {
+    "mobile-rn/package.json", "mobile-rn/package-lock.json", "mobile-rn/app.json",
+    "mobile-rn/babel.config.js", "mobile-rn/metro.config.js", "mobile-rn/tsconfig.json",
+}
 
 carry = []      # incoming paths that justify the carry
 need_ui = False  # a ui leaf moved: the build+inventory safety step must still pass
+need_rn = False  # an RN leaf moved: the mobile-rn tsc+jest+stories safety step must still pass
 for p in incoming:
     if dropped(p):
         continue
@@ -591,14 +600,28 @@ for p in incoming:
             print("REGATE\tthe PR's own package moved: %s" % pkg); sys.exit()
         carry.append(p)
         continue
+    if p.startswith("mobile-rn/"):
+        # The RN toolchain changes how every RN file compiles and runs; any other RN file is a leaf
+        # the tsc+jest+stories safety step re-proves on the merged tree (2026-11-26: 48 logged
+        # re-gates were one RN PR landing under another).
+        if p in RN_TOOLCHAIN or p.startswith("mobile-rn/scripts/"):
+            print("REGATE\tRN toolchain moved: %s" % p); sys.exit()
+        if p in pr_set:
+            print("REGATE\tthe PR's own file moved: %s" % p); sys.exit()
+        carry.append(p); need_rn = True
+        continue
     if p in pr_root_files:
         print("REGATE\tthe PR's own top-level file moved: %s" % p); sys.exit()
     print("REGATE\tunclassified path moved: %s" % p); sys.exit()
 
 if not carry:
     print("CARRY\tnothing but docs/rsi/generated files moved")
+elif need_ui and need_rn:
+    print("CARRY-UI-RN\t" + " ".join(carry))
 elif need_ui:
     print("CARRY-UI\t" + " ".join(carry))
+elif need_rn:
+    print("CARRY-RN\t" + " ".join(carry))
 else:
     print("CARRY\t" + " ".join(carry))
 PY
@@ -618,27 +641,39 @@ carry_forward() { # <worktree> <incoming-paths> <pr-changed-paths> <gate-file> <
   local wt="$1" incoming="$2" changed="$3" gatefile="$4" newsha="$5" role="$6"
   CARRY_REASON=""
   main_move_verdict "$incoming" "$changed"
+  local done_steps=""
   case "$MOVE_TAG" in
-    CARRY)
-      CARRY_REASON="$MOVE_REASON"
-      echo "$newsha PASS $role" > "$gatefile"; return 0 ;;
-    CARRY-UI)
-      # Leaf ui paths disjoint from the PR's own files. Prove the merged tree still holds the two
-      # things only a build can answer: the inventory ratchet and a dist rebuild that reproduces
-      # the committed web/dist/index.html. Any doubt (failed step, changed dist) re-gates.
-      if ( cd "$wt" && bash -c "$INV_CHECK" ) >/dev/null 2>&1 \
-         && ( cd "$wt/ui" && bash -c "$DIST_BUILD" ) >/dev/null 2>&1 \
-         && $GIT -C "$wt" diff --quiet -- web/dist/index.html; then
-        CARRY_REASON="$MOVE_REASON; inventory+build green, web/dist/index.html unchanged"
-        echo "$newsha PASS $role" > "$gatefile"; return 0
-      fi
-      $GIT -C "$wt" checkout -q -- web/dist/index.html 2>/dev/null || true
-      CARRY_REASON="ui safety step failed (inventory/build/dist) after: $MOVE_REASON"
-      rm -f "$gatefile"; return 1 ;;
+    CARRY) ;;
+    CARRY-UI|CARRY-RN|CARRY-UI-RN)
+      case "$MOVE_TAG" in *UI*)
+        # Leaf ui paths disjoint from the PR's own files. Prove the merged tree still holds the two
+        # things only a build can answer: the inventory ratchet and a dist rebuild that reproduces
+        # the committed web/dist/index.html. Any doubt (failed step, changed dist) re-gates.
+        if ! { ( cd "$wt" && bash -c "$INV_CHECK" ) >/dev/null 2>&1 \
+               && ( cd "$wt/ui" && bash -c "$DIST_BUILD" ) >/dev/null 2>&1 \
+               && $GIT -C "$wt" diff --quiet -- web/dist/index.html; }; then
+          $GIT -C "$wt" checkout -q -- web/dist/index.html 2>/dev/null || true
+          CARRY_REASON="ui safety step failed (inventory/build/dist) after: $MOVE_REASON"
+          rm -f "$gatefile"; return 1
+        fi
+        done_steps="inventory+build green, web/dist/index.html unchanged" ;;
+      esac
+      case "$MOVE_TAG" in *RN)
+        # Leaf mobile-rn paths disjoint from the PR's own files and the RN toolchain. The RN gate is
+        # its typecheck, its suite and the story registry; re-run exactly those on the merged tree,
+        # bounded, and re-gate on any failure, timeout or missing install.
+        if ! ( cd "$wt" && with_timeout "$RN_CHECK_TIMEOUT" bash -c "$RN_CHECK" ) >/dev/null 2>&1; then
+          CARRY_REASON="rn safety step failed (tsc/jest/stories) after: $MOVE_REASON"
+          rm -f "$gatefile"; return 1
+        fi
+        done_steps="${done_steps:+$done_steps; }mobile-rn tsc+jest+stories green" ;;
+      esac ;;
     *)
       CARRY_REASON="${MOVE_REASON:-carry predicate produced no decision}"
       rm -f "$gatefile"; return 1 ;;
   esac
+  CARRY_REASON="$MOVE_REASON${done_steps:+; $done_steps}"
+  echo "$newsha PASS $role" > "$gatefile"; return 0
 }
 
 # ------------------------------------------------------------------ queue-time carry
@@ -1411,7 +1446,7 @@ ci_first_decision() { # <wt> <branch> <gate-file> <reviewed-file> <ci-state> <ma
   if [ "$cis" = green ] && [ -n "$incoming" ] && [ -n "$changed" ]; then
     main_move_verdict "$incoming" "$changed"
     case "$MOVE_TAG" in
-      CARRY|CARRY-UI)
+      CARRY|CARRY-UI|CARRY-RN|CARRY-UI-RN)
         ci_hold_window "$marker" || return 1
         CI_FIRST_KIND="hold-disjoint"
         CI_FIRST_REASON="main's new commits touch no path this PR verifies ($MOVE_TAG)"
