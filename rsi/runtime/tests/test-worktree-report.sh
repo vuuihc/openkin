@@ -351,18 +351,20 @@ case_git_timeout_is_honoured() {
   mkdir -p "$IO/slowbin"
   printf '#!/bin/bash\nsleep 3\nexit 0\n' > "$IO/slowbin/git"
   chmod +x "$IO/slowbin/git"
-  local start elapsed
-  start="$(date +%s)"
+  # Time the call in-process. A shell stopwatch around the whole python3 invocation
+  # also counted interpreter startup and fork/exec, so a loaded gate machine read 4 s
+  # for a 0.5 s bound (2026-11-26); the call itself is what must honour the bound.
   PATH="$IO/slowbin:$PATH" python3 - "$TOOL" <<'PY' || fail "git-timeout: the call did not honour 0.5 s"
-import importlib.util, sys
+import importlib.util, sys, time
 spec = importlib.util.spec_from_file_location("worktree_report_under_test", sys.argv[1])
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
+started = time.monotonic()
 result = mod.git("/tmp", "status", timeout=0.5)
+elapsed = time.monotonic() - started
 assert result is None, "git() returned a completed call despite the 0.5 s bound"
+assert elapsed < 2, f"git() took {elapsed:.1f}s for a 0.5 s bound"
 PY
-  elapsed=$(( $(date +%s) - start ))
-  [ "$elapsed" -le 2 ] || fail "git-timeout: took ${elapsed}s for a 0.5 s bound"
   pass git-timeout-is-honoured
 }
 
