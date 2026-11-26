@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the checker stops comparing occurrences, so an extra raw <button> in an existing file passes the shipped baseline",
+    "file": "scripts/check-ui-inventory.py",
+    "test": "python3 -B scripts/check-ui-inventory.test.py CheckerTest.test_re_added_raw_button_fails_against_the_shipped_baseline",
+    "old": "        for field in FIELDS:\n            now = current[key][field]",
+    "new": "        for field in FIELDS[1:]:\n            now = current[key][field]"
+  },
+  {
+    "label": "the extra occurrence is not a raw button, so the case stops proving a re-added <button> is refused by the shipped baseline",
+    "file": "scripts/check-ui-inventory.test.py",
+    "test": "python3 -B scripts/check-ui-inventory.test.py",
+    "old": "            target.read_text(encoding=\"utf-8\") + \"\\n\" + SAMPLES[\"raw_button\"] + \"\\n\",",
+    "new": "            target.read_text(encoding=\"utf-8\") + \"\\n\" + SAMPLES[\"magic_z\"] + \"\\n\","
+  }
+]
