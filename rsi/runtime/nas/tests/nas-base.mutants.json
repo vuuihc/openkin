@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the no-bundle fallback prefers a stale refs/remotes/origin/main again",
+    "file": "rsi/runtime/nas/nas-side/nas-base.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh case_no_bundle_falls_back_to_repo_main",
+    "old": "echo refs/heads/main\n",
+    "new": "echo refs/remotes/origin/main\n"
+  },
+  {
+    "label": "the bundle apply drops the refs/remotes/origin/main refspec the Mac's bundle names",
+    "file": "rsi/runtime/nas/nas-side/nas-base.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh case_stale_origin_main_does_not_win_over_the_shipped_bundle",
+    "old": "case \"$HEADS\" in *refs/remotes/origin/main*) SPECS+=('+refs/remotes/origin/main:refs/remotes/origin/main');; esac",
+    "new": "true"
+  },
+  {
+    "label": "the lane builds from the bare repo's origin/main instead of the shipped bundle head",
+    "file": "rsi/runtime/nas/nas-side/nas-lane.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh case_recorded_base_is_the_picked_base",
+    "old": "BASE=\"$(bash \"$BL/nas-base.sh\" \"$REPO\" \"$J\")\" || fail \"no usable base in $REPO\"",
+    "new": "BASE=refs/remotes/origin/main"
+  }
+]
