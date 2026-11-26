@@ -26,6 +26,42 @@ npx tsc --noEmit
 npx jest --ci --runInBand
 ```
 
+## Ship to TestFlight
+
+The RN build is the TestFlight "Kin". It ships under the same
+bundle id (`dev.openkin.ios`), team and version scheme as the Capacitor shell, so
+testers receive it as an update to the app they already have.
+
+```bash
+cd mobile-rn
+./scripts/release-ios.sh --archive-only   # archive only; nothing leaves the Mac
+./scripts/release-ios.sh                  # archive, export and upload to TestFlight
+```
+
+The script runs `npx expo prebuild --platform ios --clean --no-install` into the
+gitignored `ios/`, then `pod install`, then archives Release with automatic
+signing. It reads the Apple team id from `../mobile/ios/App/App.xcodeproj` — the
+one place it is written down — and needs this Mac signed in to that Apple ID in
+Xcode (Settings → Accounts); the first upload for a bundle id also needs the app
+record in App Store Connect. It prints the archive path, the archived bundle id
+and version, and the embedded `main.jsbundle`: a Release build embeds its JS and
+never talks to Metro.
+
+Defaults match the Capacitor script: marketing version `1.0`, build number
+`$(date -u +%Y%m%d%H%M)`. Override them with `KIN_MARKETING_VERSION`,
+`KIN_BUILD_NUMBER` (each upload needs an unused one) or `KIN_TEAM_ID`. The
+archive lands in `ios/build/Kin.xcarchive`.
+
+`app.json` carries the release config: the bundle id, the `kin` URL scheme the
+Hub sign-in callback returns on, `ITSAppUsesNonExemptEncryption: false` so a
+build does not sit in "Missing Compliance", `NSAllowsLocalNetworking` for a node
+on the LAN over http, and the 1024 icon in `assets/icon.png`.
+`src/shared/appConfig.test.ts` pins those values.
+
+`mobile/` still exists and is not deleted here, but it is no longer the
+TestFlight build. The Capacitor build already in TestFlight stays installable
+until it expires — that is the rollback if the RN build misbehaves.
+
 ## Run in the iOS simulator
 
 Expo Go is the shortest path: it needs no generated `ios/` directory, and the
@@ -89,6 +125,26 @@ After the iPad walk, shut it down with
 `xcrun simctl shutdown "iPad Air 11-inch (M4)"`. Save captures under
 `rsi/state/shots/<run-name>/` and keep them out of Git. Do not boot another
 simulator while one is in use by another lane.
+
+## Sign in to a Hub
+
+A Hub is the same `kin` binary in Hub mode: every node connected to it answers
+through the Hub's `/api/*`. The pair screen accepts a Hub address first, so one
+app reaches every machine from anywhere — no LAN URL and no Tailscale.
+
+- Type `https://<hub>` (plain `http://` is accepted only on loopback), tap
+  Continue, and sign in with the Hub account's email and password. The session
+  cookie stays in the platform cookie jar and no secret is written to the
+  Keychain. Provider (OIDC) sign-in through the system browser is the next
+  slice; a Hub that offers only a provider says so on this screen today.
+- A `kin://connect?hub=https://<hub>` link pre-fills the address, the same link
+  the desktop console shares.
+- A Hub session is written only after `/api/auth/me` answers 200. A 401 later
+  retires it like an expired node token and keeps the Hub address for a
+  one-tap re-sign-in.
+
+The second option, "pair with a node link instead", is the direct node flow
+below. It remains the fallback for a standalone daemon with no accounts.
 
 ## Point it at a node
 

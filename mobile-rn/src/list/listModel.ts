@@ -38,6 +38,7 @@ import {
   listTasksPath,
   type TransportReason,
 } from "../api/transport";
+import type { Session } from "../auth/tokenStore";
 
 export type ListStatus = "loading" | "ready" | "empty" | "failed" | "offline";
 
@@ -387,6 +388,8 @@ export const LIST_TIMEOUT_MS = 10_000;
 
 export type ListControllerOptions = BuildGroupsOptions & {
   origin: string;
+  /** The stored session; a Hub session sends its cookie instead of a token. */
+  session?: Session | null;
   token?: string | null;
   store?: FoldStore;
   fetchImpl?: typeof fetch;
@@ -488,21 +491,25 @@ export function createListController(
       // name and count the rows but never decide whether the page loaded.
       const [result, approvals, questions, projects] = await Promise.all([
         apiFetch<Task[]>(options.origin, listTasksPath(), {
+          session: options.session,
           token: options.token,
           fetchImpl: options.fetchImpl,
           timeoutMs: options.timeoutMs ?? LIST_TIMEOUT_MS,
         }),
         apiFetch<Approval[]>(options.origin, pendingApprovalsPath, {
+          session: options.session,
           token: options.token,
           fetchImpl: options.fetchImpl,
           timeoutMs: options.timeoutMs ?? LIST_TIMEOUT_MS,
         }),
         apiFetch<UserQuestion[]>(options.origin, pendingQuestionsPath, {
+          session: options.session,
           token: options.token,
           fetchImpl: options.fetchImpl,
           timeoutMs: options.timeoutMs ?? LIST_TIMEOUT_MS,
         }),
         apiFetch<Project[]>(options.origin, listProjectsPath, {
+          session: options.session,
           token: options.token,
           fetchImpl: options.fetchImpl,
           timeoutMs: options.timeoutMs ?? LIST_TIMEOUT_MS,
