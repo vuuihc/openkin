@@ -190,6 +190,26 @@ function transcriptItems(turns: Turn[]): ChatItem[] {
   );
 }
 
+/**
+ * KIN-MOBILE-001 §3 空 — a settled conversation whose last turn is still the
+ * person's never got an answer: the run died, was interrupted, or ended with
+ * no reply. The transcript then reads as if the app lost the answer, so one
+ * line says so in the spot the live round's thinking row owns.
+ *
+ * The four gates are the whole contract: a read that has not settled owns no
+ * claim about an answer, the first load's skeleton owns the unread transcript,
+ * an open round belongs to the thinking row (#779, TASTE 15), and a
+ * conversation that already ends with the agent needs no note.
+ */
+export function shouldShowNoAnswer(state: ThreadState): boolean {
+  return (
+    state.status === "ready" &&
+    !state.running &&
+    state.turns.length > 0 &&
+    state.turns[state.turns.length - 1].kind === "user"
+  );
+}
+
 /** What a non-progress item says; a progress item is drawn row by row. */
 function itemBody(item: ChatItem): string {
   switch (item.kind) {
@@ -809,6 +829,13 @@ export default function ConversationView({
     state.turns.length > 0 &&
     shouldShowGenericThinking(transcriptItems(state.turns), state.running);
 
+  // A settled conversation that the agent never answered takes the same spot
+  // as the thinking row, never both: one cue per moment (TASTE 15). The
+  // predicate is module scope so its running guard can be pinned directly —
+  // the footer checks the thinking row first, which would hide that guard
+  // from the rendered tree.
+  const showNoAnswer = shouldShowNoAnswer(state);
+
   // The list header keeps the read's notices above the turns and outside the
   // virtualized cells, so a repaint of the transcript cannot unmount them.
   const listHeader = (
@@ -929,7 +956,9 @@ export default function ConversationView({
         keyExtractor={(_turn, index) => `${state.taskId}:${index}`}
         ListHeaderComponent={listHeader}
         // At the end of the content, so it scrolls with the transcript and can
-        // never cover the composer below. One polite line, never a control.
+        // never cover the composer below. One polite line, never a control;
+        // one branch, so the thinking row and the no-answer line cannot both
+        // claim this moment.
         ListFooterComponent={
           showThinking ? (
             <Text
@@ -939,6 +968,15 @@ export default function ConversationView({
               testID="conversation:thinking"
             >
               {t("chat.thinking")}
+            </Text>
+          ) : showNoAnswer ? (
+            <Text
+              accessibilityLabel={t("chat.noAnswer")}
+              style={styles.notice}
+              accessibilityLiveRegion="polite"
+              testID="conversation:no-answer"
+            >
+              {t("chat.noAnswer")}
             </Text>
           ) : undefined
         }
