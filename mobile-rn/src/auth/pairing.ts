@@ -135,7 +135,7 @@ export function createPairing(options: PairingOptions = {}): Pairing {
     myFlow: number,
   ): Promise<AppState> {
     const result = await apiFetch<Task[]>(session.origin, listTasksPath(), {
-      token: session.token,
+      session,
       fetchImpl: options.fetchImpl,
     });
     if (myFlow !== flowId) return current;
@@ -199,7 +199,7 @@ export function createPairing(options: PairingOptions = {}): Pairing {
     if (result.ok) {
       const store = await backend();
       if (myFlow !== flowId) return current;
-      await writeSession({ origin, token }, store);
+      await writeSession({ kind: "node", origin, token }, store);
       if (myFlow !== flowId) return current;
       tasks = result.data;
       return state("list", "none", origin, result.data);

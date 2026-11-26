@@ -137,6 +137,7 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     expect(paired.tasks).toEqual(TASKS);
     // One Keychain entry holds the origin and the token together.
     expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      kind: "node",
       origin: ORIGIN,
       token: TOKEN,
     });
@@ -215,6 +216,7 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
       expect(resumed.route).toBe("list");
       expect(resumed.reason).toBe("unreachable");
       expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+        kind: "node",
         origin: ORIGIN,
         token: TOKEN,
       });
@@ -245,6 +247,7 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     expect(paired.reason).toBe("none");
     expect(paired.tasks).toEqual(TASKS);
     expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      kind: "node",
       origin: ORIGIN,
       token: DEVICE_TOKEN,
     });
@@ -269,6 +272,7 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     expect(header(calls[2], "Authorization")).toBe(`Bearer ${DEVICE_TOKEN}`);
     expect(paired.route).toBe("list");
     expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      kind: "node",
       origin: ORIGIN,
       token: DEVICE_TOKEN,
     });
@@ -304,6 +308,7 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     const paired = await latest;
     expect(paired.route).toBe("list");
     expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      kind: "node",
       origin: ORIGIN,
       token: TOKEN,
     });
@@ -317,6 +322,7 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     expect(stale.reason).toBe("none");
     expect(stale.tasks).toEqual(TASKS);
     expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      kind: "node",
       origin: ORIGIN,
       token: TOKEN,
     });
@@ -372,5 +378,28 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
 
     expect(retried.reason).toBe("unreachable");
     expect(calls).toHaveLength(2);
+  });
+});
+
+describe("R-rn-hub-signin hub expiry", () => {
+  it("R-rn-hub-signin: a 401 on a Hub read retires the session and keeps the origin", async () => {
+    const store = memoryStore();
+    store.entries.set(
+      SESSION_KEY,
+      JSON.stringify({ kind: "hub", origin: ORIGIN }),
+    );
+    const fetch = recordingFetch(() => response(401, {}));
+    const core = createPairing({ store, fetchImpl: fetch.impl });
+
+    const next = await core.resume();
+
+    expect(next.route).toBe("pairing");
+    expect(next.reason).toBe("expired");
+    expect(next.origin).toBe(ORIGIN);
+    expect(store.entries.has(SESSION_KEY)).toBe(false);
+    // The read carried the cookie, never a bearer.
+    const headers = fetch.calls[0].init.headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
+    expect(fetch.calls[0].init.credentials).toBe("include");
   });
 });

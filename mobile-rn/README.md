@@ -90,6 +90,26 @@ After the iPad walk, shut it down with
 `rsi/state/shots/<run-name>/` and keep them out of Git. Do not boot another
 simulator while one is in use by another lane.
 
+## Sign in to a Hub
+
+A Hub is the same `kin` binary in Hub mode: every node connected to it answers
+through the Hub's `/api/*`. The pair screen accepts a Hub address first, so one
+app reaches every machine from anywhere — no LAN URL and no Tailscale.
+
+- Type `https://<hub>` (plain `http://` is accepted only on loopback), tap
+  Continue, and sign in with the Hub account's email and password. The session
+  cookie stays in the platform cookie jar and no secret is written to the
+  Keychain. Provider (OIDC) sign-in through the system browser is the next
+  slice; a Hub that offers only a provider says so on this screen today.
+- A `kin://connect?hub=https://<hub>` link pre-fills the address, the same link
+  the desktop console shares.
+- A Hub session is written only after `/api/auth/me` answers 200. A 401 later
+  retires it like an expired node token and keeps the Hub address for a
+  one-tap re-sign-in.
+
+The second option, "pair with a node link instead", is the direct node flow
+below. It remains the fallback for a standalone daemon with no accounts.
+
 ## Point it at a node
 
 A node prints a pairing link when it starts, or you can mint a one-time secret

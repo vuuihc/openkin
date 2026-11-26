@@ -8,6 +8,8 @@
  * changes no payload shape.
  */
 
+import type { Session } from "../auth/tokenStore";
+
 export type TransportReason = "expired" | "rejected" | "unreachable";
 
 export type TransportResult<T> =
@@ -15,11 +17,25 @@ export type TransportResult<T> =
   | { ok: false; status: number | null; reason: TransportReason };
 
 export type ApiFetchOptions = {
-  /** The stored device token; omitted means an unauthenticated read. */
+  /**
+   * The stored session. A node session sends its device token as a bearer; a
+   * Hub session sends no header and asks `fetch` for the native cookie jar
+   * (`credentials: "include"`), where `kin_session` lives.
+   */
+  session?: Session | null;
+  /**
+   * A one-shot bearer for a call made before a session exists (the pairing
+   * exchange). Prefer `session` everywhere a session is already known.
+   */
   token?: string | null;
   method?: string;
   body?: string;
   headers?: Record<string, string>;
+  /**
+   * Explicit cookie policy. Hub sessions imply `"include"`; the sign-in calls
+   * set it themselves because the cookie is what they are here to obtain.
+   */
+  credentials?: RequestCredentials;
   /** Tests inject their own; production uses the platform fetch. */
   fetchImpl?: typeof fetch;
   /**
@@ -60,7 +76,17 @@ export async function apiFetch<T>(
     Accept: "application/json",
     ...options.headers,
   };
-  if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  // A session decides the credential: a node has a bearer token, a Hub has
+  // only the cookie the native jar sends. The legacy `token` covers the pairing
+  // exchange, which runs before any session can exist.
+  if (options.session?.kind === "node") {
+    headers.Authorization = `Bearer ${options.session.token}`;
+  } else if (options.session == null && options.token) {
+    headers.Authorization = `Bearer ${options.token}`;
+  }
+  const credentials =
+    options.credentials ??
+    (options.session?.kind === "hub" ? "include" : undefined);
 
   const doFetch = options.fetchImpl ?? fetch;
   // One controller carries both bounds: the timeout and the caller's signal.
@@ -83,6 +109,7 @@ export async function apiFetch<T>(
       headers,
       body: options.body,
       signal: controller.signal,
+      ...(credentials === undefined ? {} : { credentials }),
     });
   } catch {
     // A rejected fetch (TypeError on RN), a timeout, and an unreachable node
