@@ -501,6 +501,8 @@ case_claim_check_retry_zero_disables() {
   [ -f "$ATTEMPTS" ] || fail "retryzero: no attempt record at $ATTEMPTS"
   [ "$(grep -c '^attempt ' "$ATTEMPTS")" -eq 1 ] \
     || fail "retryzero: want exactly one seam run with the retry disabled: $(cat "$ATTEMPTS")"
+  grep -qx 'retry pause: requested=0s used=0s' "$ATTEMPTS" \
+    || fail "retryzero: the escape hatch did not record a zero pause: $(cat "$ATTEMPTS")"
   grep -q '^attempt 1: CLAIM_LANE_FAIL' "$ATTEMPTS" \
     || fail "retryzero: the single attempt is not the FAIL: $(cat "$ATTEMPTS")"
   [ -f "$CTRL/rsi/state/lanes/1.claim.txt" ] \
@@ -512,9 +514,12 @@ case_claim_check_retry_zero_disables() {
 }
 
 # AGENTS.md 13: the pause is bounded. RSI_CLAIM_RETRY_SECS=999 must clamp to 5 s, so the case
-# finishes under its own 12 s ceiling and still makes both attempts.
+# still makes both attempts. The verdict is the lane's own record — requested seconds and used
+# seconds — not elapsed wall time: a loaded host can honestly spend well over 20 s on the same
+# hand-off, and a stopwatch would turn this green guard red for a reason that has nothing to do
+# with the clamp. The 60 s bounded_run is a ceiling far above that nominal — only a hand-off it
+# killed fails as a watchdog timeout — and it is never the verdict.
 case_claim_check_retry_clock_is_clamped() {
-  local start elapsed
   new_repo retryclamp
   change docs/plans/gap-log.md '- a sentence the claim can prove'
   body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
@@ -522,14 +527,20 @@ case_claim_check_retry_clock_is_clamped() {
   fixed_body "$T/retryclamp.fixed"
   rm -f "$ATTEMPTS"
   flip_body_on_attempt "$CTRL/rsi/state/lanes/1.pr-body.md" "$T/retryclamp.fixed" & local flipper=$!
-  start="$(date +%s)"
-  bounded_run 12 claim_fail_handoff "$BODY" 999; PH_RC=$?
-  elapsed=$(( $(date +%s) - start ))
+  # The hand-off writes to its own log, not the suite's stdout: with the clamp broken the inner
+  # pause is the only thing bounded_run must reap, and a host without ps/pgrep leaves that child
+  # holding whatever the case inherited. The verdict then stays the record's, and the log is
+  # quoted on failure.
+  bounded_run 60 claim_fail_handoff "$BODY" 999 > "$T/retryclamp.handoff.log" 2>&1; PH_RC=$?
   wait "$flipper" 2>/dev/null || true
-  [ "$PH_RC" -eq 0 ] \
-    || fail "retryclamp: hand-off exit $PH_RC within the 12 s ceiling (an unclamped 999 s retry)"
-  [ "$elapsed" -lt 10 ] || fail "retryclamp: the pause was ${elapsed}s, want < 10 (clamped to 5)"
-  [ -f "$ATTEMPTS" ] || fail "retryclamp: no attempt record at $ATTEMPTS"
+  local log; log="$(cat "$T/retryclamp.handoff.log")"
+  [ -f "$ATTEMPTS" ] || fail "retryclamp: no attempt record at $ATTEMPTS (hand-off exit $PH_RC): $log"
+  grep -qx 'retry pause: requested=999s used=5s' "$ATTEMPTS" \
+    || fail "retryclamp: the record does not prove the clamp: $(cat "$ATTEMPTS")"
+  if [ "$PH_RC" -eq 124 ]; then
+    fail "retryclamp: the hand-off did not finish inside the 60 s watchdog; a hung lane must still fail: $log"
+  fi
+  [ "$PH_RC" -eq 0 ] || fail "retryclamp: hand-off exit $PH_RC, want 0: $log"
   [ "$(grep -c '^attempt ' "$ATTEMPTS")" -eq 2 ] \
     || fail "retryclamp: the clamped retry did not make both attempts: $(cat "$ATTEMPTS")"
 }
