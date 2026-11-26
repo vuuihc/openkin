@@ -152,7 +152,7 @@ function pendingReply(url: string): Reply | undefined {
 }
 
 function storedSession(): Promise<Session | null> {
-  return Promise.resolve({ origin: ORIGIN, token: TOKEN });
+  return Promise.resolve({ kind: "node", origin: ORIGIN, token: TOKEN });
 }
 
 function noSession(): Promise<Session | null> {

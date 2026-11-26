@@ -1,5 +1,6 @@
 import type { components } from "@ui/api/generated/openapi";
 import { apiFetch, type TransportReason, type TransportResult } from "../api/transport";
+import type { Session } from "../auth/tokenStore";
 
 /**
  * The generated schema is the contract and imports nothing, so this module
@@ -61,8 +62,10 @@ export type ProvidersView = {
 };
 
 export type ProvidersModelOptions = {
-  /** The paired node's origin, from the stored session. */
+  /** The paired node's or signed-in Hub's origin, from the stored session. */
   origin: string;
+  /** The stored session; a Hub session sends its cookie instead of a token. */
+  session?: Session | null;
   token?: string | null;
   /** Tests inject a recording fetch; production uses the platform fetch. */
   fetchImpl?: typeof fetch;
@@ -202,6 +205,7 @@ export function createProvidersModel(options: ProvidersModelOptions): ProvidersM
     state = { ...state, status: "loading", days };
 
     const request = {
+      session: options.session,
       token: options.token,
       fetchImpl: options.fetchImpl,
       timeoutMs: options.timeoutMs,
