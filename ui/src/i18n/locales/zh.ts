@@ -422,6 +422,7 @@ const zh = {
       noMatches: "无匹配",
     },
     thinking: "思考中…",
+    noAnswer: "还没有回答",
     streaming: "生成中",
     queued: "排队中",
     withdraw: "撤回消息",

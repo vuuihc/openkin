@@ -440,6 +440,7 @@ const en: MessageTree = {
       noMatches: "No matches",
     },
     thinking: "thinking…",
+    noAnswer: "no answer yet",
     streaming: "streaming",
     queued: "Queued",
     withdraw: "Withdraw message",
