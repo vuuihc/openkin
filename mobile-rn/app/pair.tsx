@@ -64,8 +64,7 @@ export default function PairScreen() {
         router.replace("/list");
         return;
       }
-    } catch (error) {
-      console.error("PAIR_DEBUG", String(error), (error as { stack?: string })?.stack);
+    } catch {
       // A rejected Keychain/SecureStore promise must not strand the action:
       // name a reason and hand the field back so a retry stays possible.
       if (myFlow !== flow.current) return;
