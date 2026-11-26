@@ -1000,7 +1000,7 @@ seen: 1
 | 长任务的 ctx 必须由守护进程持有 | 1 | 未升级；`internal/server/node.go` 已显式命名 `frameCtx`，下一次加长任务回调按此自查 |
 | 浮层按实测视口摆放，390px 下逐个验证 | 1 | 未升级；先修 issue #1/#3，再补一条 390px 的几何测试 |
 | YOLO 会话的首轮不能是只读 plan 轮 | 2 | 未升级；首轮已补 Create→首轮的端到端断言，worker 轮已按同一裁决修好并补红测（`c84d9da0`）；下一次新增权限模式×工作区组合先写这条测试 |
-| iPad 是桌面宽度、手指和无 Shift 软键盘，三种形态各验证一遍 | 5 | AGENTS.md「Agent best practices」第 16 条；`77ede76f` 已改按 `pointer: coarse`，`f938f290`/`76f047fc`/`f5fa2097` 把 820 粗指针下的封面 chip、列表列与消息操作补到 44×44 并各配 mutant；仍需一条能复现“≥768 粗指针控件必须 44×44”的回归测试，本轮不改代码；2026-11-24 `e26ce2ce`（#685 Menu 的 `max-sm:` 地板）与 `266ea80d`（#692 routines chip 与设置标签）已改读 `useCoarsePointer()` 并各配 mutant，同类控件仍要按 820 粗指针逐个量。；2026-11-25 `bed4f956`（#731 用量 sheet 在 768–1599 被 `md:hidden` 吃掉）已在 md 以上改用 dialog 形态。 |
+| iPad 是桌面宽度、手指和无 Shift 软键盘，三种形态各验证一遍 | 5 | AGENTS.md「Agent best practices」第 16 条；`77ede76f` 已改按 `pointer: coarse`，`f938f290`/`76f047fc`/`f5fa2097` 把 820 粗指针下的封面 chip、列表列与消息操作补到 44×44 并各配 mutant；仍需一条能复现“≥768 粗指针控件必须 44×44”的回归测试，本轮不改代码；2026-11-24 `e26ce2ce`（#685 Menu 的 `max-sm:` 地板）与 `266ea80d`（#692 routines chip 与设置标签）已改读 `useCoarsePointer()` 并各配 mutant，同类控件仍要按 820 粗指针逐个量；2026-11-25 `bed4f956`（#731 用量 sheet 在 768–1599 被 `md:hidden` 吃掉）已在 md 以上改用 dialog 形态。 |
 | 超时预算按有界输入的上限和链路推算，不按一次本机测量 | 2 | 未升级；`queryTimeout` 已按 provider 实测重算；#647 已把共享面走查上限改成 2700s 并让 ux-walk.sh 与 merge.sh 同步；下一次新增预算先写上限算式与最慢链路 |
 | 两路 feed 合并同一实体时用稳定身份键，不用 cwd 或标题 | 1 | 未升级；`phoneSessionBuckets` 已按 (device, ref) 去重，下一次合并 feed 先找 ADR 身份键 |
 | 同一个到期时间存两处时，续期要在同一响应里重发 | 1 | 未升级；cookie 已随续期重发，下一次加滑动过期先列出所有副本 |
@@ -1070,6 +1070,9 @@ seen: 1
 | 只在「缺陷不会发生的那条路」上写的测试，绿着也证明不了修复 | 2 | 未升级；`93320cd5` 与 `0675704a` 都在 review 后补了失败分支的用例；下一次写修复测试先在未修复的树上看到红 |
 | 会让每次重试都必然失败的判据或残留状态，要自带出路 | 1 | 未升级；`f4c5244e` 已让 docs scope 遇到被测试引用的文档时降级为 full，`01310718` 已复用 0 提交的残留分支；下一次写 fail-closed 判据先写“作者能做什么让它变绿”的用例 |
 | 清理挂在 EXIT trap 上时，成功路径解除 trap 前要先显式清理 | 1 | 未升级；`fac30e62` 已抽出 `lane_release_host` 并在成功路径的 `finish done` 之前调用，case 10 与 mutant 钉住顺序；下一次加 trap 清理先给成功路径写一条用例 |
+| 浮层压住输入控件等于不可达，正文可盖 | 1 | 未升级；gap-log `## Open` 条目由行 35 修复，`UserQuestionCard.tsx:163` 补 `data-kin-hit-row` 标记后按 390/820 真实指针验证 |
+| 工作已验证但 PR 不存在等于没交付 | 2 | 未升级；#738（`28e4326b`）与 #752（`b13c5b1c`）两次；下一次 `gh pr create` 失败写 `state/lanes/<slug>.pr-missing` |
+| 签故事前先量平台的事件载荷，键盘类验收格要带证据 | 1 | 未升级；row 36 改写 KIN-MOBILE-001 §5 的 Enter 格并记一行 DECISIONS |
 
 ## 2026-11-19 · 走查步骤没有契约，就能在全绿时被删掉
 seen: 3
@@ -1674,3 +1677,36 @@ seen: 1
 规则：把清理挂在 trap 上时，先 grep 同一脚本里所有 `trap -`/`exit` 前的解除点；解除 trap 的成功路径必须显式调用同一个清理函数，且在“标记完成/释放锁”之前调用；测试同时覆盖被杀路径与成功路径，并用 mutant 钉住清理与完成标记的先后。
 
 证据：`47261f5f`（#724）→ `fac30e62`（#745）（2026-11-25）
+
+## 2026-11-26 · 浮层压住输入控件等于不可达——正文可盖，输入不可盖
+seen: 1
+
+发生了什么：2026-11-25-22 的 390 dogfood 里，回答问题的「其他」自定义输入框被浮动批准条压住：预设选项 44px、点中心命中自己，输入框却点不到；同一个 820 下输入框可点。`01c7ceb4`（#737）把它登记进 `docs/plans/gap-log.md`，行 35 修复中（`rsi/state/briefs/phone-question-field.md`）。
+
+为什么没拦住：让位判据的锚点是 `data-kin-hit-row`（列表行）与 `data-kin-reading`（正文），输入框两个都没有（`ui/src/components/cards/FloatingApproval.tsx:262` 的 `covers(...)`）；既有回归用例只证明行和正文可点。2026-11-22 的取舍（`rsi/DECISIONS.md:166`）只说了「正文可被覆盖」，没有区分输入框。
+
+规则：浮动卡片/条带在任何宽度压住一个可交互控件（输入、按钮、可选行）时，必须让位或在同一屏内可关闭；只有正文段落可以被覆盖。证明用真实指针或 `elementFromPoint` 在 390 与粗指针 ≥768 各点一次被盖控件本身，覆盖者的存在不算证据。
+
+证据：`rsi/state/dogfood/20261125-22.md`（F2 回答问题 · 390）、`docs/plans/gap-log.md`（#737 `01c7ceb4` 登记）、`rsi/state/briefs/phone-question-field.md`。
+
+## 2026-11-26 · 工作已验证但 PR 不存在，等于没交付
+seen: 2
+
+发生了什么：① 2026-11-25 23:52，一条 lane 的 `gh pr create` 连续三次 502；分支 `28e4326b` 已推送、9 文件 +693/−20、64/64 jest、18/18 mutant 红，但合并车道只看得到 open PR，19 分钟后才由 CEO 用 REST 补开 #738。② 2026-11-26 05:0x，row 31 跑了 52 分钟、测试与 mutant 全绿后死在模拟器步骤，因缺 PR body 被 red-first 判失败，240 行已验证代码滞留到 06:24 才由后续 lane 转成 #752（`b13c5b1c`）。
+
+为什么没拦住：lane 的完成判据是「提交 + 推送」，PR 创建被当成收尾动作；它失败时没有留下合并车道能读的记录，`lanes.py status` 也只显示 lane 结束。
+
+规则：PR body 是 lane 的第一件产物，不是最后一件；`gh pr create` 失败时写 `state/lanes/<slug>.pr-missing`（含 branch、sha、body 路径），并让 `lanes.py status` 与合并车道能据此接管；body 或证据未完成不算 done。
+
+证据：PR #738（`28e4326b`）、`rsi/state/lanes/rn-list-restore.pr-body.md`、PR #752（`b13c5b1c`）、`rsi/state/followups.md` 2026-11-26 条目。
+
+## 2026-11-26 · 签故事前先量平台的事件载荷，键盘类验收格要有该平台的证据
+seen: 1
+
+发生了什么：KIN-MOBILE-001 §5 的「Enter 发送、Shift+Enter 换行（外接键盘）」签进了故事（`docs/product/stories/KIN-MOBILE-001.md:102`），直到 row 36 才量到：RN 0.88.1（`mobile-rn/package.json:21`）的 `TextInputKeyPressEventData` 只带 `key`、`target`、`eventCount`，没有 shift/meta（`mobile-rn/node_modules/react-native/Libraries/Components/TextInput/TextInput.flow.js:99-105`），而多行框的 `submitBehavior` 默认 `newline`（同目录 `TextInput.js:449-469`）——Return 不可能同时发送与换行。已签的父规则是手机用发送键（`docs/product/stories/KIN-START-001.md:45`）、Mac 用 ⌘Enter（`docs/product/stories/KIN-CONTRACT-001.md:67`）。
+
+为什么没拦住：故事评审读的是意图文案，没有一条要求「这个格子的行为在该框架的事件载荷里存在」；框架的能力边界从未被抄进契约，直到一条 lane 要动手时才撞上。
+
+规则：任何承诺按键、手势或系统事件的验收格，签名时附上该平台事件载荷的 `path:line`（字段列表）与一个最小验证；载荷不支持的组合改成该平台已实现的动作，或明确写成「仅 web」。发现已签的格里不可能的行为，按 row 36 的方式改措辞并记一行 DECISIONS，不硬造实现。
+
+证据：`docs/product/stories/KIN-MOBILE-001.md:102`、`mobile-rn/package.json:21`、`TextInput.flow.js:99-105` / `TextInput.js:449-469`（RN 0.88.1 安装树）、`rsi/state/STATUS.md` 行 36。
