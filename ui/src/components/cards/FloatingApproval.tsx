@@ -259,7 +259,13 @@ export default function FloatingApproval({
       return false;
     };
 
-    const hit = covers(box, "[data-kin-hit-row]") || covers(box, "[data-kin-reading]");
+    // Every interactive row in the stream carries the same unscoped marker:
+    // a changed-file row, a conversation row, and a question card's
+    // custom-answer and submit rows all say `data-kin-hit-row=""`. The card
+    // yields to it at every width — a tablet or Mac column is not a licence to
+    // cover a field the reader types into, or the button that sends it.
+    const hitRowSelector = "[data-kin-hit-row]";
+    const hit = covers(box, hitRowSelector) || covers(box, "[data-kin-reading]");
     if (hit !== covered) setCovered(hit);
 
     // The strip's own pill: measured directly whenever it is mounted, and
