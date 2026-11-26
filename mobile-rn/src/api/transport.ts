@@ -14,7 +14,16 @@ export type TransportReason = "expired" | "rejected" | "unreachable";
 
 export type TransportResult<T> =
   | { ok: true; status: number; data: T }
-  | { ok: false; status: number | null; reason: TransportReason };
+  | {
+      ok: false;
+      status: number | null;
+      reason: TransportReason;
+      /**
+       * The refusal body when it parsed. The transport never interprets it;
+       * a caller that knows the endpoint reads its stable `code`.
+       */
+      data?: unknown;
+    };
 
 export type ApiFetchOptions = {
   /**
@@ -120,14 +129,21 @@ export async function apiFetch<T>(
     outer?.removeEventListener("abort", forwardAbort);
   }
 
-  if (res.status === 401) {
-    return { ok: false, status: 401, reason: "expired" };
-  }
-  if (res.status >= 500) {
-    return { ok: false, status: res.status, reason: "unreachable" };
-  }
   if (!res.ok) {
-    return { ok: false, status: res.status, reason: "rejected" };
+    const status = res.status;
+    const reason: TransportReason =
+      status === 401 ? "expired" : status >= 500 ? "unreachable" : "rejected";
+    // A refusal carries the server's stable `code`; read the body while it is
+    // still available. A body that does not parse leaves the code absent.
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch {
+      data = undefined;
+    }
+    return data === undefined
+      ? { ok: false, status, reason }
+      : { ok: false, status, reason, data };
   }
   if (res.status === 204) {
     return { ok: true, status: 204, data: undefined as T };

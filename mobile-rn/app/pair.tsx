@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -11,10 +11,15 @@ import {
   View,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import {
+  SafeAreaInsetsContext,
+  type EdgeInsets,
+} from "react-native-safe-area-context";
 import { pairing, type AppState } from "../src/auth/pairing";
 import { hubSignIn } from "../src/auth/hubSignIn";
 import type { HubReason, HubStatus } from "../src/auth/hub";
 import { t } from "../src/i18n";
+import { pairView } from "../src/screens/pairModel";
 
 const FRESH: AppState = {
   route: "pairing",
@@ -24,10 +29,15 @@ const FRESH: AppState = {
   display: null,
 };
 
+/** A screen rendered without a provider has no notch to clear. */
+const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+
 /** Every Hub refusal has a sentence; the transport reasons keep their names. */
 const HUB_REASON_KEYS: Record<HubReason, string> = {
   expired: "pairing.expired",
-  rejected: "pairing.rejected",
+  // `rejected` on this screen is the Hub refusing a sign-in, not a dead
+  // pairing link.
+  rejected: "pairing.hubRejected",
   unreachable: "pairing.unreachable",
   insecure: "pairing.hubInsecure",
   "no-accounts": "pairing.hubNoAccounts",
@@ -60,18 +70,27 @@ export default function PairScreen() {
   const [hubTyped, setHubTyped] = useState(initialHub);
   const [hubStatus, setHubStatus] = useState<HubStatus | null>(null);
   const [hubBusy, setHubBusy] = useState(false);
-  const [hubReason, setHubReason] = useState<HubReason | null>(null);
+  const [hubReason, setHubReason] = useState<HubReason | null>(
+    // The boot reason arrives in the URL; a Hub-first screen must show it
+    // even when the node-pairing section below stays collapsed.
+    params.reason === "expired" ? "expired" : null,
+  );
   const [hubErrorCode, setHubErrorCode] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showNode, setShowNode] = useState(false);
 
-  const flow = useRef(0);
+  // The Hub flow and the node flow own separate generations: interleaving
+  // them must not leave either `hubBusy` or `busy` stuck true.
+  const hubFlow = useRef(0);
+  const nodeFlow = useRef(0);
   const inputRef = useRef<TextInputInstance>(null);
+  const insets = useContext(SafeAreaInsetsContext) ?? NO_INSETS;
 
   useEffect(
     () => () => {
-      flow.current += 1;
+      hubFlow.current += 1;
+      nodeFlow.current += 1;
     },
     [],
   );
@@ -83,6 +102,7 @@ export default function PairScreen() {
       setHubTyped(params.hub);
       setHubStatus(null);
       setHubReason(null);
+      setHubErrorCode(null);
     }
   }, [params.hub]);
 
@@ -92,13 +112,13 @@ export default function PairScreen() {
 
   const probe = useCallback(async () => {
     if (hubBusy || hubTyped.trim() === "") return;
-    const my = ++flow.current;
+    const my = ++hubFlow.current;
     setHubBusy(true);
     setHubReason(null);
     setHubErrorCode(null);
     try {
       const result = await hubSignIn.probe(hubTyped);
-      if (my !== flow.current) return;
+      if (my !== hubFlow.current) return;
       if (result.ok) {
         setHubTyped(result.origin);
         setHubStatus(result.status);
@@ -109,9 +129,9 @@ export default function PairScreen() {
         setHubReason(result.reason);
       }
     } catch {
-      if (my === flow.current) setHubReason("unreachable");
+      if (my === hubFlow.current) setHubReason("unreachable");
     } finally {
-      if (my === flow.current) setHubBusy(false);
+      if (my === hubFlow.current) setHubBusy(false);
     }
   }, [hubBusy, hubTyped]);
 
@@ -125,7 +145,7 @@ export default function PairScreen() {
     ) {
       return;
     }
-    const my = ++flow.current;
+    const my = ++hubFlow.current;
     setHubBusy(true);
     setHubReason(null);
     setHubErrorCode(null);
@@ -135,38 +155,41 @@ export default function PairScreen() {
         email.trim(),
         password,
       );
-      if (my !== flow.current) return;
+      if (my !== hubFlow.current) return;
       if (result.ok) {
+        // A Hub session replaces whatever node token retired earlier; the
+        // list route's boot read must not bounce back to /pair?reason=expired.
+        pairing.clearRetired();
         router.replace("/list");
         return;
       }
       setHubReason(result.reason);
       reportFailure(result.errorCode);
     } catch {
-      if (my === flow.current) setHubReason("unreachable");
+      if (my === hubFlow.current) setHubReason("unreachable");
     } finally {
-      if (my === flow.current) setHubBusy(false);
+      if (my === hubFlow.current) setHubBusy(false);
     }
   }, [email, hubBusy, hubStatus, hubTyped, password, reportFailure, router]);
 
   const submitNode = useCallback(async () => {
     if (busy || typed.trim() === "") return;
-    const myFlow = ++flow.current;
+    const myFlow = ++nodeFlow.current;
     setBusy(true);
     try {
       const next = await pairing.pairWithLink(typed);
-      if (myFlow !== flow.current) return;
+      if (myFlow !== nodeFlow.current) return;
       setState(next);
       if (next.route === "list") {
         router.replace("/list");
         return;
       }
     } catch {
-      if (myFlow === flow.current) {
+      if (myFlow === nodeFlow.current) {
         setState({ ...FRESH, reason: "rejected" });
       }
     } finally {
-      if (myFlow === flow.current) setBusy(false);
+      if (myFlow === nodeFlow.current) setBusy(false);
     }
     inputRef.current?.focus();
   }, [busy, typed, router]);
@@ -196,7 +219,15 @@ export default function PairScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       style={styles.container}
     >
-      <ScrollView contentContainerStyle={styles.form}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.form,
+          {
+            paddingTop: 24 + insets.top,
+            paddingBottom: 24 + insets.bottom,
+          },
+        ]}
+      >
         <Text style={styles.title}>{t("pairing.hubTitle")}</Text>
         <Text style={styles.hint}>{t("pairing.hubHint")}</Text>
         <TextInput
@@ -206,6 +237,8 @@ export default function PairScreen() {
           keyboardType="url"
           onChangeText={(value) => {
             setHubTyped(value);
+            // A refused sign-in belongs to the address it was tried on.
+            setHubErrorCode(null);
             // A changed address is a different Hub: the methods listed for
             // the previous one do not apply.
             if (hubStatus !== null && value !== hubStatus.origin) {
@@ -244,7 +277,7 @@ export default function PairScreen() {
                 onPress={() => {
                   setHubStatus(null);
                   setHubReason(null);
-                  setBrowserOpened(false);
+                  setHubErrorCode(null);
                 }}
                 style={styles.secondaryAction}
               >
@@ -377,6 +410,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   form: {
+    flexGrow: 1,
     gap: 12,
     justifyContent: "center",
     padding: 24,

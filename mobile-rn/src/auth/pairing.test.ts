@@ -212,11 +212,12 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
 
       const resumed = await pairing.resume();
 
-      // The node is silent, not the token: stay on the list and keep the entry.
+      // The node is silent, not the token: stay on the list and keep the entry
+      // exactly as it was stored (a legacy entry has no `kind` and reads back
+      // as a node session).
       expect(resumed.route).toBe("list");
       expect(resumed.reason).toBe("unreachable");
       expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
-        kind: "node",
         origin: ORIGIN,
         token: TOKEN,
       });
@@ -331,6 +332,43 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     const resumed = await pairing.resume();
     expect(resumed.route).toBe("list");
     expect(resumed.reason).toBe("none");
+  });
+
+  it("R-rn-hub-signin: a Hub sign-in clears an earlier node retirement, so the next boot lands on the list", async () => {
+    const HUB = "https://hub.example.com";
+    const store = memoryStore();
+    await store.setItemAsync(
+      SESSION_KEY,
+      JSON.stringify({ kind: "node", origin: ORIGIN, token: TOKEN }),
+    );
+    const { impl, calls } = recordingFetch((url) =>
+      url.startsWith(`${HUB}/api/tasks`)
+        ? response(200, TASKS)
+        : response(401, { error: "unauthorized" }),
+    );
+    const pairing = createPairing({ store, fetchImpl: impl });
+
+    // The old node token is refused on boot and retired for good.
+    const retired = await pairing.resume();
+    expect(retired.route).toBe("pairing");
+    expect(retired.reason).toBe("expired");
+    expect(store.entries.get(SESSION_KEY)).toBeUndefined();
+
+    // The pair screen's Hub sign-in then writes its own session and clears
+    // the retirement before `router.replace("/list")`.
+    await store.setItemAsync(
+      SESSION_KEY,
+      JSON.stringify({ kind: "hub", origin: HUB }),
+    );
+    pairing.clearRetired();
+
+    const booted = await pairing.resume();
+    expect(booted.route).toBe("list");
+    expect(booted.reason).toBe("none");
+    expect(booted.origin).toBe(HUB);
+    expect(
+      calls.filter((call) => call.url.startsWith(`${HUB}/api/tasks`)),
+    ).toHaveLength(1);
   });
 
   it("KIN-MOBILE-001 R2: the token never appears in the URL, the result, or a log line", async () => {

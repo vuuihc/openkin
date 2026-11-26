@@ -59,7 +59,7 @@ function task(overrides: Partial<Task> = {}): Task {
 }
 
 function storedSession(): Promise<Session | null> {
-  return Promise.resolve({ origin: ORIGIN, token: TOKEN });
+  return Promise.resolve({ kind: "node", origin: ORIGIN, token: TOKEN });
 }
 
 function noSession(): Promise<Session | null> {
@@ -603,7 +603,7 @@ describe("KIN-MOBILE-001 §2 first frame", () => {
     // test would pass without the new branch.)
     let releaseSession!: () => void;
     const sessionGate = new Promise<Session | null>((resolve) => {
-      releaseSession = () => resolve({ origin: ORIGIN, token: TOKEN });
+      releaseSession = () => resolve({ kind: "node", origin: ORIGIN, token: TOKEN });
     });
     const readSessionImpl = jest.fn(() => sessionGate);
 
@@ -778,7 +778,7 @@ describe("KIN-MOBILE-001 R3 list memory and restore", () => {
     expect(memory.read().offset).toBe(180);
 
     await act(async () => {
-      release({ origin: ORIGIN, token: TOKEN });
+      release({ kind: "node", origin: ORIGIN, token: TOKEN });
     });
     await waitFor(() =>
       expect(second.getByText("First conversation")).toBeTruthy(),

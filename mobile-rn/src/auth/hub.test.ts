@@ -128,6 +128,25 @@ describe("R-rn-hub-signin password sign-in", () => {
     expect(store.entries.has(SESSION_KEY)).toBe(false);
   });
 
+  it("R-rn-hub-signin: a wrong password carries the server's refusal code", async () => {
+    const { store, signIn } = hubSignIn(() =>
+      response(401, {
+        error: "email or password is incorrect",
+        code: "invalid_credentials",
+      }),
+    );
+
+    const result = await signIn.signInWithPassword(HUB, EMAIL, "wrong");
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "rejected",
+      origin: HUB,
+      errorCode: "invalid_credentials",
+    });
+    expect(store.entries.has(SESSION_KEY)).toBe(false);
+  });
+
   it("R-rn-hub-signin: a login that passes but /me refuses writes nothing", async () => {
     const { store, signIn } = hubSignIn((path) =>
       path === "/api/auth/login" ? response(200, {}) : response(401, {}),

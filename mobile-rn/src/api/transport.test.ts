@@ -99,7 +99,12 @@ describe("KIN-MOBILE-001 R2 transport contract", () => {
         fetchImpl: impl,
       });
 
-      expect(result).toEqual({ ok: false, status, reason: "rejected" });
+      expect(result).toEqual({
+        ok: false,
+        status,
+        reason: "rejected",
+        data: {},
+      });
     },
   );
 
@@ -110,7 +115,12 @@ describe("KIN-MOBILE-001 R2 transport contract", () => {
       fetchImpl: impl,
     });
 
-    expect(result).toEqual({ ok: false, status: 503, reason: "unreachable" });
+    expect(result).toEqual({
+      ok: false,
+      status: 503,
+      reason: "unreachable",
+      data: {},
+    });
   });
 
   it("KIN-MOBILE-001 R2: builds the absolute URL from the origin and always accepts JSON", async () => {
@@ -173,6 +183,36 @@ describe("R-rn-hub-signin transport auth", () => {
   function header(call: Call, name: string): string | undefined {
     return (call.init.headers as Record<string, string> | undefined)?.[name];
   }
+
+  it("R-rn-hub-signin: a refusal keeps its body so the caller can read the code", async () => {
+    const impl = jest.fn(
+      async () =>
+        ({
+          ok: false,
+          status: 401,
+          json: async () => ({
+            error: "email or password is incorrect",
+            code: "invalid_credentials",
+          }),
+        }) as unknown as Response,
+    );
+
+    const result = await apiFetch<unknown>(ORIGIN, "/api/auth/login", {
+      method: "POST",
+      credentials: "include",
+      fetchImpl: impl as unknown as typeof fetch,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      status: 401,
+      reason: "expired",
+      data: {
+        error: "email or password is incorrect",
+        code: "invalid_credentials",
+      },
+    });
+  });
 
   it("R-rn-hub-signin: a node session sends the bearer exactly as before", async () => {
     const node: Session = {

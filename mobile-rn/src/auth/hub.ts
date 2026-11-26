@@ -164,6 +164,13 @@ function toStatus(body: StatusBody, origin: string): HubStatus {
 
 const AUTH_HEADERS = { "Content-Type": "application/json" };
 
+/** The server's stable refusal code, when the body carries one. */
+function refusalCode(data: unknown): string | undefined {
+  if (data === null || typeof data !== "object") return undefined;
+  const code = (data as { code?: unknown }).code;
+  return typeof code === "string" && code !== "" ? code : undefined;
+}
+
 export function createHubSignIn(options: HubSignInOptions = {}): HubSignIn {
   async function backend(): Promise<SecureBackend> {
     return options.store ?? (await secureStoreBackend());
@@ -204,7 +211,15 @@ export function createHubSignIn(options: HubSignInOptions = {}): HubSignIn {
       timeoutMs: options.timeoutMs,
     });
     if (!login.ok) {
-      return { ok: false, reason: signInFailure(login.reason), origin };
+      // `/api/auth/login` names its refusal (`invalid_credentials`, …) in the
+      // body; the screen translates that code instead of guessing from 401.
+      const errorCode = refusalCode(login.data);
+      return {
+        ok: false,
+        reason: signInFailure(login.reason),
+        origin,
+        ...(errorCode === undefined ? {} : { errorCode }),
+      };
     }
 
     // The cookie is present after login, but "present" is not "accepted": only

@@ -30,6 +30,7 @@ const zh = {
       "这个 Hub 使用第三方账号登录。应用内的第三方登录还没有随本次更新提供，请先在浏览器里使用这个 Hub。",
     hubNodeTitle: "配对单个节点",
     hubBack: "换一个 Hub",
+    hubRejected: "这个 Hub 拒绝了本次登录。请检查地址和账号后重试。",
     hubInsecure: "请使用 https:// 的 Hub 地址。只有本机地址允许 http。",
     hubNoAccounts: "这个 Hub 还没有账号。请先在浏览器里完成设置，或改用节点配对链接。",
     hubNeedsOwner: "这个 Hub 还没有所有者。请先在浏览器里认领，然后再来这里登录。",
