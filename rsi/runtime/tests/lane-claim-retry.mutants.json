@@ -21,6 +21,13 @@
     "new": "  [ \"$CLAIM_RETRY_SECS_USE\" -gt 5 ] && :"
   },
   {
+    "label": "the record prints the requested pause instead of the clamped one",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=claim-check-retry-clock-is-clamped bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  printf 'retry pause: requested=%ss used=%ss\\n' \"$CLAIM_RETRY_SECS_REQ\" \"$CLAIM_RETRY_SECS_USE\" >> \"$CLAIM_ATTEMPTS\"",
+    "new": "  printf 'retry pause: requested=%ss used=%ss\\n' \"$CLAIM_RETRY_SECS_REQ\" \"$CLAIM_RETRY_SECS_REQ\" >> \"$CLAIM_ATTEMPTS\""
+  },
+  {
     "label": "a still-failing re-read skips the failure path, so a genuine red is pushed and the round reports done",
     "file": "rsi/runtime/lane.sh",
     "test": "RSI_TEST_ONLY=claim-check-retry-still-failing-stays-failed bash rsi/runtime/tests/test-lane-claim-check.sh",

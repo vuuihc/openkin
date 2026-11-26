@@ -1,0 +1,50 @@
+#!/bin/bash
+# One iOS simulator per lane at a time, machine-wide. `xcrun simctl boot` is the
+# only command that contends for the slot ($RSI_SIM_SLOT, a mkdir-locked dir
+# lane.sh exports): on 2026-11-25 two RN worker lanes each booted a simulator
+# and ran maestro, driving this 16 GB Mac to load ~900 with 15 GB of swap.
+# Outside a lane (RSI_LANE_PID unset — CEO, gate, a human shell) or with no slot
+# configured this is a plain pass-through, and so is every other xcrun call.
+SHIM="$(cd "$(dirname "$0")" && pwd)"
+REAL="$(PATH="${PATH//$SHIM:/}" command -v xcrun)"
+if [ "${1:-}" != "simctl" ] || [ "${2:-}" != "boot" ] \
+   || [ -z "${RSI_LANE_PID:-}" ] || [ -z "${RSI_SIM_SLOT:-}" ]; then
+  exec "$REAL" "$@"
+fi
+acquire() {
+  mkdir "$RSI_SIM_SLOT" 2>/dev/null || return 1
+  echo "$RSI_LANE_PID" > "$RSI_SIM_SLOT/pid"
+  echo "${RSI_LANE_N:-?}" > "$RSI_SIM_SLOT/lane"
+}
+holder() { cat "$RSI_SIM_SLOT/pid" 2>/dev/null || true; }
+if ! acquire; then
+  owner="$(holder)"
+  # The lane that already holds the slot boots again without waiting.
+  [ "$owner" = "$RSI_LANE_PID" ] && exec "$REAL" "$@"
+  # A missing pid file can be a slot still mid-acquire: give the creator a few
+  # seconds before calling it a leftover. A dead holder is reclaimed outright.
+  tries=0
+  while [ -z "$owner" ] && [ "$tries" -lt 5 ]; do
+    sleep 1; tries=$((tries + 1)); owner="$(holder)"
+  done
+  if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
+    rm -rf "$RSI_SIM_SLOT"
+    acquire && exec "$REAL" "$@"
+  fi
+  # A live other lane holds it: poll every 10 s up to RSI_SIM_SLOT_WAIT
+  # (default 1200 s, well under the 3000 s worker watchdog). On timeout the
+  # caller reports "no verdict" — it never boots on top of the holder.
+  WAIT="${RSI_SIM_SLOT_WAIT:-1200}"; case "$WAIT" in ''|*[!0-9]*) WAIT=1200;; esac
+  waited=0
+  while [ "$waited" -lt "$WAIT" ]; do
+    chunk=$((WAIT - waited)); [ "$chunk" -gt 10 ] && chunk=10
+    sleep "$chunk"; waited=$((waited + chunk))
+    owner="$(holder)"
+    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then continue; fi
+    rm -rf "$RSI_SIM_SLOT"
+    acquire && exec "$REAL" "$@"
+  done
+  echo "sim slot busy: lane $(cat "$RSI_SIM_SLOT/lane" 2>/dev/null || echo '?') holds the simulator; no simulator evidence this run (no verdict)" >&2
+  exit 75
+fi
+exec "$REAL" "$@"
