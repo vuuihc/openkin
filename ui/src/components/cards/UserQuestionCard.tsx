@@ -158,16 +158,16 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
           })}
         </ul>
 
-        {/* The free-text row is a control a floating surface must not cover:
-            `FloatingApproval` measures every `[data-kin-hit-row]` box before
-            it draws the decision card, and on a 390-wide phone the strip sat
-            on this field and took the tap. The marker is on the row — the
-            label and the input together — because a tap anywhere in it is the
-            same intent, not only on the input's own 44px. The `phone` value
-            scopes the yield to the band the defect was filed in: from 768 up
-            the conversation is a column beside the list, the field measured
-            self-hit, and the card keeps its present shape. */}
-        <div className="mt-3" data-kin-hit-row="phone">
+        {/* The free-text row and the action row below are controls a floating
+            surface must not cover: `FloatingApproval` measures every
+            `[data-kin-hit-row]` box before it draws the decision card, and the
+            surface can land on this footer at any width. The marker is on the
+            row — the label and the input together — because a tap anywhere in
+            it is the same intent, not only on the input's own 44px. The empty
+            value is the shared contract every other interactive row uses; the
+            yield is not scoped to one viewport, because a covered field or
+            submit button is unreachable at 390 just as it is at 820 or 1100. */}
+        <div className="mt-3" data-kin-hit-row="">
           <label className="block text-caption text-kin-muted mb-1">{tr("question.other")}</label>
           <input
             type="text"
@@ -187,7 +187,7 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
           />
         </div>
 
-        <div className="mt-3 flex items-center justify-end gap-2">
+        <div className="mt-3 flex items-center justify-end gap-2" data-kin-hit-row="">
           {/* The card's one filled action. `approve` is the console's orange
               filled weight; while it has nothing to send it keeps the old 15%
               tint rather than a dimmed solid fill (TASTE 6). */}

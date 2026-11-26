@@ -590,16 +590,21 @@ describe("FloatingApproval over a question card's custom answer", () => {
     expect(onOpenTask).toHaveBeenCalledWith("task-1");
   });
 
-  it("keeps the card on a tablet when only the phone-marked answer row is under it", () => {
-    // The defect is the phone band. At 820 the strip's corner touched the
-    // row's last 11px but the field's centre was self-hit; the card keeps the
-    // shape the filed probe measured, so the marker's `phone` value scopes the
-    // yield instead of widening it to every width.
+  it("yields the card to the question card's footer on a tablet too", () => {
+    // The 820 gate reading: the expanded card sat on the second question
+    // card's custom-answer field and clipped the bottom of its 提交 button.
+    // The marker is unscoped, so the card gives way at 820 exactly as it does
+    // at 390 — one contract, every width.
     viewport(820, 1180);
     geometry.card = { top: 725, bottom: 994, left: 412, right: 796 };
     geometry.strip = { top: 725, bottom: 777, left: 412, right: 686 };
+    geometry.collapsedStrip = { top: 942, bottom: 994, left: 412, right: 686 };
     geometry.band = { top: 1002, bottom: 1180, left: 0, right: 820 };
-    geometry.rows = [{ top: 671, bottom: 736, left: 411, right: 777 }];
+    // The answer row and the submit row, both under the expanded card.
+    geometry.rows = [
+      { top: 671, bottom: 736, left: 411, right: 777 },
+      { top: 748, bottom: 792, left: 411, right: 777 },
+    ];
     const { props } = setupProps();
     const view = render(
       <>
@@ -608,9 +613,17 @@ describe("FloatingApproval over a question card's custom answer", () => {
       </>,
     );
 
-    expect(view.container.querySelector("[data-kin-approval-card]")).not.toBeNull();
-    expect(approveButton()).toBeTruthy();
-    expect(denyButton()).toBeTruthy();
+    expect(view.container.querySelector("[data-kin-approval-card]")).toBeNull();
+    expect(approveButton()).toBeNull();
+    expect(denyButton()).toBeNull();
+
+    // The strip stays mounted and, at its collapsed offset, clears both rows:
+    // the field's centre and the 提交 button are the reader's again.
+    const strip = view.container.querySelector("aside > [role='status']");
+    expect(strip).not.toBeNull();
+    for (const row of geometry.rows) {
+      expect(rectsOverlap(strip!.getBoundingClientRect(), domRect(row))).toBe(false);
+    }
   });
 
   it("leaves prose under the card alone", () => {

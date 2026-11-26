@@ -10,10 +10,12 @@ import UserQuestionCard from "./UserQuestionCard";
  *
  * `FloatingApproval` measures every `[data-kin-hit-row]` box before it draws
  * the decision card, and gives the card up when one is under it. A question
- * card's `其他` answer is a text field a person has to tap and type into, but
- * it carried no marker, so the rule could never fire for it: on a 390×844
- * phone the strip sat on the field, a real finger tap landed on the strip's
- * task name, and the typed answer went nowhere (dogfood 2026-11-25-22).
+ * card's `其他` answer is a text field a person has to tap and type into, and
+ * the submit row is the only way to send it, but neither carried the marker:
+ * on a 390×844 phone the strip sat on the field and a real finger tap landed
+ * on the strip's task name, and at 820 the expanded card covered the field and
+ * clipped 提交. Both rows now carry the same unscoped marker every other
+ * interactive row in the stream uses, so the yield holds at every width.
  */
 
 const question: UserQuestion = {
@@ -32,8 +34,8 @@ const question: UserQuestion = {
 
 beforeEach(() => setLocale("en"));
 
-describe("the question card's custom answer row", () => {
-  it("marks the custom answer field as a row the floating surface must not cover", () => {
+describe("the question card's footer", () => {
+  it("marks the custom answer row as a row the floating surface must not cover", () => {
     const view = render(<UserQuestionCard question={question} onAnswer={vi.fn()} />);
     const input = screen.getByPlaceholderText(t("question.otherPlaceholder"));
 
@@ -45,10 +47,30 @@ describe("the question card's custom answer row", () => {
     expect(row?.tagName).toBe("DIV");
     expect(row?.contains(input)).toBe(true);
     expect(row?.textContent).toContain(t("question.other"));
+    // The shared unscoped marker — the same attribute value a changed-file row
+    // and a conversation row carry — not a width- or surface-specific one.
+    expect(row?.getAttribute("data-kin-hit-row")).toBe("");
 
-    // It marks one row of the card, not the card's root: the options and the
-    // submit button keep their own behaviour and the rule stays about the
-    // field the reader types into.
+    // It marks one row of the card, not the card's root: the options keep their
+    // own behaviour and the rule stays about the controls the reader taps.
+    expect(row).not.toBe(view.container.firstElementChild);
+  });
+
+  it("marks the submit row as a row the floating surface must not cover", () => {
+    // The 820 gate reading: the expanded decision card clipped the bottom of
+    // 提交, the only filled action that sends the answer. The submit row is a
+    // control exactly like the field above it, so it carries the same marker.
+    const view = render(<UserQuestionCard question={question} onAnswer={vi.fn()} />);
+    const submit = screen.getByRole("button", { name: t("question.submit") });
+    const row = submit.closest("[data-kin-hit-row]");
+
+    expect(row).not.toBeNull();
+    expect(row?.contains(submit)).toBe(true);
+    expect(row?.getAttribute("data-kin-hit-row")).toBe("");
+    // A row of its own: not the answer field's row, and not the card's root.
+    expect(row).not.toBe(
+      screen.getByPlaceholderText(t("question.otherPlaceholder")).closest("[data-kin-hit-row]"),
+    );
     expect(row).not.toBe(view.container.firstElementChild);
   });
 });
