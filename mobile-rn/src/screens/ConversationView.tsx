@@ -16,6 +16,7 @@
 
 import { useContext, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -623,15 +624,38 @@ function Composer({
         />
         <Pressable
           accessibilityRole="button"
-          accessibilityState={{ disabled: !canSend }}
+          // `busy` is the slow node speaking: the control is closed while a
+          // post is in flight, and a person who tapped once must be able to
+          // tell a slow send from a dead one (KIN-MOBILE-001 §5 慢).
+          accessibilityState={{ disabled: !canSend, busy: sending }}
           disabled={!canSend}
           onPress={send}
           style={[styles.action, !canSend && styles.actionDisabled]}
           testID="conversation:send"
         >
-          <Text style={canSend ? styles.actionText : styles.actionTextDisabled}>
-            {t("composer.send")}
-          </Text>
+          {sending ? (
+            // The platform indicator, over the label's own box: a local cue,
+            // not a new surface, and the box above stays editable meanwhile.
+            // The word stays in the layout (and out of the reader) so the
+            // control keeps its width when the cue replaces it.
+            <View style={styles.sendingCue}>
+              <Text
+                aria-hidden
+                style={[styles.actionText, styles.actionTextHidden]}
+              >
+                {t("composer.send")}
+              </Text>
+              <ActivityIndicator
+                accessibilityLabel={t("composer.sending")}
+                style={StyleSheet.absoluteFill}
+                testID="conversation:sending"
+              />
+            </View>
+          ) : (
+            <Text style={canSend ? styles.actionText : styles.actionTextDisabled}>
+              {t("composer.send")}
+            </Text>
+          )}
         </Pressable>
         {state.running ? (
           <Pressable
@@ -1110,6 +1134,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
+  // The sending control's word keeps the box it always had, so the cue
+  // replacing it cannot move the row; the platform indicator covers it.
+  actionTextHidden: {
+    opacity: 0,
+  },
   back: {
     alignItems: "center",
     borderRadius: 8,
@@ -1263,6 +1292,10 @@ const styles = StyleSheet.create({
   },
   scroller: {
     flex: 1,
+  },
+  sendingCue: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   tool: {
     color: "#3a3a3a",
