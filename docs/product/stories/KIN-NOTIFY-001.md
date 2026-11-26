@@ -52,7 +52,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 | 立刻看到 | 按钮进入「正在登记…」；授权成功后这一行消失，这台手机已登记给节点（`PushPermissionRow.dom.test.tsx:85,138`） |
 | 慢 / 空 / 失败 / 断线 | 授权成功但节点调用失败：保留这一行并显示可重试的失败，回到前台时自动补登记（`PushPermissionRow.dom.test.tsx:72,113`）；权限被系统阻止：不弹权限框，给「打开系统设置」（`:102`） |
 | 键盘与焦点 | 这一行是语义按钮（`getByRole("button")`），可 Tab 到并触发；失败提示是 `role="alert"`，读屏会播报（`PushPermissionRow.dom.test.tsx:72,85`） |
-| 离开再回来 | 已授权的手机每次启动自动重登记，不再弹权限；未授权的手机下次打开这一行仍在（`PushPermissionRow.dom.test.tsx:55,62`、`NotificationTaps.dom.test.tsx:144`） |
+| 离开再回来 | 已授权的手机每次启动自动重登记，不再弹权限；未授权的手机下次打开这一行仍在（`PushPermissionRow.dom.test.tsx:55,62,85,102`） |
 
 ### 2. 定位 / 确认：通知叫的是哪一件事
 
@@ -61,7 +61,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 | 起点 | 应用在后台、锁屏或菜单栏；节点产生一个事件 |
 | 动作 | 不做任何事 |
 | 立刻看到 | 系统原生横幅/通知中心：标题是对话标题，正文说清是批准、提问、跑完、失败、额度还是例行报告；iPhone 上同一个对话的通知归一组，两端同一目标的新事件替换旧的那条 |
-| 慢 / 空 / 失败 / 断线 | 设备离线：APNs 尽力而为，不承诺必达；节点没有凭据或发送失败：节点记录最后一次失败原因，控制台不展示（`internal/api/push_devices_test.go` 的 `TestPushDeviceTestRecordsFailure`）；同一件事重复上报：只留一条，不叠加 |
+| 慢 / 空 / 失败 / 断线 | 设备离线：APNs 尽力而为，不承诺必达；节点没有凭据或发送失败：节点记录最后一次失败原因，控制台不展示（`internal/notify/notify.go:525`、`internal/notify/native_test.go` 的 `TestDeliverExpiredTokenRemovesTheDevice`）；同一件事重复上报：只留一条，不叠加 |
 | 键盘与焦点 | Mac 的批准/拒绝按钮可聚焦；iPhone 只有点按打开；VoiceOver 读标题和正文 |
 | 离开再回来 | 通知留在通知中心，直到点开或手动清除；同一目标的新事件替换旧的那条，不同目标并存 |
 
@@ -96,9 +96,9 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 | 起点 | 一台已授权并登记过的手机 |
 | 动作 | 在手机上退出登录；或在节点上解除与这台手机的配对 |
 | 立刻看到 | 退出登录时这台手机的登记一并删除，换账号登录不会收到上一个账号的工作（`internal/api/push_devices_test.go` 的 `TestSignOutDeletesThePhonesRegistration`、`ui/src/lib/nativePush.test.ts`、`ui/src/api/account.test.ts`）；解除配对时登记随设备凭据在同一事务里删除（`internal/api/devices_test.go` 的 `TestDevicePairingScopesAndRevocation`） |
-| 慢 / 空 / 失败 / 断线 | 删除失败：退出登录不被阻塞，删除留待下次重试，404/401/403 视为终态不再重试（`ui/src/lib/nativePush.test.ts`）；离线：本地先清掉 token，节点侧的登出仍会删除登记（`ui/src/api/account.test.ts`） |
-| 键盘与焦点 | 不适用：控制台没有可操作的控件；开关在系统设置里（`docs/product/IA.md:69`） |
-| 离开再回来 | 控制台没有「关闭」开关；要停止接收，退出登录（删除登记）或在系统设置里关掉通知；已授权的手机下次启动会静默重登记（`PushPermissionRow.dom.test.tsx:62`、`docs/product/IA.md:75`） |
+| 慢 / 空 / 失败 / 断线 | 删除失败：退出登录不被阻塞，删除留待下次重试，404/401/403 视为终态不再重试（`ui/src/lib/nativePush.test.ts`）；离线：本地先清掉 token（`ui/src/api/account.test.ts`），节点侧的登出仍会删除登记（`internal/api/push_devices_test.go` 的 `TestSignOutDeletesThePhonesRegistration`） |
+| 键盘与焦点 | 不适用：控制台没有通知关闭控件；开关在系统设置里（`docs/product/IA.md:69`） |
+| 离开再回来 | 控制台没有「关闭」开关；要停止接收，退出登录（删除登记）或在系统设置里关掉通知；登录状态下已授权的手机下次启动会静默重登记，重新登录后也会补登记（`PushPermissionRow.dom.test.tsx:62`、`docs/product/IA.md:75`） |
 
 ### 6. 收尾：处理完就安静
 
@@ -109,7 +109,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 | 立刻看到 | 对应的已送达通知从通知中心移除（iPhone）；Mac 上不再出现同一件事的新横幅；同一目标的后续事件替换而不是叠加 |
 | 慢 / 空 / 失败 / 断线 | 移除失败不报错；事件重复到达时按 kind + id 去重；已经处理的事再触发一次也不会弹 |
 | 键盘与焦点 | 不适用 |
-| 离开再回来 | 通知中心里没有已经处理完的事；对话仍是唯一真相，通知丢了，对话行上的计数还在（`docs/product/IA.md:75`） |
+| 离开再回来 | 通知中心里没有已经处理完的事；对话仍是唯一真相，通知丢了，对话行上的计数还在（`docs/product/IA.md:77`） |
 
 ## 各面差异
 
@@ -117,7 +117,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 |---|---|---|
 | Mac | 控制台没有通知设置面；macOS 通知中心是唯一通道，权限与开关归系统设置；批准/拒绝按钮保留；当前正在看的对话的终态不弹；Mac 本身不是 APNs 目标（`docs/product/IA.md:69,75`、`desktop/src/notifications.test.ts`） | Electron 的 Notification 走的就是 macOS 通知中心，不是网页通知；桌面壳未签名，不能接 APNs；这一条补齐触发范围和状态，不另写 Swift 壳 |
 | 手机 | 设置 → 通用里只有未授权时的一行「开启通知」；授权后每次启动自动重登记，这一行消失；通知由 APNs 送到 Capacitor 壳；点开落到那段对话并让被点名的卡片获得焦点；前台时用应用内横幅，不重复弹系统通知；被系统阻止时这一行给「打开系统设置」（`PushPermissionRow.dom.test.tsx:102,169`、`notificationRoute.ts:75-84`） | iOS 的后台送达只有 APNs；WKWebView 里没有 Web Push；控制台不提供设备列表、测试推送或按设备关闭（`docs/product/IA.md:75`） |
-| 两面 | 同一份事件、同一套标题/正文、同一个落点；对话是真相；发送成功不等于看到；通知丢了，东西还在对话里（`docs/product/IA.md:75-76`） | 两端平台能力不同，但用户要完成的动作相同 |
+| 两面 | 同一份事件、同一套标题/正文、同一个落点；对话是真相；发送成功不等于看到；通知丢了，东西还在对话里（`docs/product/IA.md:76-77`） | 两端平台能力不同，但用户要完成的动作相同 |
 
 浏览器控制台不是通知面：控制台不显示任何推送区块，也没有浏览器推送 / Bark / ntfy；原生通知只在 Mac / iPhone 应用里（`docs/product/IA.md:75`）。
 
@@ -158,7 +158,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 | 接口 | `internal/api/push_devices_test.go`（新建） | Given 已配对的设备 When `POST /api/push/devices` Then 201 并只登记自己；Given 一个不属于这台机器的 principal When `DELETE` 登记 Then 403 且那一行还在；Given 同一安装重复登记 Then 仍然一行；Given 手机用会话 cookie 登记 When 登出 Then 那台手机的行被删除；Given 一个成员 principal 没有会话 id When 登记 Then 拒绝且不写行；Given 登记绑定的会话已结束 When 测试推送 Then 410、那一行被删且没有发给 Apple；Given 旧的 Bark / ntfy / Web Push 设置端点 When 调用 Then 404 |
 | 单元 | `ui/src/lib/nativePush.test.ts`（新建） | Given Capacitor iOS When 读状态 Then 是 native 而不是 browser；Given 权限 denied Then blocked；Given registration 事件 Then POST 带安装 id 和环境；Given 普通浏览器 Then 原生不可用，也不出现浏览器推送入口；Given 退出登录 When 注销 Then 删除这台设备记住的行、停止原生壳接收，删除失败留给下次重试（404/401/403 视为终态，不再重试） |
 | 单元 | `ui/src/api/account.test.ts`（扩充） | Given 这台手机已登记推送 When 退出登录 Then 先注销这台设备的行、再结束会话；会话结束后它不再被扇出选中；Given 网络永不返回 Then 本地 token 已先清掉，两个请求仍带捕获的 token；Given 手机清理失败 Then 仍然结束会话 |
-| 组件 | `ui/src/components/settings/PushPermissionRow.dom.test.tsx`（修改） | Given 非 iPhone 壳 When 渲染 Then 什么都不画；Given 已授权 When 渲染 Then 不画这一行并静默重登记；Given 点「开启通知」 When 授权成功 Then 登记这台手机并让出位置；Given 被系统阻止 Then 不弹框并给「打开系统设置」；Given 启动重登记失败 Then 保留这一行并可重试；Given 从系统设置返回 Then 重读权限；中英两份文案都在 |
+| 组件 | `ui/src/components/settings/PushPermissionRow.dom.test.tsx`（修改） | Given 非 iPhone 壳 When 渲染 Then 什么都不画；Given 已授权 When 渲染 Then 不画这一行并静默重登记；Given 点「开启通知」 When 授权成功 Then 登记这台手机并让出位置；Given 被系统阻止 Then 不弹框并给「打开系统设置」；Given 启动重登记失败 Then 保留这一行并可重试；Given 从系统设置返回 Then 重读权限；中英两份文案都在（`ui/src/i18n/locales.test.ts`） |
 | 单元 | `ui/src/lib/notificationRoute.test.ts`（新建） | Given `/inbox?focus=a1` Then 落到收件箱并点名叫 a1；Given 同源绝对 URL Then 取路径；Given 外站或 `javascript:` Then 落到收件箱；Given 冷启动待处理 Then 只消费一次 |
 | 组件 | `ui/src/components/NotificationTaps.dom.test.tsx`（新建） | Given 冷启动链接和同一次点按的事件同时到达 When 路由 Then 只导航一次；Given 已在该条目 When 再点同一条 Then 不跳；Given 离开该条目后 When 再点同一条 Then 重新落回；Given 条目在另一台设备被处理 When 它从 pending 消失 Then 移除已送达横幅；Given 回到前台 When 可见 Then 刷新一次 pending |
 | 单元 | `internal/node/routinenotify_test.go`（新建） | Given 首次 handshake 前的能力未知 When 上报报告 Then 有界排队，不对旧 Hub 发送未知帧；Given Hub 断开时写阻塞 When 入队 / SetSender / ACK Then 都不被网络写卡住；Given 超长多字节标题正文 Then 按 UTF-8 边界截到 wire 上限后才进帧 |
@@ -170,7 +170,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 | 接线 | `desktop/src/native-notifications.wiring.test.ts`（新建） | Given 节点推来 `notify` 消息 When 桌面壳收到 Then Notifier 拿到 kind/id/url；Given APNs 不可用 Then 桌面通道仍然工作 |
 | iOS | 模拟器/真机，`mobile/scripts/build-ios.sh device` | Given 允许通知并登记 When 把应用切到后台 Then 在 Mac 上触发批准能看到横幅；点开落到那张卡片；杀进程冷启动也能落到那一条；拒绝权限时设置页给系统设置入口；关闭后不再收到；没有 Bark / ntfy / Web Push 回退 |
 | 真浏览器 | 1100 / 390，`/browse` | Given 浏览器控制台 When 打开设置 → 通用 Then 不出现原生设备块，也不出现浏览器推送 / Bark / ntfy；Given 未授权的 iPhone 壳 When 打开同一页 Then 只有一行「开启通知」；Given 已授权 Then 这一行不出现 |
-| 视觉 | 390 / 1100 截图 | 看两端的"这台设备"块、状态、测试结果和失败原因；对照 `KIN-NOTIFY-001.review.html` 里的 Figma 帧 |
+| 视觉 | 390 / 1100 截图 | iPhone 设置 → 通用这一行的五个状态：未授权（「开启通知」）、登记中（「正在登记…」）、被系统阻止（「打开系统设置」）、登记失败 · 重试（`role="alert"` +「开启通知」）、已授权（这一行消失）；Mac 和浏览器控制台都不出现任何通知区块（`PushPermissionRow.dom.test.tsx:50,55,72,85,102,113,138,169`） |
 
 ## 证据
 
@@ -202,4 +202,4 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 - 2026-11-03 合并 `main`（Hub 一次性登录链接）：登出仍先清本地 token、再注销手机、最后登出；测试改为断言注入的 `apiFetch`，不再依赖全局 `fetch`。OpenAPI 合掉了两处重复的 `/api/notify/test` 与重复 schema，并删除退役的 Web Push 路径与四个旧 schema；`AccountSection` 采用 main 的新布局，但移除重复的 `clearToken()`，因为 `signOut()` 已先捕获并清除 token。
 - 2026-11-13 ADR 0030（Node 上例行任务的手机通知）：例行任务仍在 Node 上，Node 通过已鉴权的控制通道把「noteworthy 例行报告 / 电路熔断禁用」告警内容上报 Hub；Hub 用自己登记的设备和 `notify.Sender` 扇出 APNs，绝不复制 APNs token/私钥到 Node。报告落点改为 `/machines/:device/tasks/:id`，禁用告警落到 `/routines?device=<id>`；`hello_ack` 增加可选 `routine_notify` 能力位，旧 Hub 先升、Node 后升。第二轮独立复查后收紧可靠性合同：报告在能力未知时也先有界排队、绝不向旧 Hub 发未知帧；Node 转发改为单一异步发送者，网络写不再占用任务引擎/读循环/心跳；Hub 只接受当前连接的 generation、失败关闭并给 APNs 扇出设并发上限；4 KiB 上限改为按实际序列化 payload 在 APNs 边界截断；`/routines?device=` 的机器选择与 URL 双向同步。本故事原有的"登记与发送在同一 daemon"约束对 Hub 自己的任务仍成立（例行任务的扇出是唯一例外）。
 - 2026-11-21 真机验收第一轮（Ethan，iPhone）：点批准/提问通知能打开应用，但落不到那条对话的卡片上。根因：节点写 `/tasks/<id>?focus=<item>`，`parseNotificationRoute` 只对 `/inbox` 保留 `?focus=`，任务对话的 query 被丢掉，`TaskDetailPage.tsx:1286` 的揭示从不触发；`notificationRoute.test.ts` 只断言过不带 focus 的 `/tasks/<id>`。修复 PR #536（`rsi/notify-tap-focus`）；`covered` 仍等装一次含该修复的包，再点一次批准/提问通知确认卡片出现且 VoiceOver 焦点在它上面。
-- 2026-11-26 · CEO 代签修订：合同与设计页按已落地的 R0b-2 / R0b-3 改写——控制台没有「设置 → 通知」面（`docs/product/IA.md:69`），唯一控件是 iPhone 未授权时「设置 → 通用」的一行（`:75`），落点是对话 + `?focus=`（`:76`）；验收表里指向已删组件的那一行改用实际存在的 `PushPermissionRow.dom.test.tsx`。「做 / 不做」里的 Go、APNs、桌面行与验收的同名行未动。
+- 2026-11-26 · CEO 代签修订：合同与设计页按已落地的 R0b-2 / R0b-3 改写——控制台没有「设置 → 通知」面（`docs/product/IA.md:69`），唯一控件是 iPhone 未授权时「设置 → 通用」的一行（`:75`），落点是对话 + `?focus=`（`:76`）；验收表里指向已删组件的那一行改用实际存在的 `PushPermissionRow.dom.test.tsx`。「做 / 不做」里的 Go、桌面行与验收的同名行未动。
