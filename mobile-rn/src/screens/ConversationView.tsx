@@ -647,6 +647,15 @@ export default function ConversationView({
   // Whether the sheet is up is the person's own transient UI, so it lives in
   // this view; the window choice and the rows are the model's (AGENTS.md §11).
   const [usageOpen, setUsageOpen] = useState(false);
+  // The 用量 entry that opened the sheet: closing it puts the reader back on
+  // this control, not wherever the vanished modal left them
+  // (`KIN-MOBILE-001.md:124`). It is the header's own node, so the return move
+  // lives in this view rather than in the sheet (`ProviderUsageSheet.tsx`).
+  const usageRef = useRef<ViewInstance | null>(null);
+  // Whether the sheet was up on the previous render, so the return move fires
+  // on the close transition only: a mount with the sheet closed and a repaint
+  // while it stays closed move nothing (`Approvals.tsx:70-79`, AGENTS.md §11).
+  const usageWasOpen = useRef(false);
   // The reading surface's own transient UI: which tool rows are open. Keyed by
   // the step's key (see `toolRowKey`), so a streamed append cannot collapse a
   // row the person opened; a different conversation starts closed.
@@ -715,6 +724,17 @@ export default function ConversationView({
     movedFor.current = state.taskId;
     focusNode(titleRef);
   }, [state.taskId, state.title, state.status]);
+
+  // Closing the usage sheet is the person's own way back: the reader returns
+  // to the 用量 entry that opened it, once per close (`KIN-MOBILE-001.md:124`).
+  // The sheet's `Modal` has already unmounted when this effect runs, so the
+  // entry is the only surface left to land on; opening the sheet, mounting
+  // with it closed and repainting while it stays closed move nothing
+  // (AGENTS.md §11).
+  useEffect(() => {
+    if (usageWasOpen.current && !usageOpen) focusNode(usageRef);
+    usageWasOpen.current = usageOpen;
+  }, [usageOpen]);
 
   const toggleStep = (key: string): void => {
     setExpandedSteps((current) => ({ ...current, [key]: current[key] !== true }));
@@ -915,6 +935,7 @@ export default function ConversationView({
               setUsageOpen(true);
               usage.onOpen?.();
             }}
+            ref={usageRef}
             style={styles.usageEntry}
             testID="conversation:usage"
           >

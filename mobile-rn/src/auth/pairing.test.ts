@@ -137,6 +137,7 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     expect(paired.tasks).toEqual(TASKS);
     // One Keychain entry holds the origin and the token together.
     expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      kind: "node",
       origin: ORIGIN,
       token: TOKEN,
     });
@@ -211,7 +212,9 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
 
       const resumed = await pairing.resume();
 
-      // The node is silent, not the token: stay on the list and keep the entry.
+      // The node is silent, not the token: stay on the list and keep the entry
+      // exactly as it was stored (a legacy entry has no `kind` and reads back
+      // as a node session).
       expect(resumed.route).toBe("list");
       expect(resumed.reason).toBe("unreachable");
       expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
@@ -245,6 +248,7 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     expect(paired.reason).toBe("none");
     expect(paired.tasks).toEqual(TASKS);
     expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      kind: "node",
       origin: ORIGIN,
       token: DEVICE_TOKEN,
     });
@@ -269,6 +273,7 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     expect(header(calls[2], "Authorization")).toBe(`Bearer ${DEVICE_TOKEN}`);
     expect(paired.route).toBe("list");
     expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      kind: "node",
       origin: ORIGIN,
       token: DEVICE_TOKEN,
     });
@@ -304,6 +309,7 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     const paired = await latest;
     expect(paired.route).toBe("list");
     expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      kind: "node",
       origin: ORIGIN,
       token: TOKEN,
     });
@@ -317,6 +323,7 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     expect(stale.reason).toBe("none");
     expect(stale.tasks).toEqual(TASKS);
     expect(JSON.parse(store.entries.get(SESSION_KEY) ?? "null")).toEqual({
+      kind: "node",
       origin: ORIGIN,
       token: TOKEN,
     });
@@ -325,6 +332,43 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
     const resumed = await pairing.resume();
     expect(resumed.route).toBe("list");
     expect(resumed.reason).toBe("none");
+  });
+
+  it("R-rn-hub-signin: a Hub sign-in clears an earlier node retirement, so the next boot lands on the list", async () => {
+    const HUB = "https://hub.example.com";
+    const store = memoryStore();
+    await store.setItemAsync(
+      SESSION_KEY,
+      JSON.stringify({ kind: "node", origin: ORIGIN, token: TOKEN }),
+    );
+    const { impl, calls } = recordingFetch((url) =>
+      url.startsWith(`${HUB}/api/tasks`)
+        ? response(200, TASKS)
+        : response(401, { error: "unauthorized" }),
+    );
+    const pairing = createPairing({ store, fetchImpl: impl });
+
+    // The old node token is refused on boot and retired for good.
+    const retired = await pairing.resume();
+    expect(retired.route).toBe("pairing");
+    expect(retired.reason).toBe("expired");
+    expect(store.entries.get(SESSION_KEY)).toBeUndefined();
+
+    // The pair screen's Hub sign-in then writes its own session and clears
+    // the retirement before `router.replace("/list")`.
+    await store.setItemAsync(
+      SESSION_KEY,
+      JSON.stringify({ kind: "hub", origin: HUB }),
+    );
+    pairing.clearRetired();
+
+    const booted = await pairing.resume();
+    expect(booted.route).toBe("list");
+    expect(booted.reason).toBe("none");
+    expect(booted.origin).toBe(HUB);
+    expect(
+      calls.filter((call) => call.url.startsWith(`${HUB}/api/tasks`)),
+    ).toHaveLength(1);
   });
 
   it("KIN-MOBILE-001 R2: the token never appears in the URL, the result, or a log line", async () => {
@@ -372,5 +416,28 @@ describe("KIN-MOBILE-001 R2 pairing", () => {
 
     expect(retried.reason).toBe("unreachable");
     expect(calls).toHaveLength(2);
+  });
+});
+
+describe("R-rn-hub-signin hub expiry", () => {
+  it("R-rn-hub-signin: a 401 on a Hub read retires the session and keeps the origin", async () => {
+    const store = memoryStore();
+    store.entries.set(
+      SESSION_KEY,
+      JSON.stringify({ kind: "hub", origin: ORIGIN }),
+    );
+    const fetch = recordingFetch(() => response(401, {}));
+    const core = createPairing({ store, fetchImpl: fetch.impl });
+
+    const next = await core.resume();
+
+    expect(next.route).toBe("pairing");
+    expect(next.reason).toBe("expired");
+    expect(next.origin).toBe(ORIGIN);
+    expect(store.entries.has(SESSION_KEY)).toBe(false);
+    // The read carried the cookie, never a bearer.
+    const headers = fetch.calls[0].init.headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
+    expect(fetch.calls[0].init.credentials).toBe("include");
   });
 });

@@ -13,13 +13,20 @@
 
 import { parseWSMessage, type TaskEvent } from "../../../ui/src/api/contract";
 import { apiUrl } from "../api/transport";
+import type { Session } from "../auth/tokenStore";
 
 export type StreamStatus = "connecting" | "connected" | "offline";
 
 export type StreamRequest = {
   /** Absolute stream URL, `after_seq` already applied. */
   url: string;
-  token: string;
+  /**
+   * The stored session. A node sends its bearer; a Hub sends no header and
+   * asks `fetch` for the native cookie jar where `kin_session` lives.
+   */
+  session?: Session | null;
+  /** A one-shot bearer for a caller that has no session object. */
+  token?: string;
   /** Highest applied seq; a reconnect resumes after it. */
   afterSeq: number;
   signal: AbortSignal;
@@ -98,7 +105,15 @@ export function createFetchStreamSource(options: FetchStreamOptions = {}): Strea
       else request.signal.addEventListener("abort", forwardAbort);
 
       const headers: Record<string, string> = { Accept: "text/event-stream" };
-      if (request.token) headers.Authorization = `Bearer ${request.token}`;
+      if (request.session?.kind === "node") {
+        headers.Authorization = `Bearer ${request.session.token}`;
+      } else if (request.session == null && request.token) {
+        headers.Authorization = `Bearer ${request.token}`;
+      }
+      // A Hub's only credential is the session cookie; the native jar sends it
+      // when the request asks for it explicitly.
+      const credentials =
+        request.session?.kind === "hub" ? "include" : undefined;
       // The daemon does not read this yet; it is the standard SSE resume marker
       // and the model still dedupes by seq, so sending it can only help.
       if (request.afterSeq > 0) headers["Last-Event-ID"] = String(request.afterSeq);
@@ -106,7 +121,11 @@ export function createFetchStreamSource(options: FetchStreamOptions = {}): Strea
       const openTimer = setTimeout(() => controller.abort(), firstByteMs);
       let response: Response;
       try {
-        response = await doFetch(request.url, { headers, signal: controller.signal });
+        response = await doFetch(request.url, {
+          headers,
+          signal: controller.signal,
+          ...(credentials === undefined ? {} : { credentials }),
+        });
       } catch (error) {
         clearTimeout(openTimer);
         request.signal.removeEventListener("abort", forwardAbort);
@@ -163,8 +182,11 @@ const defaultSchedule: Scheduler = (run, delayMs) => {
 };
 
 export type TaskStreamOptions = {
-  origin: string;
-  token: string;
+  /** The session's origin is used when one is given. */
+  origin?: string;
+  session?: Session | null;
+  /** A one-shot bearer; a session takes precedence. */
+  token?: string;
   taskId: string;
   source: StreamSource;
   /** Resume cursor when a caller already holds a snapshot. */
@@ -199,7 +221,7 @@ export type TaskStream = {
  */
 export function startTaskStream(options: TaskStreamOptions): TaskStream {
   const {
-    origin,
+    session,
     token,
     taskId,
     source,
@@ -208,6 +230,10 @@ export function startTaskStream(options: TaskStreamOptions): TaskStream {
     onReconnect,
     schedule = defaultSchedule,
   } = options;
+  const origin = session?.origin ?? options.origin;
+  if (!origin) {
+    throw new Error("startTaskStream needs an origin or a session");
+  }
   const baseMs = options.backoff?.baseMs ?? RECONNECT_BASE_MS;
   const maxMs = options.backoff?.maxMs ?? RECONNECT_MAX_MS;
   const maxAttempts = options.backoff?.maxAttempts ?? RECONNECT_MAX_ATTEMPTS;
@@ -249,6 +275,7 @@ export function startTaskStream(options: TaskStreamOptions): TaskStream {
     try {
       connection = await source.open({
         url: eventsStreamUrl(origin, lastSeq),
+        session,
         token,
         afterSeq: lastSeq,
         signal: controller.signal,
