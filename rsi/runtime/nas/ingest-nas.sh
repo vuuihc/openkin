@@ -238,10 +238,25 @@ selfcheck_mac() { # WT J
   local TSC_C="${NAS_SELFCHECK_TSC:-( cd \"$WT/ui\" && npx tsc --noEmit )}"
   local INV_C="${NAS_SELFCHECK_INV:-( cd \"$WT\" && python3 scripts/check-ui-inventory.py )}"
   local VIT_C="${NAS_SELFCHECK_VITEST:-( cd \"$WT/ui\" && npx vitest run --maxWorkers=2 )}"
+  # The mobile-rn arm (R-producer-checks): tsc+jest on the RN tree, required exactly when the
+  # job's changed paths can reach it — mobile-rn/** itself, or ui/src/** which mobile-rn imports
+  # (#778 merged with an RN tsc failure this ui-only self-check could not see; only CI caught
+  # it). An unreadable diff runs the section anyway (fail closed); the ui install $PREP did
+  # already covers the ui/src imports mobile-rn's tsconfig compiles.
+  local RN_PATHS RN_REQ=""
+  if RN_PATHS="$(with_timeout 60 "$GIT" -C "$WT" diff --name-only origin/main...HEAD 2>/dev/null)"; then
+    printf '%s\n' "$RN_PATHS" | grep -qE '^(mobile-rn/|ui/src/)' && RN_REQ=1
+  else
+    RN_REQ=1
+  fi
+  local RN_C="${NAS_SELFCHECK_RN:-( cd \"$WT/mobile-rn\" && npm install --no-audit --no-fund --no-package-lock && npx tsc --noEmit && npx jest --ci )}"
+  SELFCHECK_RN_NOTE="mobile-rn skipped (no mobile-rn/ or ui/src path changed)"
+  [ -n "$RN_REQ" ] && SELFCHECK_RN_NOTE="mobile-rn tsc+jest"
   with_timeout "${NAS_SELFCHECK_TIMEOUT:-3600}" bash "$HEAVY" bash -c "
     { echo '== tsc'; $TSC_C || echo TSC-FAIL
       echo '== inventory'; $INV_C || echo INV-FAIL
       echo '== vitest (full)'; $VIT_C || echo VITEST-FAIL
+      if [ -n \"$RN_REQ\" ]; then echo '== mobile-rn'; $RN_C || echo RN-FAIL; fi
       echo '== selfcheck complete'
     } > \"$LOG\" 2>&1
   "
@@ -253,10 +268,12 @@ selfcheck_mac() { # WT J
   fi
   grep -qx '== selfcheck complete' "$LOG" || { echo "self-check has no completion marker" >> "$LOG"; return 1; }
   local h
-  for h in '== tsc' '== inventory' '== vitest (full)'; do
+  local HDRS=( '== tsc' '== inventory' '== vitest (full)' )
+  [ -n "$RN_REQ" ] && HDRS+=( '== mobile-rn' )
+  for h in "${HDRS[@]}"; do
     grep -qxF "$h" "$LOG" || { echo "self-check never ran $h" >> "$LOG"; return 1; }
   done
-  ! grep -qE '^(TSC|INV|VITEST)-FAIL' "$LOG"
+  ! grep -qE '^(TSC|INV|VITEST|RN)-FAIL' "$LOG"
 }
 
 hold_slug() { # SLUG ITEM J WHY [PRN] — visible UI with no shots: never publish the visible change
@@ -313,6 +330,34 @@ hold_claim() { # SLUG ITEM J WHY [PRN] [VERDICT] [PUSH_NOTE]
   } > "$STATE/nas/hold/$SLUG.md"
   echo "- $(date '+%F %H:%M') nas job $ITEM $SLUG held for claim check ($WHY): see rsi/state/nas/hold/$SLUG.md" >> "$STATE/needs-ceo.md"
   echo "held $SLUG for claim check: $WHY"
+}
+
+# The merge lane's 1000-line cap at the NAS gate (R-producer-checks). Same shape as hold_claim:
+# an oversize result is held before publishing rather than pushed into a guaranteed hold-size
+# sendback, and the branch is pushed only so the work survives for the local rework. The waiver
+# is the same file merge.sh honours, so a CEO-waived slice is never stopped twice.
+hold_oversize() { # SLUG ITEM J SIZE [PRN] [PUSH_NOTE]
+  local SLUG="$1" ITEM="$2" J="$3" SIZE="$4" PRN="${5:-}" PUSH_NOTE="${6:-}"
+  mkdir -p "$STATE/nas/hold"
+  {
+    echo "# $ITEM $SLUG held: oversize ($SIZE changed lines >1000)"
+    echo "merge.sh holds any PR over 1000 changed lines without a CEO waiver"
+    echo "($STATE/merge/$SLUG.size-ok), so this result was not published."
+    if [ -z "$PRN" ] && [ -z "$PUSH_NOTE" ]; then
+      echo "The branch was pushed so the result survives for the local rework."
+    fi
+    [ -n "$PUSH_NOTE" ] && echo "Branch push: $PUSH_NOTE"
+    echo "Split the slice: deliver the smallest green first slice and re-queue the rest, or have"
+    echo "the CEO touch the waiver file. Then publish the result:"
+    echo "  git -C $CTRL push origin refs/nas/$SLUG:refs/heads/rsi/$SLUG"
+    if [ -n "$PRN" ]; then
+      echo "  gh pr edit $PRN --repo $GH_REPO --body-file $J/pr-body.md"
+    else
+      echo "  gh pr create --repo $GH_REPO --base main --head rsi/$SLUG --title '<title>' --body-file $J/pr-body.md"
+    fi
+  } > "$STATE/nas/hold/$SLUG.md"
+  echo "- $(date '+%F %H:%M') nas job $ITEM $SLUG held: oversize ($SIZE>1000); see rsi/state/nas/hold/$SLUG.md" >> "$STATE/needs-ceo.md"
+  echo "held $SLUG: oversize ($SIZE>1000)"
 }
 
 # The prose claim rule, before the self-check and before any publish (R-nas-claim-gate). The live
@@ -548,6 +593,23 @@ while IFS=, read -r SLUG ST <&3; do
     continue
   fi
 
+  # The merge lane's 1000-line cap, held before the heavy self-check: an oversize NAS result is
+  # sent back by merge.sh as hold-size anyway, so publishing it buys a sendback round and nothing
+  # else. The waiver is the same file merge.sh honours; the branch is pushed so the work survives.
+  NAS_SIZE="$(GIT="$GIT" bash "$RSI_DIR/runtime/diff-size.sh" "$WT" 2>/dev/null || echo 0)"
+  case "$NAS_SIZE" in ''|*[!0-9]*) NAS_SIZE=0;; esac
+  if [ "$NAS_SIZE" -gt 1000 ] && [ ! -f "$STATE/merge/$SLUG.size-ok" ]; then
+    PUSH_NOTE=""
+    if [ -z "$PRN" ]; then
+      with_timeout "$XFER_T" "$GIT" -C "$CTRL" push -q origin "$REF:refs/heads/$BR" 2>"$STATE/nas/push.err" \
+        || PUSH_NOTE="branch push failed: $(tail -c 200 "$STATE/nas/push.err")"
+    fi
+    hold_oversize "$SLUG" "$ITEM" "$J" "$NAS_SIZE" "$PRN" "$PUSH_NOTE"
+    mark_remote "$SLUG" "$IDENT" held
+    ack "$ACK_KEY"
+    continue
+  fi
+
   SC="green"
   if selfcheck_mac "$WT" "$J"; then
     echo "self-check green $SLUG"
@@ -561,7 +623,7 @@ while IFS=, read -r SLUG ST <&3; do
   # and an appended Mac line that joined that block would fail the merge lane on the very body the
   # NAS gate just passed (found by the pre-landing review).
   grep -q "RSI item:" "$PRB" || printf '\n\nRSI item: %s\n' "$ITEM" >> "$PRB"
-  printf '\n\nMac self-check after NAS hand-over: %s (tsc, UI inventory ratchet, full vitest).\n' "$SC" >> "$PRB"
+  printf '\n\nMac self-check after NAS hand-over: %s (tsc, UI inventory ratchet, full vitest; %s).\n' "$SC" "${SELFCHECK_RN_NOTE:-mobile-rn skipped (no mobile-rn/ or ui/src path changed)}" >> "$PRB"
 
   # Ownership must still hold at the moment of publishing, not only before the self-check (M3).
   if ! claim_owned "$SLUG" "$JOB_LAUNCH"; then
