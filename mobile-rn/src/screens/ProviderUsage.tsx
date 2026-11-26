@@ -275,7 +275,7 @@ export default function ProviderUsage({
 
       {deviceEmpty ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>{t("agents.emptyUsage")}</Text>
+          <Text style={styles.emptyTitle}>{t("agents.emptyUsageDevice")}</Text>
           <Text style={styles.emptyHint}>{t("agents.emptyUsageHint")}</Text>
         </View>
       ) : null}
