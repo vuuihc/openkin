@@ -1,0 +1,44 @@
+[
+  {
+    "label": "the entry effect is removed, so entering a conversation never moves the reader to its title (R-rn-conversation-entry-focus)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    focusNode(titleRef);\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.entryFocus.test.tsx -t \"KIN-MOBILE-001 §3: entering a conversation moves reader focus to the title, not the composer\""
+  },
+  {
+    "label": "the entry move lands on the transcript instead of the title, so VoiceOver starts below the screen's name (R-rn-conversation-entry-focus)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    focusNode(titleRef);",
+    "new": "    focusNode(listRef);",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.entryFocus.test.tsx -t \"KIN-MOBILE-001 §3: entering a conversation moves reader focus to the title, not the composer\""
+  },
+  {
+    "label": "the move fires while the read is pending, so VoiceOver is placed on the untitled placeholder and the name the read brings is never announced (R-rn-conversation-entry-focus)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    if (state.title.trim() === \"\" && !settled) return;\n",
+    "new": "    if (false && state.title.trim() === \"\" && !settled) return;\n",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.entryFocus.test.tsx -t \"KIN-MOBILE-001 §3: a conversation that opens while its read is still pending starts at the title the read names\""
+  },
+  {
+    "label": "a read that settles without a name never moves the reader, so an untitled conversation opens with focus wherever the platform left it (R-rn-conversation-entry-focus)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    const settled = state.status === \"ready\" || state.status === \"error\";",
+    "new": "    const settled = false;",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.entryFocus.test.tsx -t \"KIN-MOBILE-001 §3: a read that settles without a name moves once, to the untitled heading\""
+  },
+  {
+    "label": "the once-per-conversation guard is removed, so a title arriving after the settle moves the reader a second time (R-rn-conversation-entry-focus)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    if (movedFor.current === state.taskId) return;\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.entryFocus.test.tsx -t \"KIN-MOBILE-001 §3: a read that settles without a name moves once, to the untitled heading\""
+  },
+  {
+    "label": "the effect never reruns, so a conversation swapped in place keeps the previous conversation's title as the reader's stop (R-rn-conversation-entry-focus)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    focusNode(titleRef);\n  }, [state.taskId, state.title, state.status]);",
+    "new": "    focusNode(titleRef);\n  }, []);",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.entryFocus.test.tsx -t \"KIN-MOBILE-001 §3: another conversation in the same view focuses its own title once\""
+  }
+]

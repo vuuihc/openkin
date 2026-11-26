@@ -27,27 +27,26 @@ function source(rel: string): string {
 const shell = source("src/components/layout/AppShell.tsx");
 const dock = source("src/components/task/TaskComposerDock.tsx");
 const draft = source("src/pages/NewChatPage.tsx");
-const agentSession = source("src/pages/AgentSessionDetailPage.tsx");
 const tray = source("src/pages/TrayPage.tsx");
 
 describe("the floating approval's wiring", () => {
   it("asks for a measured offset only where a band exists", () => {
     expect(shell).toMatch(/expectsBottomChrome=\{measuredBottomBand\}/);
-    // The screens that pin a composer: a conversation, an agent session's
-    // continue box, and the draft. The draft is a band like the others
-    // (amended KIN-START-001, 2026-11-21), so its box is measured too. Bound
-    // to the assignment itself — a fourth clause (`|| detailRoute`) creeping
+    // The screens that pin a composer: a conversation and the draft. The
+    // draft is a band like the conversation's (amended KIN-START-001,
+    // 2026-11-21), so its box is measured too. The imported-session page was
+    // the third until 5b deleted it; the sheet over the list has no band (the
+    // list is the surface). Bound to the assignment itself — a clause creeping
     // back in is the regression this comparison exists to catch.
     const assignment = shell.match(/const measuredBottomBand =[\s\S]*?;\n/)?.[0] ?? "";
-    // Exactly the known routes, no fourth clause: this comparison is the one
-    // thing a hand-edited condition cannot slip past.
-    expect(assignment).toBe(
-      'const measuredBottomBand =\n    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/") || draftActive;\n',
-    );
+    // Exactly the known routes, no third clause: this comparison is the one
+    // thing a hand-edited condition cannot slip past. The single line is the
+    // form the repo's prettier produces for the two-term condition.
+    expect(assignment).toBe("const measuredBottomBand = selectedTaskId !== null || draftActive;\n");
     expect(assignment).not.toBe("");
     expect(assignment).toMatch(/selectedTaskId !== null/);
-    expect(assignment).toMatch(/startsWith\("\/agent-sessions\/"\)/);
     expect(assignment).toMatch(/draftActive/);
+    expect(assignment).not.toMatch(/agent-sessions/);
     expect(assignment).not.toMatch(/artifacts|detailRoute/);
   });
 
@@ -79,11 +78,13 @@ describe("the floating approval's wiring", () => {
     expect(floating).toContain('"[data-kin-hit-row]"');
     // Reading content is the same measured rule, and the pill itself is not a
     // fallback that gets to stay: when its own box covers a cell — or a
-    // conversation row on the list — the whole surface is unmounted (`hidden`),
-    // not `stripOnly`. The pill is for screens with no conversation list; where
-    // the list is the screen, the row is the entry. Session rows already carry
-    // `data-session-row`, so the yield is one selector over both kinds.
-    expect(floating).toContain('"[data-kin-reading], [data-session-row]"');
+    // conversation row or project heading on the list — the whole surface is
+    // unmounted (`hidden`), not `stripOnly`. The pill is for screens with no
+    // conversation list; where the list is the screen, the row is the entry.
+    // Session rows carry `data-session-row` and project headings carry the
+    // shared `data-kin-hit-row` marker, so the yield is one selector over both
+    // kinds of row.
+    expect(floating).toContain('"[data-kin-reading], [data-session-row], [data-kin-hit-row]"');
     expect(floating).toMatch(/if \(stripHit !== hidden\) setHidden\(stripHit\);/);
     // The yield has to be measured on a phone tab root too: the card is not
     // mounted there (`raised`), but the strip is, so `raised` must not
@@ -149,11 +150,11 @@ describe("the floating approval's wiring", () => {
   });
 
   it("marks the band on every screen that pins one", () => {
-    // The marker is an attribute of the band's `<div>`, not text inside a JSX
-    // comment or behind a `false &&`.
-    expect(agentSession).toMatch(/<div data-kin-bottom-chrome=""[\s>]/);
-    // The draft pins its composer band too, so the floating approval can sit
-    // above it instead of over the field the reader is typing in.
+    // The retired imported-session page was the third band; 5b deleted it, and
+    // the sheet that replaced it marks none — the list is the surface, and the
+    // sheet's composer scrolls in its own body. Only the draft pins a band
+    // now, so the floating approval can sit above it instead of over the
+    // field the reader is typing in.
     expect(draft).toMatch(/data-kin-bottom-chrome/);
   });
 

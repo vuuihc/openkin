@@ -62,7 +62,24 @@ UTC minute timestamp; `KIN_BUILD_NUMBER` overrides it.
 
 Two things it cannot do for you: the app record has to exist in App Store
 Connect first (Xcode's Organizer can create it; the command line cannot), and
-the Mac has to be signed in to the Apple ID that owns the team.
+the upload needs an Apple account. By default that is the Apple ID the Mac is
+signed in to in Xcode (Settings → Accounts). On a Mac that is not signed in,
+pass an App Store Connect API key instead — create one under App Store Connect
+→ Users and Access → Integrations → App Store Connect API (the Admin role is
+what cloud-managed distribution certificates need):
+
+```bash
+KIN_ASC_KEY_PATH=/path/to/AuthKey_ABC123DEFG.p8 \
+KIN_ASC_KEY_ID=ABC123DEFG \
+KIN_ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000 \
+KIN_HUB_URL=https://kin.example.com scripts/release-ios.sh
+```
+
+All three or none. A partial trio stops before `xcodebuild` instead of falling
+back to the signed-in account, and so does a key path that is not a readable
+file. The `==> uploading to TestFlight` line prints which auth path it took and
+the key's path — never its contents. (`scripts/lib/export-args.sh` holds the
+shared export step.)
 
 ## Notes
 

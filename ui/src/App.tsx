@@ -79,9 +79,10 @@ function ProjectCoverRedirect() {
  * old page therefore replaces itself with the same list, narrowed by
  * `?agent=<id>`, and the list opens that session's sheet. `replace`, like the
  * project cover above, keeps Back from returning to a URL that leaves again.
- * The route's final landing (`/tasks/:id`) is 5b, R-agent-retire-del.
+ * The route's final landing is the sheet's own continue: 5b deleted the page
+ * that used to draw here, and continuing lands on `/tasks/<id>`.
  */
-function AgentSessionEntryRedirect() {
+export function AgentSessionEntryRedirect() {
   const { id = "" } = useParams();
   return <Navigate to={`/sessions?agent=${encodeURIComponent(id)}`} replace />;
 }
@@ -269,8 +270,9 @@ export default function App() {
               <Route path="/usage" element={<Navigate to="/settings?tab=operations" replace />} />
               <Route path="/settings" element={<SettingsPage />} />
               {/* An imported session opens in the list's sheet (5a); its old
-                  URL is the same list narrowed by `?agent=`. 5b retires the
-                  page file and moves this row's final landing. */}
+                  URL is the same list narrowed by `?agent=`. 5b deleted the
+                  page file, so continuing from the sheet is what reaches the
+                  conversation. */}
               <Route path="/agent-sessions/:id" element={<AgentSessionEntryRedirect />} />
               {/* Developer-only; a production build produces no route here. */}
               {designSystemRoute()}

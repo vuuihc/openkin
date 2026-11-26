@@ -76,6 +76,7 @@ You are the WORKER for RSI item $ITEM in the git worktree \`$WT\` on branch \`$B
 - Do NOT push, do NOT open a PR, do NOT fetch other branches, do NOT touch anything outside \`$WT\`. If the brief says to push or open the PR, skip that: an automated Mac step does it after you finish.
 - Do NOT run \`npm ci\`, \`npm install\`, \`npm run build\`, a full \`vitest\` suite, or any long compile. This machine cannot afford it. Write the tests and the code; a Mac lane will run \`tsc\`, the UI inventory ratchet, and full vitest after you hand over. You may skip running tests if \`node_modules\` is absent (it usually is).
 - Budget: about 40 minutes and about \$8. Declared footprint (stay inside): $PATHS. If the slice is too big, deliver the smallest green first slice, commit it, and say what remains in the PR body.
+- Size: target ≤800 changed lines, hard cap 1000 — the Mac ingest holds anything bigger (same count the merge lane uses). Measure with \`bash rsi/runtime/diff-size.sh .\` in your worktree — plain git+awk, no installs. Over the cap? Deliver the smallest green first slice and say what remains in the PR body.
 - Tests first: add or update FAILING tests, then the implementation. Focus on the declared paths.
 - If \`ui/\` would need a production build, say so in the PR body; do not run \`npm run build\` here.
 - UI ratchet: do not grow raw \`<button>\`, \`createPortal\`, or numeric \`z-[n]\` unless the brief sanctions \`--update\`. Do not run the ratchet script unless it is a one-liner you already know is instant.

@@ -1,0 +1,9 @@
+[
+  {
+    "label": "R-coarse-floors: the chip's touch floor ignores the pointer again",
+    "file": "ui/src/components/ui/SheetSelect.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/SheetSelect.dom.test.tsx",
+    "old": "        coarse ? \"min-h-11 min-w-11\" : \"\",",
+    "new": "        \"\","
+  }
+]

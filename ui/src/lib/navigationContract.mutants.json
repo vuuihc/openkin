@@ -1,0 +1,16 @@
+[
+  {
+    "label": "a route outside the allowlist ships when its doc row ships with it",
+    "file": "ui/src/App.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/navigationContract.test.ts",
+    "old": "              <Route path=\"/new\" element={<NewChatPage />} />",
+    "new": "              <Route path=\"/new\" element={<NewChatPage />} />\n              <Route path=\"/pirate\" element={null} />"
+  },
+  {
+    "label": "a documented route App does not own passes",
+    "file": "docs/product/NAVIGATION.md",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/navigationContract.test.ts",
+    "old": "| `/usage` | 设置 | 用量（旧 URL） | 根（重定向；不是入口，手机冷启动先合成 `/sessions`） | `replace` 到 `/settings?tab=operations`（#141 `71402048`） |",
+    "new": "| `/usage` | 设置 | 用量（旧 URL） | 根（重定向；不是入口，手机冷启动先合成 `/sessions`） | `replace` 到 `/settings?tab=operations`（#141 `71402048`） |\n| `/ghost` | 对话 | 幽灵页 | 根 | 无 |"
+  }
+]

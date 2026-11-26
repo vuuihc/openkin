@@ -20,6 +20,33 @@ import Menu, { type MenuItem } from "./Menu";
  * exercised by the same traversal.
  */
 
+/**
+ * jsdom has no `matchMedia`, and the menu's touch floor follows the pointer
+ * rather than a width, so every case that is about the floor declares the
+ * pointer it runs on. The fallback stays fine, which is what the rest of this
+ * file (and the desktop console) gets.
+ */
+function setPointer(coarse: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(pointer: coarse)" ? coarse : false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
+/**
+ * Whole class tokens, never substrings: `max-sm:min-w-11` must not satisfy
+ * `min-w-11`, or the width rule this slice removes would keep the test green.
+ */
+function classes(element: HTMLElement): string[] {
+  return element.className.split(/\s+/).filter(Boolean);
+}
+
 const onSelectSpies = () =>
   ({
     rename: vi.fn(),
@@ -198,6 +225,7 @@ const focusedText = () => document.activeElement?.textContent;
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("the menu facade", () => {
@@ -553,5 +581,64 @@ describe("the menu's search slot", () => {
     const panel = footer.closest('[role="dialog"]');
     expect(panel).toBeTruthy();
     expect(panel!.contains(menu)).toBe(true);
+  });
+});
+
+describe("the menu's touch floor", () => {
+  // TASTE 11: an iPad in portrait is ≥768px wide and still a thumb. The floor
+  // follows the pointer, not a width breakpoint that stopped applying at 640.
+  // `min-h-11` / `min-w-11` are asserted as whole tokens: the phone-width
+  // utility this slice removes (`max-sm:min-w-11`) would satisfy a substring
+  // check while leaving the iPad target at 28px.
+
+  it("gives the menu's search clear a 44×44 target on a coarse pointer", async () => {
+    setPointer(true);
+    render(<SearchHost items={itemsFor(onSelectSpies())} startOpen />);
+
+    await userEvent.type(screen.getByLabelText("Search actions"), "ren");
+    const clear = classes(screen.getByRole("button", { name: "Clear" }));
+
+    // The shared Button's own `min-h-11` is cancelled by `sm:min-h-0` above
+    // 640px, so the coarse shape is an explicit 44px box, the same one the run
+    // settings sheet's close control uses.
+    expect(clear).toContain("h-11");
+    expect(clear).toContain("w-11");
+    expect(clear).not.toContain("h-7");
+    expect(clear).not.toContain("w-7");
+  });
+
+  it("keeps the menu's search clear compact on a fine pointer", async () => {
+    setPointer(false);
+    render(<SearchHost items={itemsFor(onSelectSpies())} startOpen />);
+
+    await userEvent.type(screen.getByLabelText("Search actions"), "ren");
+    const clear = classes(screen.getByRole("button", { name: "Clear" }));
+
+    expect(clear).toContain("h-7");
+    expect(clear).toContain("w-7");
+    expect(clear).not.toContain("h-11");
+    expect(clear).not.toContain("w-11");
+  });
+
+  it("gives every menu row a 44px floor on a coarse pointer", () => {
+    setPointer(true);
+    render(<Host items={itemsFor(onSelectSpies())} startOpen />);
+
+    const rows = screen.getAllByRole("menuitem");
+    expect(rows).toHaveLength(4);
+    for (const row of rows) {
+      expect(classes(row)).toContain("min-h-11");
+      expect(classes(row)).not.toContain("min-h-9");
+    }
+  });
+
+  it("keeps the menu rows' 36px face on a fine pointer", () => {
+    setPointer(false);
+    render(<Host items={itemsFor(onSelectSpies())} startOpen />);
+
+    for (const row of screen.getAllByRole("menuitem")) {
+      expect(classes(row)).toContain("min-h-9");
+      expect(classes(row)).not.toContain("min-h-11");
+    }
   });
 });

@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the conversation pane is no longer keyed by the selection, so the previous conversation's late answer paints under the new title (R-rn-tablet-split)",
+    "file": "mobile-rn/src/layout/SplitListLayout.tsx",
+    "old": "          <View\n            key={selectedTaskId ?? \"none\"}\n            style={styles.conversation}\n            testID=\"list-split-conversation\"\n          >\n",
+    "new": "          <View\n            style={styles.conversation}\n            testID=\"list-split-conversation\"\n          >\n",
+    "test": "cd mobile-rn && npx jest src/layout/SplitListLayout.test.tsx -t \"KIN-MOBILE-001: a new selection drops the previous conversation's late answer\""
+  }
+]

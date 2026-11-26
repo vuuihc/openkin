@@ -5,6 +5,12 @@
 #   ./scripts/check.sh            # the checks CI does not run, scoped to the change set
 #   ./scripts/check.sh --all      # every check, including the eight CI runs on every push
 #   ./scripts/check.sh --list     # print the job names this run would start, then exit
+#   KIN_CHECK_SCOPE=rn ./scripts/check.sh
+#                               # RN-only gate scope: just the jobs that judge a
+#                               # mobile-rn/-only diff (mobile-rn + stories)
+#   KIN_CHECK_SCOPE=docs KIN_CHECK_CHANGED=<file> ./scripts/check.sh
+#                               # docs-only gate scope: stories + ux-spec-refs +
+#                               # doc-refs (suites that name the changed paths)
 #
 # CI (.github/workflows/ci.yml) already runs vet, go test ./..., the console suite and
 # typecheck, the desktop suite and typecheck, the inventory ratchet and the added-file
@@ -31,16 +37,51 @@ for arg in "$@"; do
   esac
 done
 
+# gate.sh sets KIN_CHECK_SCOPE=rn when every changed path is mobile-rn/... or the RN ADR
+# (docs/adr/0036-*), and =docs when every changed path is markdown outside ui/, web/ and
+# mobile-rn/ (AGENTS.md/CLAUDE.md stay full): on 2026-11-24 the gate lock sat 11.2 h of
+# 21.5 h on RN/docs PRs, each paying ~10 min for repo-wide jobs (job_shell_test's ~90
+# suites) that cannot judge the diff. A scope starts only its own job set; --all always
+# wins; any other value is a caller bug.
+SCOPE="${KIN_CHECK_SCOPE:-}"
+RN_SCOPE_JOBS="mobile-rn stories"
+DOCS_SCOPE_JOBS="stories ux-spec-refs doc-refs"
+SCOPE_JOBS=""
+case "$SCOPE" in
+  "") ;;
+  rn) SCOPE_JOBS="$RN_SCOPE_JOBS" ;;
+  docs) SCOPE_JOBS="$DOCS_SCOPE_JOBS" ;;
+  *) echo "check.sh: unknown KIN_CHECK_SCOPE: '$SCOPE'" >&2; exit 2 ;;
+esac
+SCOPED=0
+[ -n "$SCOPE" ] && [ "$ALL" -eq 0 ] && SCOPED=1
+# doc-refs greps the changed-path list for the suites that name it, so a docs-scoped run
+# (not --all, which overrides the whole scope) needs the file gate.sh passes it.
+if [ "$SCOPE" = docs ] && [ "$SCOPED" -eq 1 ]; then
+  { [ -n "${KIN_CHECK_CHANGED:-}" ] && [ -f "$KIN_CHECK_CHANGED" ]; } || {
+    echo "check.sh: KIN_CHECK_SCOPE=docs needs KIN_CHECK_CHANGED=<file of changed paths>" >&2
+    exit 2
+  }
+fi
+# scope_jobs <name> — true when name survives this scoped run. --list and start() both
+# read the one set, so the printed plan cannot drift from what a run starts.
+scope_jobs() { [[ " $SCOPE_JOBS " == *" $1 "* ]]; }
+
 # --list prints the names the start lines below would start, in start order, and exits
 # before any job (or temp dir) is created. It reads those lines from this file, so the
 # printed list cannot drift from what a run starts; the block between the markers is
 # the --all-only set and is skipped unless --all was given.
 if [[ "$LIST" == "1" ]]; then
-  awk -v all="$ALL" '
-    /^# BEGIN all-only jobs/ { block = 1; next }
-    /^# END all-only jobs/   { block = 0; next }
+  awk -v all="$ALL" -v scoped="$SCOPED" -v scope="$SCOPE" -v scj=" $SCOPE_JOBS " '
+    /^# BEGIN all-only jobs/    { block = 1; next }
+    /^# END all-only jobs/      { block = 0; next }
+    /^# BEGIN docs-scope jobs/  { dblock = 1; next }
+    /^# END docs-scope jobs/    { dblock = 0; next }
     /^[[:space:]]*start [A-Za-z0-9._-]+ job_[A-Za-z0-9_]+$/ {
-      if (!block || all == 1) print $2
+      if (block && all != 1) next
+      if (dblock && (scoped != 1 || scope != "docs")) next
+      if (scoped == 1 && index(scj, " " $2 " ") == 0) next
+      print $2
     }
   ' "$SELF" || exit 1
   exit 0
@@ -87,6 +128,8 @@ trap 'on_interrupt INT' INT
 start() { # name function
   local name="$1"
   shift
+  # Same SCOPE_JOBS set --list filters on, so a scoped run starts what it printed.
+  [[ "$SCOPED" == "1" ]] && ! scope_jobs "$name" && return 0
   NAMES+=("$name")
   if [ -n "${RSI_CHECK_JOB_STUB:-}" ]; then
     ( bash -c "$RSI_CHECK_JOB_STUB" "$name" ) >"$LOG_DIR/$name.log" 2>&1 &
@@ -277,12 +320,18 @@ job_shell_test() {
   bash rsi/runtime/tests/test-lanes-history.sh || return 1
   bash rsi/runtime/tests/test-lane-spare-pressure.sh || return 1
   bash rsi/runtime/tests/test-claim-merged.sh || return 1
+  bash rsi/runtime/tests/test-lanes-claim-paths.sh || return 1
   bash rsi/runtime/tests/test-runtime-modes.sh || return 1
   bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
   bash rsi/runtime/tests/test-gate-carry.sh || return 1
   # The default gate starts only the jobs CI does not run; this pins the split and the
   # premises that make dropping the rest safe (R-gate-ci-dedupe).
   bash rsi/runtime/tests/test-check-job-parity.sh || return 1
+  # An RN-only PR scopes the gate's check step to mobile-rn + stories (KIN_CHECK_SCOPE=rn).
+  bash rsi/runtime/tests/test-check-rn-scope.sh || return 1
+  # A docs-only PR scopes the gate's check step to stories + ux-spec-refs + doc-refs.
+  bash rsi/runtime/tests/test-check-docs-scope.sh || return 1
+  bash rsi/runtime/tests/test-rename-copy-check.sh || return 1
   bash rsi/runtime/tests/test-ux-carry-key.sh || return 1
   bash rsi/runtime/tests/test-verifier-ci-hold.sh || return 1
   bash rsi/runtime/tests/test-merge-sync-skip.sh || return 1
@@ -293,6 +342,9 @@ job_shell_test() {
   bash rsi/runtime/tests/test-merge-rework-stalled.sh || return 1
   bash rsi/runtime/tests/test-merge-batch.sh || return 1
   bash rsi/runtime/tests/test-merge-ceo-ok.sh || return 1
+  bash rsi/runtime/tests/test-diff-size.sh || return 1
+  bash rsi/runtime/tests/test-ci-early-red.sh || return 1
+  bash rsi/runtime/tests/test-ingest-rn-selfcheck.sh || return 1
   bash rsi/runtime/tests/test-gate-lock-timeout.sh || return 1
   bash rsi/runtime/tests/test-gate-no-verdict.sh || return 1
   # The walk mutant's red proof builds the UI twice, so the gate runs only the
@@ -314,6 +366,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-lane-worker-contract.sh || return 1
   bash rsi/runtime/tests/test-lane-sendback-reserve.sh || return 1
   bash rsi/runtime/tests/test-lane-control-tree-guard.sh || return 1
+  bash rsi/runtime/tests/test-lane-empty-branch.sh || return 1
   bash rsi/runtime/tests/test-evidence-widths.sh || return 1
   bash rsi/runtime/tests/test-claim-copies.sh || return 1
   bash rsi/runtime/tests/test-lanes-facts.sh || return 1
@@ -343,6 +396,16 @@ job_shell_test() {
   bash rsi/runtime/tests/test-dispatch-codex-timeout.sh || return 1
   bash rsi/runtime/tests/test-dispatch-review-findings.sh || return 1
   bash rsi/runtime/tests/test-lane-pr-retry.sh || return 1
+  # A finished round survives one transient `git push` failure; a final failure leaves it
+  # committed and marked delivered-unpushed instead of throwing the work away (R-lane-push-retry).
+  bash rsi/runtime/tests/test-lane-push-retry.sh || return 1
+  # A worker that left its own process tree (setsid -> launchd, booted simulators)
+  # is still reaped: cleanup sweeps by worktree cwd and shuts down only the
+  # simulators this lane booted (2026-11-25 orphan-simulator incident).
+  bash rsi/runtime/tests/test-lane-orphan-reap.sh || return 1
+  # A second lane's `simctl boot` waits on the machine-wide simulator slot
+  # instead of booting next to a live lane (2026-11-25 load-~900 incident).
+  bash rsi/runtime/tests/test-sim-slot.sh || return 1
   bash rsi/runtime/nas/tests/test-nas.sh || return 1
   bash rsi/runtime/nas/tests/test-install-preflight.sh || return 1
   bash rsi/runtime/ux/retry-test.sh || return 1
@@ -354,6 +417,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-lane-partial-handoff.sh || return 1
   bash rsi/runtime/tests/test-lane-mutants.sh || return 1
   bash rsi/runtime/tests/test-lane-claim-check.sh || return 1
+  bash rsi/runtime/tests/test-removed-literal-check.sh || return 1
   bash rsi/runtime/tests/test-wiring.sh
 }
 
@@ -472,6 +536,53 @@ job_quality_reading_contract() {
   python3 -B scripts/quality_001_reading_test.py
 }
 
+# A docs-only diff cannot pay for the repo-wide suite: the evidence is the suites that
+# actually name the changed file. Started only under KIN_CHECK_SCOPE=docs (the
+# docs-scope start block below). For each path in $KIN_CHECK_CHANGED it greps the loop's
+# shell suites — rsi/runtime/**/tests/*.sh and any *.test.sh under rsi/runtime or
+# scripts — for the repo-relative path and the basename, runs every match once, and
+# names each one it ran so the gate log proves it. A ui/**/*.test.*, *_test.py /
+# *.test.py or *_test.go hit is coverage this job cannot run hermetically, so it prints
+# DOC_REFS_FALLBACK and fails closed rather than silently skipping it.
+job_doc_refs() {
+  local changed="${KIN_CHECK_CHANGED:-}"
+  [ -n "$changed" ] && [ -f "$changed" ] || {
+    echo "doc-refs: KIN_CHECK_CHANGED is not set or not a file: '${changed:-unset}'"
+    return 2
+  }
+  local path base rc=0 ran=0 s f fb
+  local suites="$LOG_DIR/doc-refs.suites"
+  : >"$suites"
+  while IFS= read -r path || [ -n "$path" ]; do
+    [ -z "$path" ] && continue
+    base="${path##*/}"
+    while IFS= read -r s; do
+      grep -qF -e "$path" -e "$base" -- "$s" && echo "$s" >>"$suites"
+    done < <(find rsi/runtime scripts -type f -name '*.sh' \
+      \( -path '*/tests/*' -o -name '*.test.sh' \))
+    fb="$( { grep -rlF --include='*.test.*' --exclude-dir=node_modules \
+              -e "$path" -e "$base" ui 2>/dev/null
+            grep -rlF --include='*_test.go' --exclude-dir=.git \
+              --exclude-dir=node_modules -e "$path" -e "$base" . 2>/dev/null
+            grep -rlF --include='*_test.py' --include='*.test.py' \
+              --exclude-dir=.git --exclude-dir=node_modules \
+              -e "$path" -e "$base" . 2>/dev/null; } | sort -u )"
+    if [ -n "$fb" ]; then
+      while IFS= read -r f; do echo "DOC_REFS_FALLBACK $f"; done <<<"$fb"
+      echo "docs scope cannot cover the tests that name $path; run full"
+      rc=1
+    fi
+  done <"$changed"
+  while IFS= read -r s; do
+    [ -z "$s" ] && continue
+    echo "doc-refs: $s names a changed doc — running it"
+    bash "$s" || rc=1
+    ran=$((ran + 1))
+  done < <(sort -u "$suites")
+  echo "doc-refs: $ran suite(s) ran"
+  return "$rc"
+}
+
 start gofmt job_gofmt
 start probe job_probe
 start api-contract job_api_contract
@@ -487,6 +598,15 @@ start phone-baseline-contract job_phone_baseline_contract
 start journeys-smoke job_journeys_smoke
 start quality-reading-contract job_quality_reading_contract
 start mobile-rn job_mobile_rn
+
+# doc-refs exists only inside a docs-scoped run — it reads $KIN_CHECK_CHANGED, which the
+# default and --all runs do not carry — so its start line lives behind the same kind of
+# marker as the --all block and --list shows it only for KIN_CHECK_SCOPE=docs.
+# BEGIN docs-scope jobs
+if [[ "$SCOPE" == "docs" ]] && [[ "$ALL" == "0" ]]; then
+  start doc-refs job_doc_refs
+fi
+# END docs-scope jobs
 
 # The eight jobs CI already runs on every push (.github/workflows/ci.yml): `go vet
 # ./...` and `go test ./...` (build job), `npm test` + `npx tsc --noEmit` (build job's

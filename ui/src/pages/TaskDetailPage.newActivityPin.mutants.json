@@ -3,15 +3,15 @@
     "label": "the pre-fix send window consumes a reply without raising the pill",
     "file": "ui/src/pages/TaskDetailPage.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.newActivityPin.dom.test.tsx -t \"a reply that lands while a follow-up send is pending raises the new-activity pill\"",
-    "old": "    if (isNearBottom(el)) return;\n",
-    "new": "    if (isNearBottom(el) || sending) return;\n"
+    "old": "    if (stickToBottomRef.current) return;\n",
+    "new": "    if (stickToBottomRef.current || sending) return;\n"
   },
   {
     "label": "the pre-fix send window consumes a reply the pending restore held the pin for",
     "file": "ui/src/pages/TaskDetailPage.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.newActivityPin.dom.test.tsx -t \"a reply that lands when a restore still owes the pin raises the pill at the restored place\"",
-    "old": "    if (isNearBottom(el)) return;\n",
-    "new": "    if (isNearBottom(el) || (sending && pinAfterSendRef.current)) return;\n"
+    "old": "    if (stickToBottomRef.current) return;\n",
+    "new": "    if (stickToBottomRef.current || (sending && pinAfterSendRef.current)) return;\n"
   },
   {
     "label": "an owed send pin drags a reader who scrolled away from a pending restore back to the end",
