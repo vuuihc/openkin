@@ -225,8 +225,8 @@ case_lane_runs_check_before_push() {
   [ "$(grep -cF "$call" "$LANE")" -eq 1 ] \
     || fail "wiring: the guarded call occurs $(grep -cF "$call" "$LANE") time(s), want 1"
   inv="$(grep -nF "$call" "$LANE" | cut -d: -f1)"
-  push="$(grep -n 'push -q -u' "$LANE" | head -1 | cut -d: -f1)"
-  [ -n "$push" ] || fail "wiring: lane.sh has no 'push -q -u' line"
+  push="$(grep -nF 'git_push_retry "$GIT" "$WT" "$BR"' "$LANE" | head -1 | cut -d: -f1)"
+  [ -n "$push" ] || fail "wiring: lane.sh has no git_push_retry call"
   [ "$inv" -lt "$push" ] \
     || fail "wiring: the check (line $inv) runs after the push (line $push)"
   fin="$(grep -nF 'finish failed "" "mutant evidence:' "$LANE" | cut -d: -f1)"

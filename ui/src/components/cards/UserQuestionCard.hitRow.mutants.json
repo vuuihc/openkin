@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the custom answer row stops marking itself as a hit row",
+    "file": "ui/src/components/cards/UserQuestionCard.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/UserQuestionCard.hitRow.dom.test.tsx",
+    "old": "        <div className=\"mt-3\" data-kin-hit-row=\"\">",
+    "new": "        <div className=\"mt-3\">"
+  },
+  {
+    "label": "the submit row stops marking itself as a hit row",
+    "file": "ui/src/components/cards/UserQuestionCard.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/UserQuestionCard.hitRow.dom.test.tsx",
+    "old": "        <div className=\"mt-3 flex items-center justify-end gap-2\" data-kin-hit-row=\"\">",
+    "new": "        <div className=\"mt-3 flex items-center justify-end gap-2\">"
+  },
+  {
+    "label": "the strip hides instead of collapsing the card",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.overlap.dom.test.tsx",
+    "old": "      covers(\n        stripRect,\n        raised\n          ? \"[data-kin-reading], [data-session-row], [data-kin-hit-row]\"\n          : \"[data-kin-reading]\",\n      );",
+    "new": "      covers(stripRect, raised ? \"[data-kin-reading], [data-session-row]\" : \"[data-kin-reading], [data-kin-hit-row]\");"
+  },
+  {
+    "label": "the hit-row yield is gated to the phone band again",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/cards/FloatingApproval.overlap.dom.test.tsx",
+    "old": "    const hitRowSelector = \"[data-kin-hit-row]\";",
+    "new": "    const hitRowSelector =\n      viewportWidth < 768 ? \"[data-kin-hit-row]\" : \"[data-kin-hit-row='phone']\";"
+  }
+]

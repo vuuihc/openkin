@@ -153,7 +153,7 @@
 | 键盘 | `ui/src/lib/overlayOwnsKeyboard.dom.test.ts` and `ui/src/pages/macKeyboardWiring.test.ts` | Given 多区缓存、Sheet、菜单或对话框 When 快捷键/IME 输入 Then 只有可见当前层响应 |
 | 对话 | `ui/src/pages/TaskDetailPage.dom.test.tsx`, existing START/CONTINUE tests | Given 原有流式/队列/审批/配置/草稿 When 外壳与控件更新 Then 行为未变 |
 | 项目 | `ui/src/pages/ProjectDetailPage.dom.test.tsx` | Given 项目深链、单/多 root 与编辑摘要 When 新建、选模式、开原生/导入活动、返回与再进入 Then 新建仍带 cwd 或多 root 选择、关闭回封面、四模式保持、封面滚动恢复且没有第二份完整对话列表 |
-| 导入 | `ui/src/pages/AgentSessionDetailPage.dom.test.tsx` | Given 列表、项目或设置运维打开导入历史 When 读早期历史、继续或返回 Then 来源入口正确，所有原能力可达，attach 路由与历史保持原平台语义 |
+| 导入 | `ui/src/components/sessions/AgentSessionSheet.dom.test.tsx`, `ui/src/components/layout/PhonePushTargets.dom.test.tsx` | Given 列表、项目或设置运维打开导入历史 When 读早期历史、继续或返回 Then 来源入口正确，所有原能力可达，attach 路由与历史保持原平台语义 |
 | 例程 | `ui/src/pages/RoutinesPage.*.test.tsx` | Given 远程机器与旧在途选择 When 切换区域或运行详情 Then 不误切机器、不错误显示 badge、可返回 |
 | 设置 | `ui/src/pages/SettingsPage.leaveGuard.dom.test.tsx`, `settingsTabsWiring.test.ts` and Agents tests | Given general/agents/providers/routing/advanced/operations 的各自字段与旧 tab 深链 When 换形、离开/再回来 Then 所有原字段/角色/按 provider 导入均在，operations 与原 agents 不合并，草稿与分区恢复且无被动秘密读取 |
 | 无障碍 | `ui/src/components/layout/AreaNavigation.dom.test.tsx` and browser | Given 触屏、外接键盘或 reduced-motion When 导航 Then 44px、可见焦点、读屏 Tab 位置与无位移均成立 |
@@ -169,7 +169,7 @@
 - 集中审阅：`KIN-CONTINUE-003.review.html`。
 - 当前问题：用户 2026-11-14 明确指出导航没有对话入口、归档被错误提升、入口间缺乏统一转场，且 Mac 与手机结构不统一。
 - 交付证据（2026-11-19，`rsi/continue-003-final-walk` 树）：`bash rsi/runtime/ux-walk.sh <worktree> <outdir> J1,J2,J3,J4,J5,J6,J7` 退出 0，`walk.json` 为 `hardFail: []`，J1–J7 全部出现，共 156 张截图（每张同名 `.aria.txt` 无障碍快照），存于 `rsi/state/shots/continue-003-final-walk/`。宽度按各旅程声明：J1 仅 phone 390×844；J2 mac 1100×760 与 mac-wide 1280×800；J3 phone 与 mac；J4 phone、mac 与 mac-wide；J5/J6/J7 phone 与 mac。代表截图：`J1-phone-02-search`、`J1-phone-04-approval-card`、`J2-mac-05-workspace-panel`、`J2-mac-wide-10-diff-comment-sent`、`J3-phone-13-midrun-queued`、`J3-mac-16-stopped`、`J4-phone-02-project-cover`、`J4-mac-wide-20-cwd-chosen`、`J5-mac-02-row-actions`、`J6-phone-03-legacy-agents-redirect`、`J7-mac-01-landing-card`。
-- 12 个登记套件在同一棵树全绿：`npx vitest run src/lib/areas.test.ts src/lib/areaNavigation.test.ts src/components/layout/AreaNavigation.dom.test.tsx src/components/layout/PhoneNavigation.dom.test.tsx src/lib/notificationRoute.test.ts src/components/NotificationTaps.dom.test.tsx src/lib/overlayOwnsKeyboard.dom.test.ts src/pages/macKeyboardWiring.test.ts src/pages/SettingsPage.leaveGuard.dom.test.tsx src/pages/settingsTabsWiring.test.ts src/pages/ProjectDetailPage.dom.test.tsx src/pages/AgentSessionDetailPage.dom.test.tsx` → 12 files / 169 tests passed。走查前先跑这组基线，绿后才开始走查。
+- 登记的套件在同一棵树全绿（2026-11-24 重跑；`ProjectDetailPage.dom.test.tsx` 已随项目封面退役，故从清单移除，余 11 个文件）：`npx vitest run src/lib/areas.test.ts src/lib/areaNavigation.test.ts src/components/layout/AreaNavigation.dom.test.tsx src/components/layout/PhoneNavigation.dom.test.tsx src/lib/notificationRoute.test.ts src/components/NotificationTaps.dom.test.tsx src/lib/overlayOwnsKeyboard.dom.test.ts src/pages/macKeyboardWiring.test.ts src/pages/SettingsPage.leaveGuard.dom.test.tsx src/pages/settingsTabsWiring.test.ts src/components/sessions/AgentSessionSheet.dom.test.tsx` → 11 files / 143 tests passed。走查前先跑这组基线，绿后才开始走查。
 - 走查修正了一处夹具时序、未放宽断言：`scripts/journeys_fake_agent/claude` 的 `[seed] slow` 保持改为覆盖整段回答（含项目指令回显）。此前回显先于 10 秒保持输出，`shouldShowGenericThinking` 会在首段文本落地后收起等待行，J3 的等待行断言因此变成竞态（同一命令修正前连续两次 `hardFail` 各 5 条，修正后为 `[]`）。
 - 验收逐行证据（行号按上表顺序）：
   1. 导航/选中态：登记 `AreaNavigation.dom.test.tsx`；J6 `03-legacy-agents-redirect` 与 J4 `01-projects` 在 390/1100/1280 保持同一外壳。
@@ -183,7 +183,7 @@
   9. 键盘：登记 `overlayOwnsKeyboard.dom.test.ts` + `macKeyboardWiring.test.ts`；J1 `06-conversation-focus`、J3 `11-run-config-closed-focus` 在 390/1100 显示焦点归还。
   10. 对话/现有行为：`TaskDetailPage.dom.test.tsx` 与 START/CONTINUE 既有测试由各自故事登记引用；J3 在 390/1100 完成发送、排队、回复与停止（`12-sent`、`13-midrun-queued`、`16-stopped`）。
   11. 项目：登记 `ProjectDetailPage.dom.test.tsx`；J4 `02-project-cover` 在三个宽度显示封面与工作方式。
-  12. 导入：登记 `AgentSessionDetailPage.dom.test.tsx`；J6 `02-operations` 保留导入入口。
+  12. 导入：登记 `AgentSessionSheet.dom.test.tsx`；J6 `02-operations` 保留导入入口。
   13. 例程：`RoutinesPage.*.test.tsx` 由 ROUTINE 故事登记引用；J4 `16-routines`、`17-routine-editor`、`18-cwd-browser-open` 在三个宽度运行。
   14. 设置：登记 `SettingsPage.leaveGuard.dom.test.tsx` + `settingsTabsWiring.test.ts`；Agents 测试由 AGENTS 故事登记引用；J6 `01-settings`、`02-operations`、`04-default-agent-row`、`05-new-chat-host`。
   15. 无障碍：登记 `AreaNavigation.dom.test.tsx` 持有 44px 与 reduced-motion；走查为每张截图留下同名 `.aria.txt`，四区入口以 navigation/链接呈现（如 `J1-phone-01-list.aria.txt`）。

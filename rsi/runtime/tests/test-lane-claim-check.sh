@@ -30,12 +30,16 @@ CTRL="$T/ctrl"; mkdir -p "$CTRL/rsi/state/lanes" "$CTRL/rsi/runtime"
 # lane.sh sources $RSI_DIR/runtime/lane-pr.sh before any seam; each seam reads its checker from
 # the same deployed path, so a copy keeps the suite hermetic and proves the real rules run. The
 # red-first seam sits in the same pre-push span this suite extracts, so it needs its checker too
-# (a body with no Claims block is NA, which is what these claim-check cases exercise).
+# (a body with no Claims block is NA, which is what these claim-check cases exercise). The
+# removed-literal seam sits in that span as well, and is NA on these docs-only fixtures.
 printf '#!/bin/bash\n# stub: the seams never create a PR\n' > "$CTRL/rsi/runtime/lane-pr.sh"
+printf '#!/bin/bash\n# stub: the seams never push\n' > "$CTRL/rsi/runtime/lane-push.sh"
 cp "$REPO/rsi/runtime/claim_check.py" "$CTRL/rsi/runtime/claim_check.py" \
   || { echo "FAIL cannot copy claim_check.py" >&2; exit 1; }
 cp "$REPO/rsi/runtime/red_first.py" "$CTRL/rsi/runtime/red_first.py" \
   || { echo "FAIL cannot copy red_first.py" >&2; exit 1; }
+cp "$REPO/rsi/runtime/removed_literal.py" "$CTRL/rsi/runtime/removed_literal.py" \
+  || { echo "FAIL cannot copy removed_literal.py" >&2; exit 1; }
 # common.sh is the production environment; the retry's pause is wrapped in its `bounded_run`
 # watchdog, and the clamp case needs the same watchdog around the whole hand-off so a missing
 # clamp cannot hang the suite. RSI_CTRL points into the temp dir before the source, so STATE and
@@ -250,8 +254,8 @@ case_lane_runs_seam_before_push() {
   inv="$(grep -nF "$call" "$LANE" | cut -d: -f1)"
   mut="$(grep -nF 'if ! MUT_EV="$(bash "$SELF" --mutant-evidence-check "$WT" 2>&1)"; then' "$LANE" | cut -d: -f1)"
   [ -n "$mut" ] || fail "wiring: lane.sh has no mutant-evidence call"
-  push="$(grep -n 'push -q -u' "$LANE" | head -1 | cut -d: -f1)"
-  [ -n "$push" ] || fail "wiring: lane.sh has no 'push -q -u' line"
+  push="$(grep -nF 'git_push_retry "$GIT" "$WT" "$BR"' "$LANE" | head -1 | cut -d: -f1)"
+  [ -n "$push" ] || fail "wiring: lane.sh has no git_push_retry call"
   [ "$inv" -gt "$mut" ] \
     || fail "wiring: the claim check (line $inv) does not run after mutant evidence (line $mut)"
   [ "$inv" -lt "$push" ] \
@@ -315,7 +319,8 @@ claim_fail_handoff() { # <body-file> [RSI_CLAIM_RETRY_SECS]
   : > "$T/ph-finish.log"; : > "$T/ph-gh.calls"; : > "$T/ph-pr.log"; rm -f "$ATTEMPTS"
   (
     RSI_CTRL="$CTRL"; HOME="$T/home"; export RSI_CTRL HOME
-    source "$RUNTIME/common.sh"          # bounded_run: the retry pause's production watchdog
+    source "$RUNTIME/common.sh"          # bounded_run: the retry pause's production watchdog; with_timeout backs the push
+    source "$RUNTIME/lane-push.sh"       # git_push_retry: the tail's push, never a bare git push
     [ -n "$retry" ] && { RSI_CLAIM_RETRY_SECS="$retry"; export RSI_CLAIM_RETRY_SECS; }
     N=1
     SELF="$LANE"
@@ -496,6 +501,8 @@ case_claim_check_retry_zero_disables() {
   [ -f "$ATTEMPTS" ] || fail "retryzero: no attempt record at $ATTEMPTS"
   [ "$(grep -c '^attempt ' "$ATTEMPTS")" -eq 1 ] \
     || fail "retryzero: want exactly one seam run with the retry disabled: $(cat "$ATTEMPTS")"
+  grep -qx 'retry pause: requested=0s used=0s' "$ATTEMPTS" \
+    || fail "retryzero: the escape hatch did not record a zero pause: $(cat "$ATTEMPTS")"
   grep -q '^attempt 1: CLAIM_LANE_FAIL' "$ATTEMPTS" \
     || fail "retryzero: the single attempt is not the FAIL: $(cat "$ATTEMPTS")"
   [ -f "$CTRL/rsi/state/lanes/1.claim.txt" ] \
@@ -507,9 +514,12 @@ case_claim_check_retry_zero_disables() {
 }
 
 # AGENTS.md 13: the pause is bounded. RSI_CLAIM_RETRY_SECS=999 must clamp to 5 s, so the case
-# finishes under its own 12 s ceiling and still makes both attempts.
+# still makes both attempts. The verdict is the lane's own record — requested seconds and used
+# seconds — not elapsed wall time: a loaded host can honestly spend well over 20 s on the same
+# hand-off, and a stopwatch would turn this green guard red for a reason that has nothing to do
+# with the clamp. The 60 s bounded_run is a ceiling far above that nominal — only a hand-off it
+# killed fails as a watchdog timeout — and it is never the verdict.
 case_claim_check_retry_clock_is_clamped() {
-  local start elapsed
   new_repo retryclamp
   change docs/plans/gap-log.md '- a sentence the claim can prove'
   body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
@@ -517,14 +527,20 @@ case_claim_check_retry_clock_is_clamped() {
   fixed_body "$T/retryclamp.fixed"
   rm -f "$ATTEMPTS"
   flip_body_on_attempt "$CTRL/rsi/state/lanes/1.pr-body.md" "$T/retryclamp.fixed" & local flipper=$!
-  start="$(date +%s)"
-  bounded_run 12 claim_fail_handoff "$BODY" 999; PH_RC=$?
-  elapsed=$(( $(date +%s) - start ))
+  # The hand-off writes to its own log, not the suite's stdout: with the clamp broken the inner
+  # pause is the only thing bounded_run must reap, and a host without ps/pgrep leaves that child
+  # holding whatever the case inherited. The verdict then stays the record's, and the log is
+  # quoted on failure.
+  bounded_run 60 claim_fail_handoff "$BODY" 999 > "$T/retryclamp.handoff.log" 2>&1; PH_RC=$?
   wait "$flipper" 2>/dev/null || true
-  [ "$PH_RC" -eq 0 ] \
-    || fail "retryclamp: hand-off exit $PH_RC within the 12 s ceiling (an unclamped 999 s retry)"
-  [ "$elapsed" -lt 10 ] || fail "retryclamp: the pause was ${elapsed}s, want < 10 (clamped to 5)"
-  [ -f "$ATTEMPTS" ] || fail "retryclamp: no attempt record at $ATTEMPTS"
+  local log; log="$(cat "$T/retryclamp.handoff.log")"
+  [ -f "$ATTEMPTS" ] || fail "retryclamp: no attempt record at $ATTEMPTS (hand-off exit $PH_RC): $log"
+  grep -qx 'retry pause: requested=999s used=5s' "$ATTEMPTS" \
+    || fail "retryclamp: the record does not prove the clamp: $(cat "$ATTEMPTS")"
+  if [ "$PH_RC" -eq 124 ]; then
+    fail "retryclamp: the hand-off did not finish inside the 60 s watchdog; a hung lane must still fail: $log"
+  fi
+  [ "$PH_RC" -eq 0 ] || fail "retryclamp: hand-off exit $PH_RC, want 0: $log"
   [ "$(grep -c '^attempt ' "$ATTEMPTS")" -eq 2 ] \
     || fail "retryclamp: the clamped retry did not make both attempts: $(cat "$ATTEMPTS")"
 }
@@ -583,6 +599,7 @@ pr_handoff() {
       "$LANE" "$R" "$BODY" "$hdr"
     printf 'FINISH_FILE=%q\nGH=%q\n' "$T/finish" "$GH_STUB"
     printf 'source %q\n' "$RUNTIME/lane-pr.sh"
+    printf 'source %q\n' "$RUNTIME/lane-push.sh"
     cat <<'SH'
 N=1; ITEM=R-fixture; SLUG=fixture; MODE=new; WORKER_TITLE='fix: fixture'
 TIMEDOUT=0; W_MIN=0; COST=0; SWEPT_N=0

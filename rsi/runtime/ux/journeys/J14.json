@@ -6,6 +6,8 @@
   ],
   "steps": [
     ["goto", "/sessions"],
+    ["click", "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开项目'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Expand project']"],
+    ["wait", "css=div[role=region][aria-label^='工作方式 · [seed] Project Alpha'], div[role=region][aria-label^='How to work here · [seed] Project Alpha']"],
     ["click", "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"],
     ["wait", "css=[data-session-row]:has-text('[seed] Morning planning')"],
     ["click", "[data-session-row]:has-text('[seed] Morning planning')"],
@@ -31,6 +33,8 @@
     ["wait", "css=[data-phone-scroll]"],
     ["wait", "css=section[aria-label='此设备'] h2, section[aria-label='This machine'] h2"],
     ["wait", "css=button[aria-label='[seed] Project Alpha']"],
+    ["click", "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开项目'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Expand project']"],
+    ["wait", "css=div[role=region][aria-label^='工作方式 · [seed] Project Alpha'], div[role=region][aria-label^='How to work here · [seed] Project Alpha']"],
     ["click", "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"],
     ["wait", "css=[data-session-row]:has-text('[seed] Morning planning')"],
     ["count", "css=[data-session-row]:has-text('[seed] Morning planning')", "1"],

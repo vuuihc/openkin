@@ -1,0 +1,65 @@
+[
+  {
+    "label": "the header's usage entry shrinks under the 44pt floor, so the phone control is too small to hit (R-rn-provider-usage-sheet)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "    marginLeft: \"auto\",\n    minHeight: BACK_SIZE,\n    minWidth: BACK_SIZE,",
+    "new": "    marginLeft: \"auto\",\n    minHeight: 32,\n    minWidth: 32,",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.sheet.test.tsx -t \"KIN-MOBILE-001 R6: the conversation header opens the usage sheet and closing it returns to the same conversation\""
+  },
+  {
+    "label": "the sheet is always visible, so closing it leaves it covering the transcript (R-rn-provider-usage-sheet)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "          visible={usageOpen}",
+    "new": "          visible={true}",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.sheet.test.tsx -t \"KIN-MOBILE-001 R6: the conversation header opens the usage sheet and closing it returns to the same conversation\""
+  },
+  {
+    "label": "the sheet's open callback is dropped, so opening it reads no providers at all (R-rn-provider-usage-sheet)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "            onPress={() => {\n              setUsageOpen(true);\n              usage.onOpen?.();\n            }}",
+    "new": "            onPress={() => {\n              setUsageOpen(true);\n            }}",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.sheet.test.tsx -t \"KIN-MOBILE-001 R6: the conversation header opens the usage sheet and closing it returns to the same conversation\""
+  },
+  {
+    "label": "the sheet's close callback is dropped, so an in-flight read is never abandoned (R-rn-provider-usage-sheet)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "          onClose={() => {\n            setUsageOpen(false);\n            usage.onClose?.();\n          }}",
+    "new": "          onClose={() => {\n            setUsageOpen(false);\n          }}",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.sheet.test.tsx -t \"KIN-MOBILE-001 R6: closing the sheet abandons an in-flight read instead of repainting a closed sheet\""
+  },
+  {
+    "label": "choosing a window reloads the current one instead of the chosen 7/30/90 range (R-rn-provider-usage-sheet)",
+    "file": "mobile-rn/src/screens/ConversationScreen.tsx",
+    "old": "    const read = model.setWindow(days);",
+    "new": "    const read = model.load();",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.sheet.test.tsx -t \"KIN-MOBILE-001 R6: the sheet's window choice survives close and reopen in the same session\""
+  },
+  {
+    "label": "the conversation reads providers on mount instead of waiting for the sheet to open (R-rn-provider-usage-sheet)",
+    "file": "mobile-rn/src/screens/ConversationScreen.tsx",
+    "old": "        setProviders(providersModel.getState());",
+    "new": "        setProviders(providersModel.getState());\n        void providersModel.load();",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.sheet.test.tsx -t \"KIN-MOBILE-001 R6: the conversation header opens the usage sheet and closing it returns to the same conversation\""
+  },
+  {
+    "label": "the sheet replaces the model's state with a permanent loading view, so the empty device's words never appear (R-rn-provider-usage-sheet)",
+    "file": "mobile-rn/src/screens/ProviderUsageSheet.tsx",
+    "old": "            state={state}",
+    "new": "            state={{ status: \"loading\", days: 30, providers: [], usage: [] }}",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.sheet.test.tsx -t \"KIN-MOBILE-001 R6: the empty device says so inside the sheet\""
+  },
+  {
+    "label": "the container hands the sheet a permanent loading view, so the empty device's words never appear (R-rn-provider-usage-sheet)",
+    "file": "mobile-rn/src/screens/ConversationScreen.tsx",
+    "old": "          state: providers,",
+    "new": "          state: { status: \"loading\", days: 30, providers: [], usage: [] },",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.sheet.test.tsx -t \"KIN-MOBILE-001 R6: the empty device says so inside the sheet\""
+  },
+  {
+    "label": "leaving the conversation never cancels the providers model, so its usage read outlives the screen (R-rn-provider-usage-sheet)",
+    "file": "mobile-rn/src/screens/ConversationScreen.tsx",
+    "old": "      providersRef.current?.cancel();\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.sheet.test.tsx -t \"KIN-MOBILE-001 R6: leaving the conversation abandons an in-flight usage read\""
+  }
+]
