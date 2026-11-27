@@ -1,0 +1,37 @@
+[
+  {
+    "label": "a no-names import only asks this machine",
+    "file": "ui/src/lib/agentSessionImport.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx -t \"the group-bottom import asks every paired machine\"",
+    "old": "  return named.length > 0\n    ? [{ deviceId: \"\", label: thisMachineLabel }]\n    : importTargets(machines, thisMachineLabel);\n",
+    "new": "  // mutant: a no-names import only asks this machine\n  return [{ deviceId: \"\", label: thisMachineLabel }];\n"
+  },
+  {
+    "label": "saving a role does not tell the composer",
+    "file": "ui/src/pages/SettingsPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx -t \"saving a role sends it and emits the composer event\"",
+    "old": "      window.dispatchEvent(new Event(AGENT_ROLES_CHANGED_EVENT));\n",
+    "new": "      // mutant: the composer is not told the roles changed\n"
+  },
+  {
+    "label": "the agents tab ignores an import running elsewhere",
+    "file": "ui/src/pages/SettingsPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx -t \"an import in flight from another surface\"",
+    "old": "        importingSessions={importingEveryMachine}\n",
+    "new": "        importingSessions={false}\n"
+  },
+  {
+    "label": "a failed provider import says nothing",
+    "file": "ui/src/pages/SettingsPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx -t \"a failed provider import names the source\"",
+    "old": "      const result = await importEveryMachine([agentId]);\n      window.dispatchEvent(\n        new CustomEvent(\"kin:agent-sessions-changed\", {\n          detail: { skipAutoImport: true },\n        }),\n      );\n      const toast = importToast(result, tr);\n      pushToast(toast.message, toast.kind);\n",
+    "new": "      await importEveryMachine([agentId]);\n      // mutant: the failure is not reported to the person\n"
+  },
+  {
+    "label": "the import group renders no provider rows",
+    "file": "ui/src/components/settings/LocalAgentSettingsSection.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx -t \"the import group reads providers and imports on its own\"",
+    "old": "        {agentProviders.length > 0 ? (\n",
+    "new": "        {false && agentProviders.length > 0 ? (\n"
+  }
+]
