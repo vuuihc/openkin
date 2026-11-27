@@ -1,10 +1,10 @@
 [
   {
-    "label": "the conversation row drops below the signed 44pt touch floor (R-rn-list-2)",
+    "label": "the conversation row drops below the 54pt grouped-row floor (R3)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
-    "old": "    borderBottomWidth: StyleSheet.hairlineWidth,\n    height: ROW_HEIGHT,\n    justifyContent: \"center\",\n    minHeight: ROW_MIN_HEIGHT,",
-    "new": "    borderBottomWidth: StyleSheet.hairlineWidth,\n    height: 40,\n    justifyContent: \"center\",\n    minHeight: 30,",
-    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 R3: every row is at least a 44pt target\""
+    "old": "    justifyContent: \"center\",\n    // The design's \u226554pt grouped row; the whole box is the touch target.\n    minHeight: ROW_HEIGHT,",
+    "new": "    justifyContent: \"center\",\n    // The design's \u226554pt grouped row; the whole box is the touch target.\n    minHeight: 40,",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.visual.test.tsx -t \"KIN-MOBILE-002 R3: every row keeps its 54pt minimum and the whole row is the touch target\""
   },
   {
     "label": "the pending badge stops drawing, so waiting approvals go unspoken (R-rn-list-2)",
@@ -30,8 +30,8 @@
   {
     "label": "the row label drops the pending approval count, hiding it from screen readers (R-rn-list-2)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
-    "old": "            accessibilityLabel={[row.title, meta, pendingLabel]\n              .filter(Boolean)\n              .join(\" · \")}",
-    "new": "            accessibilityLabel={[row.title, meta]\n              .filter(Boolean)\n              .join(\" · \")}",
+    "old": "            accessibilityLabel={[row.title, meta, pendingLabel]\n              .filter(Boolean)\n              .join(\" \u00b7 \")}",
+    "new": "            accessibilityLabel={[row.title, meta]\n              .filter(Boolean)\n              .join(\" \u00b7 \")}",
     "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 R3: a row with two pending items shows 2 with a spoken label\""
   },
   {
@@ -53,83 +53,125 @@
     "file": "mobile-rn/src/screens/ConversationList.tsx",
     "old": "            style={({ pressed }) => [\n              styles.row,\n              pressed && styles.rowPressed,\n              focused && styles.rowFocused,\n            ]}",
     "new": "            style={({ pressed }) => [\n              styles.row,\n              false && styles.rowPressed,\n              focused && styles.rowFocused,\n            ]}",
-    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: pressing a conversation row paints a pressed state\""
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 \u00a72: pressing a conversation row paints a pressed state\""
   },
   {
     "label": "a held project heading never paints its pressed background (R-rn-list-press-skeleton)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
     "old": "              style={({ pressed }) => [\n                styles.project,\n                pressed && styles.projectPressed,\n              ]}",
     "new": "              style={({ pressed }) => [\n                styles.project,\n                false && styles.projectPressed,\n              ]}",
-    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: pressing a project heading paints a pressed state\""
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 \u00a72: pressing a project heading paints a pressed state\""
   },
   {
     "label": "a refresh draws the first-load skeleton over the rows it already has (R-rn-list-press-skeleton)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
     "old": "  const firstLoad = state.status === \"loading\" && !hasRows;",
     "new": "  const firstLoad = state.status === \"loading\";",
-    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: a refresh with rows keeps them and draws no skeleton\""
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 \u00a72: a refresh with rows keeps them and draws no skeleton\""
   },
   {
     "label": "the first-load skeleton drops its spoken loading label (R-rn-list-press-skeleton)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
     "old": "      accessibilityLabel={t(\"sessions.loading\")}\n      testID=\"list-skeleton\"",
     "new": "      testID=\"list-skeleton\"",
-    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: the first load draws the list's shape, not a lone wheel\""
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 \u00a72: the first load draws the list's shape, not a lone wheel\""
   },
   {
     "label": "the first-load skeleton stops being one accessibility stop, so its label is never spoken (R-rn-list-press-skeleton)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
     "old": "    <View\n      accessible\n      accessibilityLabel={t(\"sessions.loading\")}\n      testID=\"list-skeleton\"\n    >",
     "new": "    <View\n      accessibilityLabel={t(\"sessions.loading\")}\n      testID=\"list-skeleton\"\n    >",
-    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: the first load draws the list's shape, not a lone wheel\""
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 \u00a72: the first load draws the list's shape, not a lone wheel\""
   },
   {
     "label": "ArrowDown stops moving the ring, so the list has no way down (R-rn-list-keyboard)",
     "file": "mobile-rn/src/list/listKeys.ts",
     "old": "  if (key === \"ArrowDown\") {\n    return index + 1 < ids.length ? ids[index + 1]! : current;\n  }",
     "new": "  if (key === \"ArrowDown\") {\n    return current;\n  }",
-    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: ArrowDown paints the focus ring on the next row\""
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 \u00a72: ArrowDown paints the focus ring on the next row\""
   },
   {
     "label": "Enter reports an empty task id instead of the focused row (R-rn-list-keyboard)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
     "old": "      if (target !== null) {\n        // The list is leaving for the conversation: a return still waiting\n        // for a row must not land behind it (AGENTS.md rule 11).\n        dropPendingReturn();\n        onOpen(target);\n      }",
     "new": "      if (target !== null) {\n        // The list is leaving for the conversation: a return still waiting\n        // for a row must not land behind it (AGENTS.md rule 11).\n        dropPendingReturn();\n        onOpen(\"\");\n      }",
-    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: Enter opens the focused row\""
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 \u00a72: Enter opens the focused row\""
   },
   {
     "label": "the row never paints the keyboard ring, so the arrows move invisibly (R-rn-list-keyboard)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
     "old": "            style={({ pressed }) => [\n              styles.row,\n              pressed && styles.rowPressed,\n              focused && styles.rowFocused,\n            ]}",
     "new": "            style={({ pressed }) => [\n              styles.row,\n              pressed && styles.rowPressed,\n            ]}",
-    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: ArrowDown paints the focus ring on the next row\""
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 \u00a72: ArrowDown paints the focus ring on the next row\""
   },
   {
     "label": "the list steals the arrows while the search caret is in the field (R-rn-list-keyboard)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
     "old": "  const handleKeyDown = (event: ListKeyEvent) => {\n    if (searchFocused) return;\n",
     "new": "  const handleKeyDown = (event: ListKeyEvent) => {\n",
-    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: typing in the search field keeps the arrows for the caret\""
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 \u00a72: typing in the search field keeps the arrows for the caret\""
   },
   {
     "label": "the route never remembers the ring's row, so Back returns to no focus (R-rn-list-keyboard)",
     "file": "mobile-rn/src/screens/ListScreen.tsx",
     "old": "  const rememberFocus = useCallback((rowId: string) => {\n    memoryRef.current.write({ focusedRowId: rowId });\n  }, []);",
     "new": "  const rememberFocus = useCallback((rowId: string) => {\n    void rowId;\n  }, []);",
-    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 §2: the ring is on the row the reader left\""
+    "test": "cd mobile-rn && npx jest src/screens/ListScreen.test.tsx -t \"KIN-MOBILE-001 \u00a72: the ring is on the row the reader left\""
   },
   {
     "label": "a fresh list's first ArrowUp falls into the hidden-id branch and lands on the last row (R-rn-list-keyboard)",
     "file": "mobile-rn/src/list/listKeys.ts",
     "old": "  if (ids.length === 0) return current;\n  if (current === \"\") return ids[0]!;",
     "new": "  if (ids.length === 0) return current;",
-    "test": "cd mobile-rn && npx jest src/list/listKeys.test.ts -t \"KIN-MOBILE-001 §2: a fresh list enters at the first row from either arrow\""
+    "test": "cd mobile-rn && npx jest src/list/listKeys.test.ts -t \"KIN-MOBILE-001 \u00a72: a fresh list enters at the first row from either arrow\""
   },
   {
     "label": "a keyboard move never reveals the row it lands on, so the ring can sit off-screen (R-rn-list-keyboard)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
     "old": "    pendingScroll.current = where;\n    listRef.current?.scrollToLocation({",
     "new": "    pendingScroll.current = where;\n    void listRef.current;",
-    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 §2: a move past the fold reveals the row it lands on\""
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.test.tsx -t \"KIN-MOBILE-001 \u00a72: a move past the fold reveals the row it lands on\""
+  },
+  {
+    "label": "the row draws no status mark, so running/failed/done read the same (R-rn-list-visual)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "        const mark = rowMark(row);",
+    "new": "        const mark = rowMark({ status: null, pending: 0 });",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.visual.test.tsx -t \"KIN-MOBILE-002 R3: a running row draws a blue dot, a failed row a red square and a done row a grey dot\""
+  },
+  {
+    "label": "the last row of a section keeps its separator, closing no group (R-rn-list-visual)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "            {lastRow ? null : (",
+    "new": "            {false ? null : (",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.visual.test.tsx -t \"KIN-MOBILE-002 R3: hairlines are inset to the text and the last row of a section has none\""
+  },
+  {
+    "label": "the search field leaves the navigation bar, so the title has no search beside it (R-rn-list-visual)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "      <View style={styles.navBar} testID=\"list-nav\">",
+    "new": "      <View style={styles.navBar}>",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.visual.test.tsx -t \"KIN-MOBILE-002 R3: the search field lives in the navigation bar and keeps its clear control\""
+  },
+  {
+    "label": "the offline band paints over the list instead of pushing it down (R-rn-list-visual)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "    <View style={styles.resumeBand} testID=\"list-resume-band\">",
+    "new": "    <View style={[styles.resumeBand, { position: \"absolute\" }]} testID=\"list-resume-band\">",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.visual.test.tsx -t \"KIN-MOBILE-002 R3: the offline banner pushes the rows down instead of covering the first one\""
+  },
+  {
+    "label": "the device heading paints the rows' surface instead of the page (R-rn-list-visual)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "    // The group's heading sits on the page, not on the rows' surface.\n    backgroundColor: colors.page,",
+    "new": "    // The group's heading sits on the page, not on the rows' surface.\n    backgroundColor: colors.bg,",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.visual.test.tsx -t \"KIN-MOBILE-002 R3: the device heading and row surfaces paint from the scheme, dark and light\""
+  },
+  {
+    "label": "a pending approval no longer outranks the status, so the row draws the wrong mark (R-rn-list-visual)",
+    "file": "mobile-rn/src/list/rowMark.ts",
+    "old": "  if (row.pending > 0) return { shape: \"triangle\", tone: \"orange\" };",
+    "new": "  // mutant: the approval no longer outranks the status",
+    "test": "cd mobile-rn && npx jest src/list/rowMark.test.ts -t \"KIN-MOBILE-002 R3: a pending approval outranks every status and marks a triangle\""
   }
 ]
