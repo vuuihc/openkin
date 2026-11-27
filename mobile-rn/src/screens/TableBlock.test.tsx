@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 import { render } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
-import { MessageBody } from "./TableBlock";
+import { MessageBody } from "./MarkdownBody";
 
 /**
  * KIN-MOBILE-001 R4 — how one table is drawn on the phone.

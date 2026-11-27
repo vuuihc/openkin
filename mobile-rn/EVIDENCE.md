@@ -87,8 +87,9 @@ npx --no-install jest --ci --runInBand
 
 - 历史症状：`390-conversation.png`、`820-conversation.png` 逐字显示
   `| Surface | Before | After | Owner |` 和 `| --- | --- | --- | --- |`。
-- 已合入：#750，`6b1419a2`。`mobile-rn/src/screens/ConversationView.tsx:64`
-  导入 `MessageBody`，`:370` 将消息交给它绘制表格；不是复制 DOM 侧 markdown 组件。
+- 已合入：#750，`6b1419a2`。`mobile-rn/src/screens/ConversationView.tsx:78` 从
+  `./MarkdownBody` 导入 `MessageBody`（KIN-MOBILE-002 R4a 起 block markdown 与表格
+  都由它绘制），`:433` 将消息交给它；不是复制 DOM 侧 markdown 组件。
 - 回归：`mobile-rn/src/screens/ConversationView.table.test.tsx:89`，
   `KIN-MOBILE-001 R4: an agent answer draws its table and the paragraphs around it`。
   本轮该套件 3 项通过，覆盖消息表格、邻接工具/meta 行及含竖线的错误文本。

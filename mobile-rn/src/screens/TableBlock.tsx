@@ -13,16 +13,12 @@
  * makes a column a column without measuring the laid-out text.
  */
 
-import { useMemo } from "react";
 import {
   ScrollView,
   StyleSheet,
   Text,
   View,
-  type StyleProp,
-  type TextStyle,
 } from "react-native";
-import { splitTableBlocks } from "../thread/tableBlock";
 
 /** Room for a cell's padding plus a little breathing space. */
 const CELL_CHROME = 24;
@@ -91,49 +87,7 @@ export function TableBlock({ header, rows, index }: TableBlockProps) {
   );
 }
 
-export type MessageBodyProps = {
-  text: string;
-  /** The view's message style; a message with no table is one such Text. */
-  textStyle?: StyleProp<TextStyle>;
-};
-
-/**
- * One agent message: its paragraphs and, where the text holds a table, the
- * table. A message with no table is the single `<Text>` the view drew before
- * this row, so the common case paints exactly as it did.
- */
-export function MessageBody({ text, textStyle }: MessageBodyProps) {
-  const blocks = useMemo(() => splitTableBlocks(text), [text]);
-
-  if (blocks.length === 1 && blocks[0].kind === "text") {
-    return <Text style={textStyle}>{blocks[0].text}</Text>;
-  }
-
-  let tableIndex = 0;
-  return (
-    <View style={styles.body}>
-      {blocks.map((block, i) =>
-        block.kind === "text" ? (
-          <Text key={i} style={textStyle}>
-            {block.text}
-          </Text>
-        ) : (
-          <TableBlock
-            header={block.header}
-            index={tableIndex++}
-            key={i}
-            rows={block.rows}
-          />
-        ),
-      )}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  body: {
-    gap: 8,
-  },
   cell: {
     color: "#3a3a3a",
     flexShrink: 0,

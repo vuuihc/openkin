@@ -75,7 +75,7 @@ import {
 } from "./Approvals";
 import ConversationSkeleton from "./ConversationSkeleton";
 import ProviderUsageSheet from "./ProviderUsageSheet";
-import { MessageBody } from "./TableBlock";
+import { MessageBody } from "./MarkdownBody";
 
 /** The signed touch floor; every control on this screen meets it. */
 export const BACK_SIZE = 44;
@@ -87,6 +87,16 @@ export const BACK_SIZE = 44;
  * device with no inset and keeps the compact header/composer.
  */
 const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+
+/**
+ * The colours the markdown renderer needs but does not own (KIN-MOBILE-002
+ * R4a). They sit here with this screen's other literals until the token layer
+ * (R1b) takes them over.
+ */
+const MARKDOWN_STYLES = {
+  codeBackground: "#f2f2f2",
+  hairline: "#dcdcdc",
+};
 
 export type ConversationViewProps = {
   state: ThreadState;
@@ -417,10 +427,12 @@ function TurnBlock({
             turnIndex={index}
           />
         ) : item.kind === "message" ? (
-          // A message may hold a markdown table (KIN-MOBILE-001 R4); with no
-          // table its body is still the one <Text> it was.
+          // A message may hold block markdown and a table (KIN-MOBILE-002
+          // R4a, KIN-MOBILE-001 R4); with no block syntax its body is still
+          // the one <Text> it was.
           <MessageBody
             key={`${index}:${item.key}`}
+            styles={MARKDOWN_STYLES}
             text={item.text}
             textStyle={styles.item}
           />
