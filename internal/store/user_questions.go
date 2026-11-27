@@ -328,6 +328,58 @@ func (s *Store) ListPendingUserQuestionsOlderThan(ctx context.Context, cutoffMs 
 	return out, rows.Err()
 }
 
+// settleUserQuestionsTx answers the questions still pending for a task that is
+// ending, inside the caller's transaction. It is the question half of
+// settleApprovalsTx and shares its rule: only pending rows are touched, and the
+// empty answer is the one an interrupted question already takes (the MCP tool
+// fails open with a note), so nothing learns a new response shape.
+func settleUserQuestionsTx(
+	ctx context.Context, tx *sql.Tx, taskID string, settledAt int64,
+) ([]UserQuestion, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT `+userQuestionColumns+`
+		FROM user_questions
+		WHERE task_id = ? AND status = ?
+		ORDER BY created_at ASC`, taskID, UQStatusPending)
+	if err != nil {
+		return nil, fmt.Errorf("list pending user questions for ended task: %w", err)
+	}
+	pending := make([]UserQuestion, 0)
+	for rows.Next() {
+		q, err := scanUserQuestion(rows)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		pending = append(pending, q)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	const emptyAnswer = `{"selected":[]}`
+	for i := range pending {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE user_questions
+			SET status = ?, response = ?, answered_via = ?, answered_at = ?
+			WHERE id = ? AND status = ?`,
+			UQStatusAnswered, emptyAnswer, "interrupt", settledAt, pending[i].ID, UQStatusPending,
+		); err != nil {
+			return nil, fmt.Errorf("settle user question: %w", err)
+		}
+		via := "interrupt"
+		at := settledAt
+		pending[i].Status = UQStatusAnswered
+		pending[i].Response = json.RawMessage(emptyAnswer)
+		pending[i].AnsweredVia = &via
+		pending[i].AnsweredAt = &at
+	}
+	return pending, nil
+}
+
 // ListPendingUserQuestionsForTask returns pending user questions for a task.
 func (s *Store) ListPendingUserQuestionsForTask(ctx context.Context, taskID string) ([]UserQuestion, error) {
 	rows, err := s.db.QueryContext(ctx, `

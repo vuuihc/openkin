@@ -293,6 +293,68 @@ func (s *Store) ListPendingOlderThan(ctx context.Context, cutoffMs int64) ([]App
 	return out, rows.Err()
 }
 
+// SettledDecisions is what a terminal task transition resolved in its own
+// transaction: the rows that were still pending when the task ended, now
+// carrying the ended decision. Writing them with the status is what makes the
+// ending atomic for a reader -- a task that reads as ended can never still be
+// offering a decision -- and the engine announces them after the commit so the
+// long-polls unblock and the transcript records what happened.
+type SettledDecisions struct {
+	Approvals []Approval
+	Questions []UserQuestion
+}
+
+// settleApprovalsTx resolves the approvals still pending for a task that is
+// ending, inside the caller's transaction. Only pending rows are touched, so a
+// person who decided first keeps their answer. The returned rows carry the
+// values that were written.
+func settleApprovalsTx(
+	ctx context.Context, tx *sql.Tx, taskID string, settledAt int64,
+) ([]Approval, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT `+approvalColumns+`
+		FROM approvals
+		WHERE task_id = ? AND decision = ?
+		ORDER BY created_at ASC`, taskID, DecisionPending)
+	if err != nil {
+		return nil, fmt.Errorf("list pending approvals for ended task: %w", err)
+	}
+	pending := make([]Approval, 0)
+	for rows.Next() {
+		a, err := scanApproval(rows)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		pending = append(pending, a)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	// Closed before the writes: a read cursor held open would keep the table
+	// locked for the updates below on the same connection.
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range pending {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE approvals
+			SET decision = ?, decided_via = ?, decided_at = ?
+			WHERE id = ? AND decision = ?`,
+			DecisionExpired, "interrupt", settledAt, pending[i].ID, DecisionPending,
+		); err != nil {
+			return nil, fmt.Errorf("settle approval: %w", err)
+		}
+		via := "interrupt"
+		at := settledAt
+		pending[i].Decision = DecisionExpired
+		pending[i].DecidedVia = &via
+		pending[i].DecidedAt = &at
+	}
+	return pending, nil
+}
+
 // ListPendingForTask returns pending approvals for a task.
 func (s *Store) ListPendingForTask(ctx context.Context, taskID string) ([]Approval, error) {
 	rows, err := s.db.QueryContext(ctx, `
