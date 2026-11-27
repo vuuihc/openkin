@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { render } from "@testing-library/react-native";
+import { fireEvent, render } from "@testing-library/react-native";
 import {
   Platform,
   StyleSheet,
@@ -9,6 +9,8 @@ import {
 } from "react-native";
 import type {
   ChatItem,
+  ProgressItem,
+  ToolStep,
   Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
 import type { Approval } from "../../../ui/src/api/contract";
@@ -57,6 +59,23 @@ const agentTurn = (...items: ChatItem[]): Turn => ({
   kind: "agent",
   speaker: "kin",
   items,
+});
+const toolStep = (overrides: Partial<ToolStep> = {}): ToolStep => ({
+  kind: "tool",
+  key: "call-1",
+  speaker: "kin",
+  name: "bash",
+  summary: "checking the suite",
+  status: "done",
+  input: { command: "npm test" },
+  output: "all green",
+  ...overrides,
+});
+const toolCard = (key: string, steps: ToolStep[]): ProgressItem => ({
+  kind: "progress",
+  key,
+  speaker: "kin",
+  steps,
 });
 
 function pendingApprovals(): ApprovalsScreenProps {
@@ -323,5 +342,63 @@ describe("KIN-MOBILE-002 R4b the reading surface", () => {
       "点我",
       "。",
     ]);
+  });
+});
+
+describe("KIN-MOBILE-002 R4c tool row type", () => {
+  beforeEach(() => {
+    systemScheme.mockReset();
+    systemScheme.mockReturnValue("light");
+  });
+
+  it("KIN-MOBILE-002 R4c: a collapsed tool row is one mono line", async () => {
+    const view = await renderView([agentTurn(toolCard("call-1", [toolStep()]))]);
+
+    const name = view.getByText("bash");
+    expect(name.props.numberOfLines).toBe(1);
+    expect(styleOf(name)).toMatchObject({ fontFamily: MONO, fontSize: 13 });
+
+    const status = view.getByText(t("chat.progress.done"));
+    expect(styleOf(status).fontFamily).toBe(MONO);
+
+    expect(
+      styleOf(view.getByTestId("conversation:tool:call-1")).minHeight,
+    ).toBeGreaterThanOrEqual(44);
+    expect(view.getByText(t("chat.progress.details"))).toBeTruthy();
+  });
+
+  it("KIN-MOBILE-002 R4c: an expanded tool row draws its input and output in mono", async () => {
+    const view = await renderView([agentTurn(toolCard("call-1", [toolStep()]))]);
+
+    await fireEvent.press(view.getByTestId("conversation:tool:call-1"));
+
+    const input = view.getByText(/"command": "npm test"/);
+    const output = view.getByText("all green");
+    for (const node of [input, output]) {
+      expect(styleOf(node).fontFamily).toBe(MONO);
+      expect(styleOf(node).fontSize as number).toBeGreaterThanOrEqual(12);
+      expect(styleOf(node).fontSize as number).toBeLessThanOrEqual(13);
+    }
+    expect(
+      view.getByTestId("conversation:tool:call-1").props.accessibilityState,
+    ).toEqual({ expanded: true });
+  });
+
+  it("KIN-MOBILE-002 R4c: a long tool name truncates to one line and keeps its status", async () => {
+    const longName = "very-long-tool-name-".repeat(6);
+    expect(longName.length).toBeGreaterThan(100);
+    const view = await renderView([
+      agentTurn(toolCard("call-1", [toolStep({ name: longName })])),
+    ]);
+
+    const name = view.getByText(longName);
+    expect(name.props.numberOfLines).toBe(1);
+    expect(name.props.ellipsizeMode).toBe("tail");
+    expect(styleOf(name).fontSize).toBe(13);
+
+    expect(view.getByText(t("chat.progress.done"))).toBeTruthy();
+    expect(
+      styleOf(view.getByTestId("conversation:tool:call-1")).minHeight,
+    ).toBeGreaterThanOrEqual(44);
   });
 });
