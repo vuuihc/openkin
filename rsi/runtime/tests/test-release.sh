@@ -11,8 +11,26 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 CHECK="$HERE/../release-check.sh"
 RELEASE="$HERE/../release.sh"
 T="$(mktemp -d)"; trap 'stop_node; [ -f "$T/dev.pid" ] && kill "$(cat "$T/dev.pid")" 2>/dev/null; rm -rf "$T"' EXIT
-fail() { echo "FAIL $*" >&2; exit 1; }
+fail() {
+  echo "FAIL $*" >&2
+  if declare -F cleanup_fetch_fixture >/dev/null 2>&1; then cleanup_fetch_fixture; fi
+  exit 1
+}
 pass() { echo "PASS $*"; }
+
+# Kill a fake-git tree still recorded by the fetch cases. A hung fetch leaves its
+# fake git (and its sleep child) behind when the wall ceiling fires, and none of it
+# may outlive the suite.
+cleanup_fetch_fixture() {
+  local f p
+  for f in "${GIT_PID:-}" "${GIT_CHILD_PID:-}"; do
+    [ -n "$f" ] || continue
+    p="$(cat "$f" 2>/dev/null || true)"
+    [ -n "$p" ] && kill -KILL "$p" 2>/dev/null
+    rm -f "$f"
+  done
+  return 0
+}
 
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com
 export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
@@ -79,6 +97,101 @@ run() {
   [ "$rc" = "$want" ] || { printf '%s\n' "$out" >&2; fail "$name: expected exit $want, got $rc"; }
   pass "$name"
 }
+
+# --- the origin/main refresh is bounded -------------------------------------
+# release-check refreshes origin/main before every release decision. On 2026-11-28
+# 02:47 that fetch's git-remote-https child sat silent for ~3 minutes while a bounded
+# `git ls-remote origin main` and an HTTPS probe both succeeded: no verdict, no HOLD,
+# no GO, and release.sh calls this check before it can even log one. A fake git on
+# PATH answers `fetch` the way each case needs and execs the real git for every other
+# call (release-check also runs rev-parse, merge-base, log and rev-list). PATH is set
+# per invocation, so the fake never leaks into the cases below.
+REAL_GIT="$(command -v git)"
+FAKEBIN="$T/fakebin"; mkdir -p "$FAKEBIN"
+GIT_PID="$T/fakegit.pid"; GIT_CHILD_PID="$T/fakegit-child.pid"
+cat > "$FAKEBIN/git" <<SH
+#!/bin/bash
+case " \$* " in
+  *" fetch "*)
+    case "\${FAKE_FETCH_MODE:-hang}" in
+      exit1) exit 1 ;;
+      sleep1) sleep 1; exit 0 ;;
+      sleep2) sleep 2; exit 0 ;;
+      *) echo \$\$ > "$GIT_PID"
+         sleep 600 & c=\$!
+         echo \$c > "$GIT_CHILD_PID"
+         wait \$c
+         exit 0 ;;
+    esac ;;
+esac
+exec "$REAL_GIT" "\$@"
+SH
+chmod +x "$FAKEBIN/git"
+# A helper `timeout` for the cases, not a source-tree one: macOS has no capped
+# builtin and the suite must not depend on the shell's own watchdog.
+TIMEOUT_BIN="/usr/bin/timeout"
+[ -x "$TIMEOUT_BIN" ] || TIMEOUT_BIN="$(command -v timeout || true)"
+[ -n "$TIMEOUT_BIN" ] || fail "the fetch cases need a timeout binary to cap a hung check"
+cap_fetch() { # <want-exit> <case> [env...]
+  local want="$1" name="$2"; shift 2
+  local start took
+  start=$(date +%s)
+  run "$want" "$name" "$@" "$TIMEOUT_BIN" 20
+  took=$(( $(date +%s) - start ))
+  [ "$took" -lt 20 ] || fail "$name: took ${took}s; the fetch did not answer inside the bound"
+}
+
+# 1. A fetch that never answers holds the release inside its bound: exit 10 with a
+#    reason, not a process that never prints a verdict.
+cap_fetch 10 "fetch-timeout-holds" RSI_FETCH_TIMEOUT=1 PATH="$FAKEBIN:$PATH"
+grep -q '^verdict=HOLD$' <<<"$LAST" || fail "fetch-timeout-holds: verdict is not HOLD: $LAST"
+grep -q '^reason=fetch timeout$' <<<"$LAST" || fail "fetch-timeout-holds: reason is not 'fetch timeout': $LAST"
+grep -q '^unshipped=unknown ' <<<"$LAST" || fail "fetch-timeout-holds: an unmeasured count must not print as a number: $LAST"
+
+# 2. The whole tree is gone. This is the case a direct-child-only kill leaves red:
+#    git's hang lives in the child (git-remote-https), not the pid the check started.
+gone() { ! kill -0 "$1" 2>/dev/null || ps -o stat= -p "$1" 2>/dev/null | grep -q Z; }
+wait_gone() { for _ in $(seq 1 30); do gone "$1" && return 0; sleep 0.1; done; return 1; }
+[ -s "$GIT_PID" ] || fail "fetch-timeout-tree-is-gone: the fake git never recorded its pid"
+[ -s "$GIT_CHILD_PID" ] || fail "fetch-timeout-tree-is-gone: the fake git never recorded its child"
+wait_gone "$(cat "$GIT_PID")" || fail "fetch-timeout-tree-is-gone: the git process survived the bound"
+wait_gone "$(cat "$GIT_CHILD_PID")" \
+  || fail "fetch-timeout-tree-is-gone: the fetch child survived; only the direct pid was killed"
+rm -f "$GIT_PID" "$GIT_CHILD_PID"
+pass "fetch-timeout-tree-is-gone"
+
+# 3. --json names the timeout and carries no number it did not measure.
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_REPO="$REPO" KIN_API="$(API)" RSI_FETCH_TIMEOUT=1 \
+  PATH="$FAKEBIN:$PATH" "$TIMEOUT_BIN" 20 bash "$CHECK" --json 2>&1)"; rc=$?
+LAST="$out"
+[ "$rc" = 10 ] || { printf '%s\n' "$out" >&2; fail "fetch-timeout-json: expected exit 10, got $rc"; }
+parsed="$(printf '%s' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+null = lambda v: "null" if v is None else v
+print("%s|%s|%s" % (d.get("verdict"), d.get("reason"), null(d.get("unshipped"))))
+' 2>/dev/null)"
+[ "$parsed" = "HOLD|fetch timeout|null" ] \
+  || fail "fetch-timeout-json: expected HOLD|fetch timeout|null, got '$parsed' ($out)"
+pass "fetch-timeout-json"
+
+# 4. A fetch that fails is NOT a timeout: the old `|| true` tolerance stays and the
+#    check decides from the refs it already has.
+cap_fetch 10 "fetch-error-is-not-a-timeout" FAKE_FETCH_MODE=exit1 PATH="$FAKEBIN:$PATH"
+grep -q '^reason=unshipped 0 < 5$' <<<"$LAST" \
+  || fail "fetch-error-is-not-a-timeout: the check did not decide normally: $LAST"
+
+# 5. A slow fetch inside its bound still decides normally.
+cap_fetch 10 "slow-fetch-inside-bound-still-decides" RSI_FETCH_TIMEOUT=10 FAKE_FETCH_MODE=sleep1 PATH="$FAKEBIN:$PATH"
+grep -q '^reason=unshipped 0 < 5$' <<<"$LAST" \
+  || fail "slow-fetch-inside-bound-still-decides: the check did not decide normally: $LAST"
+
+# 6. The default bound is comfortably above a slow-but-working fetch: with no
+#    RSI_FETCH_TIMEOUT in the environment a 2 s fetch must not be called a timeout.
+cap_fetch 10 "default-bound-is-not-tiny" FAKE_FETCH_MODE=sleep2 PATH="$FAKEBIN:$PATH"
+grep -q '^reason=unshipped 0 < 5$' <<<"$LAST" \
+  || fail "default-bound-is-not-tiny: the default bound treated a 2 s fetch as a timeout: $LAST"
+unset GIT_PID GIT_CHILD_PID
 
 # 1. Nothing released yet and no installed binary: nothing to count, so HOLD rather than
 #    shipping on a guess.

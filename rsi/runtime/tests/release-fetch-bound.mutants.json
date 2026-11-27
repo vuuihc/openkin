@@ -1,0 +1,37 @@
+[
+  {
+    "label": "the fetch-timeout branch prints verdict=GO instead of HOLD",
+    "file": "rsi/runtime/release-check.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "    echo \"verdict=HOLD\"",
+    "new": "    echo \"verdict=GO\""
+  },
+  {
+    "label": "the fetch-timeout reason loses the contract text release.sh and the prompts read",
+    "file": "rsi/runtime/release-check.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "  reason=\"fetch timeout\"",
+    "new": "  reason=\"fetch failed\""
+  },
+  {
+    "label": "the fetch-timeout branch exits 0, so a silent fetch reads as a GO",
+    "file": "rsi/runtime/release-check.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "  exit 10\nfi",
+    "new": "  exit 0\nfi"
+  },
+  {
+    "label": "the bound kills only the direct git pid, so its git-remote-https child survives",
+    "file": "rsi/runtime/release-check.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "    rsi_kill_tree \"$p\"",
+    "new": "    kill \"$p\""
+  },
+  {
+    "label": "the --json timeout object reports GO instead of HOLD",
+    "file": "rsi/runtime/release-check.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "\"verdict\":\"HOLD\"",
+    "new": "\"verdict\":\"GO\""
+  }
+]
