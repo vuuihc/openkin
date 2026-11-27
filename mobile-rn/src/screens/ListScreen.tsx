@@ -110,6 +110,10 @@ export default function ListScreen({
   // The reconnect band is a network state, not a steady one: null whenever the
   // list is current.
   const [band, setBand] = useState<"resuming" | "offline" | null>(null);
+  // A confirmed plaintext Hub session keeps its 不安全 line in the list header
+  // (ADR 0037 §4). It is read from the stored record, so it survives a launch
+  // and disappears with sign-out; the first frame before the read has no line.
+  const [insecure, setInsecure] = useState(false);
   const controllerRef = useRef<ListController | null>(null);
   const resumeRef = useRef<ResumeController | null>(null);
   // The mount that owns the memory right now, and the session its answers
@@ -172,6 +176,7 @@ export default function ListScreen({
           return;
         }
         sessionRef.current = session;
+        setInsecure(session.kind === "hub" && session.insecure === true);
         const {
           selfDeviceId: self,
           machines: devices,
@@ -336,6 +341,7 @@ export default function ListScreen({
     return (
       <ConversationList
         initialFocusId={initialFocusId}
+        insecure={insecure}
         returnFocusEpoch={returnFocusEpoch}
         onFocusChange={rememberFocus}
         onOpen={open}
@@ -359,6 +365,7 @@ export default function ListScreen({
     <ConversationList
       initialFocusId={initialFocusId}
       initialOffset={initialOffset}
+      insecure={insecure}
       returnFocusEpoch={returnFocusEpoch}
       onFocusChange={rememberFocus}
       onOpen={open}

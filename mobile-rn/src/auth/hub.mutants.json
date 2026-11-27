@@ -16,8 +16,8 @@
   {
     "label": "the hub session is written before /api/auth/me proves it (R-rn-hub-signin)",
     "file": "mobile-rn/src/auth/hub.ts",
-    "old": "    if (!me.ok) {\n      return { ok: false, reason: signInFailure(me.reason), origin };\n    }\n\n    const store = await backend();\n    await writeSession({ kind: \"hub\", origin }, store);",
-    "new": "    const store = await backend();\n    await writeSession({ kind: \"hub\", origin }, store);\n    if (!me.ok) {\n      return { ok: false, reason: signInFailure(me.reason), origin };\n    }",
+    "old": "    if (!me.ok) {\n      return { ok: false, reason: signInFailure(me.reason), origin };\n    }\n\n    const store = await backend();\n    // The flag is computed here, from the origin the opt-in admitted — never\n    // taken from the URL, a server answer or the store (ADR 0037 §2). A\n    // plaintext origin is exactly one `isHubOrigin` refuses.\n    await writeSession(\n      isHubOrigin(origin)\n        ? { kind: \"hub\", origin }\n        : { kind: \"hub\", origin, insecure: true },\n      store,\n    );",
+    "new": "    const store = await backend();\n    await writeSession(\n      isHubOrigin(origin)\n        ? { kind: \"hub\", origin }\n        : { kind: \"hub\", origin, insecure: true },\n      store,\n    );\n    if (!me.ok) {\n      return { ok: false, reason: signInFailure(me.reason), origin };\n    }",
     "test": "cd mobile-rn && npx jest src/auth/hub.test.ts -t \"R-rn-hub-signin: a login that passes but /me refuses writes nothing\""
   },
   {
@@ -28,11 +28,18 @@
     "test": "cd mobile-rn && npx jest src/auth/tokenStore.test.ts -t \"R-rn-hub-signin: an entry written before the union reads as a node session\""
   },
   {
-    "label": "a plaintext Hub address off loopback is accepted (R-rn-hub-signin)",
+    "label": "a plaintext Hub address off loopback is accepted without the opt-in (R-rn-lan-http-confirm)",
     "file": "mobile-rn/src/auth/hub.ts",
-    "old": "  if (parsed.protocol === \"http:\" && !isLoopbackHost(parsed.hostname)) return null;",
-    "new": "  if (false) return null;",
-    "test": "cd mobile-rn && npx jest src/auth/hub.test.ts -t \"R-rn-hub-signin: a Hub is https, or http only on loopback\""
+    "old": "  if (\n    parsed.protocol === \"http:\" &&\n    !isLoopbackHost(parsed.hostname) &&\n    allowance?.allowInsecure !== true\n  ) {\n    return null;\n  }",
+    "new": "  if (parsed.protocol === \"http:\" && !isLoopbackHost(parsed.hostname)) return null;",
+    "test": "cd mobile-rn && npx jest src/auth/hub.test.ts -t \"R-rn-hub-signin: the opt-in is the one way to admit a plaintext Hub off loopback\""
+  },
+  {
+    "label": "a probe ignores the plaintext opt-in, so a confirmed address sends nothing (R-rn-lan-http-confirm)",
+    "file": "mobile-rn/src/auth/hub.ts",
+    "old": "  async function probe(\n    rawUrl: string,\n    allowance?: HubAllowance,\n  ): Promise<HubProbe> {\n    const origin = normalizeHubOrigin(rawUrl, allowance);",
+    "new": "  async function probe(\n    rawUrl: string,\n    allowance?: HubAllowance,\n  ): Promise<HubProbe> {\n    const origin = normalizeHubOrigin(rawUrl);",
+    "test": "cd mobile-rn && npx jest src/screens/pair.visual.test.tsx -t \"KIN-MOBILE-002 R2: confirming the plaintext origin lets the first request through with the opt-in\""
   },
   {
     "label": "the event stream sends a bearer for a Hub session (R-rn-hub-signin)",

@@ -17,7 +17,7 @@ import {
 } from "react-native-safe-area-context";
 import { pairing, type AppState } from "../src/auth/pairing";
 import { hubSignIn } from "../src/auth/hubSignIn";
-import type { HubReason, HubStatus } from "../src/auth/hub";
+import { normalizeHubOrigin, type HubReason, type HubStatus } from "../src/auth/hub";
 import { t } from "../src/i18n";
 import { pairView } from "../src/screens/pairModel";
 import { useTheme } from "../src/theme/useTheme";
@@ -74,6 +74,12 @@ export default function PairScreen() {
   const [hubTyped, setHubTyped] = useState(initialHub);
   const [hubStatus, setHubStatus] = useState<HubStatus | null>(null);
   const [hubBusy, setHubBusy] = useState(false);
+  // The plaintext origin whose warning is on screen, awaiting the person's
+  // decision. Null means no card; it is never set from a request.
+  const [plaintextOrigin, setPlaintextOrigin] = useState<string | null>(null);
+  // The exact origin the person confirmed with 仍然继续. A confirmation is
+  // consent for that origin only, and an edit clears it (ADR 0037 §2).
+  const confirmed = useRef<string | null>(null);
   const [hubReason, setHubReason] = useState<HubReason | null>(
     // The boot reason arrives in the URL; a Hub-first screen must show it
     // even when the node-pairing section below stays collapsed.
@@ -107,6 +113,9 @@ export default function PairScreen() {
       setHubStatus(null);
       setHubReason(null);
       setHubErrorCode(null);
+      // A different address is a different consent.
+      confirmed.current = null;
+      setPlaintextOrigin(null);
     }
   }, [params.hub]);
 
@@ -114,30 +123,68 @@ export default function PairScreen() {
     setHubErrorCode(code ?? null);
   }, []);
 
-  const probe = useCallback(async () => {
-    if (hubBusy || hubTyped.trim() === "") return;
-    const my = ++hubFlow.current;
-    setHubBusy(true);
-    setHubReason(null);
-    setHubErrorCode(null);
-    try {
-      const result = await hubSignIn.probe(hubTyped);
-      if (my !== hubFlow.current) return;
-      if (result.ok) {
-        setHubTyped(result.origin);
-        setHubStatus(result.status);
-        if (result.status.providers.length === 0 || result.status.needsBootstrap) {
-          setHubReason("no-accounts");
+  const runProbe = useCallback(
+    async (raw: string, allowInsecure: boolean) => {
+      const my = ++hubFlow.current;
+      setHubBusy(true);
+      setHubReason(null);
+      setHubErrorCode(null);
+      try {
+        const result = allowInsecure
+          ? await hubSignIn.probe(raw, { allowInsecure: true })
+          : await hubSignIn.probe(raw);
+        if (my !== hubFlow.current) return;
+        if (result.ok) {
+          setHubTyped(result.origin);
+          setHubStatus(result.status);
+          if (result.status.providers.length === 0 || result.status.needsBootstrap) {
+            setHubReason("no-accounts");
+          }
+        } else {
+          setHubReason(result.reason);
         }
-      } else {
-        setHubReason(result.reason);
+      } catch {
+        if (my === hubFlow.current) setHubReason("unreachable");
+      } finally {
+        if (my === hubFlow.current) setHubBusy(false);
       }
-    } catch {
-      if (my === hubFlow.current) setHubReason("unreachable");
-    } finally {
-      if (my === hubFlow.current) setHubBusy(false);
+    },
+    [],
+  );
+
+  /**
+   * The decision is local, never a probe: `/api/auth/status` is itself a
+   * request that would send any stale `kin_session` cookie in cleartext before
+   * consent (ADR 0037 §3).
+   */
+  const probe = useCallback(() => {
+    if (hubBusy || hubTyped.trim() === "") return;
+    if (normalizeHubOrigin(hubTyped) !== null) {
+      setPlaintextOrigin(null);
+      void runProbe(hubTyped, false);
+      return;
     }
-  }, [hubBusy, hubTyped]);
+    const plaintext = normalizeHubOrigin(hubTyped, { allowInsecure: true });
+    if (plaintext === null) {
+      // Not a Hub address at all: no request, the refusal sentence the
+      // normalizer has always produced.
+      setHubReason("insecure");
+      return;
+    }
+    if (confirmed.current === plaintext) {
+      void runProbe(plaintext, true);
+      return;
+    }
+    setPlaintextOrigin(plaintext);
+  }, [hubBusy, hubTyped, runProbe]);
+
+  const confirmPlaintext = useCallback(() => {
+    const origin = plaintextOrigin;
+    if (origin === null || hubBusy) return;
+    confirmed.current = origin;
+    setPlaintextOrigin(null);
+    void runProbe(origin, true);
+  }, [hubBusy, plaintextOrigin, runProbe]);
 
   const signIn = useCallback(async () => {
     const origin = hubStatus?.origin ?? hubTyped;
@@ -154,11 +201,12 @@ export default function PairScreen() {
     setHubReason(null);
     setHubErrorCode(null);
     try {
-      const result = await hubSignIn.signInWithPassword(
-        origin,
-        email.trim(),
-        password,
-      );
+      const result =
+        confirmed.current === origin
+          ? await hubSignIn.signInWithPassword(origin, email.trim(), password, {
+              allowInsecure: true,
+            })
+          : await hubSignIn.signInWithPassword(origin, email.trim(), password);
       if (my !== hubFlow.current) return;
       if (result.ok) {
         // A Hub session replaces whatever node token retired earlier; the
@@ -243,6 +291,10 @@ export default function PairScreen() {
             setHubTyped(value);
             // A refused sign-in belongs to the address it was tried on.
             setHubErrorCode(null);
+            // A confirmation belongs to the exact address it was given for:
+            // any edit drops it, and the warning asks again.
+            confirmed.current = null;
+            setPlaintextOrigin(null);
             // A changed address is a different Hub: the methods listed for
             // the previous one do not apply.
             if (hubStatus !== null && value !== hubStatus.origin) {
@@ -259,20 +311,61 @@ export default function PairScreen() {
           style={styles.input}
           value={hubTyped}
         />
-        {hubStatus === null ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ busy: hubBusy, disabled: hubBusy }}
-            disabled={hubBusy}
-            onPress={() => {
-              void probe();
-            }}
-            style={[styles.action, hubBusy && styles.actionDisabled]}
+        {plaintextOrigin !== null ? (
+          <View
+            accessibilityRole="alert"
+            style={styles.warning}
+            testID="pair-insecure-card"
           >
-            <Text style={styles.actionText}>
-              {t(hubBusy ? "pairing.hubChecking" : "pairing.hubContinue")}
+            <Text style={styles.warningTitle}>
+              {t("pairing.hubPlaintextTitle")}
             </Text>
-          </Pressable>
+            <Text style={styles.warningBody}>
+              {t("pairing.hubPlaintextBody")}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={hubBusy}
+              onPress={confirmPlaintext}
+              style={[styles.action, hubBusy && styles.actionDisabled]}
+              testID="pair-insecure-confirm"
+            >
+              <Text style={styles.actionText}>
+                {t("pairing.hubPlaintextConfirm")}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setPlaintextOrigin(null)}
+              style={styles.secondaryAction}
+              testID="pair-insecure-cancel"
+            >
+              <Text style={styles.secondaryText}>
+                {t("pairing.hubPlaintextCancel")}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {/*
+          One primary action at a time: while the warning is up, 仍然继续 is
+          the only one, and the address button returns if it is cancelled.
+        */}
+        {hubStatus === null ? (
+          plaintextOrigin === null ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ busy: hubBusy, disabled: hubBusy }}
+              disabled={hubBusy}
+              onPress={() => {
+                void probe();
+              }}
+              style={[styles.action, hubBusy && styles.actionDisabled]}
+            >
+              <Text style={styles.actionText}>
+                {t(hubBusy ? "pairing.hubChecking" : "pairing.hubContinue")}
+              </Text>
+            </Pressable>
+          ) : null
         ) : (
           <View style={styles.section}>
             <View style={styles.originRow}>
@@ -452,6 +545,23 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
   },
   reason: {
     color: colors.redInk,
+    fontSize: 15,
+  },
+  warning: {
+    backgroundColor: colors.fill,
+    borderColor: colors.orangeInk,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 10,
+    padding: 12,
+  },
+  warningTitle: {
+    color: colors.orangeInk,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  warningBody: {
+    color: colors.secondary,
     fontSize: 15,
   },
   action: {

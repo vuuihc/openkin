@@ -414,3 +414,34 @@ describe("KIN-MOBILE-002 R3 grouped list", () => {
     expect(realT("nav.sessions")).toBeTruthy();
   });
 });
+
+describe("KIN-MOBILE-002 R2 plaintext Hub marker", () => {
+  it("KIN-MOBILE-002 R2: a plaintext Hub session shows the 不安全 line in the list header", async () => {
+    const onOpen = jest.fn();
+    const screen = await render(
+      <ConversationList {...listProps({ insecure: true, onOpen })} />,
+    );
+
+    const marker = screen.getByTestId("list-insecure-marker");
+    expect(screen.getByText(t("pairing.hubPlaintextMarker"))).toBeTruthy();
+    // The line is in the list's header, in flow: never an overlay on a row.
+    expect(StyleSheet.flatten(marker.props.style).position).toBeUndefined();
+    const scroller = screen.getByTestId("list-scroller");
+    expect(within(scroller).getByTestId("list-insecure-marker")).toBeTruthy();
+
+    // The first row is still the row's own target with the marker present.
+    await fireEvent.press(screen.getByTestId("row:a1"));
+    expect(onOpen).toHaveBeenCalledWith("a1");
+  });
+
+  it("KIN-MOBILE-002 R2: an https or node session shows no 不安全 line", async () => {
+    const absent = await render(<ConversationList {...listProps()} />);
+    expect(absent.queryByTestId("list-insecure-marker")).toBeNull();
+    await absent.unmount();
+
+    const secure = await render(
+      <ConversationList {...listProps({ insecure: false })} />,
+    );
+    expect(secure.queryByTestId("list-insecure-marker")).toBeNull();
+  });
+});

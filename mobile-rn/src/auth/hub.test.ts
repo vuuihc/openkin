@@ -83,6 +83,26 @@ describe("R-rn-hub-signin Hub URL", () => {
     expect(normalizeHubOrigin("")).toBeNull();
   });
 
+  it("R-rn-hub-signin: the opt-in is the one way to admit a plaintext Hub off loopback", () => {
+    const plain = "http://192.168.1.42:7777";
+
+    // Default deny is unchanged: every caller that omits the opt-in refuses.
+    expect(normalizeHubOrigin(plain)).toBeNull();
+    expect(normalizeHubOrigin(plain, { allowInsecure: false })).toBeNull();
+    // The explicit opt-in admits exactly that origin, unchanged.
+    expect(normalizeHubOrigin(plain, { allowInsecure: true })).toBe(plain);
+
+    // https and loopback http keep working with or without it.
+    expect(normalizeHubOrigin(HUB)).toBe(HUB);
+    expect(normalizeHubOrigin(HUB, { allowInsecure: true })).toBe(HUB);
+    expect(normalizeHubOrigin("http://127.0.0.1:7777")).toBe(
+      "http://127.0.0.1:7777",
+    );
+
+    // A link only pre-fills the screen; it can never supply the opt-in.
+    expect(parseHubConnectLink(`kin://connect?hub=${plain}`)).toBeNull();
+  });
+
   it("R-rn-hub-signin: a kin://connect link pre-fills its Hub", () => {
     expect(parseHubConnectLink(`kin://connect?hub=${HUB}`)).toBe(HUB);
     expect(parseHubConnectLink(`kin://connect?url=${HUB}`)).toBe(HUB);
@@ -181,6 +201,31 @@ describe("R-rn-hub-signin password sign-in", () => {
     expect(result).toEqual({ ok: false, reason: "insecure", origin: null });
     expect(fetch.calls).toHaveLength(0);
   });
+
+  it("R-rn-hub-signin: the plaintext allowance is per call and never remembered", async () => {
+    const { fetch, signIn } = hubSignIn((path) =>
+      path === "/api/auth/status"
+        ? response(200, { providers: [] })
+        : response(200, {}),
+    );
+    const plain = "http://192.168.1.42:7777";
+
+    const allowed = await signIn.probe(plain, { allowInsecure: true });
+    expect(allowed).toMatchObject({ ok: true, origin: plain });
+    expect(fetch.calls.map((call) => call.path)).toEqual(["/api/auth/status"]);
+
+    // The next call that omits the opt-in is refused again, before any
+    // request: the allowance belongs to one call, not to the module.
+    await expect(signIn.probe(plain)).resolves.toEqual({
+      ok: false,
+      reason: "insecure",
+      origin: null,
+    });
+    await expect(
+      signIn.signInWithPassword(plain, EMAIL, "fixture-password"),
+    ).resolves.toEqual({ ok: false, reason: "insecure", origin: null });
+    expect(fetch.calls).toHaveLength(1);
+  });
 });
 
 describe("R-rn-hub-signin sign out", () => {
@@ -192,6 +237,22 @@ describe("R-rn-hub-signin sign out", () => {
 
     await signIn.signOut(HUB);
 
+    expect(fetch.calls.map((call) => call.path)).toEqual(["/api/auth/logout"]);
+    expect(store.entries.has(SESSION_KEY)).toBe(false);
+  });
+
+  it("R-rn-hub-signin: signing out of a plaintext Hub still reaches it", async () => {
+    const plain = "http://192.168.1.42:7777";
+    const { store, fetch, signIn } = hubSignIn(() => response(200, {}));
+    store.entries.set(
+      SESSION_KEY,
+      JSON.stringify({ kind: "hub", origin: plain, insecure: true }),
+    );
+
+    await signIn.signOut(plain);
+
+    // Sign-out is the safe direction, so the confirmed origin keeps its
+    // best-effort logout instead of being refused as insecure.
     expect(fetch.calls.map((call) => call.path)).toEqual(["/api/auth/logout"]);
     expect(store.entries.has(SESSION_KEY)).toBe(false);
   });

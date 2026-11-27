@@ -119,6 +119,12 @@ export type ConversationListProps = {
    * over a row.
    */
   resume?: ResumeBandState;
+  /**
+   * The stored Hub session was confirmed on a plaintext origin (ADR 0037 §4).
+   * One honest line stays in the list header while that origin is in use; it
+   * never blocks a row.
+   */
+  insecure?: boolean;
 };
 
 /**
@@ -313,6 +319,7 @@ export default function ConversationList({
   onFocusChange,
   returnFocusEpoch = 0,
   resume,
+  insecure = false,
 }: ConversationListProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -644,6 +651,20 @@ export default function ConversationList({
       ListHeaderComponent={
         <View>
           {/*
+            ADR 0037 §4: a plaintext Hub stays visibly marked while its
+            session is in use. It is a line in the header, in flow above the
+            first row, never an overlay and never a block.
+          */}
+          {insecure ? (
+            <Text
+              accessibilityRole="alert"
+              style={styles.insecureMarker}
+              testID="list-insecure-marker"
+            >
+              {t("pairing.hubPlaintextMarker")}
+            </Text>
+          ) : null}
+          {/*
             While the resume band is up it is the one band: the list's own
             failure line would repeat the same sentence with a second retry.
           */}
@@ -786,6 +807,15 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     color: colors.text,
     fontSize: 16,
     fontWeight: "600",
+  },
+  insecureMarker: {
+    // The same status wash the offline banner uses; the line names the risk
+    // without taking the screen over.
+    backgroundColor: wash(colors.orange, 0.15),
+    color: colors.orangeInk,
+    fontSize: 13,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   meta: {
     color: colors.muted,

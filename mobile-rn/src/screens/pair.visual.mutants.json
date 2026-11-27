@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the pair screen skips the plaintext card and probes straight away (R-rn-lan-http-confirm)",
+    "file": "mobile-rn/app/pair.tsx",
+    "old": "    setPlaintextOrigin(plaintext);",
+    "new": "    void runProbe(plaintext, true);",
+    "test": "cd mobile-rn && npx jest src/screens/pair.visual.test.tsx -t \"KIN-MOBILE-002 R2: an http Hub off loopback asks before any request, and rejecting sends none\""
+  }
+]

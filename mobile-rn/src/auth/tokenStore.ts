@@ -17,7 +17,12 @@ export const SESSION_KEY = "kin.session";
  * `fetch` sends when the caller asks for `credentials: "include"`.
  */
 export type NodeSession = { kind: "node"; origin: string; token: string };
-export type HubSession = { kind: "hub"; origin: string };
+/**
+ * `insecure: true` is the device-local confirmation that this plaintext
+ * origin was accepted after the pair screen named the credential (ADR 0037
+ * §2). It is written by the sign-in that showed the warning and nowhere else.
+ */
+export type HubSession = { kind: "hub"; origin: string; insecure?: true };
 export type Session = NodeSession | HubSession;
 
 /** The three calls the auth core needs; tests inject an in-memory stand-in. */
@@ -80,6 +85,13 @@ export function isHubOrigin(value: unknown): value is string {
   return parsed.protocol === "https:" || isLoopbackHost(parsed.hostname);
 }
 
+/** A plaintext Hub origin off this machine: the cookie travels unencrypted. */
+function isPlaintextHubOrigin(value: unknown): value is string {
+  if (!isNodeOrigin(value)) return false;
+  const parsed = new URL(value);
+  return parsed.protocol === "http:" && !isLoopbackHost(parsed.hostname);
+}
+
 function tokenOf(record: Record<string, unknown>): string | null {
   return typeof record.token === "string" && record.token.trim() !== ""
     ? record.token
@@ -94,7 +106,11 @@ export function isSession(value: unknown): value is Session {
   if (value === null || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   if (record.kind === "hub") {
-    return isHubOrigin(record.origin);
+    if (isHubOrigin(record.origin)) return true;
+    // The one stored-record allowance: a plaintext origin is accepted only
+    // when the record itself carries the confirmation. Without the flag an
+    // old or hand-edited record still reads as no session (fail closed).
+    return record.insecure === true && isPlaintextHubOrigin(record.origin);
   }
   if (record.kind !== undefined && record.kind !== "node") return false;
   return isNodeOrigin(record.origin) && tokenOf(record) !== null;
@@ -104,7 +120,13 @@ function normalizeSession(value: unknown): Session | null {
   if (!isSession(value)) return null;
   const record = value as Record<string, unknown>;
   if (record.kind === "hub") {
-    return { kind: "hub", origin: record.origin as string };
+    const origin = record.origin as string;
+    // Carry the confirmation through, so the list header's marker survives a
+    // relaunch. It is authority only for the plaintext origin it was given
+    // for: an https record never acquires it, even if one is hand-edited in.
+    return record.insecure === true && isPlaintextHubOrigin(origin)
+      ? { kind: "hub", origin, insecure: true }
+      : { kind: "hub", origin };
   }
   const token = tokenOf(record);
   return token === null

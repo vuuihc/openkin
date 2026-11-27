@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the list header drops the plaintext Hub marker (R-rn-lan-http-confirm)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "          {insecure ? (",
+    "new": "          {false ? (",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.visual.test.tsx -t \"KIN-MOBILE-002 R2: a plaintext Hub session shows the 不安全 line in the list header\""
+  }
+]
