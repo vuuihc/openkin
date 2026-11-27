@@ -146,6 +146,7 @@ const en: MessageTree = {
     statusWaitingInput: "Awaiting you",
     pendingApprovals: "{count} waiting for you",
     statusPendingCount: "{count} awaiting approval",
+    statusPendingQuestions: "{count} awaiting your answer",
     imported: "Imported sessions ({count})",
     importedLabel: "Imported sessions",
     statusSucceeded: "Done",

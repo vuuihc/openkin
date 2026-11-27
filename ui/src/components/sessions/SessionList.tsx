@@ -45,7 +45,7 @@ import {
   subscribeDraft,
 } from "../../lib/draftChat";
 import { isImeKeyEvent } from "../../lib/ime";
-import { pendingCountsByTask } from "../../lib/pendingCounts";
+import { EMPTY_PENDING, pendingCountsByTask, type PendingByTask } from "../../lib/pendingCounts";
 import { projectInstructions } from "../../lib/projectInstructions";
 import {
   archivedCwdFor,
@@ -2472,7 +2472,7 @@ function ProjectBucket({
   query: string;
   now: number;
   viewedIds: ReadonlySet<string>;
-  pendingByTask: ReadonlyMap<string, number>;
+  pendingByTask: PendingByTask;
   collapsed: boolean;
   showAll: boolean;
   canToggle: boolean;
@@ -2801,7 +2801,7 @@ function ProjectBucket({
               deviceLabel={pinnedRowDeviceName(bucket.key, row, machines)}
               now={now}
               viewedIds={viewedIds}
-              pendingCount={row.task ? (pendingByTask.get(row.task.id) ?? 0) : 0}
+              pending={row.task ? (pendingByTask.get(row.task.id) ?? EMPTY_PENDING) : EMPTY_PENDING}
               active={Boolean(row.task && row.task.id === activeTaskId)}
               onOpen={() => onOpen(row)}
               shell={shell}
