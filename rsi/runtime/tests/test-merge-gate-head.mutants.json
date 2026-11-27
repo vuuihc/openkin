@@ -1,0 +1,51 @@
+[
+  {
+    "label": "an unchanged head reads as moved, so every gate is skipped and the PR never merges",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_same_head_keeps_the_gate bash rsi/runtime/tests/test-merge-gate-head.sh",
+    "old": "  [ \"$live\" != \"$sha\" ] || return 1",
+    "new": "  :"
+  },
+  {
+    "label": "the moved-head unwind leaves the gate's process tree running (check.sh / test-sim-slot survive the cycle)",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_moved_head_kills_the_gate_tree bash rsi/runtime/tests/test-merge-gate-head.sh",
+    "old": "      rsi_kill_tree \"$gp\"\n      exit 0",
+    "new": "      exit 0"
+  },
+  {
+    "label": "an unreadable head (a gh warning line) is treated as moved, killing a gate on a bad read",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_unreadable_head_fails_open bash rsi/runtime/tests/test-merge-gate-head.sh",
+    "old": "  oid \"$live\" || return 1",
+    "new": "  oid \"$live\" || true"
+  },
+  {
+    "label": "the skip path leaks the gate lock, costing the next PR up to 30 minutes",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_moved_head_kills_the_gate_tree bash rsi/runtime/tests/test-merge-gate-head.sh",
+    "old": "  rm -rf \"$state/.gate.lock\"",
+    "new": "  :"
+  },
+  {
+    "label": "a killed reviewer's partial review is promoted over the last real one",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_moved_head_discards_the_partial_review bash rsi/runtime/tests/test-merge-gate-head.sh",
+    "old": "  rm -f \"$prev.new\"",
+    "new": "  cp \"$prev.new\" \"$prev\" 2>/dev/null || true"
+  },
+  {
+    "label": "the bounded head read is discarded, so a head that moves mid-gate is never detected",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_moved_head_skips_the_cycle bash rsi/runtime/tests/test-merge-gate-head.sh",
+    "old": "  live=\"$(cat \"$f\" 2>/dev/null)\"; rm -f \"$f\"",
+    "new": "  live=\"\"; rm -f \"$f\""
+  },
+  {
+    "label": "the head-move suite is not wired into check.sh, so a regression in it never runs in the gate",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  # A gate that starts on a head which then moves unwinds as a skip, not a verdict (R-merge-gate-head).\n  bash rsi/runtime/tests/test-merge-gate-head.sh || return 1\n",
+    "new": ""
+  }
+]
