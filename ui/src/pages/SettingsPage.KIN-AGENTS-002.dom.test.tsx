@@ -7,14 +7,7 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  listAgentProviders,
-  listAgents,
-  type AgentInfo,
-  type AgentProvider,
-  type ProviderEntry,
-  type Settings,
-} from "../api/client";
+import { listAgentProviders, listAgents, type AgentProvider, type Settings } from "../api/client";
 import { setLocale, t } from "../i18n";
 import { resetLeaveGuard } from "../lib/leaveGuard";
 import { useAppStore } from "../store/appStore";
@@ -30,11 +23,7 @@ const baseSettings = {
   "provider.active_id": "",
 } as unknown as Settings;
 
-const fixtures = vi.hoisted(() => ({
-  settings: {} as Record<string, unknown>,
-  providers: [] as ProviderEntry[],
-  agents: [] as Array<Partial<AgentInfo> & { id: string; name: string }>,
-}));
+const fixtures = vi.hoisted(() => ({ settings: {} as Record<string, unknown> }));
 
 vi.mock("../lib/theme", () => ({
   getThemeMode: () => "dark",
@@ -57,25 +46,8 @@ vi.mock("../api/client", async (importOriginal) => {
   return {
     ...actual,
     getSettings: vi.fn(async () => fixtures.settings as unknown as Settings),
-    updateSettings: vi.fn(async (body: Record<string, string>) => {
-      fixtures.settings = { ...fixtures.settings, ...body };
-      return fixtures.settings as unknown as Settings;
-    }),
-    listAgents: vi.fn(async (): Promise<AgentInfo[]> =>
-      fixtures.agents.map((agent) => ({
-        installed: true,
-        available: true,
-        default: false,
-        model_list_source: "recommended" as const,
-        model_list_status: "available" as const,
-        permission_modes: ["default", "accept_edits", "yolo"],
-        ...agent,
-      })),
-    ),
-    listProviders: vi.fn(async () => ({
-      active_id: String(fixtures.settings["provider.active_id"] ?? ""),
-      providers: fixtures.providers,
-    })),
+    listAgents: vi.fn(async () => []),
+    listProviders: vi.fn(async () => ({ active_id: "", providers: [] })),
     listAgentProviders: vi.fn(),
     getRoutingDefaults: vi.fn(async () => ({
       enabled: false,
@@ -153,8 +125,6 @@ beforeEach(() => {
   localStorage.clear();
   setLocale("en");
   fixtures.settings = { ...baseSettings } as unknown as Record<string, unknown>;
-  fixtures.providers = [];
-  fixtures.agents = [];
   vi.mocked(listAgentProviders).mockReset().mockResolvedValue([codex]);
   vi.mocked(listAgents).mockReset();
   useAppStore.setState({ wsStatus: "connected", reconnectGen: 0, toasts: [] });

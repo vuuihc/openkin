@@ -113,36 +113,23 @@ describe("KIN-AGENTS-002 · the three groups and what they read", () => {
     const onRefresh = vi.fn();
     const onImportSessions = vi.fn();
     const onImportProviderSessions = vi.fn();
-    const view = render(
-      section({
-        onRefresh,
-        onImportSessions,
-        onImportProviderSessions,
-        providers: [provider({ ...codex, last_scanned_at: "2026-10-26T08:00:00" })],
-      }),
-    );
+    const keep = { onImportSessions, onImportProviderSessions };
+    const old = [provider({ ...codex, last_scanned_at: "2026-10-26T08:00:00" })];
+    const view = render(section({ ...keep, onRefresh, providers: old }));
 
     expect(screen.getByText(lastDetected("2026-10-26T08:00:00"))).not.toBeNull();
     await user.click(screen.getByRole("button", { name: t("settings.localAgents.refresh") }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
 
-    view.rerender(
-      section({
-        refreshing: true,
-        onImportSessions,
-        onImportProviderSessions,
-        providers: [provider({ ...codex, last_scanned_at: "2026-10-26T08:00:00" })],
-      }),
-    );
-    // The old rows and the old timestamp stay while the probe runs.
+    view.rerender(section({ ...keep, refreshing: true, providers: old }));
+    // Old rows and timestamp stay while the probe runs.
     expect(screen.getByText(lastDetected("2026-10-26T08:00:00"))).not.toBeNull();
     const busy = screen.getByRole("button", { name: t("settings.localAgents.refreshing") });
     expect((busy as HTMLButtonElement).disabled).toBe(true);
 
     view.rerender(
       section({
-        onImportSessions,
-        onImportProviderSessions,
+        ...keep,
         providers: [provider({ ...codex, last_scanned_at: "2026-10-26T09:42:00" })],
       }),
     );
@@ -170,8 +157,7 @@ describe("KIN-AGENTS-002 · the three groups and what they read", () => {
     const onImportProviderSessions = vi.fn();
     render(section({ providers: [codex, claude], onImportProviderSessions }));
 
-    // The import group owns its own rows: removing the detection half later
-    // cannot take them with it.
+    // The import group owns its own rows (D2).
     const imports = group(importHeading());
     expect(
       within(imports).getByText(t("settings.localAgents.importRowDetail", { name: "Claude Code" })),
@@ -228,24 +214,23 @@ describe("KIN-AGENTS-002 · the three groups and what they read", () => {
       }),
     );
 
-    expect(screen.getByText(t("settings.localAgents.offlineDetection"))).not.toBeNull();
-    expect(screen.getByText(t("settings.localAgents.offlineImport"))).not.toBeNull();
-    expect(screen.getByText(t("settings.localAgents.offlineRoles"))).not.toBeNull();
-    expect(
-      (screen.getByRole("button", { name: t("settings.localAgents.refresh") }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    const disabled = (el: HTMLElement) => (el as HTMLButtonElement).disabled;
+    for (const key of ["offlineDetection", "offlineImport", "offlineRoles"])
+      expect(screen.getByText(t(`settings.localAgents.${key}`))).not.toBeNull();
+    expect(disabled(screen.getByRole("button", { name: t("settings.localAgents.refresh") }))).toBe(
+      true,
+    );
     for (const button of within(group(importHeading())).getAllByRole("button"))
-      expect((button as HTMLButtonElement).disabled).toBe(true);
+      expect(disabled(button)).toBe(true);
     expect(
       (screen.getByLabelText(t("settings.roles.name", { index: 1 })) as HTMLInputElement).disabled,
     ).toBe(true);
     expect(
-      (
+      disabled(
         within(group(rolesHeading())).getByRole("button", {
           name: t("settings.localAgents.save"),
-        }) as HTMLButtonElement
-      ).disabled,
+        }),
+      ),
     ).toBe(true);
   });
 
