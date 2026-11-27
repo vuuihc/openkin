@@ -26,6 +26,7 @@ function row(id: string, title: string, agentId = "kin"): ConversationRow {
     at: 1,
     timeLabel: "t1",
     statusKey: "sessions.statusSucceeded",
+    status: "succeeded",
     pending: 0,
     remote: false,
   };

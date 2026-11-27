@@ -53,6 +53,7 @@ function row(
     at,
     timeLabel: `t${at}`,
     statusKey: "sessions.statusSucceeded",
+    status: "succeeded",
     pending,
     remote: false,
   };

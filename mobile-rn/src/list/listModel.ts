@@ -55,6 +55,12 @@ export type ConversationRow = {
   timeLabel: string;
   /** A catalogue key, or null when the status has no signed word. */
   statusKey: string | null;
+  /**
+   * The task's own status (`running`, `waiting_approval`, `waiting_input`,
+   * `succeeded`, `failed`, `canceled`), or null when it carries none. The row's
+   * shape + colour mark decides from this, not from the catalogue key.
+   */
+  status: string | null;
   /** Approvals plus questions waiting on this conversation. */
   pending: number;
   remote: boolean;
@@ -346,6 +352,7 @@ export function buildListGroups(
             at: row.at,
             timeLabel: formatTime(row.at),
             statusKey: STATUS_KEYS[row.status ?? ""] ?? null,
+            status: row.status ?? null,
             pending: options.pendingByTask?.get(row.task.id) ?? 0,
             remote: row.remote,
           },
