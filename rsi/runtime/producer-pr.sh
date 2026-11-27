@@ -28,7 +28,7 @@ producer_body_snapshot() {
 
 producer_pr() { # <worktree> <body-file> <repo> <base> <head> <title>
   local wt="$1" body="$2" repo="$3" base="$4" head="$5" title="$6"
-  local dir tmpdir snap out rc verdict url line
+  local dir tmpdir snap out rc verdict url line prn edit_out
   # Honour the loop's RSI_GH test override the way common.sh does; lane-pr.sh reads GH.
   local GH="${GH:-${RSI_GH:-}}"
   # The seam and the retry helper live beside this file, so a copied producer in a test carries
@@ -84,11 +84,30 @@ producer_pr() { # <worktree> <body-file> <repo> <base> <head> <title>
     return 1
   fi
   url="$(gh_pr_create "$repo" "$base" "$head" "$title" "$snap")" && rc=0 || rc=$?
-  rm -rf "$tmpdir"
   if [ "$rc" -ne 0 ] || [ -z "$url" ]; then
+    rm -rf "$tmpdir"
     printf 'PRODUCER_PR_FAILED: gh pr create returned no URL (exit %s)\n' "$rc"
     return 1
   fi
+  # gh_pr_create uploads --body-file only when it creates the PR: on a re-run for a branch whose PR
+  # is already open it returns the existing URL from the "already exists" message or its `pr list`
+  # fallback (lane-pr.sh), leaving GitHub's previous body in place. The prompt's remedy — fix the
+  # body and re-run the helper — would then change nothing while the merge gate reads the stale
+  # body. Publish the snapshot the seam read on every run, created or already open (the same
+  # always-publish edit lane.sh makes before it reads the live body back).
+  prn="$(printf '%s\n' "$url" | sed -n 's#.*/pull/\([0-9][0-9]*\).*#\1#p' | head -1)"
+  if [ -z "$prn" ]; then
+    rm -rf "$tmpdir"
+    printf 'PRODUCER_PR_FAILED: no PR number in %s\n' "$url"
+    return 1
+  fi
+  if ! edit_out="$("${GH:-gh}" pr edit "$prn" --repo "$repo" --body-file "$snap" 2>&1)"; then
+    rm -rf "$tmpdir"
+    printf 'PRODUCER_PR_FAILED: gh pr edit %s did not publish the body\n' "$prn"
+    [ -z "$edit_out" ] || printf '%s\n' "$edit_out" >&2
+    return 1
+  fi
+  rm -rf "$tmpdir"
   printf 'PRODUCER_PR_OK: %s\n' "$url"
 }
 

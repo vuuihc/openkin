@@ -91,6 +91,13 @@
     "new": "  url=\"$(gh_pr_create \"$repo\" \"$base\" \"$head\" \"$title\" \"$body\")\" && rc=0 || rc=$?"
   },
   {
+    "label": "a producer re-run for an already-open PR skips the body edit again: gh_pr_create returned the existing URL without uploading, so GitHub keeps a body no seam passed",
+    "file": "rsi/runtime/producer-pr.sh",
+    "test": "RSI_TEST_ONLY=case_a_rerun_for_an_open_pr_still_uploads_the_checked_body bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  if ! edit_out=\"$(\"${GH:-gh}\" pr edit \"$prn\" --repo \"$repo\" --body-file \"$snap\" 2>&1)\"; then",
+    "new": "  if false; then"
+  },
+  {
     "label": "the producer stops accepting a code-only NA verdict: a PR that needs no claim check is refused instead of opened",
     "file": "rsi/runtime/producer-pr.sh",
     "test": "RSI_TEST_ONLY=case_a_code_only_diff_opens_the_pr_with_no_body_read bash rsi/runtime/tests/test-lane-claim-check.sh",

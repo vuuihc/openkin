@@ -1063,19 +1063,31 @@ producer_stub() { # <dir>
   cat > "$dir/gh" <<'SH'
 #!/bin/bash
 printf '%s\n' "$*" >> "$STUB_CALLS"
+# publish — keep the bytes the caller handed gh as the PR body, like a real `pr create`/`pr edit`
+# keeps GitHub's copy. STUB_EXISTING makes create report the branch's PR already exists (exit 1,
+# the URL in the message) without publishing, as gh does on a re-run for an open PR.
+publish() {
+  local f="" a prev=""
+  for a in "$@"; do [ "$prev" = --body-file ] && f="$a"; prev="$a"; done
+  [ -n "$f" ] && cp "$f" "$STUB_BODY"
+  return 0
+}
 case "$1 $2" in
   'pr create')
-    f=""; prev=""
-    for a in "$@"; do [ "$prev" = --body-file ] && f="$a"; prev="$a"; done
+    if [ "${STUB_EXISTING:-}" = 1 ]; then
+      echo 'a pull request for branch "rsi/dream-2026-01-01" into "main" already exists: https://github.com/owner/repo/pull/4242' >&2
+      exit 1
+    fi
     if [ -n "${STUB_FAIL_ONCE:-}" ] && [ ! -f "$STUB_FAIL_ONCE" ]; then
       : > "$STUB_FAIL_ONCE"
       echo 'Post "https://api.github.com/graphql": EOF' >&2
       exit 1
     fi
-    [ -n "$f" ] && cp "$f" "$STUB_BODY"
+    publish "$@"
     printf 'https://github.com/owner/repo/pull/4242\n'
     ;;
   'pr list') : ;;
+  'pr edit') publish "$@" ;;
   *) echo "unexpected gh command: $*" >&2; exit 1 ;;
 esac
 SH
@@ -1087,7 +1099,8 @@ SH
 pseam() {
   PERR="$T/producer.err"; rm -f "$PERR"
   POUT="$(RSI_CTRL="$CTRL" HOME="$T/home" GH="$PSTUB/gh" STUB_CALLS="$PCALLS" \
-    STUB_BODY="$PBODY" STUB_FAIL_ONCE="${PFAIL_ONCE:-}" RSI_GH_PR_RETRY_SLEEP=0 \
+    STUB_BODY="$PBODY" STUB_FAIL_ONCE="${PFAIL_ONCE:-}" STUB_EXISTING="${PEXISTING:-}" \
+    RSI_GH_PR_RETRY_SLEEP=0 \
     bash "$PRODUCER" "$1" "$2" owner/repo main rsi/dream-2026-01-01 'dream consolidation' \
     2>"$PERR")"
   PRC=$?
@@ -1122,6 +1135,32 @@ case_a_passing_prose_claim_opens_the_pr_with_the_body_the_seam_read() {
   [ "$(grep -c '^pr create' "$PCALLS")" -eq 1 ] \
     || fail "ppass: want exactly one gh pr create: $(cat "$PCALLS")"
   cmp -s "$BODY" "$PBODY" || fail "ppass: the uploaded body is not the source body"
+}
+
+# A re-run for a branch whose PR is already open: gh_pr_create returns the existing URL from the
+# "already exists" message without uploading --body-file (lane-pr.sh), so GitHub keeps the body an
+# earlier round wrote and the prompt's "fix the body and re-run the helper" changes nothing. The
+# producer must publish the snapshot the seam read on every run, not only when it creates the PR.
+case_a_rerun_for_an_open_pr_still_uploads_the_checked_body() {
+  new_repo producer-existing
+  change docs/plans/gap-log.md '- a sentence the tree supports'
+  producer_stub "$T/producer-existing-stub"
+  printf 'the stale body an earlier round opened the PR with\n' > "$PBODY"
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  PEXISTING=1
+  pseam "$R" "$BODY"
+  PEXISTING=""
+  [ "$PRC" -eq 0 ] || fail "pexisting: exit $PRC, want 0 ($POUT; $(cat "$PERR"))"
+  [ "$POUT" = 'PRODUCER_PR_OK: https://github.com/owner/repo/pull/4242' ] \
+    || fail "pexisting: the producer must print the existing PR's OK line: $POUT"
+  grep -q '^pr create ' "$PCALLS" || fail "pexisting: the create path was not exercised"
+  grep -q '^pr edit 4242 --repo owner/repo --body-file ' "$PCALLS" \
+    || fail "pexisting: the existing PR's body was never edited: $(cat "$PCALLS")"
+  cmp -s "$BODY" "$PBODY" \
+    || fail "pexisting: the edited body is not the snapshot the seam read: $(cat "$PBODY" 2>/dev/null)"
+  ! grep -qF 'the stale body' "$PBODY" 2>/dev/null \
+    || fail "pexisting: GitHub kept the earlier round's body"
 }
 
 # A code-only diff is never asked for a claim check, and the NA path still creates one PR.
@@ -1293,6 +1332,7 @@ run case_live_body_check_timeout_fails_closed
 run case_gh_override_is_honoured
 run case_a_false_prose_claim_never_opens_the_pr
 run case_a_passing_prose_claim_opens_the_pr_with_the_body_the_seam_read
+run case_a_rerun_for_an_open_pr_still_uploads_the_checked_body
 run case_a_code_only_diff_opens_the_pr_with_no_body_read
 run case_a_reasoned_waiver_opens_the_pr
 run case_a_body_rewritten_during_the_seam_is_not_the_one_uploaded
