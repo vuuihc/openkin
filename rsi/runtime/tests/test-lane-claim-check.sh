@@ -565,8 +565,8 @@ case_a_conflicting_main_advance_falls_back_to_the_branch_tip() {
   seam
   [ "$RC" -eq 0 ] || fail "conflict: exit $RC, want 0 — a conflict is merge.sh's verdict ($OUT)"
   case "$OUT" in
-    "CLAIM_LANE_OK: "*) ;;
-    *) fail "conflict: unexpected output: $OUT" ;;
+    "CLAIM_LANE_OK: "*"branch tip was checked"*) ;;
+    *) fail "conflict: the fallback did not say which tree was checked: $OUT" ;;
   esac
 }
 

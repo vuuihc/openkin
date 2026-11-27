@@ -349,11 +349,13 @@ claim_body_sha() { # <body-file> -> sha256 of a non-empty body, nothing otherwis
 # covered 19`; rn-empty-hint #766 claimed `193:` where the merged tree had `194:`). Build that tree
 # without touching the branch: merge-tree writes it, commit-tree wraps it, a throwaway worktree
 # gives the command a directory. Every ignored path the lane worktree holds (built bundles, live
-# state, installed deps) is carried as a symlink. Prints the worktree path, or nothing when the branch already contains the
-# local origin/main or the merge cannot be materialized — a conflict is merge.sh's call, and a
-# seam must never invent a red for it.
+# state, installed deps) is carried as a symlink. Prints the worktree path, or nothing when the
+# branch already contains the local origin/main or the merge cannot be materialized — a conflict
+# is merge.sh's call, and a seam must never invent a red for it; the caller then says so in its
+# verdict instead of reporting a bare OK for a tree it did not check.
 claim_merge_wt() { # <worktree>
-  local wt="${1%/}" tmp tree commit rel
+  local wt tmp tree commit rel
+  wt="$(cd "${1%/}" 2>/dev/null && pwd)" || return 0
   "$GIT" -C "$wt" merge-base --is-ancestor origin/main HEAD 2>/dev/null && return 0
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/claim-merge.XXXXXX")" || return 0
   tree="$("$GIT" -C "$wt" merge-tree --write-tree origin/main HEAD 2>/dev/null)" \
@@ -379,7 +381,7 @@ claim_merge_wt() { # <worktree>
 }
 
 claim_lane_check() { # <worktree> <body-file> — prints one CLAIM_LANE_* verdict; exits with the checker's code
-  local wt="$1" body="$2" changed out rc check_wt merge_wt=""
+  local wt="$1" body="$2" changed out rc check_wt merge_wt="" claim_note=""
   [ -d "$wt" ] || { echo "CLAIM_LANE_FAIL: $wt · worktree not found"; return 1; }
   # A seam that cannot read the branch point would see no prose change and wave the PR through.
   "$GIT" -C "$wt" rev-parse --verify -q origin/main >/dev/null 2>&1 \
@@ -395,8 +397,16 @@ claim_lane_check() { # <worktree> <body-file> — prints one CLAIM_LANE_* verdic
   # branch tip is that result and the command stays in the worker's own tree.
   check_wt="$wt"
   merge_wt="$(claim_merge_wt "$wt")"
-  [ -n "$merge_wt" ] && check_wt="$merge_wt"
+  if [ -n "$merge_wt" ]; then
+    check_wt="$merge_wt"
+  elif ! "$GIT" -C "$wt" merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+    # The merge result exists (HEAD does not contain origin/main) but could not be built: a
+    # conflict, or a git without `merge-tree --write-tree`. Say the check ran on the branch tip,
+    # so a green here is never mistaken for a green on the tree the gate reads.
+    claim_note=" (merge with origin/main not materialized; the branch tip was checked — a conflict is merge.sh's verdict)"
+  fi
   out="$(python3 "$RSI_DIR/runtime/claim_check.py" "$check_wt" "$body" "$changed" 2>&1)"; rc=$?
+  out="$out$claim_note"
   if [ -n "$merge_wt" ]; then
     "$GIT" -C "$wt" worktree remove --force "$merge_wt" >/dev/null 2>&1
     "$GIT" -C "$wt" worktree prune >/dev/null 2>&1

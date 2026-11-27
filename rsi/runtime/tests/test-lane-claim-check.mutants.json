@@ -3,7 +3,7 @@
     "label": "the claim seam reads the branch tip again: a claim whose output the merge with origin/main moves passes the lane, then the merge gate sends the PR back (rn-design-pass #812, rn-empty-hint #766)",
     "file": "rsi/runtime/lane.sh",
     "test": "RSI_TEST_ONLY=case_claimed_output_must_match_the_merge_tree bash rsi/runtime/tests/test-lane-claim-check.sh",
-    "old": "  merge_wt=\"$(claim_merge_wt \"$wt\")\"\n  [ -n \"$merge_wt\" ] && check_wt=\"$merge_wt\"",
+    "old": "  merge_wt=\"$(claim_merge_wt \"$wt\")\"\n  if [ -n \"$merge_wt\" ]; then\n    check_wt=\"$merge_wt\"",
     "new": "  merge_wt=\"\""
   },
   {
@@ -33,5 +33,12 @@
     "test": "RSI_TEST_ONLY=case_upload_guards_refuse_a_body_rewritten_after_the_push bash rsi/runtime/tests/test-lane-claim-check.sh",
     "old": "    if [ -n \"${CLAIM_BODY_SHA:-}\" ] && [ \"$(claim_body_sha \"$STATUS_NOTE_FILE\")\" != \"$CLAIM_BODY_SHA\" ]; then",
     "new": "    if false; then"
+  },
+  {
+    "label": "the conflict fallback reports a bare OK again: a claim proven on the branch tip is read as proven on the tree the merge gate will read",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_a_conflicting_main_advance_falls_back_to_the_branch_tip bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "    claim_note=\" (merge with origin/main not materialized; the branch tip was checked — a conflict is merge.sh's verdict)\"",
+    "new": "    claim_note=\"\""
   }
 ]
