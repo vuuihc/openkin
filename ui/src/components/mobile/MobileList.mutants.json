@@ -12,5 +12,19 @@
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/mobile/MobileList.dom.test.tsx -t \"keeps the reader's place when the container is clamped before the unmount\"",
     "old": "        sessionStorage.setItem(scrollKey, String(lastTopRef.current));",
     "new": "        sessionStorage.setItem(scrollKey, String(node.scrollTop));"
+  },
+  {
+    "label": "R-list-scroll-search: a collapsed body records its clamp as the reader's position",
+    "file": "ui/src/components/mobile/MobileList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/mobile/MobileList.dom.test.tsx -t \"never lets a hidden or collapsed body write its clamp\"",
+    "old": "      if (top === 0 && lastTopRef.current > 0 && !readerMovedRef.current) {\n        settledRef.current = false;\n        recordedRef.current = false;\n        restore();\n        return;\n      }",
+    "new": "      // mutant: the layout's clamp is recorded as the reader's position\n"
+  },
+  {
+    "label": "R-list-scroll-search: a reader's own wheel is mistaken for the layout's clamp",
+    "file": "ui/src/components/mobile/MobileList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/mobile/MobileList.dom.test.tsx -t \"a reader's own wheel to the top still wins\"",
+    "old": "    const onWheel = () => {\n      movedByReader();\n      yieldToReader();\n    };",
+    "new": "    const onWheel = () => {\n      // mutant: a wheel no longer marks the body as reader-moved\n      yieldToReader();\n    };"
   }
 ]

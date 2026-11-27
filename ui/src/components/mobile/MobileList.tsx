@@ -58,6 +58,16 @@ export function MobileScreen({
    * then, not the place the reader left.
    */
   const lastTopRef = useRef(0);
+  /**
+   * The reader has actually moved this body since the mount: a wheel, a key,
+   * a touch drag past the tap slop, or a scroll while a pointer is down. A tap
+   * is not movement — its pointerdown only stops the restore — so a body that
+   * is hidden or whose content is swapped cannot launder its own clamp into a
+   * position the reader chose.
+   */
+  const readerMovedRef = useRef(false);
+  /** Where the current pointer went down, so a drag can be told from a tap. */
+  const pointerOriginRef = useRef<{ x: number; y: number } | null>(null);
 
   /**
    * One restore attempt. `settled` is only spent when the saved offset is
@@ -97,6 +107,8 @@ export function MobileScreen({
     settledRef.current = saved <= 0;
     recordedRef.current = false;
     lastTopRef.current = 0;
+    readerMovedRef.current = false;
+    pointerOriginRef.current = null;
 
     // A reader who starts scrolling while the data is still arriving has
     // chosen a new position; stop restoring rather than fight them. The touch
@@ -104,6 +116,33 @@ export function MobileScreen({
     // replace the remembered place with the top.
     const yieldToReader = () => {
       settledRef.current = true;
+    };
+    const movedByReader = () => {
+      readerMovedRef.current = true;
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      pointerOriginRef.current = { x: event.clientX, y: event.clientY };
+      yieldToReader();
+    };
+    const onPointerUp = () => {
+      pointerOriginRef.current = null;
+    };
+    const onWheel = () => {
+      movedByReader();
+      yieldToReader();
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      const origin = pointerOriginRef.current;
+      const point = event.touches[0];
+      if (!origin || !point) return;
+      // Below the tap slop this is still a finger resting on a row, not a
+      // scroll: a jittery tap must not claim the clamp as its own position.
+      if (Math.abs(point.clientX - origin.x) > 8 || Math.abs(point.clientY - origin.y) > 8) {
+        movedByReader();
+      }
+    };
+    const onKeyDown = () => {
+      movedByReader();
     };
     let lastWrite = 0;
     const write = (force: boolean) => {
@@ -118,14 +157,36 @@ export function MobileScreen({
     };
     const save = () => {
       if (!settledRef.current) return;
+      // A scroll that arrives while a pointer is down is the reader's: the
+      // browser only scrolls a touched body after the drag has passed the tap
+      // slop, and a mouse drag (a scrollbar) is the same story.
+      if (pointerOriginRef.current) movedByReader();
+      const top = node.scrollTop;
+      // A content swap — the loading skeleton replaced by the rows — collapses
+      // the body under the offset, and the browser clamps it to the top with a
+      // scroll event of its own. Nothing the reader did moved it there, so the
+      // clamp is the layout's, not a position: recording it writes "0" over
+      // the mark the restore is still trying to reach (the search-state Back
+      // path), and spending the restore freezes the list at the top. Re-arm
+      // instead and let the growth retry put the reader back.
+      if (top === 0 && lastTopRef.current > 0 && !readerMovedRef.current) {
+        settledRef.current = false;
+        recordedRef.current = false;
+        restore();
+        return;
+      }
       recordedRef.current = true;
       // Read the node here, while the scroll is real, and never again: an
       // unmount-time reread sees the route change's clamp instead.
-      lastTopRef.current = node.scrollTop;
+      lastTopRef.current = top;
       write(false);
     };
-    node.addEventListener("pointerdown", yieldToReader, { passive: true });
-    node.addEventListener("wheel", yieldToReader, { passive: true });
+    node.addEventListener("pointerdown", onPointerDown, { passive: true });
+    node.addEventListener("pointerup", onPointerUp, { passive: true });
+    node.addEventListener("pointercancel", onPointerUp, { passive: true });
+    node.addEventListener("wheel", onWheel, { passive: true });
+    node.addEventListener("touchmove", onTouchMove, { passive: true });
+    node.addEventListener("keydown", onKeyDown);
     node.addEventListener("scroll", save, { passive: true });
     return () => {
       // The unmount is the last chance to record the tail of the throttle
@@ -133,11 +194,15 @@ export function MobileScreen({
       // of a container the route change has already collapsed. Do not spend it
       // on a position the restore never reached.
       if (recordedRef.current) write(true);
-      node.removeEventListener("pointerdown", yieldToReader);
-      node.removeEventListener("wheel", yieldToReader);
+      node.removeEventListener("pointerdown", onPointerDown);
+      node.removeEventListener("pointerup", onPointerUp);
+      node.removeEventListener("pointercancel", onPointerUp);
+      node.removeEventListener("wheel", onWheel);
+      node.removeEventListener("touchmove", onTouchMove);
+      node.removeEventListener("keydown", onKeyDown);
       node.removeEventListener("scroll", save);
     };
-  }, [scrollKey]);
+  }, [restore, scrollKey]);
 
   // Restore, and retry whenever the caller's signal moves.
   useLayoutEffect(() => {
@@ -167,7 +232,7 @@ export function MobileScreen({
       ref={ref}
       data-phone-scroll={scrollKey ? "" : undefined}
       className={[
-        "flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll phone-footer-clearance",
+        "flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll phone-footer-clearance [overflow-anchor:none]",
         className,
       ].join(" ")}
     >
