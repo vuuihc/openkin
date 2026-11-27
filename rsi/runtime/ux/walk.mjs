@@ -3641,16 +3641,19 @@ if (resolveJ5) {
 // J9 and `--journeys J99` walked nothing, both exit 0).
 
 // Paths a diff can change without changing what the console renders: the generated
-// dist (built from ui/), tests and mutants, documentation, and loop plumbing. Same
-// vocabulary as ux-gate.sh's 1b0 attribution pass (its skipped/not_surface), so the
-// walk selects journeys for the files the gate attributes reds to; a copy, not an
-// import, because the walker runs from a worktree with that worktree's own spec.
-// web/dist/ is named beside web/ deliberately, like the gate's skipped(): narrowing
-// the directory prefix later must not silently make the generated entry chunk a
-// surface. Everything else keeps the rule below — an unmapped surface, including a
-// new ui/ component, still contributes every journey.
+// dist (built from ui/), tests and mutants, documentation, loop plumbing, and the
+// mobile-rn/ Expo client. Same vocabulary as ux-gate.sh's 1b0 attribution pass (its
+// skipped/not_surface), so the walk selects journeys for the files the gate attributes
+// reds to; a copy, not an import, because the walker runs from a worktree with that
+// worktree's own spec. web/dist/ is named beside web/ deliberately, like the gate's
+// skipped(): narrowing the directory prefix later must not silently make the generated
+// entry chunk a surface. mobile-rn/ is named for the same reason: an RN screen cannot
+// render a console route, so it must not select every journey through the no-match
+// fallback (R-ux-rn-attribution, 2026-11-27: #822's mixed RN + renderer diff walked all
+// 17 and billed J12 to work it cannot reach). Everything else keeps the rule below — an
+// unmapped surface, including a new ui/ component, still contributes every journey.
 const consoleNoise = (f) => f.startsWith('web/dist/') || f.startsWith('web/') || f.includes('__tests__/')
-  || f.startsWith('docs/') || f.startsWith('rsi/') || f.startsWith('scripts/')
+  || f.startsWith('docs/') || f.startsWith('rsi/') || f.startsWith('scripts/') || f.startsWith('mobile-rn/')
   || /\.(test\.[A-Za-z0-9]+|test\.py|spec\.[A-Za-z0-9]+|mutants\.json)$/.test(f) || f.endsWith('.md');
 function selectJourneys(spec, journeysArg, filesArg) {
   const known = Object.keys(spec.journeys || {});

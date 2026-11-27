@@ -38,8 +38,8 @@
     "label": "generated dist is no longer console noise: web/dist/ leaves the predicate (and the web/ prefix that also covers it), so docs+dist select all 17 journeys again",
     "file": "rsi/runtime/ux/walk.mjs",
     "test": "bash rsi/runtime/tests/test-ux-walker.sh",
-    "old": "const consoleNoise = (f) => f.startsWith('web/dist/') || f.startsWith('web/') || f.includes('__tests__/')\n  || f.startsWith('docs/') || f.startsWith('rsi/') || f.startsWith('scripts/')\n  || /\\.(test\\.[A-Za-z0-9]+|test\\.py|spec\\.[A-Za-z0-9]+|mutants\\.json)$/.test(f) || f.endsWith('.md');",
-    "new": "const consoleNoise = (f) => f.includes('__tests__/')\n  || f.startsWith('docs/') || f.startsWith('rsi/') || f.startsWith('scripts/')\n  || /\\.(test\\.[A-Za-z0-9]+|test\\.py|spec\\.[A-Za-z0-9]+|mutants\\.json)$/.test(f) || f.endsWith('.md');"
+    "old": "const consoleNoise = (f) => f.startsWith('web/dist/') || f.startsWith('web/') || f.includes('__tests__/')\n  || f.startsWith('docs/') || f.startsWith('rsi/') || f.startsWith('scripts/') || f.startsWith('mobile-rn/')\n  || /\\.(test\\.[A-Za-z0-9]+|test\\.py|spec\\.[A-Za-z0-9]+|mutants\\.json)$/.test(f) || f.endsWith('.md');",
+    "new": "const consoleNoise = (f) => f.includes('__tests__/')\n  || f.startsWith('docs/') || f.startsWith('rsi/') || f.startsWith('scripts/') || f.startsWith('mobile-rn/')\n  || /\\.(test\\.[A-Za-z0-9]+|test\\.py|spec\\.[A-Za-z0-9]+|mutants\\.json)$/.test(f) || f.endsWith('.md');"
   },
   {
     "label": "the console-noise filter is moved after the map (removed): docs and generated dist still select every journey",
@@ -68,6 +68,13 @@
     "test": "bash rsi/runtime/tests/test-ux-walker.sh",
     "old": "    if (listed.length && !files.length) {",
     "new": "    if (false) {"
+  },
+  {
+    "label": "mobile-rn/ is not console noise: an RN screen falls through to every journey, and a mixed RN + renderer diff walks the whole console instead of the renderer's row",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "  || f.startsWith('docs/') || f.startsWith('rsi/') || f.startsWith('scripts/') || f.startsWith('mobile-rn/')",
+    "new": "  || f.startsWith('docs/') || f.startsWith('rsi/') || f.startsWith('scripts/')"
   },
   {
     "label": "an optional project-fold press is rejected again: J12's ten-row list scan offers no row fold, so the tree's own spec fails --check-spec",

@@ -52,7 +52,7 @@ PASSED=0
 # The expected case count is named here, so a case that stops running (a
 # deleted block, a stray early return) reds the suite instead of shrinking the
 # summary: "31/31" was a literal that kept saying 31 after cases were added.
-EXPECTED_CASES=39
+EXPECTED_CASES=41
 
 # common.sh rewrites PATH, so an exported function is the only stub that
 # survives into the child bash.
@@ -311,6 +311,41 @@ out="$(select_walk --files "$T/noise-only.txt")"; rc=$?
   || fail "$case_name: stderr is not one line: $(cat "$T/select.err")"
 grep -q 'cannot change the console' "$T/select.err" \
   || fail "$case_name: the refusal does not name the reason: $(cat "$T/select.err")"
+pass "$case_name"
+
+# --- RN is not a console surface, and the shared renderer has its own row ------
+# #822 changed mobile-rn/src/screens/ConversationView.tsx beside the console's
+# ui/src/components/Markdown.tsx. The walker's console-noise predicate had no
+# mobile-rn/ vocabulary, so the RN path fell through to the no-match fallback
+# (every journey) and the mixed selection walked the whole console. mobile-rn/
+# cannot render in the web console; its proof is scripts/check.sh's mobile-rn job.
+# The renderer row names only the journeys that draw a message body or table
+# through ui/src/components/Markdown.tsx (J3's reply paragraphs, J16's long answer
+# table, J17's message-body tap). Pin the literal list so the row cannot drift.
+case_name="select refuses a pure RN changed-file list"
+printf 'mobile-rn/src/screens/ConversationView.tsx\n' > "$T/rn-only.txt"
+out="$(select_walk --files "$T/rn-only.txt")"; rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2 (out: $out)"
+[ -z "$out" ] || fail "$case_name: printed ids for an RN diff that cannot reach the console: $out"
+[ "$(width "$T/select.err")" = 1 ] \
+  || fail "$case_name: stderr is not one line: $(cat "$T/select.err")"
+grep -q 'cannot change the console' "$T/select.err" \
+  || fail "$case_name: the refusal does not name the reason: $(cat "$T/select.err")"
+pass "$case_name"
+
+case_name="select keeps only the shared renderer's journeys for a mixed RN diff"
+printf '%s\n' \
+  'mobile-rn/src/screens/ConversationView.tsx' \
+  'ui/src/components/Markdown.tsx' > "$T/rn-renderer.txt"
+out="$(select_walk --files "$T/rn-renderer.txt")"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/select.err"))"
+got="$(printf '%s\n' "$out" | sort | tr '\n' ' ')"
+[ "$got" = 'J16 J17 J3 ' ] \
+  || fail "$case_name: got '$got', wanted only the shared renderer's J3 J16 J17"
+for banned in J9 J10 J11 J12; do
+  printf '%s\n' "$out" | grep -qx "$banned" \
+    && fail "$case_name: $banned was selected although no file in the list can reach it"
+done
 pass "$case_name"
 
 case_name="walk_args_join_positionals"
