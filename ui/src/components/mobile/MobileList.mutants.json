@@ -26,5 +26,12 @@
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/mobile/MobileList.dom.test.tsx -t \"a reader's own wheel to the top still wins\"",
     "old": "    const onWheel = () => {\n      movedByReader();\n      yieldToReader();\n    };",
     "new": "    const onWheel = () => {\n      // mutant: a wheel no longer marks the body as reader-moved\n      yieldToReader();\n    };"
+  },
+  {
+    "label": "R-list-scroll-search: a cancelled pan is mistaken for the layout's clamp",
+    "file": "ui/src/components/mobile/MobileList.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/mobile/MobileList.dom.test.tsx -t \"a reader's own touch drag to the top still wins\"",
+    "old": "    const onPointerCancel = () => {\n      movedByReader();\n      pointerOriginRef.current = null;\n    };",
+    "new": "    const onPointerCancel = () => {\n      // mutant: a cancelled pan no longer marks the body as reader-moved\n      pointerOriginRef.current = null;\n    };"
   }
 ]

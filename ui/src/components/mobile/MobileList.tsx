@@ -60,7 +60,8 @@ export function MobileScreen({
   const lastTopRef = useRef(0);
   /**
    * The reader has actually moved this body since the mount: a wheel, a key,
-   * a touch drag past the tap slop, or a scroll while a pointer is down. A tap
+   * a touch drag past the tap slop, a scroll while a pointer is down, or the
+   * browser taking a pan over (its `pointercancel`). A tap
    * is not movement — its pointerdown only stops the restore — so a body that
    * is hidden or whose content is swapped cannot launder its own clamp into a
    * position the reader chose.
@@ -127,13 +128,24 @@ export function MobileScreen({
     const onPointerUp = () => {
       pointerOriginRef.current = null;
     };
+    // A cancel is the browser recognising a pan and taking the gesture over
+    // before the first scroll event, so `touchmove` never sees an origin. That
+    // recognition *is* the reader's movement — without it a touch drag back to
+    // the top would be mistaken for the layout's clamp and snapped away.
+    const onPointerCancel = () => {
+      movedByReader();
+      pointerOriginRef.current = null;
+    };
     const onWheel = () => {
       movedByReader();
       yieldToReader();
     };
     const onTouchMove = (event: TouchEvent) => {
       const origin = pointerOriginRef.current;
-      const point = event.touches[0];
+      // Synthetic `touchmove` events (a bare `Event`, as the drag tests
+      // dispatch on a row) carry no `touches`; they must not throw out of a
+      // passive listener on the shared scroll body.
+      const point = event.touches?.[0];
       if (!origin || !point) return;
       // Below the tap slop this is still a finger resting on a row, not a
       // scroll: a jittery tap must not claim the clamp as its own position.
@@ -183,7 +195,7 @@ export function MobileScreen({
     };
     node.addEventListener("pointerdown", onPointerDown, { passive: true });
     node.addEventListener("pointerup", onPointerUp, { passive: true });
-    node.addEventListener("pointercancel", onPointerUp, { passive: true });
+    node.addEventListener("pointercancel", onPointerCancel, { passive: true });
     node.addEventListener("wheel", onWheel, { passive: true });
     node.addEventListener("touchmove", onTouchMove, { passive: true });
     node.addEventListener("keydown", onKeyDown);
@@ -196,7 +208,7 @@ export function MobileScreen({
       if (recordedRef.current) write(true);
       node.removeEventListener("pointerdown", onPointerDown);
       node.removeEventListener("pointerup", onPointerUp);
-      node.removeEventListener("pointercancel", onPointerUp);
+      node.removeEventListener("pointercancel", onPointerCancel);
       node.removeEventListener("wheel", onWheel);
       node.removeEventListener("touchmove", onTouchMove);
       node.removeEventListener("keydown", onKeyDown);

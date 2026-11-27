@@ -362,4 +362,31 @@ describe("the keyed scroll body", () => {
     back.view.unmount();
     expect(stored()).toBe("0");
   });
+
+  it("KIN-CONTINUE-004 a reader's own touch drag to the top still wins over the remembered mark", () => {
+    // A phone drag is taken over by the browser as a pan: it fires
+    // `pointercancel` before the first scroll event, so the cancelled gesture
+    // is the only movement signal the list gets. The top the reader reached
+    // must not be read as the layout's clamp and snapped back to the mark.
+    const first = mount(10);
+    first.body.scrollTop = 345;
+    fireEvent.scroll(first.body);
+    first.view.unmount();
+    expect(stored()).toBe("345");
+
+    const back = mount(10);
+    expect(back.body.scrollTop).toBe(345);
+    fireEvent.pointerDown(back.body);
+    fireEvent.pointerCancel(back.body);
+    back.body.scrollTop = 0;
+    fireEvent.scroll(back.body);
+    expect(back.body.scrollTop).toBe(0);
+    expect(stored()).toBe("0");
+
+    // Nothing may pull the reader back to the old mark after they moved.
+    grow(12);
+    expect(back.body.scrollTop).toBe(0);
+    back.view.unmount();
+    expect(stored()).toBe("0");
+  });
 });
