@@ -95,8 +95,9 @@ MD
   printf '# gap log\n' > "$R/docs/plans/gap-log.md"
   printf '# IA\n' > "$R/docs/product/IA.md"
   # A lane that ran the product's `npm run build` leaves built, ignored bundles behind; the seam
-  # must read the tree as clean (STATUS Watch 76).
-  printf 'web/dist/assets/\n' > "$R/.gitignore"
+  # must read the tree as clean (STATUS Watch 76). `.data/` is the top-level ignored shape (live
+  # state, a build output dir) used to prove the merge-result carry.
+  printf 'web/dist/assets/\n.data/\n' > "$R/.gitignore"
   g add -A >/dev/null && g commit -q -m base || fail "$name: base commit failed"
   g remote add origin "$T/$name.git" || fail "$name: remote add failed"
   g push -q -u origin main || fail "$name: push main failed"
@@ -513,6 +514,16 @@ case_claimed_output_must_match_the_merge_tree() {
   g add NOTES.md && g commit -q -m 'main advance' || fail "mergetree: cannot advance main"
   g update-ref refs/remotes/origin/main "$(g rev-parse HEAD)"
   g checkout -q -B rsi/handoff "$pr" || fail "mergetree: cannot return to the branch"
+  # The merge gate runs the claim in the lane worktree, where ignored build artifacts exist. A
+  # claim reading one is legitimate and must stay green on the merge result; the merge worktree
+  # carries every ignored path the lane holds. `.data/` is ignored at the top level, so no
+  # untracked parent directory masks a missing carry.
+  mkdir -p "$R/.data"
+  printf 'IGNORED-ARTIFACT-42\n' > "$R/.data/out.txt"
+  body "Claim check: cat .data/out.txt" "Claim output:" "IGNORED-ARTIFACT-42"
+  seam
+  [ "$RC" -eq 0 ] \
+    || fail "mergetree: an ignored artifact the lane holds is missing on the merge result ($OUT)"
   body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
        "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
   seam
@@ -533,6 +544,30 @@ case_claimed_output_must_match_the_merge_tree() {
     || fail "mergetree: a drifted claim was pushed"
   grep -qF "not in the command's real output" "$claim" 2>/dev/null \
     || fail "mergetree: the evidence does not name the drift: $(cat "$claim" 2>/dev/null)"
+}
+
+# A main advance that conflicts with the branch cannot be turned into a merge tree. The seam must
+# then check the branch tip — a conflict is merge.sh's verdict — instead of inventing a red the
+# worker cannot fix.
+case_a_conflicting_main_advance_falls_back_to_the_branch_tip() {
+  local base pr
+  new_repo conflictfallback
+  change docs/plans/gap-log.md '- the branch sentence'
+  pr="$(g rev-parse HEAD)"
+  base="$(g rev-parse origin/main)"
+  g checkout -q --detach "$base" || fail "conflict: cannot detach at the branch point"
+  printf '# main says something else\n' >> "$R/docs/plans/gap-log.md"
+  g add -A && g commit -q -m 'main advance' || fail "conflict: cannot advance main"
+  g update-ref refs/remotes/origin/main "$(g rev-parse HEAD)"
+  g checkout -q -B rsi/handoff "$pr" || fail "conflict: cannot return to the branch"
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  seam
+  [ "$RC" -eq 0 ] || fail "conflict: exit $RC, want 0 — a conflict is merge.sh's verdict ($OUT)"
+  case "$OUT" in
+    "CLAIM_LANE_OK: "*) ;;
+    *) fail "conflict: unexpected output: $OUT" ;;
+  esac
 }
 
 # Source pin, the same shape as case_lane_runs_seam_before_push: the pre-push claim seam must write
@@ -680,13 +715,17 @@ live_fixture() {
        "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
   LIVE_BODY="$T/live.body"; cp "$BODY" "$LIVE_BODY"
   GH_STUB="$T/gh-stub"; GH_CALLS="$T/gh.calls"; : > "$GH_CALLS"
-  VIEW_MODE=body; EDIT_RC=0; LIST_MODE=existing
+  VIEW_MODE=body; EDIT_RC=0; LIST_MODE=existing; EDIT_PUBLISHES=0; ON_LIST=""
   HANDOFF_GIT=/usr/bin/git; HANDOFF_CHECK_SECS=180
   cat > "$GH_STUB" <<'SH'
 #!/bin/bash
 printf '%s\n' "$*" >> "$STUB_CALLS"
 case "$1 $2" in
-  'pr list') [ "$STUB_LIST_MODE" != existing ] || echo 123 ;;
+  # STUB_ON_LIST names a file to append to while `pr list` runs: the window between the push and
+  # the upload guards, so a case can rewrite the hand-off body exactly where a late worker would.
+  'pr list')
+    [ -z "${STUB_ON_LIST:-}" ] || printf 'rewritten after the push\n' >> "$STUB_ON_LIST"
+    [ "$STUB_LIST_MODE" != existing ] || echo 123 ;;
   'pr create') echo 'https://github.com/example/repo/pull/123' ;;
   # Opt-in: a successful edit publishes the uploaded file, so a case can prove the lane replaced
   # GitHub's body. The default stub is the lying GitHub the read-back cases need: it reports
@@ -737,6 +776,11 @@ N=1; ITEM=R-fixture; SLUG=fixture; MODE=new; WORKER_TITLE='fix: fixture'
 TIMEDOUT=0; W_MIN=0; COST=0; SWEPT_N=0
 finish() { printf '%s\n' "$*" >> "$FINISH_FILE"; }
 count_fail() { :; }; count_ok() { :; }; scorecard_row() { :; }
+# The production span hashes the hand-off body where the seam read it and re-checks the same hash
+# before each upload; source the lane's own helper and pin the hash the way lane.sh does, so the
+# upload guards are live in this fixture instead of seeing an unset CLAIM_BODY_SHA.
+eval "$(awk '/^claim_body_sha\(\)/ { on = 1 } on { print } on && /^}/ { exit }' "$SELF")"
+CLAIM_BODY_SHA="$(claim_body_sha "$STATUS_NOTE_FILE")"
 SH
     awk '/^# push \+ PR / { on = 1 } on { print } on && /^finish done / { exit }' "$LANE"
   } > "$T/handoff.sh"
@@ -745,6 +789,7 @@ SH
     STUB_CALLS="$GH_CALLS" STUB_BODY="$LIVE_BODY" STUB_VIEW_MODE="$VIEW_MODE" \
     STUB_EDIT_RC="$EDIT_RC" STUB_LIST_MODE="$LIST_MODE" STUB_LOCAL_BODY="$BODY" \
     STUB_EDIT_PUBLISHES="${EDIT_PUBLISHES:-0}" \
+    STUB_ON_LIST="${ON_LIST:-}" \
     STUB_SLOW_GIT="$T/slow-git-started" \
     GIT="$HANDOFF_GIT" RSI_PR_BODY_CHECK_SECS="$HANDOFF_CHECK_SECS" \
     bash "$T/handoff.sh" 2>&1)"; RC=$?
@@ -846,6 +891,37 @@ case_live_body_is_always_uploaded_from_the_checked_file() {
   grep -q '^done 123 ' "$T/finish" || fail "live upload: the checked body was not published"
 }
 
+# The pre-push guard proves the body at the push; the push and the `gh pr list` call that follows
+# still take time. A worker (or a generator) rewriting the hand-off body in that window must not
+# have its bytes uploaded: the existing-PR edit and the new-PR create each re-hash the file first
+# and fail closed, so GitHub never keeps a body the merge gate's rule has not seen.
+case_upload_guards_refuse_a_body_rewritten_after_the_push() {
+  local claim="$CTRL/rsi/state/lanes/1.claim.txt"
+  live_fixture live-rewrite-edit
+  ON_LIST="$BODY"   # the pr list stub runs between the push and both upload guards
+  rm -f "$claim"
+  pr_handoff
+  [ "$RC" -eq 1 ] || fail "rewrite/edit: hand-off exit $RC, want 1 ($OUT)"
+  grep -q '^failed .*hand-off body changed' "$T/finish" \
+    || fail "rewrite/edit: the changed body was not recorded failed ($OUT)"
+  grep -qF 'live body not replaced' "$claim" 2>/dev/null \
+    || fail "rewrite/edit: the evidence does not name the refused upload: $(cat "$claim" 2>/dev/null)"
+  ! grep -q '^pr edit ' "$GH_CALLS" || fail "rewrite/edit: a rewritten body was uploaded"
+  ! grep -q '^done ' "$T/finish" || fail "rewrite/edit: a rewritten body finished done"
+
+  live_fixture live-rewrite-create
+  LIST_MODE=new; ON_LIST="$BODY"
+  rm -f "$claim"
+  pr_handoff
+  [ "$RC" -eq 1 ] || fail "rewrite/create: hand-off exit $RC, want 1 ($OUT)"
+  grep -q '^failed .*body uploaded differs' "$T/finish" \
+    || fail "rewrite/create: the changed body was not recorded failed ($OUT)"
+  grep -qF 'PR not opened' "$claim" 2>/dev/null \
+    || fail "rewrite/create: the evidence does not name the refused upload: $(cat "$claim" 2>/dev/null)"
+  ! grep -q '^pr create ' "$GH_CALLS" || fail "rewrite/create: a rewritten body opened a PR"
+  ! grep -q '^done ' "$T/finish" || fail "rewrite/create: a rewritten body finished done"
+}
+
 case_live_body_timeout_fails_closed() {
   live_fixture live-timeout
   VIEW_MODE=timeout
@@ -906,6 +982,7 @@ run case_prose_diff_without_claim_line_never_leaves_the_lane
 run case_lane_checks_the_body_it_uploads
 run case_lane_seam_and_merge_gate_agree
 run case_claimed_output_must_match_the_merge_tree
+run case_a_conflicting_main_advance_falls_back_to_the_branch_tip
 run case_claim_check_retry_body_fixed_mid_handoff
 run case_claim_check_retry_still_failing_stays_failed
 run case_claim_check_retry_zero_disables
@@ -918,6 +995,7 @@ run case_code_only_diff_is_na
 run case_live_body_read_retries_once
 run case_live_body_stale_valid_claim_fails
 run case_live_body_is_always_uploaded_from_the_checked_file
+run case_upload_guards_refuse_a_body_rewritten_after_the_push
 run case_live_body_timeout_fails_closed
 run case_live_body_check_timeout_fails_closed
 run case_gh_override_is_honoured

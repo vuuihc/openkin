@@ -331,7 +331,13 @@ PY
 # unchecked, so the span hashes it immediately before each seam read and verifies before the push.
 claim_body_sha() { # <body-file> -> sha256 of a non-empty body, nothing otherwise
   [ -s "$1" ] || return 0
-  shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+  # shasum on macOS, sha256sum on Linux: either one; a host with neither cannot pin the bytes, and
+  # the upload guards then skip rather than compare two empty strings.
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" 2>/dev/null | awk '{print $1}'
+  fi
 }
 
 # The claim must be proven on the tree the merge gate reads: the PR merged with the local
@@ -342,12 +348,12 @@ claim_body_sha() { # <body-file> -> sha256 of a non-empty body, nothing otherwis
 # `stories: 25 (approved 5, blocked 1, covered 18, draft 1)` where the branch said `approved 4,
 # covered 19`; rn-empty-hint #766 claimed `193:` where the merged tree had `194:`). Build that tree
 # without touching the branch: merge-tree writes it, commit-tree wraps it, a throwaway worktree
-# gives the command a directory. Untracked paths a claim may read (live state, installed deps) are
-# carried as symlinks. Prints the worktree path, or nothing when the branch already contains the
+# gives the command a directory. Every ignored path the lane worktree holds (built bundles, live
+# state, installed deps) is carried as a symlink. Prints the worktree path, or nothing when the branch already contains the
 # local origin/main or the merge cannot be materialized — a conflict is merge.sh's call, and a
 # seam must never invent a red for it.
 claim_merge_wt() { # <worktree>
-  local wt="$1" tmp tree commit nm rel
+  local wt="${1%/}" tmp tree commit rel
   "$GIT" -C "$wt" merge-base --is-ancestor origin/main HEAD 2>/dev/null && return 0
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/claim-merge.XXXXXX")" || return 0
   tree="$("$GIT" -C "$wt" merge-tree --write-tree origin/main HEAD 2>/dev/null)" \
@@ -357,15 +363,18 @@ claim_merge_wt() { # <worktree>
     -m "claim-check merge" 2>/dev/null)" || { rm -rf "$tmp"; return 0; }
   "$GIT" -C "$wt" worktree add --quiet --detach "$tmp/wt" "$commit" >/dev/null 2>&1 \
     || { rm -rf "$tmp"; return 0; }
-  if [ -e "$wt/rsi/state" ] && [ ! -e "$tmp/wt/rsi/state" ]; then
-    mkdir -p "$tmp/wt/rsi" && ln -s "$wt/rsi/state" "$tmp/wt/rsi/state"
-  fi
-  while IFS= read -r nm; do
-    rel="${nm#"$wt"/}"
+  # The merge gate runs the claim in the lane worktree, so a claim may read ignored paths that
+  # exist there and not in a fresh checkout: built bundles (`web/dist/assets/`), logs, live state
+  # (`rsi/state/`), installed deps (`node_modules/`). Carry every ignored path this worktree holds
+  # into the merge worktree; without it a claim reading a built bundle would be red in the lane
+  # while the merge gate accepts it (measured 2026-11-27 in review).
+  while IFS= read -r -d '' rel; do
+    rel="${rel%/}"
+    [ -n "$rel" ] || continue
     [ -e "$tmp/wt/$rel" ] && continue
     mkdir -p "$(dirname "$tmp/wt/$rel")" 2>/dev/null || continue
-    ln -s "$nm" "$tmp/wt/$rel" 2>/dev/null || true
-  done < <(find "$wt" -maxdepth 3 -name node_modules \( -type d -o -type l \) -prune -print 2>/dev/null)
+    ln -s "$wt/$rel" "$tmp/wt/$rel" 2>/dev/null || true
+  done < <("$GIT" -C "$wt" ls-files --others --ignored --exclude-standard --directory -z 2>/dev/null)
   printf '%s\n' "$tmp/wt"
 }
 

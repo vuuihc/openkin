@@ -19,5 +19,19 @@
     "test": "RSI_TEST_ONLY=case_live_body_is_always_uploaded_from_the_checked_file bash rsi/runtime/tests/test-lane-claim-check.sh",
     "old": "  if [ -s \"$STATUS_NOTE_FILE\" ]; then\n    if [ -n \"${CLAIM_BODY_SHA:-}\" ] && [ \"$(claim_body_sha \"$STATUS_NOTE_FILE\")\" != \"$CLAIM_BODY_SHA\" ]; then",
     "new": "  if [ -s \"$STATUS_NOTE_FILE\" ] && [ \"$STATUS_NOTE_FILE\" -nt \"$HDR\" ]; then\n    if [ -n \"${CLAIM_BODY_SHA:-}\" ] && [ \"$(claim_body_sha \"$STATUS_NOTE_FILE\")\" != \"$CLAIM_BODY_SHA\" ]; then"
+  },
+  {
+    "label": "the merge worktree stops carrying ignored paths: a claim that reads a built bundle the lane holds goes red in the lane while the merge gate accepts it",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_claimed_output_must_match_the_merge_tree bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "ls-files --others --ignored --exclude-standard --directory -z",
+    "new": "ls-files --others --exclude-standard --directory -z"
+  },
+  {
+    "label": "the existing-PR upload guard removed: a hand-off body rewritten after the seam read it replaces the live body unchecked",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_upload_guards_refuse_a_body_rewritten_after_the_push bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "    if [ -n \"${CLAIM_BODY_SHA:-}\" ] && [ \"$(claim_body_sha \"$STATUS_NOTE_FILE\")\" != \"$CLAIM_BODY_SHA\" ]; then",
+    "new": "    if false; then"
   }
 ]
