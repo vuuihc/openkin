@@ -19,8 +19,9 @@ import {
 } from "react-native";
 import { focusNode } from "../a11y/focus";
 import { useTheme } from "../theme/useTheme";
-import { palette, wash, type Palette } from "../theme/tokens";
+import { palette, type, wash, type Palette } from "../theme/tokens";
 import { isRowKey, moveRow, openRow } from "../list/listKeys";
+import { rowMark, type RowMark as RowMarkState } from "../list/rowMark";
 import type {
   ConversationRow,
   DeviceGroup,
@@ -33,6 +34,10 @@ export const ROW_MIN_HEIGHT = 44;
 
 /** Two lines (title + metadata) with room to breathe. */
 export const ROW_HEIGHT = 56;
+
+/** The status mark's column, and the gap between it and the two text lines. */
+export const MARK_SLOT_WIDTH = 10;
+export const MARK_GAP = 8;
 
 /**
  * The paint a row or a project heading takes while a finger holds it. The
@@ -141,7 +146,7 @@ function ResumeBand({
   t: ConversationListProps["t"];
 }) {
   return (
-    <View style={styles.resumeBand}>
+    <View style={styles.resumeBand} testID="list-resume-band">
       <Text
         accessibilityLiveRegion="polite"
         // Android speaks the polite region; the offline state is also an
@@ -162,6 +167,68 @@ function ResumeBand({
         >
           <Text style={styles.resumeRetryText}>{t("pairing.retry")}</Text>
         </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The row's status mark: a View-drawn shape and a token colour, never an icon
+ * font or a new dependency (KIN-MOBILE-002 R3). Decorative by contract — the
+ * row's spoken name already carries the signed status word — so the whole
+ * slot hides itself from the screen reader.
+ */
+function RowMark({
+  mark,
+  colors,
+  styles,
+}: {
+  mark: RowMarkState;
+  colors: Palette;
+  styles: Styles;
+}) {
+  // The tone is the fill pigment; `muted` is the design's grey step.
+  const tone =
+    mark.tone === "blue"
+      ? colors.blue
+      : mark.tone === "orange"
+        ? colors.orange
+        : mark.tone === "red"
+          ? colors.red
+          : colors.muted;
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={styles.markSlot}
+      testID="row-mark"
+    >
+      {mark.shape === "dot" ? (
+        <View
+          style={{ backgroundColor: tone, borderRadius: 999, height: 8, width: 8 }}
+          testID="mark-dot"
+        />
+      ) : mark.shape === "square" ? (
+        <View
+          style={{ backgroundColor: tone, borderRadius: 2, height: 8, width: 8 }}
+          testID="mark-square"
+        />
+      ) : mark.shape === "triangle" ? (
+        // A zero-width box whose bottom border is the triangle; a View border
+        // is how RN draws a shape without an asset.
+        <View
+          style={{
+            borderBottomColor: tone,
+            borderBottomWidth: 8,
+            borderLeftColor: "transparent",
+            borderLeftWidth: 5,
+            borderRightColor: "transparent",
+            borderRightWidth: 5,
+            height: 0,
+            width: 0,
+          }}
+          testID="mark-triangle"
+        />
       ) : null}
     </View>
   );
@@ -359,6 +426,62 @@ export default function ConversationList({
   };
 
   return (
+    <View style={styles.screen} testID="list-root">
+      {/*
+        The navigation bar is pinned: the list's title and its one search box
+        stay put while the grouped rows scroll under them. This round ships the
+        static large-title variant — no collapse-on-scroll tracking.
+      */}
+      <View style={styles.navBar} testID="list-nav">
+        <Text accessibilityRole="header" style={styles.navTitle}>
+          {t("nav.sessions")}
+        </Text>
+        <View style={styles.searchField}>
+          <TextInput
+            accessibilityLabel={t("sessions.searchPlaceholder")}
+            autoCapitalize="none"
+            autoCorrect={false}
+            onChangeText={(next) => {
+              // A query the reader is typing changes which rows can paint;
+              // a return waiting for one of them is no longer their context.
+              dropPendingReturn();
+              onQueryChange(next);
+            }}
+            onBlur={() => setSearchFocused(false)}
+            onFocus={() => {
+              dropPendingReturn();
+              setSearchFocused(true);
+            }}
+            placeholder={t("sessions.searchPlaceholder")}
+            placeholderTextColor={colors.muted}
+            returnKeyType="search"
+            style={styles.searchInput}
+            testID="list-search"
+            value={query}
+          />
+          {query === "" ? null : (
+            <Pressable
+              accessibilityLabel={t("common.clear")}
+              accessibilityRole="button"
+              onPress={() => onQueryChange("")}
+              style={styles.searchClear}
+              testID="list-search-clear"
+            >
+              <Text style={styles.searchClearText}>{"×"}</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+      {/*
+        The network band sits in the column above the scroll view, so it
+        pushes the rows down instead of covering one (KIN-MOBILE-002 R3).
+      */}
+      {resume ? <ResumeBand resume={resume} styles={styles} t={t} /> : null}
+      {/*
+        The list keeps its existing indentation: the rows below are the same
+        SectionList in a new column, and a whitespace-only re-indent would bury
+        the row diff a reviewer has to read.
+      */}
     <SectionList<Entry, Section>
       ref={listRef}
       // The handler seam, and the pure map behind it, are landed here; RN
@@ -404,14 +527,14 @@ export default function ConversationList({
           : `row:${item.row.id}`
       }
       renderSectionHeader={({ section }) => (
-        <View style={styles.deviceHeading}>
+        <View style={styles.deviceHeading} testID={`device:${section.device.id}`}>
           <Text accessibilityRole="header" style={styles.deviceLabel}>
             {section.device.label}
           </Text>
           <Text style={styles.deviceCount}>{section.device.count}</Text>
         </View>
       )}
-      renderItem={({ item }) => {
+      renderItem={({ item, index, section }) => {
         if (item.kind === "project") {
           return (
             <Pressable
@@ -454,6 +577,15 @@ export default function ConversationList({
             ? t("sessions.pendingApprovals", { count: row.pending })
             : null;
         const focused = row.id === focusedId;
+        // The design's shape + colour mark (KIN-MOBILE-002 R3): decorative,
+        // because the row's spoken name already carries the status word.
+        const mark = rowMark(row);
+        // An iOS grouped list closes the group on its last row: no separator
+        // follows the last conversation row of a device section (a folded
+        // project heading may still follow it).
+        const lastRow = !section.data
+          .slice(index + 1)
+          .some((entry) => entry.kind === "row");
         return (
           <Pressable
             accessibilityLabel={[row.title, meta, pendingLabel]
@@ -487,9 +619,12 @@ export default function ConversationList({
             ]}
             testID={`row:${row.id}`}
           >
-            <Text numberOfLines={1} style={styles.title}>
-              {row.title}
-            </Text>
+            <View style={styles.titleRow}>
+              <RowMark mark={mark} colors={colors} styles={styles} />
+              <Text numberOfLines={1} style={styles.title}>
+                {row.title}
+              </Text>
+            </View>
             <View style={styles.metaLine}>
               <Text numberOfLines={1} style={styles.meta}>
                 {meta}
@@ -500,52 +635,14 @@ export default function ConversationList({
                 </Text>
               ) : null}
             </View>
+            {lastRow ? null : (
+              <View style={styles.hairline} testID={`hairline:${row.id}`} />
+            )}
           </Pressable>
         );
       }}
       ListHeaderComponent={
         <View>
-          {/*
-            The same catalogue word is the hint and the spoken name; the clear
-            control only exists while there is something to clear, and the
-            field itself is the list's own first stop.
-          */}
-          <View style={styles.searchBar}>
-            <TextInput
-              accessibilityLabel={t("sessions.searchPlaceholder")}
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChangeText={(next) => {
-                // A query the reader is typing changes which rows can paint;
-                // a return waiting for one of them is no longer their context.
-                dropPendingReturn();
-                onQueryChange(next);
-              }}
-              onBlur={() => setSearchFocused(false)}
-              onFocus={() => {
-                dropPendingReturn();
-                setSearchFocused(true);
-              }}
-              placeholder={t("sessions.searchPlaceholder")}
-              placeholderTextColor={colors.muted}
-              returnKeyType="search"
-              style={styles.searchInput}
-              testID="list-search"
-              value={query}
-            />
-            {query === "" ? null : (
-              <Pressable
-                accessibilityLabel={t("common.clear")}
-                accessibilityRole="button"
-                onPress={() => onQueryChange("")}
-                style={styles.searchClear}
-                testID="list-search-clear"
-              >
-                <Text style={styles.searchClearText}>{"×"}</Text>
-              </Pressable>
-            )}
-          </View>
-          {resume ? <ResumeBand resume={resume} styles={styles} t={t} /> : null}
           {/*
             While the resume band is up it is the one band: the list's own
             failure line would repeat the same sentence with a second retry.
@@ -575,7 +672,12 @@ export default function ConversationList({
           {state.status === "empty" ? (
             // The phone client draws no 新建 entry, so the empty list names
             // none (KIN-MOBILE-001 §2 空; the entry is a separate start story).
-            <Text style={styles.emptyTitle}>{t("sessions.empty")}</Text>
+            // Frame 06's two centred lines: the state, then where a chat comes
+            // from, in the catalogue's own words.
+            <>
+              <Text style={styles.emptyTitle}>{t("sessions.empty")}</Text>
+              <Text style={styles.emptyHint}>{t("sessions.deviceEmpty")}</Text>
+            </>
           ) : state.status === "failed" || state.status === "offline" ? (
             resume ? (
               // The band already carries the reason and the one retry; with no
@@ -627,12 +729,14 @@ export default function ConversationList({
       refreshing={state.status === "loading"}
       stickySectionHeadersEnabled={false}
     />
+    </View>
   );
 }
 
 const makeStyles = (colors: Palette) => StyleSheet.create({
   screen: {
-    backgroundColor: colors.bg,
+    // The window backdrop: grouped surfaces sit on it, the rows on `bg`.
+    backgroundColor: colors.page,
     flex: 1,
   },
   banner: {
@@ -654,7 +758,8 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
   },
   deviceHeading: {
     alignItems: "center",
-    backgroundColor: colors.fill,
+    // The group's heading sits on the page, not on the rows' surface.
+    backgroundColor: colors.page,
     flexDirection: "row",
     justifyContent: "space-between",
     minHeight: ROW_MIN_HEIGHT,
@@ -691,6 +796,8 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
+    // The second line starts on the title's own left edge, past the mark.
+    paddingLeft: MARK_SLOT_WIDTH + MARK_GAP,
   },
   pending: {
     backgroundColor: colors.red,
@@ -729,13 +836,29 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
-  searchBar: {
+  navBar: {
     alignItems: "center",
-    borderBottomColor: colors.hairlineStrong,
+    backgroundColor: colors.page,
+    borderBottomColor: colors.hairline,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
+    gap: 12,
+    minHeight: ROW_HEIGHT,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  navTitle: {
+    color: colors.text,
+    ...type.largeTitle,
+  },
+  searchField: {
+    alignItems: "center",
+    backgroundColor: colors.fill,
+    borderRadius: 10,
+    flex: 1,
+    flexDirection: "row",
     minHeight: ROW_MIN_HEIGHT,
-    paddingLeft: 16,
+    paddingLeft: 12,
   },
   searchClear: {
     alignItems: "center",
@@ -759,7 +882,9 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
   },
   resumeBand: {
     alignItems: "center",
-    backgroundColor: wash(colors.blue, 0.12),
+    // The network state is the design's orange band; it sits above the list
+    // in the column and never paints over a row.
+    backgroundColor: wash(colors.orange, 0.15),
     flexDirection: "row",
     gap: 12,
     minHeight: ROW_MIN_HEIGHT,
@@ -774,25 +899,46 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     paddingHorizontal: 12,
   },
   resumeRetryText: {
-    color: colors.blueInk,
+    color: colors.orangeInk,
     fontSize: 15,
     fontWeight: "600",
   },
   resumeText: {
-    color: colors.blueInk,
+    color: colors.orangeInk,
     flex: 1,
     fontSize: 14,
   },
   row: {
     // A row paints its own surface: it must not inherit the platform's white.
     backgroundColor: colors.bg,
+    // The visible separator is the inset hairline drawn below (a border
+    // cannot be inset); the row keeps the token on its own box, which is the
+    // separator the theme suite reads.
     borderBottomColor: colors.hairlineStrong,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    height: ROW_HEIGHT,
     justifyContent: "center",
-    minHeight: ROW_MIN_HEIGHT,
+    // The design's ≥54pt grouped row; the whole box is the touch target.
+    minHeight: ROW_HEIGHT,
     paddingHorizontal: 16,
     paddingVertical: 8,
+  },
+  hairline: {
+    backgroundColor: colors.hairlineStrong,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
+    // Inset to the row's text, the iOS grouped-list rule.
+    left: 16,
+    position: "absolute",
+    right: 0,
+  },
+  markSlot: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: MARK_SLOT_WIDTH,
+  },
+  titleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: MARK_GAP,
   },
   rowPressed: {
     backgroundColor: colors.fillStrong,
@@ -823,8 +969,8 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
   },
   title: {
     color: colors.text,
-    fontSize: 16,
-    fontWeight: "500",
+    flexShrink: 1,
+    ...type.navTitle,
   },
 });
 

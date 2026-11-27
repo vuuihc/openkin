@@ -136,6 +136,7 @@ function rowState(ids: readonly string[]): ListViewState {
     at: 1000 - index,
     timeLabel: `t${1000 - index}`,
     statusKey: "sessions.statusSucceeded",
+    status: "succeeded",
     pending: 0,
     remote: false,
   }));
