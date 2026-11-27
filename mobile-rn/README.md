@@ -47,6 +47,23 @@ record in App Store Connect. It prints the archive path, the archived bundle id
 and version, and the embedded `main.jsbundle`: a Release build embeds its JS and
 never talks to Metro.
 
+On a Mac that is not signed in, pass an App Store Connect API key instead —
+create one under App Store Connect → Users and Access → Integrations → App Store
+Connect API:
+
+```bash
+KIN_ASC_KEY_PATH=/path/to/AuthKey_ABC123DEFG.p8 \
+KIN_ASC_KEY_ID=ABC123DEFG \
+KIN_ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000 \
+./scripts/release-ios.sh
+```
+
+All three or none. A partial trio stops before `xcodebuild` instead of falling
+back to the signed-in account, and so does a key path that is not a readable
+file. The `==> uploading to TestFlight` line prints which auth path it took and
+the key's path — never its contents. (`../mobile/scripts/lib/export-args.sh`
+holds the shared export step, also used by the Capacitor script.)
+
 Defaults match the Capacitor script: marketing version `1.0`, build number
 `$(date -u +%Y%m%d%H%M)`. Override them with `KIN_MARKETING_VERSION`,
 `KIN_BUILD_NUMBER` (each upload needs an unused one) or `KIN_TEAM_ID`. The

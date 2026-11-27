@@ -7,12 +7,14 @@ import { afterEach, describe, expect, it } from "@jest/globals";
 /**
  * KIN-MOBILE-001 — the TestFlight upload path.
  *
- * `mobile/scripts/release-ios.sh` is the only supported way the phone build
- * reaches TestFlight. Uploading is the one step that needs an Apple account:
- * by default it borrows the Apple ID the Mac is signed in to in Xcode, and on
- * a Mac that is not signed in the export fails with "App Store Connect access
- * for team … is required". The shared runner adds App Store Connect API-key
- * auth when KIN_ASC_* is set, so a build can be cut unattended.
+ * `mobile-rn/scripts/release-ios.sh` is the build that ships to TestFlight now;
+ * the Capacitor script in `mobile/scripts/release-ios.sh` still exists until
+ * the cutover story. Both upload through the same shared runner. Uploading is
+ * the one step that needs an Apple account: by default it borrows the Apple ID
+ * the Mac is signed in to in Xcode, and on a Mac that is not signed in the
+ * export fails with "App Store Connect access for team … is required". The
+ * shared runner adds App Store Connect API-key auth when KIN_ASC_* is set, so
+ * a build can be cut unattended.
  *
  * This suite drives the real bash library with `xcodebuild` replaced by a
  * shell function, in temp dirs: no Xcode, simulator, network, or Apple
@@ -23,6 +25,8 @@ import { afterEach, describe, expect, it } from "@jest/globals";
 const REPO = path.resolve(__dirname, "../../..");
 const LIB = path.join(REPO, "mobile/scripts/lib/export-args.sh");
 const RELEASE_SCRIPT = path.join(REPO, "mobile/scripts/release-ios.sh");
+/** The TestFlight build now: the Expo/RN release script under `mobile-rn/`. */
+const RN_RELEASE_SCRIPT = path.join(REPO, "mobile-rn/scripts/release-ios.sh");
 
 const KEY_ID = "ABC123DEFG";
 const ISSUER_ID = "00000000-0000-0000-0000-000000000000";
@@ -118,6 +122,45 @@ function runExport(env: Record<string, string> = {}): ExportRun {
       : [],
     xcodebuildCalled,
   };
+}
+
+/** The lines bash would execute: a commented-out `source` or argv does not count. */
+function executableLines(source: string): string[] {
+  return source.split("\n").filter((line) => !line.trimStart().startsWith("#"));
+}
+
+/**
+ * The path on the RN script's live `source …` line, or null when it has none.
+ * Only a line bash runs counts; a commented-out source is not a contract.
+ */
+function rnExportLibSource(source: string): string | null {
+  const match = executableLines(source)
+    .join("\n")
+    .match(/^source\s+"([^"]*lib\/export-args\.sh)"/m);
+  return match ? match[1] : null;
+}
+
+/**
+ * Resolve the `source` path against the script's own directory. Only
+ * `$SCRIPT_DIR` may be interpolated: the path has to be anchored to the
+ * checked-in script, not to whoever's cwd runs it.
+ */
+function resolveFromScript(expression: string): string {
+  const prefix = "$SCRIPT_DIR/";
+  expect(expression.startsWith(prefix)).toBe(true);
+  return path.resolve(path.dirname(RN_RELEASE_SCRIPT), expression.slice(prefix.length));
+}
+
+/** The `run_ios_export …` invocation joined across backslash continuations. */
+function runIosExportInvocation(lines: string[]): string | null {
+  const start = lines.findIndex((line) => /^run_ios_export\b/.test(line));
+  if (start < 0) return null;
+  const block: string[] = [];
+  for (let index = start; index < lines.length; index += 1) {
+    block.push(lines[index]);
+    if (!lines[index].trimEnd().endsWith("\\")) break;
+  }
+  return block.join("\n");
 }
 
 describe("KIN-MOBILE-001 release: TestFlight export auth", () => {
@@ -244,10 +287,7 @@ describe("KIN-MOBILE-001 release: TestFlight export auth", () => {
   it("KIN-MOBILE-001 release: release-ios.sh uploads through the shared export runner", () => {
     const source = fs.readFileSync(RELEASE_SCRIPT, "utf8");
     // Comments may name the flags; only executable lines can carry a second argv.
-    const executable = source
-      .split("\n")
-      .filter((line) => !line.trimStart().startsWith("#"))
-      .join("\n");
+    const executable = executableLines(source).join("\n");
 
     // The script must load the library and call its runner ...
     expect(source).toMatch(/source\s+"[^"]*lib\/export-args\.sh"/);
@@ -255,5 +295,63 @@ describe("KIN-MOBILE-001 release: TestFlight export auth", () => {
     // ... so the library cannot be green while the script keeps a second argv.
     expect(executable).not.toMatch(/xcodebuild\s+-exportArchive/);
     expect(executable).not.toMatch(/-authenticationKey(Path|ID|IssuerID)/);
+  });
+
+  it("KIN-MOBILE-001 release: the RN release script uploads through the shared export runner", () => {
+    const source = fs.readFileSync(RN_RELEASE_SCRIPT, "utf8");
+    const executable = executableLines(source);
+
+    // A live source line, anchored to the script's own directory, whose path
+    // is an existing file.
+    const libExpr = rnExportLibSource(source);
+    expect(libExpr).not.toBeNull();
+    expect(fs.existsSync(resolveFromScript(libExpr as string))).toBe(true);
+    expect(fs.statSync(resolveFromScript(libExpr as string)).isFile()).toBe(true);
+
+    // The shared runner carries the same four arguments as the Capacitor
+    // script's call: the archive, both output paths, and automatic signing.
+    const invocation = runIosExportInvocation(source.split("\n"));
+    expect(invocation).not.toBeNull();
+    for (const argument of [
+      "-archivePath",
+      "-exportPath",
+      "-exportOptionsPlist",
+      "-allowProvisioningUpdates",
+    ]) {
+      expect({ argument, passed: (invocation as string).includes(argument) }).toEqual({
+        argument,
+        passed: true,
+      });
+    }
+
+    // No second argv: the library is the only place the export is issued.
+    const executed = executable.join("\n");
+    expect(executed).not.toMatch(/xcodebuild\s+-exportArchive/);
+    expect(executed).not.toMatch(/-authenticationKey(Path|ID|IssuerID)/);
+  });
+
+  it("KIN-MOBILE-001 release: the RN script sources the same library the behaviour cases drive", () => {
+    const libExpr = rnExportLibSource(fs.readFileSync(RN_RELEASE_SCRIPT, "utf8"));
+    expect(libExpr).not.toBeNull();
+    // A missing or forked copy must fail here, not ship an upload that
+    // silently falls back to the Xcode account.
+    expect(fs.realpathSync(resolveFromScript(libExpr as string))).toBe(fs.realpathSync(LIB));
+  });
+
+  it("KIN-MOBILE-001 release: the RN script still exits before export under --archive-only", () => {
+    const lines = executableLines(fs.readFileSync(RN_RELEASE_SCRIPT, "utf8"));
+    const archiveOnly = lines.findIndex((line) => line.includes('"$ARCHIVE_ONLY" == "1"'));
+    const earlyExit = lines.findIndex(
+      (line, index) => index > archiveOnly && index <= archiveOnly + 3 && /^\s*exit 0\b/.test(line),
+    );
+    // Before the change the upload was an inline xcodebuild; after it is the
+    // shared runner. The property under test is the early exit's position.
+    const exportStep = lines.findIndex((line) =>
+      /^(?:run_ios_export|xcodebuild\s+-exportArchive)\b/.test(line),
+    );
+
+    expect(archiveOnly).toBeGreaterThanOrEqual(0);
+    expect(earlyExit).toBeGreaterThan(archiveOnly);
+    expect(exportStep).toBeGreaterThan(earlyExit);
   });
 });
