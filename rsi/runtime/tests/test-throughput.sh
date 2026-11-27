@@ -8,7 +8,39 @@ ok() { echo "PASS $*"; }; bad() { echo "FAIL $*" >&2; exit 1; }
 # spare-lane gate, which fires there because dotfile-claim already holds lane 1): a loaded
 # machine must not turn them into exit-8 refusals.
 NOPRESS="RSI_MEM_AVAIL_MIN_MB=0 RSI_SWAP_USED_MAX_MB=999999999 RSI_LOAD_MAX=9999 RSI_LANE2_MEM_MIN_MB=0 RSI_LANE2_PRESSURE_MAX=99 RSI_LANE2_SWAP_FREE_MIN_MB=0"
-tier() { printf '%b' "$3" | python3 "$H/review-tier.py" --title "$1" --item "$2" ${4:+--attempts "$4"} --numstat - | cut -d' ' -f1,2; }
+tier() { printf '%b' "$3" | python3 "$H/review-tier.py" --title "$1" --item "$2" ${4:+--attempts "$4"} --worker-model worker-x --review-model reviewer-y --numstat - | cut -d' ' -f1,2; }
+# Reviewer independence (2026-11-28, MANDATE 2). merge.sh:2487 calls review-tier.py with no model
+# flags on every small/medium PR, and common.sh:47-48 has M_WORKER == M_DIRECTOR — so the cost
+# tier's `reviewer` was the worker's own DeepSeek model. These cases pin the role answer that stops
+# it (the manual workaround was a state/merge/<slug>.force-alt marker per PR). They run before the
+# legacy cases and accumulate, because a red run reverts review-tier.py to origin/main, which
+# rejects the model flags: every broken expectation must print its own FAIL name.
+mrc=0
+mcheck() { # <name> <want "tier role"> <want token|-> <numstat> [flags...]
+  local name="$1" want="$2" token="$3" numstat="$4" got fields; shift 4
+  got="$(printf '%b' "$numstat" | python3 "$H/review-tier.py" --title 'fix: tiny' --numstat - "$@" | tr '\n' ' ')"
+  fields="$(echo "$got" | cut -d' ' -f1,2)"
+  if [ "$fields" != "$want" ]; then echo "FAIL $name: want '$want', got '$fields' ($got)" >&2; mrc=1; return; fi
+  if [ "$token" != - ] && ! echo "$got" | grep -q "$token"; then echo "FAIL $name: missing '$token' in '$got'" >&2; mrc=1; return; fi
+  ok "$name"
+}
+SMALL_DIFF='20\t10\tui/src/a.tsx\n'
+LARGE_DIFF='900\t0\tui/src/a.tsx\n'
+mcheck worker-model-equals-reviewer-forces-alt 'small reviewer-alt' worker-model "$SMALL_DIFF" --worker-model m1 --review-model m1
+mcheck worker-model-differs-keeps-deepseek 'small reviewer' - "$SMALL_DIFF" --worker-model m1 --review-model m2
+mcheck strong-worker-keeps-deepseek-review 'small reviewer' - "$SMALL_DIFF" --worker-model codex/gpt-6.1-sol --review-model 'volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
+mcheck strong-worker-equal-strong-review-keeps-deepseek 'small reviewer' - "$SMALL_DIFF" --worker-model codex/gpt-6.1-sol --review-model codex/gpt-6.1-sol
+mcheck large-tier-is-never-downgraded 'large reviewer-alt' - "$LARGE_DIFF" --worker-model m1 --review-model m1
+# The production call: no flags and no model env, exactly as merge.sh:2487 invokes it. This repo's
+# common.sh has M_WORKER == M_DIRECTOR, so the answer must already be reviewer-alt. If this passes
+# because a flag or env leaked in, it is not the proof.
+prodl="$(printf '%b' "$SMALL_DIFF" | env -u RSI_WORKER_MODEL -u RSI_REVIEW_MODEL python3 "$H/review-tier.py" --title 'fix: tiny' --numstat -)"
+if [ "$(echo "$prodl" | cut -d' ' -f1,2)" = 'small reviewer-alt' ] && echo "$prodl" | grep -q worker-model; then
+  ok production-call-reads-the-model-table
+else
+  echo "FAIL production-call-reads-the-model-table: want 'small reviewer-alt' with worker-model, got '$prodl'" >&2; mrc=1
+fi
+[ "$mrc" -eq 0 ] || exit 1
 [ "$(tier 'refactor(x): extract row' L1 '300\t100\tui/src/a.tsx\n80\t0\tui/src/a.dom.test.tsx\n')" = "small reviewer" ] && ok small-extract || bad small-extract
 [ "$(tier 'feat(design): theme' F3 '100\t10\tui/src/x.tsx\n')" = "large reviewer-alt" ] && ok foundation-large || bad foundation-large
 [ "$(tier 'refactor: x' T1 '20\t10\tui/src/a.tsx\n' 2)" = "large reviewer-alt" ] && ok rework2-large || bad rework2-large
