@@ -1,32 +1,31 @@
 # KIN-MOBILE-001 证据：RN 客户端的代码复核与历史模拟器画面
 
-**结论：本轮有两张 390 截图（列表 10:55、对话 11:08，文件时间均晚于基线
-`6cd5f5cd` 的 10:11），显示项目记录标题与 GFM 表格已按修复后的样子绘制；820 未
-重拍，完整四面对走查按内存门槛跳过。`6cd5f5cd` 已包含 D1 表格、D2 用量降级、
-项目标题和键盘避让的修复；对应回归与类型检查通过。下方八张历史图仍是
-`14918d30` 的记录，不能证明当前 820 画面或真机表现。**
+**结论：2026-11-28 本轮有 9 张当前画面：390 五张（列表、对话、审批、用量亮色，
+对话暗色），820 四张（列表、对话的亮色与暗色）。820 亮色对话显示 `[seed] reading`
+的长回答与五行 GFM 表格（`Surface` / `Before` / `After` 可见，`Owner` 列在横向
+滚动区）；820 暗色对话确为暗色主题。820 列表暗色同时暴露一处未修缺陷：左侧列表
+已暗、右侧空阅读栏仍是亮色（见 §已知 D4）。未拍的格子见 §截图的缺口行。下方
+2026-11-26 与 `14918d30` 的表仍是历史，不证明当前画面或真机表现。**
 
 ## 这次运行
 
 | 项 | 值 |
 |---|---|
-| 日期 | 2026-11-26（证据刷新；历史截图也在同日拍摄） |
-| 复核提交 | `6cd5f5cd`（本轮开始时的 `origin/main`，也是分支基线） |
-| 方式 | Phase B：复核代码与测试，并保存两张 390 截图；未启动 Metro 或节点，未操作 `:7777` 或节点状态目录 |
-| 内存门槛 | `vm_stat`：每页 16384 bytes，`Pages free: 4421`，约 69 MiB，低于 4 GB；`vm.swapusage`：total 8192.00M / used 7200.50M / free 991.50M |
-| 模拟器条件 | `xcrun simctl list devices available` 有 iOS 27.2；内存门槛已触发，未进行完整四面对走查；390 的两张当前画面见 §截图 |
-| 新截图 | 390 列表（10:55）与 390 对话（11:08）各一张；820 未拍，不以测试通过代替视觉验收 |
-| 本轮截图目录 | `rsi/state/shots/rn-evidence-refresh/`（本地，不入库；`390-list.png`、`390-conversation.png`） |
-| 历史截图提交 | `14918d30`；此后 main 已合入下方「已修」的改动 |
-| 历史设备 | iPhone 17e，390×844 逻辑，截图 1170×2532；iPad Air 11-inch (M4)，820×1180 逻辑，截图 1640×2360 |
-| 历史环境 | iOS 27.2 (24B8117)，Expo Go 58.0.7，Expo 58.0.26；Metro 离线运行在 8081 |
-| 历史节点与种子 | 一次性 `kin serve --port 50346`，临时状态目录；`scripts/journeys_seed.py` 记录 `created 24, existing 0, skipped 1`；非本轮重跑结果 |
-| 历史阅读夹具 | `[seed] reading`：长回答 + 5 行 GFM 表格，来源 `scripts/journeys_fake_agent/claude:308` |
-| 历史配对 | 一次性 secret 链接 `http://127.0.0.1:50346/pair?token=<secret>&pairing=1`；`src/auth/pairingLink.ts:82` 区分 secret 与 device token |
-| 历史截图目录 | `rsi/state/shots/rn-sim-evidence/`（本地，不入库；本轮未复查这些历史图像文件） |
+| 日期 | 2026-11-28（主机日期；模拟器系统时钟为美东 2026-11-27 16:17–16:56） |
+| 复核提交 | `cc9c2d78`（`rsi/rn-evidence-capture` 分支 HEAD；本文件是紧随其后的仅文档提交） |
+| 方式 | Expo Go + Metro 离线（8081）；一次性 `kin serve --port 58028`（`mktemp -d` 状态目录）；`scripts/journeys_seed.py` 以 fake agent 在 `PATH` 首位运行；Maestro 驱动配对与点击；未启动或读取 `:7777`、`~/.kin` |
+| 内存门槛 | 可用约 6367 MiB（`vm_stat` 的 free + speculative + inactive），swap free 1261.81 MiB，`rsi/state/.land.lock` 不存在；满足 ≥4096 MB 与 ≥512 MB |
+| 设备 | iPhone 17e（390×844 逻辑，截图 1170×2532）与 iPad Air 11-inch (M4)（820×1180 逻辑，截图 1640×2360），iOS 27.2；一次只启动一台 |
+| Expo Go | 58.0.7（`~/.expo/ios-simulator-app-cache/Expo-Go-58.0.7.tar.app`），Expo SDK 58 |
+| 一次性节点与种子 | `kin serve --port 58028`；种子记录 `created 24, existing 0, skipped 1`；另经 `POST /api/tasks` 建了一条 `[seed] reading`（201，`succeeded`），因为标准种子脚本不建这条阅读夹具 |
+| 配对 | `POST /api/pairing/sessions` 铸一次性 secret；链接 `http://127.0.0.1:58028/pair?token=<secret>` 由 Maestro 输入，secret 不入图、不入库 |
+| 本轮截图目录 | `rsi/state/shots/rn-evidence-capture/`（本地，不入库；9 张 PNG） |
+| 390 五张的来源 | 同日早些时候的上一次尝试（模拟器时钟 16:17–16:24）；本次逐张复看像素、外观与画面 |
+| 历史截图 | 2026-11-26 两张在 `rsi/state/shots/rn-evidence-refresh/`；`14918d30` 八张在 `rsi/state/shots/rn-sim-evidence/`，均不作当前证据 |
 
-以下命令在本分支 `mobile-rn/` 执行，均退出 0。`--no-install` 使用已有依赖，Jest
-串行运行，避免与其他 lane 争抢 worker。测试名称与代码锚点见「已修」和「已知」。
+以下命令来自 2026-11-26 的基线复核，不是本次 820 走查的重跑结果；本行不改产品
+代码，只更新证据文档与截图。`--no-install` 使用已有依赖，Jest 串行运行，避免与
+其他 lane 争抢 worker。测试名称与代码锚点见「已修」和「已知」。
 
 ```bash
 npx --no-install jest src/screens/ConversationView.table.test.tsx --ci --runInBand
@@ -49,21 +48,41 @@ npx --no-install jest --ci --runInBand
 ```
 
 全量 Jest 在断言通过后打印 `Jest did not exit one second after the test run has completed.`，
-随后自行退出 0；本轮未定位未停止的异步操作，不把它记作已解决。
+随后自行退出 0；那一轮未定位未停止的异步操作，不把它记作已解决。
 
 ## 截图
 
-### 本轮 390 画面（2026-11-26，基线 `6cd5f5cd` 之后）
+### 本轮 390 / 820 画面（2026-11-28，`cc9c2d78`）
+
+| 面 | 设备 | 外观 | 提交 | 文件（仓库相对路径） | 像素 宽×高 | 当前判定 |
+|---|---|---|---|---|---|---|
+| 列表 | 390 | 亮 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/390-list-light.png` | 1170×2532 | 设备 → 项目 → 对话行；`[seed] Project Beta/Alpha/Gamma` 记录名与待输入 / 失败 / 已完成状态可见 |
+| 对话 | 390 | 亮 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/390-conversation-light.png` | 1170×2532 | `[seed] Phone review`：用户气泡、工具行与 `[seed] reading` 长回答；表格在首屏下方，本图未含表格 |
+| 审批 | 390 | 亮 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/390-approvals-light.png` | 1170×2532 | 需要权限 · Bash · `git status --short` · 批准 / 拒绝；同屏有 fake agent 的 `process exited without result` 失败行 |
+| 用量 | 390 | 亮 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/390-usage-light.png` | 1170×2532 | 本周 / 30 天 / 90 天；`$0.0029`、Token 343、对话 11；provider 列表降级为一行说明，数字保留 |
+| 对话 | 390 | 暗 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/390-conversation-dark.png` | 1170×2532 | 暗色主题；`[seed] Phone review` 与同一条 `[seed] reading` 长回答；表格在首屏下方 |
+| 列表 | 820 | 亮 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/820-list-light.png` | 1640×2360 | 左侧设备 → 项目 → 对话列表，右侧「在左侧选一条对话，在这里阅读。」 |
+| 对话 | 820 | 亮 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/820-conversation-light.png` | 1640×2360 | `[seed] reading` 长回答与五行 GFM 表格；末行句子 `Final row: … must be fully readable at the bottom of the pane.` 可见 |
+| 列表 | 820 | 暗 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/820-list-dark.png` | 1640×2360 | 左侧列表暗色；右侧空阅读栏仍是亮色（缺陷 D4，见 §已知） |
+| 对话 | 820 | 暗 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/820-conversation-dark.png` | 1640×2360 | 暗色主题；同一条 `[seed] reading` 长回答与五行表格，末行句子可见 |
+
+**未拍与原因：** 820 的审批与用量、390 的列表 / 审批 / 用量暗色本轮未拍；时间
+优先给了最低集合里的「820 阅读态表格 + 亮暗两种外观」。1100 宽度属于 Web 控制台，
+不在 RN 客户端此行范围。820 配对沿用模拟器里已有的设备会话（旧节点已失效，列表
+先报「对话列表读不出来」），本轮用 `exp://127.0.0.1:8081/--/pair` 深链回到配对页
+后重新配对；这是方法，不是缺口。
+
+### 上一轮 390 画面（2026-11-26，基线 `6cd5f5cd` 之后；历史）
 
 | 面 | 设备 | 文件 | 文件时间 | 当前判定 |
 |---|---|---|---|---|
 | 列表 | 390 | `rsi/state/shots/rn-evidence-refresh/390-list.png` | 10:55 | D3 的修复可见：标题为 `[seed] Project Beta` / `[seed] Project Alpha` / `[seed] Project Gamma`，不再是目录名；未认领的 `reading-cwd` 仍按目录名回退 |
 | 对话 | 390 | `rsi/state/shots/rn-evidence-refresh/390-conversation.png` | 11:08 | D1 的修复可见：`Surface` / `Before` 表头与行边框按单元格绘制，右侧列在 390 下横向滚动；长回答与 5 行表格仍是同一条 `[seed] reading` 夹具 |
 
-这两张只覆盖 390 的列表与对话，不是完整四面对走查：820 未重拍，审批与用量本轮
+这两张只覆盖 390 的列表与对话，不是完整四面对走查：820 未重拍，审批与用量那一轮
 没有新画面。它们证明 390 上 D1/D3 的渲染，不证明 820、真机表现或玻璃体感。
 
-**历史截图表：以下均拍摄于 `14918d30`（目录 `rsi/state/shots/rn-sim-evidence/`，与本轮两张同名不同目录），判定仅描述当时记录；不是 `6cd5f5cd` 的视觉验收。**
+**历史截图表：以下均拍摄于 `14918d30`（目录 `rsi/state/shots/rn-sim-evidence/`，与 2026-11-26 的两张同名不同目录），判定仅描述当时记录；不是 `6cd5f5cd` 的视觉验收。**
 
 | 面 | 设备 | 文件 | 当时判定 | 当时画面 |
 |---|---|---|---|---|
@@ -76,8 +95,9 @@ npx --no-install jest --ci --runInBand
 | 审批 | 820 | `820-approvals.png` | 历史通过 | 左侧列表 + 右侧待批卡片（批准 · 拒绝） |
 | 用量 | 820 | `820-usage.png` | 历史缺陷 D2 | 左侧列表 + 右侧用量 sheet，同样「链接无效或已被拒绝」 |
 
-原记录里的 820 会话图是长回答与 5 行表格的阅读态。820 下一次重拍仍须使用这条夹具，
-不能用空白分栏或占位页代替；本轮只对 390 的表格布局作了视觉判断，820 未拍。
+原记录里的 820 会话图是长回答与 5 行表格的阅读态，不能用空白分栏或占位页代替；
+2026-11-28 的 820 亮色对话已按这条夹具重拍（见上表），那一轮（2026-11-26）只对
+390 的表格布局作了视觉判断，820 未拍。
 
 ## 缺陷
 
@@ -92,21 +112,24 @@ npx --no-install jest --ci --runInBand
   都由它绘制），`:433` 将消息交给它；不是复制 DOM 侧 markdown 组件。
 - 回归：`mobile-rn/src/screens/ConversationView.table.test.tsx:89`，
   `KIN-MOBILE-001 R4: an agent answer draws its table and the paragraphs around it`。
-  本轮该套件 3 项通过，覆盖消息表格、邻接工具/meta 行及含竖线的错误文本。
-- 边界：代码与回归已核对；390 已重拍（`390-conversation.png`，11:08，表格按
-  单元格绘制，右侧列横向滚动），820 当前画面未重拍。
+  那一轮该套件 3 项通过，覆盖消息表格、邻接工具/meta 行及含竖线的错误文本。
+- 边界：代码与回归已核对；390 与 820 都已重拍（2026-11-28），820 亮色图显示
+  同一条长回答与五行表格按单元格绘制、`Owner` 列在横向滚动区；仍是模拟器，不是
+  真机。
 
 #### D2 用量 sheet 在配对设备上整张失败
 
 - 历史症状：两张用量图都显示「链接无效或已被拒绝 · 重试」。原走查记录是 device
-  请求 providers 为 403、usage 为 200，master 两项均为 200；本轮未重新请求这些端点。
+  请求 providers 为 403、usage 为 200，master 两项均为 200；那一轮未重新请求这些端点。
 - 已合入：#746，`5bee6ad6`。`mobile-rn/src/providers/providersModel.ts:229`
   在用量成功、provider 列表失败且不是 token 过期时，只降级 provider 区块，保留数字。
   `/api/providers` 仍是 operator-only（`internal/api/api.go:528`），没有放宽权限。
 - 回归：`mobile-rn/src/providers/providersModel.test.ts:493`，
   `KIN-MOBILE-001 R6: a rejected provider list keeps the usage numbers (device token)`。
-  本轮该用例通过；断言 ready、保留用量、没有整张错误，并带 provider 局部错误。
-- 边界：本轮证明的是模型的 403/200 降级行为，没有新的设备配对或 sheet 截图。
+  那一轮该用例通过；断言 ready、保留用量、没有整张错误，并带 provider 局部错误。
+- 边界：模型层的 403/200 降级由回归证明；2026-11-28 的 390 用量图（16:24，
+  配对设备）显示同一降级的画面：数字保留，只多一行「这台设备读不到 provider
+  列表；用量数字不受影响」。820 用量未拍。
 
 #### D3 列表项目标题只取工作目录名
 
@@ -116,19 +139,24 @@ npx --no-install jest --ci --runInBand
   交给共享分组；有记录的项目按记录命名，多 root 归一组，未认领目录仍显示目录名。
 - 回归：`mobile-rn/src/list/listModel.test.ts:716`，
   `KIN-MOBILE-001 R3: a project record names the heading and all its roots file under it`。
-  本轮该用例通过；390 列表已重拍（`390-list.png`，10:55，标题为 `[seed] Project …`
-  记录名），820 列表当前画面未重拍。
+  该用例在 2026-11-26 通过；2026-11-28 的 390 与 820 列表图都显示记录名
+  `[seed] Project …`（820 列表见 §截图 的 `820-list-light.png`）。
 
 ## 已知（不要再报）
 
+- **D4 · 820 空阅读栏在暗色下仍是亮色（2026-11-28 发现，未修）。** 证据：
+  `rsi/state/shots/rn-evidence-capture/820-list-dark.png`（iPad Air 11-inch (M4)，
+  暗色）。左侧列表已暗，右侧「在左侧选一条对话，在这里阅读。」的空栏保持亮色
+  背景与深色文字；亮 → 暗切换后复现，排除单次重绘。选中一条对话后右侧阅读栏在
+  暗色下正常（`820-conversation-dark.png`）。本行只记录，不改产品代码。
 - **键盘避让代码已落地，真机未验。** #733，`445dffab`；
   `mobile-rn/src/screens/ConversationView.tsx:772` 用 `KeyboardAvoidingView` 包住正文与
   composer。`mobile-rn/src/screens/Conversation.safearea.test.tsx:98` 的
-  `KIN-MOBILE-001 R4: the composer sits above the keyboard` 本轮通过，所在套件 3 项通过。
+  `KIN-MOBILE-001 R4: the composer sits above the keyboard` 复核时通过，所在套件 3 项通过。
   这证明组件配置，不证明真机键盘动画、遮挡或玻璃 blur 体感；这些仍需人验，不记作 done。
 - 推送注册尚未接入；`mobile-rn/package.json` 没有 `expo-notifications`，
   `mobile-rn/src/push/route.ts` 是点开通知后的路由逻辑，不是注册与投递的真机证据。
-- **玻璃层已接入本轮基线之后。** `mobile-rn/package.json:15` 有 `"expo-blur": "58.0.6"`；
+- **玻璃层已接入 2026-11-26 基线之后。** `mobile-rn/package.json:15` 有 `"expo-blur": "58.0.6"`；
   `mobile-rn/src/native/GlassSurface.tsx:26` 从 `expo-blur` 引入 `BlurView`，`:77-90` 渲染该面
   （`glass.test.ts:16` 钉住普通手机走 blur，不是平白卡片）。两处调用点都用它：
   用量 **sheet** 在 `mobile-rn/src/screens/ProviderUsageSheet.tsx:176`（#768，`f80acc50`），
@@ -136,13 +164,13 @@ npx --no-install jest --ci --runInBand
   `ProviderUsageSheet.glass.test.tsx:159`、`Conversation.glass.test.tsx:162`。
   这证明代码与测试，不证明真机玻璃 blur 的手感——真机体感仍未验，不记作 done。
 - `2026-11-27 · 复核：玻璃层已落地（#768 用量 sheet、#785 对话头部）；真机体感仍未验。`
-- 扫码未实现；`mobile-rn/app/pair.tsx` 当前配对表单只有链接输入与提交，本轮没有扫码验收。
+- 扫码未实现；`mobile-rn/app/pair.tsx` 当前配对表单只有链接输入与提交，当时没有扫码验收。
 - 手机上还没有「新建对话」入口；`docs/product/stories/KIN-MOBILE-001.md` §2
-  的空态行与 §「变更记录」将该入口留给另立的 start 故事，不把本轮列表图当入口交付。
+  的空态行与 §「变更记录」将该入口留给另立的 start 故事，不把列表图当入口交付。
 
 ## 运行经验（给下一个人）
 
-- **先量内存再决定是否启动模拟器。** 本轮空闲约 69 MiB，swap 已用 7200.50M，
+- **先量内存再决定是否启动模拟器。** 2026-11-26 那一轮空闲约 69 MiB，swap 已用 7200.50M，
   完整四面对走查跳过，只保存了 390 的两张当前画面；820 未重拍，保留历史日期、
   提交和判定，测试通过不改写旧图。
 - 按 `README.md` 一次只走一个设备：先 iPhone 17e 390×844，关闭后再走
@@ -156,4 +184,10 @@ npx --no-install jest --ci --runInBand
   单行框会横向滚动，尾部可见不表示整串缺失；用 `maestro hierarchy` 的 `value` 核对。
   Enter 的代码入口是 `mobile-rn/app/pair.tsx` 的 `onSubmitEditing`。
 - 「用量」的可访问名是「打开用量详情」，文本选择器匹配完整串，或用
-  testID `conversation:usage`。本轮没有新的交互经验。
+  testID `conversation:usage`。
+- 2026-11-28 的新经验：配对框上方的提示文字与输入框共享可访问名
+  「粘贴节点打印的链接」，按文本点会点到提示而不是输入框；用只属于输入框的占位符
+  「粘贴配对链接」定位。已有设备会话指向已删的一次性节点时，列表只显示
+  「对话列表读不出来 · 重试」，不会自动回配对页；用
+  `xcrun simctl openurl booted "exp://127.0.0.1:8081/--/pair"` 深链过去。
+  820 空阅读栏的暗色缺陷见 §已知 D4，不是截图错误。
