@@ -20,6 +20,8 @@ Exit codes: 2 a whitespace-joined --paths argument splits into a non-path token,
 3 overlap/busy, 4 no such lane or lane busy, 5 bad paths, 6 missing brief,
 7 UX gate, 8 host pressure, 9 item already merged (pass --redeliver or use a new id),
 10 the last usable lane is reserved for an unclaimed rework.
+An unknown subcommand exits 2 and names the command that withdraws a claim (`finish N --status
+cancelled`); a mistyped command never reads or writes state.
 `facts` exits 0 whenever the block prints, and 2 only when $STATE itself cannot be read (then
 every value is `unknown`).
 """
@@ -153,16 +155,25 @@ IGNORED = {"web/dist/index.html"}
 TOO_BROAD = {".", "", "*", "**", "ui", "ui/src", "internal", "web", "docs", "scripts", "desktop", "mobile", "cmd"}
 CDIR = os.path.join(STATE, "cloud")          # slices handed to external (cloud) agents: claims keep local lanes off their paths
 CLOUD_TTL = int(os.environ.get("RSI_CLOUD_TTL_MIN", "180")) * 60
-try:
-    os.makedirs(os.path.join(LDIR, "history"), exist_ok=True); os.makedirs(os.path.join(CDIR, "expired"), exist_ok=True)
-except OSError:
-    # `facts` must report an unreadable state dir as `state=unknown` (exit 2) instead of dying at
-    # import; every other subcommand keeps crashing here exactly as before.
-    if sys.argv[1:2] != ["facts"]:
-        raise
-# Lanes above MAX_LANES that are still running (after the limit was lowered) stay visible so claims/merge-lane see them.
-_ex = [int(os.path.basename(f)[:-5]) for f in glob.glob(os.path.join(LDIR, "[0-9]*.json"))]
-ALL_LANES = max([MAX_LANES] + _ex)
+ALL_LANES = MAX_LANES
+
+def init_state():
+    """Create the state subtrees and size the lane table from existing records.
+
+    Called only after the unknown-subcommand guard: a mistyped command must not read,
+    write or create anything under $STATE.
+    """
+    global ALL_LANES
+    try:
+        os.makedirs(os.path.join(LDIR, "history"), exist_ok=True); os.makedirs(os.path.join(CDIR, "expired"), exist_ok=True)
+    except OSError:
+        # `facts` must report an unreadable state dir as `state=unknown` (exit 2) instead of dying
+        # here; every other subcommand keeps crashing on the same OSError, exactly as before.
+        if sys.argv[1:2] != ["facts"]:
+            raise
+    # Lanes above MAX_LANES that are still running (after the limit was lowered) stay visible so claims/merge-lane see them.
+    _ex = [int(os.path.basename(f)[:-5]) for f in glob.glob(os.path.join(LDIR, "[0-9]*.json"))]
+    ALL_LANES = max([MAX_LANES] + _ex)
 
 
 class Lock:
@@ -713,4 +724,19 @@ sub.add_parser("cloud-list").set_defaults(f=cmd_cloud_list)
 g = sub.add_parser("get"); g.add_argument("lane", type=int); g.set_defaults(f=cmd_get)
 s = sub.add_parser("start"); s.add_argument("lane", type=int); s.add_argument("pid", type=int); s.set_defaults(f=cmd_start)
 f = sub.add_parser("finish"); f.add_argument("lane", type=int); f.add_argument("--status", required=True); f.add_argument("--pr", default=""); f.add_argument("--note", default=""); f.set_defaults(f=cmd_finish)
+# A claim is withdrawn by finishing the lane with a status other than claimed/running, and the
+# line below spells that command out. Ledgers written since 2026-11-27 17:19 record
+# `release <lane>` — a subcommand that never existed — so argparse's choice list, which does
+# contain `finish`, taught the reader nothing. An unknown word gets the working command on
+# stderr, before state is initialised, read or written. No `release` alias: it would let the
+# next ledger record the wrong command again. --help (any leading "-") and every real
+# subcommand still go through argparse exactly as before. The guard keys on being run as a
+# program: test-lanes-history.sh loads this file with runpy and a stubbed parse_args to call a
+# helper in place, and there argv[1] is the script path.
+if __name__ == "__main__" and len(sys.argv) > 1 and not sys.argv[1].startswith("-") and sys.argv[1] not in sub.choices:
+    sys.stderr.write("lanes.py: unknown subcommand: %s\n" % sys.argv[1])
+    sys.stderr.write('  withdraw a claim: lanes.py finish <lane> --status cancelled --note "<why>"\n')
+    sys.stderr.write("  subcommands: %s\n" % ", ".join(sorted(sub.choices)))
+    sys.exit(2)
+init_state()
 a = p.parse_args(); a.f(a)

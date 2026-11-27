@@ -39,6 +39,12 @@ run_facts() {
   rc=$?; O="$(cat "$T/out")"; E="$(cat "$T/err")"
 }
 field() { sed -n "s/^$1=//p" <<<"$O"; }
+# run_lanes <state> <args...> — any lanes.py invocation against a caller-owned state dir.
+run_lanes() {
+  local st="$1"; shift
+  RSI_STATE="$st" RSI_RUNS="$T/runs" python3 "$RUNTIME/lanes.py" "$@" >"$T/out" 2>"$T/err"
+  rc=$?; O="$(cat "$T/out")"; E="$(cat "$T/err")"
+}
 want() {
   local k="$1" v="$2" got
   got="$(field "$k")"
@@ -181,6 +187,95 @@ if run_case unknown-state; then
     want "$k" unknown
   done
   ok unknown-state
+fi
+
+# --- unknown-subcommand-names-the-withdrawal -------------------------------------------------
+# The ledgers written since 2026-11-27 17:19 record `lanes.py release <lane>` to undo a
+# claim, and no such subcommand has ever existed. The error path must name the command that
+# actually withdraws a claim, verbatim, so the reader of the ledger is not left with argparse's
+# bare choices list.
+if run_case unknown-subcommand-names-the-withdrawal; then
+  CASE=unknown-subcommand-names-the-withdrawal; ST="$T/unknown"; mkdir -p "$ST"
+  run_lanes "$ST" release 2
+  [ "$rc" -eq 2 ] || bad "$CASE: expected exit 2, got $rc ($O / $E)"
+  grep -q 'unknown subcommand' <<<"$E" \
+    || bad "$CASE: stderr does not say 'unknown subcommand' (err: $E)"
+  grep -q 'release' <<<"$E" || bad "$CASE: stderr does not name the typed subcommand (err: $E)"
+  grep -qF 'lanes.py finish <lane> --status cancelled --note "<why>"' <<<"$E" \
+    || bad "$CASE: stderr lacks the withdrawal command (err: $E)"
+  ok "$CASE"
+fi
+
+# --- unknown-subcommand-has-no-side-effect ---------------------------------------------------
+# A mistyped command is a read-only dead end: the hint is written to stderr before anything
+# touches $RSI_STATE, so an empty state dir stays empty.
+if run_case unknown-subcommand-has-no-side-effect; then
+  CASE=unknown-subcommand-has-no-side-effect; ST="$T/unknown-side-effect"; mkdir -p "$ST"
+  run_lanes "$ST" release 2
+  [ "$rc" -eq 2 ] || bad "$CASE: expected exit 2, got $rc ($O / $E)"
+  for d in lanes cloud sendback; do
+    [ ! -e "$ST/$d" ] || bad "$CASE: mistyped command created $d/ ($(ls -A "$ST"))"
+  done
+  [ -z "$(ls -A "$ST")" ] || bad "$CASE: state dir gained entries ($(ls -A "$ST"))"
+  ok "$CASE"
+fi
+
+# --- known-subcommands-unchanged -------------------------------------------------------------
+# --help and a real subcommand keep argparse's behaviour: no hint on the error path, and the
+# facts block is byte-identical to the empty case.
+if run_case known-subcommands-unchanged; then
+  CASE=known-subcommands-unchanged; ST="$T/known-unchanged"; mkdir -p "$ST"
+  run_lanes "$ST" --help
+  [ "$rc" -eq 0 ] || bad "$CASE: --help expected exit 0, got $rc ($O / $E)"
+  case "$E" in
+    *"withdraw a claim:"*) bad "$CASE: --help printed the unknown-subcommand hint (err: $E)" ;;
+  esac
+  run_lanes "$ST" facts --now "$NOW"
+  [ "$rc" -eq 0 ] || bad "$CASE: facts expected exit 0, got $rc ($O / $E)"
+  [ -z "$E" ] || bad "$CASE: facts wrote to stderr ($E)"
+  expected="now=2026-11-20T10:00:00+08:00
+state=ok
+sendback_pending=0
+sendback=none
+lanes_active=0
+lanes=none
+cloud_claims=0
+cloud=none
+merged_today=0
+merged_last=none"
+  [ "$O" = "$expected" ] || bad "$CASE: facts block differs (got: $O)"
+  ok "$CASE"
+fi
+
+# --- in-place-runpy-load-does-not-trip-the-guard ---------------------------------------------
+# test-lanes-history.sh loads this file with runpy and a stubbed parse_args so it can call a
+# helper in place; there argv[1] is the script path, not a subcommand. The guard keys on being
+# run as a program, so that load must exit 0 and print nothing instead of the unknown-subcommand
+# error.
+if run_case in-place-runpy-load-does-not-trip-the-guard; then
+  CASE=in-place-runpy-load-does-not-trip-the-guard; ST="$T/inplace"; mkdir -p "$ST"
+  RSI_STATE="$ST" python3 - "$RUNTIME/lanes.py" demo 20260101-000000 >"$T/out" 2>"$T/err" <<'PY'
+import argparse, runpy, sys
+path = sys.argv[1]
+class _Noop:
+    def f(self, _a): pass
+argparse.ArgumentParser.parse_args = lambda self, *a, **k: _Noop()
+runpy.run_path(path, run_name="lanes")
+PY
+  rc=$?
+  [ "$rc" -eq 0 ] || bad "$CASE: runpy load exited $rc ($(cat "$T/err"))"
+  if [ -s "$T/err" ]; then bad "$CASE: runpy load wrote to stderr ($(cat "$T/err"))"; fi
+  ok "$CASE"
+fi
+
+# --- no-arguments-still-exits-2 --------------------------------------------------------------
+# Argparse's required-subparser behaviour is untouched: no subcommand is still usage error 2,
+# and the hint is not printed for a call that names no subcommand at all.
+if run_case no-arguments-still-exits-2; then
+  CASE=no-arguments-still-exits-2; ST="$T/no-args"; mkdir -p "$ST"
+  run_lanes "$ST"
+  [ "$rc" -eq 2 ] || bad "$CASE: expected exit 2, got $rc ($O / $E)"
+  ok "$CASE"
 fi
 
 echo "all cases passed"
