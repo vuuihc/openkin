@@ -6,7 +6,7 @@
  * exception to "draws only the model's state": the draft is the person's own
  * text, so it lives here until Send hands it to the model — and the model, not
  * this view, owns `running`, `sendQueue` and `banner`. The pending approvals
- * and questions of *this* task may mount above the transcript through
+ * and questions of *this* task may dock above the composer through
  * `approvals`, already scoped by the container.
  *
  * The turn shapes are the shared projection's (`ChatItem`, `Turn` from
@@ -1004,11 +1004,6 @@ export default function ConversationView({
           ) : null}
         </View>
       ) : null}
-      {showApprovals && approvals ? (
-        // Above the turns: this is what the next turn is waiting on. The
-        // section is scroller-free, so it lives in the list header.
-        <ApprovalsSection {...approvals} embedded />
-      ) : null}
     </>
   );
   // DESIGN.md:47 — a pending 批准 already owns the screen's one filled
@@ -1133,6 +1128,16 @@ export default function ConversationView({
         style={styles.scroller}
         testID="conversation:turns"
       />
+      {showApprovals && approvals ? (
+        // What the next turn waits on stays in reach at every scroll position,
+        // docked above the composer the way the composer is docked above the
+        // home indicator (TASTE §18, DESIGN.md:39). Outside the `onSend`
+        // guard: a thread that failed to load has no composer, and the card
+        // that blocks the turn must still be here.
+        <View style={styles.approvalDock} testID="conversation:approvalDock">
+          <ApprovalsSection {...approvals} embedded />
+        </View>
+      ) : null}
       {onSend ? (
         // A sibling of the scroller, not a row inside it: the composer is
         // reachable at every scroll position. The dock owns the home-indicator
@@ -1175,6 +1180,16 @@ const makeStyles = (
   colors: Palette,
   glassColor: string = "transparent",
 ) => StyleSheet.create({
+  /**
+   * The docked approval band: the capsule's inset, no colours of its own. The
+   * cards already carry their own surface, and three pending cards may take
+   * more of the screen — the turn is blocked, so the room is theirs.
+   */
+  approvalDock: {
+    gap: 12,
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
   back: {
     alignItems: "center",
     borderRadius: 8,

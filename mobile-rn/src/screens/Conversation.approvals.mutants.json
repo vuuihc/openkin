@@ -1,10 +1,10 @@
 [
   {
-    "label": "the conversation keeps every node-wide card, so another task's approval mounts above this transcript (R-rn-approvals-mount)",
+    "label": "the conversation keeps every node-wide card, so another task's approval docks above this composer (R-rn-approvals-mount)",
     "file": "mobile-rn/src/approvals/approvalsModel.ts",
     "old": "      ? entry.approval.task_id === taskId\n      : entry.question.task_id === taskId,",
     "new": "      ? true\n      : true,",
-    "test": "cd mobile-rn && npx jest src/screens/Conversation.approvals.test.tsx -t \"KIN-MOBILE-001 R5: only this conversation's pending cards mount above the transcript\""
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.approvals.test.tsx -t \"KIN-MOBILE-002 R5d: the pending card docks above the composer, not in the transcript\""
   },
   {
     "label": "the conversation's approve button sends a denial, so the card reports the wrong decision (R-rn-approvals-mount)",
@@ -26,5 +26,19 @@
     "old": "              void thread.resume();\n              // R8: a decision settled on another device is gone from the\n              // node's pending lists, so the return re-reads them beside the\n              // stream — one read per edge, no poll. The model drops a late\n              // answer from a list this screen no longer owns (AGENTS.md §11),\n              // and a failed read keeps the cards already drawn.\n              void approvalsRef.current?.load();",
     "new": "              void thread.resume();",
     "test": "cd mobile-rn && npx jest src/screens/Conversation.approvals.test.tsx -t \"KIN-MOBILE-001 R5: a decision settled on another device is gone after the app returns to the foreground\""
+  },
+  {
+    "label": "the pending card leaves the dock, so a reader deep in the transcript cannot see what blocks the turn (R-rn-approval-dock)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      {showApprovals && approvals ? (\n        // What the next turn waits on stays in reach at every scroll position,\n        // docked above the composer the way the composer is docked above the\n        // home indicator (TASTE §18, DESIGN.md:39). Outside the `onSend`\n        // guard: a thread that failed to load has no composer, and the card\n        // that blocks the turn must still be here.\n        <View style={styles.approvalDock} testID=\"conversation:approvalDock\">\n          <ApprovalsSection {...approvals} embedded />\n        </View>\n      ) : null}\n",
+    "new": "",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.approvals.test.tsx -t \"KIN-MOBILE-002 R5d: the pending card docks above the composer, not in the transcript\""
+  },
+  {
+    "label": "the dock hides whenever the composer is absent, so a thread that failed to load loses the card that blocks the turn (R-rn-approval-dock)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "      {showApprovals && approvals ? (",
+    "new": "      {onSend && showApprovals && approvals ? (",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.approvals.test.tsx -t \"KIN-MOBILE-002 R5d: a conversation without a composer still docks the card\""
   }
 ]

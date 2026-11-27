@@ -4,17 +4,26 @@ import {
   fireEvent,
   render,
   waitFor,
+  within,
 } from "@testing-library/react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import type {
   Approval,
   Task,
   TaskEvent,
   UserQuestion,
 } from "../../../ui/src/api/contract";
+import type {
+  ApprovalEntry,
+  ApprovalsState,
+} from "../approvals/approvalsModel";
 import type { Session } from "../auth/tokenStore";
 import { t } from "../i18n";
 import type { AppStateLike, AppStateStatus } from "../native/reconnect";
+import type { ThreadState } from "../thread/threadModel";
+import type { ApprovalsScreenProps } from "./Approvals";
 import ConversationScreen from "./ConversationScreen";
+import ConversationView from "./ConversationView";
 
 /**
  * The section is a function component and this RTL build exposes only host
@@ -123,6 +132,48 @@ function question(id: string, taskId: string, createdAt = 1): UserQuestion {
     payload: { question: "Proceed?", options: [{ label: "Yes" }] },
     status: "pending",
     created_at: createdAt,
+  };
+}
+
+/** The view state a thread read produced, with no turns: the dock needs none. */
+function threadState(): ThreadState {
+  return {
+    taskId: TASK_ID,
+    title: "A conversation",
+    status: "ready",
+    turns: [],
+    running: false,
+    sendQueue: [],
+    banner: null,
+    reason: null,
+  };
+}
+
+/** One pending card, already scoped to this task by the container. */
+function approvalsProps(): ApprovalsScreenProps {
+  const record = approval("a1", TASK_ID, "npm test --workspace api");
+  const entry: ApprovalEntry = {
+    key: "approval:a1",
+    kind: "approval",
+    id: record.id,
+    createdAt: record.created_at,
+    approval: record,
+    phase: "idle",
+    pending: true,
+  };
+  const state: ApprovalsState = {
+    status: "ready",
+    items: [entry],
+    pendingCount: 1,
+    online: true,
+    revision: 1,
+  };
+  return {
+    state,
+    t,
+    onApprove: jest.fn(),
+    onDeny: jest.fn(),
+    onAnswer: jest.fn(),
   };
 }
 
@@ -238,26 +289,12 @@ async function leaveAndReturn(app: {
   });
 }
 
-/** Every string in the rendered tree, in draw order. */
-function textsInOrder(node: unknown, out: string[] = []): string[] {
-  if (typeof node === "string") {
-    out.push(node);
-    return out;
-  }
-  if (!node || typeof node !== "object") return out;
-  const children = (node as { children?: unknown[] }).children;
-  if (Array.isArray(children)) {
-    for (const child of children) textsInOrder(child, out);
-  }
-  return out;
-}
-
 describe("KIN-MOBILE-001 R5 conversation approvals", () => {
   beforeEach(() => {
     mockSectionProps.length = 0;
   });
 
-  it("KIN-MOBILE-001 R5: only this conversation's pending cards mount above the transcript", async () => {
+  it("KIN-MOBILE-002 R5d: the pending card docks above the composer, not in the transcript", async () => {
     const mine = approval("a1", TASK_ID, "npm test --workspace api", 2);
     const other = approval("a-other", "task-other", "rm -rf /tmp/other", 1);
     const { fetchImpl } = routedFetch((url) => {
@@ -273,17 +310,57 @@ describe("KIN-MOBILE-001 R5 conversation approvals", () => {
       expect(screen.getByTestId("card:approval:a1")).toBeTruthy(),
     );
     expect(screen.getByText("npm test --workspace api")).toBeTruthy();
-    expect(screen.getByText(t("inbox.approvalsSection"))).toBeTruthy();
     // The other task's card is not this conversation's business.
     expect(screen.queryByTestId("card:approval:a-other")).toBeNull();
     expect(screen.queryByText("rm -rf /tmp/other")).toBeNull();
 
-    // The card is drawn above the transcript it blocks.
-    const order = textsInOrder(screen.toJSON());
-    expect(order.indexOf(t("inbox.approvalsSection"))).toBeGreaterThanOrEqual(0);
-    expect(order.indexOf(t("inbox.approvalsSection"))).toBeLessThan(
-      order.indexOf("all green"),
+    // What blocks the next turn is a sibling of the scroller, docked above the
+    // composer, so it stays in reach at every scroll position (TASTE §18).
+    const dock = screen.getByTestId("conversation:approvalDock");
+    expect(within(dock).getByTestId("card:approval:a1")).toBeTruthy();
+    // It is not a row of the transcript: scrolling two screens down must not
+    // carry the card the turn is waiting on out of view.
+    expect(
+      within(screen.getByTestId("conversation:turns")).queryByTestId(
+        "card:approval:a1",
+      ),
+    ).toBeNull();
+    // The dock sits before the composer in draw order, so the composer stays
+    // reachable below it.
+    expect(
+      screen
+        .getAllByTestId(/^conversation:(approvalDock|composerDock)$/)
+        .map((node) => node.props.testID),
+    ).toEqual(["conversation:approvalDock", "conversation:composerDock"]);
+  });
+
+  it("KIN-MOBILE-002 R5d: a conversation without a composer still docks the card", async () => {
+    // `ConversationScreen` passes `onSend` only once a thread loaded, so a
+    // failed read leaves no composer. The card that blocks the turn must not
+    // leave with it: the dock is outside that conditional.
+    const screen = await render(
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets: { top: 59, left: 0, right: 0, bottom: 34 },
+        }}
+      >
+        <ConversationView
+          approvals={approvalsProps()}
+          onBack={jest.fn()}
+          state={threadState()}
+          t={t}
+        />
+      </SafeAreaProvider>,
     );
+
+    expect(screen.getByTestId("conversation:approvalDock")).toBeTruthy();
+    expect(
+      within(screen.getByTestId("conversation:approvalDock")).getByTestId(
+        "card:approval:a1",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("conversation:composerDock")).toBeNull();
   });
 
   it("KIN-MOBILE-001 R5: approving from the conversation sends the decision and the card becomes handled", async () => {
