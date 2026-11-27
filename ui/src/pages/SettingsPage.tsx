@@ -460,20 +460,14 @@ export default function SettingsPage() {
   }, [reconnectGen, load]);
 
   // Opening Settings on any other tab must not read /api/agent-providers. The
-  // first activation starts it; coming back keeps the old answer and time.
-  useEffect(() => {
-    if (activeTab !== "agents" || agentProvidersRead.current) return;
-    agentProvidersRead.current = true;
-    void readAgentProviders();
-  }, [activeTab, readAgentProviders]);
-
-  // A reconnect while the tab is open re-reads, like the page's own reload:
-  // the pre-disconnect snapshot must not stay presented as current.
+  // first activation starts it; coming back keeps the old answer and time. A
+  // reconnect while the tab is open re-reads, like the page's own reload.
   const seenProviderReconnect = useRef(reconnectGen);
   useEffect(() => {
-    if (reconnectGen === seenProviderReconnect.current) return;
+    const reconnected = reconnectGen !== seenProviderReconnect.current;
     seenProviderReconnect.current = reconnectGen;
     if (activeTab !== "agents") return;
+    if (!reconnected && agentProvidersRead.current) return;
     agentProvidersRead.current = true;
     void readAgentProviders();
   }, [reconnectGen, activeTab, readAgentProviders]);

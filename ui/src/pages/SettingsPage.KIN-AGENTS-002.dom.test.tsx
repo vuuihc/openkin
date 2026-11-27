@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
-// KIN-AGENTS-002 — 看清安装探测与会话/角色导入的边界（J6）：本套件持有
-// 「打开 tab 才读 provider、只读一次」「迟到的读不覆盖新的」三条页面验收行。
-// Partial: cases 13–16 and 18 (pre-existing import/role flows) are deferred —
-// see the PR body and rsi/state/followups.md.
+// KIN-AGENTS-002 — agents tab 的页面验收：打开 tab 才读、只读一次、迟到不覆盖。
+// Partial: cases 13–16 and 18 are deferred (see the PR body / followups).
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { listAgentProviders, listAgents, type AgentProvider, type Settings } from "../api/client";
 import { setLocale, t } from "../i18n";
 import { resetLeaveGuard } from "../lib/leaveGuard";
@@ -138,11 +136,6 @@ beforeEach(() => {
       disconnect() {}
     },
   );
-});
-
-afterEach(() => {
-  cleanup();
-  vi.restoreAllMocks();
 });
 
 describe("KIN-AGENTS-002 · what opening the agents tab reads", () => {
