@@ -31,10 +31,10 @@ HEAD=0123456789abcdef0123456789abcdef01234567
 HEAD2=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 HEAD3=cccccccccccccccccccccccccccccccccccccccc
 ONLY="${RSI_TEST_ONLY:-}"
-RC=0; OUT=""; CASE=""; ST=""; RPID=""; SEAM_PID=""
+RC=0; OUT=""; CASE=""; ST=""; RPID=""; SEAM_PID=""; CURRENT=""
 
 pass() { echo "PASS $*"; }
-fail() { echo "FAIL $*" >&2; exit 1; }
+fail() { echo "FAIL ${CURRENT:-$CASE}: $*" >&2; exit 1; }
 
 # --- stubs -------------------------------------------------------------------------------------
 cat > "$T/head-stub.sh" <<'SH'
@@ -261,6 +261,7 @@ test_moved_head_marker_is_per_head() {
 
 run() {
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
+  CURRENT="$1"
   "$1" || exit 1
   pass "$1"
 }
