@@ -488,10 +488,15 @@ def wants_high(reasons: list[str]) -> bool:
 
 
 def preference(role: str, reasons: list[str]) -> list[str]:
-    """Strong models in order. Hydrogen-medium first (UX too). Kimi is always last."""
+    """Strong models in order. Codex first for an ordinary strong review; Hydrogen-medium first
+    for UX vision (multimodal) and for the high-stakes class. Kimi is always last."""
+    if (role or "").startswith("ux-"):
+        if wants_high(reasons):
+            return ["hydrogen-high", "hydrogen", "codex", "carbon", "kimi"]
+        return ["hydrogen", "codex", "carbon", "kimi"]
     if wants_high(reasons):
         return ["hydrogen-high", "hydrogen", "codex", "carbon", "kimi"]
-    return ["hydrogen", "codex", "carbon", "kimi"]
+    return ["codex", "hydrogen", "carbon", "kimi"]
 
 
 def _agy_name(name: str) -> bool:
@@ -1119,8 +1124,12 @@ def self_test() -> int:
         assert any(r.get("kind") == "hold" and r.get("outcome") == "hold" for r in recs)
     order = preference("reviewer", ["reviewer-disagreement"])
     assert order[0] == "hydrogen-high" and "codex" in order and order[-1] == "kimi"
+    ordinary = preference("reviewer-alt", ["standing-strong-review"])
+    assert ordinary[0] == "codex" and ordinary[1] == "hydrogen" and ordinary[-1] == "kimi"
     ux = preference("ux-reviewer", ["standing-strong-review"])
-    assert ux[0] == "hydrogen" and ux[1] == "codex"
+    assert ux[0] == "hydrogen" and ux[1] == "codex" and ux[-1] == "kimi"
+    ux_alt = preference("ux-reviewer-alt", ["standing-strong-review"])
+    assert ux_alt[0] == "hydrogen" and ux_alt[-1] == "kimi"
     xh = preference("reviewer-alt", ["astryx-foundation-or-shell:F3"])
     assert xh[0] == "hydrogen-high" and xh[1] == "hydrogen" and xh[2] == "codex"
     arch = preference("director", ["architecture-cross-cutting:ui,internal,desktop"])
