@@ -28,7 +28,8 @@ function row(
   return { id, status, archived_at: archivedAt } as Row;
 }
 
-const pending = (...ids: string[]) => new Map(ids.map((id) => [id, 1]));
+const pending = (...ids: string[]) =>
+  new Map(ids.map((id) => [id, { approvals: 0, questions: 1, total: 1 }]));
 
 describe("normalizeAttentionFilter", () => {
   it("keeps needs and running and reads anything else as all", () => {
@@ -78,7 +79,10 @@ describe("matchesAttention", () => {
 
 describe("attentionCounts", () => {
   it("counts a conversation once when both a pending item and a waiting status point at it", () => {
-    const counts = attentionCounts([row("both", "waiting_approval")], new Map([["both", 3]]));
+    const counts = attentionCounts(
+      [row("both", "waiting_approval")],
+      new Map([["both", { approvals: 0, questions: 3, total: 3 }]]),
+    );
     expect(counts).toEqual({ needsYou: 1, running: 0 });
   });
 
@@ -93,8 +97,8 @@ describe("attentionCounts", () => {
       // The pending half is global: an item counts even when its conversation
       // is on an older page. It is one number per conversation.
       new Map([
-        ["older-pending", 2],
-        ["put-away-pending", 1],
+        ["older-pending", { approvals: 2, questions: 0, total: 2 }],
+        ["put-away-pending", { approvals: 0, questions: 1, total: 1 }],
       ]),
     );
     expect(counts).toEqual({ needsYou: 3, running: 1 });

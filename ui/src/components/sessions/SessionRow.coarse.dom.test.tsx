@@ -50,7 +50,7 @@ function props(overrides: Partial<SessionRowProps> = {}): SessionRowProps {
     query: "",
     now: NOW,
     viewedIds: new Set(),
-    pendingCount: 0,
+    pending: { approvals: 0, questions: 0, total: 0 },
     active: false,
     onOpen: vi.fn(),
     shell: "sidebar",
