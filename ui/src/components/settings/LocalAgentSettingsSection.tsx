@@ -220,8 +220,8 @@ export function LocalAgentSettingsSection({
                 {/* The capability chips are reference detail; on a phone they
                     used to share the row with the name and the import button,
                     which left the agent's name 3 characters wide. They take
-                    their own full-width line below `md`. */}
-                <div className="flex flex-wrap justify-end gap-1 max-md:order-last max-md:w-full max-md:justify-start">
+                    their own full-width line below `lg`. */}
+                <div className="flex flex-wrap justify-end gap-1 max-lg:order-last max-lg:w-full max-lg:justify-start">
                   {capabilityBadge("session_list", tr("settings.localAgents.listCapability"))}
                   {capabilityBadge(
                     "session_history_read",
