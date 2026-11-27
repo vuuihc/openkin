@@ -68,5 +68,40 @@
     "test": "RSI_TEST_ONLY=case_claim_check_retry_body_fixed_mid_handoff bash rsi/runtime/tests/test-lane-claim-check.sh",
     "old": "    claim_body_snapshot \"$CLAIM_BODY_SOURCE\" \"$CLAIM_BODY_SNAPSHOT\" || true",
     "new": "    true"
+  },
+  {
+    "label": "the producer opens the PR without running the claim seam: a false prose body the merge gate would reject becomes a PR (the #828 rework round)",
+    "file": "rsi/runtime/producer-pr.sh",
+    "test": "RSI_TEST_ONLY=case_a_false_prose_claim_never_opens_the_pr bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  out=\"$(bash \"$dir/lane.sh\" --claim-check-check \"$wt\" \"$snap\" 2>&1)\" && rc=0 || rc=$?",
+    "new": "  out=\"CLAIM_LANE_OK: seam skipped\"; rc=0"
+  },
+  {
+    "label": "the producer ignores the seam's exit code and accepts any verdict: CLAIM_LANE_FAIL opens the PR the merge gate then sends back",
+    "file": "rsi/runtime/producer-pr.sh",
+    "test": "RSI_TEST_ONLY=case_a_false_prose_claim_never_opens_the_pr bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  if [ \"$rc\" -ne 0 ] || [ -z \"$verdict\" ]; then\n    rm -rf \"$tmpdir\"\n    printf 'PRODUCER_PR_REFUSED: %s\\n' \"${verdict:-${out:-the claim seam gave no verdict (exit $rc)}}\"\n    return 1\n  fi\n  case \"$verdict\" in\n    CLAIM_LANE_OK:*|CLAIM_LANE_NA:*|CLAIM_LANE_WAIVED:*) ;;\n    *)\n      rm -rf \"$tmpdir\"\n      printf 'PRODUCER_PR_REFUSED: %s\\n' \"$verdict\"\n      return 1\n      ;;\n  esac",
+    "new": "  if [ -z \"$verdict\" ]; then\n    rm -rf \"$tmpdir\"\n    printf 'PRODUCER_PR_REFUSED: %s\\n' \"${out:-the claim seam gave no verdict}\"\n    return 1\n  fi"
+  },
+  {
+    "label": "the producer uploads the mutable source body instead of the private snapshot the seam read: a rewrite during the seam reaches GitHub",
+    "file": "rsi/runtime/producer-pr.sh",
+    "test": "RSI_TEST_ONLY=case_a_body_rewritten_during_the_seam_is_not_the_one_uploaded bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  url=\"$(gh_pr_create \"$repo\" \"$base\" \"$head\" \"$title\" \"$snap\")\" && rc=0 || rc=$?",
+    "new": "  url=\"$(gh_pr_create \"$repo\" \"$base\" \"$head\" \"$title\" \"$body\")\" && rc=0 || rc=$?"
+  },
+  {
+    "label": "the producer stops accepting a code-only NA verdict: a PR that needs no claim check is refused instead of opened",
+    "file": "rsi/runtime/producer-pr.sh",
+    "test": "RSI_TEST_ONLY=case_a_code_only_diff_opens_the_pr_with_no_body_read bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "    CLAIM_LANE_OK:*|CLAIM_LANE_NA:*|CLAIM_LANE_WAIVED:*) ;;",
+    "new": "    CLAIM_LANE_OK:*|CLAIM_LANE_WAIVED:*) ;;"
+  },
+  {
+    "label": "the producer never loads lane-pr.sh, so a transient gh create failure is not retried and the round is lost",
+    "file": "rsi/runtime/producer-pr.sh",
+    "test": "RSI_TEST_ONLY=case_a_transient_gh_create_failure_is_retried_without_duplicating bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  if ! . \"$dir/lane-pr.sh\" 2>/dev/null || ! command -v gh_pr_create >/dev/null 2>&1; then",
+    "new": "  if false; then"
   }
 ]
