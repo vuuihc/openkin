@@ -178,7 +178,9 @@ beforeEach(() => {
   vi.mocked(listAgents).mockReset().mockResolvedValue([]);
   vi.mocked(importAgentSessions).mockReset().mockResolvedValue({ imported: 0, providers: {} });
   vi.mocked(refreshMachines).mockReset().mockResolvedValue([]);
-  vi.mocked(updateSettings).mockReset().mockResolvedValue({ ...baseSettings } as unknown as Settings);
+  vi.mocked(updateSettings)
+    .mockReset()
+    .mockResolvedValue({ ...baseSettings } as unknown as Settings);
   useAppStore.setState({ wsStatus: "connected", reconnectGen: 0, toasts: [] });
   Element.prototype.scrollIntoView = vi.fn();
   Element.prototype.scrollTo = vi.fn();
@@ -310,9 +312,9 @@ describe("KIN-AGENTS-002 · what opening the agents tab reads", () => {
       "node-b",
     ]);
     // "Index my sessions" is not a named provider errand: no agents filter.
-    expect(vi.mocked(importAgentSessions).mock.calls.every(([agents]) => agents === undefined)).toBe(
-      true,
-    );
+    expect(
+      vi.mocked(importAgentSessions).mock.calls.every(([agents]) => agents === undefined),
+    ).toBe(true);
   });
 
   it("KIN-AGENTS-002 an import in flight from another surface disables this tab's import buttons", async () => {
@@ -385,9 +387,7 @@ describe("KIN-AGENTS-002 · what opening the agents tab reads", () => {
 
       const reads = vi.mocked(listAgentProviders).mock.calls.length;
       const imports = vi.mocked(importAgentSessions).mock.calls.length;
-      await user.click(
-        within(roles).getByRole("button", { name: t("settings.localAgents.save") }),
-      );
+      await user.click(within(roles).getByRole("button", { name: t("settings.localAgents.save") }));
 
       await waitFor(() => expect(vi.mocked(updateSettings)).toHaveBeenCalledTimes(1));
       const body = vi.mocked(updateSettings).mock.calls[0][0];
@@ -435,9 +435,7 @@ describe("KIN-AGENTS-002 · what opening the agents tab reads", () => {
         name: t("settings.localAgents.importProviderLabel", { name: "Codex" }),
       }),
     );
-    await waitFor(() =>
-      expect(vi.mocked(importAgentSessions)).toHaveBeenCalledWith(["codex"], ""),
-    );
+    await waitFor(() => expect(vi.mocked(importAgentSessions)).toHaveBeenCalledWith(["codex"], ""));
 
     const roles = await findGroup(rolesHeading());
     await user.click(within(roles).getByRole("button", { name: t("settings.roles.add") }));
