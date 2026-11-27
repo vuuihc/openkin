@@ -3,7 +3,7 @@
     "label": "the list branch draws the raw line with its `- `, so the marker reaches the reader",
     "file": "mobile-rn/src/screens/MarkdownBody.tsx",
     "test": "cd mobile-rn && npx jest src/screens/Conversation.markdown.test.tsx",
-    "old": "                  <Text style={[textStyle, sheet.listItem]}>{item}</Text>",
-    "new": "                  <Text style={[textStyle, sheet.listItem]}>{`- ${item}`}</Text>"
+    "old": "                    {inlineChildren(item, styles)}",
+    "new": "                    {`- ${item}`}"
   }
 ]

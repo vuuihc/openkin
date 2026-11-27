@@ -401,16 +401,12 @@ function ProgressRows({
  * stopped, orange waiting on an approval).
  */
 function spineStyle(tone: SpineTone, styles: ReturnType<typeof makeStyles>) {
-  switch (tone) {
-    case "running":
-      return styles.spineRunning;
-    case "failed":
-      return styles.spineFailed;
-    case "approval":
-      return styles.spineApproval;
-    default:
-      return styles.spineDone;
-  }
+  return {
+    approval: styles.spineApproval,
+    done: styles.spineDone,
+    failed: styles.spineFailed,
+    running: styles.spineRunning,
+  }[tone];
 }
 
 function TurnBlock({
@@ -942,9 +938,8 @@ export default function ConversationView({
       !approvals.state.online);
 
   // The spine's thread-level facts (KIN-MOBILE-002 R4b): the newest agent
-  // turn owns the live tone, and a round that ended in an error or a stop is
-  // red. An approval or question still waiting outranks the running flag, so
-  // the turn the node is blocked on reads orange, not blue.
+  // turn owns the live tone, an unclean round is red, and a waiting approval
+  // outranks the running flag so the blocked turn reads orange.
   const spine: SpineContext = {
     lastAgentIndex: lastAgentTurnIndex(state.turns),
     running: state.running,
@@ -1240,8 +1235,7 @@ const makeStyles = (
   /**
    * The person's own message (KIN-MOBILE-002 R4b): a right-aligned bubble in
    * the scheme's bubble blue, on-status ink. `maxWidth` leaves the other side
-   * of the column readable, and the measure still wraps a long word rather
-   * than clipping it at 390.
+   * readable and still wraps a long word rather than clipping it at 390.
    */
   bubble: {
     alignSelf: "flex-end",
@@ -1398,11 +1392,7 @@ const makeStyles = (
     alignItems: "center",
     justifyContent: "center",
   },
-  /**
-   * The activity spine (DESIGN.md 活动脊): a 3pt left edge on an agent turn
-   * with an 8pt gap to its text. The 11pt sits inside the list's 16pt page
-   * gutter, so the reading measure shrinks without the page moving.
-   */
+  /** The activity spine (DESIGN.md 活动脊): 3pt edge, 8pt gap to the text. */
   spineApproval: {
     borderLeftColor: colors.orange,
     borderLeftWidth: 3,

@@ -3,26 +3,21 @@
  *
  * Every agent turn carries a 3pt left edge whose colour says what the round
  * is doing (DESIGN.md "活动脊"), so a long transcript can be scanned by the
- * spine alone. The helper is DOM-free: the view maps a tone to a palette
- * pigment and draws the border; this module owns only which tone a turn has.
+ * spine alone. The first matching row wins:
  *
- * The decision table, in order — the first matching row wins:
- *
- * | # | Turn                        | Context                    | Tone     |
- * |---|-----------------------------|----------------------------|----------|
- * | 1 | the person's or standalone  | —                          | none     |
- * | 2 | agent holding an error item | —                          | failed   |
- * | 3 | the last agent turn         | `awaitingApproval`         | approval |
- * | 4 | the last agent turn         | `running`                  | running  |
- * | 5 | the last agent turn         | `failed`                   | failed   |
- * | 6 | every other agent turn      | —                          | done     |
+ * | # | Turn                        | Context            | Tone     |
+ * |---|-----------------------------|--------------------|----------|
+ * | 1 | the person's or standalone  | —                  | none     |
+ * | 2 | agent holding an error item | —                  | failed   |
+ * | 3 | the last agent turn         | `awaitingApproval` | approval |
+ * | 4 | the last agent turn         | `running`          | running  |
+ * | 5 | the last agent turn         | `failed`           | failed   |
+ * | 6 | every other agent turn      | —                  | done     |
  *
  * A standalone turn never carries a spine: an error or stop note is a line
  * about the transcript, not a piece of work. `failed` is the newest round's
- * outcome — the caller computes it with `roundEndedUncleanly`, which reads
- * the stop note and error items the projection already placed. Rows 3 and 4
- * are ordered so a round waiting on an approval is orange even if the task
- * still reports running while it waits.
+ * outcome, computed by `roundEndedUncleanly`. Approval outranks running: a
+ * round blocked on the person is orange, not blue.
  */
 
 import type { Turn } from "../../../ui/src/components/chat/transcriptProjection";

@@ -7,15 +7,15 @@
  * is a quoted block and `---` is a 1pt rule. A message that is only a paragraph
  * is still the one `<Text>` the view drew before this module existed.
  *
- * Inside a paragraph, heading, list item or quote line the inline runs come
- * from the console's other parse (`ui/src/lib/markdownInline.ts`, R4b): bold,
- * italic, code and a link's label draw as emphasis instead of their markers.
- * A fenced block and a table cell stay literal — a sample is text, not prose.
- *
  * No colour is written here. Sizes and weights are local; every colour comes
  * from the view's `textStyle` or from the `styles` prop, which
  * `ConversationView` builds from its own literals (the token layer, R1b,
  * takes them over).
+ *
+ * R4b: inline runs come from the console's other parse
+ * (`ui/src/lib/markdownInline.ts`) — bold, italic, code and a link's label
+ * draw as emphasis instead of their markers. A fenced block and a table cell
+ * stay literal: a sample is text, not prose.
  */
 
 import { useMemo, type ReactNode } from "react";
@@ -55,10 +55,8 @@ const MONO = Platform.select({ ios: "Menlo", default: "monospace" });
 
 /**
  * One text run as nested `<Text>`: strong is bold, em is italic, code is a
- * mono run on the fill, and a link's label takes link ink with an underline.
- * A link whose href is unsafe draws as its plain label. A run with no inline
- * syntax is returned as the bare string, so the common case renders exactly
- * the one text node it did before this module learned emphasis.
+ * mono run on the fill, a link's label takes link ink and an underline. No
+ * inline syntax returns the bare string, so the common case is untouched.
  */
 function inlineChildren(
   text: string,
@@ -71,17 +69,9 @@ function inlineChildren(
   return tokens.map((token, i) => {
     switch (token.kind) {
       case "strong":
-        return (
-          <Text key={i} style={sheet.strong}>
-            {token.value}
-          </Text>
-        );
+        return <Text key={i} style={sheet.strong}>{token.value}</Text>;
       case "em":
-        return (
-          <Text key={i} style={sheet.em}>
-            {token.value}
-          </Text>
-        );
+        return <Text key={i} style={sheet.em}>{token.value}</Text>;
       case "code":
         return (
           <Text
