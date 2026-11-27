@@ -160,9 +160,9 @@ test_same_head_keeps_the_gate() {
   printf '%s\n' "$HEAD" > "$T/$CASE.head"
   start_seam "$CASE" "$HEAD" hold
   wait_file 10 "$T/$CASE.started" || fail "same-head: the stub gate never started"
-  # At least one completed poll: an equal live head must not kill the gate. A bare sleep would
-  # let a loaded machine release the gate before the watcher ever read the head.
-  wait_polls 10 1 || fail "same-head: the watcher never polled the head"
+  # Two completed polls: the first poll's whole compare/kill path has finished. A bare sleep
+  # would let a loaded machine release the gate before the watcher ever wrote its marker.
+  wait_polls 10 2 || fail "same-head: the watcher never polled the head"
   : > "$T/$CASE.release"
   finish_seam 15
   [ "$RC" -eq 0 ] || fail "same-head: seam exited $RC ($OUT)"
