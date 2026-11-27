@@ -13,6 +13,11 @@ container is up and a lane is idle — claims a ready cloud brief nobody has tak
 an `origin/main` git bundle over ssh, writes a starter `status.json` (`queued`), and `docker exec`s
 `nas-lane.sh <slug>` detached inside the isolated container; the Mac runs the full `tsc` / UI inventory
 / vitest self-check under `heavy.sh` after the result is fetched.
+BASE is the head of the shipped bundle, never a ref the NAS repo happened to keep:
+`nas-lane.sh` applies the bundle (head
+`refs/remotes/origin/main`, or `refs/heads/main` from an older producer) through `nas-side/nas-base.sh`
+and builds only from the ref that bundle named, falling back to the bare repo's `refs/heads/main` when
+none arrived.
 
 The pulse refuses to steal a claim (`taker=box` or `taker=nas` is left byte-identical), to start when
 `docker inspect` says the container is not running, when the NAS is under pressure (load >= 5 or
