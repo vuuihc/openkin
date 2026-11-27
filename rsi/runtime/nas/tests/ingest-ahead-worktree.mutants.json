@@ -10,7 +10,21 @@
     "label": "the materialise step no longer moves the worktree to the bundle",
     "file": "rsi/runtime/nas/ingest-nas.sh",
     "test": "bash rsi/runtime/nas/tests/test-nas.sh case_clean_worktree_ahead_of_bundle_syncs",
-    "old": "checkout -q --detach \"$REF\" >/dev/null 2>&1",
+    "old": "checkout -q -B \"$BR\" \"$REF\" >/dev/null 2>&1",
     "new": "rev-parse -q --verify \"$REF\" >/dev/null 2>&1"
+  },
+  {
+    "label": "an unreadable own-commit count is read as zero",
+    "file": "rsi/runtime/nas/ingest-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh case_clean_worktree_ahead_of_bundle_syncs",
+    "old": "rev-list --count origin/main..HEAD 2>/dev/null || true",
+    "new": "rev-list --count origin/main..HEAD 2>/dev/null || echo 0"
+  },
+  {
+    "label": "the newer-main case no longer stands the lane branch on that newer main",
+    "file": "rsi/runtime/nas/tests/test-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh case_clean_worktree_ahead_of_bundle_syncs",
+    "old": "git -C \"$T/ctrl\" branch -f rsi/s1 \"$newer\"",
+    "new": "git -C \"$T/ctrl\" branch -f rsi/s9 \"$newer\""
   }
 ]

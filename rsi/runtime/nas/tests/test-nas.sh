@@ -427,7 +427,9 @@ case_clean_worktree_ahead_of_bundle_syncs() {
   check "M4 the pass reports the materialised bundle" grep -q 'had no commits of its own; materialised the NAS bundle' "$T/i1.log"
   check "M4 it is not reported with the old refusal" bash -c "! grep -q 'commits the NAS bundle does not contain' '$T/i1.log'"
   check "M4 the worktree HEAD proof ran at the bundle commit" [ "$(git -C "$T/wt/rsi-s1" rev-parse HEAD)" = "$bundle" ]
-  check "M4 the lane branch was not re-pointed" [ "$(git -C "$T/ctrl" rev-parse rsi/s1)" = "$newer" ]
+  check "M4 the worktree is left attached to its lane branch" [ "$(git -C "$T/wt/rsi-s1" symbolic-ref --short HEAD)" = rsi/s1 ]
+  check "M4 the lane branch now points at the bundle" [ "$(git -C "$T/ctrl" rev-parse rsi/s1)" = "$bundle" ]
+  check "M4 the branch's old tip is still reachable from origin/main" git -C "$T/ctrl" merge-base --is-ancestor "$newer" origin/main
 
   # b1: a worktree carrying its own unpublished commit stays refused and byte-identical.
   local T2; sandbox; T2=$T
@@ -451,6 +453,24 @@ case_clean_worktree_ahead_of_bundle_syncs() {
   check "M4 uncommitted edits still survive" grep -q dirty "$T3/wt/rsi-s2/docs/s2.md"
   check "M4 a dirty worktree still publishes nothing" [ ! -s "$T3/gh.log" ]
   check "M4 the dirty worktree is still reported" grep -q 'uncommitted changes' "$T3/i1.log"
+
+  # b3: the own-commit count is unreadable (no origin/main to count against) -> fail closed. Reading
+  # that failure as zero would re-attach a worktree on a guess; the `|| true` is load-bearing.
+  local T4; sandbox; T4=$T
+  job "$T4" s1 R-T-19d 0 >/dev/null
+  git -C "$T4/ctrl" checkout -q main
+  echo newer > "$T4/ctrl/docs/newer-main.md"
+  git -C "$T4/ctrl" add -A; git -C "$T4/ctrl" commit -qm "chore: newer main"
+  git -C "$T4/ctrl" push -q origin main
+  local newer4; newer4="$(git -C "$T4/ctrl" rev-parse main)"
+  git -C "$T4/ctrl" branch -f rsi/s1 "$newer4"
+  git -C "$T4/ctrl" worktree add -q "$T4/wt/rsi-s1" rsi/s1
+  git -C "$T4/origin.git" update-ref -d refs/heads/main
+  git -C "$T4/ctrl" update-ref -d refs/remotes/origin/main
+  run_ingest "$T4" > "$T4/i1.log" 2>&1
+  check "M4 an unreadable own-commit count is not read as zero" [ "$(git -C "$T4/wt/rsi-s1" rev-parse HEAD)" = "$newer4" ]
+  check "M4 an unreadable count publishes nothing" [ ! -s "$T4/gh.log" ]
+  check "M4 an unreadable count keeps the refusal" grep -q 'commits the NAS bundle does not contain; leaving it alone' "$T4/i1.log"
 }
 
 # --- T18: a worktree that resolves to the control checkout is refused before any git mutation (M4) -
