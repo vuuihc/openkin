@@ -19,5 +19,12 @@
     "old": "      approvalsRef.current?.dispose();\n",
     "new": "",
     "test": "cd mobile-rn && npx jest src/screens/Conversation.approvals.test.tsx -t \"KIN-MOBILE-001 R5: leaving the conversation aborts the pending read and drops its answer\""
+  },
+  {
+    "label": "a foreground return reopens the stream but never re-reads the node's pending lists, so a decision settled on another device stays on the phone (R-rn-stale-decision)",
+    "file": "mobile-rn/src/screens/ConversationScreen.tsx",
+    "old": "              void thread.resume();\n              // R8: a decision settled on another device is gone from the\n              // node's pending lists, so the return re-reads them beside the\n              // stream — one read per edge, no poll. The model drops a late\n              // answer from a list this screen no longer owns (AGENTS.md §11),\n              // and a failed read keeps the cards already drawn.\n              void approvalsRef.current?.load();",
+    "new": "              void thread.resume();",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.approvals.test.tsx -t \"KIN-MOBILE-001 R5: a decision settled on another device is gone after the app returns to the foreground\""
   }
 ]

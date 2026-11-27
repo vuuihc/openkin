@@ -3,6 +3,7 @@
 #
 # Usage:
 #   [KIN_BUILD_NUMBER=…] [KIN_MARKETING_VERSION=1.0] [KIN_TEAM_ID=…] \
+#   [KIN_ASC_KEY_PATH=… KIN_ASC_KEY_ID=… KIN_ASC_ISSUER_ID=…] \
 #     scripts/release-ios.sh [--archive-only]
 #
 # This is the TestFlight build now (R-rn-testflight): same bundle id, team and
@@ -11,16 +12,41 @@
 # `expo prebuild` on every run, so nothing here needs to be committed.
 #
 # Signing is automatic against the team in the Capacitor pbxproj — the one
-# place the team id is written down. Archiving and uploading both need this Mac
-# signed in to that Apple ID in Xcode (Settings → Accounts), and the first
-# upload for the bundle id needs the app record to exist in App Store Connect,
-# which Xcode cannot create from the command line.
+# place the team id is written down. Archiving needs this Mac signed in to that
+# Apple ID in Xcode (Settings → Accounts), and so does uploading — unless you
+# hand the upload an App Store Connect API key, which needs no signed-in
+# account. All three or none:
+#
+#   KIN_ASC_KEY_PATH=/path/to/AuthKey_ABC123DEFG.p8
+#   KIN_ASC_KEY_ID=ABC123DEFG
+#   KIN_ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000
+#
+# A partial trio, or a key path that is not a readable file, stops before
+# xcodebuild rather than falling back to the signed-in account. The key's
+# contents are never printed — the upload line names the mode and the path.
+# The first upload for the bundle id also needs the app record to exist in
+# App Store Connect, which Xcode cannot create from the command line.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/.."
+
+# One implementation of the export auth and argv, shared with the Capacitor
+# script. The cutover story deletes the Capacitor mobile/ tree and has to move
+# this library then; the release suite resolves this path, so that deletion
+# fails loudly instead of shipping an upload that silently falls back to the
+# Xcode account.
+source "$SCRIPT_DIR/../../mobile/scripts/lib/export-args.sh"
 
 ARCHIVE_ONLY=0
 [[ "${1:-}" == "--archive-only" ]] && ARCHIVE_ONLY=1
+
+# A typo'd KIN_ASC_* should cost a second, not the archive below. The upload
+# step validates again (the library is also used on its own); --archive-only
+# never uploads, so it needs no usable key and ignores the trio.
+if [[ "$ARCHIVE_ONLY" != "1" ]]; then
+  kin_export_auth || exit 1
+fi
 
 # `expo prebuild` rewrites the tracked manifest's "ios"/"android" npm scripts
 # (`expo start --ios` → `expo run:ios`), which this flow never runs. Keep the
@@ -164,8 +190,9 @@ cat > "$EXPORT_PLIST" <<PLIST_EOF
 </plist>
 PLIST_EOF
 
-echo "==> uploading to TestFlight"
-xcodebuild -exportArchive \
+# The runner validates the KIN_ASC_* trio, prints the auth mode, and issues
+# the only `xcodebuild -exportArchive` in this flow.
+run_ios_export \
   -archivePath "$ARCHIVE" \
   -exportPath "$EXPORT_DIR" \
   -exportOptionsPlist "$EXPORT_PLIST" \

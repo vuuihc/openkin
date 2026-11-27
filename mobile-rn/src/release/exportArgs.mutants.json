@@ -33,5 +33,12 @@
     "test": "cd mobile-rn && npx jest src/release/exportArgs.test.ts --ci --maxWorkers=2",
     "old": "    -authenticationKeyID \"$key_id\"\n    -authenticationKeyIssuerID \"$issuer_id\"",
     "new": "    -authenticationKeyID \"$issuer_id\"\n    -authenticationKeyIssuerID \"$key_id\""
+  },
+  {
+    "label": "the RN upload regains its own xcodebuild argv",
+    "file": "mobile-rn/scripts/release-ios.sh",
+    "test": "cd mobile-rn && npx jest src/release/exportArgs.test.ts --ci --maxWorkers=2",
+    "old": "run_ios_export \\\n",
+    "new": "xcodebuild -exportArchive \\\n"
   }
 ]
