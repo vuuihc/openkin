@@ -23,8 +23,8 @@
   {
     "label": "the container hands the data epoch down as the return epoch, so a split switch steals the reader (R-rn-list-focus-return)",
     "file": "mobile-rn/src/screens/ListScreen.tsx",
-    "old": "      initialOffset={initialOffset}\n      returnFocusEpoch={returnFocusEpoch}",
-    "new": "      initialOffset={initialOffset}\n      returnFocusEpoch={focusEpoch}",
+    "old": "      initialOffset={initialOffset}\n      insecure={insecure}\n      returnFocusEpoch={returnFocusEpoch}",
+    "new": "      initialOffset={initialOffset}\n      insecure={insecure}\n      returnFocusEpoch={focusEpoch}",
     "test": "cd mobile-rn && npx jest src/screens/ListScreen.returnFocus.test.tsx -t \"KIN-MOBILE-001 \u00a72: a data refresh alone does not move the reader\" --runInBand"
   },
   {
