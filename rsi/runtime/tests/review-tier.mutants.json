@@ -12,5 +12,33 @@
     "test": "bash rsi/runtime/tests/test-throughput.sh",
     "old": "DOC_ARTIFACT = re.compile(r\"^docs/.*\\.(html|svg|png|jpg|jpeg|webp)$\")",
     "new": "DOC_ARTIFACT = re.compile(r\"^docs/.*\\.(nomatch)$\")"
+  },
+  {
+    "label": "reviewer-equality-guard-removed",
+    "file": "rsi/runtime/review-tier.py",
+    "test": "bash rsi/runtime/tests/test-throughput.sh",
+    "old": "    if review != worker:\n        return role, why",
+    "new": "    if review != worker and False:\n        return role, why"
+  },
+  {
+    "label": "independence-guard-returns-reviewer-anyway",
+    "file": "rsi/runtime/review-tier.py",
+    "test": "bash rsi/runtime/tests/test-throughput.sh",
+    "old": "    return \"reviewer-alt\", why + [\"worker-model\"]",
+    "new": "    return role, why + [\"worker-model\"]"
+  },
+  {
+    "label": "production-model-table-read-broken",
+    "file": "rsi/runtime/review-tier.py",
+    "test": "bash rsi/runtime/tests/test-throughput.sh",
+    "old": "    out[\"worker\"] = val(\"M_WORKER\")",
+    "new": "    out[\"worker\"] = \"\""
+  },
+  {
+    "label": "strong-worker-guard-removed",
+    "file": "rsi/runtime/review-tier.py",
+    "test": "bash rsi/runtime/tests/test-throughput.sh",
+    "old": "    if worker == alt:\n        return role, why",
+    "new": "    if worker == alt and False:\n        return role, why"
   }
 ]
