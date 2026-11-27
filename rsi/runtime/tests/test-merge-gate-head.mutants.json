@@ -33,5 +33,12 @@
     "test": "RSI_TEST_ONLY=test_moved_head_discards_the_partial_review bash rsi/runtime/tests/test-merge-gate-head.sh",
     "old": "  rm -f \"$prev.new\"",
     "new": "  cp \"$prev.new\" \"$prev\" 2>/dev/null || true"
+  },
+  {
+    "label": "the head-move suite is not wired into check.sh, so a regression in it never runs in the gate",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  # A gate that starts on a head which then moves unwinds as a skip, not a verdict (R-merge-gate-head).\n  bash rsi/runtime/tests/test-merge-gate-head.sh || return 1\n",
+    "new": ""
   }
 ]
