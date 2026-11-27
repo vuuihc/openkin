@@ -82,6 +82,22 @@ describe("KIN-MOBILE-002 R1a theme", () => {
     expect(result.current.colors).toBe(palette.light);
   });
 
+  it("KIN-MOBILE-002 R1a theme: mono is a monospace role", async () => {
+    systemScheme.mockReturnValue("dark");
+
+    const { result } = await renderHook(() => useTheme());
+
+    // DESIGN.md's mono row (工具行/命令/代码) is the only type role that names a
+    // family: a tool row, command or code block spread from `type.mono` must be
+    // drawn monospace, so `mono` cannot be a second spelling of `caption`.
+    expect(result.current.type.mono).toEqual({
+      fontSize: 12,
+      fontWeight: "400",
+      fontFamily: "Menlo",
+    });
+    expect(result.current.type.mono).not.toEqual(result.current.type.caption);
+  });
+
   it("KIN-MOBILE-002 R1a theme: no system preference resolves to light", async () => {
     // `useColorScheme()` answers null before the platform has an appearance and
     // on platforms that do not report one; the web resolves "system" to a

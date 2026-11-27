@@ -161,7 +161,7 @@ export const type = {
   body: { fontSize: 17, fontWeight: "400", lineHeight: 24.65 },
   sub: { fontSize: 13, fontWeight: "400" },
   caption: { fontSize: 12, fontWeight: "400" },
-  mono: { fontSize: 12, fontWeight: "400" },
+  mono: { fontSize: 12, fontWeight: "400", fontFamily: "Menlo" },
 } as const;
 
 /**
