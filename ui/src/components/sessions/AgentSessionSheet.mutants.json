@@ -28,6 +28,27 @@
     "new": "      blockSend={false}"
   },
   {
+    "label": "the sheet walks past the byte ceiling",
+    "file": "ui/src/components/sessions/AgentSessionSheet.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/AgentSessionSheet.dom.test.tsx -t \"stops reading at the byte ceiling\"",
+    "old": "const HISTORY_INITIAL_MAX_TEXT = 256 << 10;",
+    "new": "const HISTORY_INITIAL_MAX_TEXT = 1 << 30;"
+  },
+  {
+    "label": "the sheet cuts a two-turn session to one turn",
+    "file": "ui/src/components/sessions/AgentSessionSheet.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/AgentSessionSheet.dom.test.tsx -t \"shows a two-turn session whole\"",
+    "old": "const HISTORY_INITIAL_TURNS = 3;",
+    "new": "const HISTORY_INITIAL_TURNS = 1;"
+  },
+  {
+    "label": "the retry leaves the facade's secondary weight",
+    "file": "ui/src/components/sessions/AgentSessionSheet.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/AgentSessionSheet.dom.test.tsx -t \"puts the agent-session controls on the shared button facade\"",
+    "old": "            <Button variant=\"secondary\" onClick={() => setReloadKey((key) => key + 1)}>",
+    "new": "            <Button variant=\"default\" onClick={() => setReloadKey((key) => key + 1)}>"
+  },
+  {
     "label": "the agent header scrolls inside the transcript again",
     "file": "ui/src/components/mobile/Sheet.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/sessions/AgentSessionSheet.dom.test.tsx -t \"keeps the agent header and close out of the scrolling transcript\"",

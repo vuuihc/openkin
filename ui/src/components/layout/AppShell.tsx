@@ -232,8 +232,10 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
    * and eating 48px above the one bar that matters. Back is the way out of a
    * detail screen, which is what iOS does too.
    *
-   * `/tasks/:id` and `/agent-sessions/:id` are the remaining ones. Both draw
-   * their own header inside the page, and Back is the way out of one.
+   * `/tasks/:id` is the remaining page that draws its own header. The old
+   * `/agent-sessions/:id` URL renders no page — it is a replace-only redirect
+   * to the list — but it stays in this condition so the shell header does not
+   * paint for the frame before `<Navigate>` fires.
    */
   const detailRoute = selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");
 
@@ -242,13 +244,14 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
 
   /**
    * The routes that pin a composer to the bottom and mark it with
-   * `data-kin-bottom-chrome`: a conversation, an agent session's continue box,
-   * and the draft. The draft is a band like the conversation's (amended
-   * KIN-START-001, 2026-11-21), so Start hands the same box to the same place
-   * at the same width; `draftActive` covers `/new` and the Mac's `/sessions`.
+   * `data-kin-bottom-chrome`: a conversation and the draft. The draft is a
+   * band like the conversation's (amended KIN-START-001, 2026-11-21), so Start
+   * hands the same box to the same place at the same width; `draftActive`
+   * covers `/new` and the Mac's `/sessions`. The deleted imported-session page
+   * was the third band; the sheet over the list has none, because the list is
+   * the surface.
    */
-  const measuredBottomBand =
-    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/") || draftActive;
+  const measuredBottomBand = selectedTaskId !== null || draftActive;
 
   /**
    * Leaving the new-chat screen.

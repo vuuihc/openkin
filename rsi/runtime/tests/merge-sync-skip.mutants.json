@@ -3,7 +3,7 @@
     "label": "the disjoint hold never holds (green CI always syncs), so the skip buys nothing",
     "file": "rsi/runtime/merge.sh",
     "test": "RSI_TEST_ONLY=test_pass_disjoint_move_holds bash rsi/runtime/tests/test-merge-sync-skip.sh",
-    "old": "      CARRY|CARRY-UI)",
+    "old": "      CARRY|CARRY-UI|CARRY-RN|CARRY-UI-RN)",
     "new": "      NEVER)"
   },
   {
@@ -17,8 +17,15 @@
     "label": "the CI hold ignores ui-leaf moves (CARRY-UI), so a ui move still cancels the green run",
     "file": "rsi/runtime/merge.sh",
     "test": "RSI_TEST_ONLY=test_pass_ui_leaf_move_holds bash rsi/runtime/tests/test-merge-sync-skip.sh",
-    "old": "      CARRY|CARRY-UI)",
+    "old": "      CARRY|CARRY-UI|CARRY-RN|CARRY-UI-RN)",
     "new": "      CARRY)"
+  },
+  {
+    "label": "the CI hold ignores RN-leaf moves (CARRY-RN), so an RN move still cancels the green run",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_pass_rn_leaf_move_holds bash rsi/runtime/tests/test-merge-sync-skip.sh",
+    "old": "      CARRY|CARRY-UI|CARRY-RN|CARRY-UI-RN)",
+    "new": "      CARRY|CARRY-UI)"
   },
   {
     "label": "the step-1 call site inverts the decision, so a HOLD syncs and a SYNC is held",

@@ -2,3 +2,8 @@ node_modules/
 .expo/
 dist/
 *.log
+
+# expo prebuild output: the generated Xcode project, CocoaPods and archives.
+# scripts/release-ios.sh refuses to run if these stop being ignored.
+ios/
+android/

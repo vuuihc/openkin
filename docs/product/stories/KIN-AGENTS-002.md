@@ -127,7 +127,7 @@
 
 ## 设计
 
-设计稿：本故事先交付合同；审阅页 `KIN-AGENTS-002.review.html` 与 Figma 帧 `KIN-AGENTS-002.figma/frames/` 由 part b 交付，本条不创建它们，状态在两者存在前保持 `draft`。必须画到的状态：默认、三组各自空、加载、探测失败、导入部分失败、断线、导入中、角色半写、删除探测半之后。
+设计稿：审阅页 `docs/product/stories/KIN-AGENTS-002.review.html`（Figma-first，每屏六个用户流程）与 6 张 Figma 帧 `docs/product/stories/KIN-AGENTS-002.figma/frames/`（`01-mac-default` … `06-late-answer`）已由 #629 `b0d46372` 交付；状态保持 `draft`，直到有人读过审阅页并签字。必须画到的状态：默认、三组各自空、加载、探测失败、导入部分失败、断线、导入中、角色半写、删除探测半之后。
 
 ## Do not
 
@@ -162,8 +162,9 @@
 
 ## 证据
 
-- 合同依据：`docs/product/stories/KIN-CONTRACT-001.md:31`、`:40`、`:139`、`:178`；兄弟姐妹：`docs/product/stories/KIN-AGENTS-001.md:17`（74 条目录）、`:24`、`:26`、`:125`（手动导入）；角色半写行已有 `ui/src/lib/agentRoles.test.ts:95-108` 覆盖。本条失败先红证据写在 PR body；`python3 scripts/stories.py` 输出 `ok`；交付时补 part b 的审阅页与帧、代码 lane 的测试与 390 / 1100 截图。
+- 合同依据：`docs/product/stories/KIN-CONTRACT-001.md:31`、`:40`、`:139`、`:178`；兄弟姐妹：`docs/product/stories/KIN-AGENTS-001.md:17`（74 条目录）、`:24`、`:26`、`:125`（手动导入）；角色半写行已有 `ui/src/lib/agentRoles.test.ts:95-108` 覆盖。本条失败先红证据写在 PR body；`python3 scripts/stories.py` 输出 `ok`；part b 的审阅页与 6 张帧已交付（#629 `b0d46372`），代码 lane 的测试与 390 / 1100 截图仍待补。
 
 ## 变更记录
 
 - 2026-11-23 创建（R-agents-detect，合同 only；不写代码、审阅页或帧）。
+- 2026-11-25（+08）· 对齐：part b 的审阅页与 6 张帧已由 #629 b0d46372 交付；状态保持 draft，等待人签字。

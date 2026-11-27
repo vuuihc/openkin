@@ -200,6 +200,103 @@ with_timeout() { # secs cmd...   (macOS has no `timeout`)
   kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
   return $rc
 }
+# Reap every process whose current directory is <dir> or inside it. The pgid and
+# pgrep -P walks above only reach the worker's own tree: a child that called
+# setsid (expo start) reparents to launchd and survives both, so on lane cleanup
+# we also sweep by working directory. lsof sees the current user's processes
+# without root; a timeout or a missing lsof prints "no verdict" and returns 0 —
+# cleanup must never block on the sweep.
+rsi_reap_cwd() { # <dir> [exclude_pid...]
+  local dir="${1:-}"; shift
+  [ -n "$dir" ] || return 0
+  local real out pid cwd n=0
+  real="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$dir" 2>/dev/null)" || real=""
+  if [ -z "$real" ]; then
+    echo "orphan sweep: no verdict (cannot resolve $dir)" >&2; return 0
+  fi
+  if ! out="$(bounded_run 20 lsof -n -w -a -d cwd -Fpn 2>/dev/null)"; then
+    echo "orphan sweep: no verdict (lsof timed out or failed)" >&2; return 0
+  fi
+  pid=""
+  while IFS= read -r line; do
+    case "$line" in
+      p*) pid="${line#p}" ;;
+      n*)
+        cwd="${line#n}"
+        [ -n "$pid" ] || continue
+        [ "$pid" -gt 1 ] 2>/dev/null || { pid=""; continue; }
+        if [ "$pid" = "$$" ] || [ "$pid" = "$PPID" ]; then continue; fi
+        case " $* " in *" $pid "*) continue ;; esac
+        # Match against both spellings without a per-line realpath call: lsof
+        # usually reports the resolved path (so $real covers a symlinked dir
+        # argument), and $dir covers a system that reports the path as opened.
+        if [ "$cwd" = "$real" ] || [ "${cwd#"$real"/}" != "$cwd" ] \
+        || [ "$cwd" = "$dir" ] || [ "${cwd#"$dir"/}" != "$cwd" ]; then
+          rsi_kill_tree "$pid"; n=$((n + 1))
+        fi
+        ;;
+    esac
+  done <<< "$out"
+  [ "$n" -gt 0 ] && echo "reaped $n process(es) under $dir" >&2
+  return 0
+}
+
+# Booted iOS simulator UDIDs, one per line. A lane worker that ran `expo start`
+# can boot simulators that are launchd-owned and never enter our process tree;
+# the lane records this list before launch and shuts down the difference on
+# cleanup. Silent (rc 0) when xcrun is absent or nothing is booted; a failed or
+# timed-out query returns non-zero so an incomplete snapshot is distinguishable
+# from an empty one — an empty "before" would otherwise read as "nothing was up".
+rsi_sim_booted() {
+  command -v xcrun >/dev/null 2>&1 || return 0
+  local out
+  out="$(bounded_run 20 xcrun simctl list devices booted -j 2>/dev/null)" || return 1
+  printf '%s\n' "$out" \
+    | python3 -c 'import json,sys
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)
+for devs in (d.get("devices") or {}).values():
+    for dev in devs:
+        if dev.get("state") == "Booted" and dev.get("udid"):
+            print(dev["udid"])' 2>/dev/null || true
+}
+
+# Basename of another live lane holding a lock beside <self_lock>, or nothing.
+# A simulator this lane booted can still be in use by a second lane, so cleanup
+# consults this before shutting any down. A lock with no pid file or a dead pid
+# is a leftover, not a live lane.
+rsi_other_live_lane() { # <self_lock_dir>
+  local self="${1:-}" lk lp
+  [ -n "$self" ] || return 0
+  for lk in "${self%/*}"/*.lock; do
+    [ -d "$lk" ] || continue
+    [ "$lk" = "$self" ] && continue
+    lp="$(cat "$lk/pid" 2>/dev/null || true)"
+    if [ -n "$lp" ] && kill -0 "$lp" 2>/dev/null; then echo "${lk##*/}"; return 0; fi
+  done
+  return 0
+}
+
+# Shut down each currently booted simulator not listed in <before_file> (the
+# snapshot rsi_sim_booted wrote before the worker launched). Booted-by-someone-
+# else simulators stay up; only the difference is this lane's. The snapshot's
+# "#complete" line marks a query that actually succeeded: without it the file
+# is empty because xcrun failed, not because nothing was booted, and shutting
+# down everything unlisted would kill simulators that predate the lane.
+rsi_sim_shutdown_new() { # <before_file>
+  local before="${1:-}" udid n=0
+  [ -f "$before" ] || return 0
+  grep -qx '#complete' "$before" 2>/dev/null || return 0
+  command -v xcrun >/dev/null 2>&1 || return 0
+  while IFS= read -r udid; do
+    [ -n "$udid" ] || continue
+    grep -qxF "$udid" "$before" 2>/dev/null && continue
+    bounded_run 20 xcrun simctl shutdown "$udid" >/dev/null 2>&1 && n=$((n + 1))
+  done < <(rsi_sim_booted)
+  [ "$n" -gt 0 ] && echo "shut down $n simulator(s) booted by this lane" >&2
+  return 0
+}
+
 count_timeout() { # a watchdog kill: counted apart from failures; 6 in a row pauses the loop
   local t=$(( $(cat "$STATE/consec_timeout" 2>/dev/null || echo 0) + 1 )); echo $t > "$STATE/consec_timeout"
   notify "Kin RSI: $1 hit watchdog timeout ($t in a row)" "${2:-}"

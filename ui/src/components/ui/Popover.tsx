@@ -255,6 +255,10 @@ export default function Popover({
     width,
     maxWidth,
     maxHeight,
+    // The panel's own content height is what decides the side: a menu clamped
+    // to a short column below its trigger hides its last rows behind an
+    // invisible scrollbar, so the hook flips it after the panel mounts.
+    panelRef,
   });
   // The panel is portaled a render after `open` turns true, so this is the
   // key that says "there is content to focus", not `open` itself.

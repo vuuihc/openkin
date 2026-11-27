@@ -43,6 +43,17 @@ set -eu
 exit 0
 SH
 
+# The RN safety step runs with cwd = the repo root, exactly like the default
+# `cd mobile-rn && npx tsc --noEmit && npx jest --ci && cd .. && python3 scripts/stories.py`.
+cat > "$T/rn-stub.sh" <<'SH'
+#!/bin/bash
+set -eu
+[ -d mobile-rn ] || exit 1
+[ "${STUB_RN_FAIL:-0}" = 1 ] && exit 1
+[ "${STUB_RN_SLEEP:-0}" = 1 ] && sleep 30
+exit 0
+SH
+
 # set_line <path> <line-number> <text> — edit one line so a PR edit and a main edit to the same
 # file stay on different lines and git merges them cleanly.
 set_line() {
@@ -64,7 +75,8 @@ new_repo() {
   g init -q -b main || fail "$1: git init"
   g config user.name tester; g config user.email owner@example.com; g config commit.gpgsign false
   mkdir -p "$R/ui/src/pages" "$R/ui/src/lib" "$R/internal/api" "$R/internal/workspace" \
-           "$R/rsi/runtime/tests" "$R/docs/product" "$R/web/dist" "$R/scripts"
+           "$R/rsi/runtime/tests" "$R/docs/product" "$R/web/dist" "$R/scripts" \
+           "$R/mobile-rn/src/screens" "$R/mobile-rn/scripts"
   # Three lines: a PR edit on line 1 and a main edit on line 3 leave a context line between them,
   # so a case may move the same file on both sides without manufacturing a source conflict.
   printf 'top\nmiddle\nbottom\n' > "$R/ui/src/pages/SettingsPage.tsx"
@@ -73,6 +85,12 @@ new_repo() {
   printf 'top\nmiddle\nbottom\n' > "$R/internal/api/tasks.go"
   printf 'top\nmiddle\nbottom\n' > "$R/internal/workspace/diff.go"
   printf 'top\nmiddle\nbottom\n' > "$R/rsi/runtime/release.sh"
+  printf 'top\nmiddle\nbottom\n' > "$R/mobile-rn/src/screens/Usage.tsx"
+  printf 'top\nmiddle\nbottom\n' > "$R/mobile-rn/src/screens/Queue.tsx"
+  printf 'top\nmiddle\nbottom\n' > "$R/mobile-rn/src/screens/Queue.test.tsx"
+  printf '{\n"name": "rn",\n"private": true\n}\n' > "$R/mobile-rn/package.json"
+  printf 'top\nmiddle\nbottom\n' > "$R/mobile-rn/metro.config.js"
+  printf '#!/bin/bash\necho rn\n' > "$R/mobile-rn/scripts/sim.sh"
   printf 'taste\n' > "$R/docs/product/TASTE.md"
   printf 'dist-ok\n' > "$R/web/dist/index.html"
   printf '{}\n' > "$R/scripts/ui-inventory-baseline.json"
@@ -109,6 +127,8 @@ check() {
   RSI_CTRL="$T/ctrl" \
   RSI_DIST_BUILD_CMD="bash $T/dist-stub.sh" \
   RSI_INV_CHECK_CMD="bash $T/inv-stub.sh" \
+  RSI_RN_CHECK_CMD="bash $T/rn-stub.sh" STUB_RN_FAIL="${STUB_RN_FAIL:-0}" \
+  RSI_RN_CHECK_TIMEOUT="${RSI_RN_CHECK_TIMEOUT:-900}" STUB_RN_SLEEP="${STUB_RN_SLEEP:-0}" \
   STUB_DIST_FAIL="${STUB_DIST_FAIL:-0}" STUB_INV_FAIL="${STUB_INV_FAIL:-0}" \
   STUB_DIST_TEXT="${STUB_DIST_TEXT:-dist-ok}" \
     bash "$MERGE" --carry-check "$R" "$T/$name.incoming" "$T/$name.ch" "$V" "$NEWSHA" reviewer \
@@ -126,7 +146,7 @@ expect_regate() { # name
   [ ! -e "$V" ] || fail "$1: gate file still present after a re-gate"
 }
 
-reset_stubs() { unset STUB_DIST_FAIL STUB_INV_FAIL STUB_DIST_TEXT; }
+reset_stubs() { unset STUB_DIST_FAIL STUB_INV_FAIL STUB_DIST_TEXT STUB_RN_FAIL STUB_RN_SLEEP RSI_RN_CHECK_TIMEOUT; }
 
 # --- queue-time seam helpers -------------------------------------------------------------------
 
@@ -151,6 +171,8 @@ queue_check() {
   RSI_CTRL="$T/ctrl" \
   RSI_DIST_BUILD_CMD="bash $T/dist-stub.sh" \
   RSI_INV_CHECK_CMD="bash $T/inv-stub.sh" \
+  RSI_RN_CHECK_CMD="bash $T/rn-stub.sh" STUB_RN_FAIL="${STUB_RN_FAIL:-0}" \
+  RSI_RN_CHECK_TIMEOUT="${RSI_RN_CHECK_TIMEOUT:-900}" STUB_RN_SLEEP="${STUB_RN_SLEEP:-0}" \
   STUB_DIST_FAIL="${STUB_DIST_FAIL:-0}" STUB_INV_FAIL="${STUB_INV_FAIL:-0}" \
   STUB_DIST_TEXT="${STUB_DIST_TEXT:-dist-ok}" \
     bash "$MERGE" --queue-carry-check "$R" "$old" "$NEWSHA" "$T/$name.qincoming" "$T/$name.ch" \
@@ -520,6 +542,134 @@ test_queue_ui_leaf_safety_failure_regates() {
   reset_stubs
 }
 
+# --- mobile-rn cases ---------------------------------------------------------------------------
+
+# The motivating RN case: one RN screen's PR is carried past another RN screen and its test landing,
+# once the RN safety step (tsc+jest+stories) passes on the merged tree. Before, every mobile-rn path
+# was "unclassified" and re-gated.
+test_carries_rn_pr_past_another_rn_screen_move() {
+  reset_stubs; new_repo r1
+  set_line "$R/mobile-rn/src/screens/Usage.tsx" 1 pr
+  commit_pr r1
+  g checkout -q main
+  set_line "$R/mobile-rn/src/screens/Queue.tsx" 1 main
+  set_line "$R/mobile-rn/src/screens/Queue.test.tsx" 1 main
+  move_main r1
+  check r1 mobile-rn/src/screens/Queue.tsx mobile-rn/src/screens/Queue.test.tsx
+  expect_carry test_carries_rn_pr_past_another_rn_screen_move
+  grep -q 'mobile-rn tsc+jest+stories green' "$T/r1.out" || fail "test_carries_rn_pr_past_another_rn_screen_move: carry reason does not name the RN step ($(cat "$T/r1.out"))"
+}
+
+# Main moving the RN PR's own file invalidates the gate.
+test_regates_when_main_moves_the_rn_prs_own_file() {
+  reset_stubs; new_repo r2
+  set_line "$R/mobile-rn/src/screens/Usage.tsx" 1 pr
+  commit_pr r2
+  g checkout -q main
+  set_line "$R/mobile-rn/src/screens/Usage.tsx" 3 main
+  move_main r2
+  check r2 mobile-rn/src/screens/Usage.tsx
+  expect_regate r2
+}
+
+# The RN toolchain changes how every RN file compiles and runs: never carry past it.
+test_regates_when_main_moves_the_rn_toolchain() {
+  local f
+  for f in mobile-rn/package.json mobile-rn/metro.config.js mobile-rn/scripts/sim.sh; do
+    reset_stubs; new_repo r3
+    set_line "$R/mobile-rn/src/screens/Usage.tsx" 1 pr
+    commit_pr r3
+    g checkout -q main
+    set_line "$R/$f" 2 main
+    move_main r3
+    check r3 "$f"
+    expect_regate test_regates_when_main_moves_the_rn_toolchain
+    grep -q 'RN toolchain moved' "$T/r3.out" || fail "test_regates_when_main_moves_the_rn_toolchain: $f re-gated for the wrong reason ($(cat "$T/r3.out"))"
+  done
+}
+
+# The RN safety step is the gate's own evidence: a red tsc/jest/stories on the merged tree re-gates.
+test_regates_when_the_rn_safety_step_fails() {
+  reset_stubs; new_repo r4
+  set_line "$R/mobile-rn/src/screens/Usage.tsx" 1 pr
+  commit_pr r4
+  g checkout -q main
+  set_line "$R/mobile-rn/src/screens/Queue.tsx" 1 main
+  move_main r4
+  STUB_RN_FAIL=1; check r4 mobile-rn/src/screens/Queue.tsx; expect_regate r4
+  grep -q 'rn safety step failed' "$T/r4.out" || fail "r4: re-gate reason does not name the RN step ($(cat "$T/r4.out"))"
+  reset_stubs
+}
+
+# The RN safety step is bounded: a hung tsc/jest on the merged tree must re-gate inside the timeout
+# window instead of wedging the land loop (AGENTS.md rule 13).
+test_regates_when_the_rn_safety_step_times_out() {
+  reset_stubs; new_repo r7
+  set_line "$R/mobile-rn/src/screens/Usage.tsx" 1 pr
+  commit_pr r7
+  g checkout -q main
+  set_line "$R/mobile-rn/src/screens/Queue.tsx" 1 main
+  move_main r7
+  RSI_RN_CHECK_TIMEOUT=1 STUB_RN_SLEEP=1
+  check r7 mobile-rn/src/screens/Queue.tsx
+  expect_regate test_regates_when_the_rn_safety_step_times_out
+  grep -q 'rn safety step failed' "$T/r7.out" \
+    || fail "test_regates_when_the_rn_safety_step_times_out: re-gate reason does not name the RN step ($(cat "$T/r7.out"))"
+  reset_stubs
+}
+
+# A ui leaf and an RN leaf landing together need both safety steps: either one red re-gates.
+test_carry_ui_rn_runs_both_steps() {
+  reset_stubs; new_repo r5
+  set_line "$R/mobile-rn/src/screens/Usage.tsx" 1 pr
+  commit_pr r5
+  g checkout -q main
+  set_line "$R/ui/src/pages/ProjectDetailPage.tsx" 1 main
+  set_line "$R/mobile-rn/src/screens/Queue.tsx" 1 main
+  move_main r5
+  STUB_RN_FAIL=1; check r5 ui/src/pages/ProjectDetailPage.tsx mobile-rn/src/screens/Queue.tsx; expect_regate r5
+  reset_stubs
+  STUB_INV_FAIL=1; check r5 ui/src/pages/ProjectDetailPage.tsx mobile-rn/src/screens/Queue.tsx; expect_regate r5
+  reset_stubs
+  check r5 ui/src/pages/ProjectDetailPage.tsx mobile-rn/src/screens/Queue.tsx; expect_carry r5
+  grep -q 'inventory+build green.*mobile-rn tsc+jest+stories green' "$T/r5.out" \
+    || fail "r5: carry reason does not name both steps ($(cat "$T/r5.out"))"
+}
+
+# A ui-only PR is carried past an RN leaf move once the RN step re-proves the merged tree (mobile-rn
+# imports ui/src, so the step is not skipped for a ui PR).
+test_carries_ui_pr_past_an_rn_leaf_move() {
+  reset_stubs; new_repo r6
+  set_line "$R/ui/src/pages/SettingsPage.tsx" 1 pr
+  commit_pr r6
+  g checkout -q main
+  set_line "$R/mobile-rn/src/screens/Queue.tsx" 1 main
+  move_main r6
+  check r6 mobile-rn/src/screens/Queue.tsx; expect_carry r6
+  STUB_RN_FAIL=1; echo "old PASS reviewer" > "$V"; check r6 mobile-rn/src/screens/Queue.tsx; expect_regate r6
+  reset_stubs
+}
+
+# The same RN safety step guards the step-1 seam.
+test_queue_rn_leaf_safety_failure_regates() {
+  reset_stubs; new_repo q8
+  set_line "$R/mobile-rn/src/screens/Usage.tsx" 1 pr
+  commit_pr q8
+  OLD="$(g rev-parse HEAD)"; write_gate q8 "$OLD"
+  g checkout -q main
+  set_line "$R/mobile-rn/src/screens/Queue.tsx" 1 main
+  move_main q8
+  STUB_RN_FAIL=1; queue_check q8 "$OLD" mobile-rn/src/screens/Queue.tsx
+  [ "$RC" -ne 0 ] || fail "q8: carried although the RN step failed ($(tr '\n' ' ' < "$T/q8.qout"))"
+  [ ! -e "$QUEUE_V" ] || fail "q8: gate file still present after the RN step failed"
+  reset_stubs
+  write_gate q8 "$OLD"
+  queue_check q8 "$OLD" mobile-rn/src/screens/Queue.tsx
+  [ "$RC" -eq 0 ] || fail "q8: re-gated although the RN step passed ($(tr '\n' ' ' < "$T/q8.qout"))"
+  [ "$(cat "$QUEUE_V" 2>/dev/null)" = "$NEWSHA PASS reviewer" ] \
+    || fail "q8: gate file is '$(cat "$QUEUE_V" 2>/dev/null)', want '$NEWSHA PASS reviewer'"
+}
+
 # --- reverify_reason: WHY a gate that already ran is paid for again -----------------------------
 
 # rr <prior-gate-sha> <prior-diff-key> <current-diff-key> <prior-reachable> <incoming> <carry-reason> [current-head]
@@ -685,6 +835,14 @@ run test_queue_regates_when_main_moves_a_shared_surface
 run test_queue_no_carry_when_head_is_stale
 run test_queue_no_carry_when_main_did_not_move
 run test_queue_ui_leaf_safety_failure_regates
+run test_carries_rn_pr_past_another_rn_screen_move
+run test_regates_when_main_moves_the_rn_prs_own_file
+run test_regates_when_main_moves_the_rn_toolchain
+run test_regates_when_the_rn_safety_step_fails
+run test_regates_when_the_rn_safety_step_times_out
+run test_carry_ui_rn_runs_both_steps
+run test_carries_ui_pr_past_an_rn_leaf_move
+run test_queue_rn_leaf_safety_failure_regates
 run test_reverify_reason_first_gate
 run test_reverify_reason_rework_when_the_pr_diff_changed
 run test_reverify_reason_rework_when_the_branch_was_rewritten

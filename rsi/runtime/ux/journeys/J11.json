@@ -96,6 +96,10 @@
       "1"
     ],
     [
+      "click",
+      "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开项目'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Expand project']"
+    ],
+    [
       "count",
       "css=[data-session-row]:has-text(\"[seed] Morning planning\")",
       "1"
@@ -220,6 +224,10 @@
     ],
     [
       "click",
+      "?css=section:has-text('[seed] Project Beta'):not(:has(section)) button[aria-label^='展开项目'], section:has-text('[seed] Project Beta'):not(:has(section)) button[aria-label^='Expand project']"
+    ],
+    [
+      "click",
       "[data-session-row]:has-text('[seed] Failed migration')"
     ],
     [
@@ -250,6 +258,10 @@
     [
       "click",
       "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"
+    ],
+    [
+      "click",
+      "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开项目'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Expand project']"
     ],
     [
       "click",
@@ -353,6 +365,10 @@
     [
       "click",
       "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"
+    ],
+    [
+      "click",
+      "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开项目'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Expand project']"
     ],
     [
       "click",

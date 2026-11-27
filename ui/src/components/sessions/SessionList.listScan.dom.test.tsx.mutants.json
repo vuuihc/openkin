@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the default-fold rule opens every project again, not just the newest (KIN-CONTINUE-007)",
+    "file": "ui/src/lib/sessionListFolds.ts",
+    "old": "    resolved[candidate.stateKey] = candidate.imported\n      ? false\n      : !remembersProjects && candidate.stateKey === newest?.stateKey;",
+    "new": "    resolved[candidate.stateKey] = candidate.imported\n      ? false\n      : true;",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run src/components/sessions/SessionList.listScan.dom.test.tsx"
+  },
+  {
+    "label": "the metadata line repeats the device marker the heading already names (KIN-CONTINUE-007)",
+    "file": "ui/src/components/sessions/SessionRow.tsx",
+    "old": "            <span className=\"min-w-0 truncate\">{agent}</span>",
+    "new": "            <span className=\"min-w-0 truncate\">{agent}{row.remote ? ` · ${tr(\"machine.remote\")}` : \"\"}</span>",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run src/components/sessions/SessionList.listScan.dom.test.tsx"
+  },
+  {
+    "label": "the working-style block is always expanded instead of one collapsed disclosure line (KIN-CONTINUE-007)",
+    "file": "ui/src/components/sessions/SessionList.tsx",
+    "old": "                expanded={instructionsOpen}",
+    "new": "                expanded={true}",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run src/components/sessions/SessionList.listScan.dom.test.tsx"
+  }
+]

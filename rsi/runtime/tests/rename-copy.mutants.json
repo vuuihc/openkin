@@ -1,0 +1,44 @@
+[
+  {
+    "label": "a value moved to another key is treated as a removed value and flagged against tests",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_moved_value_is_not_a_candidate bash rsi/runtime/tests/test-rename-copy-check.sh",
+    "old": "    if len(value) < 8 or value in seen or value in blob:\n",
+    "new": "    if len(value) < 8 or value in seen:\n"
+  },
+  {
+    "label": "a removed value under 8 characters becomes a candidate and the noise floor is gone",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_short_value_is_ignored bash rsi/runtime/tests/test-rename-copy-check.sh",
+    "old": "    if len(value) < 8 or value in seen or value in blob:\n",
+    "new": "    if value in seen or value in blob:\n"
+  },
+  {
+    "label": "a stage-1 candidate is never looked for in the test files",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_removed_value_still_asserted_is_a_candidate bash rsi/runtime/tests/test-rename-copy-check.sh",
+    "old": "-e \"$value\" ui/src 2>/dev/null )\"",
+    "new": "-e \"NO-SUCH-$value\" ui/src 2>/dev/null )\""
+  },
+  {
+    "label": "the lane never runs the renamed-copy seam before pushing",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_lane_pipeline_calls_the_seam bash rsi/runtime/tests/test-rename-copy-check.sh",
+    "old": "if ! RENAME_EV=\"$(bash \"$SELF\" --renamed-copy-check \"$WT\" 2>&1)\"; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "a failing vitest run is reported as a passing suite",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_failing_vitest_is_red bash rsi/runtime/tests/test-rename-copy-check.sh",
+    "old": "  case \"$rc\" in\n    0)\n",
+    "new": "  case \"$rc\" in\n    1)\n"
+  },
+  {
+    "label": "the gate no longer runs the renamed-copy suite",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-rename-copy-check.sh || return 1\n",
+    "new": ""
+  }
+]

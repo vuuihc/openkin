@@ -1,0 +1,37 @@
+[
+  {
+    "label": "a rename out of a shell file is folded into a doc and stops running the build",
+    "file": ".github/workflows/ci.yml",
+    "test": "RSI_TEST_ONLY=classify-rename-out-of-shell bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "git diff --no-renames --name-only",
+    "new": "git diff --name-only"
+  },
+  {
+    "label": "a doc a ui test names no longer turns the build on",
+    "file": ".github/workflows/ci.yml",
+    "test": "RSI_TEST_ONLY=classify-ui-named-doc bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "            grep -rlF --include='*.test.*' --exclude-dir=node_modules \\\n                 -e \"$1\" -e \"$b\" ui >/dev/null 2>&1 ||",
+    "new": "            grep -rlF --include='*.nomatch' --exclude-dir=node_modules \\\n                 -e \"$1\" -e \"$b\" ui >/dev/null 2>&1 ||"
+  },
+  {
+    "label": "a doc a mobile-rn test names no longer turns rn on",
+    "file": ".github/workflows/ci.yml",
+    "test": "RSI_TEST_ONLY=classify-rn-named-doc bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "mobile-rn/*.md) named_by_rn_test \"$p\" && rn=true ;;",
+    "new": "mobile-rn/*.md) rn=false ;;"
+  },
+  {
+    "label": "an unusable base stops failing safe and reports not-code",
+    "file": ".github/workflows/ci.yml",
+    "test": "RSI_TEST_ONLY=classify-unusable-base bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "          code=true; rn=true",
+    "new": "          code=false; rn=false"
+  },
+  {
+    "label": "the base-commit guard is dropped and an unusable base aborts the classifier",
+    "file": ".github/workflows/ci.yml",
+    "test": "RSI_TEST_ONLY=classify-unusable-base bash rsi/runtime/tests/test-check-job-parity.sh",
+    "old": "          if [ -n \"$base\" ] && git cat-file -e \"$base^{commit}\" 2>/dev/null; then\n            # --no-renames keeps the old path in the list: a rename out of a\n            # non-markdown file (git mv tool.sh docs/tool.md) is still code.\n            files=\"$(git diff --no-renames --name-only \"$base\"...HEAD 2>/dev/null)\" || files=\"\"",
+    "new": "          if [ -n \"$base\" ]; then\n            files=\"$(git diff --no-renames --name-only \"$base\"...HEAD 2>/dev/null)\""
+  }
+]
