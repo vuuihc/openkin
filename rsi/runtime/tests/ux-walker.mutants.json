@@ -68,5 +68,40 @@
     "test": "bash rsi/runtime/tests/test-ux-walker.sh",
     "old": "    if (listed.length && !files.length) {",
     "new": "    if (false) {"
+  },
+  {
+    "label": "the seed verdict is always green: a selected journey the seed never targeted is walked as a synthetic skip again",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "  if (skips.length) {",
+    "new": "  if (false) {"
+  },
+  {
+    "label": "the UNAVAILABLE line drops the journey id: a refusal names no journey, so the reader cannot tell which leg was unwalked",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "    const lines = skips.map((s) => `selected journey ${s.journey} was never walked: ${s.reason}`);",
+    "new": "    const lines = skips.map((s) => `selected journey was never walked: ${s.reason}`);"
+  },
+  {
+    "label": "the selection filter is inverted: an unselected journey's missing target refuses a walk that never asked for it",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "  for (const j of [...want]) {",
+    "new": "  for (const j of Object.keys(spec.journeys)) {"
+  },
+  {
+    "label": "UNAVAILABLE is written but the walker exits 0: the gate reads a written refusal as a completed walk",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "    lines.forEach((line) => console.log(line));\n    process.exit(2);",
+    "new": "    lines.forEach((line) => console.log(line));\n    process.exit(0);"
+  },
+  {
+    "label": "the seed verdict moves below the playwright require: an incomplete seed reaches the browser first and prints a launch error instead of the refusal",
+    "file": "rsi/runtime/ux/walk.mjs",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "refuseUnwalkedJourneys(seedSkips);\nlet chromium; try { ({ chromium } = require(process.env.PW_CORE || path.join(process.env.HOME, '.kin/ux-proto-tools/node_modules/playwright-core'))); } catch (e) { console.error('playwright-core missing: ' + e.message); process.exit(2); }",
+    "new": "let chromium; try { ({ chromium } = require(process.env.PW_CORE || path.join(process.env.HOME, '.kin/ux-proto-tools/node_modules/playwright-core'))); } catch (e) { console.error('playwright-core missing: ' + e.message); process.exit(2); }\nrefuseUnwalkedJourneys(seedSkips);"
   }
 ]

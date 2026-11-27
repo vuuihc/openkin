@@ -8,6 +8,7 @@
 //   node walk.mjs --resolve-j15 DIR/seed.log [--spec path/to/journeys.json]  (print the J15 URL or skip; no browser)
 //   node walk.mjs --resolve-j15-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J15 steps as JSON; no browser)
 //   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J1's phone search/approve/deny leg, J2/J8's review loop, J3's send + mid-run follow-up, J5's row menu, J6's default-agent change/reload/restore, J7's landing contract, J9's Mac switch, J11's phone switch, J12's thumb gestures and J15's question card; no browser)
+//   node walk.mjs --seed-verdict --out DIR [--journeys J1,J15] [--files changed.txt] [--spec path/to/journeys.json] (refuse a selected journey the seed did not target: writes DIR/UNAVAILABLE, exit 2; no browser, no daemon)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt), DIR/walk.json, and DIR/walk.steps.log — the step log is appended as each step begins, so a walk killed mid-step still names the step it died on (walk.json itself is only written after browser.close()).
 // Ops are documented in journeys.json `_doc`. One op is not listed there
 // because it belongs to one story: `history-back` is the browser's own Back
@@ -3664,13 +3665,60 @@ function selectJourneys(spec, journeysArg, filesArg) {
   }
   return known; // no selection: every journey, in spec order (unchanged)
 }
+// A selected journey that has no seeded target cannot be walked. The seeded-
+// target branches below used to record a synthetic `viewport: 'n/a'` screen and
+// continue, so walk.json's hardFail stayed empty while the gate read a UX pass
+// whose evidence named journeys nobody walked (2026-11-28). The decision is
+// hoisted here, above the browser: each selected journey goes through the same
+// reader the walk uses, and a missing target refuses the verdict, never skips
+// the leg. J10/J13 answer the same notification card as J7, and J4 needs a
+// target only when its spec carries `{project}` — the same per-journey
+// conditions the walk itself applies.
+function unwalkableJourneys(want, seedPath) {
+  const seed = fs.existsSync(seedPath) ? fs.readFileSync(seedPath, 'utf8') : '';
+  const skips = [];
+  for (const j of [...want]) {
+    let target = null;
+    if (j === 'J1') target = readJ1Target(seed);
+    else if (j === 'J4' && ((spec.journeys.J4 || {}).steps || []).some((st) => Array.isArray(st) && st.some((part) => typeof part === 'string' && part.includes('{project}')))) target = readJ4Target(seed);
+    else if (j === 'J5') target = readJ5Target(seed);
+    else if (j === 'J7' || j === 'J10' || j === 'J13') target = readJ7Target(seed);
+    else if (j === 'J15') target = readJ15Target(seed);
+    if (target && target.skip) skips.push({ journey: j, reason: target.skip });
+  }
+  return skips;
+}
+// One line per unwalked journey, in the order the selection named them. The
+// file is what ux-gate.sh reads: an UNAVAILABLE file turns the walk into "no
+// verdict" (the PR stays verified and is not merged, and a needs-ceo note names
+// the reason). The same lines go to stdout for the local reader.
+function refuseUnwalkedJourneys(skips) {
+  if (skips.length) {
+    const lines = skips.map((s) => `selected journey ${s.journey} was never walked: ${s.reason}`);
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(path.join(out, 'UNAVAILABLE'), lines.join('\n') + '\n');
+    lines.forEach((line) => console.log(line));
+    process.exit(2);
+  }
+}
 let want;
 try { want = selectJourneys(spec, arg('journeys', ''), arg('files')); }
 catch (e) { console.error(e.message); process.exit(2); }
 // `--select` prints the resolved ids and exits before --base, playwright and
 // Chrome (the build-free seam the walker suite proves the refusal through).
 if (process.argv.includes('--select')) { want.forEach((id) => console.log(id)); process.exit(0); }
+// `--seed-verdict` runs the same refusal with no token, no base URL, no daemon
+// and no playwright, so the suite proves the verdict through the real function
+// the walk uses. `--out` holds the `seed.log` ux-walk.sh wrote before the walk.
+if (process.argv.includes('--seed-verdict')) {
+  const skips = unwalkableJourneys(want, path.join(out, 'seed.log'));
+  if (skips.length) refuseUnwalkedJourneys(skips);
+  console.log('seed-verdict: every selected journey target is present');
+  process.exit(0);
+}
 if (!base) { console.error('--base required'); process.exit(2); }
+const seedSkips = unwalkableJourneys(want, path.join(out, 'seed.log'));
+refuseUnwalkedJourneys(seedSkips);
 let chromium; try { ({ chromium } = require(process.env.PW_CORE || path.join(process.env.HOME, '.kin/ux-proto-tools/node_modules/playwright-core'))); } catch (e) { console.error('playwright-core missing: ' + e.message); process.exit(2); }
 fs.mkdirSync(out, { recursive: true });
 let browser; try { browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--disable-gpu'] }); } catch (e) { console.error('chrome launch failed: ' + e.message); process.exit(2); }
@@ -4077,11 +4125,6 @@ for (const j of want) {
   // J15's held turn asked a question; the seed names the conversation and the
   // first card only when both pending questions really exist.
   const j15 = j === 'J15' ? readJ15Target(seed) : null;
-  if (j1 && j1.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J1-skipped-no-approval-target', url: '', lint: {}, notes: ['skipped J1: ' + j1.skip] }); continue; }
-  if (j4 && j4.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J4-skipped-no-project-target', url: '', lint: {}, notes: ['skipped J4: ' + j4.skip] }); continue; }
-  if (j5 && j5.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J5-skipped-no-running-conversation', url: '', lint: {}, notes: ['skipped J5: ' + j5.skip] }); continue; }
-  if (j7 && j7.skip) { screens.push({ journey: j, viewport: 'n/a', name: j + '-skipped-no-fixtures', url: '', lint: {}, notes: ['skipped ' + j + ': no seeded notification target'] }); continue; }
-  if (j15 && j15.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J15-skipped-no-question-target', url: '', lint: {}, notes: ['skipped J15: ' + j15.skip] }); continue; }
   const J = spec.journeys[j];
   for (const vpName of J.viewports) {
     const ctxOptions = viewportContext(spec, vpName);
