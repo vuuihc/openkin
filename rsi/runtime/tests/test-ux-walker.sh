@@ -1046,7 +1046,7 @@ pass "$case_name"
 case_name="seed-verdict-runs-before-chrome"
 SV5="$T/sv-before-chrome"; mkdir -p "$SV5"
 printf 'j5 target conversation=task-running title=Running\n' > "$SV5/seed.log"
-out="$("$REAL_NODE" "$UXDIR/walk.mjs" --spec "$UXDIR/journeys.json" --out "$SV5" --journeys J1 --base http://127.0.0.1:1 2>&1)"; rc=$?
+out="$(PW_CORE="$T/no-such-playwright-core" "$REAL_NODE" "$UXDIR/walk.mjs" --spec "$UXDIR/journeys.json" --out "$SV5" --journeys J1 --base http://127.0.0.1:1 2>&1)"; rc=$?
 [ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2 ($out)"
 [ -f "$SV5/UNAVAILABLE" ] || fail "$case_name: wrote no UNAVAILABLE"
 grep -q 'J1' "$SV5/UNAVAILABLE" || fail "$case_name: UNAVAILABLE does not name J1"
