@@ -4,8 +4,8 @@
 # -> git bundle + PR body for the Mac to ingest and self-check.
 # This host has a weak CPU; the Mac runs tsc + inventory + full vitest via heavy.sh after fetch.
 set -u
-BL=/opt/rsi
-WORK=/work
+BL="${NAS_LANE_BL:-/opt/rsi}"
+WORK="${NAS_LANE_WORK:-/work}"
 SLUG="$1"
 J="$WORK/jobs/$SLUG"
 REPO="$WORK/openkin.git"
@@ -21,7 +21,7 @@ if [ -f /opt/rsi/../compose/claude-settings.json ]; then
 fi
 # settings also shipped next to nas-side on the host and copied at install into /work/home/.claude
 [ -f "$WORK/home/.claude/settings.json" ] || [ -f /opt/rsi/claude-settings.json ] && cp /opt/rsi/claude-settings.json "$HOME/.claude/settings.json" 2>/dev/null || true
-. /opt/rsi/claude-env.sh
+. "$BL/claude-env.sh"
 export GIT_AUTHOR_NAME=vuuihc GIT_AUTHOR_EMAIL=vuuihc@users.noreply.github.com
 export GIT_COMMITTER_NAME=vuuihc GIT_COMMITTER_EMAIL=vuuihc@users.noreply.github.com GIT_TERMINAL_PROMPT=0
 export BASH_DEFAULT_TIMEOUT_MS=3300000 BASH_MAX_TIMEOUT_MS=3600000
@@ -44,21 +44,11 @@ st status=running started_at="$(date +%s)" host=nas
 [ -f "$J/job.json" ] || fail "missing job.json"
 [ -d "$REPO" ] || fail "missing bare repo $REPO"
 
-# Apply a Mac-shipped bundle if present, then fetch origin as fallback.
-if [ -f "$J/origin-main.bundle" ]; then
-  git --git-dir="$REPO" bundle verify "$J/origin-main.bundle" >/dev/null 2>&1 \
-    && git --git-dir="$REPO" fetch -q "$J/origin-main.bundle" '+refs/heads/*:refs/heads/*' '+refs/heads/main:refs/heads/main' \
-    || git --git-dir="$REPO" fetch -q "$J/origin-main.bundle" 'origin/main:refs/heads/main' \
-    || git --git-dir="$REPO" fetch -q "$J/origin-main.bundle" || echo "[$(date +%T)] bundle fetch had issues, trying origin"
-fi
-git --git-dir="$REPO" fetch -q origin main 2>/dev/null || true
-git --git-dir="$REPO" rev-parse --verify main >/dev/null 2>&1 || git --git-dir="$REPO" rev-parse --verify refs/heads/main >/dev/null 2>&1 || fail "no main in bare repo"
-# Prefer origin/main if present
-if git --git-dir="$REPO" rev-parse --verify origin/main >/dev/null 2>&1; then
-  BASE=origin/main
-else
-  BASE=main
-fi
+# The shipped bundle is the only source of the base. nas-base.sh applies it by the head ref it
+# carries and prints the ref to build on; a stale refs/remotes/origin/main this bare repo kept from
+# an earlier job is never picked, and with no bundle the fallback is refs/heads/main.
+BASE="$(bash "$BL/nas-base.sh" "$REPO" "$J")" || fail "no usable base in $REPO"
+[ -n "$BASE" ] || fail "no usable base in $REPO"
 
 rm -rf "$WT"
 git --git-dir="$REPO" config core.fileMode false
@@ -72,7 +62,7 @@ PRB="$J/pr-body.md"
 {
 cat <<HD
 # NAS lane worker contract (read first; it overrides anything below that says otherwise)
-You are the WORKER for RSI item $ITEM in the git worktree \`$WT\` on branch \`$BR\` (created from current origin/main). You run on a Linux NAS container with a WEAK CPU (4-core Celeron) and NO GitHub access.
+You are the WORKER for RSI item $ITEM in the git worktree \`$WT\` on branch \`$BR\` (created from the base the Mac shipped: its bundle's head). You run on a Linux NAS container with a WEAK CPU (4-core Celeron) and NO GitHub access.
 - Do NOT push, do NOT open a PR, do NOT fetch other branches, do NOT touch anything outside \`$WT\`. If the brief says to push or open the PR, skip that: an automated Mac step does it after you finish.
 - Do NOT run \`npm ci\`, \`npm install\`, \`npm run build\`, a full \`vitest\` suite, or any long compile. This machine cannot afford it. Write the tests and the code; a Mac lane will run \`tsc\`, the UI inventory ratchet, and full vitest after you hand over. You may skip running tests if \`node_modules\` is absent (it usually is).
 - Budget: about 40 minutes and about \$8. Declared footprint (stay inside): $PATHS. If the slice is too big, deliver the smallest green first slice, commit it, and say what remains in the PR body.
