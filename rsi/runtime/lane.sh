@@ -7,6 +7,9 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 source "$RSI_DIR/runtime/lane-pr.sh"
 source "$RSI_DIR/runtime/lane-push.sh"
+# Sourced beside this script, like SELF: hermetic suites point RSI_DIR at a stub tree that copies
+# only the deployed seam files, and a missing sibling there must not pollute the seam's output.
+source "$(cd "$(dirname "$0")" && pwd)/lane-body.sh"
 CMD="${1:-}"; N="${2:-}"
 
 # A squash-merged (or closed) PR leaves its branch diffing from main, so autofill's fetch/diff
@@ -881,6 +884,23 @@ if [ "$MODE" != rework ] && [ "$AHEAD" -eq 0 ]; then
   finish failed "" "worker produced no commits rc=$WRC after ${W_MIN}m"; exit 1
 fi
 
+# A committed lane is never stranded by a missing hand-off body: the worker can finish its code,
+# commit, and die before writing state/lanes/$SLUG.pr-body.md. Without a body the first
+# body-dependent seam below fails the round and the verified commit is never pushed (measured: a
+# ~1 h lane with green tests and red mutants ended `failed "" "claim check: ... no output"`, branch
+# unpushed, no PR). Write a clearly labelled partial body when the worker left none and let the
+# merge lane decide; a body the worker did write is never touched, and no commit means no body.
+PARTIAL_HANDOFF=0
+if [ "$AHEAD" -gt 0 ]; then
+  if HANDOFF_BODY="$(ensure_handoff_body "$STATE" "$N" "$ITEM" "$WT" "$GIT" "$SLUG")"; then
+    if [ "$HANDOFF_BODY" != "$STATUS_NOTE_FILE" ]; then
+      STATUS_NOTE_FILE="$HANDOFF_BODY"
+      PARTIAL_HANDOFF=1
+      echo "[$(date +%T)] partial hand-off: no worker body; using $STATUS_NOTE_FILE"
+    fi
+  fi
+fi
+
 # A new PR takes its title — and therefore the squash-merge subject on main —
 # from the tip commit. Capture the worker's subject before the format commit
 # moves the tip, or every lane that needed formatting lands as "style: format
@@ -1072,8 +1092,14 @@ fi
 [ -n "$PR_BODY_EV" ] && printf '%s\n' "$PR_BODY_EV"
 [ "$MODE" = rework ] && mkdir -p "$STATE/sendback/done" && mv "$STATE/sendback/$SLUG.md" "$STATE/sendback/done/$SLUG-$(date +%H%M%S).md" 2>/dev/null
 
+# A partial hand-off is not a runner failure: the branch was committed and pushed, and the merge
+# lane owns the verdict. It is recorded in both notes so a reader knows the body is generated.
+PARTIAL_NOTE=""
+# ${...:-0}: hermetic suites execute this tail out of context under set -u, without the block
+# above that defines the flag.
+[ "${PARTIAL_HANDOFF:-0}" -eq 1 ] && PARTIAL_NOTE="partial hand-off (fallback body)"
 if [ $TIMEDOUT -eq 1 ]; then count_timeout "lane $N ($SLUG)" "partial work pushed as PR #$PRN"; else count_ok; fi
-scorecard_row "$ITEM $SLUG (lane $N, $MODE)" "$M_WORKER" "pending (merge lane)" "PR opened (${W_MIN}m, \$${COST:-?})$([ $TIMEDOUT -eq 1 ] && echo ', worker hit watchdog')" "[#$PRN]($PRURL)" "pending" "-"
+scorecard_row "$ITEM $SLUG (lane $N, $MODE)" "$M_WORKER" "pending (merge lane)" "PR opened (${W_MIN}m, \$${COST:-?})$([ $TIMEDOUT -eq 1 ] && echo ', worker hit watchdog')${PARTIAL_NOTE:+, $PARTIAL_NOTE}" "[#$PRN]($PRURL)" "pending" "-"
 # Release host resources BEFORE the lane is advertised as done: `finish done`
 # makes lanes.py report the lane idle, and the sweep/shutdown just below can take up
 # to 20 s (lsof). In that window merge.sh no longer skips this PR — it could
@@ -1081,7 +1107,7 @@ scorecard_row "$ITEM $SLUG (lane $N, $MODE)" "$M_WORKER" "pending (merge lane)" 
 # by rsi_reap_cwd — and a pulse could claim the still-locked lane for 25 min.
 # cleanup() keeps the same invariant: release, then mark the lane crashed.
 lane_release_host
-finish done "$PRN" "PR #$PRN ${W_MIN}m \$${COST:-?} swept=$SWEPT_N${CLAIM_RETRY_NOTE:+ · $CLAIM_RETRY_NOTE}"
+finish done "$PRN" "PR #$PRN ${W_MIN}m \$${COST:-?} swept=$SWEPT_N${CLAIM_RETRY_NOTE:+ · $CLAIM_RETRY_NOTE}${PARTIAL_NOTE:+ · $PARTIAL_NOTE}"
 echo "[$(date +%T)] lane $N done PR #$PRN"
 rm -rf "$LK"; trap - EXIT
 
