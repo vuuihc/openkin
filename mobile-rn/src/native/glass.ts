@@ -11,18 +11,25 @@
  * `GlassSurface.tsx`, so the branch can be pinned without a renderer.
  */
 
+import { palette, type Scheme } from "../theme/tokens";
+
 /** The two shapes a glass surface can take. */
 export type GlassSpec =
   | { kind: "blur"; intensity: number; tint: "systemMaterialLight" }
   | { kind: "opaque"; color: string };
 
 /**
- * Today's card colour, kept as the readable fallback. A sheet over a blur is
- * only legible while the reader can see it; reduced transparency is the
- * reader saying they cannot (the web sibling's near-opaque footer fallback is
- * `ui/src/components/layout/PhoneFooter.tsx`, same preference, same job).
+ * The readable fallback card, per scheme. A sheet over a blur is only legible
+ * while the reader can see it; reduced transparency is the reader saying they
+ * cannot (the web sibling's near-opaque footer fallback is
+ * `ui/src/components/layout/PhoneFooter.tsx`, same preference, same job). It
+ * follows the scheme so dark mode gets the elevated dark card, not a white
+ * one — white cards in the dark were the bug R1b exists to fix.
  */
-export const GLASS_FALLBACK_COLOR = "#ffffff";
+export const GLASS_FALLBACK: Record<Scheme, string> = {
+  light: palette.light.elevated,
+  dark: palette.dark.elevated,
+};
 
 /** The blur that leaves the conversation readable behind the sheet's text. */
 const GLASS_INTENSITY = 60;
@@ -35,12 +42,13 @@ const GLASS_INTENSITY = 60;
 export function glassFor(opts: {
   reduceTransparency: boolean;
   platform: string;
+  scheme: Scheme;
 }): GlassSpec {
   // Reduced transparency wins over everything: it is a request for
   // legibility, not a style. Android keeps the opaque card because expo-blur's
   // fidelity there is not a promise this story makes.
   if (opts.reduceTransparency || opts.platform === "android") {
-    return { kind: "opaque", color: GLASS_FALLBACK_COLOR };
+    return { kind: "opaque", color: GLASS_FALLBACK[opts.scheme] };
   }
   return {
     kind: "blur",

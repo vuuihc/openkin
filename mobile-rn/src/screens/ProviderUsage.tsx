@@ -23,7 +23,7 @@
  * exactly as R5b's `Approvals` landed before R5c mounted it.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   Pressable,
   ScrollView,
@@ -38,6 +38,8 @@ import {
   summarizeUsage,
 } from "../../../ui/src/lib/usage";
 import { focusNode } from "../a11y/focus";
+import { useTheme } from "../theme/useTheme";
+import { wash, type Palette } from "../theme/tokens";
 import {
   USAGE_WINDOWS,
   type ProviderEntry,
@@ -100,10 +102,12 @@ function failureKey(reason: ProvidersReason): string {
 
 function Tile({
   label,
+  styles,
   testID,
   value,
 }: {
   label: string;
+  styles: Styles;
   testID: string;
   value: string;
 }) {
@@ -117,9 +121,11 @@ function Tile({
 
 function ProviderRow({
   provider,
+  styles,
   t,
 }: {
   provider: ProviderEntry;
+  styles: Styles;
   t: Translate;
 }) {
   // The web row's fallback order (`ProviderSettingsSection.tsx:18-20`), and a
@@ -151,6 +157,8 @@ export default function ProviderUsage({
   onClose,
   autoFocus,
 }: ProviderUsageScreenProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const titleRef = useRef<ViewInstance | null>(null);
   // One open is one mount: the sheet's Modal unmounts this subtree while it is
   // hidden, so the reader is moved once per open and never on an in-place
@@ -285,16 +293,19 @@ export default function ProviderUsage({
           <View style={styles.tiles}>
             <Tile
               label={t("usage.spend")}
+              styles={styles}
               testID="spend"
               value={totals.empty ? NO_VALUE : formatSpend(totals.cost)}
             />
             <Tile
               label={t("usage.tokens")}
+              styles={styles}
               testID="tokens"
               value={totals.empty ? NO_VALUE : formatTokenCount(totals.tokens)}
             />
             <Tile
               label={t("usage.cacheHitRate")}
+              styles={styles}
               testID="cache"
               value={
                 totals.empty
@@ -309,6 +320,7 @@ export default function ProviderUsage({
             />
             <Tile
               label={t("usage.tasks")}
+              styles={styles}
               testID="tasks"
               value={totals.empty ? NO_VALUE : String(totals.tasks)}
             />
@@ -324,7 +336,12 @@ export default function ProviderUsage({
       {state.providers.length > 0 || state.providerListError ? (
         <View style={styles.providers}>
           {state.providers.map((provider) => (
-            <ProviderRow key={provider.id} provider={provider} t={t} />
+            <ProviderRow
+              key={provider.id}
+              provider={provider}
+              styles={styles}
+              t={t}
+            />
           ))}
           {state.providerListError ? (
             // The list alone is unreadable (a paired device token may not read
@@ -344,11 +361,11 @@ export default function ProviderUsage({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) => StyleSheet.create({
   /** Every chip, the close control and the retry are ≥44pt (TASTE 11). */
   control: {
     alignItems: "center",
-    borderColor: "#d9d9d9",
+    borderColor: colors.hairlineStrong,
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: "center",
@@ -358,12 +375,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   controlText: {
-    color: "#0b57d0",
+    color: colors.blueInk,
     fontSize: 15,
     fontWeight: "600",
   },
   activeBadge: {
-    color: "#0b57d0",
+    color: colors.blueInk,
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0.6,
@@ -380,12 +397,12 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   emptyHint: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 14,
     textAlign: "center",
   },
   emptyTitle: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -396,13 +413,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   headerTitle: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 20,
     fontWeight: "700",
   },
   notice: {
     alignItems: "center",
-    backgroundColor: "#fdf3d7",
+    backgroundColor: wash(colors.orange, 0.15),
     borderRadius: 8,
     flexDirection: "row",
     flexWrap: "wrap",
@@ -410,12 +427,12 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   noticeText: {
-    color: "#6b4b00",
+    color: colors.orangeInk,
     flexShrink: 1,
     fontSize: 14,
   },
   provider: {
-    borderColor: "#e5e5e5",
+    borderColor: colors.hairlineStrong,
     borderRadius: 12,
     borderWidth: 1,
     gap: 4,
@@ -428,7 +445,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   providerName: {
-    color: "#1d1d1d",
+    color: colors.text,
     flexShrink: 1,
     fontSize: 16,
     fontWeight: "600",
@@ -437,23 +454,24 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   providerNotice: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 14,
   },
   providerSummary: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontFamily: "monospace",
     fontSize: 13,
   },
   quiet: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 14,
   },
   screen: {
+    backgroundColor: colors.bg,
     flex: 1,
   },
   tile: {
-    backgroundColor: "#f4f4f4",
+    backgroundColor: colors.fill,
     borderRadius: 12,
     flexBasis: "47%",
     flexGrow: 1,
@@ -461,14 +479,14 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   tileLabel: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 12,
     fontWeight: "600",
     letterSpacing: 0.6,
     textTransform: "uppercase",
   },
   tileValue: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontVariant: ["tabular-nums"],
     fontSize: 22,
     fontWeight: "700",
@@ -482,15 +500,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   windowSelected: {
-    backgroundColor: "#e8f0fe",
-    borderColor: "#0b57d0",
+    backgroundColor: wash(colors.blue, 0.12),
+    borderColor: colors.focusRing,
   },
   windowText: {
-    color: "#3a3a3a",
+    color: colors.secondary,
     fontSize: 14,
   },
   windowTextSelected: {
-    color: "#0b57d0",
+    color: colors.blueInk,
     fontWeight: "600",
   },
   windows: {
@@ -498,3 +516,5 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 });
+
+type Styles = ReturnType<typeof makeStyles>;

@@ -10,7 +10,7 @@
     "label": "glassFor always returns the opaque spec, so a normal phone never gets the blur (R-rn-usage-glass)",
     "file": "mobile-rn/src/native/glass.ts",
     "old": "  return {\n    kind: \"blur\",\n    intensity: GLASS_INTENSITY,\n    tint: \"systemMaterialLight\",\n  };",
-    "new": "  return {\n    kind: \"opaque\",\n    color: GLASS_FALLBACK_COLOR,\n  };",
+    "new": "  return {\n    kind: \"opaque\",\n    color: GLASS_FALLBACK.light,\n  };",
     "test": "cd mobile-rn && npx jest src/native/glass.test.ts -t \"KIN-MOBILE-001 R7: a normal phone gets the blurred glass, not the flat card\""
   },
   {

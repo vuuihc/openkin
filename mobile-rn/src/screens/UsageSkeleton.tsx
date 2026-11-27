@@ -15,7 +15,10 @@
  * no interaction (AGENTS.md §17).
  */
 
+import { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
+import { useTheme } from "../theme/useTheme";
+import type { Palette } from "../theme/tokens";
 
 type Translate = (
   key: string,
@@ -26,6 +29,8 @@ const TILES = [0, 1, 2, 3];
 const ROWS = [0, 1, 2];
 
 export default function UsageSkeleton({ t }: { t: Translate }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View
       accessible
@@ -52,11 +57,11 @@ export default function UsageSkeleton({ t }: { t: Translate }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) => StyleSheet.create({
   /** The settled provider row's box, minus its two lines of text. */
   bar: {
-    backgroundColor: "#f4f4f4",
-    borderColor: "#e5e5e5",
+    backgroundColor: colors.fill,
+    borderColor: colors.hairlineStrong,
     borderRadius: 12,
     borderWidth: 1,
     height: 56,
@@ -66,7 +71,7 @@ const styles = StyleSheet.create({
   },
   /** `ProviderUsage`'s tile: 47% of the row, same radius and fill. */
   tile: {
-    backgroundColor: "#f4f4f4",
+    backgroundColor: colors.fill,
     borderRadius: 12,
     flexBasis: "47%",
     flexGrow: 1,

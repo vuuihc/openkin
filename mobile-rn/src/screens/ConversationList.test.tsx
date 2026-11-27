@@ -13,6 +13,7 @@ import {
   within,
 } from "@testing-library/react-native";
 import { SectionList, StyleSheet } from "react-native";
+import { palette } from "../theme/tokens";
 import ConversationList, {
   BOTTOM_TAB_INSET,
   FOCUS_RING,
@@ -566,7 +567,7 @@ describe("KIN-MOBILE-001 §2 list keyboard focus", () => {
    * exports no `FOCUS_RING`, so comparing two imported values would make the
    * ring assertions pass while nothing is painted.
    */
-  const RING = "#0b57d0";
+  const RING = palette.light.focusRing;
 
   /**
    * Every move now asks the list to reveal the row it landed on. The real

@@ -23,7 +23,7 @@
   {
     "label": "reduced transparency paints the bar transparent instead of the readable fallback (R-rn-header-glass)",
     "file": "mobile-rn/src/screens/ConversationView.tsx",
-    "old": "  headerOpaque: {\n    backgroundColor: GLASS_FALLBACK_COLOR,\n  },",
+    "old": "  headerOpaque: {\n    backgroundColor: glassColor,\n  },",
     "new": "  headerOpaque: {\n    backgroundColor: \"transparent\",\n  },",
     "test": "cd mobile-rn && npx jest src/screens/Conversation.glass.test.tsx -t \"KIN-MOBILE-001 R7: reduce transparency swaps the header's blur for an opaque bar\""
   },

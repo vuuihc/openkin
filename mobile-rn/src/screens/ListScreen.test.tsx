@@ -19,6 +19,7 @@ import {
   type AppStateStatus,
 } from "../lifecycle/resume";
 import ListScreen from "./ListScreen";
+import { palette } from "../theme/tokens";
 import { FOCUS_RING } from "./ConversationList";
 
 /**
@@ -981,7 +982,7 @@ describe("KIN-MOBILE-001 R3 list memory and restore", () => {
   it("KIN-MOBILE-001 §2: the ring is on the row the reader left", async () => {
     // Restated here so a reverted ConversationList (which exports nothing)
     // cannot make both sides of a ring assertion undefined.
-    const RING = "#0b57d0";
+    const RING = palette.light.focusRing;
     expect(FOCUS_RING).toBe(RING);
     const fetchImpl = routedFetch((url) => {
       if (!url.endsWith(listTasksPath())) return { body: [] };

@@ -1,6 +1,9 @@
+import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { splitFor } from "./split";
+import { useTheme } from "../theme/useTheme";
+import type { Palette } from "../theme/tokens";
 
 /**
  * KIN-MOBILE-001 R3 — the list's split presentation (KIN-CONTINUE-007).
@@ -38,6 +41,8 @@ export default function SplitListLayout({
   list,
   conversation,
 }: SplitListLayoutProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const layout = splitFor(width);
   const split = layout.mode === "split";
 
@@ -79,12 +84,12 @@ export default function SplitListLayout({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) => StyleSheet.create({
   conversation: {
     flex: 1,
   },
   divider: {
-    backgroundColor: "#dcdcdc",
+    backgroundColor: colors.hairlineStrong,
     width: StyleSheet.hairlineWidth,
   },
   empty: {
@@ -94,7 +99,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   emptyText: {
-    color: "#5f6368",
+    color: colors.muted,
     fontSize: 15,
     textAlign: "center",
   },

@@ -23,6 +23,8 @@ import {
   type TextStyle,
 } from "react-native";
 import { splitTableBlocks } from "../thread/tableBlock";
+import { useTheme } from "../theme/useTheme";
+import type { Palette } from "../theme/tokens";
 
 /** Room for a cell's padding plus a little breathing space. */
 const CELL_CHROME = 24;
@@ -30,8 +32,6 @@ const CELL_CHROME = 24;
 const CHAR_WIDTH = 8;
 const MIN_CELL_WIDTH = 72;
 const MAX_CELL_WIDTH = 240;
-
-const BORDER = "#dcdcdc";
 
 function columnWidths(header: string[], rows: string[][]): number[] {
   return header.map((cell, column) => {
@@ -54,6 +54,8 @@ export type TableBlockProps = {
 };
 
 export function TableBlock({ header, rows, index }: TableBlockProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const widths = columnWidths(header, rows);
   return (
     <ScrollView
@@ -103,6 +105,8 @@ export type MessageBodyProps = {
  * this row, so the common case paints exactly as it did.
  */
 export function MessageBody({ text, textStyle }: MessageBodyProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const blocks = useMemo(() => splitTableBlocks(text), [text]);
 
   if (blocks.length === 1 && blocks[0].kind === "text") {
@@ -130,26 +134,26 @@ export function MessageBody({ text, textStyle }: MessageBodyProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) => StyleSheet.create({
   body: {
     gap: 8,
   },
   cell: {
-    color: "#3a3a3a",
+    color: colors.secondary,
     flexShrink: 0,
     fontSize: 14,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   headerCell: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontWeight: "600",
   },
   headerRow: {
-    backgroundColor: "#f2f2f2",
+    backgroundColor: colors.fill,
   },
   row: {
-    borderBottomColor: BORDER,
+    borderBottomColor: colors.hairlineStrong,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
   },
@@ -157,7 +161,7 @@ const styles = StyleSheet.create({
     flexGrow: 0,
   },
   table: {
-    borderColor: BORDER,
+    borderColor: colors.hairlineStrong,
     borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",

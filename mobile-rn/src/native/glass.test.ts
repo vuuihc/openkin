@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
-import { GLASS_FALLBACK_COLOR, glassFor } from "./glass";
+import { GLASS_FALLBACK, glassFor } from "./glass";
+import { palette } from "../theme/tokens";
 
 /**
  * KIN-MOBILE-001 R7 — the glass surface's two branches, without a renderer.
@@ -14,7 +15,7 @@ import { GLASS_FALLBACK_COLOR, glassFor } from "./glass";
 
 describe("KIN-MOBILE-001 R7 glass surface", () => {
   it("KIN-MOBILE-001 R7: a normal phone gets the blurred glass, not the flat card", () => {
-    expect(glassFor({ reduceTransparency: false, platform: "ios" })).toEqual({
+    expect(glassFor({ reduceTransparency: false, platform: "ios", scheme: "light" })).toEqual({
       kind: "blur",
       intensity: 60,
       tint: "systemMaterialLight",
@@ -22,19 +23,28 @@ describe("KIN-MOBILE-001 R7 glass surface", () => {
   });
 
   it("KIN-MOBILE-001 R7: reduce transparency keeps the sheet readable over an opaque surface", () => {
-    expect(GLASS_FALLBACK_COLOR).toBe("#ffffff");
-    expect(glassFor({ reduceTransparency: true, platform: "ios" })).toEqual({
+    expect(GLASS_FALLBACK.light).toBe(palette.light.elevated);
+    expect(glassFor({ reduceTransparency: true, platform: "ios", scheme: "light" })).toEqual({
       kind: "opaque",
-      color: GLASS_FALLBACK_COLOR,
+      color: GLASS_FALLBACK.light,
+    });
+  });
+
+  it("KIN-MOBILE-001 R7: the dark fallback is the dark elevated card, never white", () => {
+    expect(GLASS_FALLBACK.dark).toBe(palette.dark.elevated);
+    expect(GLASS_FALLBACK.dark).not.toBe("#ffffff");
+    expect(glassFor({ reduceTransparency: true, platform: "ios", scheme: "dark" })).toEqual({
+      kind: "opaque",
+      color: palette.dark.elevated,
     });
   });
 
   it("KIN-MOBILE-001 R7: Android keeps the opaque card", () => {
     expect(
-      glassFor({ reduceTransparency: false, platform: "android" }),
+      glassFor({ reduceTransparency: false, platform: "android", scheme: "light" }),
     ).toEqual({
       kind: "opaque",
-      color: GLASS_FALLBACK_COLOR,
+      color: GLASS_FALLBACK.light,
     });
   });
 });
