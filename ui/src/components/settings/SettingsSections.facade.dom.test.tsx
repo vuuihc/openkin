@@ -282,12 +282,12 @@ describe("the settings sections on the shared button", () => {
 
     cleanup();
     localAgentSection();
-    for (const name of ["Refresh detection", "Import sessions now"]) {
-      expect(facadeWeight(buttonNamed(name))).toBe("kin-btn-secondary");
-    }
-    // Both groups draw the row import under the provider's own name.
+    // The import group keeps its own read entry after the detection half left.
+    expect(facadeWeight(buttonNamed("Refresh detection"))).toBe("kin-btn-secondary");
+    expect(facadeWeight(buttonNamed("Import sessions now"))).toBe("kin-btn-secondary");
     const rowImports = screen.getAllByRole("button", { name: "Import sessions from Codex" });
-    expect(rowImports.map(facadeWeight)).toEqual(["kin-btn-secondary", "kin-btn-secondary"]);
+    expect(rowImports).toHaveLength(1);
+    expect(facadeWeight(rowImports[0])).toBe("kin-btn-secondary");
     const [saveSession] = screen.getAllByRole("button", { name: "Save session settings" });
     expect(facadeWeight(saveSession)).toBe("kin-btn-primary");
     // RolesSection (E3's file, outside this slice) still hand-builds its Save

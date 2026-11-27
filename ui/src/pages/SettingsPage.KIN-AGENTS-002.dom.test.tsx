@@ -113,7 +113,6 @@ function group(title: string): HTMLElement {
 
 // Read through the translator at call time: this file sets the locale in
 // `beforeEach`, so module-level constants would freeze the default language.
-const detectionHeading = () => t("settings.localAgents.detectionHeading");
 const importHeading = () => t("settings.localAgents.importHeading");
 
 beforeEach(() => {
@@ -155,13 +154,11 @@ describe("KIN-AGENTS-002 · what opening the agents tab reads", () => {
 
     await user.click(await screen.findByRole("tab", { name: t("settings.tabs.agents") }));
 
-    expect(await screen.findByText(t("settings.localAgents.detectionRule"))).not.toBeNull();
-    expect(screen.getByText(t("settings.localAgents.importRule"))).not.toBeNull();
+    expect(await screen.findByText(t("settings.localAgents.importRule"))).not.toBeNull();
     expect(screen.getByText(t("settings.localAgents.rolesRule"))).not.toBeNull();
     await waitFor(() => expect(vi.mocked(listAgentProviders)).toHaveBeenCalledTimes(1));
 
-    // Detection rows and import rows both come from that one read.
-    expect(within(group(detectionHeading())).getByText("Codex")).not.toBeNull();
+    // The import rows (and only they) render from that one read.
     expect(within(group(importHeading())).getByText("Codex")).not.toBeNull();
 
     // Leaving and coming back keeps the rows; it does not start another probe.

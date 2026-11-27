@@ -14,15 +14,14 @@
 
 ## 现在
 
-- **探测**：组标题右侧的「刷新检测」重新读一遍本机 provider 与能力（`ui/src/components/settings/LocalAgentSettingsSection.tsx:57-69`），每行显示状态、原因与能力徽标（`:73-152`）。
-- **导入会话**：每行一个「导入」（`:123-132`），组底一个「立即导入会话」（`:167-173`）；它们与侧栏、operations console 的导入按钮是同一个动作——同一个 `useAgentSessionImport`、共享进行中标志（`ui/src/hooks/useAgentSessionImport.ts:39-52`，`ui/src/components/layout/Sidebar.tsx:121`，`ui/src/components/settings/AgentOperationsSection.tsx:1025-1032`）。按下才发生，成功后派发 `kin:agent-sessions-changed` 并带 `skipAutoImport: true`（`ui/src/pages/SettingsPage.tsx:503-543`）。旧的自动导入设置仍被 daemon 接受，但没有任何界面读它（`ui/src/components/settings/LocalAgentSettingsSection.tsx:161-166`）。
-- **角色默认**：角色是一段保存的提示词前缀（`ui/src/lib/agentRoles.ts:2`、`:15-21`），在同一个 tab 底部就地编辑（`ui/src/components/settings/LocalAgentSettingsSection.tsx:181-188`），随页面保存，并派发 `AGENT_ROLES_CHANGED_EVENT` 让 composer 立刻可用（`ui/src/pages/SettingsPage.tsx:481`）。
+- **导入会话**：`?tab=agents` 的第一组。组标题右侧是「刷新检测」（`ui/src/components/settings/LocalAgentSettingsSection.tsx:100-116`），显式按下才重新读本机 provider 与能力；provider 读取的生命周期也归这一组——读取中写「检测中…」、失败保留旧行并说明、首读失败给「重试」、离线只读（`:118-157`）。每行一个「导入」（`:183-195`），组底一个「立即导入会话」（`:200-210`）；它们与侧栏、operations console 的导入按钮是同一个动作——同一个 `useAgentSessionImport`、共享进行中标志（`ui/src/hooks/useAgentSessionImport.ts:39-52`，`ui/src/components/layout/Sidebar.tsx:121`，`ui/src/components/settings/AgentOperationsSection.tsx:1025-1032`）。按下才发生，成功后派发 `kin:agent-sessions-changed` 并带 `skipAutoImport: true`（`ui/src/pages/SettingsPage.tsx:503-543`）。旧的自动导入设置仍被 daemon 接受，但没有任何界面读它（`ui/src/components/settings/LocalAgentSettingsSection.tsx:211-216`）。每行保留「上次检测」时间（`:181`）：失败过一次之后，导入按钮旁边的时间是它唯一的出处。
+- **角色默认**：第二组。角色是一段保存的提示词前缀（`ui/src/lib/agentRoles.ts:2`、`:15-21`），在同一个 tab 底部就地编辑（`ui/src/components/settings/LocalAgentSettingsSection.tsx:223-231`），随页面保存，并派发 `AGENT_ROLES_CHANGED_EVENT` 让 composer 立刻可用（`ui/src/pages/SettingsPage.tsx:481`）。
 
-读路径已经分成两半：agent 状态来自本机 presence 扫描（`internal/server/agents.go:36`，目录见 `internal/adapter/detect/skills_catalog.go:29`），版本与登录探测在 management（`internal/adapter/detect/management.go:175`）只服务 operations tab。缺的是屏幕上的边界：打开设置会在 tab 未打开时也读一次 provider（`ui/src/pages/SettingsPage.tsx:390`、`:399`），行里没有「上次检测时间」，也没有文案说明「导入不会自动发生、角色不跟着检测走」。因此没有一条测试把这条边界作为整体固定下来。
+读路径已经分成两半：agent 状态来自本机 presence 扫描（`internal/server/agents.go:36`，目录见 `internal/adapter/detect/skills_catalog.go:29`），版本与登录探测在 management（`internal/adapter/detect/management.go:118`）只服务 operations tab。屏幕上的边界现在是两组：导入组自己拥有 provider 读取的生命周期与刷新入口，角色组只是保存；页面的读取策略不变——打开 tab 读一次、tab 打开时重连再读一次、显式刷新再读一次（`ui/src/pages/SettingsPage.tsx:385-401`、`:465-473`）。2026-11-27 的 `R-agents-probe-removal` 删除了此前的「安装状态（探测）」半成品组：它只读展示状态与能力徽标，却占着唯一的刷新入口和唯一的读失败文案；导入组本来就渲染同一份 `agentProviders`，所以删除后导入与角色两组原地址原按钮不变。
 
 ## 范围
 
-- 做，**探测（安装状态）**：只读本机 provider 的状态、来源、能力徽标与上次检测时间。打开 tab 只读 daemon 的元数据与时间戳，不读 secure store、不调第三方、不启动导入；只有显式按下「刷新检测」才重新探测，探测中该组标「检测中…」，完成后更新时间戳，失败保留上次结果并说明。探测永远不改目录、不改默认 agent、不导入。
+- 做，**探测（安装状态）**：只读本机 provider 的状态、来源、能力徽标与上次检测时间。打开 tab 只读 daemon 的元数据与时间戳，不读 secure store、不调第三方、不启动导入；只有显式按下「刷新检测」才重新探测，探测中该组标「检测中…」，完成后更新时间戳，失败保留上次结果并说明。探测永远不改目录、不改默认 agent、不导入。（2026-11-27 随探测组删除退役：能力徽标与状态行删除，读取生命周期与刷新入口并入「导入会话」组，见变更记录。）
 - 做，**导入会话**：agents tab 的行内「导入」按 provider 导入这一台机器；侧栏菜单也有按 provider 的快捷入口（`ui/src/components/layout/Sidebar.tsx:113-129`），组底「立即导入会话」与 operations 的按钮导入所有已配对机器。它们是同一个动作（同一个 hook、同一个进行中标志），归各自宿主；侧栏与 operations 的按钮归 `KIN-AGENTS-001`，本故事不改。导入只写会话索引，不改源历史、不改安装状态、不改角色；失败不删已有索引。
 - 做，**角色默认**：保存在 daemon 设置键 `agent_roles` 里的提示词前缀，同一 daemon 的设备共享（`ui/src/lib/agentRoles.ts:10-11`，`ui/src/pages/SettingsPage.tsx:465`）。打开 tab 只显示已保存的角色；编辑随页面的保存动作落盘，半写的行在保存时丢弃（已有 `ui/src/lib/agentRoles.test.ts:95-108`）；它不探测、不导入、不改变模型或权限，只把文字放进草稿。
 - 做，**删探测不删能力**：导入组自己读它需要的 provider 与能力元数据（同一个 `/api/agent-providers`），不依赖探测组的渲染；以后重做或移除探测半时，导入与角色两组保留原地址 `/settings?tab=agents`、原按钮与原测试。
@@ -144,8 +143,8 @@
 
 | 层级 | 位置 | Given / When / Then |
 |---|---|---|
-| 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 打开 `?tab=agents` When 不按任何按钮 Then 没有导入请求、没有 secure-store 读；探测按钮可见但未运行 |
-| 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 状态组 When 按「刷新检测」 Then 该组标「检测中…」，provider 读只发一次，完成后状态与时间更新；没有导入请求，也没有改默认 agent |
+| 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 打开 `?tab=agents` When 不按任何按钮 Then 没有导入请求、没有 secure-store 读；探测按钮可见但未运行（2026-11-27 随探测组删除退役） |
+| 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 状态组 When 按「刷新检测」 Then 该组标「检测中…」，provider 读只发一次，完成后状态与时间更新；没有导入请求，也没有改默认 agent（2026-11-27 随探测组删除退役） |
 | 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 一个 provider 的 `session_list` 不支持 When 看该行 Then 没有导入按钮，并写「不支持列出会话」的原因 |
 | 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 一个可导入的 provider When 按行内「导入」 Then 只请求这一台机器的这个 provider，完成后提示索引数 |
 | 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 导入进行中 When 看其余导入按钮 Then 一起禁用；完成后恢复 |
@@ -155,7 +154,7 @@
 | 页面 | `ui/src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx` | Given 一个角色，名字和提示词都填好 When 保存 Then 保存请求含该角色，composer 收到 `AGENT_ROLES_CHANGED_EVENT`，且没有探测或导入请求 |
 | 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 已保存的角色 When 打开 tab Then 角色行渲染出来，且角色组本身不触发探测或导入 |
 | 页面 | `ui/src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx` | Given 两个读并发、其中一个迟到 When 它们返回 Then 只有最新一次上屏，旧回答被丢弃 |
-| 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 断线 When 打开 tab Then 三组都标离线，探测与导入禁用并写原因，角色只读 |
+| 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 断线 When 打开 tab Then 两组都标离线，导入组禁用并写原因，角色只读（2026-11-27 起为两组：导入与角色；探测组已删除） |
 | 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 探测失败 When 完成 Then 保留上次结果并写失败原因，不清空行 |
 | 页面 | `ui/src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx` | Given 探测组被移除或用替身替掉 When 打开 agents tab Then 导入组自己拿到 provider 与能力，行内导入与角色保存仍发出各自的请求 |
 | 结构 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given agents tab When 渲染 Then 没有安装、更新、卸载、登录、smoke 或用量控件；完整列表只在 operations console |
@@ -169,3 +168,4 @@
 - 2026-11-23 创建（R-agents-detect，合同 only；不写代码、审阅页或帧）。
 - 2026-11-25（+08）· 对齐：part b 的审阅页与 6 张帧已由 #629 b0d46372 交付；状态保持 draft，等待人签字。
 - 2026-11-27 · CEO 受托签字（approved）：D1–D3 按审阅页推荐；审阅页已读（MECE、6 帧、六段流程、状态板）。见 rsi/DECISIONS.md 同日条。
+- 2026-11-27 · `R-agents-probe-removal`：探测组（安装状态）删除，agents tab 只剩「导入会话」与「角色默认」两组；导入组自己拥有 provider 读取的生命周期（读取中 / 失败保留旧行 / 首读失败给重试 / 离线）并保留自己的「刷新检测」入口，每行保留「上次检测」时间，角色组不变；无 API、路由、存储或新增 locale 目录，两个 locale 只删除探测组独占键并把 `detectionFailed` 的「上面」改成「下面」。

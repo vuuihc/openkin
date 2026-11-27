@@ -94,7 +94,7 @@
 
 | 面 | 归谁 | 内容 |
 |---|---|---|
-| 控制台设置 `/settings` | Hub | Agent、模型、权限等运行默认值（KIN-SETTINGS-001 的面；该故事于 2026-11-17 CEO 代签，D1–D8 已定，设计页 5 帧）；远程 / 通知两个 tab 已于 2026-11-11（R0b-3）删除，relay / APNs 仍是 daemon API；通知只保留 iPhone 首次授权的一行；`?tab=operations` 托管 Agent 运维（原 `AgentsPage` 主体，N4 已接管），E4a 已由 #141 `71402048` 交付、`/agents` 与 `/usage` 都 `replace` 到它；分区 ID 仍是 `general` / `agents` / `providers` / `routing` / `advanced` / `operations`，`?tab=agents` 永远是本地 Agent 与角色；安装状态（探测）、会话导入与角色默认三块的边界见 `KIN-AGENTS-002` |
+| 控制台设置 `/settings` | Hub | Agent、模型、权限等运行默认值（KIN-SETTINGS-001 的面；该故事于 2026-11-17 CEO 代签，D1–D8 已定，设计页 5 帧）；远程 / 通知两个 tab 已于 2026-11-11（R0b-3）删除，relay / APNs 仍是 daemon API；通知只保留 iPhone 首次授权的一行；`?tab=operations` 托管 Agent 运维（原 `AgentsPage` 主体，N4 已接管），E4a 已由 #141 `71402048` 交付、`/agents` 与 `/usage` 都 `replace` 到它；分区 ID 仍是 `general` / `agents` / `providers` / `routing` / `advanced` / `operations`，`?tab=agents` 永远是本地 Agent 与角色；探测组已于 2026-11-27（`R-agents-probe-removal`）删除，只剩「会话导入」与「角色默认」两块，导入组自己拥有 provider 读取的生命周期与刷新入口，边界见 `KIN-AGENTS-002` |
 | 菜单栏托盘（Mac） | 桌面壳 | 常驻版本行「Kin X」；检查更新、下载（进度）、安装（open dmg + 确认退出）、删除已下载的安装包；只连 github.com 官方 Releases，不做后台轮询 |
 | 手机 | 手机 App 自己（`KIN-CONTINUE-006`） | 开屏先跑随包的控制台（基线），新版本在后台整套取回、校验（版本 / Hub API 兼容 / 字节完整）后原子换入，并保留上一份完整版本；取不回、只取到一半或两侧不兼容时继续用基线，用一句话说明，不转圈。浏览器 PWA 仍由 Hub 重新部署时自然更新。**2026-11-21 CEO 记为暂不做**：实测限速下开屏只差 3.7 秒，失败已由 #482 的有界重试与重载按钮覆盖，跨源白名单（权限边界）不值得为此开；`KIN-CONTINUE-006` 转 `blocked`，恢复方式见该故事 |
 
