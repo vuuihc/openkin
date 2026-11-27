@@ -34,7 +34,7 @@ CLAIM_FILES=(
   rsi/roles/reviewer.md
   rsi/roles/fixer.md
   rsi/runtime/lane.sh
-  rsi/runtime/merge.sh
+  rsi/runtime/screenshots-obligation.sh
 )
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 
