@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@jest/globals";
-import { GLASS_FALLBACK, glassFor } from "./glass";
+import { GLASS_FALLBACK, glassFor, liquidGlassFor } from "./glass";
 import { palette } from "../theme/tokens";
 
 /**
@@ -54,5 +54,53 @@ describe("KIN-MOBILE-001 R7 glass surface", () => {
       kind: "opaque",
       color: GLASS_FALLBACK.light,
     });
+  });
+});
+
+/**
+ * KIN-MOBILE-002 R5 — the composer's system material.
+ *
+ * The frame (`KIN-MOBILE-002.figma/frames/04-phone-composer-approval.svg`) and
+ * DESIGN.md:39 ask for the composer capsule to use the system material on iOS.
+ * iOS 26's liquid glass is that material; anything older, Android, and a reader
+ * who asked for reduced transparency must fall back to the surface those
+ * phones already draw — the same blur/opaque table the header uses.
+ */
+describe("KIN-MOBILE-002 R5 compositor glass", () => {
+  it("KIN-MOBILE-002 R5: iOS 26 draws the composer with the liquid glass material", () => {
+    expect(
+      liquidGlassFor({
+        reduceTransparency: false,
+        platform: "ios",
+        version: "26.0",
+        scheme: "light",
+      }),
+    ).toEqual({ kind: "liquid" });
+  });
+
+  it("KIN-MOBILE-002 R5: iOS 25 falls back to the blur, not the opaque card", () => {
+    expect(
+      liquidGlassFor({
+        reduceTransparency: false,
+        platform: "ios",
+        version: "25.6",
+        scheme: "dark",
+      }),
+    ).toEqual({
+      kind: "blur",
+      intensity: 60,
+      tint: "systemMaterialDark",
+    });
+  });
+
+  it("KIN-MOBILE-002 R5: reduced transparency wins over liquid glass", () => {
+    expect(
+      liquidGlassFor({
+        reduceTransparency: true,
+        platform: "ios",
+        version: "26.1",
+        scheme: "light",
+      }),
+    ).toEqual({ kind: "opaque", color: GLASS_FALLBACK.light });
   });
 });

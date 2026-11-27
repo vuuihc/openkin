@@ -6,7 +6,7 @@
  * exception to "draws only the model's state": the draft is the person's own
  * text, so it lives here until Send hands it to the model — and the model, not
  * this view, owns `running`, `sendQueue` and `banner`. The pending approvals
- * and questions of *this* task may mount above the transcript through
+ * and questions of *this* task may dock above the composer through
  * `approvals`, already scoped by the container.
  *
  * The turn shapes are the shared projection's (`ChatItem`, `Turn` from
@@ -41,7 +41,7 @@ import {
 } from "../../../ui/src/components/chat/transcriptProjection";
 import { focusNode } from "../a11y/focus";
 import { useTheme } from "../theme/useTheme";
-import type { Palette } from "../theme/tokens";
+import { radius, type Palette } from "../theme/tokens";
 import { canRetry } from "../native/reconnect";
 import {
   sharedDraftMemory,
@@ -70,6 +70,13 @@ import {
   type ReadingMemory,
   type ReadingPlace,
 } from "../thread/readingMemory";
+import {
+  lastAgentTurnIndex,
+  roundEndedUncleanly,
+  spineFor,
+  type SpineContext,
+  type SpineTone,
+} from "../thread/turnSpine";
 import type { SendOutcome, ThreadState } from "../thread/threadModel";
 import {
   ApprovalsSection,
@@ -81,6 +88,12 @@ import { MessageBody } from "./MarkdownBody";
 
 /** The signed touch floor; every control on this screen meets it. */
 export const BACK_SIZE = 44;
+
+/**
+ * DESIGN.md's mono row — a tool line, its command and its arguments. The same
+ * platform select as `MarkdownBody`'s fenced code, so the two cannot disagree.
+ */
+const MONO = Platform.select({ ios: "Menlo", default: "monospace" });
 
 /**
  * The metrics of a device that reports no safe area. The view also is rendered
@@ -298,7 +311,7 @@ function ToolRow({
       testID={`conversation:tool:${step.key}`}
     >
       <View style={styles.toolHead}>
-        <Text numberOfLines={2} style={styles.tool}>
+        <Text numberOfLines={1} ellipsizeMode="tail" style={styles.tool}>
           {step.name}
         </Text>
         <Text style={styles.toolStatus}>{t(statusKey(step.status))}</Text>
@@ -388,15 +401,32 @@ function ProgressRows({
   );
 }
 
+/**
+ * The border a tone paints. The tone map uses the pigments that do not switch
+ * with the scheme (DESIGN.md 活动脊: blue runs, green done, red failed or
+ * stopped, orange waiting on an approval).
+ */
+function spineStyle(tone: SpineTone, styles: ReturnType<typeof makeStyles>) {
+  return {
+    approval: styles.spineApproval,
+    done: styles.spineDone,
+    failed: styles.spineFailed,
+    running: styles.spineRunning,
+  }[tone];
+}
+
 function TurnBlock({
   turn,
   index,
+  spine,
   expandedSteps,
   onToggleStep,
   t,
 }: {
   turn: Turn;
   index: number;
+  /** The thread-level facts the spine's decision table reads. */
+  spine: SpineContext;
   expandedSteps: Record<string, boolean>;
   onToggleStep: (key: string) => void;
   t: ConversationViewProps["t"];
@@ -404,21 +434,30 @@ function TurnBlock({
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // The colours the markdown renderer needs but does not own (KIN-MOBILE-002
-  // R4a); drawn from the palette, never spelled here (R1b).
+  // R4a/R4b); drawn from the palette, never spelled here (R1b).
   const markdownStyles = useMemo(
-    () => ({ codeBackground: colors.fill, hairline: colors.hairlineStrong }),
+    () => ({
+      blueInk: colors.blueInk,
+      codeBackground: colors.fill,
+      fillStrong: colors.fillStrong,
+      hairline: colors.hairlineStrong,
+    }),
     [colors],
   );
+  const tone = spineFor(turn, index, spine);
   if (turn.kind === "user") {
     return (
-      <Text style={styles.user} testID={`conversation:turn:${index}`}>
-        {turn.item.text}
-      </Text>
+      <View style={styles.bubble} testID={`conversation:turn:${index}`}>
+        <Text style={styles.bubbleText}>{turn.item.text}</Text>
+      </View>
     );
   }
   const items: ChatItem[] = turn.kind === "agent" ? turn.items : [turn.item];
   return (
-    <View style={styles.turn} testID={`conversation:turn:${index}`}>
+    <View
+      style={[styles.turn, tone !== null && spineStyle(tone, styles)]}
+      testID={`conversation:turn:${index}`}
+    >
       {items.map((item, itemIndex) =>
         item.kind === "progress" ? (
           <ProgressRows
@@ -461,8 +500,11 @@ type ComposerProps = {
   onWithdraw?: (id: string) => void;
   /** The words that outlive this component, keyed by conversation. */
   draftMemory: DraftMemory;
-  /** This device's home-indicator clearance (see `composerBottomInset`). */
-  bottomPadding: number;
+  /**
+   * A pending 批准 already owns the screen's one filled primary
+   * (DESIGN.md:47), so Send keeps its outline even with a draft.
+   */
+  primaryTaken: boolean;
 };
 
 /**
@@ -490,7 +532,7 @@ function Composer({
   onStop,
   onWithdraw,
   draftMemory,
-  bottomPadding,
+  primaryTaken,
 }: ComposerProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -526,6 +568,10 @@ function Composer({
   // states why. An empty box has nothing to send, and a post already in flight
   // must not be posted a second time.
   const canSend = text.trim().length > 0 && !offline && !sending;
+  // The screen's one filled primary (DESIGN.md:47): a draft makes Send it,
+  // unless a waiting 批准 already holds that role — then Send stays the
+  // outlined circle beside it.
+  const filled = canSend && !primaryTaken;
 
   /**
    * The post came back. A refusal puts the words back into a box the person
@@ -577,12 +623,17 @@ function Composer({
   };
 
   return (
-    <View
-      style={[styles.composer, { paddingBottom: bottomPadding }]}
-      testID="conversation:composerBar"
-    >
+    <View style={styles.composer} testID="conversation:composerBar">
+      {/*
+        The capsule's surface is the system material, not paint: it sits
+        behind the queue, the draft and Send, and the bar itself stays
+        transparent so the transcript scrolling beneath it is what tints the
+        glass (the header's switch). The capsule's `overflow: hidden` clips it
+        to the signed 22pt radius.
+      */}
+      <GlassSurface material="composer" style={StyleSheet.absoluteFill} />
       {state.sendQueue.length > 0 ? (
-        <View style={styles.queue}>
+        <View style={styles.queue} testID="conversation:queue">
           {state.sendQueue.map((item) => (
             <View key={item.id} style={styles.queueRow}>
               <View style={styles.queueWords}>
@@ -648,7 +699,11 @@ function Composer({
           accessibilityState={{ disabled: !canSend, busy: sending }}
           disabled={!canSend}
           onPress={send}
-          style={[styles.action, !canSend && styles.actionDisabled]}
+          style={[
+            styles.circle,
+            filled && styles.circleFilled,
+            !canSend && styles.circleDisabled,
+          ]}
           testID="conversation:send"
         >
           {sending ? (
@@ -659,7 +714,7 @@ function Composer({
             <View style={styles.sendingCue}>
               <Text
                 aria-hidden
-                style={[styles.actionText, styles.actionTextHidden]}
+                style={[styles.circleLabel, styles.circleLabelHidden]}
               >
                 {t("composer.send")}
               </Text>
@@ -670,7 +725,12 @@ function Composer({
               />
             </View>
           ) : (
-            <Text style={canSend ? styles.actionText : styles.actionTextDisabled}>
+            // The circle speaks through fill and ink — brand fill with ink on
+            // brand while a draft exists, the outlined circle otherwise — and
+            // the closed state through opacity, never through colour alone.
+            <Text
+              style={[styles.circleLabel, filled && styles.circleLabelFilled]}
+            >
               {t("composer.send")}
             </Text>
           )}
@@ -681,12 +741,14 @@ function Composer({
             accessibilityState={{ disabled: offline }}
             disabled={offline}
             onPress={() => onStop?.()}
-            style={[styles.action, offline && styles.actionDisabled]}
+            style={[
+              styles.circle,
+              styles.stopCircle,
+              offline && styles.circleDisabled,
+            ]}
             testID="conversation:stop"
           >
-            <Text
-              style={offline ? styles.actionTextDisabled : styles.actionText}
-            >
+            <Text style={[styles.circleLabel, styles.stopCircleLabel]}>
               {t("composer.stop")}
             </Text>
           </Pressable>
@@ -904,6 +966,19 @@ export default function ConversationView({
       approvals.state.status === "error" ||
       !approvals.state.online);
 
+  // The spine's thread-level facts (KIN-MOBILE-002 R4b): the live agent turn
+  // owns the live tone, an unclean round is red, and a waiting approval
+  // outranks the running flag so the blocked turn reads orange.
+  const spine: SpineContext = {
+    lastAgentIndex: lastAgentTurnIndex(state.turns),
+    running: state.running,
+    failed: roundEndedUncleanly(state.turns, t("chat.stoppedNote")),
+    awaitingApproval:
+      approvals !== undefined &&
+      approvals.state.items.some((item) => item.pending),
+    stoppedNote: t("chat.stoppedNote"),
+  };
+
   // An open round that has not spoken yet ends the transcript with one working
   // line (signed §4 慢: keep what arrived and show the activity row). The shared
   // predicate is the web console's own, so the two surfaces agree on when a
@@ -981,13 +1056,11 @@ export default function ConversationView({
           ) : null}
         </View>
       ) : null}
-      {showApprovals && approvals ? (
-        // Above the turns: this is what the next turn is waiting on. The
-        // section is scroller-free, so it lives in the list header.
-        <ApprovalsSection {...approvals} embedded />
-      ) : null}
     </>
   );
+  // DESIGN.md:47 — a pending 批准 already owns the screen's one filled
+  // primary, so Send must not paint a second one. The prop is optional.
+  const primaryTaken = (approvals?.state.pendingCount ?? 0) > 0;
   return (
     // The keyboard-avoiding box wraps the transcript and the composer: on iOS
     // its padding moves the composer above the keyboard and shrinks the
@@ -1099,6 +1172,7 @@ export default function ConversationView({
             expandedSteps={expandedSteps}
             index={index}
             onToggleStep={toggleStep}
+            spine={spine}
             t={t}
             turn={item}
           />
@@ -1107,18 +1181,45 @@ export default function ConversationView({
         style={styles.scroller}
         testID="conversation:turns"
       />
+      {showApprovals && approvals ? (
+        // What the next turn waits on stays in reach at every scroll position,
+        // docked above the composer the way the composer is docked above the
+        // home indicator (TASTE §18, DESIGN.md:39). Outside the `onSend`
+        // guard: a thread that failed to load has no composer, and the card
+        // that blocks the turn must still be here.
+        <View
+          // With no composer below it, the dock is the last child and owns
+          // the home-indicator clearance itself; with one, the composer dock
+          // already carries it and the band keeps only its 8pt of air.
+          style={[
+            styles.approvalDock,
+            onSend
+              ? null
+              : { paddingBottom: composerBottomInset(insets.bottom) },
+          ]}
+          testID="conversation:approvalDock"
+        >
+          <ApprovalsSection {...approvals} embedded />
+        </View>
+      ) : null}
       {onSend ? (
         // A sibling of the scroller, not a row inside it: the composer is
-        // reachable at every scroll position.
-        <Composer
-          bottomPadding={composerBottomInset(insets.bottom)}
-          draftMemory={draftMemory}
-          onSend={onSend}
-          onStop={onStop}
-          onWithdraw={onWithdraw}
-          state={state}
-          t={t}
-        />
+        // reachable at every scroll position. The dock owns the home-indicator
+        // clearance, so the capsule itself floats 8pt above it (DESIGN.md:39).
+        <View
+          style={{ paddingBottom: composerBottomInset(insets.bottom) }}
+          testID="conversation:composerDock"
+        >
+          <Composer
+            draftMemory={draftMemory}
+            onSend={onSend}
+            onStop={onStop}
+            onWithdraw={onWithdraw}
+            primaryTaken={primaryTaken}
+            state={state}
+            t={t}
+          />
+        </View>
       ) : null}
       {usage !== undefined ? (
         // A sibling of the scroller too: closing the sheet leaves the
@@ -1143,30 +1244,15 @@ const makeStyles = (
   colors: Palette,
   glassColor: string = "transparent",
 ) => StyleSheet.create({
-  action: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: BACK_SIZE,
-    minWidth: BACK_SIZE,
-    paddingHorizontal: 12,
-  },
-  actionDisabled: {
-    opacity: 0.5,
-  },
-  actionText: {
-    color: colors.blueInk,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  actionTextDisabled: {
-    color: colors.muted,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  // The sending control's word keeps the box it always had, so the cue
-  // replacing it cannot move the row; the platform indicator covers it.
-  actionTextHidden: {
-    opacity: 0,
+  /**
+   * The docked approval band: the capsule's inset, no colours of its own. The
+   * cards already carry their own surface, and three pending cards may take
+   * more of the screen — the turn is blocked, so the room is theirs.
+   */
+  approvalDock: {
+    gap: 12,
+    marginHorizontal: 16,
+    marginBottom: 8,
   },
   back: {
     alignItems: "center",
@@ -1186,12 +1272,82 @@ const makeStyles = (
     padding: 16,
     paddingBottom: 48,
   },
+  /**
+   * The person's own message (KIN-MOBILE-002 R4b): a right-aligned bubble in
+   * the scheme's bubble blue, on-brand ink. `maxWidth` leaves the other side
+   * readable and still wraps a long word rather than clipping it at 390.
+   */
+  bubble: {
+    alignSelf: "flex-end",
+    backgroundColor: colors.bubbleUser,
+    borderRadius: radius.bubble,
+    marginTop: 8,
+    maxWidth: "82%",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  bubbleText: {
+    color: colors.onBrand,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  /**
+   * The composer's one round control (DESIGN.md:39): a 44pt target whose
+   * square box plus half-side radius is the circle. Send and Stop share it;
+   * fill, border and ink are the small differences that name each one.
+   */
+  circle: {
+    alignItems: "center",
+    backgroundColor: "transparent",
+    borderRadius: radius.composer,
+    height: BACK_SIZE,
+    justifyContent: "center",
+    // The fixed box is the circle; the floors keep a font scale or a
+    // platform that ignores the size from shrinking the target below 44pt.
+    minHeight: BACK_SIZE,
+    minWidth: BACK_SIZE,
+    width: BACK_SIZE,
+  },
+  /** Closed: the same circle at reduced presence, not a different shape. */
+  circleDisabled: {
+    opacity: 0.5,
+  },
+  /** A draft exists and no 批准 is waiting: Send is the filled primary. */
+  circleFilled: {
+    backgroundColor: colors.blue,
+  },
+  circleLabel: {
+    color: colors.blueInk,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  circleLabelFilled: {
+    color: colors.onBrand,
+  },
+  // The sending control's word keeps the box it always had, so the cue
+  // replacing it cannot move the circle; the platform indicator covers it.
+  circleLabelHidden: {
+    opacity: 0,
+  },
+  /** Stop is the outlined circle: the hairline is its whole edge. */
+  stopCircle: {
+    borderColor: colors.hairlineStrong,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  stopCircleLabel: {
+    color: colors.redInk,
+  },
   composer: {
-    borderTopColor: colors.hairlineStrong,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    gap: 8,
+    borderColor: colors.hairlineStrong,
+    borderRadius: radius.composer,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+    marginHorizontal: 16,
+    marginBottom: 8,
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingVertical: 12,
+    backgroundColor: "transparent",
+    gap: 8,
   },
   composerRow: {
     alignItems: "flex-end",
@@ -1209,6 +1365,7 @@ const makeStyles = (
   },
   detailText: {
     color: colors.secondary,
+    fontFamily: MONO,
     fontSize: 13,
   },
   errorItem: {
@@ -1282,7 +1439,7 @@ const makeStyles = (
     paddingLeft: 12,
   },
   queue: {
-    gap: 4,
+    gap: 6,
   },
   queueLabel: {
     color: colors.muted,
@@ -1327,10 +1484,32 @@ const makeStyles = (
     alignItems: "center",
     justifyContent: "center",
   },
+  /** The activity spine (DESIGN.md 活动脊): 3pt edge, 8pt gap to the text. */
+  spineApproval: {
+    borderLeftColor: colors.orange,
+    borderLeftWidth: 3,
+    paddingLeft: 8,
+  },
+  spineDone: {
+    borderLeftColor: colors.green,
+    borderLeftWidth: 3,
+    paddingLeft: 8,
+  },
+  spineFailed: {
+    borderLeftColor: colors.red,
+    borderLeftWidth: 3,
+    paddingLeft: 8,
+  },
+  spineRunning: {
+    borderLeftColor: colors.blue,
+    borderLeftWidth: 3,
+    paddingLeft: 8,
+  },
   tool: {
     color: colors.secondary,
     flexShrink: 1,
-    fontSize: 14,
+    fontFamily: MONO,
+    fontSize: 13,
     fontWeight: "500",
   },
   toolDetail: {
@@ -1354,6 +1533,7 @@ const makeStyles = (
   },
   toolStatus: {
     color: colors.muted,
+    fontFamily: MONO,
     fontSize: 12,
     fontWeight: "600",
   },
@@ -1373,12 +1553,6 @@ const makeStyles = (
   },
   turn: {
     gap: 8,
-  },
-  user: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "600",
-    marginTop: 8,
   },
   usageEntry: {
     alignItems: "center",

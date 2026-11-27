@@ -24,7 +24,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { glassFor } from "./glass";
+import { glassFor, liquidGlassFor, type GlassSpec } from "./glass";
 import { useTheme } from "../theme/useTheme";
 
 export type GlassSurfaceProps = {
@@ -34,6 +34,13 @@ export type GlassSurfaceProps = {
    * own and no other prop to explain.
    */
   style?: StyleProp<ViewStyle>;
+  /**
+   * Which surface this layer backs. The chrome (header, usage sheet) keeps the
+   * blur it shipped with; the composer asks for the system's liquid glass on
+   * iOS 26 (`liquidGlassFor`, KIN-MOBILE-002 R5) and falls back to the same
+   * blur/opaque table everywhere else.
+   */
+  material?: "chrome" | "composer";
 };
 
 /**
@@ -75,13 +82,41 @@ export function useReduceTransparency(): boolean {
   return reduceTransparency;
 }
 
-export default function GlassSurface({ style }: GlassSurfaceProps) {
+/**
+ * Metro's `require`, declared for the one lazy import below: the type-level
+ * module graph still knows `LiquidGlass` (`typeof import`), while the runtime
+ * loads it only on the branch that draws it. The header and usage-sheet suites
+ * render this file without ever pulling the native module into jest.
+ */
+declare const require: (id: string) => unknown;
+
+function loadLiquidGlass(): typeof import("./LiquidGlass").default {
+  const loaded = require("./LiquidGlass") as {
+    default: typeof import("./LiquidGlass").default;
+  };
+  return loaded.default;
+}
+
+export default function GlassSurface({
+  style,
+  material = "chrome",
+}: GlassSurfaceProps) {
   const { scheme } = useTheme();
-  const spec = glassFor({
-    reduceTransparency: useReduceTransparency(),
-    platform: Platform.OS,
-    scheme,
-  });
+  const reduceTransparency = useReduceTransparency();
+  const spec: GlassSpec =
+    material === "composer"
+      ? liquidGlassFor({
+          reduceTransparency,
+          platform: Platform.OS,
+          version: Platform.Version,
+          scheme,
+        })
+      : glassFor({ reduceTransparency, platform: Platform.OS, scheme });
+
+  if (spec.kind === "liquid") {
+    const LiquidGlass = loadLiquidGlass();
+    return <LiquidGlass style={style} />;
+  }
 
   if (spec.kind === "blur") {
     return (

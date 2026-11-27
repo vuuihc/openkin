@@ -18,6 +18,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
+import * as Haptics from "expo-haptics";
 import {
   Pressable,
   ScrollView,
@@ -28,7 +29,7 @@ import {
 } from "react-native";
 import { focusNode } from "../a11y/focus";
 import { useTheme } from "../theme/useTheme";
-import { wash, type Palette } from "../theme/tokens";
+import { radius, wash, type Palette } from "../theme/tokens";
 import type {
   ApprovalEntry,
   ApprovalsState,
@@ -82,6 +83,56 @@ function useReaderFocus(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Run one haptic without letting it speak. The taptic engine is a device
+ * courtesy, not part of the decision: a phone that cannot vibrate (or a jest
+ * render with no native module) must not break the card that just landed.
+ */
+function fireHaptic(call: () => Promise<unknown>): void {
+  try {
+    void Promise.resolve(call()).catch(() => undefined);
+  } catch {
+    // No engine, no receipt — the visible result is still the answer.
+  }
+}
+
+/**
+ * KIN-MOBILE-002 R5 — one haptic per approval outcome (DESIGN.md:41):
+ * an approved or denied card gives one medium impact plus one success
+ * notification as the decision lands, a failed write gives one error
+ * notification instead, and nothing is felt on the press itself.
+ *
+ * The ref of the previous phase is the whole guard: a card that mounts already
+ * resolved (a reload, or the list that answered while this screen was away)
+ * fires nothing, and a repaint while resolved fires nothing again. Only the
+ * transition out of `submitting` is an outcome this card witnessed
+ * (AGENTS.md §11: the late answer belongs to the flow that asked).
+ */
+function useApprovalHaptics(entry: ApprovalEntry): void {
+  const previous = useRef(entry.phase);
+
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = entry.phase;
+    if (before !== "submitting") return;
+
+    // A failed write returns to idle with the failure still on the card; that
+    // transition, not a resolved card, is where the error receipt belongs.
+    if (entry.phase === "idle" && entry.failure) {
+      fireHaptic(() =>
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error),
+      );
+      return;
+    }
+    if (entry.phase !== "resolved") return;
+
+    fireHaptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+    fireHaptic(() =>
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+    );
+  }, [entry.phase, entry.failure]);
 }
 
 /** The tool and the body of the permission being asked for. */
@@ -212,6 +263,7 @@ function ApprovalCard({
   const failureRef = useRef<ViewInstance | null>(null);
   useReaderFocus(resolved, resultRef);
   useReaderFocus(entry.failure != null, failureRef);
+  useApprovalHaptics(entry);
 
   return (
     <View style={styles.card} testID={`card:${entry.key}`}>
@@ -260,10 +312,10 @@ function ApprovalCard({
           accessibilityState={{ disabled: !actionable }}
           disabled={!actionable}
           onPress={() => onApprove(entry.id)}
-          style={[styles.action, !actionable && styles.actionDim]}
+          style={[styles.action, styles.approve, !actionable && styles.actionDim]}
           testID={`approve:${entry.id}`}
         >
-          <Text style={styles.actionText}>
+          <Text style={[styles.actionText, styles.approveLabel]}>
             {submitting ? t("approval.approving") : t("chat.approve")}
           </Text>
         </Pressable>
@@ -277,10 +329,10 @@ function ApprovalCard({
           accessibilityState={{ disabled: !actionable }}
           disabled={!actionable}
           onPress={() => onDeny(entry.id)}
-          style={[styles.action, !actionable && styles.actionDim]}
+          style={[styles.action, styles.deny, !actionable && styles.actionDim]}
           testID={`deny:${entry.id}`}
         >
-          <Text style={styles.actionText}>
+          <Text style={[styles.actionText, styles.denyLabel]}>
             {submitting ? t("approval.denying") : t("chat.deny")}
           </Text>
         </Pressable>
@@ -557,8 +609,8 @@ export function ApprovalsSection({
 
 /**
  * The standalone screen: the same section, owning the page's one scroller.
- * The conversation mounts `ApprovalsSection` directly inside its own scroller,
- * so the phone never nests two vertical `ScrollView`s.
+ * The conversation docks `ApprovalsSection` above its composer as a sibling of
+ * its own scroller, so the phone never nests two vertical `ScrollView`s.
  */
 export default function Approvals(props: ApprovalsScreenProps) {
   const { colors } = useTheme();
@@ -597,6 +649,19 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
+  /**
+   * 批准 is the card's one filled control: the brand pigment with the ink
+   * `theme.css` assigns to it, at the frame's button radius. 拒绝 is its
+   * outlined counterpart in red ink, so the safe action never reads as the
+   * destructive one (KIN-MOBILE-002 R5, the frame's approval card).
+   */
+  approve: {
+    backgroundColor: colors.blue,
+    borderRadius: radius.bubble,
+  },
+  approveLabel: {
+    color: colors.onBrand,
+  },
   badge: {
     color: colors.orangeInk,
     fontSize: 13,
@@ -622,8 +687,9 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     gap: 12,
   },
   card: {
+    backgroundColor: colors.elevated,
     borderColor: colors.hairlineStrong,
-    borderRadius: 12,
+    borderRadius: radius.card,
     borderWidth: 1,
     gap: 8,
     padding: 12,
@@ -637,6 +703,14 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     gap: 12,
     padding: 16,
     paddingBottom: 32,
+  },
+  deny: {
+    backgroundColor: "transparent",
+    borderColor: colors.hairlineStrong,
+    borderWidth: 1,
+  },
+  denyLabel: {
+    color: colors.redInk,
   },
   detail: {
     color: colors.secondary,

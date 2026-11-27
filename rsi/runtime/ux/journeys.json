@@ -272,6 +272,7 @@
     ["ui/src/components/mobile/", ["J1", "J2", "J5", "J8", "J11", "J12", "J14"]],
     ["ui/src/lib/sessionFolds|ui/src/lib/sessionListFolds", ["J1", "J2", "J4", "J5", "J8", "J11", "J12", "J14"]],
     ["ui/src/pages/TaskDetail|ui/src/pages/TaskSession|ui/src/components/chat/|ui/src/components/task/|ui/src/components/cards/|ui/src/components/workspace/", ["J1", "J2", "J7", "J8", "J9", "J10", "J11", "J12", "J13", "J14", "J15", "J16", "J17"]],
+    ["ui/src/components/Markdown.tsx|ui/src/lib/markdownInline.ts", ["J2", "J3", "J9", "J11", "J12", "J13", "J14", "J16", "J17"]],
     ["ui/src/pages/Project|ui/src/lib/project", ["J4"]],
     ["ui/src/App", ["J1", "J4"]],
     ["ui/src/components/project/", ["J3", "J4"]],

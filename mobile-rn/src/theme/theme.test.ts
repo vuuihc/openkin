@@ -248,7 +248,7 @@ describe("KIN-MOBILE-002 R1b screens", () => {
     expect(styleOf(view.getByText("the suite is green")).color).toBe(
       palette.dark.text,
     );
-    expect(styleOf(view.getByTestId("conversation:composerBar")).borderTopColor).toBe(
+    expect(styleOf(view.getByTestId("conversation:composerBar")).borderColor).toBe(
       palette.dark.hairlineStrong,
     );
   });
@@ -260,7 +260,7 @@ describe("KIN-MOBILE-002 R1b screens", () => {
     expect(styleOf(view.getByText("the suite is green")).color).toBe(
       palette.light.text,
     );
-    expect(styleOf(view.getByTestId("conversation:composerBar")).borderTopColor).toBe(
+    expect(styleOf(view.getByTestId("conversation:composerBar")).borderColor).toBe(
       palette.light.hairlineStrong,
     );
   });

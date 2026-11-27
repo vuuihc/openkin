@@ -7,14 +7,20 @@
  * a reader who asked iOS for reduced transparency — or any Android device —
  * keeps the opaque card those surfaces have always drawn.
  *
+ * KIN-MOBILE-002 R5 adds the composer's third surface: iOS 26's own liquid
+ * glass (`expo-glass-effect`), which is the system material rather than a
+ * hand-built translucent card. It is additive — every case that cannot draw
+ * liquid glass delegates to `glassFor`, so the fallback table stays one table.
+ *
  * Pure on purpose: the platform query and the subscription live in
  * `GlassSurface.tsx`, so the branch can be pinned without a renderer.
  */
 
 import { palette, type Scheme } from "../theme/tokens";
 
-/** The two shapes a glass surface can take. */
+/** The shapes a glass surface can take. */
 export type GlassSpec =
+  | { kind: "liquid" }
   | {
       kind: "blur";
       intensity: number;
@@ -61,4 +67,40 @@ export function glassFor(opts: {
     // conversation washes the text behind it white again.
     tint: opts.scheme === "dark" ? "systemMaterialDark" : "systemMaterialLight",
   };
+}
+
+/**
+ * The first iOS release that ships the liquid glass material. The story signs
+ * it for the composer only (KIN-MOBILE-002 R5): the header and the usage sheet
+ * keep the blur they shipped with, so the new material lands on the one surface
+ * that asked for it.
+ */
+const LIQUID_GLASS_IOS_MAJOR = 26;
+
+/**
+ * Which surface the composer draws. Liquid glass is the system material on
+ * iOS 26 and later; every other phone — a reader who asked for reduced
+ * transparency, an older iOS, Android — takes `glassFor`, so there is still one
+ * fallback table and reduced transparency still wins over every material.
+ *
+ * `version` is the raw `Platform.Version`: iOS reports a string (`"26.0"`),
+ * Android a number. Parsing it here keeps the policy testable without a
+ * renderer.
+ */
+export function liquidGlassFor(opts: {
+  reduceTransparency: boolean;
+  platform: string;
+  version: string | number;
+  scheme: Scheme;
+}): GlassSpec {
+  const major = Number.parseInt(String(opts.version), 10);
+  if (
+    !opts.reduceTransparency &&
+    opts.platform === "ios" &&
+    Number.isFinite(major) &&
+    major >= LIQUID_GLASS_IOS_MAJOR
+  ) {
+    return { kind: "liquid" };
+  }
+  return glassFor(opts);
 }
