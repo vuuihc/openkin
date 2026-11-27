@@ -82,7 +82,7 @@ function props(overrides: Partial<SessionRowProps> = {}): SessionRowProps {
     query: "",
     now: NOW,
     viewedIds: new Set(),
-    pendingCount: 0,
+    pending: { approvals: 0, questions: 0, total: 0 },
     active: false,
     onOpen: vi.fn(),
     shell: "page",
@@ -221,6 +221,64 @@ describe("SessionRow", () => {
       expect(shell.getAttribute("aria-label"), label).toContain(word);
       view.unmount();
     }
+  });
+
+  it("keeps 待批准 N on a row whose only wait is approvals", () => {
+    setLocale("zh");
+    const { container } = render(
+      <SessionRow {...props({ pending: { approvals: 2, questions: 0, total: 2 } })} />,
+    );
+
+    expect(container.querySelector("[data-session-status]")?.textContent).toContain("待批准 2");
+    expect(container.textContent).not.toContain("待回答");
+  });
+
+  it("says 待回答 N on a row whose only wait is questions", () => {
+    // The gap: a questions-only row used to claim an approval that did not
+    // exist, so the one screen that answers "where is something waiting on me"
+    // named the wrong kind of wait.
+    setLocale("zh");
+    const { container } = render(
+      <SessionRow {...props({ pending: { approvals: 0, questions: 2, total: 2 } })} />,
+    );
+
+    expect(container.querySelector("[data-session-status]")?.textContent).toContain("待回答 2");
+    expect(rowButton().getAttribute("aria-label")).not.toContain("待批准");
+  });
+
+  it("uses the neutral count when both kinds wait", () => {
+    setLocale("zh");
+    const { container } = render(
+      <SessionRow {...props({ pending: { approvals: 1, questions: 2, total: 3 } })} />,
+    );
+
+    expect(container.querySelector("[data-session-status]")?.textContent).toContain("3 项待你处理");
+  });
+
+  it("says the question wording in English too", () => {
+    const { container } = render(
+      <SessionRow {...props({ pending: { approvals: 0, questions: 2, total: 2 } })} />,
+    );
+
+    expect(container.querySelector("[data-session-status]")?.textContent).toContain(
+      "2 awaiting your answer",
+    );
+  });
+
+  it("falls back to the task status when nothing waits", () => {
+    // The new waiting branches must not swallow the status a waiting task
+    // already names when its pending items are gone.
+    setLocale("zh");
+    const { container } = render(
+      <SessionRow
+        {...props({
+          row: taskRow({ task: task("row-1", undefined, "waiting_approval") }),
+          pending: { approvals: 0, questions: 0, total: 0 },
+        })}
+      />,
+    );
+
+    expect(container.querySelector("[data-session-status]")?.textContent).toContain("待审批");
   });
 
   it("opens the conversation on click and closes an already-open swipe instead when appropriate", async () => {
