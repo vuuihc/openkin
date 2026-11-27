@@ -103,5 +103,12 @@
     "test": "RSI_TEST_ONLY=case_a_transient_gh_create_failure_is_retried_without_duplicating bash rsi/runtime/tests/test-lane-claim-check.sh",
     "old": "  if ! . \"$dir/lane-pr.sh\" 2>/dev/null || ! command -v gh_pr_create >/dev/null 2>&1; then",
     "new": "  if false; then"
+  },
+  {
+    "label": "the producer accepts a passing verdict even when the seam exited non-zero: a checker that crashed after printing opens the PR",
+    "file": "rsi/runtime/producer-pr.sh",
+    "test": "RSI_TEST_ONLY=case_a_nonzero_exit_is_a_refusal_even_with_an_ok_verdict bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  if [ \"$rc\" -ne 0 ] || [ -z \"$verdict\" ]; then",
+    "new": "  if [ -z \"$verdict\" ]; then"
   }
 ]

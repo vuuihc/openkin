@@ -9,7 +9,7 @@
 # half. A body the merge gate would reject is refused here, before the PR exists, so the producer
 # fixes the body instead of burning a rework round.
 #
-# Sourced by the suite; no top-level side effects. As a CLI:
+# Sourceable; no top-level side effects. As a CLI:
 #   bash rsi/runtime/producer-pr.sh <worktree> <body-file> <repo> <base> <head> <title>
 # On a passing verdict it prints exactly one line on stdout, `PRODUCER_PR_OK: <url>`; on a refusal
 # it prints `PRODUCER_PR_REFUSED: <verdict>` and returns 1 before any gh call. Diagnostics (the
@@ -29,6 +29,8 @@ producer_body_snapshot() {
 producer_pr() { # <worktree> <body-file> <repo> <base> <head> <title>
   local wt="$1" body="$2" repo="$3" base="$4" head="$5" title="$6"
   local dir tmpdir snap out rc verdict url line
+  # Honour the loop's RSI_GH test override the way common.sh does; lane-pr.sh reads GH.
+  local GH="${GH:-${RSI_GH:-}}"
   # The seam and the retry helper live beside this file, so a copied producer in a test carries
   # the stubs it was copied with. Missing either one is a refusal, never a silent pass.
   dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || dir=""

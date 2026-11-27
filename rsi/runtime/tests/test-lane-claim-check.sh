@@ -1201,13 +1201,43 @@ case_a_transient_gh_create_failure_is_retried_without_duplicating() {
     || fail "pretry: want exactly one PRODUCER_PR_OK line: $POUT"
 }
 
-# Static wiring: the in-repo producer reads its prompt and role card, not this test, so both must
-# name the seam. A later edit that silently drops it turns this red.
+# A seam that prints a passing verdict and then dies non-zero is not a pass: the exit code is an
+# independent signal, and a checker that crashed after printing must not open the PR.
+case_a_nonzero_exit_is_a_refusal_even_with_an_ok_verdict() {
+  local dir="$T/producer-exit" src="$T/producer-exit.body"
+  rm -rf "$dir"; mkdir -p "$dir/runtime"
+  cp "$PRODUCER" "$dir/runtime/producer-pr.sh" || fail "pexit: cannot copy the producer"
+  cp "$RUNTIME/lane-pr.sh" "$dir/runtime/lane-pr.sh" || fail "pexit: cannot copy lane-pr.sh"
+  cat > "$dir/runtime/lane.sh" <<'SH'
+#!/bin/bash
+printf 'CLAIM_LANE_OK: stub seam\n'
+exit 1
+SH
+  chmod +x "$dir/runtime/lane.sh"
+  producer_stub "$T/producer-exit-stub"
+  printf 'the body the seam read\n' > "$src"
+  PERR="$T/producer.err"; rm -f "$PERR"
+  POUT="$(RSI_CTRL="$CTRL" HOME="$T/home" GH="$PSTUB/gh" STUB_CALLS="$PCALLS" \
+    STUB_BODY="$PBODY" RSI_GH_PR_RETRY_SLEEP=0 \
+    bash "$dir/runtime/producer-pr.sh" "$T" "$src" owner/repo main rsi/dream-x 'dream' \
+    2>"$PERR")"
+  PRC=$?
+  [ "$PRC" -eq 1 ] || fail "pexit: exit $PRC, want 1 ($POUT; $(cat "$PERR"))"
+  grep -qF 'PRODUCER_PR_REFUSED: CLAIM_LANE_OK:' <<<"$POUT" \
+    || fail "pexit: the refusal does not name the OK verdict it rejected: $POUT"
+  [ "$(grep -c '^pr create' "$PCALLS")" -eq 0 ] \
+    || fail "pexit: a non-zero seam exit still opened a PR: $(cat "$PCALLS")"
+}
+
+# Static wiring: the in-repo producer reads its prompt, role card and README, not this test, so all
+# three must name the seam. A later edit that silently drops it turns this red.
 case_the_dream_producer_is_wired_to_the_seam() {
   grep -qF 'producer-pr.sh' "$REPO/rsi/runtime/prompts/dream.md" \
     || fail "wiring: rsi/runtime/prompts/dream.md does not name producer-pr.sh"
   grep -qF 'producer-pr.sh' "$REPO/rsi/roles/dream.md" \
     || fail "wiring: rsi/roles/dream.md does not name producer-pr.sh"
+  grep -qF 'producer-pr.sh' "$REPO/rsi/README.md" \
+    || fail "wiring: rsi/README.md does not name producer-pr.sh"
   grep -qF 'PRODUCER_PR_REFUSED' "$REPO/rsi/runtime/prompts/dream.md" \
     || fail "wiring: the dream prompt does not say a refusal means fixing the body"
 }
@@ -1267,6 +1297,7 @@ run case_a_code_only_diff_opens_the_pr_with_no_body_read
 run case_a_reasoned_waiver_opens_the_pr
 run case_a_body_rewritten_during_the_seam_is_not_the_one_uploaded
 run case_a_transient_gh_create_failure_is_retried_without_duplicating
+run case_a_nonzero_exit_is_a_refusal_even_with_an_ok_verdict
 run case_the_dream_producer_is_wired_to_the_seam
 [ -z "$ONLY" ] || [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS
