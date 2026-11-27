@@ -83,10 +83,7 @@ export function RolesSection({
       }
     >
       {offline ? (
-        <p
-          role="status"
-          className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-body leading-4 text-kin-orange-ink"
-        >
+        <p className="px-1 text-body leading-4 text-kin-orange-ink">
           {tr("settings.localAgents.offlineRoles")}
         </p>
       ) : null}

@@ -1,8 +1,10 @@
+import type { ReactNode } from "react";
 import type { AgentProvider, AgentProviderState } from "../../api/client";
 import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useT } from "../../i18n/react";
 import type { AgentRole } from "../../lib/agentRoles";
 import Button from "../ui/Button";
+import InlineAlert from "../ui/InlineAlert";
 import { RolesSection } from "./RolesSection";
 import { SettingsSection, SettingsTabPanel } from "./SettingsPrimitives";
 
@@ -32,6 +34,12 @@ export function detectedClock(iso: string | undefined): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+/** A group's offline note. Plain text on purpose: the disabled controls carry
+ *  the same reason, and a live region would repeat on every reconnect. */
+function OfflineNote({ children }: { children: ReactNode }) {
+  return <p className="px-1 text-body leading-4 text-kin-orange-ink">{children}</p>;
 }
 
 export function LocalAgentSettingsSection({
@@ -109,19 +117,9 @@ export function LocalAgentSettingsSection({
           </Button>
         }
       >
-        {!online ? (
-          <p
-            role="status"
-            className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-body leading-4 text-kin-orange-ink"
-          >
-            {tr("settings.localAgents.offlineDetection")}
-          </p>
-        ) : null}
+        {!online ? <OfflineNote>{tr("settings.localAgents.offlineDetection")}</OfflineNote> : null}
         {providersStatus === "failed" ? (
-          <div
-            role="alert"
-            className="space-y-2 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body leading-4 text-kin-red-ink"
-          >
+          <InlineAlert className="space-y-2">
             {agentProviders.length > 0 ? (
               // D1: a failed re-probe keeps the rows and their old timestamps;
               // the failure is one sentence at the group head.
@@ -146,7 +144,7 @@ export function LocalAgentSettingsSection({
                 </Button>
               </>
             )}
-          </div>
+          </InlineAlert>
         ) : null}
         <div className="divide-y divide-[var(--kin-hairline)] rounded-lg border border-[var(--kin-hairline)]">
           {agentProviders.map((agent) => {
@@ -256,16 +254,9 @@ export function LocalAgentSettingsSection({
         title={tr("settings.localAgents.importHeading")}
         description={tr("settings.localAgents.importRule")}
       >
-        {!online ? (
-          <p
-            role="status"
-            className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-body leading-4 text-kin-orange-ink"
-          >
-            {tr("settings.localAgents.offlineImport")}
-          </p>
-        ) : null}
+        {!online ? <OfflineNote>{tr("settings.localAgents.offlineImport")}</OfflineNote> : null}
         {agentProviders.length === 0 ? (
-          <div className="rounded-lg border border-[var(--kin-hairline)] px-3 py-3">
+          <div className="px-3 py-3">
             <p className="text-body text-kin-secondary">{tr("settings.localAgents.emptyImport")}</p>
             <p className="text-caption text-kin-muted">
               {tr("settings.localAgents.emptyImportHint")}
