@@ -1,6 +1,6 @@
 # KIN-AGENTS-002 · 看清安装探测与会话/角色导入的边界
 
-状态：approved
+状态：covered
 优先级：P0
 旅程：J6
 归属面：`IA.md`「设置与环境」的 `/settings?tab=agents`
@@ -161,7 +161,12 @@
 
 ## 证据
 
-- 合同依据：`docs/product/stories/KIN-CONTRACT-001.md:31`、`:40`、`:139`、`:178`；兄弟姐妹：`docs/product/stories/KIN-AGENTS-001.md:17`（74 条目录）、`:24`、`:26`、`:125`（手动导入）；角色半写行已有 `ui/src/lib/agentRoles.test.ts:95-108` 覆盖。本条失败先红证据写在 PR body；`python3 scripts/stories.py` 输出 `ok`；part b 的审阅页与 6 张帧已交付（#629 `b0d46372`），代码 lane 的测试与 390 / 1100 截图仍待补。
+- 合同依据：`docs/product/stories/KIN-CONTRACT-001.md:31`、`:40`、`:139`、`:178`；兄弟姐妹：`docs/product/stories/KIN-AGENTS-001.md:17`（74 条目录）、`:24`、`:26`、`:125`（手动导入）；角色半写行已有 `ui/src/lib/agentRoles.test.ts:95-108` 覆盖。
+- 页面验收（`ui/src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx`，8 条）：五条此前只有组件级覆盖的页面行为现在各有测试——`KIN-AGENTS-002 a failed provider import names the source, keeps the rows and can be retried`（`ui/src/pages/SettingsPage.tsx:569-583` 的失败折叠与 `ui/src/lib/agentSessionImport.ts:71-105` 的点名文案）、`KIN-AGENTS-002 the group-bottom import asks every paired machine, not only this one`（`ui/src/lib/agentSessionImport.ts:46-55`、`ui/src/hooks/useAgentSessionImport.ts:58-69`）、`KIN-AGENTS-002 an import in flight from another surface disables this tab's import buttons`（`ui/src/hooks/useAgentSessionImport.ts:89-124` 的共享计数与 `ui/src/pages/SettingsPage.tsx:965`）、`KIN-AGENTS-002 saving a role sends it and emits the composer event without a probe or import`（`ui/src/pages/SettingsPage.tsx:504-524`）、`KIN-AGENTS-002 the import group reads providers and imports on its own with the detection group gone`（`ui/src/components/settings/LocalAgentSettingsSection.tsx:99-221`）。
+- 组件验收（`ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx`，18 条）覆盖其余验收行。
+- 红验证：`python3 scripts/mutants.py ui/src/pages/SettingsPage.agents002Pages.mutants.json` 三条 mutant 全红——「a no-names import only asks this machine」「saving a role does not tell the composer」「the agents tab ignores an import running elsewhere」分别让第 2、4、3 条页面测试失败。
+- 五条新页面测试在未改产品代码时全部通过：页面已经符合合同，本轮没有产品、i18n、API、路由或存储改动；一条测试初次因自身等待时序（设置首读未上屏就取组）而红，修的是测试的等待，不是产品。
+- `python3 scripts/stories.py --check` 输出 `ok`；part b 的审阅页与 6 张帧已交付（#629 `b0d46372`）。
 
 ## 变更记录
 
@@ -169,3 +174,4 @@
 - 2026-11-25（+08）· 对齐：part b 的审阅页与 6 张帧已由 #629 b0d46372 交付；状态保持 draft，等待人签字。
 - 2026-11-27 · CEO 受托签字（approved）：D1–D3 按审阅页推荐；审阅页已读（MECE、6 帧、六段流程、状态板）。见 rsi/DECISIONS.md 同日条。
 - 2026-11-27 · `R-agents-probe-removal`：探测组（安装状态）删除，agents tab 只剩「导入会话」与「角色默认」两组；导入组自己拥有 provider 读取的生命周期（读取中 / 失败保留旧行 / 首读失败给重试 / 离线）并保留自己的「刷新检测」入口，每行保留「上次检测」时间，角色组不变；无 API、路由、存储或新增 locale 目录，两个 locale 只删除探测组独占键并把 `detectionFailed` 的「上面」改成「下面」。
+- 2026-11-27 · `R-agents-002-pages`：补齐五条页面验收（失败导入点名来源并可重试、组底导入问所有已配对机器、别处的导入禁用本页按钮、角色保存派发 composer 事件且不探测不导入、检测组删除后导入组自立），并加三条 mutant 红验证；#810 删除探测组后，旧「case 18」按「导入组自立」重建，不照抄。产品代码、i18n、API、路由与存储未改；状态 `approved` → `covered`。
