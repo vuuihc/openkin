@@ -1202,7 +1202,7 @@ const en: MessageTree = {
     loadFailedHint: "Your saved settings were not changed. Retry to read them again.",
     disconnected: "Disconnected — showing the last values read from this machine.",
     roles: {
-      heading: "Roles",
+      heading: "Role defaults",
       description:
         "A role is a saved prompt prefix. Pick one in a new chat, or type / in any session's composer, and its text lands in the draft — so the transcript shows exactly what the agent was told.",
       empty: "No roles yet. Add one and its text is a keystroke away in any chat.",
@@ -1309,7 +1309,29 @@ const en: MessageTree = {
       importTruncated:
         "One machine has more sessions than a single import carries, so this is the newest of them.",
       importFailed: "Failed to import Agent sessions",
-      providersHeading: "Detected local Agents",
+      detectionHeading: "Installation status",
+      detectionRule: "Read automatically. Changes nothing.",
+      detectionFailed:
+        "Detection failed: {reason}. The rows and times above are from the last successful check.",
+      firstReadFailed: "No detection results yet",
+      firstReadFailedHint:
+        "The daemon did not answer, or this is the first time this screen opened.",
+      retryDetection: "Retry detection",
+      lastDetected: "Last detected: {value}",
+      neverDetected: "never",
+      importHeading: "Import sessions",
+      importRule: "Only happens when you press it, and writes only the session index.",
+      importRowDetail: "This machine's {name}",
+      importUnsupportedReason: "Cannot list sessions: the adapter provides no session_list.",
+      importProviderLabel: "Import sessions from {name}",
+      importGroupNote:
+        "Does not change source history · Does not repeat automatically · While one import runs, every other import button is disabled.",
+      emptyImport: "Detect an Agent first to import",
+      emptyImportHint: "This group has nothing importable yet. Roles still work.",
+      rolesRule: "Saved for the next new chat. Does not change what is installed.",
+      offlineDetection: "Offline — showing the last detection result.",
+      offlineImport: "Offline — reconnect to import.",
+      offlineRoles: "Offline — roles are read-only until the link is back.",
       refresh: "Refresh detection",
       refreshing: "Refreshing…",
       listCapability: "list",

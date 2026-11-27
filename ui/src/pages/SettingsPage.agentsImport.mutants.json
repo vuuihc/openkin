@@ -3,7 +3,7 @@
     "label": "the agents tab loses its import action",
     "file": "ui/src/components/settings/LocalAgentSettingsSection.tsx",
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.leaveGuard.dom.test.tsx -t \"keeps the import-sessions action inside the agents tab\"",
-    "old": "          <Button variant=\"secondary\" disabled={importingSessions} onClick={onImportSessions}>\n            {importingSessions\n              ? tr(\"settings.localAgents.importing\")\n              : tr(\"settings.localAgents.import\")}\n          </Button>\n",
+    "old": "          <Button\n            variant=\"secondary\"\n            disabled={importingSessions || !online || importable.length === 0}\n            onClick={onImportSessions}\n            title={importBlockedReason}\n          >\n            {importingSessions\n              ? tr(\"settings.localAgents.importing\")\n              : tr(\"settings.localAgents.import\")}\n          </Button>\n",
     "new": "          {/* mutant: the agents tab lost its import action */}\n"
   },
   {

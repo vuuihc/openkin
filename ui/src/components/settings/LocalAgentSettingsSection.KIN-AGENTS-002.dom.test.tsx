@@ -1,0 +1,279 @@
+// @vitest-environment jsdom
+// KIN-AGENTS-002 — agents tab 的三组边界（J6）：每组一句规则、每行上次检测
+// 时间、不支持导入的原因、探测失败保留旧行、离线三组只读。
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { LocalAgentSettingsSection } from "./LocalAgentSettingsSection";
+import type { AgentProvider } from "../../api/client";
+import type { AgentRole } from "../../lib/agentRoles";
+import { setLocale, t } from "../../i18n";
+
+beforeEach(() => setLocale("en"));
+
+function provider(over: Partial<AgentProvider> & { id: string }): AgentProvider {
+  return {
+    name: over.id,
+    kind: "cli",
+    state: "available",
+    installed: true,
+    available: true,
+    // Local-time literal (no Z), so the expected HH:MM is timezone-stable.
+    last_scanned_at: "2026-10-26T09:07:00",
+    ...over,
+  };
+}
+
+const codex = provider({
+  id: "codex",
+  name: "Codex",
+  capabilities: [{ capability: "session_list", state: "available" }],
+});
+const claude = provider({
+  id: "claude-code",
+  name: "Claude Code",
+  capabilities: [{ capability: "session_list", state: "available" }],
+});
+const gemini = provider({
+  id: "gemini-cli",
+  name: "Gemini CLI",
+  state: "unsupported",
+  installed: false,
+  available: false,
+  capabilities: [{ capability: "session_list", state: "unsupported" }],
+});
+
+function hhmm(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+const lastDetected = (iso: string) => t("settings.localAgents.lastDetected", { value: hhmm(iso) });
+
+/** The `<section>` under a group heading, so rows duplicated in two groups are
+ *  never matched by accident. */
+function group(title: string): HTMLElement {
+  return screen.getByRole("heading", { name: title, level: 2 }).closest("section") as HTMLElement;
+}
+// Read at call time: the locale is set in `beforeEach`.
+const detectionHeading = () => t("settings.localAgents.detectionHeading");
+const importHeading = () => t("settings.localAgents.importHeading");
+const rolesHeading = () => t("settings.roles.heading");
+
+type SectionProps = {
+  importing?: boolean;
+  refreshing?: boolean;
+  providers?: AgentProvider[];
+  providersStatus?: "loading" | "ready" | "failed";
+  providersError?: string | null;
+  online?: boolean;
+  roles?: AgentRole[];
+  onRefresh?: () => void;
+  onImportSessions?: () => void;
+  onImportProviderSessions?: (agentId: string) => void;
+};
+
+function section(props: SectionProps) {
+  return (
+    <LocalAgentSettingsSection
+      active
+      agentProviders={props.providers ?? [codex]}
+      providersStatus={props.providersStatus ?? "ready"}
+      providersError={props.providersError ?? null}
+      online={props.online ?? true}
+      refreshingAgentCatalog={props.refreshing ?? false}
+      importingSessions={props.importing ?? false}
+      settingsBusy={false}
+      onRefreshAgentCatalog={props.onRefresh ?? vi.fn()}
+      onImportSessions={props.onImportSessions ?? vi.fn()}
+      onImportProviderSessions={props.onImportProviderSessions ?? vi.fn()}
+      onSaveSettings={() => {}}
+      roles={props.roles ?? []}
+      onRolesChange={() => {}}
+    />
+  );
+}
+
+describe("KIN-AGENTS-002 · the three groups and what they read", () => {
+  it("KIN-AGENTS-002 opening the tab starts no import and reads no secure store", () => {
+    const onRefresh = vi.fn();
+    const onImportSessions = vi.fn();
+    const onImportProviderSessions = vi.fn();
+    render(section({ onRefresh, onImportSessions, onImportProviderSessions }));
+
+    expect(within(group(detectionHeading())).getByText("Codex")).not.toBeNull();
+    expect(screen.getByRole("button", { name: t("settings.localAgents.refresh") })).not.toBeNull();
+    expect(onRefresh).not.toHaveBeenCalled();
+    expect(onImportSessions).not.toHaveBeenCalled();
+    expect(onImportProviderSessions).not.toHaveBeenCalled();
+    expect(screen.queryByText(t("settings.localAgents.importing"))).toBeNull();
+  });
+
+  it("KIN-AGENTS-002 refresh marks the group busy, updates last-detected, and starts no import or default-agent change", async () => {
+    const user = userEvent.setup();
+    const onRefresh = vi.fn();
+    const onImportSessions = vi.fn();
+    const onImportProviderSessions = vi.fn();
+    const keep = { onImportSessions, onImportProviderSessions };
+    const old = [provider({ ...codex, last_scanned_at: "2026-10-26T08:00:00" })];
+    const view = render(section({ ...keep, onRefresh, providers: old }));
+
+    expect(screen.getByText(lastDetected("2026-10-26T08:00:00"))).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: t("settings.localAgents.refresh") }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    view.rerender(section({ ...keep, refreshing: true, providers: old }));
+    // Old rows and timestamp stay while the probe runs.
+    expect(screen.getByText(lastDetected("2026-10-26T08:00:00"))).not.toBeNull();
+    const busy = screen.getByRole("button", { name: t("settings.localAgents.refreshing") });
+    expect((busy as HTMLButtonElement).disabled).toBe(true);
+
+    view.rerender(
+      section({
+        ...keep,
+        providers: [provider({ ...codex, last_scanned_at: "2026-10-26T09:42:00" })],
+      }),
+    );
+    expect(screen.getByText(lastDetected("2026-10-26T09:42:00"))).not.toBeNull();
+    expect(screen.queryByText(lastDetected("2026-10-26T08:00:00"))).toBeNull();
+    expect(onImportSessions).not.toHaveBeenCalled();
+    expect(onImportProviderSessions).not.toHaveBeenCalled();
+    expect(screen.queryByRole("combobox")).toBeNull();
+  });
+
+  it("KIN-AGENTS-002 a provider without session_list has no import button and names the reason", () => {
+    render(section({ providers: [gemini] }));
+
+    expect(screen.getAllByText("Gemini CLI")).toHaveLength(2);
+    expect(
+      screen.queryByRole("button", {
+        name: t("settings.localAgents.importProviderLabel", { name: "Gemini CLI" }),
+      }),
+    ).toBeNull();
+    expect(screen.getAllByText(t("settings.localAgents.importUnsupportedReason"))).toHaveLength(2);
+  });
+
+  it("KIN-AGENTS-002 a row import asks for that provider on this machine and reports the indexed count", async () => {
+    const user = userEvent.setup();
+    const onImportProviderSessions = vi.fn();
+    render(section({ providers: [codex, claude], onImportProviderSessions }));
+
+    // The import group owns its own rows (D2).
+    const imports = group(importHeading());
+    const name = t("settings.localAgents.importProviderLabel", { name: "Claude Code" });
+    expect(
+      within(imports).getByText(t("settings.localAgents.importRowDetail", { name: "Claude Code" })),
+    ).not.toBeNull();
+    await user.click(within(imports).getByRole("button", { name }));
+
+    expect(onImportProviderSessions).toHaveBeenCalledTimes(1);
+    expect(onImportProviderSessions).toHaveBeenCalledWith("claude-code");
+  });
+
+  it("KIN-AGENTS-002 one import in flight disables every import button", () => {
+    render(section({ importing: true, providers: [codex, claude] }));
+
+    const buttons = within(group(importHeading())).getAllByRole("button");
+    expect(buttons).toHaveLength(3); // two row imports and the group action
+    for (const button of buttons) expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("KIN-AGENTS-002 saved roles render without starting a probe or import", () => {
+    const onRefresh = vi.fn();
+    const onImportSessions = vi.fn();
+    const onImportProviderSessions = vi.fn();
+    const roles = [{ id: "role-1", name: "Security review", prompt: "Review this diff." }];
+    render(section({ onRefresh, onImportSessions, onImportProviderSessions, roles }));
+
+    expect(
+      (screen.getByLabelText(t("settings.roles.name", { index: 1 })) as HTMLInputElement).value,
+    ).toBe("Security review");
+    expect(
+      (screen.getByLabelText(t("settings.roles.prompt", { index: 1 })) as HTMLTextAreaElement)
+        .value,
+    ).toBe("Review this diff.");
+    expect(onRefresh).not.toHaveBeenCalled();
+    expect(onImportSessions).not.toHaveBeenCalled();
+    expect(onImportProviderSessions).not.toHaveBeenCalled();
+  });
+
+  it("KIN-AGENTS-002 offline marks all three groups, disables probe/import with a reason, and leaves roles read-only", () => {
+    render(
+      section({
+        online: false,
+        providers: [codex],
+        roles: [{ id: "role-1", name: "Security review", prompt: "Review this diff." }],
+      }),
+    );
+
+    const disabled = (el: HTMLElement) => (el as HTMLButtonElement).disabled;
+    for (const key of ["offlineDetection", "offlineImport", "offlineRoles"])
+      expect(screen.getByText(t(`settings.localAgents.${key}`))).not.toBeNull();
+    expect(disabled(screen.getByRole("button", { name: t("settings.localAgents.refresh") }))).toBe(
+      true,
+    );
+    for (const button of within(group(importHeading())).getAllByRole("button"))
+      expect(disabled(button)).toBe(true);
+    expect(
+      (screen.getByLabelText(t("settings.roles.name", { index: 1 })) as HTMLInputElement).disabled,
+    ).toBe(true);
+    expect(
+      disabled(
+        within(group(rolesHeading())).getByRole("button", {
+          name: t("settings.localAgents.save"),
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("KIN-AGENTS-002 a failed probe keeps the previous rows and the old timestamp and shows the reason", () => {
+    render(
+      section({
+        providersStatus: "failed",
+        providersError: "daemon did not respond",
+        providers: [codex],
+      }),
+    );
+
+    expect(within(group(detectionHeading())).getByText("Codex")).not.toBeNull();
+    expect(screen.getByText(lastDetected("2026-10-26T09:07:00"))).not.toBeNull();
+    expect(
+      screen.getByText(
+        t("settings.localAgents.detectionFailed", { reason: "daemon did not respond" }),
+      ),
+    ).not.toBeNull();
+    const retry = screen.getByRole("button", { name: t("settings.localAgents.retryDetection") });
+    expect((retry as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("KIN-AGENTS-002 the tab renders no install, update, uninstall, login, smoke or usage control", () => {
+    render(section({ providers: [codex, gemini] }));
+
+    for (const name of [
+      /install/i,
+      /update/i,
+      /uninstall/i,
+      /sign in/i,
+      /login/i,
+      /smoke/i,
+      /usage/i,
+    ]) {
+      expect(screen.queryByRole("button", { name, hidden: true })).toBeNull();
+      expect(screen.queryByRole("link", { name, hidden: true })).toBeNull();
+    }
+  });
+
+  it("KIN-AGENTS-002 each row's import is named for its provider", () => {
+    render(section({ providers: [codex, claude] }));
+
+    expect(
+      screen.queryByRole("button", { name: t("settings.localAgents.importProvider") }),
+    ).toBeNull();
+    for (const name of ["Codex", "Claude Code"]) {
+      expect(
+        screen.getAllByRole("button", {
+          name: t("settings.localAgents.importProviderLabel", { name }),
+        }).length,
+      ).toBeGreaterThan(0);
+    }
+  });
+});

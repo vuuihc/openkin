@@ -734,7 +734,7 @@
     },
     {
       "id": "KIN-AGENTS-002",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J6"
@@ -747,7 +747,10 @@
       "file": "docs/product/stories/KIN-AGENTS-002.md",
       "surface": "设置 → agents tab（安装状态 / 会话导入 / 角色默认）",
       "ownerPaths": [],
-      "tests": [],
+      "tests": [
+        "ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx",
+        "ui/src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {

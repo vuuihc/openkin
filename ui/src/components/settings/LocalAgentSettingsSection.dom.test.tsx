@@ -105,13 +105,11 @@ describe("the settings section's import controls", () => {
       }),
     );
 
-    // Every row carries the same label, and the rows are drawn in the order the
-    // catalog gave them, so the second button is the second provider's row. What
-    // is asserted is the *id*: a row that asked for everything would call this
-    // once with the wrong argument, and a row that ignored its provider would
-    // call it with a constant.
-    const rows = screen.getAllByRole("button", { name: "Import" });
-    expect(rows).toHaveLength(2);
+    // Provider-named imports (KIN-AGENTS-002); the second button is the second
+    // provider's detection row. The *id* is what is asserted.
+    const rows = screen.getAllByRole("button", { name: /^Import sessions from / });
+    // One per provider in each of the two groups that offer the row errand.
+    expect(rows).toHaveLength(4);
     await user.click(rows[1]);
 
     expect(onImportProviderSessions).toHaveBeenCalledTimes(1);
@@ -126,7 +124,9 @@ describe("the settings section's import controls", () => {
     expect(screen.queryByText(/auto-import/i)).toBeNull();
     expect(screen.queryByText(/automatic sync/i)).toBeNull();
     expect(screen.getByRole("button", { name: "Import sessions now" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Import" })).not.toBeNull();
+    expect(screen.getAllByRole("button", { name: "Import sessions from Codex" })).not.toHaveLength(
+      0,
+    );
   });
 
   it("offers no import for a provider that cannot list sessions", () => {
@@ -143,9 +143,8 @@ describe("the settings section's import controls", () => {
       }),
     );
 
-    // The row is still there — the person needs to see that the provider exists
-    // and why it is not usable — but nothing invites an errand that cannot run.
-    expect(screen.queryByText("Gemini")).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Import" })).toBeNull();
+    // The row stays in both groups, but nothing invites an errand that cannot run.
+    expect(screen.getAllByText("Gemini")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Import sessions from Gemini" })).toBeNull();
   });
 });
