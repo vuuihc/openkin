@@ -19,5 +19,33 @@
     "test": "bash rsi/runtime/tests/test-lanes-facts.sh",
     "old": "        if len(f) < 8 or f[2] != \"PR\" or f[6] != \"merged\":",
     "new": "        if False:"
+  },
+  {
+    "label": "the unknown-subcommand error never prints the withdrawal command",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lanes-facts.sh",
+    "old": "    sys.stderr.write('  withdraw a claim: lanes.py finish <lane> --status cancelled --note \"<why>\"\\n')",
+    "new": "    pass"
+  },
+  {
+    "label": "an unknown subcommand exits 0 instead of 2",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lanes-facts.sh",
+    "old": "    sys.stderr.write(\"  subcommands: %s\\n\" % \", \".join(sorted(sub.choices)))\n    sys.exit(2)",
+    "new": "    sys.stderr.write(\"  subcommands: %s\\n\" % \", \".join(sorted(sub.choices)))\n    sys.exit(0)"
+  },
+  {
+    "label": "the hint prints for every invocation, including --help and real subcommands",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lanes-facts.sh",
+    "old": "if len(sys.argv) > 1 and not sys.argv[1].startswith(\"-\") and sys.argv[1] not in sub.choices:",
+    "new": "if True:"
+  },
+  {
+    "label": "the hint names the dead `release <lane>` command instead of finish --status cancelled",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lanes-facts.sh",
+    "old": "    sys.stderr.write('  withdraw a claim: lanes.py finish <lane> --status cancelled --note \"<why>\"\\n')",
+    "new": "    sys.stderr.write('  withdraw a claim: lanes.py release <lane> --note \"<why>\"\\n')"
   }
 ]

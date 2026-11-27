@@ -56,6 +56,8 @@ slug = short-kebab. Write the worker brief to {{STATE}}/briefs/<slug>.md. Read t
 **If the brief comes from a `docs/plans/gap-log.md` entry** (the sweep's fix rows), the brief names that entry and requires its own PR body to carry `Gap-log: <the entry's own text>` plus the same-PR move of the line to `## 已修`; `rsi/runtime/gap_log_check.py` runs in the merge gate before the reviewer, and a PR whose diff touches a path the entry cites is sent back unless the entry is closed in that PR or the body waives the citation with `Gap-log: none: <reason>`.
 Then claim: `python3 {{CTRL}}/rsi/runtime/lanes.py claim <lane> --slug <slug> --item <ID> --brief {{STATE}}/briefs/<slug>.md --paths <path> [<path> ...]`. Exit 0 prints CLAIMED. The worktree {{WT_ROOT}}/rsi-<slug> and the branch rsi/<slug> are created by the lane; you never create them. Exit 10 means a sendback appeared while you were writing briefs and now owns the last usable lane: stop claiming this run — the `autofill` after your dispatch turns that lane into the rework.
 
+Withdrawing an unstarted or claimed lane is `python3 {{CTRL}}/rsi/runtime/lanes.py finish <lane> --status cancelled --note "<why>"`; there is no `release` subcommand, so a `Reverse:` line that names one is wrong.
+
 ## 3b. Queue dry is not an exit
 
 Run this section only after §1, §2, §2b and §2c have each been evaluated and **every idle lane is still empty**. It restores the fallback the serial loop had (`pulse-serial.md:14` (d)) and the parallel fill dropped: a dry queue means *go find a real defect*, not *sit still and report "queue dry"*. It is docs-only, so it is not the non-Astryx work §2 rule 4 parks.
