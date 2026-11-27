@@ -1,5 +1,5 @@
 /**
- * KIN-MOBILE-002 R4a — one agent message, drawn block by block.
+ * KIN-MOBILE-002 R4a/R4b — one agent message, drawn block by block.
  *
  * The blocks come from the console's own parse (`ui/src/lib/markdownBlocks.ts`,
  * imported by relative path) rather than a second implementation: a heading is
@@ -7,13 +7,18 @@
  * is a quoted block and `---` is a 1pt rule. A message that is only a paragraph
  * is still the one `<Text>` the view drew before this module existed.
  *
+ * Inside a paragraph, heading, list item or quote line the inline runs come
+ * from the console's other parse (`ui/src/lib/markdownInline.ts`, R4b): bold,
+ * italic, code and a link's label draw as emphasis instead of their markers.
+ * A fenced block and a table cell stay literal — a sample is text, not prose.
+ *
  * No colour is written here. Sizes and weights are local; every colour comes
  * from the view's `textStyle` or from the `styles` prop, which
  * `ConversationView` builds from its own literals (the token layer, R1b,
  * takes them over).
  */
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   Platform,
   StyleSheet,
@@ -23,6 +28,7 @@ import {
   type TextStyle,
 } from "react-native";
 import { splitBlocks, type Block } from "../../../ui/src/lib/markdownBlocks";
+import { inlineTokens } from "../../../ui/src/lib/markdownInline";
 import { TableBlock } from "./TableBlock";
 
 /** The colours this renderer needs and does not own. */
@@ -31,6 +37,10 @@ export type MessageBodyStyles = {
   hairline?: string;
   /** Behind a fenced code sample. */
   codeBackground?: string;
+  /** Behind an inline code run. */
+  fillStrong?: string;
+  /** An inline code run's ink and a link's label. */
+  blueInk?: string;
 };
 
 export type MessageBodyProps = {
@@ -43,6 +53,60 @@ export type MessageBodyProps = {
 
 const MONO = Platform.select({ ios: "Menlo", default: "monospace" });
 
+/**
+ * One text run as nested `<Text>`: strong is bold, em is italic, code is a
+ * mono run on the fill, and a link's label takes link ink with an underline.
+ * A link whose href is unsafe draws as its plain label. A run with no inline
+ * syntax is returned as the bare string, so the common case renders exactly
+ * the one text node it did before this module learned emphasis.
+ */
+function inlineChildren(
+  text: string,
+  styles: MessageBodyStyles | undefined,
+): ReactNode {
+  const tokens = inlineTokens(text);
+  if (tokens.length === 1 && tokens[0]!.kind === "text") {
+    return tokens[0]!.value;
+  }
+  return tokens.map((token, i) => {
+    switch (token.kind) {
+      case "strong":
+        return (
+          <Text key={i} style={sheet.strong}>
+            {token.value}
+          </Text>
+        );
+      case "em":
+        return (
+          <Text key={i} style={sheet.em}>
+            {token.value}
+          </Text>
+        );
+      case "code":
+        return (
+          <Text
+            key={i}
+            style={[
+              sheet.inlineCode,
+              { backgroundColor: styles?.fillStrong, color: styles?.blueInk },
+            ]}
+          >
+            {token.value}
+          </Text>
+        );
+      case "link":
+        if (token.href === undefined) return token.value;
+        return (
+          <Text key={i} style={[sheet.link, { color: styles?.blueInk }]}>
+            {token.value}
+          </Text>
+        );
+      default:
+        return token.value;
+    }
+  });
+}
+
 export function MessageBody({ text, textStyle, styles }: MessageBodyProps) {
   const blocks = useMemo(() => splitBlocks(text), [text]);
 
@@ -52,7 +116,7 @@ export function MessageBody({ text, textStyle, styles }: MessageBodyProps) {
   if (blocks.length === 1 && blocks[0].type === "p") {
     return (
       <Text style={textStyle} testID="conversation:md:p:0">
-        {blocks[0].value}
+        {inlineChildren(blocks[0].value, styles)}
       </Text>
     );
   }
@@ -68,7 +132,7 @@ export function MessageBody({ text, textStyle, styles }: MessageBodyProps) {
               style={textStyle}
               testID={`conversation:md:p:${i}`}
             >
-              {block.value}
+              {inlineChildren(block.value, styles)}
             </Text>
           );
         }
@@ -80,7 +144,7 @@ export function MessageBody({ text, textStyle, styles }: MessageBodyProps) {
               style={[textStyle, HEADING[block.type]]}
               testID={`conversation:md:${block.type}:${i}`}
             >
-              {block.value}
+              {inlineChildren(block.value, styles)}
             </Text>
           );
         }
@@ -92,7 +156,9 @@ export function MessageBody({ text, textStyle, styles }: MessageBodyProps) {
                   <Text style={[textStyle, sheet.marker]}>
                     {block.type === "ul" ? "•" : `${j + 1}.`}
                   </Text>
-                  <Text style={[textStyle, sheet.listItem]}>{item}</Text>
+                  <Text style={[textStyle, sheet.listItem]}>
+                    {inlineChildren(item, styles)}
+                  </Text>
                 </View>
               ))}
             </View>
@@ -118,7 +184,7 @@ export function MessageBody({ text, textStyle, styles }: MessageBodyProps) {
             >
               {block.lines.map((line, j) => (
                 <Text key={j} style={[textStyle, sheet.quoteText]}>
-                  {line}
+                  {inlineChildren(line, styles)}
                 </Text>
               ))}
             </View>
@@ -168,8 +234,20 @@ const sheet = StyleSheet.create({
     fontFamily: MONO,
     fontSize: 14,
   },
+  em: {
+    fontStyle: "italic",
+  },
   hr: {
     height: 1,
+  },
+  inlineCode: {
+    // A touch under the body size, as the console's code run is: mono at the
+    // body's own size reads larger than the prose around it.
+    fontFamily: MONO,
+    fontSize: 15,
+  },
+  link: {
+    textDecorationLine: "underline",
   },
   listItem: {
     flexShrink: 1,
@@ -187,5 +265,8 @@ const sheet = StyleSheet.create({
   },
   quoteText: {
     fontStyle: "italic",
+  },
+  strong: {
+    fontWeight: "700",
   },
 });
