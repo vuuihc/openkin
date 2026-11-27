@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the per-agent rows keep the map's insertion order instead of spend order, so the biggest spender is not first (R-rn-usage-sheet)",
+    "file": "mobile-rn/src/usage/usageByAgent.ts",
+    "old": "    .sort((a, b) => b.cost - a.cost || a.agent.localeCompare(b.agent));",
+    "new": "    ;",
+    "test": "cd mobile-rn && npx jest src/usage/usageByAgent.test.ts -t \"KIN-MOBILE-002 R6: rows group by agent, sum cost and tokens, and sort by spend\""
+  }
+]
