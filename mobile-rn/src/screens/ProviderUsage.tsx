@@ -21,6 +21,14 @@
  * This slice draws no sheet chrome, no route and no container: the bottom
  * sheet and its mount on the conversation header land with a later slice,
  * exactly as R5b's `Approvals` landed before R5c mounted it.
+ *
+ * KIN-MOBILE-002 R6 adds the signed visual on top of that behaviour: the window
+ * switch is one inset segmented control, and a per-agent block sits above the
+ * configuration list with an identity dot, a right-aligned tabular amount, a
+ * proportional spend bar and a percent + token caption, closed by the window
+ * total (`KIN-MOBILE-002.figma/frames/05-phone-usage-sheet.svg`). The rows are
+ * the `usageByAgent` fold of `UsageRow.agent`, never provider configuration; the
+ * four KIN-MOBILE-001 tiles and every empty/stale/offline/failed state stay.
  */
 
 import { useEffect, useMemo, useRef } from "react";
@@ -39,7 +47,7 @@ import {
 } from "../../../ui/src/lib/usage";
 import { focusNode } from "../a11y/focus";
 import { useTheme } from "../theme/useTheme";
-import { wash, type Palette } from "../theme/tokens";
+import { tabular, wash, type Palette } from "../theme/tokens";
 import {
   USAGE_WINDOWS,
   type ProviderEntry,
@@ -47,6 +55,10 @@ import {
   type ProvidersView,
   type UsageWindowDays,
 } from "../providers/providersModel";
+import {
+  usageByAgent,
+  type AgentUsage,
+} from "../usage/usageByAgent";
 import UsageSkeleton from "./UsageSkeleton";
 
 type Translate = (
@@ -98,6 +110,82 @@ function failureKey(reason: ProvidersReason): string {
     default:
       return "pairing.unreachable";
   }
+}
+
+/**
+ * The agents' identity marks, from `theme/tokens.ts` (never a literal).
+ *
+ * Matched case-insensitively, and a stored id may carry a suffix
+ * (`claude-code`): the mark belongs to the agent family, so a prefix before a
+ * hyphen still matches. An agent with no token takes the neutral blue; the dot
+ * is decorative and the row's own name and amount carry the meaning.
+ */
+const IDENTITY_TOKENS: ReadonlyArray<readonly [string, keyof Palette]> = [
+  ["claude", "agentClaude"],
+  ["codex", "agentCodex"],
+  ["droid", "agentDroid"],
+  ["workbuddy", "agentWorkbuddy"],
+  ["trae", "agentTrae"],
+  ["doubao", "agentDoubao"],
+  ["zcode", "agentZcode"],
+];
+
+function agentColor(colors: Palette, agent: string): string {
+  const name = agent.trim().toLowerCase();
+  for (const [key, token] of IDENTITY_TOKENS) {
+    if (name === key || name.startsWith(`${key}-`)) return colors[token];
+  }
+  return colors.blue;
+}
+
+/**
+ * One agent's spend in the window: identity dot, name, amount, proportional
+ * bar and the frame's percent + token caption. The bar is the row's share of
+ * the window total, rounded to the same whole percent the caption prints.
+ */
+function AgentRow({
+  colors,
+  entry,
+  styles,
+  t,
+}: {
+  colors: Palette;
+  entry: AgentUsage;
+  styles: Styles;
+  t: Translate;
+}) {
+  const tint = agentColor(colors, entry.agent);
+  const percent = Math.round(entry.share * 100);
+  const detail = `${percent}% · ${t("progress.input")} ${formatTokenCount(
+    entry.inputTokens,
+  )} · ${t("progress.output")} ${formatTokenCount(entry.outputTokens)}`;
+  return (
+    <View style={styles.agentRow} testID={`usage-agent:${entry.agent}`}>
+      <View style={styles.agentHeading}>
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[styles.identityDot, { backgroundColor: tint }]}
+          testID={`usage-agent-dot:${entry.agent}`}
+        />
+        <Text style={styles.agentName}>{entry.agent}</Text>
+        <Text style={styles.agentCost}>{formatSpend(entry.cost)}</Text>
+      </View>
+      <View
+        style={styles.agentTrack}
+        testID={`usage-agent-track:${entry.agent}`}
+      >
+        <View
+          style={[
+            styles.agentBar,
+            { backgroundColor: tint, width: `${percent}%` },
+          ]}
+          testID={`usage-agent-bar:${entry.agent}`}
+        />
+      </View>
+      <Text style={styles.agentDetail}>{detail}</Text>
+    </View>
+  );
 }
 
 function Tile({
@@ -168,6 +256,9 @@ export default function ProviderUsage({
   }, [autoFocus]);
 
   const totals = summarizeUsage(state.usage);
+  // The window's spend per agent, folded from `UsageRow.agent` only (R6). The
+  // provider list below is configuration, not a source of spend.
+  const agents = useMemo(() => usageByAgent(state.usage), [state.usage]);
   // The model's two kinds of "nothing" (`providersModel.ts:252-258`).
   const deviceEmpty = state.status === "empty";
   // An expired token is a pairing state: the model already cleared the rows,
@@ -229,7 +320,7 @@ export default function ProviderUsage({
         ) : null}
       </View>
 
-      <View style={styles.windows}>
+      <View style={styles.segmented} testID="usage-window-control">
         {USAGE_WINDOWS.map((days) => {
           const selected = state.days === days;
           const label = t(WINDOW_LABEL_KEYS[days]);
@@ -240,11 +331,7 @@ export default function ProviderUsage({
               accessibilityState={{ selected }}
               key={days}
               onPress={() => onSelectWindow(days)}
-              style={[
-                styles.control,
-                styles.window,
-                selected && styles.windowSelected,
-              ]}
+              style={[styles.window, selected && styles.windowSelected]}
               testID={`usage-window:${days}`}
             >
               <Text
@@ -285,6 +372,26 @@ export default function ProviderUsage({
         <View style={styles.empty}>
           <Text style={styles.emptyTitle}>{t("agents.emptyUsageDevice")}</Text>
           <Text style={styles.emptyHint}>{t("agents.emptyUsageHint")}</Text>
+        </View>
+      ) : null}
+
+      {agents.length > 0 ? (
+        <View style={styles.agents} testID="usage-agents">
+          {agents.map((entry) => (
+            <AgentRow
+              colors={colors}
+              entry={entry}
+              key={entry.agent}
+              styles={styles}
+              t={t}
+            />
+          ))}
+          <View style={styles.totalRule} />
+          <Text style={styles.windowTotal} testID="usage-window-total">
+            {`${t("usage.spend")} ${formatSpend(totals.cost)} · ${t(
+              "usage.tokens",
+            )} ${formatTokenCount(totals.tokens)}`}
+          </Text>
         </View>
       ) : null}
 
@@ -386,6 +493,47 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     letterSpacing: 0.6,
     textTransform: "uppercase",
   },
+  /** The identity colour's proportional fill; the track is the quiet part. */
+  agentBar: {
+    borderRadius: 3,
+    height: 6,
+  },
+  agentCost: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "600",
+    marginLeft: "auto",
+    textAlign: "right",
+    ...tabular,
+  },
+  agentDetail: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  agentHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  agentName: {
+    color: colors.text,
+    flexShrink: 1,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  agentRow: {
+    gap: 6,
+  },
+  /** One block per spending agent, closed by the window total. */
+  agents: {
+    gap: 14,
+  },
+  agentTrack: {
+    backgroundColor: colors.fill,
+    borderRadius: 3,
+    height: 6,
+    overflow: "hidden",
+  },
   content: {
     gap: 12,
     padding: 16,
@@ -416,6 +564,12 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     color: colors.text,
     fontSize: 20,
     fontWeight: "700",
+  },
+  /** The 10pt decorative mark; the row's text carries the meaning. */
+  identityDot: {
+    borderRadius: 5,
+    height: 10,
+    width: 10,
   },
   notice: {
     alignItems: "center",
@@ -469,6 +623,18 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
   screen: {
     flex: 1,
   },
+  /** One inset track: three equal segments, the chosen one elevated (R6). */
+  segmented: {
+    backgroundColor: colors.fill,
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 2,
+    padding: 2,
+  },
+  totalRule: {
+    backgroundColor: colors.hairline,
+    height: 1,
+  },
   tile: {
     backgroundColor: colors.fill,
     borderRadius: 12,
@@ -495,24 +661,32 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     flexWrap: "wrap",
     gap: 12,
   },
+  /** A 44pt target even though the visible track is denser (TASTE 11). */
   window: {
+    alignItems: "center",
+    borderRadius: 6,
     flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    minWidth: 44,
   },
   windowSelected: {
-    backgroundColor: wash(colors.blue, 0.12),
-    borderColor: colors.focusRing,
+    backgroundColor: colors.elevated,
   },
   windowText: {
-    color: colors.secondary,
-    fontSize: 14,
+    color: colors.muted,
+    fontSize: 13,
   },
   windowTextSelected: {
-    color: colors.blueInk,
+    color: colors.text,
     fontWeight: "600",
   },
-  windows: {
-    flexDirection: "row",
-    gap: 8,
+  windowTotal: {
+    color: colors.muted,
+    fontSize: 13,
+    ...tabular,
   },
 });
 
