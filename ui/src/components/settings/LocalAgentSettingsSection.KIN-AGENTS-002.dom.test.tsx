@@ -159,14 +159,11 @@ describe("KIN-AGENTS-002 · the three groups and what they read", () => {
 
     // The import group owns its own rows (D2).
     const imports = group(importHeading());
+    const name = t("settings.localAgents.importProviderLabel", { name: "Claude Code" });
     expect(
       within(imports).getByText(t("settings.localAgents.importRowDetail", { name: "Claude Code" })),
     ).not.toBeNull();
-    await user.click(
-      within(imports).getByRole("button", {
-        name: t("settings.localAgents.importProviderLabel", { name: "Claude Code" }),
-      }),
-    );
+    await user.click(within(imports).getByRole("button", { name }));
 
     expect(onImportProviderSessions).toHaveBeenCalledTimes(1);
     expect(onImportProviderSessions).toHaveBeenCalledWith("claude-code");
@@ -184,14 +181,8 @@ describe("KIN-AGENTS-002 · the three groups and what they read", () => {
     const onRefresh = vi.fn();
     const onImportSessions = vi.fn();
     const onImportProviderSessions = vi.fn();
-    render(
-      section({
-        onRefresh,
-        onImportSessions,
-        onImportProviderSessions,
-        roles: [{ id: "role-1", name: "Security review", prompt: "Review this diff." }],
-      }),
-    );
+    const roles = [{ id: "role-1", name: "Security review", prompt: "Review this diff." }];
+    render(section({ onRefresh, onImportSessions, onImportProviderSessions, roles }));
 
     expect(
       (screen.getByLabelText(t("settings.roles.name", { index: 1 })) as HTMLInputElement).value,

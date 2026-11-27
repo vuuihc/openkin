@@ -378,14 +378,9 @@ export default function SettingsPage() {
   }, []);
 
   /**
-   * Read the local agent providers for the agents tab.
-   *
-   * Owned here rather than inside the detection section so the import group
-   * renders from the same metadata without depending on the detection half
-   * (KIN-AGENTS-002 D2): deleting that half later leaves the row imports and
-   * the role editor working. The sequence guard mirrors `agentCatalogSeq`: the
-   * first activation, a reconnect and a refresh can overlap, and only the
-   * newest answer may paint. A failure keeps the rows already on screen.
+   * Read the local agent providers for the agents tab. Owned by the page, not
+   * the detection section, so the import group renders from the same metadata
+   * without depending on that half (D2). Only the newest answer may paint.
    */
   const agentProvidersSeq = useRef(0);
   const agentProvidersRead = useRef(false);
@@ -464,19 +459,16 @@ export default function SettingsPage() {
     void load(true);
   }, [reconnectGen, load]);
 
-  // Opening Settings on any other tab must not read /api/agent-providers; the
-  // first activation of the agents tab is what starts it. Coming back to the
-  // tab later keeps the previous answer and timestamp rather than probing
-  // again (KIN-AGENTS-002 §3, 离开再回来).
+  // Opening Settings on any other tab must not read /api/agent-providers. The
+  // first activation starts it; coming back keeps the old answer and time.
   useEffect(() => {
     if (activeTab !== "agents" || agentProvidersRead.current) return;
     agentProvidersRead.current = true;
     void readAgentProviders();
   }, [activeTab, readAgentProviders]);
 
-  // A reconnect while the agents tab is open re-reads the providers, the same
-  // rule the page's own reload follows: a link that came back must not leave
-  // the rows presenting the pre-disconnect snapshot as current.
+  // A reconnect while the tab is open re-reads, like the page's own reload:
+  // the pre-disconnect snapshot must not stay presented as current.
   const seenProviderReconnect = useRef(reconnectGen);
   useEffect(() => {
     if (reconnectGen === seenProviderReconnect.current) return;

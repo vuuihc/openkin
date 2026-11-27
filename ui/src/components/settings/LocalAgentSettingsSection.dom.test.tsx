@@ -105,12 +105,8 @@ describe("the settings section's import controls", () => {
       }),
     );
 
-    // Every row carries a provider-named import (KIN-AGENTS-002 replaced the
-    // column of identical "Import" names), and the rows are drawn in the order
-    // the catalog gave them, so the second button is the second provider's
-    // detection row. What is asserted is the *id*: a row that asked for
-    // everything would call this once with the wrong argument, and a row that
-    // ignored its provider would call it with a constant.
+    // Provider-named imports (KIN-AGENTS-002); the second button is the second
+    // provider's detection row. The *id* is what is asserted.
     const rows = screen.getAllByRole("button", { name: /^Import sessions from / });
     // One per provider in each of the two groups that offer the row errand.
     expect(rows).toHaveLength(4);
@@ -147,9 +143,7 @@ describe("the settings section's import controls", () => {
       }),
     );
 
-    // The row is still there in both groups — the person needs to see that the
-    // provider exists and why it is not usable — but nothing invites an errand
-    // that cannot run.
+    // The row stays in both groups, but nothing invites an errand that cannot run.
     expect(screen.getAllByText("Gemini")).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "Import sessions from Gemini" })).toBeNull();
   });

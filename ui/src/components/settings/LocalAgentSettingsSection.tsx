@@ -25,15 +25,8 @@ export function canImportAgentSessions(agent: AgentProvider): boolean {
   );
 }
 
-/**
- * The local clock time of a scan, or null when there has never been one.
- *
- * `last_scanned_at` is the daemon's timestamp; the screen shows it in the
- * reader's own timezone because "last detected" is a fact about their day, not
- * about UTC. A zero or unparsable value means the provider has never been
- * scanned, which is a different answer from a failed scan — that one keeps the
- * old time on screen (D1).
- */
+/** Local clock time of a scan, or null when there has never been one. A failed
+ *  scan keeps the old time (D1); "never" is only for a missing timestamp. */
 export function detectedClock(iso: string | undefined): string | null {
   if (!iso) return null;
   const date = new Date(iso);
@@ -96,8 +89,7 @@ export function LocalAgentSettingsSection({
 
   return (
     <SettingsTabPanel id="agents" active={active}>
-      {/* Group 1 — installation status. Automatic, read-only, and the only
-          group a "Refresh detection" press belongs to. */}
+      {/* Group 1 — installation status: automatic and read-only. */}
       <SettingsSection
         title={tr("settings.localAgents.detectionHeading")}
         description={tr("settings.localAgents.detectionRule")}
@@ -258,9 +250,8 @@ export function LocalAgentSettingsSection({
         </div>
       </SettingsSection>
 
-      {/* Group 2 — import sessions. Its rows are drawn from the same provider
-          metadata but never from the detection group's markup: deleting the
-          detection half later leaves this errand and its rows intact (D2). */}
+      {/* Group 2 — import sessions, drawn from the same metadata but never
+          from the detection group's markup (D2). */}
       <SettingsSection
         title={tr("settings.localAgents.importHeading")}
         description={tr("settings.localAgents.importRule")}
@@ -341,8 +332,7 @@ export function LocalAgentSettingsSection({
         </div>
       </SettingsSection>
 
-      {/* Group 3 — role defaults. Saved text, nothing else: it neither probes
-          nor imports, and a half-written row is dropped on save. */}
+      {/* Group 3 — role defaults: saved text, no probe and no import. */}
       <RolesSection
         roles={roles}
         onChange={onRolesChange}
