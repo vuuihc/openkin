@@ -156,7 +156,10 @@ describe("KIN-MOBILE-001 signature", () => {
     // R5's three Expo packages: pinned here and recorded in the ADR in the same change.
     for (const pkg of ["expo-haptics", "expo-symbols", "expo-glass-effect"]) {
       expect(pinned, `${pkg} is not pinned in mobile-rn/package.json`).toHaveProperty(pkg);
-      expect(rows.map((r) => r.pkg), `the ADR has no ${pkg} row`).toContain(pkg);
+      expect(
+        rows.map((r) => r.pkg),
+        `the ADR has no ${pkg} row`,
+      ).toContain(pkg);
     }
   });
 
