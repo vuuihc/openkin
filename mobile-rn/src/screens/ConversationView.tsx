@@ -1181,7 +1181,18 @@ export default function ConversationView({
         // home indicator (TASTE §18, DESIGN.md:39). Outside the `onSend`
         // guard: a thread that failed to load has no composer, and the card
         // that blocks the turn must still be here.
-        <View style={styles.approvalDock} testID="conversation:approvalDock">
+        <View
+          // With no composer below it, the dock is the last child and owns
+          // the home-indicator clearance itself; with one, the composer dock
+          // already carries it and the band keeps only its 8pt of air.
+          style={[
+            styles.approvalDock,
+            onSend
+              ? null
+              : { paddingBottom: composerBottomInset(insets.bottom) },
+          ]}
+          testID="conversation:approvalDock"
+        >
           <ApprovalsSection {...approvals} embedded />
         </View>
       ) : null}

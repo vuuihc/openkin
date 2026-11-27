@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import type {
   Approval,
@@ -19,6 +20,7 @@ import type {
 } from "../approvals/approvalsModel";
 import type { Session } from "../auth/tokenStore";
 import { t } from "../i18n";
+import { composerBottomInset } from "../native/insets";
 import type { AppStateLike, AppStateStatus } from "../native/reconnect";
 import type { ThreadState } from "../thread/threadModel";
 import type { ApprovalsScreenProps } from "./Approvals";
@@ -361,6 +363,13 @@ describe("KIN-MOBILE-001 R5 conversation approvals", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByTestId("conversation:composerDock")).toBeNull();
+    // The dock is the last child here, so the composer's home-indicator
+    // clearance moves onto it: the Approve/Deny row must not sit in the
+    // gesture band (the composer suite pins the same number).
+    const dock = StyleSheet.flatten(
+      screen.getByTestId("conversation:approvalDock").props.style,
+    );
+    expect(dock.paddingBottom).toBe(composerBottomInset(34));
   });
 
   it("KIN-MOBILE-001 R5: approving from the conversation sends the decision and the card becomes handled", async () => {
