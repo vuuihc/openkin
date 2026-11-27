@@ -609,8 +609,8 @@ export function ApprovalsSection({
 
 /**
  * The standalone screen: the same section, owning the page's one scroller.
- * The conversation mounts `ApprovalsSection` directly inside its own scroller,
- * so the phone never nests two vertical `ScrollView`s.
+ * The conversation docks `ApprovalsSection` above its composer as a sibling of
+ * its own scroller, so the phone never nests two vertical `ScrollView`s.
  */
 export default function Approvals(props: ApprovalsScreenProps) {
   const { colors } = useTheme();
