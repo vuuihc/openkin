@@ -38,8 +38,15 @@
     "label": "the hint prints for every invocation, including --help and real subcommands",
     "file": "rsi/runtime/lanes.py",
     "test": "bash rsi/runtime/tests/test-lanes-facts.sh",
-    "old": "if len(sys.argv) > 1 and not sys.argv[1].startswith(\"-\") and sys.argv[1] not in sub.choices:",
+    "old": "if __name__ == \"__main__\" and len(sys.argv) > 1 and not sys.argv[1].startswith(\"-\") and sys.argv[1] not in sub.choices:",
     "new": "if True:"
+  },
+  {
+    "label": "the guard fires on an in-place runpy load, whose argv[1] is the script path",
+    "file": "rsi/runtime/lanes.py",
+    "test": "bash rsi/runtime/tests/test-lanes-facts.sh",
+    "old": "if __name__ == \"__main__\" and len(sys.argv) > 1",
+    "new": "if len(sys.argv) > 1"
   },
   {
     "label": "the hint names the dead `release <lane>` command instead of finish --status cancelled",

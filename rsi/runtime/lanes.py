@@ -730,8 +730,10 @@ f = sub.add_parser("finish"); f.add_argument("lane", type=int); f.add_argument("
 # contain `finish`, taught the reader nothing. An unknown word gets the working command on
 # stderr, before state is initialised, read or written. No `release` alias: it would let the
 # next ledger record the wrong command again. --help (any leading "-") and every real
-# subcommand still go through argparse exactly as before.
-if len(sys.argv) > 1 and not sys.argv[1].startswith("-") and sys.argv[1] not in sub.choices:
+# subcommand still go through argparse exactly as before. The guard keys on being run as a
+# program: test-lanes-history.sh loads this file with runpy and a stubbed parse_args to call a
+# helper in place, and there argv[1] is the script path.
+if __name__ == "__main__" and len(sys.argv) > 1 and not sys.argv[1].startswith("-") and sys.argv[1] not in sub.choices:
     sys.stderr.write("lanes.py: unknown subcommand: %s\n" % sys.argv[1])
     sys.stderr.write('  withdraw a claim: lanes.py finish <lane> --status cancelled --note "<why>"\n')
     sys.stderr.write("  subcommands: %s\n" % ", ".join(sorted(sub.choices)))

@@ -247,6 +247,27 @@ merged_last=none"
   ok "$CASE"
 fi
 
+# --- in-place-runpy-load-does-not-trip-the-guard ---------------------------------------------
+# test-lanes-history.sh loads this file with runpy and a stubbed parse_args so it can call a
+# helper in place; there argv[1] is the script path, not a subcommand. The guard keys on being
+# run as a program, so that load must exit 0 and print nothing instead of the unknown-subcommand
+# error.
+if run_case in-place-runpy-load-does-not-trip-the-guard; then
+  CASE=in-place-runpy-load-does-not-trip-the-guard; ST="$T/inplace"; mkdir -p "$ST"
+  RSI_STATE="$ST" python3 - "$RUNTIME/lanes.py" demo 20260101-000000 >"$T/out" 2>"$T/err" <<'PY'
+import argparse, runpy, sys
+path = sys.argv[1]
+class _Noop:
+    def f(self, _a): pass
+argparse.ArgumentParser.parse_args = lambda self, *a, **k: _Noop()
+runpy.run_path(path, run_name="lanes")
+PY
+  rc=$?
+  [ "$rc" -eq 0 ] || bad "$CASE: runpy load exited $rc ($(cat "$T/err"))"
+  if [ -s "$T/err" ]; then bad "$CASE: runpy load wrote to stderr ($(cat "$T/err"))"; fi
+  ok "$CASE"
+fi
+
 # --- no-arguments-still-exits-2 --------------------------------------------------------------
 # Argparse's required-subparser behaviour is untouched: no subcommand is still usage error 2,
 # and the hint is not printed for a call that names no subcommand at all.
