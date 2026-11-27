@@ -154,7 +154,7 @@
 | 页面 | `ui/src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx` | Given 一个角色，名字和提示词都填好 When 保存 Then 保存请求含该角色，composer 收到 `AGENT_ROLES_CHANGED_EVENT`，且没有探测或导入请求 |
 | 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 已保存的角色 When 打开 tab Then 角色行渲染出来，且角色组本身不触发探测或导入 |
 | 页面 | `ui/src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx` | Given 两个读并发、其中一个迟到 When 它们返回 Then 只有最新一次上屏，旧回答被丢弃 |
-| 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 断线 When 打开 tab Then 三组都标离线，探测与导入禁用并写原因，角色只读 |
+| 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 断线 When 打开 tab Then 两组都标离线，导入组禁用并写原因，角色只读（2026-11-27 起为两组：导入与角色；探测组已删除） |
 | 组件 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given 探测失败 When 完成 Then 保留上次结果并写失败原因，不清空行 |
 | 页面 | `ui/src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx` | Given 探测组被移除或用替身替掉 When 打开 agents tab Then 导入组自己拿到 provider 与能力，行内导入与角色保存仍发出各自的请求 |
 | 结构 | `ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx` | Given agents tab When 渲染 Then 没有安装、更新、卸载、登录、smoke 或用量控件；完整列表只在 operations console |
@@ -168,4 +168,4 @@
 - 2026-11-23 创建（R-agents-detect，合同 only；不写代码、审阅页或帧）。
 - 2026-11-25（+08）· 对齐：part b 的审阅页与 6 张帧已由 #629 b0d46372 交付；状态保持 draft，等待人签字。
 - 2026-11-27 · CEO 受托签字（approved）：D1–D3 按审阅页推荐；审阅页已读（MECE、6 帧、六段流程、状态板）。见 rsi/DECISIONS.md 同日条。
-- 2026-11-27 · `R-agents-probe-removal`：探测组（安装状态）删除，agents tab 只剩「导入会话」与「角色默认」两组；导入组自己拥有 provider 读取的生命周期（读取中 / 失败保留旧行 / 首读失败给重试 / 离线）并保留自己的「刷新检测」入口，每行保留「上次检测」时间，角色组不变；无 API、路由、存储或 locale 目录变化。
+- 2026-11-27 · `R-agents-probe-removal`：探测组（安装状态）删除，agents tab 只剩「导入会话」与「角色默认」两组；导入组自己拥有 provider 读取的生命周期（读取中 / 失败保留旧行 / 首读失败给重试 / 离线）并保留自己的「刷新检测」入口，每行保留「上次检测」时间，角色组不变；无 API、路由、存储或新增 locale 目录，两个 locale 只删除探测组独占键并把 `detectionFailed` 的「上面」改成「下面」。
