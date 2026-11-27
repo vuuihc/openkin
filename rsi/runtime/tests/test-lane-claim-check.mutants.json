@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the claim seam reads the branch tip again: a claim whose output the merge with origin/main moves passes the lane, then the merge gate sends the PR back (rn-design-pass #812, rn-empty-hint #766)",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_claimed_output_must_match_the_merge_tree bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  merge_wt=\"$(claim_merge_wt \"$wt\")\"\n  [ -n \"$merge_wt\" ] && check_wt=\"$merge_wt\"",
+    "new": "  merge_wt=\"\""
+  },
+  {
+    "label": "the pre-push body-identity guard removed: a body rewritten after the seam read it is pushed and uploaded unchecked",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_lane_checks_the_body_it_uploads bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "if [ \"$(claim_body_sha \"$STATUS_NOTE_FILE\")\" != \"${CLAIM_BODY_SHA:-}\" ]; then",
+    "new": "if false; then"
+  }
+]
