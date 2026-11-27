@@ -23,8 +23,8 @@
   {
     "label": "the previous-phase guard is dropped, so a card that arrived already resolved buzzes as if this screen decided it (R-rn-composer-approvals-c)",
     "file": "mobile-rn/src/screens/Approvals.tsx",
-    "old": "    if (before !== \"submitting\" || entry.phase !== \"resolved\") return;",
-    "new": "    if (entry.phase !== \"resolved\") return;",
+    "old": "    if (before !== \"submitting\") return;",
+    "new": "    if (before === \"submitting\") return;",
     "test": "cd mobile-rn && npx jest src/screens/Approvals.visual.test.tsx -t \"KIN-MOBILE-002 R5: a card that mounts already resolved fires no haptics\""
   },
   {

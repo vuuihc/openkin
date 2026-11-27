@@ -116,14 +116,17 @@ function useApprovalHaptics(entry: ApprovalEntry): void {
   useEffect(() => {
     const before = previous.current;
     previous.current = entry.phase;
-    if (before !== "submitting" || entry.phase !== "resolved") return;
+    if (before !== "submitting") return;
 
-    if (entry.failure) {
+    // A failed write returns to idle with the failure still on the card; that
+    // transition, not a resolved card, is where the error receipt belongs.
+    if (entry.phase === "idle" && entry.failure) {
       fireHaptic(() =>
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error),
       );
       return;
     }
+    if (entry.phase !== "resolved") return;
 
     fireHaptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
     fireHaptic(() =>

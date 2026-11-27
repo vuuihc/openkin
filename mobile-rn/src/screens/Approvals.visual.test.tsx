@@ -302,12 +302,14 @@ describe("KIN-MOBILE-002 R5 approval haptics", () => {
     screen.rerender(
       screenElement({
         items: [
+          // approvalsModel.ts:451 lands a failed write on idle with the
+          // failure kept; the card is still pending in the list.
           approvalEntry("a1", {
-            ...RESOLVED,
+            phase: "idle",
             failure: { reason: "rejected", status: 403 },
           }),
         ],
-        pendingCount: 0,
+        pendingCount: 1,
       }),
     );
 
