@@ -28,7 +28,7 @@ SWEPT=(
   rsi/roles/fixer.md
   rsi/roles/reviewer.md
   rsi/runtime/lane.sh
-  rsi/runtime/merge.sh
+  rsi/runtime/screenshots-obligation.sh
   rsi/runtime/prompts/cloud-brief-template.md
   rsi/runtime/prompts/fill.md
   rsi/runtime/prompts/pulse-serial.md
@@ -176,7 +176,7 @@ root = pathlib.Path(sys.argv[1])
 edits = (
     ("rsi/runtime/lane.sh", "390×844, 820×1180 and 1100×760", "390×844 and 1100×760"),
     ("rsi/runtime/prompts/fill.md", "390×844, 820×1180 and 1100×760", "390×844 and 1100×760"),
-    ("rsi/runtime/merge.sh", "390x844, 820x1180 and 1100x760", "390x844 and 1100x760"),
+    ("rsi/runtime/screenshots-obligation.sh", "390x844, 820x1180 and 1100x760", "390x844 and 1100x760"),
 )
 for rel, current, stale in edits:
     path = root / rel
@@ -189,14 +189,14 @@ PY
     || fail "pre-568: lane.sh does not carry the old sentence"
   grep -Fq 'open `/` at 390×844 and 1100×760 and walk F1–F5' "$tree/rsi/runtime/prompts/fill.md" \
     || fail "pre-568: fill.md does not carry the old sentence"
-  grep -Fq 'Capture 390x844 and 1100x760 before/after' "$tree/rsi/runtime/merge.sh" \
-    || fail "pre-568: merge.sh does not carry the old sentence"
+  grep -Fq 'Capture 390x844 and 1100x760 before/after' "$tree/rsi/runtime/screenshots-obligation.sh" \
+    || fail "pre-568: the helper does not carry the old sentence"
   run_tree "$tree"
   [ "$RC" -eq 1 ] || fail "pre-568-round-replays-red: exit $RC, want 1 ($ERR)"
   [ -z "$OUT" ] || fail "pre-568-round-replays-red: a red run wrote to stdout: $OUT"
   [ "$(printf '%s\n' "$ERR" | grep -c ': swept file no longer carries evidence-widths')" -eq 3 ] \
     || fail "pre-568-round-replays-red: want exactly three named files: $ERR"
-  for rel in rsi/runtime/lane.sh rsi/runtime/prompts/fill.md rsi/runtime/merge.sh; do
+  for rel in rsi/runtime/lane.sh rsi/runtime/prompts/fill.md rsi/runtime/screenshots-obligation.sh; do
     grep -qF "$rel: swept file no longer carries evidence-widths" <<<"$ERR" \
       || fail "pre-568-round-replays-red: $rel is not named: $ERR"
   done

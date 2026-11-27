@@ -345,6 +345,9 @@ job_shell_test() {
   bash rsi/runtime/tests/test-merge-batch.sh || return 1
   bash rsi/runtime/tests/test-merge-ceo-ok.sh || return 1
   bash rsi/runtime/tests/test-diff-size.sh || return 1
+  # MANDATE 5 covers the phone client too: an RN screen change is obliged to a capture
+  # or an honest capture gap, refused before the merge gate spends a review round.
+  bash rsi/runtime/tests/test-screenshots-obligation.sh || return 1
   bash rsi/runtime/tests/test-ci-early-red.sh || return 1
   bash rsi/runtime/tests/test-ingest-rn-selfcheck.sh || return 1
   bash rsi/runtime/tests/test-gate-lock-timeout.sh || return 1
