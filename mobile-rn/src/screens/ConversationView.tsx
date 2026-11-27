@@ -77,7 +77,7 @@ import {
 } from "./Approvals";
 import ConversationSkeleton from "./ConversationSkeleton";
 import ProviderUsageSheet from "./ProviderUsageSheet";
-import { MessageBody } from "./TableBlock";
+import { MessageBody } from "./MarkdownBody";
 
 /** The signed touch floor; every control on this screen meets it. */
 export const BACK_SIZE = 44;
@@ -403,6 +403,12 @@ function TurnBlock({
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // The colours the markdown renderer needs but does not own (KIN-MOBILE-002
+  // R4a); drawn from the palette, never spelled here (R1b).
+  const markdownStyles = useMemo(
+    () => ({ codeBackground: colors.fill, hairline: colors.hairlineStrong }),
+    [colors],
+  );
   if (turn.kind === "user") {
     return (
       <Text style={styles.user} testID={`conversation:turn:${index}`}>
@@ -425,10 +431,12 @@ function TurnBlock({
             turnIndex={index}
           />
         ) : item.kind === "message" ? (
-          // A message may hold a markdown table (KIN-MOBILE-001 R4); with no
-          // table its body is still the one <Text> it was.
+          // A message may hold block markdown and a table (KIN-MOBILE-002
+          // R4a, KIN-MOBILE-001 R4); with no block syntax its body is still
+          // the one <Text> it was.
           <MessageBody
             key={`${index}:${item.key}`}
+            styles={markdownStyles}
             text={item.text}
             textStyle={styles.item}
           />

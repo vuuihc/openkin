@@ -14,11 +14,11 @@
     "new": "    while (cells.length < 0) cells.push(\"\"); // MUTANT: the pad loop never runs."
   },
   {
-    "label": "no line is marked fenced, so the phone draws a code sample as a table",
-    "file": "ui/src/lib/markdownTable.ts",
-    "test": "cd mobile-rn && npx jest src/thread/tableBlock.test.ts",
-    "old": "  const fenced = lines.map(() => false);\n  let i = 0;",
-    "new": "  const fenced = lines.map(() => false);\n  if (fenced.length >= 0) return fenced; // MUTANT: nothing is fenced.\n  let i = 0;"
+    "label": "a fenced code sample parses as paragraphs, so its pipes reach the table walk",
+    "file": "ui/src/lib/markdownBlocks.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/markdownBlocks.test.ts",
+    "old": "    if (line.startsWith(\"```\")) {",
+    "new": "    if (false) { // MUTANT: fences are paragraphs."
   },
   {
     "label": "a pipe row with no divider under it starts a table",
@@ -26,5 +26,12 @@
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/markdownTable.test.ts",
     "old": "  if (!isTableRow(lines[i]) || i + 1 >= lines.length || !isTableDivider(lines[i + 1])) {\n    return null;\n  }",
     "new": "  if (!isTableRow(lines[i])) { // MUTANT: any pipe row starts a table.\n    return null;\n  }"
+  },
+  {
+    "label": "a long body row keeps its extra cells, so it paints a column the header does not have",
+    "file": "ui/src/lib/markdownTable.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/markdownBlocks.test.ts",
+    "old": "    rows.push(cells.slice(0, header.length));",
+    "new": "    rows.push(cells.slice(0, header.length + 1)); // MUTANT: extra cells survive."
   }
 ]

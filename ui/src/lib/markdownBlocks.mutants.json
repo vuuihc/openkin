@@ -1,0 +1,9 @@
+[
+  {
+    "label": "a fenced code sample is drawn as a paragraph, so its markers reach the reader",
+    "file": "ui/src/lib/markdownBlocks.ts",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/lib/markdownBlocks.test.ts",
+    "old": "      out.push({ type: \"code\", value: code.join(\"\\n\"), lang });",
+    "new": "      out.push({ type: \"p\", value: code.join(\"\\n\") }); // MUTANT: a fenced block parses as a paragraph."
+  }
+]
