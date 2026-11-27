@@ -1,6 +1,6 @@
 # KIN-CONTRACT-001 · 只留四个页面：列表、任务详情、例行任务、设置
 
-状态：approved
+状态：covered
 优先级：P0
 旅程：J1、J2、J4、J6
 归属面：`IA.md`「列表层级」「例行任务」「设置与环境」
@@ -134,7 +134,7 @@ owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任�
 | `/agents` | `/settings?tab=operations` | Agent Ops 留在 operations tab | 已落地 |
 | `/usage` | `/settings?tab=operations` | 用量界面不动（composer footer 的 popover 仍是入口） | 已落地 |
 | `/routines` 里的运行列表 | `/sessions` | 每个运行是一条任务行，带例行任务名；「看运行」带筛选跳转 | 本条 |
-| `/agent-sessions/:id` | `/tasks/:id` | agent 状态进会话动作表 | `R-agent-status` |
+| `/agent-sessions/:id` | `/sessions?agent=<id>` | 旧整页 URL 落到列表，该会话的 sheet 开在列表上方；继续即落到 `/tasks/<id>` | `已落地` |
 | `/machines/:device/tasks/:id` | `/tasks/:id?device=` | 同一份任务详情 | 本条 |
 | Settings 的 `agents` 安装检测（探测状态与能力徽标） | `/settings?tab=agents` | 导入会话与角色默认**保留**；探测重做后再决定展示什么 | `R-agents-detect`（独立 story） |
 | `/` | `/sessions` | 入口 redirect（手机回列表，桌面回上次任务或 `/new`），不是页面 | 已落地 |
@@ -165,6 +165,20 @@ owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任�
 
 ## 证据
 
+### 逐行证据
+
+七行 `## 验收` 逐行对应；`状态` 只写今天在 `main` 上真跑红的用例，行号即该用例的 `it(` 行。汇总：**7 covered**，状态转为 `covered`。
+
+| 验收行 | 测试文件:行 | 用例名 | 状态 |
+|---|---|---|---|
+| 1. 新增 `<Route path="/x">` 不在契约表 | `ui/src/lib/routes.contract.test.ts:99`（manifest `ui/src/lib/routes.contract.mutants.json`「rogue route」也红） | `every route in App.tsx is registered`；失败文案由 `:149` 的 `the unregistered-route failure names the contract and the fix` 固定为含 `KIN-CONTRACT-001` 与路径 | covered |
+| 2. 四个页面之一被删，或 `/new` 被当成第五页 | `ui/src/lib/routes.contract.test.ts:105`；`ui/src/lib/surfacesContract.KIN-CONTRACT-001.test.ts:84` | `every contract page and the draft route is still registered`；`the contract is four pages plus /new, and /new is not a page` | covered |
+| 3. `/routines` 重新拉运行，或运行不在列表里 | `ui/src/pages/RoutinesPage.dom.test.tsx:397`；`ui/src/components/sessions/SessionList.routineRuns.dom.test.tsx:117` | `never asks for a run feed`（另 `:380` 的 `stops reading a routine's own run history on /routines`）；`marks a routine run and leaves a conversation unmarked`。这两条不在路由清单测试里：那一套只固定路径集合 | covered |
+| 4. 设置少了 `agents` tab，或少了其中的导入会话/角色默认 | `ui/src/pages/settingsTabsWiring.test.ts:35`；`ui/src/pages/SettingsPage.leaveGuard.dom.test.tsx:309,363,370` | 前者 `offers exactly the six settings that are still used` 固定六个 tab id 与顺序；`:309` 的 `treats a half-written role row as a draft` 从 `/settings?tab=agents` 证明角色默认还在；`:363` 的 `keeps the import-sessions action inside the agents tab` 从同一 tab 断言导入会话动作与「Add role」仍在，`:370` 的 `does not offer the agents tab's import action from another tab` 断言别的 tab 不暴露该动作。两条的红证是 `ui/src/pages/SettingsPage.agentsImport.mutants.json` 的两个变异体（删掉导入按钮、让 agents 面板响应每个 tab） | covered |
+| 5. 旧路径落地并 `replace`，工作说明在项目行可读 | `ui/src/App.areaRoutes.test.ts:116,134`；`ui/src/App.machineTaskRedirect.test.ts:107`；`ui/src/components/sessions/SessionList.projectFace.dom.test.tsx:239` | `redirects /projects/:id … replacing the entry`；`redirects /agent-sessions/:id … replacing the entry`；`replaces rather than pushes`（`history.state.idx` 不变）；`shows the work instructions when a project row is expanded, and reads them only then` | covered |
+| 6. 退场表与测试数据不一致，或某行「负责」为空 | `ui/src/lib/surfacesContract.KIN-CONTRACT-001.test.ts:72,78` | `the story's exit table and EXIT_ROWS are the same rows, in order`；`every exit row names an owner` | covered |
+| 7. 变异体：把 `/routines` 改回带运行列表 | `scripts/routines-feed-out.mutants.json`（label `a run-feed read returns to page load, so /routines duplicates the one run list`） | 该变异体在页面加载时注入 `listRoutineRuns` 读，跑 `RoutinesPage.dom.test.tsx -t 'never asks for a run feed'`，必须红 | covered |
+
 - 契约与退场表：本文件「设计」一节；审阅页 `KIN-CONTRACT-001.review.html` 的契约板。
 - 现状：路由 `ui/src/App.tsx:194-219`；例行页的运行 feed `ui/src/pages/RoutinesPage.tsx:135,153-157`；设置 tab `ui/src/pages/SettingsPage.tsx:809-837`；agents 安装检测 `ui/src/components/settings/LocalAgentSettingsSection.tsx` 与 `ui/src/components/settings/AgentOperationsSection.tsx:347`。
 - owner 原话与决定：`rsi/DECISIONS.md` 2026-11-22 那条；`docs/plans/2026-11-21-surface-reduction.md` 的最小契约表按本条订正。
@@ -176,3 +190,5 @@ owner 2026-11-22 的原话：「保留的就是设备-项目-任务列表，任�
 - 2026-11-22 · 按 owner 原话订正为四个页面：`/routines` 保留、运行搬进任务列表、设置只删 `agents` 安装检测、其余 tab 保留、项目封面退役且工作说明进列表项目行。这四条不再是待决项。
 - 2026-11-22 · **受托签字（approved）**：owner 当天把签字权交给「找 advisor 签」（`rsi/DECISIONS.md` 同日那条）；顾问 Kimi K3.1 Pro 只读复核建议签，本 PR 同时落退场表数据与逐行一致测试（`ui/src/lib/surfacesContract.KIN-CONTRACT-001.test.ts`）——机器规则要求 `approved` 至少有一条点名本故事的测试。路由清单测试随删面交付落地，不放进签字这一条。
 - 2026-11-22 · **设置一处改签：这一轮不动 `agents` tab**。签字前核代码时发现矛盾：安装检测确实半成品，但那个 tab 同时是导入 provider 会话与角色默认的唯一入口（`LocalAgentSettingsSection.tsx`），删 tab 会删能力，撞上本故事自己的不做条款。改为拆独立 story `R-agents-detect`（先看着屏分清探测与导入/角色的边界），本故事只冻结「设置仍是一个页面、六个 tab 不变」。
+- 2026-11-25 · 加 `### 逐行证据`：七行验收各自点名今天钉住它的用例（6 covered），第 4 行因「导入会话仍挂在 `agents` tab」没有页级用例而保留 `planned`，故状态仍是 `approved`；不改合同正文、退场表与四页决定。
+- 2026-11-25 · 第 4 行补齐页级用例：`SettingsPage.leaveGuard.dom.test.tsx` 从 `/settings?tab=agents` 断言导入会话动作与「Add role」在场，并从 `general` 断言该动作不在别处；七个验收行全部 `covered`，状态转 `covered`。行为未变，红证是 `ui/src/pages/SettingsPage.agentsImport.mutants.json` 的两个变异体。

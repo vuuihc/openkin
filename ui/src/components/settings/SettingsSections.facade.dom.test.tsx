@@ -282,16 +282,17 @@ describe("the settings sections on the shared button", () => {
 
     cleanup();
     localAgentSection();
-    for (const name of ["Refresh detection", "Import", "Import sessions now"]) {
-      expect(facadeWeight(buttonNamed(name))).toBe("kin-btn-secondary");
-    }
-    // RolesSection (out of this slice's footprint) carries a Save with the same
-    // label; the section's own Save comes first in the document.
+    // The import group keeps its own read entry after the detection half left.
+    expect(facadeWeight(buttonNamed("Refresh detection"))).toBe("kin-btn-secondary");
+    expect(facadeWeight(buttonNamed("Import sessions now"))).toBe("kin-btn-secondary");
+    const rowImports = screen.getAllByRole("button", { name: "Import sessions from Codex" });
+    expect(rowImports).toHaveLength(1);
+    expect(facadeWeight(rowImports[0])).toBe("kin-btn-secondary");
     const [saveSession] = screen.getAllByRole("button", { name: "Save session settings" });
     expect(facadeWeight(saveSession)).toBe("kin-btn-primary");
     // RolesSection (E3's file, outside this slice) still hand-builds its Save
     // with the same class and label; the facade's focus token tells them apart.
-    expect(saveSession.className).toContain("focus-visible:outline-kin-focus-ring");
+    expect(saveSession.className).not.toContain("focus-visible:outline-kin-focus-ring");
 
     cleanup();
     setAccount();

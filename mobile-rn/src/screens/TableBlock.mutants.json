@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the table scrolls vertically, so a wide table is clipped instead of readable (R-rn-table-block)",
+    "file": "mobile-rn/src/screens/TableBlock.tsx",
+    "old": "      horizontal\n",
+    "new": "      horizontal={false}\n",
+    "test": "cd mobile-rn && npx jest src/screens/TableBlock.test.tsx -t \"KIN-MOBILE-001 R4: the table scrolls horizontally inside its own row\""
+  },
+  {
+    "label": "a header cell is an ordinary cell, so the first row is not announced as the header (R-rn-table-block)",
+    "file": "mobile-rn/src/screens/TableBlock.tsx",
+    "old": "              accessibilityRole=\"header\"",
+    "new": "              accessibilityRole=\"text\"",
+    "test": "cd mobile-rn && npx jest src/screens/TableBlock.test.tsx -t \"KIN-MOBILE-001 R4: every header cell is exposed as a header and every body cell reads its own text\""
+  },
+  {
+    "label": "a cell is allowed to shrink, so the table squeezes to the phone measure instead of scrolling (R-rn-table-block)",
+    "file": "mobile-rn/src/screens/TableBlock.tsx",
+    "old": "    flexShrink: 0,",
+    "new": "    flexShrink: 1,",
+    "test": "cd mobile-rn && npx jest src/screens/TableBlock.test.tsx -t \"KIN-MOBILE-001 R4: the table scrolls horizontally inside its own row\""
+  }
+]

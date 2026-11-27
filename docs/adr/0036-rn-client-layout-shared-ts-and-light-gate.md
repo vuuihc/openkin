@@ -58,6 +58,11 @@ test, is:
 > `sessionStorage` or `react-dom`. When a shared module does, the RN side supplies one named adapter
 > and the Metro resolver aliases that module to it. A second copy of shared logic is a defect.
 
+A name is a browser global only when it is used as a value: a declaration, parameter, property key
+or label that happens to be called `window` is not one, and a reference bound by such a local
+declaration reads that binding rather than the global. The contract test proves both directions by
+name (`KIN-MOBILE-001: a name that declares or labels is not a browser global`).
+
 **Importable as-is.** These contain no direct DOM reference on this branch:
 
 | Module | Evidence |
@@ -66,7 +71,18 @@ test, is:
 | `ui/src/api/generated/openapi.ts` | generated types/constants only |
 | `ui/src/i18n/locales/en.ts`, `ui/src/i18n/locales/zh.ts` | locale data; `t()` lives elsewhere |
 | `ui/src/components/chat/transcriptProjection.ts` | no direct DOM reference; its i18n import is the adapter seam below (`ui/src/components/chat/transcriptProjection.ts:1-17`) |
+| `ui/src/components/chat/eventMeta.ts` | canonical speaker/phase decoding used by the projection; type-only imports, no DOM reference |
 | DOM-free files under `ui/src/lib/**` | e.g. `ui/src/lib/attachments.ts`, `ui/src/lib/friendlyError.ts`, `ui/src/lib/needsYou.ts` |
+| `ui/src/lib/phoneSessionBuckets.ts` | R3's device → project → conversation grouping, imported in place. Its type imports from `ui/src/api/client.ts` are erased; its only value import of a DOM-carrying module is `./taskOrder`, which resolves to Adapter 3 below |
+| `ui/src/lib/agentSessionTitle.ts`, `ui/src/lib/agentMention.ts` | the bucket module's own DOM-free dependencies, reached by the same import |
+| `ui/src/lib/usage.ts` | the provider/usage sheet's fold (`summarizeUsage`, `formatTokenCount`, `cacheRateLabel`). It names no module once the fold's input row type is declared locally (`ui/src/lib/usage.ts:8`), so the RN typecheck never reaches the web client. Its `window` identifiers are a property signature (`:161`), the `contextFill` parameter (`:189`, read as a value at `:192`) and a property assignment (`:200`) — a name, a binding and a label, never the browser global |
+
+R4's read reaches the projection's real closure, not just the file:
+`eventMeta.ts`, `lib/attachments.ts`, `lib/friendlyError.ts`,
+`lib/roundEvidence.ts`, `lib/changedFiles.ts`, and `lib/diffPreview.ts`. Only
+its `ui/src/i18n/index.ts` import carries a browser global, and that is
+Adapter 1 below. (The live stream's `ui/src/lib/eventStream.ts` import is in
+place — see the R4 note under the adapters.)
 
 The command that backs the table (no output is the proof):
 
@@ -74,7 +90,8 @@ The command that backs the table (no output is the proof):
 rg -n "window\.|document\.|localStorage|sessionStorage|react-dom" \
   ui/src/api/contract.ts ui/src/api/generated/openapi.ts \
   ui/src/i18n/locales/en.ts ui/src/i18n/locales/zh.ts \
-  ui/src/components/chat/transcriptProjection.ts
+  ui/src/components/chat/transcriptProjection.ts \
+  ui/src/components/chat/eventMeta.ts
 ```
 
 `ui/src/lib/**` is not a hand list: R1's test walks the actual import closure of every module RN
@@ -108,17 +125,32 @@ client. Type-only imports from `client.ts` (e.g. `TaskEvent` in
 `ui/src/components/chat/transcriptProjection.ts:1`) are erased by the TypeScript transform, so they do
 not pull the browser module into the RN bundle.
 
+**Adapter 3 — conversation order (`mobile-rn/src/list/taskOrder.ts`).** R3 imports
+`ui/src/lib/phoneSessionBuckets.ts` in place. That module's only value import of a browser-bound
+module is `./taskOrder`, whose read/write helpers use `localStorage`; its ordering function is pure.
+The RN adapter carries that one function behind the same signature, and Metro resolves
+`ui/src/lib/taskOrder.ts` to it by file path (the shared module imports it relatively, so a
+specifier alias cannot intercept it). R3 has no reorder surface, so the function is not reached at
+runtime; the adapter exists so the grouping can be imported rather than forked.
+
 R1's shared-import contract test enforces three things: the import closure rule above, that every
-alias target in the Metro config is named in this ADR, and that the aliased shared modules are exactly
-the ones with DOM references (so an alias cannot silently paper over a new one).
+alias target in the Metro config is named in this ADR, and that the shared modules carrying DOM
+references are exactly the ones mapped to a named adapter (so an alias cannot silently paper over a
+new one). Adapters are substituted during the closure walk: the effective closure is DOM-free while
+the unaliased graph still names every module the adapter stands in for.
+
+R4's live round imports `highestContiguousSeq`, `hasSequenceGap` and `mergeEventsBySeq` in place from
+`ui/src/lib/eventStream.ts` (`mobile-rn/src/thread/threadModel.ts:27`), with
+`mobile-rn/src/thread/stream.ts` as the SSE transport (Adapter 2's seam), not a second browser reader.
 
 ### 3. Dependencies: exact pins, RN only
 
 No dependency enters `ui/package.json` or `go.mod`. `mobile-rn/package.json` is the only manifest this
 decision covers. Every version is an **exact pin** (no `^`, no `~`) and was published at least seven
 days before 2026-11-24, so a compromised or broken release cannot enter unreviewed. Publish dates were
-read from `npm view <pkg> time --json` on 2026-11-24; the signature test parses this table and fails
-on a range, a missing date, or a date after 2026-11-17.
+read from `npm view <pkg> time --json` on 2026-11-24, and the three R5 rows on 2026-11-27; every row
+is still published on or before 2026-11-17, and the signature test parses this table and fails on a
+range, a missing date, or a date after that cutoff.
 
 | package | version | published | why / first slice |
 |---|---|---|---|
@@ -134,6 +166,9 @@ on a range, a missing date, or a date after 2026-11-17.
 | `expo-secure-store` | `58.0.3` | 2026-11-11 | token in Keychain, not AsyncStorage; R2 |
 | `expo-notifications` | `58.1.9` | 2026-11-11 | approval/question push; R7 |
 | `expo-blur` | `58.0.6` | 2026-11-11 | glass bottom bar/header; R7 |
+| `expo-haptics` | `58.0.8` | 2026-11-11 | approval and rejection haptic feedback; R5 |
+| `expo-symbols` | `58.0.5` | 2026-11-11 | SF Symbols in composer and approval controls; R5 |
+| `expo-glass-effect` | `58.0.5` | 2026-10-23 | iOS 26 liquid-glass composer surface, BlurView fallback on older systems; R5 |
 | `jest-expo` | `58.0.15` | 2026-11-17 | test preset; R1 |
 | `typescript` | `5.7.2` | 2024-11-22 | same compiler family as `ui` (`ui/package.json` pins `^5.7.2`), so shared files typecheck the same way; R1 |
 | `@types/react` | `19.3.0` | 2026-09-09 | React 19 types; R1 |
@@ -209,7 +244,7 @@ Each slice is one PR, ≤ ~800 changed lines, with its own tests.
   screens and behaviours of `KIN-CONTRACT-001`, `KIN-CONTINUE-002/003/005/007` and `KIN-RESULT-*`
   rather than designing a second product. A screen that disagrees with a signed story is a bug in the
   RN screen, not a new decision.
-- **The dependency surface is small and dated.** Sixteen exact pins, each old enough to have survived
+- **The dependency surface is small and dated.** Nineteen exact pins, each old enough to have survived
   a week of public use, and a test that refuses a range. The trade-off is manual bump PRs; that is
   deliberate while the client is new.
 - **Feel remains a human acceptance.** The light gate is cheap because it does not pretend to measure

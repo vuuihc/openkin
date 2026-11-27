@@ -6,6 +6,67 @@
 set -u
 ONLY=""
 if [ "${1:-}" = "--only" ]; then ONLY="${2:?--only needs step[,step]}"; shift 2; fi
+
+# scope_of <file>: `rn` when the changed-file list is non-empty and every path is under
+# mobile-rn/ or is the RN gate ADR (docs/adr/0036-*); `docs` when it is non-empty and every
+# path is markdown outside ui/, web/ and mobile-rn/ that is not an AGENTS.md or CLAUDE.md
+# (those two pin counts full-gate tests assert); anything else, including an empty list,
+# is `full`. Precedence is rn > docs > full. A docs-scoped check cannot run the
+# ui/Go/Python tests that name a changed doc — its doc-refs job fails closed on them —
+# so scope_of downgrades to `full` when one of those tests reads the diff; without the
+# downgrade such a PR fails the gate forever and no rework lane can fix it.
+# 2026-11-24 measurement: .gate.lock was held
+# 21.5 h across 100 runs and 11.2 h of it was RN/docs PRs, each paying ~10 min of
+# repo-wide check jobs it cannot use.
+# test_refs_doc <path>: 0 when a test file names the repo-relative path or its
+# basename — the same three greps check.sh's doc-refs job uses to fail closed on
+# coverage a docs-scope check cannot run. Runs relative to the caller's cwd.
+test_refs_doc() {
+  local path="$1" base="${1##*/}"
+  { grep -rlF --include='*.test.*' --exclude-dir=node_modules \
+      -e "$path" -e "$base" ui 2>/dev/null
+    grep -rlF --include='*_test.go' --exclude-dir=.git \
+      --exclude-dir=node_modules -e "$path" -e "$base" . 2>/dev/null
+    grep -rlF --include='*_test.py' --include='*.test.py' \
+      --exclude-dir=.git --exclude-dir=node_modules \
+      -e "$path" -e "$base" . 2>/dev/null; } | grep -q .
+}
+scope_downgrade=""
+# scope_of sets SCOPE (and scope_downgrade when docs falls back to full) rather than
+# printing, so the downgrade note survives; --scope-of and the gate both read SCOPE.
+scope_of() {
+  local n=0 rn=1 docs=1 line
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -z "$line" ] && continue
+    n=$((n + 1))
+    case "$line" in
+      mobile-rn/*|docs/adr/0036-*) ;;
+      *) rn=0 ;;
+    esac
+    case "$line" in
+      ui/*|web/*|mobile-rn/*|AGENTS.md|*/AGENTS.md|CLAUDE.md|*/CLAUDE.md) docs=0 ;;
+      *.md) ;;
+      *) docs=0 ;;
+    esac
+  done <"$1"
+  [ "$n" -eq 0 ] && { SCOPE=full; return; }
+  [ "$rn" -eq 1 ] && { SCOPE=rn; return; }
+  if [ "$docs" -eq 1 ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      [ -z "$line" ] && continue
+      if test_refs_doc "$line"; then
+        scope_downgrade="a test reads $line"
+        SCOPE=full
+        return
+      fi
+    done <"$1"
+    SCOPE=docs
+    return
+  fi
+  SCOPE=full
+}
+# gate.sh --scope-of <file> prints that scope for a changed-file list, then exits.
+if [ "${1:-}" = "--scope-of" ]; then scope_of "${2:?--scope-of needs a file}"; echo "$SCOPE"; exit 0; fi
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 source "$(cd "$(dirname "$0")" && pwd)/gate-env.sh"
@@ -142,12 +203,33 @@ ui_node_stamp() { node_stamp_ensure ui; }
 $GIT fetch -q origin main 2>/dev/null
 changed="$($GIT diff --name-only origin/main...HEAD)"
 echo "changed files: $(echo "$changed" | grep -c .)"
+scope_list="$(mktemp "${TMPDIR:-/tmp}/gate-changed.XXXXXX")"
+printf '%s\n' "$changed" >"$scope_list"
+scope_of "$scope_list"; scope="$SCOPE"
+# docs scope hands the same list to check.sh as KIN_CHECK_CHANGED; the other scopes
+# do not need it, so the temp file is only kept alive for that one branch.
+[ "$scope" = docs ] || rm -f "$scope_list"
+if [ "$scope" != full ]; then
+  echo "scope: $scope-only ($(echo "$changed" | grep -c .) files)"
+elif [ -n "$scope_downgrade" ]; then
+  echo "scope: docs → full ($scope_downgrade)"
+fi
 lines="$($GIT diff --shortstat origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json')"
 echo "diff size: $lines"
 echo "$changed" | grep -qE '^(web/dist/assets/|\.env|.*secret)' && { echo "FAIL: forbidden path in diff"; fail=1; why="$why forbidden-path"; }
 [ -n "$($GIT status --porcelain)" ] && { echo "FAIL: working tree not clean (commit or discard)"; $GIT status --short | head; fail=1; why="$why dirty-tree"; }
 echo "$changed" | grep -q '^ui/' && needs_node_stamp && step node-stamp ui_node_stamp
-[ -x scripts/check.sh ] && selected check && step check ./scripts/check.sh
+if [ -x scripts/check.sh ] && selected check; then
+  case "$scope" in
+    rn)
+      step check env KIN_CHECK_SCOPE=rn ./scripts/check.sh ;;
+    docs)
+      step check env KIN_CHECK_SCOPE=docs "KIN_CHECK_CHANGED=$scope_list" ./scripts/check.sh
+      rm -f "$scope_list" ;;
+    *)
+      step check ./scripts/check.sh ;;
+  esac
+fi
 if echo "$changed" | grep -q '^ui/'; then
   selected lint && step lint bash -c 'cd ui && npm run lint'
   selected test && step test ui_vitest_gate

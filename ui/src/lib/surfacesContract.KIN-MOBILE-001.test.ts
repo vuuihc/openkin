@@ -98,7 +98,7 @@ describe("KIN-MOBILE-001 signature", () => {
 
   it("pins every dependency exactly and at least seven days old", () => {
     const rows = dependencyRows(adr);
-    expect(rows.length, "the ADR dependency table is missing or unparsed").toBe(16);
+    expect(rows.length, "the ADR dependency table is missing or unparsed").toBe(19);
     expect(new Set(rows.map((r) => r.pkg))).toEqual(
       new Set([
         "expo",
@@ -113,6 +113,9 @@ describe("KIN-MOBILE-001 signature", () => {
         "expo-secure-store",
         "expo-notifications",
         "expo-blur",
+        "expo-haptics",
+        "expo-symbols",
+        "expo-glass-effect",
         "jest-expo",
         "typescript",
         "@types/react",
@@ -132,6 +135,31 @@ describe("KIN-MOBILE-001 signature", () => {
     const uiDeps = { ...(ui.dependencies ?? {}), ...(ui.devDependencies ?? {}) };
     for (const pkg of ["expo", "expo-router", "react-native", "expo-secure-store"]) {
       expect(uiDeps, `${pkg} leaked into ui/package.json`).not.toHaveProperty(pkg);
+    }
+  });
+
+  it("every version in the RN manifest matches its ADR row", () => {
+    // The table is the signature; the manifest is what Metro installs. Nothing else compares
+    // them, so a package edited in one place and not the other would ship a version the ADR
+    // never signed. One direction only: the ADR also lists a parked package
+    // (`expo-notifications`, row 53) that is deliberately absent from the manifest.
+    const manifest = JSON.parse(read("mobile-rn/package.json")) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const pinned = { ...(manifest.dependencies ?? {}), ...(manifest.devDependencies ?? {}) };
+    const rows = dependencyRows(adr);
+    for (const row of rows) {
+      if (!(row.pkg in pinned)) continue;
+      expect(pinned[row.pkg], `${row.pkg} disagrees with its ADR row`).toBe(row.version);
+    }
+    // R5's three Expo packages: pinned here and recorded in the ADR in the same change.
+    for (const pkg of ["expo-haptics", "expo-symbols", "expo-glass-effect"]) {
+      expect(pinned, `${pkg} is not pinned in mobile-rn/package.json`).toHaveProperty(pkg);
+      expect(
+        rows.map((r) => r.pkg),
+        `the ADR has no ${pkg} row`,
+      ).toContain(pkg);
     }
   });
 

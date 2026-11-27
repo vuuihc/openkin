@@ -1,4 +1,6 @@
 import { memo, type ReactNode } from "react";
+import { splitBlocks } from "../lib/markdownBlocks";
+import { inlineTokens } from "../lib/markdownInline";
 import CodeBlock from "./CodeBlock";
 import MermaidBlock from "./MermaidBlock";
 
@@ -133,208 +135,57 @@ function isMermaidLang(lang?: string): boolean {
   return l === "mermaid" || l === "mmd" || l.startsWith("mermaid ") || l.startsWith("mermaid{");
 }
 
-type Block =
-  | { type: "p" | "h1" | "h2" | "h3"; value: string }
-  | { type: "code"; value: string; lang?: string }
-  | { type: "ul" | "ol"; items: string[] }
-  | { type: "quote"; lines: string[] }
-  | { type: "table"; header: string[]; rows: string[][] }
-  | { type: "hr" };
-
-function splitBlocks(src: string): Block[] {
-  const out: Block[] = [];
-  const lines = src.replace(/\r\n/g, "\n").split("\n");
-  let i = 0;
-  let para: string[] = [];
-  const flush = () => {
-    if (para.length) {
-      out.push({ type: "p", value: para.join("\n") });
-      para = [];
-    }
-  };
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.startsWith("```")) {
-      flush();
-      const lang = line.slice(3).trim() || undefined;
-      i++;
-      const code: string[] = [];
-      while (i < lines.length && !lines[i].startsWith("```")) {
-        code.push(lines[i]);
-        i++;
-      }
-      out.push({ type: "code", value: code.join("\n"), lang });
-      i++; // closing fence
-      continue;
-    }
-    if (/^#{1,3} /.test(line)) {
-      flush();
-      if (line.startsWith("### ")) {
-        out.push({ type: "h3", value: line.slice(4) });
-      } else if (line.startsWith("## ")) {
-        out.push({ type: "h2", value: line.slice(3) });
-      } else {
-        out.push({ type: "h1", value: line.slice(2) });
-      }
-      i++;
-      continue;
-    }
-    if (/^([-*_])\1{2,}\s*$/.test(line.trim())) {
-      flush();
-      out.push({ type: "hr" });
-      i++;
-      continue;
-    }
-    if (/^>\s?/.test(line)) {
-      flush();
-      const q: string[] = [];
-      while (i < lines.length && /^>\s?/.test(lines[i])) {
-        q.push(lines[i].replace(/^>\s?/, ""));
-        i++;
-      }
-      out.push({ type: "quote", lines: q });
-      continue;
-    }
-    // GFM table: header | --- | body rows
-    if (isTableHeader(line) && i + 1 < lines.length && isTableDivider(lines[i + 1])) {
-      flush();
-      const header = splitTableRow(line);
-      i += 2; // skip header + divider
-      const rows: string[][] = [];
-      while (i < lines.length && isTableRow(lines[i])) {
-        const cells = splitTableRow(lines[i]);
-        // Pad / trim to header width for stable columns.
-        while (cells.length < header.length) cells.push("");
-        rows.push(cells.slice(0, header.length));
-        i++;
-      }
-      out.push({ type: "table", header, rows });
-      continue;
-    }
-    // unordered list
-    if (/^[-*+] /.test(line)) {
-      flush();
-      const items: string[] = [];
-      while (i < lines.length && /^[-*+] /.test(lines[i])) {
-        items.push(lines[i].replace(/^[-*+] /, ""));
-        i++;
-      }
-      out.push({ type: "ul", items });
-      continue;
-    }
-    // ordered list
-    if (/^\d+\. /.test(line)) {
-      flush();
-      const items: string[] = [];
-      while (i < lines.length && /^\d+\. /.test(lines[i])) {
-        items.push(lines[i].replace(/^\d+\. /, ""));
-        i++;
-      }
-      out.push({ type: "ol", items });
-      continue;
-    }
-    if (line.trim() === "") {
-      flush();
-      i++;
-      continue;
-    }
-    para.push(line);
-    i++;
-  }
-  flush();
-  return out;
-}
-
-function isTableRow(line: string): boolean {
-  const t = line.trim();
-  return t.includes("|") && !isTableDivider(t);
-}
-
-function isTableHeader(line: string): boolean {
-  return isTableRow(line);
-}
-
-function isTableDivider(line: string): boolean {
-  // e.g. | --- | :---: | ---: |
-  const t = line.trim();
-  if (!t.includes("-")) return false;
-  // Must look like a GFM separator row.
-  return /^\|?(\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?$/.test(t);
-}
-
-function splitTableRow(line: string): string[] {
-  let t = line.trim();
-  if (t.startsWith("|")) t = t.slice(1);
-  if (t.endsWith("|")) t = t.slice(0, -1);
-  return t.split("|").map((c) => c.trim());
-}
-
-const INLINE_RE = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*]+\*|_[^_]+_|\[[^\]]+\]\([^)]+\))/g;
-
+/**
+ * A token's element: exactly the JSX this file drew before the tokenizer
+ * moved to `lib/markdownInline.ts`. The classes are the console's contract —
+ * `Markdown.inline.dom.test.tsx` pins them.
+ */
 function inline(s: string): ReactNode[] {
-  const parts: ReactNode[] = [];
-  let last = 0;
-  let key = 0;
-  let m: RegExpExecArray | null;
-  const re = new RegExp(INLINE_RE.source, "g");
-  while ((m = re.exec(s))) {
-    if (m.index > last) parts.push(s.slice(last, m.index));
-    const tok = m[0];
-    if (tok.startsWith("[") && tok.includes("](")) {
-      const lm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok);
-      if (lm) {
-        const href = lm[2];
-        const safe =
-          /^(https?:|mailto:|\/|#)/i.test(href) || href.startsWith("./") || href.startsWith("../");
-        if (safe) {
-          parts.push(
-            <a
-              key={key++}
-              href={href}
-              target={href.startsWith("http") ? "_blank" : undefined}
-              rel={href.startsWith("http") ? "noreferrer noopener" : undefined}
-              className="text-kin-blue-ink underline decoration-kin-blue/40 underline-offset-2 hover:decoration-kin-blue"
-            >
-              {lm[1]}
-            </a>,
-          );
-        } else {
-          parts.push(<span key={key++}>{lm[1]}</span>);
+  return inlineTokens(s).map((token, i) => {
+    switch (token.kind) {
+      case "strong":
+        return (
+          <strong key={i} className="font-semibold text-kin-text">
+            {token.value}
+          </strong>
+        );
+      case "em":
+        return (
+          <em key={i} className="italic text-kin-secondary">
+            {token.value}
+          </em>
+        );
+      case "code":
+        return (
+          <code
+            key={i}
+            className="rounded bg-[var(--kin-fill-strong)] px-1 py-0.5 text-body font-mono text-kin-blue-ink"
+          >
+            {token.value}
+          </code>
+        );
+      case "link": {
+        const href = token.href;
+        if (href === undefined) {
+          // An unsafe href degrades to its label, in the span it always had.
+          return <span key={i}>{token.value}</span>;
         }
-      } else {
-        parts.push(tok);
+        return (
+          <a
+            key={i}
+            href={href}
+            target={href.startsWith("http") ? "_blank" : undefined}
+            rel={href.startsWith("http") ? "noreferrer noopener" : undefined}
+            className="text-kin-blue-ink underline decoration-kin-blue/40 underline-offset-2 hover:decoration-kin-blue"
+          >
+            {token.value}
+          </a>
+        );
       }
-    } else if (tok.startsWith("**") || tok.startsWith("__")) {
-      parts.push(
-        <strong key={key++} className="font-semibold text-kin-text">
-          {tok.slice(2, -2)}
-        </strong>,
-      );
-    } else if (tok.startsWith("`")) {
-      parts.push(
-        <code
-          key={key++}
-          className="rounded bg-[var(--kin-fill-strong)] px-1 py-0.5 text-body font-mono text-kin-blue-ink"
-        >
-          {tok.slice(1, -1)}
-        </code>,
-      );
-    } else if (
-      (tok.startsWith("*") && tok.endsWith("*")) ||
-      (tok.startsWith("_") && tok.endsWith("_"))
-    ) {
-      parts.push(
-        <em key={key++} className="italic text-kin-secondary">
-          {tok.slice(1, -1)}
-        </em>,
-      );
-    } else {
-      parts.push(tok);
+      default:
+        return token.value;
     }
-    last = m.index + tok.length;
-  }
-  if (last < s.length) parts.push(s.slice(last));
-  return parts;
+  });
 }
 
 export default memo(MarkdownImpl);

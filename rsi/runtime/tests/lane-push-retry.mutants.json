@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the retry never checks the remote head, so a push that landed is repeated",
+    "file": "rsi/runtime/lane-push.sh",
+    "test": "RSI_TEST_ONLY=test_push_that_landed_is_not_repeated bash rsi/runtime/tests/test-lane-push-retry.sh",
+    "old": "    remote=\"$(_push_bounded \"$push_timeout\" \"$git\" -C \"$wt\" ls-remote --heads origin \"refs/heads/$br\" 2>/dev/null | awk 'NR == 1 { print $1 }')\"\n    local_sha=\"$(\"$git\" -C \"$wt\" rev-parse HEAD 2>/dev/null)\"\n    if [ -n \"$remote\" ] && [ -n \"$local_sha\" ] && [ \"$remote\" = \"$local_sha\" ]; then\n      printf 'git_push_retry: remote %s already at %s; not pushing again\\n' \"$br\" \"$remote\" >&2\n      return 0\n    fi\n",
+    "new": "    :\n"
+  },
+  {
+    "label": "a final push failure is recorded as failed instead of delivered-unpushed",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_lane_marks_delivered_unpushed bash rsi/runtime/tests/test-lane-push-retry.sh",
+    "old": "  finish delivered-unpushed \"\" \"push failed after",
+    "new": "  finish failed \"\" \"push failed after"
+  },
+  {
+    "label": "a stalled push or remote read is not bounded by a watchdog, so lane.sh can wedge with its lock and slot held",
+    "file": "rsi/runtime/lane-push.sh",
+    "test": "RSI_TEST_ONLY=test_push_and_remote_read_are_bounded bash rsi/runtime/tests/test-lane-push-retry.sh",
+    "old": "  if declare -F with_timeout >/dev/null 2>&1; then\n    with_timeout \"$s\" \"$@\"\n  else\n    \"$@\"\n  fi\n",
+    "new": "  \"$@\"\n"
+  },
+  {
+    "label": "the gate no longer runs the lane push retry suite",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-lane-push-retry.sh || return 1\n",
+    "new": ""
+  }
+]

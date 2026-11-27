@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the import group calls a failed read empty",
+    "file": "ui/src/components/settings/LocalAgentSettingsSection.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx -t \"KIN-AGENTS-002 a failed first read says it has no results instead of calling the list empty\"",
+    "old": "  const readFailed = providersStatus === \"failed\";\n",
+    "new": "  const readFailed = false;\n"
+  },
+  {
+    "label": "the import row drops its coarse 44px box",
+    "file": "ui/src/components/settings/LocalAgentSettingsSection.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx -t \"KIN-AGENTS-002 a coarse pointer keeps every row import at the 44px floor\"",
+    "old": "  const rowImportClass = coarse ? \"min-h-11 px-2.5 py-1 text-caption\" : \"px-2.5 py-1 text-caption\";\n",
+    "new": "  const rowImportClass = \"px-2.5 py-1 text-caption\";\n"
+  }
+]

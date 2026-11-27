@@ -1,0 +1,16 @@
+[
+  {
+    "label": "a settled approval never tells the route to refresh the list, so the 待批 count stays stale (R-rn-pending-badge-sync)",
+    "file": "mobile-rn/src/screens/ConversationScreen.tsx",
+    "old": "      if (result.ok) onPendingSettled?.();",
+    "new": "      if (result.ok) {\n        // dropped: the sibling list never learns the decision settled\n      }",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.pending.test.tsx -t \"KIN-MOBILE-001 R5: a settled approval tells the route to refresh the list's badges\""
+  },
+  {
+    "label": "a failed decision tells the list to refresh even though the server changed nothing (R-rn-pending-badge-sync)",
+    "file": "mobile-rn/src/screens/ConversationScreen.tsx",
+    "old": "      if (result.ok) onPendingSettled?.();",
+    "new": "      onPendingSettled?.();",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.pending.test.tsx -t \"KIN-MOBILE-001 R5: a failed decision settles nothing\""
+  }
+]

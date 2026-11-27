@@ -223,6 +223,10 @@ describe("RunConfigControl", () => {
   });
 
   it("keeps every row trigger on the 44px touch floor", async () => {
+    // A finger at 390px is the case this test is about. The clear's shape is
+    // keyed to the pointer now, so the case has to say coarse instead of
+    // relying on a `max-sm:` rule that only knew about width.
+    setWideScreen(false, true);
     // More than six models is what makes the list long enough to grow a field.
     const many = Array.from({ length: 8 }, (_, index) => ({
       id: `m${index}`,
@@ -253,7 +257,13 @@ describe("RunConfigControl", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: /^Model/ }));
     await userEvent.type(screen.getByLabelText("Search models"), "model");
     const clear = screen.getByRole("button", { name: "Clear" });
-    expect(clear.className).toContain("max-sm:min-w-11");
+    // Whole tokens: the shared Button's `sm:min-h-0` cancels its own floor at
+    // this width, so the coarse shape is the explicit 44px box, and the old
+    // `max-sm:min-w-11` substring must not be able to satisfy this.
+    const clearClasses = clear.className.split(/\s+/);
+    expect(clearClasses).toContain("h-11");
+    expect(clearClasses).toContain("w-11");
+    expect(clearClasses).not.toContain("max-sm:min-w-11");
   });
 
   it("keys the run-config face's size to the pointer, not the width", () => {

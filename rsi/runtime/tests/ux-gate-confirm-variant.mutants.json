@@ -3,8 +3,22 @@
     "label": "a variant convicts on its first confirm sample again, so walker noise bills a rework round (the #656 shape)",
     "file": "rsi/runtime/ux-gate.sh",
     "test": "RSI_TEST_ONLY=test_variant_line_needs_second_sample bash rsi/runtime/tests/test-ux-gate-confirm-variant.sh",
-    "old": "if vsample == \"ok\":\n    variant_convicted = [l for l in pending if l in seen2]\n    variant = [l for l in pending if l not in seen2]",
+    "old": "if vsample == \"ok\":\n    variant_convicted = [l for l in pending if comparable(l) in seen2_keys]\n    variant = [l for l in pending if comparable(l) not in seen2_keys]",
     "new": "if vsample == \"ok\":\n    variant_convicted = list(pending)\n    variant = []"
+  },
+  {
+    "label": "a reproduced rows failure with volatile row metadata is scanned as new, so it pays a second sample and can escape as a one-sample variant",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_rows_reproduced_with_volatile_metadata_convicts_without_a_second_sample bash rsi/runtime/tests/test-ux-gate-confirm-variant.sh",
+    "old": "        if not line or comparable(line) in orig_keys:\n            continue",
+    "new": "        if not line or line in orig:\n            continue"
+  },
+  {
+    "label": "rows failures with volatile row metadata are compared as raw text, so the same row order never convicts",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_rows_variant_with_volatile_metadata_convicts bash rsi/runtime/tests/test-ux-gate-confirm-variant.sh",
+    "old": "seen2_keys = set(comparable(l) for l in sys.argv[15].splitlines() if l)",
+    "new": "seen2_keys = set(l for l in sys.argv[15].splitlines() if l)"
   },
   {
     "label": "an unavailable second sample is treated as not reproduced, so a red is silently freed instead of failing closed",

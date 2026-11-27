@@ -1,4 +1,5 @@
 import type { Task } from "../api/client";
+import type { PendingByTask } from "./pendingCounts";
 
 /**
  * The conversation list's attention view: *needs you* and *running*.
@@ -35,11 +36,11 @@ export function normalizeAttentionFilter(raw: string | null): SessionAttentionFi
 export function matchesAttention(
   task: Pick<Task, "id" | "status" | "archived_at">,
   attention: SessionAttentionFilter,
-  pendingByTask: ReadonlyMap<string, number>,
+  pendingByTask: PendingByTask,
 ): boolean {
   if (!attention) return true;
   if (attention === "running") return IN_FLIGHT.has(task.status);
-  return WAITING.has(task.status) || (pendingByTask.get(task.id) ?? 0) > 0;
+  return WAITING.has(task.status) || (pendingByTask.get(task.id)?.total ?? 0) > 0;
 }
 
 /**
@@ -54,13 +55,13 @@ export function matchesAttention(
  */
 export function attentionCounts(
   livePage: readonly Pick<Task, "id" | "status" | "archived_at">[],
-  pendingByTask: ReadonlyMap<string, number>,
+  pendingByTask: PendingByTask,
 ): { needsYou: number; running: number } {
   const needsYouIds = new Set<string>(pendingByTask.keys());
   let running = 0;
   for (const task of livePage) {
     if (task.archived_at) continue;
-    if (WAITING.has(task.status) || (pendingByTask.get(task.id) ?? 0) > 0) {
+    if (WAITING.has(task.status) || (pendingByTask.get(task.id)?.total ?? 0) > 0) {
       needsYouIds.add(task.id);
     }
     if (IN_FLIGHT.has(task.status)) running += 1;

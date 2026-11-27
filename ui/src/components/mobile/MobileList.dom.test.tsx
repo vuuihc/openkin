@@ -91,21 +91,38 @@ Object.defineProperty(HTMLElement.prototype, "scrollTop", {
  * `rows` is the content height; `when` is the caller's row-count signal. They
  * are separate because the bug is content that grows after the signal is final.
  */
-function mount(rows: number, when: unknown = rows) {
-  contentHeight = rows * ROW_HEIGHT;
-  scrollTop = 0;
-  const view = render(
+function screen(rows: number, when: unknown = rows) {
+  return (
     <MobileScreen scrollKey="kin.listScroll" scrollWhen={when}>
       {Array.from({ length: rows }, (_, index) => (
         <div key={index} style={{ height: ROW_HEIGHT }}>
           row {index}
         </div>
       ))}
-    </MobileScreen>,
+    </MobileScreen>
   );
+}
+
+function mount(rows: number, when: unknown = rows) {
+  contentHeight = rows * ROW_HEIGHT;
+  scrollTop = 0;
+  const view = render(screen(rows, when));
   const body = view.container.querySelector<HTMLElement>("[data-phone-scroll]");
   if (!body) throw new Error("the keyed scroll body is not mounted");
   return { view, body };
+}
+
+/**
+ * The browser's own clamp on a body whose content collapsed under the offset:
+ * the position snaps to the top and a scroll event reports it. This is what a
+ * kept-alive list sees when it is hidden behind a pushed conversation, and
+ * what the search list saw when its transient loading skeleton was replaced by
+ * the real rows (probe7: `"345"` → `"0"` with no reader input).
+ */
+function collapse(body: HTMLElement) {
+  contentHeight = 0;
+  scrollTop = 0;
+  fireEvent.scroll(body);
 }
 
 function stored(): string | null {
@@ -223,5 +240,153 @@ describe("the keyed scroll body", () => {
     scrollTop = 0;
     first.view.unmount();
     expect(stored()).toBe("300");
+  });
+
+  /**
+   * KIN-CONTINUE-004: the search-state path. The three cases below are the
+   * paths LESSONS.md requires a list-restore change to enumerate — a
+   * kept-alive body, browser Back with late rows, and the pushed
+   * conversation's 返回 control — and each one failed before the fix with the
+   * shared key rewritten to "0".
+   */
+  it("KIN-CONTINUE-004 a search-state list never lets a hidden or collapsed body write its clamp into the scroll key", () => {
+    // The search list is up with the reader's place restored (the instance a
+    // kept-alive shell leaves mounted behind the pushed conversation).
+    const first = mount(10);
+    first.body.scrollTop = 345;
+    fireEvent.scroll(first.body);
+    first.view.unmount();
+    expect(stored()).toBe("345");
+
+    const kept = mount(10);
+    expect(kept.body.scrollTop).toBe(345);
+    // The reader taps a result: the touch yields the body but is not a scroll,
+    // and the tap is over (pointerup) before the push collapses the list.
+    fireEvent.pointerDown(kept.body);
+    fireEvent.pointerUp(kept.body);
+
+    // The list is hidden behind the conversation and its content collapses;
+    // the browser clamps the offset and fires a scroll event at the top.
+    collapse(kept.body);
+    // The clamp is not a position the reader chose: the remembered mark must
+    // survive it, or the next visit starts at the top.
+    expect(stored()).toBe("345");
+
+    // The rows are back: the restore must still reach the mark.
+    grow(10);
+    expect(kept.body.scrollTop).toBe(345);
+    kept.view.unmount();
+    expect(stored()).toBe("345");
+  });
+
+  it("KIN-CONTINUE-004 a search-state list restores a nonzero offset across browser Back when the rows land late", () => {
+    // The reader leaves the search list at 345, then the conversation is opened
+    // and browser Back returns to the same query.
+    const first = mount(10);
+    first.body.scrollTop = 345;
+    fireEvent.scroll(first.body);
+    first.view.unmount();
+    expect(stored()).toBe("345");
+
+    // Back: the mount is empty and still loading, so the caller's row signal
+    // is -1 and the restore cannot reach 345 yet (probe7 t=0).
+    const back = mount(0, -1);
+    expect(back.body.scrollTop).toBe(0);
+
+    // The transient loading skeleton is tall enough for the clamped restore to
+    // look reachable for a moment...
+    grow(10);
+    expect(back.body.scrollTop).toBe(345);
+
+    // ...then it is replaced by the real rows: the content collapses under the
+    // offset and the browser fires a scroll event at the top. The key must not
+    // take that clamp; this is the write probe7 caught at t=50.
+    collapse(back.body);
+    expect(stored()).toBe("345");
+
+    // The rows land, and the caller's signal moves off -1 in the same visit.
+    back.view.rerender(screen(14, 14));
+    grow(14);
+    expect(back.body.scrollTop).toBe(345);
+    expect(stored()).toBe("345");
+    back.view.unmount();
+    expect(stored()).toBe("345");
+  });
+
+  it("KIN-CONTINUE-004 a search-state list restores across the pushed conversation's 返回 control", () => {
+    // The in-app return path starts with the reader's tap on the result row
+    // (a pointerdown on the departing surface) and unmounts the list.
+    const first = mount(10);
+    first.body.scrollTop = 345;
+    fireEvent.scroll(first.body);
+    fireEvent.pointerDown(first.body);
+    fireEvent.pointerUp(first.body);
+    first.view.unmount();
+    expect(stored()).toBe("345");
+
+    // 返回 pops back to the same query; the empty mount clamps, the skeleton
+    // settles the restore, and the swap fires the clamp scroll event.
+    const back = mount(0, -1);
+    grow(10);
+    collapse(back.body);
+    expect(stored()).toBe("345");
+
+    // The rows land after the swap; the list must return to the mark.
+    back.view.rerender(screen(10, 10));
+    grow(10);
+    expect(back.body.scrollTop).toBe(345);
+    expect(stored()).toBe("345");
+    back.view.unmount();
+    expect(stored()).toBe("345");
+  });
+
+  it("KIN-CONTINUE-004 a reader's own wheel to the top still wins over the remembered mark", () => {
+    // The guard above must not swallow a position the reader really chose:
+    // wheel to the top after a restore, and the top is what is remembered.
+    const first = mount(10);
+    first.body.scrollTop = 345;
+    fireEvent.scroll(first.body);
+    first.view.unmount();
+    expect(stored()).toBe("345");
+
+    const back = mount(10);
+    expect(back.body.scrollTop).toBe(345);
+    fireEvent.wheel(back.body);
+    back.body.scrollTop = 0;
+    fireEvent.scroll(back.body);
+    expect(stored()).toBe("0");
+
+    // Nothing may pull the reader back to the old mark after they moved.
+    grow(12);
+    expect(back.body.scrollTop).toBe(0);
+    back.view.unmount();
+    expect(stored()).toBe("0");
+  });
+
+  it("KIN-CONTINUE-004 a reader's own touch drag to the top still wins over the remembered mark", () => {
+    // A phone drag is taken over by the browser as a pan: it fires
+    // `pointercancel` before the first scroll event, so the cancelled gesture
+    // is the only movement signal the list gets. The top the reader reached
+    // must not be read as the layout's clamp and snapped back to the mark.
+    const first = mount(10);
+    first.body.scrollTop = 345;
+    fireEvent.scroll(first.body);
+    first.view.unmount();
+    expect(stored()).toBe("345");
+
+    const back = mount(10);
+    expect(back.body.scrollTop).toBe(345);
+    fireEvent.pointerDown(back.body);
+    fireEvent.pointerCancel(back.body);
+    back.body.scrollTop = 0;
+    fireEvent.scroll(back.body);
+    expect(back.body.scrollTop).toBe(0);
+    expect(stored()).toBe("0");
+
+    // Nothing may pull the reader back to the old mark after they moved.
+    grow(12);
+    expect(back.body.scrollTop).toBe(0);
+    back.view.unmount();
+    expect(stored()).toBe("0");
   });
 });

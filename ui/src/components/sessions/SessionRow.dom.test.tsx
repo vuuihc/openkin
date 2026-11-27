@@ -82,7 +82,7 @@ function props(overrides: Partial<SessionRowProps> = {}): SessionRowProps {
     query: "",
     now: NOW,
     viewedIds: new Set(),
-    pendingCount: 0,
+    pending: { approvals: 0, questions: 0, total: 0 },
     active: false,
     onOpen: vi.fn(),
     shell: "page",
@@ -148,20 +148,137 @@ beforeEach(() => {
 });
 
 describe("SessionRow", () => {
-  it("renders the conversation title agent status device and relative time without changing the accessible label", () => {
+  it("renders the title, one metadata line and the status, naming a pinned row's machine", () => {
     const { container } = render(<SessionRow {...props({ deviceLabel: "Studio" })} />);
 
     expect(screen.getByText("Fix the build")).toBeTruthy();
-    expect(screen.getByText("Studio")).toBeTruthy();
-    expect(screen.getByText("2 minutes ago")).toBeTruthy();
+    // KIN-CONTINUE-001: a pinned row sits outside the device heading, so it
+    // names its machine in the metadata line; under a heading the slot is
+    // empty and nothing is repeated.
+    expect(container.querySelector("[data-session-meta]")?.textContent).toBe(
+      "Claude Code · 2 minutes ago · Done · Studio",
+    );
     // The status dot is the succeeded, not-yet-viewed marker.
     expect(container.querySelector(".bg-kin-green")).not.toBeNull();
     // aria-label is the row's own sentence: title, agent, when, status, device.
     expect(
       screen.getByRole("button", {
-        name: "Fix the build · Claude Code · 2 minutes ago · completed · Studio",
+        name: "Fix the build · Claude Code · 2 minutes ago · Done · Studio",
       }),
     ).toBeTruthy();
+  });
+
+  it("names every status that draws a dot, so no state is colour alone", () => {
+    // The UX review found a failed row drawing only its red dot: the state was
+    // in colour and nowhere in words. Every tone that paints a dot must also
+    // name itself, on the line and in the row's sentence.
+    const failedRun = {
+      ...task("row-1", undefined, "failed"),
+      routine_id: "routine-1",
+    } as Task;
+    const cases: { label: string; row: PhoneSessionRow; dot?: string; word: string }[] = [
+      {
+        label: "failed",
+        row: taskRow({ task: task("row-1", undefined, "failed") }),
+        dot: "bg-kin-red",
+        word: "Failed",
+      },
+      // A failed run is a failure first: the dot is red, so the word is too.
+      {
+        label: "failed routine run",
+        row: taskRow({ task: failedRun }),
+        dot: "bg-kin-red",
+        word: "Failed",
+      },
+      {
+        label: "waiting for approval",
+        row: taskRow({ task: task("row-1", undefined, "waiting_approval") }),
+        dot: "bg-kin-orange",
+        word: "Awaiting approval",
+      },
+      {
+        label: "waiting for you",
+        row: taskRow({ task: task("row-1", undefined, "waiting_input") }),
+        dot: "bg-kin-blue",
+        word: "Awaiting you",
+      },
+      {
+        label: "canceled",
+        row: taskRow({ task: task("row-1", undefined, "canceled") }),
+        word: "Canceled",
+      },
+    ];
+
+    for (const { label, row, dot, word } of cases) {
+      const view = render(<SessionRow {...props({ row })} />);
+      const shell = rowButton();
+      const painted = shell.querySelector<HTMLElement>(":scope > span > span[aria-hidden]");
+      if (dot) expect(painted?.className, label).toContain(dot);
+      else expect(painted, label).toBeNull();
+      expect(view.container.querySelector("[data-session-status]")?.textContent, label).toContain(
+        word,
+      );
+      expect(shell.getAttribute("aria-label"), label).toContain(word);
+      view.unmount();
+    }
+  });
+
+  it("keeps 待批准 N on a row whose only wait is approvals", () => {
+    setLocale("zh");
+    const { container } = render(
+      <SessionRow {...props({ pending: { approvals: 2, questions: 0, total: 2 } })} />,
+    );
+
+    expect(container.querySelector("[data-session-status]")?.textContent).toContain("待批准 2");
+    expect(container.textContent).not.toContain("待回答");
+  });
+
+  it("says 待回答 N on a row whose only wait is questions", () => {
+    // The gap: a questions-only row used to claim an approval that did not
+    // exist, so the one screen that answers "where is something waiting on me"
+    // named the wrong kind of wait.
+    setLocale("zh");
+    const { container } = render(
+      <SessionRow {...props({ pending: { approvals: 0, questions: 2, total: 2 } })} />,
+    );
+
+    expect(container.querySelector("[data-session-status]")?.textContent).toContain("待回答 2");
+    expect(rowButton().getAttribute("aria-label")).not.toContain("待批准");
+  });
+
+  it("uses the neutral count when both kinds wait", () => {
+    setLocale("zh");
+    const { container } = render(
+      <SessionRow {...props({ pending: { approvals: 1, questions: 2, total: 3 } })} />,
+    );
+
+    expect(container.querySelector("[data-session-status]")?.textContent).toContain("3 项待你处理");
+  });
+
+  it("says the question wording in English too", () => {
+    const { container } = render(
+      <SessionRow {...props({ pending: { approvals: 0, questions: 2, total: 2 } })} />,
+    );
+
+    expect(container.querySelector("[data-session-status]")?.textContent).toContain(
+      "2 awaiting your answer",
+    );
+  });
+
+  it("falls back to the task status when nothing waits", () => {
+    // The new waiting branches must not swallow the status a waiting task
+    // already names when its pending items are gone.
+    setLocale("zh");
+    const { container } = render(
+      <SessionRow
+        {...props({
+          row: taskRow({ task: task("row-1", undefined, "waiting_approval") }),
+          pending: { approvals: 0, questions: 0, total: 0 },
+        })}
+      />,
+    );
+
+    expect(container.querySelector("[data-session-status]")?.textContent).toContain("待审批");
   });
 
   it("opens the conversation on click and closes an already-open swipe instead when appropriate", async () => {
@@ -1048,14 +1165,15 @@ describe("SessionRow", () => {
     const { container } = render(
       <SessionRow {...props({ shell: "sidebar", coarse: false, deviceLabel: "Studio" })} />,
     );
-    expect(screen.getByText("Studio")).toBeTruthy();
+    expect(container.querySelector("[data-session-meta]")?.textContent).toBe(
+      "Claude Code · 2 minutes ago · Done · Studio",
+    );
 
     const field = await chooseRename(container, "menu");
 
-    // In a 248px sidebar the time, the device label and the trigger beside
-    // the field left only a few characters of the name visible.
-    expect(screen.queryByText("Studio")).toBeNull();
-    expect(screen.queryByText("2 minutes ago")).toBeNull();
+    // In a 248px sidebar the metadata line and the trigger beside the field
+    // left only a few characters of the name visible.
+    expect(container.querySelector("[data-session-meta]")).toBeNull();
     expect(container.querySelector("[data-row-actions]")).toBeNull();
     expect(field.className).toContain("px-1.5");
   });

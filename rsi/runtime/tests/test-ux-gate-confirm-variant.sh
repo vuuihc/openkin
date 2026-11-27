@@ -112,6 +112,7 @@ new_case() {
 fixture() { printf '%s\n' "$2" > "$FIX/$1.json"; }
 review_fixture() { printf '%s\n' "$2" > "$FIX/$1.review"; }
 red_json() { printf '{"hardFail":["%s"],"screens":[]}\n' "$1"; }
+red_json_line() { python3 -c 'import json,sys; print(json.dumps({"hardFail":[sys.argv[1]],"screens":[]}, ensure_ascii=False))' "$1"; }
 hard_section() {
   awk '/^walk hard failures:$/ { on=1; next } on && /^$/ { exit } on { print }' "$BODY"
 }
@@ -141,6 +142,12 @@ record_invariant() {
 # The #656 first-walk red, and a variant only a confirm sample produces.
 X='J9/mac: scroll-kept at 3471, want 320±48'
 Y='J9/mac: scroll-kept at 2201, want 320±48'
+R0='J12/phone: rows css=[data-phone-scroll] are ["[seed] Approve the migration · Claude Code · 2分钟前 · 运行中", "[seed] Morning planning · Claude Code · 41秒钟前 · 已完成"], want ["[seed] Morning planning", "[seed] Approve the migration"]'
+R1='J12/phone: rows css=[data-phone-scroll] are ["[seed] Approve the migration · Claude Code · 3分钟前 · 运行中", "[seed] Morning planning · Claude Code · 43秒钟前 · 已完成"], want ["[seed] Morning planning", "[seed] Approve the migration"]'
+R2='J12/phone: rows css=[data-phone-scroll] are ["[seed] Approve the migration · Claude Code · 33秒钟前 · 待批准 1", "[seed] Morning planning · Claude Code · 1分钟前 · 已完成"], want ["[seed] Morning planning", "[seed] Approve the migration"]'
+OV1='J12/phone: rows css=[data-phone-scroll] are ["[seed] Morning planning · Claude Code · 33秒钟前 · 已完成"], want ["[seed] Morning", "[seed] Morning planning"]'
+OV2='J12/phone: rows css=[data-phone-scroll] are ["[seed] Morning planning · Claude Code · 34秒钟前 · 已完成"], want ["[seed] Morning", "[seed] Morning planning"]'
+RREV='J12/phone: rows css=[data-phone-scroll] are ["[seed] Morning planning · Claude Code · 33秒钟前 · 已完成", "[seed] Approve the migration · Claude Code · 1分钟前 · 待批准 1"], want ["[seed] Morning planning", "[seed] Approve the migration"]'
 
 # --- cases -----------------------------------------------------------------------------------
 
@@ -194,6 +201,56 @@ test_variant_line_seen_twice_convicts() {
   grep -Fq '1 confirmed' "$UXD/confirm.summary" || fail "variant-twice: the summary does not say the sample confirmed it: $(tr '\n' ' ' < "$UXD/confirm.summary")"
   [ "$(walks)" = 3 ] || fail "variant-twice: $(walks) walks, want 3"
   record_invariant
+}
+
+test_rows_variant_with_volatile_metadata_convicts() {
+  new_case rows_volatile_convict
+  fixture 1 "$(red_json "$X")"
+  fixture 2 "$(red_json_line "$R1")"
+  fixture 3 "$(red_json_line "$R2")"
+  run_gate
+  [ "$RC" -eq 1 ] || fail "rows-volatile-convict: exit $RC, want 1 (the same row order must convict across volatile row metadata)"
+  hard_section | grep -Fqx "$R1" || fail "rows-volatile-convict: the confirmed row-order line is not billed: $(hard_section | tr '\n' ' ')"
+  expect_field variant 0
+  expect_field variant_confirmed 1
+  expect_field confirm_only false
+}
+
+test_rows_reproduced_with_volatile_metadata_convicts_without_a_second_sample() {
+  new_case rows_volatile_reproduced
+  fixture 1 "$(red_json_line "$R0")"
+  fixture 2 "$(red_json_line "$R1")"
+  run_gate
+  [ "$RC" -eq 1 ] || fail "rows-volatile-reproduced: exit $RC, want 1"
+  hard_section | grep -Fqx "$R1" || fail "rows-volatile-reproduced: the reproduced row-order line is not billed: $(hard_section | tr '\n' ' ')"
+  [ "$(walks)" = 2 ] || fail "rows-volatile-reproduced: $(walks) walks, want exactly 2"
+  expect_field reproduced 1
+  expect_field variant 0
+  expect_field variant_sample not-needed
+}
+
+test_rows_variant_reversed_order_does_not_convict() {
+  new_case rows_reversed_variant
+  fixture 1 "$(red_json "$X")"
+  fixture 2 "$(red_json_line "$R1")"
+  fixture 3 "$(red_json_line "$RREV")"
+  run_gate
+  [ "$RC" -eq 0 ] || fail "rows-reversed-variant: exit $RC, want 0 (a different row order must not convict)"
+  expect_field variant 1
+  expect_field variant_confirmed 0
+  expect_field confirm_only true
+}
+
+test_overlapping_rows_tokens_fail_closed_to_exact_comparison() {
+  new_case rows_overlapping_variant
+  fixture 1 "$(red_json "$X")"
+  fixture 2 "$(red_json_line "$OV1")"
+  fixture 3 "$(red_json_line "$OV2")"
+  run_gate
+  [ "$RC" -eq 0 ] || fail "rows-overlapping-variant: exit $RC, want 0 (ambiguous overlapping tokens must not convict across volatile metadata)"
+  expect_field variant 1
+  expect_field variant_confirmed 0
+  expect_field confirm_only true
 }
 
 # Case 3 (fail closed): confirm2 exits 2 and leaves no walk.json. The variant keeps its
@@ -319,6 +376,10 @@ run() {
 RAN=0
 run test_variant_line_needs_second_sample
 run test_variant_line_seen_twice_convicts
+run test_rows_variant_with_volatile_metadata_convicts
+run test_rows_reproduced_with_volatile_metadata_convicts_without_a_second_sample
+run test_rows_variant_reversed_order_does_not_convict
+run test_overlapping_rows_tokens_fail_closed_to_exact_comparison
 run test_second_sample_unavailable_keeps_the_red
 run test_reproduced_red_still_convicts_on_first_confirm
 run test_variant_not_presented_in_the_reask

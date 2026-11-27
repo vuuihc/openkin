@@ -6,6 +6,10 @@ set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 source "$RSI_DIR/runtime/lane-pr.sh"
+source "$RSI_DIR/runtime/lane-push.sh"
+# Sourced beside this script, like SELF: hermetic suites point RSI_DIR at a stub tree that copies
+# only the deployed seam files, and a missing sibling there must not pollute the seam's output.
+source "$(cd "$(dirname "$0")" && pwd)/lane-body.sh"
 CMD="${1:-}"; N="${2:-}"
 
 # A squash-merged (or closed) PR leaves its branch diffing from main, so autofill's fetch/diff
@@ -84,15 +88,17 @@ worker_contract() { # <item> <mode> <worktree> <branch> — the text every worke
   cat <<HD
 # Lane worker contract (read first)
 You are the WORKER for RSI item $item in worktree \`$wt\` on branch \`$br\`. Mode: $mode.
-- Budget: finish in about 45 minutes and at most about \$8 (Astryx programme slices are up to ~800 changed lines). If the slice is bigger than that, deliver the smallest green first slice, commit it, and list what remains in \`$STATE/followups.md\` (append).
+- Budget: finish in about 45 minutes and at most about \$8. Size: target ≤800 changed lines, hard cap 1000 — the merge lane holds anything bigger, and this lane stops an oversize branch before the push. Measure yours with \`bash rsi/runtime/diff-size.sh .\` (same count the merge lane uses: excludes web/dist/index.html and lockfiles). If the slice is bigger than that, deliver the smallest green first slice, commit it, and list what remains in \`$STATE/followups.md\` (append).
 - Stay inside your declared paths; do not touch files other lanes may be editing. Declared paths: $paths
 - Test first. Run FOCUSED checks only (typecheck, lint on changed files, the tests you wrote/touched, \`go test\` for touched packages). The merge lane runs the full gate (\`gate.sh\`) and an independent review afterwards. Use \`VITEST_MAX_WORKERS=2\` for vitest; other lanes are running on the same machine.
 - Concurrency test ordering: set the shared state (the flag, channel or map the goroutine reads) before you start the goroutine. Never start the goroutine and then write the flag it reads — that order is the race the gate and the reviewer are looking for.
 - A new or changed Go test self-checks with \`go test -count=5 -race ./internal/<touched-package>/...\` on the touched package(s) before you finish. One green run of a concurrency test is not evidence; five runs under \`-race\` are what make it trustworthy.
-- If \`ui/\` changed: \`cd ui && npm run build\`, commit \`web/dist/index.html\` only (never \`web/dist/assets/\`). For visible UI also save 390×844, 820×1180 and 1100×760 before/after screenshots under \`$STATE/shots/$slug/\`.
+- If \`ui/\` changed: \`cd ui && npm run build\`, commit \`web/dist/index.html\` only (never \`web/dist/assets/\`). For visible UI also save 390×844, 820×1180 and 1100×760 before/after screenshots under \`$STATE/shots/$slug/\`. The shots dir holds ONLY .png/.aria.txt/walk.json evidence: never copy the kin binary, web/dist, node_modules or source trees into it — before/after daemons boot from a mktemp dir you delete when the round ends.
 - Evidence, not a placeholder: the 820×1180 one must be the surface's real reading state (a conversation surface means a long answer containing a markdown table), never an empty or placeholder view — a blank 820 is a rework round, not evidence.
 - If \`ui/\` changed and you added or changed any user-visible string: put it in **both** \`ui/src/i18n/locales/en.ts\` and \`ui/src/i18n/locales/zh.ts\` in the same commit, and run \`cd ui && npx vitest run src/i18n/locales.test.ts\` (same keys, no blank values, same placeholders). When you replace existing copy, \`grep -rn\` the old sentence in \`ui/src/\` including \`*.test.*\`: an assertion on the old English is red CI that the gate charges to this PR.
+- Run \`bash rsi/runtime/lane.sh --renamed-copy-check "\$PWD"\` before you finish: only \`RENAME_COPY_OK\` or \`RENAME_COPY_NA\` proves the hand-off. \`RENAME_COPY_RED\` names the removed value, the untouched test still quoting it and the failing test line; the lane runs the same seam before pushing and a RED stops the push.
 - Loop code (\`rsi/runtime/**\` or \`scripts/**\` ending \`.sh\`, \`.bash\`, \`.py\`, \`.mjs\`, \`.js\` or \`.ts\`; not \`rsi/runtime/{tests,runs,prompts}/**\`, \`rsi/runtime/ux/journeys/**\`, \`rsi/state/**\` or a deleted file): add or update an entry in a \`*.mutants.json\` manifest this branch adds or modifies for every changed file, with \`file\` set to that path, and that entry's test must fail while its mutant is applied. A manifest already on main does not cover your edit, so an already-covered file still needs a new entry. Make the mutant break the behaviour you changed, not an unrelated line. Run \`bash rsi/runtime/lane.sh --mutant-evidence-check "\$PWD"\` from your worktree before you finish: only \`MUTANT_EVIDENCE_OK\` (or \`MUTANT_EVIDENCE_SKIP\` when no loop code changed) proves the hand-off; a missing entry prints \`MUTANT_EVIDENCE_MISSING\` and a surviving mutant prints \`MUTANT_EVIDENCE_RED\`. The lane runs the same seam before pushing, and either verdict there fails the lane.
+- If you remove a quoted value, backticked span, \`--flag\` or UPPER_SNAKE constant of 8+ characters from loop code, untouched tests and \`*.mutants.json\` anchors that still assert it are stale. Run \`bash rsi/runtime/lane.sh --removed-literal-check "\$PWD"\` before you finish: only \`REMOVED_LITERAL_OK\` (or \`REMOVED_LITERAL_NA\` with a reason) proves the hand-off; a \`REMOVED_LITERAL_RED\` names the literal, the file it left and the \`path:line\` that still asserts it. The lane runs the same seam before pushing, and a RED there fails the lane.
 - UI ratchet: \`python3 scripts/check-ui-inventory.py\` must not grow. If your change IS the sanctioned primitive/facade (its own raw \`<button>\`, \`createPortal\`, \`role="dialog"\`, \`useAnchoredPanel\` use is the point), run \`python3 scripts/check-ui-inventory.py --update\`, commit the baseline, and say so in the PR body (Risk section). Also run the focused UI suites your change touches plus the design-token test: \`cd ui && npx vitest run <the suites you touched> src/design/tokens.test.ts\` (e.g. focus ring must use \`outline-kin-focus-ring\`). The merge gate owns the full suite; a worker does not run it.
 - Commit everything with Conventional Commits and explicit paths. Do NOT push, do NOT open the PR, do NOT touch other worktrees.
 - Run \`bash rsi/runtime/format-changed.sh --write --commit\` as the last step before writing the hand-off body: the lane repeats that format commit after you exit, so a rewrite it makes moves the line numbers the body claims (2026-11-23: 786e847d shifted AgentSessionSheet.tsx 240/256/277 → 235/251/272 after the body was written, and the claim seam failed the round).
@@ -320,8 +326,95 @@ PY
 # The verdict's leading CLAIM_ becomes CLAIM_LANE_ so a lane failure is distinguishable from the
 # merge lane's. The body is passed through as-is: claim_check.py returns NA for a code-only diff
 # without reading it, and names an unreadable body only when a prose path changed.
+# The hand-off body is one file: the seam reads it and the upload must publish those same bytes.
+# The worker can still rewrite that file while the lane runs, so the hand-off pins it with
+# claim_body_snapshot() and every later step reads the private copy; the hash is what proves the
+# bytes about to be uploaded are the bytes the seam proved.
+claim_body_sha() { # <body-file> -> sha256 of a non-empty body, nothing otherwise
+  [ -s "$1" ] || return 0
+  # shasum on macOS, sha256sum on Linux: either one; a host with neither cannot pin the bytes, and
+  # the upload guards then skip rather than compare two empty strings.
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" 2>/dev/null | awk '{print $1}'
+  fi
+}
+
+# The hand-off body is the worker's mutable file, so the lane never proves or uploads it directly:
+# claim_body_snapshot() copies it once into a private file the lane alone writes, and the claim
+# seam, the bounded retry, the upload guards, the create/edit and the read-back all read that
+# snapshot. Reopening the original after validation was the 2026-11-28 review's race — the upload
+# hashed the mutable source and then handed the same path to gh, so a write in that window reached
+# GitHub unchecked. The copy is atomic (a partial snapshot never becomes the upload) and 0600; an
+# empty or missing body yields an empty snapshot, and a stale snapshot from an earlier round in the
+# same lane slot is overwritten rather than read.
+claim_body_snapshot() { # <body-file> <snapshot-file> — 0 on success, including an empty body
+  local tmp="$2.tmp.$$"
+  (umask 077 && { [ ! -s "$1" ] || cat "$1"; } > "$tmp") 2>/dev/null \
+    || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$2" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
+# The claim must be proven on the tree the merge gate reads: the PR merged with the local
+# origin/main. merge.sh merges main into the PR (sync_main) before its claim gate, so a claim whose
+# output depends on the tree — a ledger count, an absolute line number — can be true on the branch
+# tip and false after that merge. Measured 2026-11-27: 12 `mech-claim` rounds of this shape
+# (rn-design-pass #812 was CLAIM_LANE_OK + PR_BODY_OK at 14:08 and 14:26, then the gate read
+# `stories: 25 (approved 5, blocked 1, covered 18, draft 1)` where the branch said `approved 4,
+# covered 19`; rn-empty-hint #766 claimed `193:` where the merged tree had `194:`). Build that tree
+# without touching the branch: merge-tree writes it, commit-tree wraps it, a throwaway worktree
+# gives the command a directory. Every ignored path the lane worktree holds (built bundles, live
+# state, installed deps) is carried as a symlink. Prints the worktree path, or nothing when the
+# branch already contains the local origin/main or the merge cannot be materialized — a conflict
+# is merge.sh's call, and a seam must never invent a red for it; the caller then says so in its
+# verdict instead of reporting a bare OK for a tree it did not check.
+claim_merge_wt() { # <worktree>
+  local wt tmp tree commit rel anc keep rest comp
+  wt="$(cd "${1%/}" 2>/dev/null && pwd)" || return 0
+  "$GIT" -C "$wt" merge-base --is-ancestor origin/main HEAD 2>/dev/null && return 0
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/claim-merge.XXXXXX")" || return 0
+  tree="$("$GIT" -C "$wt" merge-tree --write-tree origin/main HEAD 2>/dev/null)" \
+    || { rm -rf "$tmp"; return 0; }
+  tree="${tree%%$'\n'*}"
+  commit="$("$GIT" -C "$wt" commit-tree "$tree" -p HEAD -p origin/main \
+    -m "claim-check merge" 2>/dev/null)" || { rm -rf "$tmp"; return 0; }
+  "$GIT" -C "$wt" worktree add --quiet --detach "$tmp/wt" "$commit" >/dev/null 2>&1 \
+    || { rm -rf "$tmp"; return 0; }
+  # The merge gate runs the claim in the lane worktree, so a claim may read ignored paths that
+  # exist there and not in a fresh checkout: built bundles (`web/dist/assets/`), logs, live state
+  # (`rsi/state/`), installed deps (`node_modules/`). Carry every ignored path this worktree holds
+  # into the merge worktree; without it a claim reading a built bundle would be red in the lane
+  # while the merge gate accepts it (measured 2026-11-27 in review).
+  while IFS= read -r -d '' rel; do
+    rel="${rel%/}"
+    [ -n "$rel" ] || continue
+    [ -e "$tmp/wt/$rel" ] && continue
+    # The merge result can commit a symlink where the lane has a directory (`leak -> /outside`) and
+    # `mkdir -p` / `ln -s` would then follow it out of the temporary worktree, writing where the
+    # lane has no business. Carry a path only when every ancestor that already exists under the
+    # merge worktree is a real directory; a symlink, a file or a `..` component skips the carry.
+    anc="$tmp/wt" keep=1 rest="$rel"
+    while [ -n "$rest" ]; do
+      case "$rest" in
+        */*) comp="${rest%%/*}"; rest="${rest#*/}" ;;
+        *) comp="$rest"; rest="" ;;
+      esac
+      case "$comp" in ''|.|..) keep=0; break ;; esac
+      anc="$anc/$comp"
+      [ -L "$anc" ] && { keep=0; break; }
+      [ -e "$anc" ] || break
+      [ -d "$anc" ] || { keep=0; break; }
+    done
+    [ "$keep" -eq 1 ] || continue
+    mkdir -p "$(dirname "$tmp/wt/$rel")" 2>/dev/null || continue
+    ln -s "$wt/$rel" "$tmp/wt/$rel" 2>/dev/null || true
+  done < <("$GIT" -C "$wt" ls-files --others --ignored --exclude-standard --directory -z 2>/dev/null)
+  printf '%s\n' "$tmp/wt"
+}
+
 claim_lane_check() { # <worktree> <body-file> — prints one CLAIM_LANE_* verdict; exits with the checker's code
-  local wt="$1" body="$2" changed out rc
+  local wt="$1" body="$2" changed out rc check_wt merge_wt="" claim_note=""
   [ -d "$wt" ] || { echo "CLAIM_LANE_FAIL: $wt · worktree not found"; return 1; }
   # A seam that cannot read the branch point would see no prose change and wave the PR through.
   "$GIT" -C "$wt" rev-parse --verify -q origin/main >/dev/null 2>&1 \
@@ -333,7 +426,25 @@ claim_lane_check() { # <worktree> <body-file> — prints one CLAIM_LANE_* verdic
   # back, which is the round this row removes.
   "$GIT" -C "$wt" -c core.fileMode=false diff --no-renames --raw origin/main...HEAD 2>/dev/null \
     | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}' > "$changed"
-  out="$(python3 "$RSI_DIR/runtime/claim_check.py" "$wt" "$body" "$changed" 2>&1)"; rc=$?
+  # The rule runs on the merge result when main moved after this branch was cut; otherwise the
+  # branch tip is that result and the command stays in the worker's own tree.
+  check_wt="$wt"
+  merge_wt="$(claim_merge_wt "$wt")"
+  if [ -n "$merge_wt" ]; then
+    check_wt="$merge_wt"
+  elif ! "$GIT" -C "$wt" merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+    # The merge result exists (HEAD does not contain origin/main) but could not be built: a
+    # conflict, or a git without `merge-tree --write-tree`. Say the check ran on the branch tip,
+    # so a green here is never mistaken for a green on the tree the gate reads.
+    claim_note=" (merge with origin/main not materialized; the branch tip was checked — a conflict is merge.sh's verdict)"
+  fi
+  out="$(python3 "$RSI_DIR/runtime/claim_check.py" "$check_wt" "$body" "$changed" 2>&1)"; rc=$?
+  out="$out$claim_note"
+  if [ -n "$merge_wt" ]; then
+    "$GIT" -C "$wt" worktree remove --force "$merge_wt" >/dev/null 2>&1
+    "$GIT" -C "$wt" worktree prune >/dev/null 2>&1
+    rm -rf "$(dirname "$merge_wt")"
+  fi
   rm -f "$changed"
   printf '%s\n' "$out" | sed 's/^CLAIM_/CLAIM_LANE_/'
   return "$rc"
@@ -403,6 +514,173 @@ red_first_check() { # <worktree> <body-file> — prints one RED_FIRST_* verdict;
   return "$rc"
 }
 
+# --- removed literal: a removed value must not leave an untouched test asserting it --------------
+# A branch deletes a flag, a command fragment or a config value from loop code and leaves an
+# untouched test file (or an untouched *.mutants.json anchor) still asserting it. Nothing notices
+# until the full gate or a reviewer runs, so the PR is sent back after a whole round.
+# rsi/runtime/removed_literal.py is the rule: it derives the literals this branch removed, finds the
+# untouched tests and manifests that still assert them, runs only those tests (bounded) and names
+# the literal, the file it left and the path:line that still asserts it. This seam runs it in the
+# lane before the push and gives the whole run one watchdog; the checker owns the per-file bound.
+# A branch that cannot be measured is NA, never a green (see the checker).
+removed_literal_check() { # <worktree> — prints one REMOVED_LITERAL_* verdict; exits with the checker's code
+  local wt="$1" out rc secs
+  [ -d "$wt" ] || { echo "REMOVED_LITERAL_NA: $wt · worktree not found"; return 0; }
+  secs="${RSI_REMOVED_LITERAL_SECS:-240}"
+  case "$secs" in ''|*[!0-9]*) secs=240 ;; esac
+  [ "$secs" -gt 300 ] && secs=300
+  out="$(bounded_run "$((secs + 5))" python3 "$RSI_DIR/runtime/removed_literal.py" "$wt" 2>&1)"; rc=$?
+  printf '%s\n' "$out"
+  # The watchdog's timeout is no verdict: report NA rather than a fabricated pass.
+  [ "$rc" -eq 124 ] && { echo "REMOVED_LITERAL_NA: the check did not finish within ${secs}s"; return 0; }
+  return "$rc"
+}
+
+# --- renamed copy: a locale rename must not leave an untouched test asserting the old value -----
+# The measured `gate+review·ui` shape is 37 of 340 rounds in 7 days (state/rework-attrib.md,
+# 2026-11-24): a one-line copy change opens green and comes back red because a test file the worker
+# never opened still asserts the old English. The rule has been prose in worker_contract since
+# 2026-11-22 17:23 and still did not fire on 2026-11-24, when PR #665 renamed `nav.openCover` in
+# en.ts and left four `getByRole` queries on the old label in Sidebar.dom.test.tsx; CI and the merge
+# lane's full gate both spent their run to say what a grep would have said in a second. This seam is
+# the executable form: stage 1 derives the removed English values from the branch diff without npm,
+# stage 2 runs only the test files that still quote one, bounded, and every path it cannot measure
+# is NA, never OK. The worker runs it before finishing (worker_contract); the lane runs it after the
+# format commit and before the push, so the reviewer is no longer the first reader.
+renamed_copy_check() { # <worktree> — one RENAME_COPY_* verdict; 0 for OK/NA, 1 for RED
+  local wt="$1" raw changed cands n value hits first_hit files hit_value hit_fileline
+  local secs rc vitest_out fail_line f
+  [ -d "$wt" ] || { echo "RENAME_COPY_NA: $wt · worktree not found"; return 0; }
+  # No branch point, no diff, no verdict: NA, never a green this seam did not measure.
+  "$GIT" -C "$wt" rev-parse --verify -q origin/main >/dev/null 2>&1 \
+    || { echo "RENAME_COPY_NA: origin/main is not resolvable"; return 0; }
+  raw="$(mktemp "${TMPDIR:-/tmp}/rename-copy.XXXXXX")" \
+    || { echo "RENAME_COPY_NA: cannot create a temp file for the changed-file list"; return 0; }
+  # The merge gate's own computation (merge.sh): renames off, a deletion counts, `origin/main...HEAD`
+  # is the PR's own diff. A seam that computed this differently could miss the locale change.
+  if ! "$GIT" -C "$wt" -c core.fileMode=false diff --no-renames --raw origin/main...HEAD \
+      > "$raw" 2>/dev/null; then
+    rm -f "$raw"
+    echo "RENAME_COPY_NA: cannot read the origin/main...HEAD diff"
+    return 0
+  fi
+  awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}' "$raw" > "$raw.paths"; rm -f "$raw"
+  if ! LC_ALL=C grep -qxF 'ui/src/i18n/locales/en.ts' "$raw.paths" \
+     && ! LC_ALL=C grep -qxF 'ui/src/i18n/locales/zh.ts' "$raw.paths"; then
+    rm -f "$raw.paths"
+    echo "RENAME_COPY_NA: no locale change"
+    return 0
+  fi
+  rm -f "$raw.paths"
+  # Stage 1, hermetic: the values on removed English lines, trimmed, minus the noise floor and the
+  # values the branch still carries under another key (a move, not a rename).
+  cands="$(python3 - "$GIT" "$wt" <<'PY'
+import re, subprocess, sys
+
+git, wt = sys.argv[1:3]
+try:
+    proc = subprocess.run(
+        [git, "-C", wt, "-c", "core.fileMode=false", "diff", "-U0",
+         "origin/main...HEAD", "--", "ui/src/i18n/locales/en.ts"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=60)
+except Exception:
+    sys.exit(3)
+if proc.returncode != 0:
+    sys.exit(3)
+blob = ""
+for name in ("en.ts", "zh.ts"):
+    try:
+        with open("%s/ui/src/i18n/locales/%s" % (wt, name), encoding="utf-8",
+                  errors="replace") as fh:
+            blob += fh.read()
+    except OSError:
+        pass
+seen = set()
+for line in proc.stdout.splitlines():
+    if not line.startswith("-") or line.startswith("---"):
+        continue
+    hit = re.search(r':\s*"((?:[^"\\]|\\.)*)"', line)
+    if not hit:
+        continue
+    value = hit.group(1).strip()
+    if len(value) < 8 or value in seen or value in blob:
+        continue
+    seen.add(value)
+    print(value)
+PY
+)"; rc=$?
+  [ "$rc" -eq 0 ] || { echo "RENAME_COPY_NA: cannot read the locale diff"; return 0; }
+  # Stage 1b, hermetic: only test files that still quote a removed value are worth running.
+  n=0; hit_value=""; hit_fileline=""; files=""
+  while IFS= read -r value; do
+    [ -n "$value" ] || continue
+    n=$((n + 1))
+    hits="$( cd "$wt" && LC_ALL=C grep -rnF --include='*.test.ts' --include='*.test.tsx' \
+      -e "$value" ui/src 2>/dev/null )"
+    [ -n "$hits" ] || continue
+    first_hit="$(printf '%s\n' "$hits" | head -1)"
+    if [ -z "$hit_value" ]; then
+      hit_value="$value"
+      hit_fileline="$(printf '%s' "$first_hit" | cut -d: -f1-2)"
+    fi
+    files="$files$(printf '%s\n' "$hits" | cut -d: -f1)
+"
+  done <<< "$cands"
+  if [ -z "$hit_value" ]; then
+    echo "RENAME_COPY_OK: $n removed value(s); no test asserts them"
+    return 0
+  fi
+  # Stage 2, bounded: a fixture or a fresh clone without the console's dependencies cannot decide,
+  # so it is NA that names the static finding instead of inventing a verdict. The checked binary is
+  # what runs (`npx` would try to fetch vitest from the network, which a lane seam must never do).
+  if [ ! -x "$wt/ui/node_modules/.bin/vitest" ]; then
+    local why='ui/node_modules is missing'
+    [ -d "$wt/ui/node_modules" ] && why='ui/node_modules/.bin/vitest is missing'
+    echo "RENAME_COPY_NA: cannot run vitest ($why); removed value \"$hit_value\" still asserted in $hit_fileline"
+    return 0
+  fi
+  files="$(printf '%s' "$files" | sed '/^$/d' | sort -u)"
+  local -a rel=()
+  while IFS= read -r f; do
+    [ -n "$f" ] && rel+=("${f#ui/}")
+  done <<< "$files"
+  secs="${RSI_RENAME_COPY_SECS:-300}"
+  case "$secs" in ''|*[!0-9]*) secs=300 ;; esac
+  [ "$secs" -gt 300 ] && secs=300
+  vitest_out="$(bounded_run "$secs" bash -c 'cd "$1" || exit 126; shift; exec env VITEST_MAX_WORKERS=2 ./node_modules/.bin/vitest run "$@"' \
+    _ "$wt/ui" "${rel[@]}" 2>&1)"; rc=$?
+  case "$rc" in
+    0)
+      echo "RENAME_COPY_OK: $n removed value(s); \"$hit_value\" asserted in $hit_fileline but the suite passes"
+      return 0 ;;
+    124)
+      echo "RENAME_COPY_NA: vitest timed out after ${secs}s; removed value \"$hit_value\" still asserted in $hit_fileline"
+      return 0 ;;
+    126|127)
+      echo "RENAME_COPY_NA: vitest could not start (exit $rc); removed value \"$hit_value\" still asserted in $hit_fileline"
+      return 0 ;;
+  esac
+  fail_line="$(printf '%s\n' "$vitest_out" | sed $'s/\x1b\\[[0-9;]*[A-Za-z]//g' \
+    | grep -m1 -E '(^|[[:space:]])FAIL[[:space:]]' || true)"
+  [ -n "$fail_line" ] || fail_line="$(printf '%s\n' "$vitest_out" \
+    | sed $'s/\x1b\\[[0-9;]*[A-Za-z]//g' | grep -m1 '×' || true)"
+  [ -n "$fail_line" ] || fail_line="vitest exited $rc with no FAIL line"
+  fail_line="$(printf '%s' "$fail_line" | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-200)"
+  echo "RENAME_COPY_RED: \"$hit_value\" still asserted in $hit_fileline; $fail_line"
+  return 1
+}
+
+# The merge lane's 1000-line cap, applied before the push: merge.sh sends an oversize PR back as
+# hold-size anyway, so stopping the lane here saves a gate slot and a rework round. The waiver is
+# the same file merge.sh honours, so a CEO-waived slice is never stopped twice.
+oversize_verdict() { # <worktree> <waiver-file> -> prints "OK <n>" | "OVERSIZE <n>" (rc 1)
+  local n
+  n="$(GIT="$GIT" bash "$RSI_DIR/runtime/diff-size.sh" "$1" 2>/dev/null || echo 0)"
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  if [ "$n" -gt 1000 ] && [ ! -f "$2" ]; then echo "OVERSIZE $n"; return 1; fi
+  echo "OK $n"
+}
+
 if [ "$CMD" = _sendback-order ]; then sendback_order; exit 0; fi
 
 # Seams. --worker-contract-check prints the contract and exits before PAUSE, locks, fetch,
@@ -421,9 +699,21 @@ if [ "$CMD" = --red-first-check ]; then
   [ "$#" -eq 3 ] || { echo "usage: lane.sh --red-first-check <worktree> <body-file>" >&2; exit 2; }
   red_first_check "$2" "$3"; exit $?
 fi
+if [ "$CMD" = --removed-literal-check ]; then
+  [ "$#" -eq 2 ] || { echo "usage: lane.sh --removed-literal-check <worktree>" >&2; exit 2; }
+  removed_literal_check "$2"; exit $?
+fi
 if [ "$CMD" = --pr-body-check ]; then
   [ "$#" -eq 4 ] || { echo "usage: lane.sh --pr-body-check <worktree> <pr-number> <local-body-file>" >&2; exit 2; }
   pr_body_check "$2" "$3" "$4"; exit $?
+fi
+if [ "$CMD" = --renamed-copy-check ]; then
+  [ "$#" -eq 2 ] || { echo "usage: lane.sh --renamed-copy-check <worktree>" >&2; exit 2; }
+  renamed_copy_check "$2"; exit $?
+fi
+if [ "$CMD" = --diff-size-check ]; then
+  [ "$#" -eq 3 ] || { echo "usage: lane.sh --diff-size-check <worktree> <waiver-file>" >&2; exit 2; }
+  oversize_verdict "$2" "$3"; exit $?
 fi
 if [ "$CMD" = --worker-contract-check ]; then
   [ "$#" -eq 5 ] || { echo "usage: lane.sh --worker-contract-check <item> <mode> <worktree> <branch>" >&2; exit 2; }
@@ -554,8 +844,39 @@ cleanup() {
   for kid in $(pgrep -P $$ 2>/dev/null || true); do
     rsi_kill_tree "$kid"
   done
+  lane_release_host
   [ $FINISHED -eq 0 ] && python3 "$LANES_PY" finish "$N" --status crashed --note "lane.sh exited early"
   rm -rf "$LK"
+}
+
+# Host resources a worker left outside its own process tree are released the
+# same way on every exit: cleanup() calls this on failure and early exit, and
+# the success path calls it before `rm -rf "$LK"; trap - EXIT` (which disarms
+# cleanup). Both run it while $LK still exists so rsi_other_live_lane's
+# self-exclusion sees the same world.
+lane_release_host() {
+  # The pgid and parent-pid walks miss a child that left the worker's tree
+  # (setsid -> reparented to launchd, e.g. `expo start`): sweep anything still
+  # holding a working directory under the lane worktree. WT is set after this
+  # trap is armed, so guard for the early-exit path. Failures print "no verdict"
+  # inside rsi_reap_cwd and never turn the lane red.
+  if [ -n "${WT:-}" ]; then rsi_reap_cwd "$WT" || true; fi
+  # Simulators a worker booted are launchd-owned, never our children either.
+  # Shut down only the ones that were not booted when this lane launched — and
+  # only when no other live lane could still be using them.
+  if [ -f "$STATE/lanes/$N.sims-before" ]; then
+    other_live="$(rsi_other_live_lane "$LK")"
+    if [ -n "$other_live" ]; then
+      echo "left new simulators booted: lane ${other_live%.lock} is live" >&2
+    else
+      rsi_sim_shutdown_new "$STATE/lanes/$N.sims-before" || true
+    fi
+    rm -f "$STATE/lanes/$N.sims-before"
+  fi
+  # Hand back the simulator slot only while its pid file still names this lane:
+  # a slot another live lane reclaimed after this one died is theirs to release.
+  slot="${RSI_SIM_SLOT:-$STATE/.sim-slot}"
+  if [ "$(cat "$slot/pid" 2>/dev/null || true)" = "$$" ]; then rm -rf "$slot"; fi
 }
 trap cleanup EXIT
 finish() { FINISHED=1; python3 "$LANES_PY" finish "$N" --status "$1" --pr "${2:-}" --note "${3:-}"; }
@@ -599,7 +920,21 @@ if [ "$MODE" = rework ] || [ -d "$WT/.git" ] || [ -f "$WT/.git" ]; then
     echo "merge of origin/main left conflicts: $CONFLICT (worker must resolve and commit)"
   fi
 else
-  $GIT -C "$RSI_CTRL" worktree add "$WT" -b "$BR" origin/main >/dev/null 2>&1 || { finish failed "" "cannot create worktree $WT"; count_fail "lane $N" "worktree $WT"; exit 1; }
+  # A `worktree add -b` that half-fails leaves a local $BR with 0 commits and no worktree;
+  # every later dispatch then dies on `-b` (branch exists) forever — lane 2, rn-gate-timeout,
+  # 2026-11-25. Reuse the leftover only when it holds nothing of its own (0 commits ahead of
+  # origin/main): attach it, then fast-forward so the worktree sits on main. A branch with
+  # real commits, an unreadable count, or a failed retry keeps the failed path unchanged.
+  if ! $GIT -C "$RSI_CTRL" worktree add "$WT" -b "$BR" origin/main >/dev/null 2>&1; then
+    if $GIT -C "$RSI_CTRL" rev-parse --verify -q "refs/heads/$BR" >/dev/null \
+       && [ "$($GIT -C "$RSI_CTRL" rev-list --count "origin/main..$BR" 2>/dev/null || echo 1)" = 0 ] \
+       && $GIT -C "$RSI_CTRL" worktree add "$WT" "$BR" >/dev/null 2>&1 \
+       && $GIT -C "$WT" merge -q --ff-only origin/main >/dev/null 2>&1; then
+      echo "reusing leftover empty branch $BR"
+    else
+      finish failed "" "cannot create worktree $WT"; count_fail "lane $N" "worktree $WT"; exit 1
+    fi
+  fi
 fi
 BASE_N="$($GIT -C "$WT" rev-list --count origin/main..HEAD 2>/dev/null || echo 0)"
 bash "$RSI_DIR/runtime/prep-worktree.sh" "$WT" 2>&1 | tail -2
@@ -609,6 +944,16 @@ HDR="$STATE/lanes/$N.worker-brief.md"
 write_worker_brief > "$HDR"
 
 export BUDGET_GUARD="$LANE_BUDGET_USD" DISPATCH_MAX_SECS="$LANE_WORKER_SECS"
+# The xcrun shim (rsi/runtime/shim/xcrun) gives the machine's simulator to one
+# lane at a time: the slot dir names this lane so a second lane's `simctl boot`
+# waits instead of thrashing the host (2026-11-25: two RN lanes, load ~900).
+export RSI_LANE_PID=$$ RSI_LANE_N=$N RSI_SIM_SLOT="$STATE/.sim-slot"
+# Snapshot booted simulators before the worker can boot its own: cleanup shuts
+# down only the difference, so a simulator that was already up stays up. The
+# marker records a query that succeeded; without it cleanup leaves every
+# simulator alone rather than reading a failed snapshot as "nothing was up".
+rsi_sim_booted > "$STATE/lanes/$N.sims-before" \
+  && echo '#complete' >> "$STATE/lanes/$N.sims-before"
 W_START=$(date +%s)
 # Run the worker in its own process group so timeout/exit can reap vitest/go/node/agy.
 python3 -c 'import os,sys; os.setpgrp(); os.execvp(sys.argv[1], sys.argv[1:])' \
@@ -642,6 +987,23 @@ if [ "$MODE" != rework ] && [ "$AHEAD" -eq 0 ]; then
   [ $TIMEDOUT -eq 1 ] && count_timeout "lane $N ($SLUG)" "no commits; log ${LASTLOG##*/}" || count_fail "lane $N ($SLUG)" "no commits; ${LASTLOG##*/}"
   scorecard_row "$ITEM $SLUG (lane $N)" "$M_WORKER" "-" "no commits (rc=$WRC, ${W_MIN}m)" "-" "failed" "slice smaller"
   finish failed "" "worker produced no commits rc=$WRC after ${W_MIN}m"; exit 1
+fi
+
+# A committed lane is never stranded by a missing hand-off body: the worker can finish its code,
+# commit, and die before writing state/lanes/$SLUG.pr-body.md. Without a body the first
+# body-dependent seam below fails the round and the verified commit is never pushed (measured: a
+# ~1 h lane with green tests and red mutants ended `failed "" "claim check: ... no output"`, branch
+# unpushed, no PR). Write a clearly labelled partial body when the worker left none and let the
+# merge lane decide; a body the worker did write is never touched, and no commit means no body.
+PARTIAL_HANDOFF=0
+if [ "$AHEAD" -gt 0 ]; then
+  if HANDOFF_BODY="$(ensure_handoff_body "$STATE" "$N" "$ITEM" "$WT" "$GIT" "$SLUG")"; then
+    if [ "$HANDOFF_BODY" != "$STATUS_NOTE_FILE" ]; then
+      STATUS_NOTE_FILE="$HANDOFF_BODY"
+      PARTIAL_HANDOFF=1
+      echo "[$(date +%T)] partial hand-off: no worker body; using $STATUS_NOTE_FILE"
+    fi
+  fi
 fi
 
 # A new PR takes its title — and therefore the squash-merge subject on main —
@@ -685,6 +1047,20 @@ fi
 # rsi/runtime/claim_check.py is the merge gate's own rule. On a FAIL the branch stays committed
 # and clean: no push, no PR, and the worker fixes the body in its own session.
 CLAIM_RETRY_NOTE=""
+# The worker's body file is still writable while the lane runs, so the hand-off pins it first: one
+# private snapshot carries the bytes to the claim seam, the upload and the read-back, and the
+# original is never reopened. The retry below is the only later write, and it re-snapshots so a
+# legitimate mid-hand-off fix is proved rather than mistaken for a rewrite after the check.
+CLAIM_BODY_SOURCE="$STATUS_NOTE_FILE"
+CLAIM_BODY_SNAPSHOT="$STATE/lanes/$N.pr-body.snapshot.md"
+if ! claim_body_snapshot "$CLAIM_BODY_SOURCE" "$CLAIM_BODY_SNAPSHOT"; then
+  printf '%s\n' 'CLAIM_LANE_FAIL: cannot snapshot the hand-off body; not pushing' \
+    > "$STATE/lanes/$N.claim.txt"
+  finish failed "" "claim body: cannot snapshot the hand-off body (evidence: $STATE/lanes/$N.claim.txt)"
+  exit 1
+fi
+STATUS_NOTE_FILE="$CLAIM_BODY_SNAPSHOT"
+CLAIM_BODY_SHA="$(claim_body_sha "$STATUS_NOTE_FILE")"
 if ! CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; then
   [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
   # The retry is a general guard, not a fix for the 2026-11-23 incident: there the body was
@@ -698,14 +1074,22 @@ if ! CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1
   # contract is unchanged. A genuine body problem still fails: two runs, one sleep, no loop.
   CLAIM_ATTEMPTS="$STATE/lanes/$N.claim-attempts.txt"
   printf 'attempt 1: %s\n' "$(printf '%s' "${CLAIM_EV:-check produced no output}" | head -1)" > "$CLAIM_ATTEMPTS"
-  CLAIM_RETRY_SECS_USE="${RSI_CLAIM_RETRY_SECS:-1}"
-  case "$CLAIM_RETRY_SECS_USE" in ''|*[!0-9]*) CLAIM_RETRY_SECS_USE=1 ;; esac
+  CLAIM_RETRY_SECS_REQ="${RSI_CLAIM_RETRY_SECS:-1}"
+  case "$CLAIM_RETRY_SECS_REQ" in ''|*[!0-9]*) CLAIM_RETRY_SECS_REQ=1 ;; esac
+  CLAIM_RETRY_SECS_USE="$CLAIM_RETRY_SECS_REQ"
   [ "$CLAIM_RETRY_SECS_USE" -gt 5 ] && CLAIM_RETRY_SECS_USE=5
+  # The lane's own evidence of its bounded pause: requested vs used. A suite reads the clamp here
+  # instead of timing the sleep, so a loaded host cannot turn a green guard red, and the record
+  # still shows an unclamped pause (used=999s) when the clamp is removed.
+  printf 'retry pause: requested=%ss used=%ss\n' "$CLAIM_RETRY_SECS_REQ" "$CLAIM_RETRY_SECS_USE" >> "$CLAIM_ATTEMPTS"
   CLAIM_RETRY_OK=0
   if [ "$CLAIM_RETRY_SECS_USE" -gt 0 ]; then
     # The pause is bounded twice: by the clamp above and by bounded_run's own watchdog.
     bounded_run "$((CLAIM_RETRY_SECS_USE + 2))" sleep "$CLAIM_RETRY_SECS_USE" >/dev/null 2>&1 || true
-    # Re-read the body from disk; never reuse the first verdict.
+    # Re-snapshot the worker's body; never reuse the first verdict, and hash the bytes this read
+    # sees. A failed copy leaves the previous snapshot in place, so the re-check still fails closed.
+    claim_body_snapshot "$CLAIM_BODY_SOURCE" "$CLAIM_BODY_SNAPSHOT" || true
+    CLAIM_BODY_SHA="$(claim_body_sha "$STATUS_NOTE_FILE")"
     CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; CLAIM_RC=$?
     printf 'attempt 2: %s\n' "$(printf '%s' "${CLAIM_EV:-check produced no output}" | head -1)" >> "$CLAIM_ATTEMPTS"
     [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
@@ -738,14 +1122,83 @@ if ! RED_EV="$(bash "$SELF" --red-first-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; 
 fi
 [ -n "$RED_EV" ] && printf '%s\n' "$RED_EV"
 
+# A removed literal must not leave an untouched test or mutant anchor asserting it. The worker
+# runs this same seam first (worker_contract); this pass is authoritative. On RED the branch stays
+# committed and unpushed, and the verdict names the literal, the file it left and the asserting
+# path:line. NA is honest (nothing measurable) and does not stop the hand-off.
+if ! REMOVED_EV="$(bash "$SELF" --removed-literal-check "$WT" 2>&1)"; then
+  [ -n "$REMOVED_EV" ] && printf '%s\n' "$REMOVED_EV"
+  printf '%s\n' "${REMOVED_EV:-check produced no output}" > "$STATE/lanes/$N.removed-literal.txt"
+  REMOVED_NOTE="$(printf '%s' "$REMOVED_EV" | tr '\n' ' ' | sed 's/  */ /g')"
+  finish failed "" "removed literal: ${REMOVED_NOTE:-check produced no output} (evidence: $STATE/lanes/$N.removed-literal.txt)"
+  exit 1
+fi
+[ -n "$REMOVED_EV" ] && printf '%s\n' "$REMOVED_EV"
+
+# A locale rename hands off only when no untouched test still asserts the removed value. The
+# worker runs this same seam first (worker_contract); this pass is authoritative. A RED names the
+# value, the test file that still quotes it and the failing test line; the branch then stays
+# committed and unpushed, with the verdict under lanes/<n>.rename.txt like the claim record.
+if ! RENAME_EV="$(bash "$SELF" --renamed-copy-check "$WT" 2>&1)"; then
+  [ -n "$RENAME_EV" ] && printf '%s\n' "$RENAME_EV"
+  printf '%s\n' "${RENAME_EV:-check produced no output}" > "$STATE/lanes/$N.rename.txt"
+  RENAME_NOTE="$(printf '%s' "$RENAME_EV" | tr '\n' ' ' | sed 's/  */ /g')"
+  finish failed "" "renamed copy: ${RENAME_NOTE:-check produced no output} (evidence: $STATE/lanes/$N.rename.txt)"
+  exit 1
+fi
+[ -n "$RENAME_EV" ] && printf '%s\n' "$RENAME_EV"
+
+# The merge lane's 1000-line cap at the producer: an oversize PR is sent back as hold-size anyway
+# (44 done sendbacks say "split it"), so failing the lane here saves a gate slot and a rework
+# round. The branch stays committed and unpushed; the followups line is the next slice's brief.
+SIZE_EV="$(bash "$SELF" --diff-size-check "$WT" "$STATE/merge/$SLUG.size-ok" 2>&1)" || {
+  printf '%s\n' "$SIZE_EV"
+  printf -- '- %s %s rsi/%s: oversize (%s changed lines >1000). Split it: deliver the smallest green first slice, then re-queue the rest. CEO waiver: touch %s.\n' \
+    "$(date '+%F %H:%M')" "$ITEM" "$SLUG" "$(printf '%s' "$SIZE_EV" | awk '{print $2}')" "$STATE/merge/$SLUG.size-ok" >> "$STATE/followups.md"
+  finish failed "" "oversize $(printf '%s' "$SIZE_EV" | awk '{print $2}')>1000: split"
+  exit 1
+}
+[ -n "$SIZE_EV" ] && printf '%s\n' "$SIZE_EV"
+
+# The seam proved one file; the push must publish those same bytes. Everything from here on reads
+# the private snapshot taken before the seam, so a rewrite of the worker's original body can no
+# longer reach GitHub; this guard fails when the snapshot itself changed under the lane (a stray
+# writer, a truncated copy). Fail closed while the branch is unpushed so the worker fixes its own
+# body in its own session.
+if [ "$(claim_body_sha "$STATUS_NOTE_FILE")" != "${CLAIM_BODY_SHA:-}" ]; then
+  printf '%s\n' "CLAIM_LANE_FAIL: the hand-off body changed after the claim seam read it; not pushing" \
+    > "$STATE/lanes/$N.claim.txt"
+  finish failed "" "claim check: the hand-off body changed after the seam was read (evidence: $STATE/lanes/$N.claim.txt)"
+  exit 1
+fi
+
 # push + PR (normal push only)
-if ! $GIT -C "$WT" push -q -u origin "$BR" 2>"$STATE/lanes/$N.push.err"; then
-  count_fail "lane $N push" "$(tail -c 150 "$STATE/lanes/$N.push.err")"; finish failed "" "push failed"; exit 1
+# A transient transport failure must not throw away a finished round; git_push_retry retries
+# and looks at the remote head before pushing again (see lane-push.sh). A final failure leaves
+# the round committed and unpushed: mark it delivered-unpushed, record the recovery line for a
+# person, and charge no count_fail — a TLS blip is not a runner failure.
+if ! git_push_retry "$GIT" "$WT" "$BR" "$STATE/lanes/$N.push.err"; then
+  PUSH_SHA="$($GIT -C "$WT" rev-parse HEAD 2>/dev/null || true)"
+  PUSH_NOTE="$(unpushed_note "$BR" "${PUSH_SHA:-unknown}" "$WT")"
+  printf '%s\n' "$PUSH_NOTE" > "$STATE/lanes/$N.push.txt"
+  printf '%s\n' "$PUSH_NOTE"
+  finish delivered-unpushed "" "push failed after ${RSI_PUSH_ATTEMPTS_USED:-3} attempt(s): branch $BR at ${PUSH_SHA:-unknown} is committed and unpushed; recovery: git -C $WT push -u origin $BR"
+  exit 1
 fi
 PRN="$($GH pr list --repo "$GH_REPO" --head "$BR" --state open --json number --jq '.[0].number' 2>/dev/null)"
 if [ -z "$PRN" ]; then
   TITLE="$WORKER_TITLE"; [ -n "$TITLE" ] || TITLE="$($GIT -C "$WT" log -1 --format=%s origin/main..HEAD 2>/dev/null | head -1)"; TITLE="${TITLE:-chore(rsi): $ITEM $SLUG}"
   BODY="$STATUS_NOTE_FILE"; [ -s "$BODY" ] || { BODY="$STATE/lanes/$N.pr-body.fallback.md"; printf 'RSI lane %s, item %s.\n\nWorker summary:\n\n%s\n\nRSI item: %s\n' "$N" "$ITEM" "$(tail -c 3000 "$STATE/lanes/$N.worker.txt")" "$ITEM" > "$BODY"; }
+  # The PR body must be the bytes the claim seam hashed. The generated fallback is only legitimate
+  # when the seam had no body to read (a code-only PR whose worker died before writing one); a
+  # switched path or a snapshot changed since the seam is the body-it-uploads gap and must not
+  # reach GitHub.
+  if [ -n "${CLAIM_BODY_SHA:-}" ] && [ "$(claim_body_sha "$BODY")" != "$CLAIM_BODY_SHA" ]; then
+    printf '%s\n' 'CLAIM_LANE_FAIL: the body uploaded differs from the body the claim seam read; PR not opened' \
+      > "$STATE/lanes/$N.claim.txt"
+    finish failed "" "claim check: the body uploaded differs from the body the seam read (evidence: $STATE/lanes/$N.claim.txt)"
+    exit 1
+  fi
   # A transient GitHub failure must not throw away a finished round; the helper
   # retries and checks whether the PR already exists (see lane-pr.sh).
   if ! PRURL="$(gh_pr_create "$GH_REPO" main "$BR" "$TITLE" "$BODY" 2>"$STATE/lanes/$N.pr.err")"; then
@@ -757,7 +1210,17 @@ if [ -z "$PRN" ]; then
   PRN="$(echo "$PRURL" | sed -n 's#.*/pull/\([0-9]*\).*#\1#p')"
 else
   PRURL="https://github.com/$GH_REPO/pull/$PRN"
-  if [ -s "$STATUS_NOTE_FILE" ] && [ "$STATUS_NOTE_FILE" -nt "$HDR" ]; then
+  # Always publish the snapshot the seam checked. The old `-nt $HDR` skip left GitHub's previous
+  # body in place whenever the local body predated the lane header (a rework carrying an earlier
+  # round's body, clock skew), so the merge lane read a body no seam had passed — exactly the
+  # "body it uploads" gap. A failed edit is still only logged; the read-back below decides.
+  if [ -s "$STATUS_NOTE_FILE" ]; then
+    if [ -n "${CLAIM_BODY_SHA:-}" ] && [ "$(claim_body_sha "$STATUS_NOTE_FILE")" != "$CLAIM_BODY_SHA" ]; then
+      printf '%s\n' 'CLAIM_LANE_FAIL: the hand-off body changed after the claim seam read it; live body not replaced' \
+        > "$STATE/lanes/$N.claim.txt"
+      finish failed "" "claim check: the hand-off body changed after the seam was read (evidence: $STATE/lanes/$N.claim.txt)"
+      exit 1
+    fi
     bounded_run 10 "$GH" pr edit "$PRN" --repo "$GH_REPO" --body-file "$STATUS_NOTE_FILE" \
       >"$STATE/lanes/$N.pr-edit.log" 2>&1; PR_EDIT_RC=$?
     if [ "$PR_EDIT_RC" -ne 0 ]; then
@@ -783,9 +1246,22 @@ fi
 [ -n "$PR_BODY_EV" ] && printf '%s\n' "$PR_BODY_EV"
 [ "$MODE" = rework ] && mkdir -p "$STATE/sendback/done" && mv "$STATE/sendback/$SLUG.md" "$STATE/sendback/done/$SLUG-$(date +%H%M%S).md" 2>/dev/null
 
+# A partial hand-off is not a runner failure: the branch was committed and pushed, and the merge
+# lane owns the verdict. It is recorded in both notes so a reader knows the body is generated.
+PARTIAL_NOTE=""
+# ${...:-0}: hermetic suites execute this tail out of context under set -u, without the block
+# above that defines the flag.
+[ "${PARTIAL_HANDOFF:-0}" -eq 1 ] && PARTIAL_NOTE="partial hand-off (fallback body)"
 if [ $TIMEDOUT -eq 1 ]; then count_timeout "lane $N ($SLUG)" "partial work pushed as PR #$PRN"; else count_ok; fi
-scorecard_row "$ITEM $SLUG (lane $N, $MODE)" "$M_WORKER" "pending (merge lane)" "PR opened (${W_MIN}m, \$${COST:-?})$([ $TIMEDOUT -eq 1 ] && echo ', worker hit watchdog')" "[#$PRN]($PRURL)" "pending" "-"
-finish done "$PRN" "PR #$PRN ${W_MIN}m \$${COST:-?} swept=$SWEPT_N${CLAIM_RETRY_NOTE:+ · $CLAIM_RETRY_NOTE}"
+scorecard_row "$ITEM $SLUG (lane $N, $MODE)" "$M_WORKER" "pending (merge lane)" "PR opened (${W_MIN}m, \$${COST:-?})$([ $TIMEDOUT -eq 1 ] && echo ', worker hit watchdog')${PARTIAL_NOTE:+, $PARTIAL_NOTE}" "[#$PRN]($PRURL)" "pending" "-"
+# Release host resources BEFORE the lane is advertised as done: `finish done`
+# makes lanes.py report the lane idle, and the sweep/shutdown just below can take up
+# to 20 s (lsof). In that window merge.sh no longer skips this PR — it could
+# start a verifier in this worktree and have its git/claim-check children reaped
+# by rsi_reap_cwd — and a pulse could claim the still-locked lane for 25 min.
+# cleanup() keeps the same invariant: release, then mark the lane crashed.
+lane_release_host
+finish done "$PRN" "PR #$PRN ${W_MIN}m \$${COST:-?} swept=$SWEPT_N${CLAIM_RETRY_NOTE:+ · $CLAIM_RETRY_NOTE}${PARTIAL_NOTE:+ · $PARTIAL_NOTE}"
 echo "[$(date +%T)] lane $N done PR #$PRN"
 rm -rf "$LK"; trap - EXIT
 

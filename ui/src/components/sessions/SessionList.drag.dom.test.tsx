@@ -225,26 +225,33 @@ describe("keyboard reorder", () => {
   });
 
   it("does not move the last drawn row of a truncated project out of the slice", async () => {
-    // Six rows, five drawn: row "f" sits behind "Show all". Moving "e" past it
-    // would hide "e" from the drawn slice and drop keyboard focus to <body>,
+    // Eleven rows, ten drawn: row "k" sits behind "Show all". Moving "j" past
+    // it would hide "j" from the drawn slice and drop keyboard focus to <body>,
     // so the move clamps at the last row actually on screen.
     fixtures.tasks = [
-      task("a", 60),
-      task("b", 50),
-      task("c", 40),
-      task("d", 30),
-      task("e", 20),
-      task("f", 10),
+      task("a", 110),
+      task("b", 100),
+      task("c", 90),
+      task("d", 80),
+      task("e", 70),
+      task("f", 60),
+      task("g", 50),
+      task("h", 40),
+      task("i", 30),
+      task("j", 20),
+      task("k", 10),
     ];
     mount();
-    await waitFor(() => expect(order()).toEqual(["a", "b", "c", "d", "e"]));
-    row("e").focus();
+    await waitFor(() =>
+      expect(order()).toEqual(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]),
+    );
+    row("j").focus();
 
-    fireEvent.keyDown(row("e"), { key: "ArrowDown", altKey: true });
+    fireEvent.keyDown(row("j"), { key: "ArrowDown", altKey: true });
 
-    expect(order()).toEqual(["a", "b", "c", "d", "e"]);
+    expect(order()).toEqual(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]);
     expect(getTaskOrder()).toEqual({});
-    expect((document.activeElement as HTMLElement | null)?.dataset.sessionRow).toBe("e");
+    expect((document.activeElement as HTMLElement | null)?.dataset.sessionRow).toBe("j");
   });
 
   it("Alt+Arrow does nothing while a search query is active or in the archived scope", async () => {
@@ -491,7 +498,16 @@ describe("pointer reorder", () => {
       task("x", 9, false, "/work/beta"),
       task("y", 8, false, "/work/beta"),
     ];
+    // Keep Alpha open across the manual expand of Beta: a remembered fold is
+    // an opinion about the whole list, so opening Beta would otherwise fold
+    // the project that carries none (KIN-CONTINUE-007, step 3).
+    localStorage.setItem(
+      "kin_session_folds",
+      JSON.stringify({ "mac-1::/work/alpha": true, "mac-1::/work/beta": false }),
+    );
     mount();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    fireEvent.click(screen.getByRole("button", { name: "Expand project beta" }));
     await waitFor(() => expect(order()).toHaveLength(5));
     vi.useFakeTimers();
 

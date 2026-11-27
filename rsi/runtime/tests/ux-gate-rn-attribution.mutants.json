@@ -1,0 +1,23 @@
+[
+  {
+    "label": "mobile-rn/ removed from the gate's not_surface(): an RN screen beside the shared renderer fails the attribution closed, so an unrelated J12 red convicts the PR",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_mixed_rn_renderer_is_not_convicted_by_an_unrelated_journey bash rsi/runtime/tests/test-ux-gate-rn-attribution.sh",
+    "old": "def not_surface(path):\n    return path.startswith((\"docs/\", \"rsi/\", \"scripts/\", \"web/\", \"mobile-rn/\")) or path.endswith(\".md\")",
+    "new": "def not_surface(path):\n    return path.startswith((\"docs/\", \"rsi/\", \"scripts/\", \"web/\")) or path.endswith(\".md\")"
+  },
+  {
+    "label": "the shared markdown renderer's journeys.json row removed: a Markdown.tsx change falls through to every journey, and the walker's mixed selection walks all 17 again",
+    "file": "rsi/runtime/ux/journeys.json",
+    "test": "RSI_TEST_ONLY=test_mixed_changed_file_list_selects_only_the_renderer_journeys bash rsi/runtime/tests/test-ux-gate-rn-attribution.sh",
+    "old": "    [\"ui/src/components/Markdown.tsx|ui/src/lib/markdownInline.ts\", [\"J2\", \"J3\", \"J9\", \"J11\", \"J12\", \"J13\", \"J14\", \"J16\", \"J17\"]],",
+    "new": ""
+  },
+  {
+    "label": "the RN attribution suite unwired from check.sh: the guard lands with no gate job that runs it (AGENTS §12)",
+    "file": "scripts/check.sh",
+    "test": "RSI_TEST_ONLY=test_check_sh_names_this_suite bash rsi/runtime/tests/test-ux-gate-rn-attribution.sh",
+    "old": "  bash rsi/runtime/tests/test-ux-gate-rn-attribution.sh || return 1",
+    "new": ""
+  }
+]

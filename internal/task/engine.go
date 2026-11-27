@@ -2157,7 +2157,7 @@ func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) 
 func (e *Engine) cancelUnstarted(ctx context.Context, id string) (store.Task, error) {
 	now := e.nowMilli()
 	e.mu.Lock()
-	err := e.store.FinishTask(ctx, id, StatusCanceled, now, nil, nil, true /*allowQueued*/)
+	settled, err := e.store.FinishTask(ctx, id, StatusCanceled, now, nil, nil, true /*allowQueued*/)
 	var undelivered string
 	if err == nil {
 		// The run this task was waiting for never started, so nothing answered the
@@ -2181,7 +2181,7 @@ func (e *Engine) cancelUnstarted(ctx context.Context, id string) (store.Task, er
 		e.reportUndelivered(ctx, id, fmt.Errorf("the queued message %s could not be delivered: %w",
 			undelivered, store.ErrTaskCanceled))
 	}
-	return e.publishFinishedTask(ctx, id, StatusCanceled)
+	return e.publishFinishedTask(ctx, id, StatusCanceled, settled)
 }
 
 // Delete permanently removes a task and its history after canceling any
@@ -3432,13 +3432,23 @@ func (e *Engine) finishTask(
 	allowQueued bool,
 ) (store.Task, error) {
 	now := e.nowMilli()
-	if err := e.store.FinishTask(ctx, id, status, now, exitCode, cost, allowQueued); err != nil {
+	settled, err := e.store.FinishTask(ctx, id, status, now, exitCode, cost, allowQueued)
+	if err != nil {
 		return store.Task{}, err
 	}
-	return e.publishFinishedTask(ctx, id, status)
+	return e.publishFinishedTask(ctx, id, status, settled)
 }
 
-func (e *Engine) publishFinishedTask(ctx context.Context, id, status string) (store.Task, error) {
+// publishFinishedTask publishes a task whose terminal status is already
+// committed, together with the decisions that transition settled. The decision
+// rows were written in the same store transaction as the status, so a reader
+// that can observe the ended task can never read its pending row; this only
+// announces them -- unblocking the long-polls and writing the event that keeps
+// the transcript's audit trail whole.
+func (e *Engine) publishFinishedTask(
+	ctx context.Context, id, status string, settled store.SettledDecisions,
+) (store.Task, error) {
+	e.announceSettledDecisions(ctx, settled)
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
 		return store.Task{}, err
@@ -3466,7 +3476,7 @@ func (e *Engine) finishRun(
 		return store.Task{}, store.ErrConflict
 	}
 	now := e.nowMilli()
-	err := e.store.FinishTask(ctx, id, status, now, exitCode, cost, false)
+	settled, err := e.store.FinishTask(ctx, id, status, now, exitCode, cost, false)
 	if err == nil && e.activeRuns[id] == executionID {
 		delete(e.activeRuns, id)
 	}
@@ -3474,7 +3484,7 @@ func (e *Engine) finishRun(
 	if err != nil {
 		return store.Task{}, err
 	}
-	return e.publishFinishedTask(ctx, id, status)
+	return e.publishFinishedTask(ctx, id, status, settled)
 }
 
 // finishRunWithReport ends the run exactly as finishRun does. When reason names
@@ -3519,7 +3529,7 @@ func (e *Engine) finishRunWithReport(
 	if report.Written() {
 		e.bus.PublishEvent(report.Event)
 	}
-	t, err := e.publishFinishedTask(ctx, id, status)
+	t, err := e.publishFinishedTask(ctx, id, status, report.Settled)
 	return t, report.AfterID, err
 }
 
@@ -3535,7 +3545,7 @@ func (e *Engine) finishQueuedRun(
 		return store.Task{}, store.ErrConflict
 	}
 	now := e.nowMilli()
-	err := e.store.FinishTask(ctx, id, status, now, exitCode, cost, true)
+	settled, err := e.store.FinishTask(ctx, id, status, now, exitCode, cost, true)
 	if err == nil && e.activeRuns[id] == executionID {
 		delete(e.activeRuns, id)
 	}
@@ -3543,7 +3553,7 @@ func (e *Engine) finishQueuedRun(
 	if err != nil {
 		return store.Task{}, err
 	}
-	return e.publishFinishedTask(ctx, id, status)
+	return e.publishFinishedTask(ctx, id, status, settled)
 }
 
 // ErrTerminal is returned when canceling a finished task.

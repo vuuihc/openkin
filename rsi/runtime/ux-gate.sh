@@ -25,9 +25,9 @@
 # web/dist/ and the copy-only locales catch-all excluded. Unattributable reproductions are printed,
 # saved to state/ux/<slug>/outside.txt and counted in confirm.summary as evidence, not blocked,
 # and the reviewer prompt names them as evidence about the product rather than about this PR. An
-# unreadable spec, an unmatched path that is not documentation or loop plumbing (docs/, rsi/,
-# scripts/, web/, *.md) or an empty union fails closed: every reproduced red convicts, exactly as
-# before this rule.
+# unreadable spec, an unmatched path that is not documentation, loop plumbing or the RN client
+# (docs/, rsi/, scripts/, web/, mobile-rn/, *.md) or an empty union fails closed: every reproduced
+# red convicts, exactly as before this rule.
 set -u
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 if [ -n "${RSI_UX_STATE:-}" ]; then STATE="$RSI_UX_STATE"; export RSI_STATE="$STATE"; fi
@@ -147,8 +147,10 @@ if [ -n "$HARD" ]; then
     # almost every UI PR walked the whole product and a pre-existing red anywhere was billed to it:
     # #585 scored 4/4/4/4/4 PASS with every reported hard-fail outside /routines and was still sent
     # back. Same rule as the walker (first paths row whose `|`-separated alternative is a prefix
-    # wins), read from the branch's own journeys.json. Test files, manifests and web/dist/ are not
-    # rendered surfaces; the copy-only locales row selects journeys for walking, not conviction.
+    # wins), read from the branch's own journeys.json. Test files, manifests, web/dist/ and the
+    # RN client's mobile-rn/ are not rendered surfaces; the copy-only locales row selects journeys
+    # for walking, not conviction. An RN screen cannot draw a console journey, so it never enters
+    # the union (R-ux-rn-attribution, 2026-11-27); every other unmatched surface still does.
     # Any unreadable spec, unmatched path outside documentation/loop plumbing, or empty union
     # fails closed to today's rule: every reproduced red convicts. Unattributable reproductions
     # are still printed, saved and counted, never silently dropped.
@@ -180,12 +182,17 @@ def skipped(path):
         return True
     # *.test.ts(x), *.dom.test.tsx, *.test.py, *.spec.*, *.mutants.json
     return bool(re.search(r"\.(test\.[A-Za-z0-9]+|test\.py|spec\.[A-Za-z0-9]+|mutants\.json)$", path))
-# Documentation and loop plumbing are not rendered surfaces and cannot reach a journey. Every
-# other path with no row falls back to journeys.json's own "no match = all journeys", so it can:
-# an `internal/api/...` change beside a routines page may have caused the red the walk filed
-# as outside, and freeing it would merge a real regression.
+# Documentation and loop plumbing are not rendered surfaces and cannot reach a journey.
+# mobile-rn/ is the Expo client: it renders no console route, so an RN change cannot cause a
+# web-console journey's red and cannot close the union (R-ux-rn-attribution, 2026-11-27: #822's
+# RN screen beside the shared Markdown.tsx closed the union on `mobile-rn/...`, walked all 17
+# journeys, and billed J12's list-order artefact to a diff that cannot reach it). Its proof is
+# scripts/check.sh's mobile-rn job, not this walk. Every other path with no row falls back to
+# journeys.json's own "no match = all journeys", so it can: an `internal/api/...` change beside a
+# routines page may have caused the red the walk filed as outside, and freeing it would merge a
+# real regression.
 def not_surface(path):
-    return path.startswith(("docs/", "rsi/", "scripts/", "web/")) or path.endswith(".md")
+    return path.startswith(("docs/", "rsi/", "scripts/", "web/", "mobile-rn/")) or path.endswith(".md")
 union = set()
 for path in files:
     if skipped(path):
@@ -249,7 +256,7 @@ PY
       # green first walk keep their old cost.
       VAR_PENDING=""; VS="not-needed"; C2SN=""; CHARD2=""
       python3 - "$HARD" "$CHARD" "$ATTR_OUT" "$UXD/variant.pending" <<'PY'
-import re, sys
+import json, re, sys
 orig = set(l for l in sys.argv[1].splitlines() if l)
 raw = sys.argv[3].strip()
 attr = None
@@ -265,9 +272,36 @@ def journey(line):
         return m.group(1)
     m = re.match(r"^(J[0-9]+)-", line)
     return m.group(1) if m else ""
+def comparable(line):
+    if ": rows " not in line or " are [" not in line or "], want [" not in line:
+        return line
+    head, rest = line.split(" are ", 1)
+    marker = "], want ["
+    mid = rest.find(marker)
+    if mid < 0:
+        return line
+    try:
+        are = json.loads(rest[:mid + 1])
+        want = json.loads(rest[mid + len("], want "):])
+    except (TypeError, ValueError):
+        return line
+    if not isinstance(are, list) or not isinstance(want, list):
+        return line
+    if any(not isinstance(token, str) or not token for token in want) or len(set(want)) != len(want):
+        return line
+    if any(i != j and token in other for i, token in enumerate(want) for j, other in enumerate(want)):
+        return line
+    order = []
+    for row in are:
+        if not isinstance(row, str):
+            continue
+        hits = [i for i, token in enumerate(want) if isinstance(token, str) and token in row]
+        order.extend(hits)
+    return head + " are <wanted-token-order " + json.dumps(order, separators=(",", ":")) + "> want " + json.dumps(want, ensure_ascii=False, separators=(",", ":"))
+orig_keys = set(comparable(l) for l in orig)
 with open(sys.argv[4], "w") as f:
     for line in sys.argv[2].splitlines():
-        if not line or line in orig:
+        if not line or comparable(line) in orig_keys:
             continue
         j = journey(line)
         if j and (attr is None or j in attr):
@@ -303,6 +337,32 @@ PY
 import json, os, re, sys
 orig = [l for l in sys.argv[1].splitlines() if l]
 conf = [l for l in sys.argv[2].splitlines() if l]
+def comparable(line):
+    if ": rows " not in line or " are [" not in line or "], want [" not in line:
+        return line
+    head, rest = line.split(" are ", 1)
+    marker = "], want ["
+    mid = rest.find(marker)
+    if mid < 0:
+        return line
+    try:
+        are = json.loads(rest[:mid + 1])
+        want = json.loads(rest[mid + len("], want "):])
+    except (TypeError, ValueError):
+        return line
+    if not isinstance(are, list) or not isinstance(want, list):
+        return line
+    if any(not isinstance(token, str) or not token for token in want) or len(set(want)) != len(want):
+        return line
+    if any(i != j and token in other for i, token in enumerate(want) for j, other in enumerate(want)):
+        return line
+    order = []
+    for row in are:
+        if not isinstance(row, str):
+            continue
+        hits = [i for i, token in enumerate(want) if isinstance(token, str) and token in row]
+        order.extend(hits)
+    return head + " are <wanted-token-order " + json.dumps(order, separators=(",", ":")) + "> want " + json.dumps(want, ensure_ascii=False, separators=(",", ":"))
 journeys = sys.argv[3]
 # Which journeys this PR's diff can reach (1b0). Anything but a parsed set — including a helper
 # that could not read the spec — keeps every reproduced red: fail closed, never free a red.
@@ -327,19 +387,19 @@ def in_scope(line):
 # the one definition of what bills. An unavailable second sample convicts every pending variant.
 pending = [l for l in sys.argv[13].splitlines() if l]
 vsample = sys.argv[14].strip()
-seen2 = set(l for l in sys.argv[15].splitlines() if l)
+seen2_keys = set(comparable(l) for l in sys.argv[15].splitlines() if l)
 if vsample == "ok":
-    variant_convicted = [l for l in pending if l in seen2]
-    variant = [l for l in pending if l not in seen2]
+    variant_convicted = [l for l in pending if comparable(l) in seen2_keys]
+    variant = [l for l in pending if comparable(l) not in seen2_keys]
 else:
     # fail closed: an unavailable second sample keeps the variant conviction
     variant_convicted = list(pending)
     variant = []
-pending_set = set(variant)
-conf = [l for l in conf if l not in pending_set]
-conf_set = set(conf)
-reproduced = [l for l in orig if journey(l) and l in conf_set]
-flaked = [l for l in orig if journey(l) and l not in conf_set]
+pending_keys = set(comparable(l) for l in variant)
+conf = [l for l in conf if comparable(l) not in pending_keys]
+conf_keys = set(comparable(l) for l in conf)
+reproduced = [l for l in orig if journey(l) and comparable(l) in conf_keys]
+flaked = [l for l in orig if journey(l) and comparable(l) not in conf_keys]
 unattributed = [l for l in orig if not journey(l)]
 # A reproduced (or new) confirm failure on a journey this diff cannot reach is evidence, not a
 # blocking reason: printed, saved to outside.txt and counted, exactly like the flaked list. A line

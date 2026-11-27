@@ -1,0 +1,23 @@
+[
+  {
+    "label": "the search clear drops back to 28px on a finger",
+    "file": "ui/src/components/ui/Menu.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/Menu.dom.test.tsx",
+    "old": "                className={\n                  coarse\n                    ? \"h-11 w-11 flex-none rounded-full p-0\"\n                    : \"h-7 w-7 flex-none rounded-full p-0\"\n                }",
+    "new": "                className=\"h-7 w-7 flex-none rounded-full p-0\""
+  },
+  {
+    "label": "the menu rows drop back to 36px on a finger",
+    "file": "ui/src/components/ui/Menu.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/Menu.dom.test.tsx",
+    "old": "              `flex ${coarse ? \"min-h-11\" : \"min-h-9\"} w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-body transition-colors`,",
+    "new": "              `flex min-h-9 w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-body transition-colors`,"
+  },
+  {
+    "label": "the search clear's only floor is the removed phone-width rule",
+    "file": "ui/src/components/ui/Menu.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/ui/Menu.dom.test.tsx",
+    "old": "                className={\n                  coarse\n                    ? \"h-11 w-11 flex-none rounded-full p-0\"\n                    : \"h-7 w-7 flex-none rounded-full p-0\"\n                }",
+    "new": "                className=\"h-7 w-7 flex-none rounded-full p-0 max-sm:min-w-11\""
+  }
+]
