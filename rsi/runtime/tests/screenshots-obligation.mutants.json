@@ -3,8 +3,15 @@
     "label": "rn-arm-dropped: a phone-only screen change reaches the gate uncaptured again",
     "file": "rsi/runtime/screenshots-obligation.sh",
     "test": "bash rsi/runtime/tests/test-screenshots-obligation.sh",
-    "old": "RN_VIS=\"$(grep -E '^mobile-rn/(src/screens|src/native|app)/.*\\.tsx$' \"$PATHS\" 2>/dev/null | grep -vE '\\.(test|spec|mutants)\\.' || true)\"",
+    "old": "RN_VIS=\"$(grep -E '^mobile-rn/(src|app)/.*\\.tsx$' \"$PATHS\" 2>/dev/null | grep -vE '\\.(test|spec|mutants)\\.' || true)\"",
     "new": "RN_VIS=\"\""
+  },
+  {
+    "label": "layout-family-dropped: a src/layout primitive misses the matcher again (the rn-layout-screenshot-arm hole)",
+    "file": "rsi/runtime/screenshots-obligation.sh",
+    "test": "bash rsi/runtime/tests/test-screenshots-obligation.sh",
+    "old": "RN_VIS=\"$(grep -E '^mobile-rn/(src|app)/.*\\.tsx$' \"$PATHS\" 2>/dev/null | grep -vE '\\.(test|spec|mutants)\\.' || true)\"",
+    "new": "RN_VIS=\"$(grep -E '^mobile-rn/(src/screens|src/native|app)/.*\\.tsx$' \"$PATHS\" 2>/dev/null | grep -vE '\\.(test|spec|mutants)\\.' || true)\""
   },
   {
     "label": "invisibility-arm-dropped: \"none: not visible\" passes on a phone change (the rn-approval-dock major)",
