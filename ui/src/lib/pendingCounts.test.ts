@@ -24,14 +24,14 @@ function question(id: string, taskId: string): UserQuestion {
 }
 
 describe("pendingCountsByTask", () => {
-  it("counts approvals and questions together on the conversation that owns them", () => {
+  it("names the kind each conversation waits on", () => {
     const counts = pendingCountsByTask({
       approvals: [approval("a1", "task-1"), approval("a2", "task-2"), approval("a3", "task-1")],
       questions: [question("q1", "task-1")],
     });
 
-    expect(counts.get("task-1")).toBe(3);
-    expect(counts.get("task-2")).toBe(1);
+    expect(counts.get("task-1")).toEqual({ approvals: 2, questions: 1, total: 3 });
+    expect(counts.get("task-2")).toEqual({ approvals: 1, questions: 0, total: 1 });
     expect(counts.size).toBe(2);
   });
 

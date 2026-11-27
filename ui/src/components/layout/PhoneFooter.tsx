@@ -37,7 +37,7 @@ export default function PhoneFooter() {
   const pending = usePendingResources();
   const waiting = useMemo(() => {
     let total = 0;
-    for (const count of pendingCountsByTask(pending.data).values()) total += count;
+    for (const count of pendingCountsByTask(pending.data).values()) total += count.total;
     return total;
   }, [pending.data]);
   // Agent Ops lives on the settings page as a tab, so the pathname alone cannot

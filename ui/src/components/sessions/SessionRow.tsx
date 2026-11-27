@@ -9,6 +9,7 @@ import {
 import { useT } from "../../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
 import { isImeKeyEvent } from "../../lib/ime";
+import type { PendingCounts } from "../../lib/pendingCounts";
 import type { PhoneSessionRow } from "../../lib/phoneSessionBuckets";
 import { formatRelativeTime } from "../../lib/relativeTime";
 import { rowSelectable } from "../../lib/sessionSelection";
@@ -66,7 +67,11 @@ export type SessionRowProps = {
   query: string;
   now: number;
   viewedIds: ReadonlySet<string>;
-  pendingCount: number;
+  /** What this conversation waits on, by kind. The row names the kind instead
+   *  of folding both into one number: an approval and a question are different
+   *  waits (TASTE 18), and a questions-only row that said "awaiting approval"
+   *  claimed an approval that did not exist. */
+  pending: PendingCounts;
   active: boolean;
   onOpen: () => void;
   shell: "sidebar" | "page";
@@ -105,7 +110,7 @@ export default function SessionRow({
   deviceLabel,
   now,
   viewedIds,
-  pendingCount,
+  pending,
   active,
   onOpen,
   shell,
@@ -164,26 +169,37 @@ export default function SessionRow({
   const agent = agentDisplayName(row.agentId);
   const at = formatRelativeTime(row.at, now);
   const statusView = row.task ? taskCardStatusView(row.task.status) : null;
+  const taskStatus =
+    statusView?.tone === "approval"
+      ? tr(
+          row.task?.status === "waiting_input"
+            ? "sessions.statusWaitingInput"
+            : "sessions.statusWaitingApproval",
+        )
+      : statusView?.tone === "running"
+        ? tr("sessions.statusRunning")
+        : statusView?.tone === "failed"
+          ? tr("sessions.statusFailed")
+          : routineRun
+            ? tr("sessions.routineRun")
+            : statusView?.tone === "completed"
+              ? tr("sessions.statusSucceeded")
+              : statusView?.tone === "canceled"
+                ? tr("sessions.statusCanceled")
+                : "";
+  // A waiting count names the kind it counts: approvals-only keeps the signed
+  // 「待批准 N」 (KIN-CONTINUE-007), questions-only says 「待回答 N」, and both
+  // kinds say the neutral count the nav badge already uses. A pending item is
+  // authoritative while a status lags behind it, so it wins over the task
+  // status above.
   const status =
-    pendingCount > 0
-      ? tr("sessions.statusPendingCount", { count: String(pendingCount) })
-      : statusView?.tone === "approval"
-        ? tr(
-            row.task?.status === "waiting_input"
-              ? "sessions.statusWaitingInput"
-              : "sessions.statusWaitingApproval",
-          )
-        : statusView?.tone === "running"
-          ? tr("sessions.statusRunning")
-          : statusView?.tone === "failed"
-            ? tr("sessions.statusFailed")
-            : routineRun
-              ? tr("sessions.routineRun")
-              : statusView?.tone === "completed"
-                ? tr("sessions.statusSucceeded")
-                : statusView?.tone === "canceled"
-                  ? tr("sessions.statusCanceled")
-                  : "";
+    pending.total === 0
+      ? taskStatus
+      : pending.approvals > 0 && pending.questions === 0
+        ? tr("sessions.statusPendingCount", { count: String(pending.approvals) })
+        : pending.questions > 0 && pending.approvals === 0
+          ? tr("sessions.statusPendingQuestions", { count: String(pending.questions) })
+          : tr("sessions.pendingApprovals", { count: String(pending.total) });
   // The row's second line says who ran it, when, and one status; a pinned row
   // additionally names its machine, because pinning lifts it out of the device
   // heading that says it for every other row. In the 304px column the line is
