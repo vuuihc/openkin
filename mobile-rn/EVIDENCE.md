@@ -1,12 +1,11 @@
 # KIN-MOBILE-001 证据：RN 客户端的代码复核与历史模拟器画面
 
-**结论：2026-11-28 本轮有 9 张画面：390 五张（列表、对话、审批、用量亮色，
-对话暗色），820 四张（列表、对话的亮色与暗色）；其中 820 列表暗色是缺陷修复前的
-证据，不是当前画面。820 亮色对话显示 `[seed] reading`
-的长回答与五行 GFM 表格（`Surface` / `Before` / `After` 可见，`Owner` 列在横向
-滚动区）；820 暗色对话确为暗色主题。820 列表暗色同时暴露的右侧空阅读栏亮色缺陷
-（§已知 D4）已在本轮修复：分栏根节点画上主题背景，代码与测试已绿，820 暗色重拍
-待下一轮证据。未拍的格子见 §截图的缺口行。下方
+**结论：2026-11-28 复拍轮有 8 张当前画面（复拍提交 `3156ad74`）：390 四张
+（列表、对话的亮色与暗色），820 四张（列表、对话的亮色与暗色）。820 暗色列表的
+右侧空阅读栏已是暗色——§已知 D4 的亮色缺陷已修复，并由此图复核；820 亮色与暗色
+对话显示 `[seed] reading` 的长回答与五行 GFM 表格（`Surface` / `Before` / `After`
+可见，`Owner` 列在横向滚动区），末行句子在两种外观下都完整可读。同日早先的九张
+（`cc9c2d78`）保留为历史，其中 820 暗色列表是修复前证据，其余仍是同日画面。下方
 2026-11-26 与 `14918d30` 的表仍是历史，不证明当前画面或真机表现。**
 
 ## 这次运行
@@ -24,6 +23,18 @@
 | 本轮截图目录 | `rsi/state/shots/rn-evidence-capture/`（本地，不入库；9 张 PNG） |
 | 390 五张的来源 | 同日早些时候的上一次尝试（模拟器时钟 16:17–16:24）；本次逐张复看像素、外观与画面 |
 | 历史截图 | 2026-11-26 两张在 `rsi/state/shots/rn-evidence-refresh/`；`14918d30` 八张在 `rsi/state/shots/rn-sim-evidence/`，均不作当前证据 |
+
+### 2026-11-28 复拍（D4 修复后）
+
+| 项 | 值 |
+|---|---|
+| 日期 | 2026-11-28（主机日期；模拟器时钟 07:08–07:13） |
+| 复拍提交 | `3156ad74`（`rsi/rn-dark-split-pane` 分支 HEAD；产品修复 `b1770fad`，本文件是紧随其后的仅文档提交） |
+| 方式 | Expo Go 58.0.7 + Metro 离线（8081）；一次性 `kin serve --port 58029`（`mktemp` 状态目录）；`scripts/journeys_seed.py` 以 fake agent 在 `PATH` 首位运行（`created 24, existing 0, skipped 1`）；另经 `POST /api/tasks` 建 `[seed] reading`（`succeeded`）。Maestro 驱动配对、`exp://127.0.0.1:8081/--/thread/<id>` 深链与滚动；未启动或读取 `:7777`、`~/.kin` |
+| 配对 | `POST /api/pairing/sessions` 铸一次性 secret，换设备令牌后以 `http://127.0.0.1:58030/pair?token=<device token>` 输入；令牌不入图、不入库 |
+| 设备 | iPad Air 11-inch (M4)（820×1180 逻辑，1640×2360）；iPhone 17e（390×844 逻辑，1170×2532）；iOS 27.2；一次只启动一台 |
+| 内存 | 复拍前 `mem_avail_mb=4907–6157`、`swap_free_mb=1198–1439`；低于本行 brief 的 6144 / 2048 门槛，按 review 要求复拍并逐张复看像素与外观，模拟器未崩溃 |
+| 本轮截图目录 | `rsi/state/shots/rn-dark-split-pane/`（本地，不入库；8 张 PNG） |
 
 以下命令来自 2026-11-26 的基线复核，不是本次 820 走查的重跑结果；本行不改产品
 代码，只更新证据文档与截图。`--no-install` 使用已有依赖，Jest 串行运行，避免与
@@ -54,7 +65,25 @@ npx --no-install jest --ci --runInBand
 
 ## 截图
 
-### 本轮 390 / 820 画面（2026-11-28，`cc9c2d78`）
+### 复拍画面（2026-11-28，`3156ad74`）
+
+| 面 | 设备 | 外观 | 提交 | 文件（仓库相对路径） | 像素 宽×高 | 当前判定 |
+|---|---|---|---|---|---|---|
+| 列表 | 820 | 亮 | `3156ad74` | `rsi/state/shots/rn-dark-split-pane/820-list-light.png` | 1640×2360 | 左列设备 → 项目 → 对话，右侧空阅读栏为亮色主题页背景（暗色的对照） |
+| 列表 | 820 | 暗 | `3156ad74` | `rsi/state/shots/rn-dark-split-pane/820-list-dark.png` | 1640×2360 | 左右两栏同为暗色；「在左侧选一条对话，在这里阅读。」为浅色字——D4 修复后的复核画面 |
+| 对话 | 820 | 亮 | `3156ad74` | `rsi/state/shots/rn-dark-split-pane/820-conversation-light.png` | 1640×2360 | `[seed] reading` 长回答、五行 GFM 表格；末行句子 `Final row: … must be fully readable at the bottom of the pane.` 可见 |
+| 对话 | 820 | 暗 | `3156ad74` | `rsi/state/shots/rn-dark-split-pane/820-conversation-dark.png` | 1640×2360 | 同一条长回答与五行表格，暗色主题，末行句子可见 |
+| 列表 | 390 | 亮 | `3156ad74` | `rsi/state/shots/rn-dark-split-pane/390-list-light.png` | 1170×2532 | 手机栈列表；设备 → 项目 → 对话行与待输入 / 失败 / 已完成状态 |
+| 列表 | 390 | 暗 | `3156ad74` | `rsi/state/shots/rn-dark-split-pane/390-list-dark.png` | 1170×2532 | 同上，暗色主题 |
+| 对话 | 390 | 亮 | `3156ad74` | `rsi/state/shots/rn-dark-split-pane/390-conversation-light.png` | 1170×2532 | `[seed] reading` 长回答；表格首行在首屏底部（390 是滚动阅读，表格完整画面见 820 两图） |
+| 对话 | 390 | 暗 | `3156ad74` | `rsi/state/shots/rn-dark-split-pane/390-conversation-dark.png` | 1170×2532 | 同上，暗色主题 |
+
+**宽度说明：** 1100×760 是 Web 控制台的宽度，RN 客户端没有该宽度的画面；
+分栏边界在 768（`mobile-rn/src/layout/split.ts`），所以本轮用 820 覆盖分栏两侧、
+390 覆盖手机栈。复拍未拍 820 的审批与用量、390 的审批与用量，原因与同日早先一轮
+相同（时间优先给 D4 的空阅读栏与阅读态表格）。
+
+### 同日早先的 390 / 820 画面（2026-11-28，`cc9c2d78`；历史）
 
 | 面 | 设备 | 外观 | 提交 | 文件（仓库相对路径） | 像素 宽×高 | 当前判定 |
 |---|---|---|---|---|---|---|
@@ -146,7 +175,7 @@ npx --no-install jest --ci --runInBand
 
 ## 已知（不要再报）
 
-- **D4 · 820 空阅读栏在暗色下仍是亮色（2026-11-28 发现；修复已落，820 暗色重拍待下一轮证据）。**
+- **D4 · 820 空阅读栏在暗色下仍是亮色（2026-11-28 发现；同日复拍复核为已修复）。**
   原证据：`rsi/state/shots/rn-evidence-capture/820-list-dark.png`（iPad Air 11-inch
   (M4)，暗色，修复前）。左侧列表已暗，右侧「在左侧选一条对话，在这里阅读。」的空栏
   保持亮色背景与深色文字；亮 → 暗切换后复现，排除单次重绘。选中一条对话后右侧阅读栏
@@ -164,9 +193,13 @@ npx --no-install jest --ci --runInBand
   本轮结果：`npx --no-install jest src/layout/SplitListLayout.dark.test.tsx` 3 项通过；
   `python3 scripts/mutants.py mobile-rn/src/layout/splitPane.mutants.json`
   `4/4 mutants red; 0 problem(s)`。
-- 重拍：本轮主机 `mem_avail_mb=5088–5554`、`swap_free_mb=885`（两次读数），低于本次
-  任务门槛 6144 / 2048（§这次运行 记录的历史门槛是 4096 / 512），模拟器未启动；
-  下一次证据轮补 `820-list-dark` 的修复后画面并替换本行。
+- 复拍与观察结果：`rsi/state/shots/rn-dark-split-pane/820-list-dark.png`（iPad Air
+  11-inch (M4)，暗色，1640×2360，提交 `3156ad74`）里左右两栏同为暗色，空阅读栏
+  的句子为浅色；同目录 `820-list-light.png` 是亮色对照，两栏同为亮色；
+  `820-conversation-{light,dark}.png` 是选中 `[seed] reading` 后的阅读态。之前那台
+  主机 `mem_avail_mb=5088–5554`、`swap_free_mb=885` 未启动模拟器；本轮读数
+  `4907–6157` / `1198–1439` 仍低于本行 brief 的 6144 / 2048，改为按 review 要求
+  复拍并逐张复看，未出现内存压力崩溃。D4 由此关闭。
 - **键盘避让代码已落地，真机未验。** #733，`445dffab`；
   `mobile-rn/src/screens/ConversationView.tsx:772` 用 `KeyboardAvoidingView` 包住正文与
   composer。`mobile-rn/src/screens/Conversation.safearea.test.tsx:98` 的
@@ -208,4 +241,12 @@ npx --no-install jest --ci --runInBand
   「粘贴配对链接」定位。已有设备会话指向已删的一次性节点时，列表只显示
   「对话列表读不出来 · 重试」，不会自动回配对页；用
   `xcrun simctl openurl booted "exp://127.0.0.1:8081/--/pair"` 深链过去。
-  820 空阅读栏的暗色缺陷见 §已知 D4（修复已落，重拍待下一轮），不是截图错误。
+  820 空阅读栏的暗色缺陷见 §已知 D4（复拍后已关闭），不是截图错误。
+- 2026-11-28 复拍的新经验：**别用兄弟 worktree 的 `node_modules` 软链跑 Metro。**
+  软链下 Expo 的动态 `import("expo-secure-store")` 生成的分包 URL 会变成
+  `http://127.0.0.1:8081/../../<别的-worktree>/...`，Expo Go 取不到，配对在写
+  Keychain 时抛错、界面停在「链接无效或已被拒绝」。在 `mobile-rn/` 里做一次真目录
+  `npm install --no-package-lock --no-audit --no-fund` 后同一操作成功。另一个坑：
+  配对输入框会保留上一次文本，重试前先 `simctl terminate` 再打开，或
+  `xcrun simctl keychain <udid> reset` 清掉旧会话；本轮的干净配对是重置 Keychain
+  后一次输入设备令牌链接完成的。
