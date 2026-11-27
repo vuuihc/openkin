@@ -56,7 +56,6 @@ function group(title: string): HTMLElement {
   return screen.getByRole("heading", { name: title, level: 2 }).closest("section") as HTMLElement;
 }
 // Read at call time: the locale is set in `beforeEach`.
-const detectionHeading = () => t("settings.localAgents.detectionHeading");
 const importHeading = () => t("settings.localAgents.importHeading");
 const rolesHeading = () => t("settings.roles.heading");
 
@@ -98,9 +97,12 @@ describe("KIN-AGENTS-002 · the two groups and what they read", () => {
   it("KIN-AGENTS-002 the agents tab has no detection group; import and roles keep their address", () => {
     render(section({}));
 
-    expect(screen.queryByRole("heading", { name: detectionHeading(), level: 2 })).toBeNull();
-    expect(screen.getByRole("heading", { name: importHeading(), level: 2 })).not.toBeNull();
-    expect(screen.getByRole("heading", { name: rolesHeading(), level: 2 })).not.toBeNull();
+    // Exactly the two groups remain, in this order: a third heading is the
+    // detection group coming back under any copy.
+    const headings = screen
+      .getAllByRole("heading", { level: 2 })
+      .map((heading) => heading.textContent);
+    expect(headings).toEqual([importHeading(), rolesHeading()]);
     expect(
       within(group(importHeading())).getByRole("button", {
         name: t("settings.localAgents.importProviderLabel", { name: "Codex" }),
@@ -164,6 +166,16 @@ describe("KIN-AGENTS-002 · the two groups and what they read", () => {
     // reading copy: a first read that has not answered is not an empty list.
     expect(within(imports).getAllByText(t("settings.localAgents.refreshing"))).toHaveLength(2);
     expect(screen.queryByText(t("settings.localAgents.emptyImport"))).toBeNull();
+  });
+
+  it("KIN-AGENTS-002 a successful read with no providers calls the list empty", () => {
+    render(section({ providersStatus: "ready", providers: [] }));
+
+    // The one state that may say "empty": the read answered and had no rows.
+    const imports = group(importHeading());
+    expect(within(imports).getByText(t("settings.localAgents.emptyImport"))).not.toBeNull();
+    expect(within(imports).getByText(t("settings.localAgents.emptyImportHint"))).not.toBeNull();
+    expect(within(imports).queryByText(t("settings.localAgents.firstReadFailed"))).toBeNull();
   });
 
   it("KIN-AGENTS-002 the import group's refresh control re-reads providers and starts no import", async () => {
@@ -307,8 +319,15 @@ describe("KIN-AGENTS-002 · the two groups and what they read", () => {
     const disabled = (el: HTMLElement) => (el as HTMLButtonElement).disabled;
     expect(within(imports).getByText(t("settings.localAgents.offlineImport"))).not.toBeNull();
     expect(within(rolesGroup).getByText(t("settings.localAgents.offlineRoles"))).not.toBeNull();
-    // The detection group's copy left with that group.
-    expect(screen.queryByText(t("settings.localAgents.offlineDetection"))).toBeNull();
+    // Exactly two offline notes: one per remaining group. The detection
+    // group's third note left with that group.
+    expect(screen.getAllByText(/^Offline/)).toHaveLength(2);
+    const refresh = within(imports).getByRole("button", {
+      name: t("settings.localAgents.refresh"),
+    });
+    expect(disabled(refresh)).toBe(true);
+    // A disabled control still says why it cannot act.
+    expect(refresh.title).toBe(t("settings.localAgents.offlineImport"));
     // Everything in the import group is a write or a read that needs the daemon.
     for (const button of within(imports).getAllByRole("button")) {
       expect(disabled(button)).toBe(true);
