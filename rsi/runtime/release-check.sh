@@ -24,6 +24,7 @@
 #   RSI_RELEASE_STATE   state dir              (default <ctrl>/rsi/state)
 #   RSI_REPO            checkout to count from (default <ctrl>)
 #   RSI_RELEASE_MIN     minimum unshipped PRs  (default 5)
+#   RSI_FETCH_TIMEOUT   bound on the origin/main refresh, seconds (default 60)
 #   KIN_API             live node base URL     (default http://127.0.0.1:7777)
 #   KIN_TOKEN_FILE      node token file        (default ~/.kin/token)
 set -u
@@ -32,6 +33,10 @@ CTRL="$(cd "$HERE/../.." && pwd)"
 STATE="${RSI_RELEASE_STATE:-$CTRL/rsi/state}"
 REPO="${RSI_REPO:-$CTRL}"
 MIN="${RSI_RELEASE_MIN:-5}"
+FETCH_TIMEOUT="${RSI_FETCH_TIMEOUT:-60}"
+case "$FETCH_TIMEOUT" in ''|*[!0-9]*)
+  echo "release-check: RSI_FETCH_TIMEOUT must be whole seconds, got '$FETCH_TIMEOUT'" >&2; exit 2 ;;
+esac
 KIN_API="${KIN_API:-http://127.0.0.1:7777}"
 TOKEN_FILE="${KIN_TOKEN_FILE:-$HOME/.kin/token}"
 MARKER="$STATE/last_release"
@@ -64,7 +69,94 @@ baseline() {
   fi
 }
 
-$git -C "$REPO" fetch -q origin main 2>/dev/null || true
+# A bound whose children must not survive it. The implementation is
+# common.sh:133-188's rsi_kill_tree + bounded_run, copied rather than sourced for two
+# measured reasons: common.sh exports STATE, mkdirs state directories and chmod-heals
+# the control tree at source time, none of which a check run against a temp state dir
+# may do; and common.sh is the one file a hermetic fixture copies into its sandbox
+# (tests/test-ux-walk-timeout.sh), so a second file it sources would turn that
+# untouched suite red. Keep the two copies in step.
+
+# Reap a process and its descendants (children first). Never signals pid 1.
+# Freeze each parent before enumerating its children: a live parent whose first child
+# dies can fork a replacement while the loop is still walking, and that replacement
+# then outlives this function (measured in PR #376's review).
+rsi_kill_tree() {
+  local root="${1:-}" c
+  [ -n "$root" ] && [ "$root" -gt 1 ] 2>/dev/null || return 0
+  kill -STOP "$root" 2>/dev/null || true
+  for c in $(pgrep -P "$root" 2>/dev/null || true); do
+    rsi_kill_tree "$c"
+  done
+  kill -TERM "$root" 2>/dev/null || true
+  sleep 0.3
+  kill -KILL "$root" 2>/dev/null || true
+  kill -CONT "$root" 2>/dev/null || true   # only matters if KILL was denied; never leave it stopped
+}
+
+# Run one child under a ceiling that kills its whole tree. The parent blocks in wait(),
+# so a child that finishes keeps its own status; a polling loop would relabel a fast
+# failure as a timeout whenever the poll tick straddles the deadline. Returns 124 only
+# when the watchdog killed a process it could still identify as the one started here
+# (a reaped pid can be reused, so the identity is pinned while the child is alive).
+bounded_run() { # secs cmd...
+  local secs="$1" p ident flag w rc now _i; shift
+  flag="$(mktemp "${TMPDIR:-/tmp}/bounded-run.XXXXXX")" || return 2
+  rm -f "$flag"
+  "$@" & p=$!
+  ident=""
+  for _i in 1 2 3 4 5; do
+    ident="$(ps -o lstart= -p "$p" 2>/dev/null | tr -d ' \n' || true)"
+    [ -n "$ident" ] && break
+    kill -0 "$p" 2>/dev/null || break
+    sleep 0.05
+  done
+  ( sp=""
+    # A cancelled watchdog must not leave its sleep behind for the whole ceiling.
+    trap '[ -n "${sp:-}" ] && kill "$sp" 2>/dev/null; exit 0' TERM INT
+    sleep "$secs" & sp=$!; wait "$sp" || exit 0
+    now="$(ps -o lstart= -p "$p" 2>/dev/null | tr -d ' \n' || true)"
+    # An empty read is a failed inspection, not a verdict: fall back to liveness
+    # (fail closed). A non-empty read that disagrees is a reused pid: leave it.
+    if [ -n "$ident" ] && [ -n "$now" ] && [ "$now" != "$ident" ]; then exit 0; fi
+    kill -0 "$p" 2>/dev/null || exit 0
+    printf 'timeout\n' > "$flag" 2>/dev/null || true
+    rsi_kill_tree "$p"
+  ) >/dev/null 2>&1 & w=$!
+  wait "$p"; rc=$?
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  # The child's own answer wins even when the watchdog raced it: only a signal death
+  # from the watchdog (rc >= 128) is the no-verdict 124.
+  if [ -s "$flag" ] && [ "$rc" -ge 128 ] 2>/dev/null; then rm -f "$flag"; return 124; fi
+  rm -f "$flag"
+  return $rc
+}
+
+# The refresh must answer inside a bound. `git fetch` spawns git-remote-https as a
+# CHILD, so killing only the direct pid leaves the hang: on 2026-11-28 02:47 that
+# child sat silent for ~3 minutes while a bounded `git ls-remote origin main` and an
+# HTTPS probe both succeeded, and the check printed no verdict at all. A fetch that
+# answers non-zero keeps the old `|| true` tolerance: the check decides from the refs
+# it already has. Only "no answer" is a HOLD.
+bounded_run "$FETCH_TIMEOUT" "$git" -C "$REPO" fetch -q origin main >/dev/null 2>&1
+fetch_rc=$?
+if [ "$fetch_rc" = 124 ]; then
+  # Never print a number this run did not measure: the refs were not refreshed, so
+  # the unshipped count is unknown, not 0. release.sh prints this block and stops.
+  reason="fetch timeout"
+  if [ "$JSON" = 1 ]; then
+    printf '{"verdict":"HOLD","reason":"%s","unshipped":null,"commits":null,"local_main_only":null,"baseline":"unknown","sessions":null,"jobs":null,"node":"unknown"}\n' "$reason"
+  else
+    echo "baseline=unknown"
+    echo "unshipped=unknown commits=unknown min=$MIN"
+    echo "local_main_only=unknown"
+    echo "sessions=unknown node=unknown"
+    echo "jobs=unknown"
+    echo "verdict=HOLD"
+    echo "reason=$reason"
+  fi
+  exit 10
+fi
 if ! $git -C "$REPO" rev-parse --verify -q origin/main >/dev/null; then
   echo "release-check: no origin/main in $REPO" >&2; exit 2
 fi
