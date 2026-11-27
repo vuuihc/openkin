@@ -191,8 +191,7 @@ export default function SettingsPage() {
   // The provider read is the agents tab's own. It has a status and a reason so
   // a first read that fails says so and offers a retry, and a re-probe that
   // fails keeps the rows already on screen (KIN-AGENTS-002 D1).
-  const [agentProvidersStatus, setAgentProvidersStatus] =
-    useState<AgentProvidersStatus>("loading");
+  const [agentProvidersStatus, setAgentProvidersStatus] = useState<AgentProvidersStatus>("loading");
   const [agentProvidersError, setAgentProvidersError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The read's own failure. `error` keeps its meaning (a page-level action
@@ -406,7 +405,8 @@ export default function SettingsPage() {
     }
   }, []);
 
-  const loadSeq = useRef(0);  const load = useCallback(
+  const loadSeq = useRef(0);
+  const load = useCallback(
     async (preserveDirty = false) => {
       // Only the newest read may write. A mount read, a reconnect read and a
       // retry can overlap, and a late rejection from an older one used to be

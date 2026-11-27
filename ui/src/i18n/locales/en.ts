@@ -1313,7 +1313,8 @@ const en: MessageTree = {
       detectionFailed:
         "Detection failed: {reason}. The rows and times above are from the last successful check.",
       firstReadFailed: "No detection results yet",
-      firstReadFailedHint: "The daemon did not answer, or this is the first time this screen opened.",
+      firstReadFailedHint:
+        "The daemon did not answer, or this is the first time this screen opened.",
       retryDetection: "Retry detection",
       lastDetected: "Last detected: {value}",
       neverDetected: "never",

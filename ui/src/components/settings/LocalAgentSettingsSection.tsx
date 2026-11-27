@@ -86,9 +86,7 @@ export function LocalAgentSettingsSection({
   // TASTE 16: the 44px floor follows the pointer, not the viewport. The import
   // row's compact shape is a mouse convenience; on glass the same button keeps
   // a thumb-sized box at every width.
-  const rowImportClass = coarse
-    ? "min-h-11 px-2.5 py-1 text-caption"
-    : "px-2.5 py-1 text-caption";
+  const rowImportClass = coarse ? "min-h-11 px-2.5 py-1 text-caption" : "px-2.5 py-1 text-caption";
   const lastDetectedText = (agent: AgentProvider) => {
     const clock = detectedClock(agent.last_scanned_at);
     return tr("settings.localAgents.lastDetected", {

@@ -151,8 +151,6 @@ describe("the settings section's import controls", () => {
     // provider exists and why it is not usable — but nothing invites an errand
     // that cannot run.
     expect(screen.getAllByText("Gemini")).toHaveLength(2);
-    expect(
-      screen.queryByRole("button", { name: "Import sessions from Gemini" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Import sessions from Gemini" })).toBeNull();
   });
 });
