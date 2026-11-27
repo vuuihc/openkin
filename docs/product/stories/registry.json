@@ -801,7 +801,7 @@
     },
     {
       "id": "KIN-MOBILE-002",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -815,7 +815,9 @@
       "file": "docs/product/stories/KIN-MOBILE-002.md",
       "surface": "phone",
       "ownerPaths": [],
-      "tests": [],
+      "tests": [
+        "ui/src/lib/surfacesContract.KIN-MOBILE-002.test.ts"
+      ],
       "blockedReason": null
     }
   ]

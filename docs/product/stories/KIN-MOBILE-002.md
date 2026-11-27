@@ -1,6 +1,6 @@
 # KIN-MOBILE-002 · RN 手机端的视觉系统与五屏重画
 
-状态：draft
+状态：approved
 优先级：P0
 旅程：J1、J2、J4
 归属面：`IA.md`「手机（390 宽）」
@@ -140,3 +140,4 @@ owner 2026-11-27 实测原话：「体验了下确实太初级了，建议用 op
 ## 变更记录
 
 - 2026-11-27 创建（draft）。owner dogfood 后要求按 mobile-design/open-design 的方法做正经设计;设计流程按 `~/.agents/skills/mobile-design` 执行,token 端口 astryx neutral 已在桌面落地的同一套（`ui/src/design/theme.css`）。
+- 2026-11-27 · owner 签字 `approved`（原话「设计的事情我全部同意」），D1–D5 全部按审阅页推荐定案：token 端口 theme.css 明暗两套 + parity 测试；不上底部 tab bar；局域网 http 显式确认一次后可连；markdown 自绘精简渲染器；新增 expo-haptics / expo-symbols / expo-glass-effect 三个官方依赖。同日起，视觉/设计级决定（token、换皮、不碰已签行为的屏幕重画）归 CEO 直定，不再逐项请示（`rsi/DECISIONS.md` 同日行）。
