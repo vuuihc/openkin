@@ -33,8 +33,7 @@ const zh = {
     hubRejected: "这个 Hub 拒绝了本次登录。请检查地址和账号后重试。",
     hubInsecure: "请使用 https:// 的 Hub 地址。只有本机地址允许 http。",
     hubPlaintextTitle: "这个地址不是 HTTPS",
-    hubPlaintextBody:
-      "连接以明文传输，登录凭据（kin_session）可能被同一网络上的设备读到。",
+    hubPlaintextBody: "连接以明文传输，登录凭据（kin_session）可能被同一网络上的设备读到。",
     hubPlaintextConfirm: "仍然继续",
     hubPlaintextCancel: "取消",
     hubPlaintextMarker: "不安全：连接以明文传输，登录凭据可能被同一网络上的设备读到。",
