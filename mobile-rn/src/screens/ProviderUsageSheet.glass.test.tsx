@@ -17,7 +17,7 @@ import {
 import { StrictMode } from "react";
 import { AccessibilityInfo, StyleSheet } from "react-native";
 import { t } from "../i18n";
-import { GLASS_FALLBACK_COLOR } from "../native/glass";
+import { GLASS_FALLBACK } from "../native/glass";
 import type {
   ProviderEntry,
   ProvidersView,
@@ -171,6 +171,13 @@ describe("KIN-MOBILE-001 §7 provider/usage sheet glass", () => {
       backgroundColor?: string;
     };
     expect(cardStyle.backgroundColor ?? "transparent").toBe("transparent");
+
+    // The hosted usage screen paints no background of its own either: an
+    // opaque fill on its scroller would sit over the blur the sheet drew.
+    const hostedStyle = StyleSheet.flatten(
+      screen.getByTestId("provider-usage-screen").props.style,
+    ) as { backgroundColor?: string };
+    expect(hostedStyle.backgroundColor).toBeUndefined();
   });
 
   it("KIN-MOBILE-001 §7: reduce transparency swaps the blur for an opaque surface", async () => {
@@ -186,11 +193,11 @@ describe("KIN-MOBILE-001 §7 provider/usage sheet glass", () => {
     const cardStyle = StyleSheet.flatten(
       screen.getByTestId("usage-card").props.style,
     ) as { backgroundColor?: string };
-    expect(cardStyle.backgroundColor).toBe(GLASS_FALLBACK_COLOR);
+    expect(cardStyle.backgroundColor).toBe(GLASS_FALLBACK.light);
     const opaqueStyle = StyleSheet.flatten(
       screen.getByTestId("glass-opaque").props.style,
     ) as { backgroundColor?: string };
-    expect(opaqueStyle.backgroundColor).toBe(GLASS_FALLBACK_COLOR);
+    expect(opaqueStyle.backgroundColor).toBe(GLASS_FALLBACK.light);
   });
 
   it("KIN-MOBILE-001 §7: a live preference change swaps the surface and unmount stops listening", async () => {

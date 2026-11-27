@@ -6,6 +6,7 @@ import type {
   Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
 import type { ThreadState } from "../thread/threadModel";
+import { palette } from "../theme/tokens";
 import { t } from "../i18n";
 import ConversationView from "./ConversationView";
 
@@ -126,7 +127,7 @@ describe("KIN-MOBILE-002 R4a markdown in the conversation", () => {
       view.getByTestId("conversation:md:p:0").props.style,
     );
     expect(style.fontSize).toBe(16);
-    expect(style.color).toBe("#1d1d1d");
+    expect(style.color).toBe(palette.light.text);
   });
 
   it("KIN-MOBILE-002 R4a: a table still scrolls horizontally inside the message", async () => {

@@ -25,6 +25,7 @@ import {
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { glassFor } from "./glass";
+import { useTheme } from "../theme/useTheme";
 
 export type GlassSurfaceProps = {
   /**
@@ -75,9 +76,11 @@ export function useReduceTransparency(): boolean {
 }
 
 export default function GlassSurface({ style }: GlassSurfaceProps) {
+  const { scheme } = useTheme();
   const spec = glassFor({
     reduceTransparency: useReduceTransparency(),
     platform: Platform.OS,
+    scheme,
   });
 
   if (spec.kind === "blur") {

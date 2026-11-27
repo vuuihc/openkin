@@ -17,7 +17,7 @@ import { AccessibilityInfo, FlatList, StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { Turn } from "../../../ui/src/components/chat/transcriptProjection";
 import { t } from "../i18n";
-import { GLASS_FALLBACK_COLOR } from "../native/glass";
+import { GLASS_FALLBACK } from "../native/glass";
 import {
   HEADER_ROW_HEIGHT,
   headerTopInset,
@@ -192,7 +192,7 @@ describe("KIN-MOBILE-001 R7 the conversation's glass header", () => {
     const headerStyle = StyleSheet.flatten(header.props.style) as {
       backgroundColor?: string;
     };
-    expect(headerStyle.backgroundColor).toBe(GLASS_FALLBACK_COLOR);
+    expect(headerStyle.backgroundColor).toBe(GLASS_FALLBACK.light);
   });
 
   it("KIN-MOBILE-001 R7: the transcript's first line rests below the header, never under it", async () => {

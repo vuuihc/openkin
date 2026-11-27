@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -20,6 +20,8 @@ import { hubSignIn } from "../src/auth/hubSignIn";
 import type { HubReason, HubStatus } from "../src/auth/hub";
 import { t } from "../src/i18n";
 import { pairView } from "../src/screens/pairModel";
+import { useTheme } from "../src/theme/useTheme";
+import type { Palette } from "../src/theme/tokens";
 
 const FRESH: AppState = {
   route: "pairing",
@@ -53,6 +55,8 @@ const HUB_REASON_KEYS: Record<HubReason, string> = {
  * shows the waiting note. Typed values are never cleared by a failure.
  */
 export default function PairScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const params = useLocalSearchParams<{
     reason?: string | string[];
@@ -250,6 +254,7 @@ export default function PairScreen() {
             void probe();
           }}
           placeholder={t("pairing.hubPlaceholder")}
+          placeholderTextColor={colors.muted}
           returnKeyType="go"
           style={styles.input}
           value={hubTyped}
@@ -295,6 +300,7 @@ export default function PairScreen() {
                   keyboardType="email-address"
                   onChangeText={setEmail}
                   placeholder={t("account.emailPlaceholder")}
+                  placeholderTextColor={colors.muted}
                   style={styles.input}
                   textContentType="username"
                   value={email}
@@ -305,6 +311,7 @@ export default function PairScreen() {
                   autoCorrect={false}
                   onChangeText={setPassword}
                   placeholder={t("account.passwordLabel")}
+                  placeholderTextColor={colors.muted}
                   secureTextEntry
                   style={styles.input}
                   textContentType="password"
@@ -376,6 +383,7 @@ export default function PairScreen() {
                 void submitNode();
               }}
               placeholder={t("pairing.placeholder")}
+              placeholderTextColor={colors.muted}
               ref={inputRef}
               returnKeyType="go"
               style={styles.input}
@@ -405,8 +413,9 @@ export default function PairScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) => StyleSheet.create({
   container: {
+    backgroundColor: colors.bg,
     flex: 1,
   },
   form: {
@@ -419,32 +428,35 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   title: {
+    color: colors.text,
     fontSize: 24,
     fontWeight: "600",
   },
   subtitle: {
+    color: colors.text,
     fontSize: 18,
     fontWeight: "600",
   },
   hint: {
-    color: "#555555",
+    color: colors.secondary,
     fontSize: 15,
   },
   input: {
-    borderColor: "#888888",
+    borderColor: colors.hairlineStrong,
     borderRadius: 8,
     borderWidth: 1,
+    color: colors.text,
     fontSize: 16,
     minHeight: 44,
     paddingHorizontal: 12,
   },
   reason: {
-    color: "#a1261b",
+    color: colors.redInk,
     fontSize: 15,
   },
   action: {
     alignItems: "center",
-    backgroundColor: "#1f5f3f",
+    backgroundColor: colors.green,
     borderRadius: 8,
     justifyContent: "center",
     minHeight: 44,
@@ -454,7 +466,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   actionText: {
-    color: "#ffffff",
+    color: colors.onStatus,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -463,13 +475,14 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   secondaryText: {
-    color: "#1f5f3f",
+    color: colors.greenInk,
     fontSize: 16,
   },
   originRow: {
     gap: 4,
   },
   origin: {
+    color: colors.text,
     fontSize: 15,
     fontWeight: "600",
   },

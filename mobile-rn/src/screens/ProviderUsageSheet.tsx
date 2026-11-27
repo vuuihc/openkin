@@ -26,7 +26,7 @@
  * vertical scroll.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import {
   Animated,
   Modal,
@@ -37,13 +37,16 @@ import {
   type GestureResponderEvent,
 } from "react-native";
 import GlassSurface, { useReduceTransparency } from "../native/GlassSurface";
-import { GLASS_FALLBACK_COLOR, glassFor } from "../native/glass";
+import { glassFor } from "../native/glass";
 import type {
   ProvidersView,
   UsageWindowDays,
 } from "../providers/providersModel";
 import ProviderUsage from "./ProviderUsage";
 import { dragOffset, shouldDismiss } from "./sheetDrag";
+import { useTheme } from "../theme/useTheme";
+import { scrim } from "../theme/tokens";
+import type { Palette } from "../theme/tokens";
 
 type Translate = (
   key: string,
@@ -77,10 +80,18 @@ export default function ProviderUsageSheet({
   // The card's surface, from the same preference the glass layer reads. The
   // card must not paint over the blur, and under reduced transparency it keeps
   // today's white (`native/glass.ts`).
+  const { colors, scheme } = useTheme();
   const glass = glassFor({
     reduceTransparency: useReduceTransparency(),
     platform: Platform.OS,
+    scheme,
   });
+  // Only the opaque branch reads this; the blur branch paints transparent.
+  const glassColor = glass.kind === "opaque" ? glass.color : "transparent";
+  const styles = useMemo(
+    () => makeStyles(colors, glassColor),
+    [colors, glassColor],
+  );
 
   // A spring that is still settling when the sheet goes away must not keep
   // animating a card that no longer exists (AGENTS.md §11).
@@ -208,7 +219,10 @@ export default function ProviderUsageSheet({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (
+  colors: Palette,
+  glassColor: string = "transparent",
+) => StyleSheet.create({
   /**
    * The card's geometry only: its colour belongs to the glass branch below, so
    * the blur is never covered by a panel paint. `overflow: "hidden"` clips the
@@ -224,9 +238,9 @@ const styles = StyleSheet.create({
   cardGlass: {
     backgroundColor: "transparent",
   },
-  /** Reduced transparency / Android: today's card, unchanged. */
+  /** Reduced transparency / Android: the readable card, in this scheme. */
   cardOpaque: {
-    backgroundColor: GLASS_FALLBACK_COLOR,
+    backgroundColor: glassColor,
   },
   /** The 44pt finger target; the visible affordance is the bar inside it. */
   handle: {
@@ -235,7 +249,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   handleBar: {
-    backgroundColor: "#d0d0d0",
+    backgroundColor: colors.hairlineStrong,
     borderRadius: 2.5,
     height: 5,
     width: 36,
@@ -245,7 +259,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   scrim: {
-    backgroundColor: "rgba(0, 0, 0, 0.35)",
+    backgroundColor: scrim,
     bottom: 0,
     left: 0,
     position: "absolute",

@@ -16,7 +16,7 @@
  * embedded section are the same body, so one card never reads two ways.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import {
   Pressable,
@@ -27,6 +27,8 @@ import {
   type ViewInstance,
 } from "react-native";
 import { focusNode } from "../a11y/focus";
+import { useTheme } from "../theme/useTheme";
+import { wash, type Palette } from "../theme/tokens";
 import type {
   ApprovalEntry,
   ApprovalsState,
@@ -151,6 +153,8 @@ function FailureRow({
   /** The card keeps the ref so only a fresh failure, not a reload, focuses. */
   containerRef?: RefObject<ViewInstance | null>;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.failureRow}>
       {/* The reason is one alert stop; the retry stays its sibling, because an
@@ -197,6 +201,8 @@ function ApprovalCard({
   onRetry?: (id: string) => void;
 }) {
   const { toolName, detail } = approvalView(entry.approval.payload);
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const resolved = entry.phase === "resolved";
   const submitting = entry.phase === "submitting";
   const actionable = entryActionable(entry, online);
@@ -300,6 +306,8 @@ function QuestionCard({
   onAnswer: (id: string, text: string) => void;
   onRetry?: (id: string) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const payload = entry.question.payload;
   const prompt = payload.question?.trim()
     ? payload.question
@@ -426,6 +434,8 @@ export function ApprovalsSection({
   onRefresh,
   embedded = false,
 }: ApprovalsSectionProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   // The chosen option is a draft for the card that asked, held against the
   // revision it was chosen under: a replaced list starts clean (AGENTS.md §11).
   const [choices, setChoices] = useState<
@@ -551,6 +561,8 @@ export function ApprovalsSection({
  * so the phone never nests two vertical `ScrollView`s.
  */
 export default function Approvals(props: ApprovalsScreenProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <ScrollView
       contentContainerStyle={styles.content}
@@ -562,7 +574,7 @@ export default function Approvals(props: ApprovalsScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) => StyleSheet.create({
   /** Every action, option and retry is one ≥44pt target (TASTE 11). */
   action: {
     alignItems: "center",
@@ -581,18 +593,18 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   actionText: {
-    color: "#0b57d0",
+    color: colors.blueInk,
     fontSize: 15,
     fontWeight: "600",
   },
   badge: {
-    color: "#6b4b00",
+    color: colors.orangeInk,
     fontSize: 13,
     fontWeight: "600",
   },
   banner: {
     alignItems: "center",
-    backgroundColor: "#fdf3d7",
+    backgroundColor: wash(colors.orange, 0.15),
     borderRadius: 8,
     flexDirection: "row",
     flexWrap: "wrap",
@@ -602,7 +614,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   bannerText: {
-    color: "#6b4b00",
+    color: colors.orangeInk,
     flexShrink: 1,
     fontSize: 14,
   },
@@ -610,14 +622,14 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   card: {
-    borderColor: "#e5e5e5",
+    borderColor: colors.hairlineStrong,
     borderRadius: 12,
     borderWidth: 1,
     gap: 8,
     padding: 12,
   },
   cardTitle: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -627,7 +639,7 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   detail: {
-    color: "#3a3a3a",
+    color: colors.secondary,
     fontFamily: "monospace",
     fontSize: 13,
   },
@@ -637,12 +649,12 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   emptyHint: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 14,
     textAlign: "center",
   },
   emptyTitle: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -660,7 +672,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   failureText: {
-    color: "#8c1d18",
+    color: colors.redInk,
     fontSize: 13,
   },
   header: {
@@ -671,66 +683,67 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   headerTitle: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 20,
     fontWeight: "700",
   },
   option: {
     alignItems: "flex-start",
-    borderColor: "#d9d9d9",
+    borderColor: colors.hairlineStrong,
     borderWidth: 1,
   },
   optionDescription: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 13,
   },
   optionLabel: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 15,
   },
   optionSelected: {
-    backgroundColor: "#e8f0fe",
-    borderColor: "#0b57d0",
+    backgroundColor: wash(colors.blue, 0.12),
+    borderColor: colors.focusRing,
   },
   options: {
     gap: 8,
   },
   prompt: {
-    color: "#3a3a3a",
+    color: colors.secondary,
     fontSize: 14,
   },
   request: {
     gap: 4,
   },
   result: {
-    backgroundColor: "#f4f4f4",
+    backgroundColor: colors.fill,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   resultText: {
-    color: "#3a3a3a",
+    color: colors.secondary,
     fontSize: 14,
   },
   screen: {
+    backgroundColor: colors.bg,
     flex: 1,
   },
   section: {
-    color: "#3a3a3a",
+    color: colors.secondary,
     fontSize: 13,
     fontWeight: "700",
     letterSpacing: 0.6,
     textTransform: "uppercase",
   },
   status: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 14,
   },
   submit: {
     alignSelf: "flex-start",
   },
   tool: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 15,
     fontWeight: "600",
   },

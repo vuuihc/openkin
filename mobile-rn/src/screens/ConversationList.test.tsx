@@ -13,6 +13,7 @@ import {
   within,
 } from "@testing-library/react-native";
 import { SectionList, StyleSheet } from "react-native";
+import { palette } from "../theme/tokens";
 import ConversationList, {
   BOTTOM_TAB_INSET,
   FOCUS_RING,
@@ -472,6 +473,16 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     expect(onQueryChange).toHaveBeenCalledWith("alpha");
   });
 
+  it("KIN-MOBILE-002 R1b: the search field paints its text and placeholder from the palette", async () => {
+    const screen = await renderList();
+
+    const field = screen.getByTestId("list-search");
+    expect(StyleSheet.flatten(field.props.style).color).toBe(
+      palette.light.text,
+    );
+    expect(field.props.placeholderTextColor).toBe(palette.light.muted);
+  });
+
   it("KIN-MOBILE-001 R3: the search field and its clear button are each a 44pt target", async () => {
     const screen = await renderList({}, { query: "alpha" });
     const field = StyleSheet.flatten(
@@ -566,7 +577,7 @@ describe("KIN-MOBILE-001 §2 list keyboard focus", () => {
    * exports no `FOCUS_RING`, so comparing two imported values would make the
    * ring assertions pass while nothing is painted.
    */
-  const RING = "#0b57d0";
+  const RING = palette.light.focusRing;
 
   /**
    * Every move now asks the list to reveal the row it landed on. The real

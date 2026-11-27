@@ -14,7 +14,7 @@
  * disagree with the web console about what belongs to a turn.
  */
 
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -40,6 +40,8 @@ import {
   type Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
 import { focusNode } from "../a11y/focus";
+import { useTheme } from "../theme/useTheme";
+import type { Palette } from "../theme/tokens";
 import { canRetry } from "../native/reconnect";
 import {
   sharedDraftMemory,
@@ -56,7 +58,7 @@ import {
   headerTotalHeight,
 } from "../native/insets";
 import GlassSurface, { useReduceTransparency } from "../native/GlassSurface";
-import { GLASS_FALLBACK_COLOR, glassFor } from "../native/glass";
+import { glassFor } from "../native/glass";
 import {
   initialFollow,
   onContentGrew,
@@ -87,16 +89,6 @@ export const BACK_SIZE = 44;
  * device with no inset and keeps the compact header/composer.
  */
 const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
-
-/**
- * The colours the markdown renderer needs but does not own (KIN-MOBILE-002
- * R4a). They sit here with this screen's other literals until the token layer
- * (R1b) takes them over.
- */
-const MARKDOWN_STYLES = {
-  codeBackground: "#f2f2f2",
-  hairline: "#dcdcdc",
-};
 
 export type ConversationViewProps = {
   state: ThreadState;
@@ -295,6 +287,8 @@ function ToolRow({
   onToggle: () => void;
   t: ConversationViewProps["t"];
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <Pressable
       accessibilityRole="button"
@@ -367,6 +361,8 @@ function ProgressRows({
   onToggleStep: (key: string) => void;
   t: ConversationViewProps["t"];
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.progress}>
       {item.steps.map((step) =>
@@ -405,6 +401,14 @@ function TurnBlock({
   onToggleStep: (key: string) => void;
   t: ConversationViewProps["t"];
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  // The colours the markdown renderer needs but does not own (KIN-MOBILE-002
+  // R4a); drawn from the palette, never spelled here (R1b).
+  const markdownStyles = useMemo(
+    () => ({ codeBackground: colors.fill, hairline: colors.hairlineStrong }),
+    [colors],
+  );
   if (turn.kind === "user") {
     return (
       <Text style={styles.user} testID={`conversation:turn:${index}`}>
@@ -432,7 +436,7 @@ function TurnBlock({
           // the one <Text> it was.
           <MessageBody
             key={`${index}:${item.key}`}
-            styles={MARKDOWN_STYLES}
+            styles={markdownStyles}
             text={item.text}
             textStyle={styles.item}
           />
@@ -488,6 +492,8 @@ function Composer({
   draftMemory,
   bottomPadding,
 }: ComposerProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   // The box opens on the words this conversation left behind: the route may
   // have popped since they were typed.
   const [draft, setDraft] = useState(() => ({
@@ -629,7 +635,7 @@ function Composer({
             setFailure(null);
           }}
           placeholder={t("composer.placeholder")}
-          placeholderTextColor="#8a8a8a"
+          placeholderTextColor={colors.muted}
           style={styles.input}
           testID="conversation:composer"
           value={text}
@@ -710,10 +716,18 @@ export default function ConversationView({
   // The bar's surface, from the same preference the usage sheet reads:
   // reduced transparency and Android keep today's opaque bar, every other
   // phone blurs the transcript that scrolls beneath it (`native/glass.ts`).
+  const { colors, scheme } = useTheme();
   const glass = glassFor({
     reduceTransparency: useReduceTransparency(),
     platform: Platform.OS,
+    scheme,
   });
+  // Only the opaque branch reads this; the blur branch paints transparent.
+  const glassColor = glass.kind === "opaque" ? glass.color : "transparent";
+  const styles = useMemo(
+    () => makeStyles(colors, glassColor),
+    [colors, glassColor],
+  );
 
   // Whether the sheet is up is the person's own transient UI, so it lives in
   // this view; the window choice and the rows are the model's (AGENTS.md §11).
@@ -1125,7 +1139,10 @@ export default function ConversationView({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (
+  colors: Palette,
+  glassColor: string = "transparent",
+) => StyleSheet.create({
   action: {
     alignItems: "center",
     justifyContent: "center",
@@ -1137,12 +1154,12 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   actionText: {
-    color: "#0b57d0",
+    color: colors.blueInk,
     fontSize: 15,
     fontWeight: "600",
   },
   actionTextDisabled: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 15,
     fontWeight: "600",
   },
@@ -1160,7 +1177,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   backText: {
-    color: "#0b57d0",
+    color: colors.blueInk,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -1170,7 +1187,7 @@ const styles = StyleSheet.create({
     paddingBottom: 48,
   },
   composer: {
-    borderTopColor: "#dcdcdc",
+    borderTopColor: colors.hairlineStrong,
     borderTopWidth: StyleSheet.hairlineWidth,
     gap: 8,
     paddingHorizontal: 16,
@@ -1182,26 +1199,27 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   container: {
+    backgroundColor: colors.bg,
     flex: 1,
   },
   detailLabel: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 12,
     fontWeight: "600",
   },
   detailText: {
-    color: "#3a3a3a",
+    color: colors.secondary,
     fontSize: 13,
   },
   errorItem: {
-    color: "#a1261b",
+    color: colors.redInk,
     fontSize: 15,
   },
   failed: {
     gap: 8,
   },
   failure: {
-    color: "#a1261b",
+    color: colors.redInk,
     fontSize: 15,
   },
   /**
@@ -1212,7 +1230,7 @@ const styles = StyleSheet.create({
    */
   header: {
     alignItems: "center",
-    borderBottomColor: "#dcdcdc",
+    borderBottomColor: colors.hairlineStrong,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: 8,
@@ -1230,13 +1248,13 @@ const styles = StyleSheet.create({
   },
   /** Reduced transparency / Android: today's opaque bar, unchanged. */
   headerOpaque: {
-    backgroundColor: GLASS_FALLBACK_COLOR,
+    backgroundColor: glassColor,
   },
   input: {
-    borderColor: "#c4c4c4",
+    borderColor: colors.hairlineStrong,
     borderRadius: 8,
     borderWidth: 1,
-    color: "#1d1d1d",
+    color: colors.text,
     flex: 1,
     fontSize: 16,
     maxHeight: 120,
@@ -1245,20 +1263,20 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   item: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 16,
   },
   note: {
-    color: "#555555",
+    color: colors.secondary,
     fontSize: 14,
     fontStyle: "italic",
   },
   notice: {
-    color: "#555555",
+    color: colors.secondary,
     fontSize: 15,
   },
   progress: {
-    borderLeftColor: "#dcdcdc",
+    borderLeftColor: colors.hairlineStrong,
     borderLeftWidth: 2,
     gap: 4,
     paddingLeft: 12,
@@ -1267,7 +1285,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   queueLabel: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 12,
     fontWeight: "600",
   },
@@ -1277,7 +1295,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   queueText: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 15,
   },
   queueWords: {
@@ -1293,12 +1311,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   retryText: {
-    color: "#0b57d0",
+    color: colors.blueInk,
     fontSize: 15,
     fontWeight: "600",
   },
   running: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 13,
     fontWeight: "600",
   },
@@ -1310,7 +1328,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tool: {
-    color: "#3a3a3a",
+    color: colors.secondary,
     flexShrink: 1,
     fontSize: 14,
     fontWeight: "500",
@@ -1325,7 +1343,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   toolRow: {
-    borderColor: "#dcdcdc",
+    borderColor: colors.hairlineStrong,
     borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     gap: 2,
@@ -1335,12 +1353,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   toolStatus: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 12,
     fontWeight: "600",
   },
   toolToggle: {
-    color: "#0b57d0",
+    color: colors.blueInk,
     fontSize: 12,
     fontWeight: "600",
     marginLeft: "auto",
@@ -1348,7 +1366,7 @@ const styles = StyleSheet.create({
   // The header's one flexible cell: it takes the space between the back
   // control and the trailing status/usage entries, and truncates on one line.
   title: {
-    color: "#1d1d1d",
+    color: colors.text,
     flex: 1,
     fontSize: 17,
     fontWeight: "600",
@@ -1357,7 +1375,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   user: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 16,
     fontWeight: "600",
     marginTop: 8,
@@ -1373,7 +1391,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   usageEntryText: {
-    color: "#0b57d0",
+    color: colors.blueInk,
     fontSize: 15,
     fontWeight: "600",
   },
@@ -1385,7 +1403,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   withdrawText: {
-    color: "#0b57d0",
+    color: colors.blueInk,
     fontSize: 13,
     fontWeight: "600",
   },

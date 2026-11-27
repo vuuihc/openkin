@@ -7,7 +7,7 @@
  * Routing, data loading and transport stay outside this component.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Pressable,
   SectionList,
@@ -18,6 +18,8 @@ import {
   type PressableInstance,
 } from "react-native";
 import { focusNode } from "../a11y/focus";
+import { useTheme } from "../theme/useTheme";
+import { palette, wash, type Palette } from "../theme/tokens";
 import { isRowKey, moveRow, openRow } from "../list/listKeys";
 import type {
   ConversationRow,
@@ -35,15 +37,17 @@ export const ROW_HEIGHT = 56;
 /**
  * The paint a row or a project heading takes while a finger holds it. The
  * held state is Pressable's own; this is the one colour both surfaces share.
+ * Kept as the light-scheme value for the suites that import it; the rendered
+ * style takes `colors.fillStrong` so dark mode gets the dark step.
  */
-export const PRESSED_BG = "#ececec";
+export const PRESSED_BG = palette.light.fillStrong;
 
 /**
  * The keyboard ring's colour (KIN-MOBILE-001 §2). Visual only: the ring never
  * becomes a second accessibility element, and it paints on the row's own box
  * so the 56pt height does not move.
  */
-export const FOCUS_RING = "#0b57d0";
+export const FOCUS_RING = palette.light.focusRing;
 
 /** The list header band, and the bottom tab bar the list sits above. */
 export const LIST_HEADER_HEIGHT = 56;
@@ -129,9 +133,11 @@ type ListKeyEvent = {
  */
 function ResumeBand({
   resume,
+  styles,
   t,
 }: {
   resume: ResumeBandState;
+  styles: Styles;
   t: ConversationListProps["t"];
 }) {
   return (
@@ -167,7 +173,7 @@ function ResumeBand({
  * the one spoken word is the container's label (KIN-MOBILE-001 §2 慢 and
  * 键盘与焦点: every real row is one stop, a bar is none).
  */
-function ListSkeleton({ t }: { t: ConversationListProps["t"] }) {
+function ListSkeleton({ styles, t }: { styles: Styles; t: ConversationListProps["t"] }) {
   return (
     <View
       accessible
@@ -241,6 +247,8 @@ export default function ConversationList({
   returnFocusEpoch = 0,
   resume,
 }: ConversationListProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   // An empty device (`includeEmptyDevices`) still yields a section, and a
   // SectionList with sections never draws `ListEmptyComponent` — so an empty
   // read would show a bare heading instead of the empty/offline words.
@@ -376,6 +384,7 @@ export default function ConversationList({
         }, SCROLL_RETRY_MS);
       }}
       sections={sections}
+      style={styles.screen}
       // iOS takes the restored offset before content lays out; the scroll
       // responder below covers the platforms that ignore it.
       contentOffset={{ x: 0, y: initialOffset }}
@@ -518,6 +527,7 @@ export default function ConversationList({
                 setSearchFocused(true);
               }}
               placeholder={t("sessions.searchPlaceholder")}
+              placeholderTextColor={colors.muted}
               returnKeyType="search"
               style={styles.searchInput}
               testID="list-search"
@@ -535,7 +545,7 @@ export default function ConversationList({
               </Pressable>
             )}
           </View>
-          {resume ? <ResumeBand resume={resume} t={t} /> : null}
+          {resume ? <ResumeBand resume={resume} styles={styles} t={t} /> : null}
           {/*
             While the resume band is up it is the one band: the list's own
             failure line would repeat the same sentence with a second retry.
@@ -557,7 +567,7 @@ export default function ConversationList({
             </View>
           ) : null}
           {/* The first frame is the list's own shape, under its header. */}
-          {firstLoad ? <ListSkeleton t={t} /> : null}
+          {firstLoad ? <ListSkeleton styles={styles} t={t} /> : null}
         </View>
       }
       ListEmptyComponent={firstLoad ? undefined : (
@@ -620,34 +630,38 @@ export default function ConversationList({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) => StyleSheet.create({
+  screen: {
+    backgroundColor: colors.bg,
+    flex: 1,
+  },
   banner: {
     alignItems: "center",
-    backgroundColor: "#fdf3d7",
+    backgroundColor: wash(colors.orange, 0.15),
     flexDirection: "row",
     gap: 12,
     minHeight: ROW_MIN_HEIGHT,
     paddingHorizontal: 16,
   },
   bannerText: {
-    color: "#6b4b00",
+    color: colors.orangeInk,
     flex: 1,
     fontSize: 14,
   },
   deviceCount: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 13,
   },
   deviceHeading: {
     alignItems: "center",
-    backgroundColor: "#f4f4f4",
+    backgroundColor: colors.fill,
     flexDirection: "row",
     justifyContent: "space-between",
     minHeight: ROW_MIN_HEIGHT,
     paddingHorizontal: 16,
   },
   deviceLabel: {
-    color: "#3a3a3a",
+    color: colors.secondary,
     fontSize: 13,
     fontWeight: "700",
     letterSpacing: 0.6,
@@ -659,17 +673,17 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   emptyHint: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 14,
     textAlign: "center",
   },
   emptyTitle: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 16,
     fontWeight: "600",
   },
   meta: {
-    color: "#6b6b6b",
+    color: colors.muted,
     flex: 1,
     fontSize: 13,
   },
@@ -679,9 +693,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   pending: {
-    backgroundColor: "#b3261e",
+    backgroundColor: colors.red,
     borderRadius: 10,
-    color: "#ffffff",
+    color: colors.onStatus,
     fontSize: 12,
     fontWeight: "700",
     minWidth: 20,
@@ -696,10 +710,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   projectPressed: {
-    backgroundColor: PRESSED_BG,
+    backgroundColor: colors.fillStrong,
   },
   projectLabel: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 15,
     fontWeight: "600",
   },
@@ -711,13 +725,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   retryText: {
-    color: "#0b57d0",
+    color: colors.blueInk,
     fontSize: 15,
     fontWeight: "600",
   },
   searchBar: {
     alignItems: "center",
-    borderBottomColor: "#ececec",
+    borderBottomColor: colors.hairlineStrong,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     minHeight: ROW_MIN_HEIGHT,
@@ -731,11 +745,12 @@ const styles = StyleSheet.create({
     minWidth: ROW_MIN_HEIGHT,
   },
   searchClearText: {
-    color: "#6b6b6b",
+    color: colors.muted,
     fontSize: 22,
     lineHeight: 24,
   },
   searchInput: {
+    color: colors.text,
     flex: 1,
     fontSize: 16,
     minHeight: ROW_MIN_HEIGHT,
@@ -744,7 +759,7 @@ const styles = StyleSheet.create({
   },
   resumeBand: {
     alignItems: "center",
-    backgroundColor: "#e8f0fe",
+    backgroundColor: wash(colors.blue, 0.12),
     flexDirection: "row",
     gap: 12,
     minHeight: ROW_MIN_HEIGHT,
@@ -759,17 +774,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   resumeRetryText: {
-    color: "#0b57d0",
+    color: colors.blueInk,
     fontSize: 15,
     fontWeight: "600",
   },
   resumeText: {
-    color: "#0b3d91",
+    color: colors.blueInk,
     flex: 1,
     fontSize: 14,
   },
   row: {
-    borderBottomColor: "#ececec",
+    // A row paints its own surface: it must not inherit the platform's white.
+    backgroundColor: colors.bg,
+    borderBottomColor: colors.hairlineStrong,
     borderBottomWidth: StyleSheet.hairlineWidth,
     height: ROW_HEIGHT,
     justifyContent: "center",
@@ -778,16 +795,16 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   rowPressed: {
-    backgroundColor: PRESSED_BG,
+    backgroundColor: colors.fillStrong,
   },
   rowFocused: {
     // A ring on the row's own box: the fixed height absorbs the border, so
     // neither ROW_HEIGHT nor the 44pt floor moves.
-    borderColor: FOCUS_RING,
+    borderColor: colors.focusRing,
     borderWidth: 2,
   },
   skeletonHeading: {
-    backgroundColor: "#dcdcdc",
+    backgroundColor: colors.fillStrong,
     borderRadius: 4,
     height: 12,
     marginHorizontal: 16,
@@ -796,7 +813,7 @@ const styles = StyleSheet.create({
     width: 96,
   },
   skeletonRow: {
-    backgroundColor: "#ececec",
+    backgroundColor: colors.fillStrong,
     borderRadius: 4,
     height: 14,
     marginHorizontal: 16,
@@ -805,8 +822,10 @@ const styles = StyleSheet.create({
     width: "62%",
   },
   title: {
-    color: "#1d1d1d",
+    color: colors.text,
     fontSize: 16,
     fontWeight: "500",
   },
 });
+
+type Styles = ReturnType<typeof makeStyles>;

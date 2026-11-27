@@ -10,7 +10,10 @@
  * ships: no shimmer, no dependency (TASTE 15).
  */
 
+import { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
+import { useTheme } from "../theme/useTheme";
+import type { Palette } from "../theme/tokens";
 
 /** The rhythm of an answer: long lines with one short line to close it. */
 const BODY_WIDTHS = ["92%", "78%", "86%", "90%", "54%"] as const;
@@ -22,6 +25,8 @@ type ConversationSkeletonProps = {
 export default function ConversationSkeleton({
   t,
 }: ConversationSkeletonProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View
       accessible
@@ -40,9 +45,9 @@ export default function ConversationSkeleton({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) => StyleSheet.create({
   bodyBar: {
-    backgroundColor: "#ececec",
+    backgroundColor: colors.fillStrong,
     borderRadius: 4,
     height: 14,
     // The transcript's own horizontal rhythm, so the shape holds its place.
@@ -51,7 +56,7 @@ const styles = StyleSheet.create({
   },
   toolRow: {
     // Slightly darker than the body, as a real tool row reads above prose.
-    backgroundColor: "#dcdcdc",
+    backgroundColor: colors.fillStrong,
     borderRadius: 4,
     marginHorizontal: 16,
     marginVertical: 6,

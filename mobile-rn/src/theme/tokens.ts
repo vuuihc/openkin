@@ -150,6 +150,35 @@ export const palette: Record<Scheme, Palette> = {
 };
 
 /**
+ * A palette colour as a tint: `wash(colors.orange, 0.15)` is theme.css's 15%
+ * status fill. Only the two spellings `tokens.ts` itself writes are accepted —
+ * a caller that hands over anything else (a name, a shorthand hex, an existing
+ * `rgba`) gets an error instead of a silently wrong paint.
+ */
+export function wash(color: string, alpha: number): string {
+  const hex = /^#([0-9a-f]{6})$/i.exec(color);
+  let channels: [number, number, number];
+  if (hex) {
+    const n = parseInt(hex[1]!, 16);
+    channels = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  } else {
+    const rgb = /^rgb\((\d+), (\d+), (\d+)\)$/.exec(color);
+    if (!rgb) {
+      throw new Error(`${color} is not a palette colour wash() can tint`);
+    }
+    channels = [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+  }
+  return `rgba(${channels[0]}, ${channels[1]}, ${channels[2]}, ${alpha})`;
+}
+
+/**
+ * The sheet's scrim. Deliberately the same value in both schemes: it darkens
+ * whatever surface is behind the sheet, so a light-scheme scrim would stop
+ * separating the card from the transcript.
+ */
+export const scrim = "rgba(0, 0, 0, 0.35)";
+
+/**
  * Type roles from `mobile-rn/DESIGN.md`'s table, as RN text styles.
  *
  * `as const` keeps `fontWeight` a literal union (`"700"`, not `string`), which
