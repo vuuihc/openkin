@@ -937,8 +937,8 @@ export default function ConversationView({
       approvals.state.status === "error" ||
       !approvals.state.online);
 
-  // The spine's thread-level facts (KIN-MOBILE-002 R4b): the newest agent
-  // turn owns the live tone, an unclean round is red, and a waiting approval
+  // The spine's thread-level facts (KIN-MOBILE-002 R4b): the live agent turn
+  // owns the live tone, an unclean round is red, and a waiting approval
   // outranks the running flag so the blocked turn reads orange.
   const spine: SpineContext = {
     lastAgentIndex: lastAgentTurnIndex(state.turns),
