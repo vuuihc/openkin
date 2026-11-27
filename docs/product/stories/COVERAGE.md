@@ -15,6 +15,7 @@
 | `KIN-CONTINUE-007` | covered | P0 | J1、J2 | Mac/手机 | 在 820 的列表里一屏扫到那条对话 | 5 |
 | `KIN-CONTRACT-001` | covered | P0 | J1、J2、J4、J6 | Mac/手机 | 只留四个页面：列表、任务详情、例行任务、设置 | 3 |
 | `KIN-MOBILE-001` | approved | P0 | J1、J2、J4 | 手机 | 手机用 Expo/RN 客户端承接固定面 | 1 |
+| `KIN-MOBILE-002` | draft | P0 | J1、J2、J4 | 手机 | RN 视觉系统与五屏设计 | 0 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
 | `KIN-PROJECT-002` | covered | P0 | J4 | Mac/手机 | 项目的工作目录：看清这几个目录为什么在一起，并能增删 | 4 |
 | `KIN-QUALITY-001` | covered | P0 | J1、J2 | Mac/手机 | 读完整条回答，再接着问（820 优先） | 4 |
@@ -32,4 +33,4 @@
 
 ## 汇总
 
-approved 5 · blocked 1 · covered 18
+approved 5 · blocked 1 · covered 18 · draft 1

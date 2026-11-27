@@ -798,6 +798,25 @@
         "ui/src/lib/surfacesContract.KIN-MOBILE-001.test.ts"
       ],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-MOBILE-002",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J1",
+        "J2",
+        "J4"
+      ],
+      "surfaces": [
+        "phone"
+      ],
+      "title": "RN 视觉系统与五屏设计",
+      "file": "docs/product/stories/KIN-MOBILE-002.md",
+      "surface": "phone",
+      "ownerPaths": [],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }

@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f6feb'/%3E%3Cpath d='M16 7a5 5 0 0 0-5 5v3l-2 3h14l-2-3v-3a5 5 0 0 0-5-5zm0 18a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 16 25z' fill='white'/%3E%3C/svg%3E">
+<title>KIN-MOBILE-002 · Figma 审阅</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1a1a1a;
+    --muted: #666a73;
+    --line: #dedee3;
+    --bg: #f1f1f4;
+    --page: #fbfbfd;
+    --card: #ffffff;
+    --accent: #1f6feb;
+    --accent-soft: #eef3ff;
+    --warn: #b42318;
+    --warn-soft: #fff1f0;
+    --ok: #137a3f;
+    --ok-soft: #eef8f1;
+    --gutter: clamp(16px, 5vw, 24px);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7;
+      --muted: #a1a1aa;
+      --line: #35353a;
+      --bg: #0b0b0d;
+      --page: #141416;
+      --card: #1d1d20;
+      --accent: #6ea8fe;
+      --accent-soft: #17243a;
+      --warn: #ff8a80;
+      --warn-soft: #2a1717;
+      --ok: #6dd58c;
+      --ok-soft: #13251b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  code { padding: 1px 5px; border-radius: 5px; background: var(--bg); font-size: .9em; overflow-wrap: anywhere; }
+  .page { max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom)); background: var(--page); }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 26px; line-height: 1.28; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 2px; font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill { display: inline-flex; align-items: center; height: 25px; padding: 0 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.draft { color: var(--muted); background: var(--bg); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 15.5px; }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 14.5px; }
+  .howto li { margin: 5px 0; }
+  .note { color: var(--muted); font-size: 13.5px; }
+  .howto .note { margin: 4px 0 0; }
+  .toc {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 8px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 8px var(--gutter);
+    overflow-x: auto;
+    background: var(--page);
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none; display: inline-flex; align-items: center;
+    min-height: 44px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink);
+    font-size: 13px; text-decoration: none; white-space: nowrap;
+  }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 0 0 6px; font-size: 16px; line-height: 1.4; }
+  h4 { margin: 16px 0 8px; font-size: 15px; line-height: 1.4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .lead { font-size: 15px; }
+  .bullets { font-size: 14.5px; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 12.5px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card h3 { font-size: 15px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a {
+    display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 12px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none;
+  }
+  .screen { margin: 16px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+  .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll {
+    overflow-x: auto; overflow-y: hidden;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: #fff;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-phone .frame-scroll { max-width: 390px; margin: 0 auto; }
+  .fig-phone img { width: 100%; }
+  .fig-wide img { width: 1100px; }
+  .fig-board img { width: 1600px; }
+  .frame figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li {
+    display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); font-size: 14.5px;
+  }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+  .state-list { display: grid; gap: 8px; margin-top: 10px; }
+  .state { padding: 11px 13px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
+  .state b { display: block; margin-bottom: 2px; font-size: 14.5px; }
+  .state span { color: var(--muted); }
+  .decision { margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 14px; }
+  .decision h3 { font-size: 16px; }
+  .decision p { font-size: 14.5px; }
+  .decision .rec { margin: 6px 0; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 13.5px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+  .reply { margin-top: 10px; }
+  .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 13.5px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .sign { border-left: 4px solid var(--ok); }
+  .sign p { margin: 6px 0; }
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+  a:focus-visible, .screen-index a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+    .toc { border-radius: 0; }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 380px) {
+    .flow li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 约 8 分钟 · 5 个决定</div>
+    <h1>KIN-MOBILE-002 · RN 手机端视觉系统<small>五屏重画：连接、列表、对话、composer 与审批、用量</small></h1>
+    <p class="meta">draft · 面：手机 · 对照 <code>KIN-MOBILE-002.md</code> 与 <code>mobile-rn/DESIGN.md</code></p>
+    <p class="meta">11 月 27 日 · 5 屏 + 1 状态三联帧 · 明暗两套 token</p>
+    <div class="tags">
+      <span class="pill here">待签字</span>
+      <span class="pill plain">旅程 J1 J2 J4</span>
+      <span class="pill plain">手机 390/820</span>
+    </div>
+  </header>
+
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>当我把 RN 版 Kin 装上手机 dogfood，我想它是一个认真设计的手机应用——暗色正确、列表像 iOS、对话能读 markdown——而不是默认样式的文本行，以便我愿意每天打开它。</p>
+  </section>
+
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：这条只管"换皮"，行为一格不动。</li>
+      <li><strong>再看每一屏</strong>：先看帧，再读帧下六段用户流程。帧是暗色模式；浅色用同一套 token 的反侧，token 表在「决定 D1」。</li>
+      <li><strong>最后回决定</strong>：每条都有推荐和代价；页尾有回复模板。</li>
+    </ol>
+    <p class="note">都同意就回「全部同意」；有修改就回「D2 改成…」。帧在卡片内可左右滑，页面本身不横滚。</p>
+  </section>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">KIN-MOBILE-001 把行为搬上 RN（已签、在飞）；这条把"皮"补上，行为一格不动。</p>
+    <div class="card mece">
+      <div class="mece-row">
+        <div class="name">手机用 RN 客户端承接固定面<div class="who">KIN-MOBILE-001</div></div>
+        <span class="pill ok">approved · 在飞</span>
+      </div>
+      <div class="mece-row here">
+        <div class="name"><strong>RN 视觉系统与五屏重画</strong><div class="who">KIN-MOBILE-002 · 这条</div></div>
+        <span class="pill here">本页</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">新建一段对话（RN 入口）<div class="who">KIN-START 系 · draft</div></div>
+        <span class="pill draft">待签</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">推送通知<div class="who">KIN-NOTIFY 系</div></div>
+        <span class="pill draft">未排期</span>
+      </div>
+    </div>
+    <ul class="bullets">
+      <li><strong>为什么单独一条：</strong>视觉系统是一个独立意图——"它看起来像个正经应用"。行为合同已经在 001 签过，混进去会把签字变成既签行为又签审美。</li>
+      <li><strong>为什么不并进 001：</strong>001 的范围明文"不重新设计任何屏幕"；本条正是那次推迟的设计本身。</li>
+      <li><strong>不在这一条：</strong>底部 tab bar（只有一个一级页，没有可切的对象）、新建对话入口、推送、Android、web/桌面任何改动。</li>
+      <li><strong>大小：</strong>5 屏 + token 层；一次交付。</li>
+    </ul>
+  </section>
+
+  <section id="before-after">
+    <h2>现在 → 之后</h2>
+    <div class="two">
+      <div class="card now">
+        <h3>现在（dogfood 实测）</h3>
+        <ul>
+          <li>没有 token 模块，113 处颜色字面量散落组件里；浅色固定，暗色模式下是错的</li>
+          <li>列表是白底卡片行；markdown 不渲染，列表显示成 <code>- </code> 原文，表格溢出</li>
+          <li>composer 是裸输入框；审批是平铺文字</li>
+          <li>局域网 http 的 Hub 直接拒绝，连不上就是连不上</li>
+        </ul>
+      </div>
+      <div class="card after">
+        <h3>之后</h3>
+        <ul>
+          <li>token 端口桌面 <code>theme.css</code> 明暗两套，web 改色手机测试立刻红</li>
+          <li>iOS 分组列表 + 状态双编码；markdown 正文、活动脊、横滚表格</li>
+          <li>玻璃 composer、审批卡浮在它上方、一屏一个实心主按钮</li>
+          <li>局域网 http 显式确认一次后可连</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <h2>界面</h2>
+    <p class="note">帧为暗色模式 390×844；帧内文字是设计占位，不是真实数据。每帧下是六段用户流程。</p>
+    <div class="screen-index">
+      <a href="#s1">1 连接</a>
+      <a href="#s2">2 列表</a>
+      <a href="#s3">3 对话</a>
+      <a href="#s4">4 composer 与审批</a>
+      <a href="#s5">5 用量 sheet</a>
+      <a href="#s6">6 状态三联</a>
+    </div>
+
+    <div class="screen" id="s1">
+      <div class="screen-head"><h3>1 · 连接：两条路进同一扇门</h3></div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" tabindex="0"><img src="KIN-MOBILE-002.figma/frames/01-phone-pair.svg" alt="连接页帧：大标题、Hub 账号与直连分段、三个表单框、登录按钮、浏览器登录、局域网 http 警告条"></div>
+        <figcaption>01-phone-pair.svg · 390×844 暗色</figcaption>
+      </figure>
+      <ol class="flow">
+        <li><b>起点</b><span>刚装好或会话过期；屏幕是连接页，不是列表空态</span></li>
+        <li><b>动作</b><span>选「Hub 账号」或「直连这台设备」；Hub 路填地址/邮箱/密码，或点「用浏览器登录」</span></li>
+        <li><b>立刻看到</b><span>按下即转圈；成功直落列表，密码框支持系统密码自动填充</span></li>
+        <li><b>慢·空·失败·断线</b><span>失败分清「凭据错误 / 地址不可达 / 不是 https」；局域网 http 先弹一次「不安全」确认（帧底橙条），确认后才连——这解除现在连不上局域网 Hub 的阻塞</span></li>
+        <li><b>键盘与焦点</b><span>键盘弹出时登录按钮不被遮；密码框可「显示」；错误后焦点回输入框并读出原因</span></li>
+        <li><b>离开再回来</b><span>凭据进 Keychain（行为不变）；记住上次选的分段与 Hub 地址</span></li>
+      </ol>
+    </div>
+
+    <div class="screen" id="s2">
+      <div class="screen-head"><h3>2 · 列表：iOS 分组列表，状态用形状+颜色双编码</h3></div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" tabindex="0"><img src="KIN-MOBILE-002.figma/frames/02-phone-list.svg" alt="列表帧：大标题对话、设备分区、项目折叠、两行式会话行、状态点与待批计数"></div>
+        <figcaption>02-phone-list.svg · 390×844 暗色 · 卡片行全部去掉</figcaption>
+      </figure>
+      <ol class="flow">
+        <li><b>起点</b><span>已连接，落在列表；大标题「对话」滚动时收成导航条标题</span></li>
+        <li><b>动作</b><span>扫行、展开项目、点搜索、点一行</span></li>
+        <li><b>立刻看到</b><span>待批 = 橙三角 + 红计数 pill，最先被看到；运行中 = 蓝点；失败 = 红方块；完成 = 灰点。不靠颜色单独表达——形状也不同</span></li>
+        <li><b>慢·空·失败·断线</b><span>慢：骨架条（帧 6 中）；空：「还没有对话 / 在 Mac 上开始一段对话后，它会出现在这里」；断线：顶部橙横幅，已加载行保留</span></li>
+        <li><b>键盘与焦点</b><span>整行是触控区，行高 54pt；VoiceOver 读「标题 · agent · 时间 · 状态」</span></li>
+        <li><b>离开再回来</b><span>折叠、滚动位置、搜索词保留（行为不变）</span></li>
+      </ol>
+    </div>
+
+    <div class="screen" id="s3">
+      <div class="screen-head"><h3>3 · 对话：活动脊 + 真正的 markdown</h3></div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" tabindex="0"><img src="KIN-MOBILE-002.figma/frames/03-phone-conversation.svg" alt="对话帧：导航条、用户蓝色气泡、agent 轮带蓝色活动脊、markdown 列表、折叠工具行、横滚表格、运行中活动行"></div>
+        <figcaption>03-phone-conversation.svg · 390×844 暗色 · 脊是签名元素</figcaption>
+      </figure>
+      <ol class="flow">
+        <li><b>起点</b><span>点开一条对话；导航条一行：返回 · 标题 · 运行中点 · 用量</span></li>
+        <li><b>动作</b><span>滚动阅读；点工具行展开；表格左右滑</span></li>
+        <li><b>立刻看到</b><span>每轮 agent 工作左缘一条 3pt 状态脊（蓝运行/绿完成/红失败/橙待批）——长对话只扫脊线；markdown 标题/列表/代码块/引用正常渲染；表格在 inset 组里横滚，不撑破屏</span></li>
+        <li><b>慢·空·失败·断线</b><span>流式时脊蓝、底部「运行中 · 已用 N Token」；断线内容不丢（行为不变）</span></li>
+        <li><b>键盘与焦点</b><span>新增文本不抢焦点；表格可聚焦读表头（行为不变）</span></li>
+        <li><b>离开再回来</b><span>阅读位置保留（行为不变）</span></li>
+      </ol>
+    </div>
+
+    <div class="screen" id="s4">
+      <div class="screen-head"><h3>4 · composer 与审批：一屏一个实心主按钮</h3></div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" tabindex="0"><img src="KIN-MOBILE-002.figma/frames/04-phone-composer-approval.svg" alt="composer 帧：审批卡浮在 composer 上方、命令 mono、批准实心蓝、拒绝描边、排队行、玻璃底胶囊输入框"></div>
+        <figcaption>04-phone-composer-approval.svg · 390×844 暗色</figcaption>
+      </figure>
+      <ol class="flow">
+        <li><b>起点</b><span>对话底部 composer；agent 提出一条审批</span></li>
+        <li><b>动作</b><span>读命令、批准或拒绝；或继续输入发送</span></li>
+        <li><b>立刻看到</b><span>审批卡浮在 composer 上方：命令 mono 完整可读，「批准」是全屏唯一实心主按钮、「拒绝」描边；批准后 success 触感一次、卡片变已处理；排队消息一行一条带「撤回」</span></li>
+        <li><b>慢·空·失败·断线</b><span>提交中禁用重复点（行为不变）；失败恢复可操作并说明（行为不变）</span></li>
+        <li><b>键盘与焦点</b><span>键盘弹出 composer 贴键盘上方（行为不变）；批准/拒绝读屏读出动作与对象</span></li>
+        <li><b>离开再回来</b><span>草稿保留（行为不变）</span></li>
+      </ol>
+    </div>
+
+    <div class="screen" id="s5">
+      <div class="screen-head"><h3>5 · 用量 sheet：数字用表格数字</h3></div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" tabindex="0"><img src="KIN-MOBILE-002.figma/frames/05-phone-usage-sheet.svg" alt="用量 sheet 帧：抓握条、分段本周 30 天 90 天、provider 行身份色点与占比条、金额"></div>
+        <figcaption>05-phone-usage-sheet.svg · 390×844 暗色 · sheet 圆角 20</figcaption>
+      </figure>
+      <ol class="flow">
+        <li><b>起点</b><span>对话头「用量」</span></li>
+        <li><b>动作</b><span>切窗口、读 provider 占比、下拉关闭</span></li>
+        <li><b>立刻看到</b><span>sheet 从底部推出，背景压暗；provider 行 = 身份色点 + 占比条 + 金额（tabular figures，不换行跳动）</span></li>
+        <li><b>慢·空·失败·断线</b><span>骨架/空态/失败保留上次值并标记（行为不变）</span></li>
+        <li><b>键盘与焦点</b><span>焦点进 sheet 标题，关闭回到「用量」（行为不变）</span></li>
+        <li><b>离开再回来</b><span>窗口选择保留（行为不变）</span></li>
+      </ol>
+    </div>
+
+    <div class="screen" id="s6">
+      <div class="screen-head"><h3>6 · 状态三联：空 / 加载 / 断线</h3></div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" tabindex="0"><img src="KIN-MOBILE-002.figma/frames/06-phone-states.svg" alt="状态三联帧：空列表居中两行文案、加载骨架条、断线橙横幅下缓存行仍可读"></div>
+        <figcaption>06-phone-states.svg · 三联 1180 宽，卡片内左右滑</figcaption>
+      </figure>
+      <p class="note">空态文案不道歉、给下一步；骨架条按列表行形；断线横幅橙色、不挡行、说清「显示的是缓存」。失败态沿用 KIN-MOBILE-001 已签帧，本条不重复画。</p>
+    </div>
+  </section>
+
+  <section id="states">
+    <h2>状态覆盖</h2>
+    <div class="state-list">
+      <div class="state"><b>加载</b><span>骨架条（帧 6 中）；读屏读「正在载入」</span></div>
+      <div class="state"><b>空</b><span>列表空（帧 6 左）；用量空「这台设备还没有用量」（001 已签文案）</span></div>
+      <div class="state"><b>失败</b><span>列表一行「读取失败，重试」；卡片失败恢复可操作（001 行为，换皮不变）</span></div>
+      <div class="state"><b>断线</b><span>顶部橙横幅 + 缓存可读 + composer 禁用说明（帧 6 右）</span></div>
+      <div class="state"><b>运行中 / 待批 / 已完成 / 失败</b><span>脊与状态点四色四形（帧 2、3、4）</span></div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>决定</h2>
+
+    <div class="decision" id="d1">
+      <h3>D1 · token 端口桌面 theme.css，明暗两套，parity 测试兜底</h3>
+      <p class="rec">推荐：<strong>同意</strong>。<code>mobile-rn/src/theme/tokens.ts</code> 逐值端口 <code>ui/src/design/theme.css</code>（含注释里的对比度结论），一条测试读 css 原文比对，web 改色手机端立刻红。</p>
+      <p class="tradeoff">代价：手机端没有独立配色权——但这正是目的（一个产品一套语言）。备选"手机单独设计一套"会再制造一次 drift，且桌面那套每个值都量过对比度，重做的成本是重新量一遍。</p>
+    </div>
+
+    <div class="decision" id="d2">
+      <h3>D2 · 不上底部 tab bar</h3>
+      <p class="rec">推荐：<strong>同意</strong>。RN 只有一个一级页（列表）；用量是 sheet、审批在对话流里。D8 的四个入口等例行任务/运维真的进了 RN 再加玻璃底栏。</p>
+      <p class="tradeoff">代价：与 web 手机壳的四入口不一致——但 web 那四个面 RN 里三个还不存在，放空 tab 是更大的违背。</p>
+    </div>
+
+    <div class="decision" id="d3">
+      <h3>D3 · 局域网 http Hub：显式确认一次后可连</h3>
+      <p class="rec">推荐：<strong>同意</strong>。现在 <code>normalizeHubOrigin</code> 直接拒绝非回环 http，你的局域网 Hub（192.168.x）根本连不上。改成：http 非回环先出「不安全」确认（说明凭据走明文），确认一次记住该地址。</p>
+      <p class="tradeoff">代价：明文内网凭据的理论风险——但网络是你自己的局域网，且旧 Capacitor 版本来就是这个行为；不确认就放行是不可接受的中间态，所以是确认而不是放行。</p>
+    </div>
+
+    <div class="decision" id="d4">
+      <h3>D4 · markdown 自绘精简渲染器，不引库</h3>
+      <p class="rec">推荐：<strong>同意</strong>。段落/标题/列表/代码块/表格横滚/引用，复用 shared 解析；约几百行。community markdown 库要么维护停滞要么依赖 web 布局假设，表格横滚正是它们最差的部分。</p>
+      <p class="tradeoff">代价：不覆盖 markdown 全量语法（嵌套表格、脚注等稀有构造退化为纯文本）；以后要全量再引库，渲染器接口不变。</p>
+    </div>
+
+    <div class="decision" id="d5">
+      <h3>D5 · 新增三个 expo 官方依赖</h3>
+      <p class="rec">推荐：<strong>同意</strong>。<code>expo-haptics</code>（批准反馈）、<code>expo-symbols</code>（SF Symbols 导航图标）、<code>expo-glass-effect</code>（iOS 26 液态玻璃条，旧系统回落已有的 expo-blur）。都是 expo 官方包、随 SDK 版本锁定。</p>
+      <p class="tradeoff">代价：依赖表从 16 个变 19 个，ADR 0036 要加一行——CEO 循环已有 expo 依赖豁免先例。备选"不用图标全靠文字"在导航条上不可行（返回 chevron、搜索放大镜）。</p>
+    </div>
+  </section>
+
+  <section id="reply">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p>都同意就回「全部同意」，我把故事转 approved 并排进 RN 队列（R1 token 层先行，后续切片并行）。有修改直接写，例如「D4 改成引库」。</p>
+      <div class="reply"><pre>KIN-MOBILE-002 全部同意
+（或：D1… D2… D3… D4… D5… 逐条写修改）</pre></div>
+    </div>
+  </section>
+
+  <footer>
+    <p>KIN-MOBILE-002 · draft · 帧源在 <code>KIN-MOBILE-002.figma/frames/</code>（SVG，Figma 可导入）· 设计系统全文 <code>mobile-rn/DESIGN.md</code></p>
+    <p>设计方法：<code>mobile-design</code> skill（RubenGlez/mobile-design v1.0.0）+ open-design craft 规则 + astryx neutral token（经桌面 theme.css 落地）。</p>
+  </footer>
+</main>
+</body>
+</html>
