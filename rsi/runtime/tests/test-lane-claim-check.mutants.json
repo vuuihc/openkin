@@ -84,11 +84,11 @@
     "new": "  if [ -z \"$verdict\" ]; then\n    rm -rf \"$tmpdir\"\n    printf 'PRODUCER_PR_REFUSED: %s\\n' \"${out:-the claim seam gave no verdict}\"\n    return 1\n  fi"
   },
   {
-    "label": "the producer uploads the mutable source body instead of the private snapshot the seam read: a rewrite during the seam reaches GitHub",
+    "label": "the producer's always-publish edit hands gh the mutable source body instead of the private snapshot the seam read: a rewrite during the seam reaches GitHub",
     "file": "rsi/runtime/producer-pr.sh",
     "test": "RSI_TEST_ONLY=case_a_body_rewritten_during_the_seam_is_not_the_one_uploaded bash rsi/runtime/tests/test-lane-claim-check.sh",
-    "old": "  url=\"$(gh_pr_create \"$repo\" \"$base\" \"$head\" \"$title\" \"$snap\")\" && rc=0 || rc=$?",
-    "new": "  url=\"$(gh_pr_create \"$repo\" \"$base\" \"$head\" \"$title\" \"$body\")\" && rc=0 || rc=$?"
+    "old": "  if ! edit_out=\"$(\"${GH:-gh}\" pr edit \"$prn\" --repo \"$repo\" --body-file \"$snap\" 2>&1)\"; then",
+    "new": "  if ! edit_out=\"$(\"${GH:-gh}\" pr edit \"$prn\" --repo \"$repo\" --body-file \"$body\" 2>&1)\"; then"
   },
   {
     "label": "a producer re-run for an already-open PR skips the body edit again: gh_pr_create returned the existing URL without uploading, so GitHub keeps a body no seam passed",
