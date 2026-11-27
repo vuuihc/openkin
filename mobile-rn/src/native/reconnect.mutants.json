@@ -23,8 +23,8 @@
   {
     "label": "the screen subscribes to app-state changes but never resumes on a return (R-rn-reconnect)",
     "file": "mobile-rn/src/screens/ConversationScreen.tsx",
-    "old": "            if (shouldResume(previousAppState, next)) void thread.resume();",
-    "new": "            if (false && shouldResume(previousAppState, next)) void thread.resume();",
+    "old": "            if (shouldResume(previousAppState, next)) {",
+    "new": "            if (false && shouldResume(previousAppState, next)) {",
     "test": "cd mobile-rn && npx jest src/native/reconnect.test.ts -t \"KIN-MOBILE-001 R7: a foreground return on the conversation screen reopens the dead stream\""
   },
   {

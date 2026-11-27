@@ -13,6 +13,7 @@ import type {
 } from "../../../ui/src/api/contract";
 import type { Session } from "../auth/tokenStore";
 import { t } from "../i18n";
+import type { AppStateLike, AppStateStatus } from "../native/reconnect";
 import ConversationScreen from "./ConversationScreen";
 
 /**
@@ -178,15 +179,63 @@ function storedSession(): Promise<Session | null> {
   return Promise.resolve({ kind: "node", origin: ORIGIN, token: TOKEN });
 }
 
-async function renderConversation(fetchImpl: typeof fetch) {
+async function renderConversation(
+  fetchImpl: typeof fetch,
+  props: Partial<Parameters<typeof ConversationScreen>[0]> = {},
+) {
   return render(
     <ConversationScreen
       fetchImpl={fetchImpl}
       onBack={jest.fn()}
       readSessionImpl={storedSession}
       taskId={TASK_ID}
+      {...props}
     />,
   );
+}
+
+/**
+ * The slice of `AppState` the conversation subscribes to. `currentState` is
+ * what the screen reads before its first transition, so the fake tracks it:
+ * the real module reports the platform's current status there.
+ */
+function fakeAppState(): {
+  port: AppStateLike;
+  emit: (status: AppStateStatus) => void;
+} {
+  let current: AppStateStatus = "active";
+  const listeners = new Set<(status: AppStateStatus) => void>();
+  return {
+    port: {
+      get currentState() {
+        return current;
+      },
+      addEventListener(_type, listener) {
+        listeners.add(listener);
+        return {
+          remove() {
+            listeners.delete(listener);
+          },
+        };
+      },
+    },
+    emit(status) {
+      current = status;
+      for (const listener of [...listeners]) listener(status);
+    },
+  };
+}
+
+/** The background → active edge every leave-and-return test fires. */
+async function leaveAndReturn(app: {
+  emit: (status: AppStateStatus) => void;
+}): Promise<void> {
+  await act(async () => {
+    app.emit("background");
+  });
+  await act(async () => {
+    app.emit("active");
+  });
 }
 
 /** Every string in the rendered tree, in draw order. */
@@ -379,5 +428,136 @@ describe("KIN-MOBILE-001 R5 conversation approvals", () => {
       await Promise.resolve();
     });
     expect(mockSectionProps.length).toBe(painted);
+  });
+
+  it("KIN-MOBILE-001 R5: a decision settled on another device is gone after the app returns to the foreground", async () => {
+    const only = approval("a1", TASK_ID, "npm test --workspace api");
+    let approvalReads = 0;
+    const { fetchImpl } = routedFetch((url) => {
+      if (url === `${ORIGIN}/api/approvals?status=pending`) {
+        approvalReads += 1;
+        // The Mac handled the same approval while the phone was away; the
+        // server no longer offers it, so a fresh read must not draw it.
+        return { body: approvalReads === 1 ? [only] : [] };
+      }
+      if (url === `${ORIGIN}/api/user-questions?status=pending`) {
+        return { body: [] };
+      }
+      const thread = threadReply(url);
+      if (thread) return thread;
+      throw new Error(`unexpected request: ${url}`);
+    });
+    const app = fakeAppState();
+    const screen = await renderConversation(fetchImpl, { appState: app.port });
+
+    await waitFor(() => expect(screen.getByTestId("approve:a1")).toBeTruthy());
+    expect(approvalReads).toBe(1);
+
+    await leaveAndReturn(app);
+
+    // One read on the return edge; the settled card is absent from its answer
+    // and so leaves the screen instead of staying pressed-but-rejected.
+    await waitFor(() =>
+      expect(screen.queryByTestId("card:approval:a1")).toBeNull(),
+    );
+    expect(approvalReads).toBe(2);
+    expect(screen.queryByTestId("approve:a1")).toBeNull();
+    expect(screen.queryByTestId("deny:a1")).toBeNull();
+  });
+
+  it("KIN-MOBILE-001 R8: the foreground re-read keeps a card that is still pending", async () => {
+    const only = approval("a1", TASK_ID, "npm test --workspace api");
+    let approvalReads = 0;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { fetchImpl } = routedFetch(async (url) => {
+      if (url === `${ORIGIN}/api/approvals?status=pending`) {
+        approvalReads += 1;
+        // Hold the return read so the screen is inspected while it is still
+        // on the wire, not after it landed.
+        if (approvalReads === 2) await held;
+        return { body: [only] };
+      }
+      if (url === `${ORIGIN}/api/user-questions?status=pending`) {
+        return { body: [] };
+      }
+      const thread = threadReply(url);
+      if (thread) return thread;
+      throw new Error(`unexpected request: ${url}`);
+    });
+    const app = fakeAppState();
+    const screen = await renderConversation(fetchImpl, { appState: app.port });
+
+    await waitFor(() => expect(screen.getByTestId("approve:a1")).toBeTruthy());
+    await leaveAndReturn(app);
+    await waitFor(() => expect(approvalReads).toBe(2));
+
+    // Still pending on the server: the card keeps its place and its idle
+    // phase while the read is in flight, and the transcript already read is
+    // not replaced by the first-load skeleton (TASTE 15).
+    expect(
+      screen.getByTestId("approve:a1").props.accessibilityState?.disabled,
+    ).toBe(false);
+    expect(
+      mockSectionProps[mockSectionProps.length - 1].state.items[0]?.phase,
+    ).toBe("idle");
+    expect(screen.getByText("all green")).toBeTruthy();
+    expect(screen.queryByTestId("conversation-skeleton")).toBeNull();
+
+    await act(async () => {
+      release();
+      await held;
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByText(t("inbox.loading"))).toBeNull(),
+    );
+    expect(screen.getByTestId("approve:a1")).toBeTruthy();
+    expect(screen.getByText("all green")).toBeTruthy();
+    expect(screen.queryByTestId("conversation-skeleton")).toBeNull();
+  });
+
+  it("KIN-MOBILE-001 R8: a failed foreground re-read keeps the cards already on screen", async () => {
+    const only = approval("a1", TASK_ID, "npm test --workspace api");
+    let approvalReads = 0;
+    const { fetchImpl } = routedFetch((url) => {
+      if (url === `${ORIGIN}/api/approvals?status=pending`) {
+        approvalReads += 1;
+        // The node cannot answer the return read: a disconnect must not erase
+        // what the person has already seen (the model's stale-but-usable rule).
+        return approvalReads === 1 ? { body: [only] } : { status: 503, body: {} };
+      }
+      if (url === `${ORIGIN}/api/user-questions?status=pending`) {
+        return { body: [] };
+      }
+      const thread = threadReply(url);
+      if (thread) return thread;
+      throw new Error(`unexpected request: ${url}`);
+    });
+    const app = fakeAppState();
+    const screen = await renderConversation(fetchImpl, { appState: app.port });
+
+    await waitFor(() => expect(screen.getByTestId("approve:a1")).toBeTruthy());
+    await leaveAndReturn(app);
+    await waitFor(() => expect(approvalReads).toBe(2));
+    await waitFor(() =>
+      expect(screen.queryByText(t("inbox.loading"))).toBeNull(),
+    );
+
+    // The card survives the failed read, still idle and operable, and nothing
+    // claims a decision was made.
+    expect(
+      screen.getByTestId("approve:a1").props.accessibilityState?.disabled,
+    ).toBe(false);
+    expect(
+      screen.getByTestId("deny:a1").props.accessibilityState?.disabled,
+    ).toBe(false);
+    expect(
+      mockSectionProps[mockSectionProps.length - 1].state.items[0]?.phase,
+    ).toBe("idle");
+    expect(screen.queryByText(t("approval.decidedFallback"))).toBeNull();
+    expect(screen.queryByText(t("approval.approvedTitle"))).toBeNull();
   });
 });
