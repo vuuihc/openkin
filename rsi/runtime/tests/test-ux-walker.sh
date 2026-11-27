@@ -52,7 +52,7 @@ PASSED=0
 # The expected case count is named here, so a case that stops running (a
 # deleted block, a stray early return) reds the suite instead of shrinking the
 # summary: "31/31" was a literal that kept saying 31 after cases were added.
-EXPECTED_CASES=41
+EXPECTED_CASES=47
 
 # common.sh rewrites PATH, so an exported function is the only stub that
 # survives into the child bash.
@@ -970,6 +970,107 @@ case "$out" in
 esac
 out="$(check_spec "$UX/journeys.json")"; rc=$?
 [ $rc -eq 0 ] || fail "$case_name: the tree's own spec fails --check-spec: $out"
+pass "$case_name"
+
+# --- a selected journey with no seeded target is "no verdict", never a pass ----
+# When the seed produced no target for a selected journey (a pending approval,
+# a running conversation, a notification card, a question), the walker used to
+# record a synthetic `viewport: 'n/a'` screen and keep going, so walk.json's
+# hardFail stayed empty and ux-gate.sh read a UX PASS whose evidence named a
+# journey nobody walked. The verdict is now refused before Chrome: one
+# UNAVAILABLE line per unwalked journey naming the journey and its reason, exit
+# 2, so ux-gate.sh's UNAVAILABLE branch turns the walk into "no verdict".
+# --seed-verdict is the build-free seam; the real-path case proves the same
+# decision runs above the playwright require and the browser launch.
+[ -n "$REAL_NODE" ] || fail "the seed-verdict cases need node on PATH; none found"
+write_full_seed() { # <dir>: every seeded journey target the readers accept
+  mkdir -p "$1"
+  cat > "$1/seed.log" <<'SEED'
+j1 targets approve conversation=task-approve focus=appr-1 deny conversation=task-deny focus=appr-2
+j4 target project=proj-1
+j5 target conversation=task-running title=Running
+j7 target conversation=task-notify focus=appr-3 title=Notify
+j15 target conversation=task-question focus=uq-1
+SEED
+}
+seed_verdict() { # <out dir> [selection args...]
+  local dir="$1"; shift
+  "$REAL_NODE" "$UXDIR/walk.mjs" --seed-verdict --spec "$UXDIR/journeys.json" --out "$dir" "$@" 2>&1
+}
+
+case_name="seed-verdict-refuses-a-selected-journey-with-no-target"
+SV1="$T/sv-no-j1"; mkdir -p "$SV1"
+printf 'j5 target conversation=task-running title=Running\n' > "$SV1/seed.log"
+out="$(seed_verdict "$SV1" --journeys J1)"; rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2 ($out)"
+[ -f "$SV1/UNAVAILABLE" ] || fail "$case_name: wrote no UNAVAILABLE"
+grep -q 'J1' "$SV1/UNAVAILABLE" || fail "$case_name: UNAVAILABLE does not name J1: $(cat "$SV1/UNAVAILABLE")"
+grep -q 'no seeded approval targets' "$SV1/UNAVAILABLE" \
+  || fail "$case_name: UNAVAILABLE does not give the reader's reason: $(cat "$SV1/UNAVAILABLE")"
+pass "$case_name"
+
+case_name="seed-verdict-writes-one-line-per-unwalked-journey"
+SV2="$T/sv-no-j1-j15"; mkdir -p "$SV2"
+printf 'j5 target conversation=task-running title=Running\n' > "$SV2/seed.log"
+out="$(seed_verdict "$SV2" --journeys J1,J15)"; rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2 ($out)"
+[ "$(grep -c '^selected journey ' "$SV2/UNAVAILABLE")" = 2 ] \
+  || fail "$case_name: want one line per journey: $(cat "$SV2/UNAVAILABLE")"
+grep -q '^selected journey J1 was never walked: ' "$SV2/UNAVAILABLE" \
+  || fail "$case_name: the J1 line does not name J1"
+grep -q '^selected journey J15 was never walked: ' "$SV2/UNAVAILABLE" \
+  || fail "$case_name: the J15 line does not name J15"
+grep '^selected journey J1 ' "$SV2/UNAVAILABLE" | grep -q J15 \
+  && fail "$case_name: the J1 line names J15 too"
+pass "$case_name"
+
+case_name="seed-verdict-passes-a-complete-seed"
+SV3="$T/sv-complete"; write_full_seed "$SV3"
+out="$(seed_verdict "$SV3" --journeys J1,J4,J5,J7,J10,J13,J15)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc, wanted 0 ($out)"
+case "$out" in
+  *'seed-verdict: every selected journey target is present'*) ;;
+  *) fail "$case_name: no green verdict line: $out" ;;
+esac
+[ ! -e "$SV3/UNAVAILABLE" ] || fail "$case_name: wrote UNAVAILABLE for a complete seed"
+pass "$case_name"
+
+case_name="seed-verdict-ignores-unselected-journeys"
+SV4="$T/sv-unselected"; mkdir -p "$SV4"
+printf 'j5 target conversation=task-running title=Running\n' > "$SV4/seed.log"
+out="$(seed_verdict "$SV4" --journeys J9)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc, wanted 0; an unselected journey was counted ($out)"
+[ ! -e "$SV4/UNAVAILABLE" ] || fail "$case_name: refused an unselected journey's missing target"
+pass "$case_name"
+
+case_name="seed-verdict-runs-before-chrome"
+SV5="$T/sv-before-chrome"; mkdir -p "$SV5"
+printf 'j5 target conversation=task-running title=Running\n' > "$SV5/seed.log"
+out="$(PW_CORE="$T/no-such-playwright-core" "$REAL_NODE" "$UXDIR/walk.mjs" --spec "$UXDIR/journeys.json" --out "$SV5" --journeys J1 --base http://127.0.0.1:1 2>&1)"; rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2 ($out)"
+[ -f "$SV5/UNAVAILABLE" ] || fail "$case_name: wrote no UNAVAILABLE"
+grep -q 'J1' "$SV5/UNAVAILABLE" || fail "$case_name: UNAVAILABLE does not name J1"
+case "$out" in
+  *'playwright-core missing'*|*'chrome launch failed'*)
+    fail "$case_name: the verdict ran below the browser: $out" ;;
+esac
+pass "$case_name"
+
+case_name="seed-verdict-keeps-j10-j13-on-j7-target"
+SV6="$T/sv-notify-present"; write_full_seed "$SV6"
+out="$(seed_verdict "$SV6" --journeys J7,J10,J13)"; rc=$?
+[ $rc -eq 0 ] || fail "$case_name: a present J7 target did not cover J10/J13: $out"
+[ ! -e "$SV6/UNAVAILABLE" ] || fail "$case_name: wrote UNAVAILABLE with the notification target present"
+SV7="$T/sv-notify-missing"; mkdir -p "$SV7"
+printf 'j5 target conversation=task-running title=Running\n' > "$SV7/seed.log"
+out="$(seed_verdict "$SV7" --journeys J7,J10,J13)"; rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2 with no notification target ($out)"
+[ "$(grep -c '^selected journey ' "$SV7/UNAVAILABLE")" = 3 ] \
+  || fail "$case_name: J7, J10 and J13 each need a line: $(cat "$SV7/UNAVAILABLE")"
+for j in J7 J10 J13; do
+  grep -q "^selected journey $j was never walked: no seeded notification target$" "$SV7/UNAVAILABLE" \
+    || fail "$case_name: the $j line is missing or wrong: $(cat "$SV7/UNAVAILABLE")"
+done
 pass "$case_name"
 
 [ "$PASSED" -eq "$EXPECTED_CASES" ] \
