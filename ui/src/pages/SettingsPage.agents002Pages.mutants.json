@@ -19,5 +19,19 @@
     "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx -t \"an import in flight from another surface\"",
     "old": "        importingSessions={importingEveryMachine}\n",
     "new": "        importingSessions={false}\n"
+  },
+  {
+    "label": "a failed provider import says nothing",
+    "file": "ui/src/pages/SettingsPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx -t \"a failed provider import names the source\"",
+    "old": "      const result = await importEveryMachine([agentId]);\n      window.dispatchEvent(\n        new CustomEvent(\"kin:agent-sessions-changed\", {\n          detail: { skipAutoImport: true },\n        }),\n      );\n      const toast = importToast(result, tr);\n      pushToast(toast.message, toast.kind);\n",
+    "new": "      await importEveryMachine([agentId]);\n      // mutant: the failure is not reported to the person\n"
+  },
+  {
+    "label": "the import group renders no provider rows",
+    "file": "ui/src/components/settings/LocalAgentSettingsSection.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx -t \"the import group reads providers and imports on its own\"",
+    "old": "        {agentProviders.length > 0 ? (\n",
+    "new": "        {false && agentProviders.length > 0 ? (\n"
   }
 ]
