@@ -25,9 +25,9 @@
 # web/dist/ and the copy-only locales catch-all excluded. Unattributable reproductions are printed,
 # saved to state/ux/<slug>/outside.txt and counted in confirm.summary as evidence, not blocked,
 # and the reviewer prompt names them as evidence about the product rather than about this PR. An
-# unreadable spec, an unmatched path that is not documentation or loop plumbing (docs/, rsi/,
-# scripts/, web/, *.md) or an empty union fails closed: every reproduced red convicts, exactly as
-# before this rule.
+# unreadable spec, an unmatched path that is not documentation, loop plumbing or the RN client
+# (docs/, rsi/, scripts/, web/, mobile-rn/, *.md) or an empty union fails closed: every reproduced
+# red convicts, exactly as before this rule.
 set -u
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 if [ -n "${RSI_UX_STATE:-}" ]; then STATE="$RSI_UX_STATE"; export RSI_STATE="$STATE"; fi
@@ -147,8 +147,10 @@ if [ -n "$HARD" ]; then
     # almost every UI PR walked the whole product and a pre-existing red anywhere was billed to it:
     # #585 scored 4/4/4/4/4 PASS with every reported hard-fail outside /routines and was still sent
     # back. Same rule as the walker (first paths row whose `|`-separated alternative is a prefix
-    # wins), read from the branch's own journeys.json. Test files, manifests and web/dist/ are not
-    # rendered surfaces; the copy-only locales row selects journeys for walking, not conviction.
+    # wins), read from the branch's own journeys.json. Test files, manifests, web/dist/ and the
+    # RN client's mobile-rn/ are not rendered surfaces; the copy-only locales row selects journeys
+    # for walking, not conviction. An RN screen cannot draw a console journey, so it never enters
+    # the union (R-ux-rn-attribution, 2026-11-27); every other unmatched surface still does.
     # Any unreadable spec, unmatched path outside documentation/loop plumbing, or empty union
     # fails closed to today's rule: every reproduced red convicts. Unattributable reproductions
     # are still printed, saved and counted, never silently dropped.
@@ -180,12 +182,17 @@ def skipped(path):
         return True
     # *.test.ts(x), *.dom.test.tsx, *.test.py, *.spec.*, *.mutants.json
     return bool(re.search(r"\.(test\.[A-Za-z0-9]+|test\.py|spec\.[A-Za-z0-9]+|mutants\.json)$", path))
-# Documentation and loop plumbing are not rendered surfaces and cannot reach a journey. Every
-# other path with no row falls back to journeys.json's own "no match = all journeys", so it can:
-# an `internal/api/...` change beside a routines page may have caused the red the walk filed
-# as outside, and freeing it would merge a real regression.
+# Documentation and loop plumbing are not rendered surfaces and cannot reach a journey.
+# mobile-rn/ is the Expo client: it renders no console route, so an RN change cannot cause a
+# web-console journey's red and cannot close the union (R-ux-rn-attribution, 2026-11-27: #822's
+# RN screen beside the shared Markdown.tsx closed the union on `mobile-rn/...`, walked all 17
+# journeys, and billed J12's list-order artefact to a diff that cannot reach it). Its proof is
+# scripts/check.sh's mobile-rn job, not this walk. Every other path with no row falls back to
+# journeys.json's own "no match = all journeys", so it can: an `internal/api/...` change beside a
+# routines page may have caused the red the walk filed as outside, and freeing it would merge a
+# real regression.
 def not_surface(path):
-    return path.startswith(("docs/", "rsi/", "scripts/", "web/")) or path.endswith(".md")
+    return path.startswith(("docs/", "rsi/", "scripts/", "web/", "mobile-rn/")) or path.endswith(".md")
 union = set()
 for path in files:
     if skipped(path):
