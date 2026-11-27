@@ -1,5 +1,6 @@
 import { memo, type ReactNode } from "react";
 import { splitBlocks } from "../lib/markdownBlocks";
+import { inlineTokens } from "../lib/markdownInline";
 import CodeBlock from "./CodeBlock";
 import MermaidBlock from "./MermaidBlock";
 
@@ -134,72 +135,57 @@ function isMermaidLang(lang?: string): boolean {
   return l === "mermaid" || l === "mmd" || l.startsWith("mermaid ") || l.startsWith("mermaid{");
 }
 
-const INLINE_RE = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*]+\*|_[^_]+_|\[[^\]]+\]\([^)]+\))/g;
-
+/**
+ * A token's element: exactly the JSX this file drew before the tokenizer
+ * moved to `lib/markdownInline.ts`. The classes are the console's contract —
+ * `Markdown.inline.dom.test.tsx` pins them.
+ */
 function inline(s: string): ReactNode[] {
-  const parts: ReactNode[] = [];
-  let last = 0;
-  let key = 0;
-  let m: RegExpExecArray | null;
-  const re = new RegExp(INLINE_RE.source, "g");
-  while ((m = re.exec(s))) {
-    if (m.index > last) parts.push(s.slice(last, m.index));
-    const tok = m[0];
-    if (tok.startsWith("[") && tok.includes("](")) {
-      const lm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok);
-      if (lm) {
-        const href = lm[2];
-        const safe =
-          /^(https?:|mailto:|\/|#)/i.test(href) || href.startsWith("./") || href.startsWith("../");
-        if (safe) {
-          parts.push(
-            <a
-              key={key++}
-              href={href}
-              target={href.startsWith("http") ? "_blank" : undefined}
-              rel={href.startsWith("http") ? "noreferrer noopener" : undefined}
-              className="text-kin-blue-ink underline decoration-kin-blue/40 underline-offset-2 hover:decoration-kin-blue"
-            >
-              {lm[1]}
-            </a>,
-          );
-        } else {
-          parts.push(<span key={key++}>{lm[1]}</span>);
+  return inlineTokens(s).map((token, i) => {
+    switch (token.kind) {
+      case "strong":
+        return (
+          <strong key={i} className="font-semibold text-kin-text">
+            {token.value}
+          </strong>
+        );
+      case "em":
+        return (
+          <em key={i} className="italic text-kin-secondary">
+            {token.value}
+          </em>
+        );
+      case "code":
+        return (
+          <code
+            key={i}
+            className="rounded bg-[var(--kin-fill-strong)] px-1 py-0.5 text-body font-mono text-kin-blue-ink"
+          >
+            {token.value}
+          </code>
+        );
+      case "link": {
+        const href = token.href;
+        if (href === undefined) {
+          // An unsafe href degrades to its label, in the span it always had.
+          return <span key={i}>{token.value}</span>;
         }
-      } else {
-        parts.push(tok);
+        return (
+          <a
+            key={i}
+            href={href}
+            target={href.startsWith("http") ? "_blank" : undefined}
+            rel={href.startsWith("http") ? "noreferrer noopener" : undefined}
+            className="text-kin-blue-ink underline decoration-kin-blue/40 underline-offset-2 hover:decoration-kin-blue"
+          >
+            {token.value}
+          </a>
+        );
       }
-    } else if (tok.startsWith("**") || tok.startsWith("__")) {
-      parts.push(
-        <strong key={key++} className="font-semibold text-kin-text">
-          {tok.slice(2, -2)}
-        </strong>,
-      );
-    } else if (tok.startsWith("`")) {
-      parts.push(
-        <code
-          key={key++}
-          className="rounded bg-[var(--kin-fill-strong)] px-1 py-0.5 text-body font-mono text-kin-blue-ink"
-        >
-          {tok.slice(1, -1)}
-        </code>,
-      );
-    } else if (
-      (tok.startsWith("*") && tok.endsWith("*")) ||
-      (tok.startsWith("_") && tok.endsWith("_"))
-    ) {
-      parts.push(
-        <em key={key++} className="italic text-kin-secondary">
-          {tok.slice(1, -1)}
-        </em>,
-      );
-    } else {
-      parts.push(tok);
+      default:
+        return token.value;
     }
-    last = m.index + tok.length;
-  }
-  if (last < s.length) parts.push(s.slice(last));
-  return parts;
+  });
 }
 
 export default memo(MarkdownImpl);
