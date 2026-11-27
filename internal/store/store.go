@@ -1265,27 +1265,29 @@ func (s *Store) FinishTask(
 	exitCode *int,
 	costUSD *float64,
 	allowQueued bool,
-) error {
+) (SettledDecisions, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin finish task: %w", err)
+		return SettledDecisions{}, fmt.Errorf("begin finish task: %w", err)
 	}
 	defer tx.Rollback()
 
-	if err := finishTaskTx(ctx, tx, id, status, finishedAt, exitCode, costUSD, allowQueued); err != nil {
-		return err
+	settled, err := finishTaskTx(ctx, tx, id, status, finishedAt, exitCode, costUSD, allowQueued)
+	if err != nil {
+		return SettledDecisions{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit finish task: %w", err)
+		return SettledDecisions{}, fmt.Errorf("commit finish task: %w", err)
 	}
-	return nil
+	return settled, nil
 }
 
 // finishTaskTx applies the terminal update FinishTask exists for, inside the
 // caller's transaction. It is the shared body of every write that ends a task:
-// the status, the consumed retry intent, and the hub_seq bump are one change, so
-// a caller that must write something else with the ending (a report naming the
-// messages it could not deliver) gets both or neither.
+// the status, the consumed retry intent, the hub_seq bump, and the pending
+// decisions the ending resolves are one change, so a caller that must write
+// something else with the ending (a report naming the messages it could not
+// deliver) gets both or neither.
 func finishTaskTx(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -1294,11 +1296,11 @@ func finishTaskTx(
 	exitCode *int,
 	costUSD *float64,
 	allowQueued bool,
-) error {
+) (SettledDecisions, error) {
 	switch status {
 	case "succeeded", "failed", "canceled":
 	default:
-		return fmt.Errorf("finish task with non-terminal status %q", status)
+		return SettledDecisions{}, fmt.Errorf("finish task with non-terminal status %q", status)
 	}
 
 	sets := []string{"status = ?", "finished_at = ?"}
@@ -1330,22 +1332,33 @@ func finishTaskTx(
 		args...,
 	)
 	if err != nil {
-		return fmt.Errorf("finish task: %w", err)
+		return SettledDecisions{}, fmt.Errorf("finish task: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
-		return ErrConflict
+		return SettledDecisions{}, ErrConflict
 	}
 	if _, err := tx.ExecContext(
 		ctx,
 		`DELETE FROM retry_restore_intents WHERE task_id = ?`,
 		id,
 	); err != nil {
-		return fmt.Errorf("consume retry restore intent: %w", err)
+		return SettledDecisions{}, fmt.Errorf("consume retry restore intent: %w", err)
 	}
 	if err := touchTaskHubSeq(ctx, tx, id); err != nil {
-		return err
+		return SettledDecisions{}, err
 	}
-	return nil
+	// What was waiting on this task ends with it, in the same transaction: a
+	// reader that can observe the terminal status can never read a decision the
+	// task is no longer there to answer. Only pending rows are touched, so a
+	// person who decided first keeps their answer.
+	settled := SettledDecisions{}
+	if settled.Approvals, err = settleApprovalsTx(ctx, tx, id, finishedAt); err != nil {
+		return SettledDecisions{}, err
+	}
+	if settled.Questions, err = settleUserQuestionsTx(ctx, tx, id, finishedAt); err != nil {
+		return SettledDecisions{}, err
+	}
+	return settled, nil
 }
 
 // PendingPromptReport is what a terminal transition wrote about the messages it
@@ -1358,6 +1371,9 @@ type PendingPromptReport struct {
 	Event   Event
 	Count   int
 	AfterID int64
+	// Settled are the decisions the same transition resolved. The engine
+	// announces them after the commit; they were written with the status.
+	Settled SettledDecisions
 }
 
 // Written reports whether the transition appended a report event.
@@ -1392,7 +1408,8 @@ func (s *Store) FinishTaskReportingPending(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if err := finishTaskTx(ctx, tx, id, status, finishedAt, exitCode, costUSD, false); err != nil {
+	settled, err := finishTaskTx(ctx, tx, id, status, finishedAt, exitCode, costUSD, false)
+	if err != nil {
 		return PendingPromptReport{}, err
 	}
 	count, maxID, err := pendingPromptsWatermarkTx(ctx, tx, id)
@@ -1403,7 +1420,7 @@ func (s *Store) FinishTaskReportingPending(
 		if err := tx.Commit(); err != nil {
 			return PendingPromptReport{}, fmt.Errorf("commit finish task: %w", err)
 		}
-		return PendingPromptReport{}, nil
+		return PendingPromptReport{Settled: settled}, nil
 	}
 	payload, _ := json.Marshal(map[string]string{
 		"message": UndeliveredPromptsMessage(count, reason),
@@ -1415,7 +1432,7 @@ func (s *Store) FinishTaskReportingPending(
 	if err := tx.Commit(); err != nil {
 		return PendingPromptReport{}, fmt.Errorf("commit finish task with report: %w", err)
 	}
-	return PendingPromptReport{Event: ev, Count: count, AfterID: maxID}, nil
+	return PendingPromptReport{Event: ev, Count: count, AfterID: maxID, Settled: settled}, nil
 }
 
 // AppendEvent inserts the next event for a task (monotonically increasing seq).
