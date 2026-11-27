@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { render, within } from "@testing-library/react-native";
+import { render, waitFor, within } from "@testing-library/react-native";
+import * as Haptics from "expo-haptics";
 import {
   StyleSheet,
   useColorScheme,
@@ -32,6 +33,22 @@ jest.mock("react-native/Libraries/Utilities/useColorScheme", () => ({
   __esModule: true,
   default: jest.fn(),
 }));
+
+/**
+ * KIN-MOBILE-002 R5 — the taptic engine is the outcome's receipt. The mock
+ * keeps both calls observable and returns a resolved promise, which is what
+ * `fireHaptic` expects from a device that can vibrate.
+ */
+jest.mock("expo-haptics", () => ({
+  __esModule: true,
+  ImpactFeedbackStyle: { Medium: "medium" },
+  NotificationFeedbackType: { Error: "error", Success: "success" },
+  impactAsync: jest.fn(async () => undefined),
+  notificationAsync: jest.fn(async () => undefined),
+}));
+
+const impactAsync = jest.mocked(Haptics.impactAsync);
+const notificationAsync = jest.mocked(Haptics.notificationAsync);
 
 const systemScheme = jest.mocked(useColorScheme) as jest.MockedFunction<
   () => ReturnType<typeof useColorScheme> | undefined
@@ -130,19 +147,24 @@ function cardButtons(
   return found;
 }
 
-function renderScreen(overrides: Partial<ApprovalsState> = {}): Promise<Screen> {
-  return render(
+function screenElement(overrides: Partial<ApprovalsState> = {}) {
+  return (
     <Approvals
       onAnswer={() => {}}
       onApprove={() => {}}
       onDeny={() => {}}
       state={state(overrides)}
       t={t}
-    />,
+    />
   );
 }
 
+function renderScreen(overrides: Partial<ApprovalsState> = {}): Promise<Screen> {
+  return render(screenElement(overrides));
+}
+
 beforeEach(() => {
+  jest.clearAllMocks();
   systemScheme.mockReturnValue("dark");
 });
 
@@ -218,5 +240,83 @@ describe("KIN-MOBILE-002 R5 approval card visual", () => {
       ) as TextStyle;
       expect(command.fontFamily).toContain("monospace");
     }
+  });
+});
+
+/**
+ * KIN-MOBILE-002 R5 — the decision is felt once (DESIGN.md:41, the story's
+ * acceptance row `KIN-MOBILE-002.md:130`): a card that lands approved or denied
+ * gives one medium impact plus one success notification, a failed write gives
+ * one error notification instead, and a card that was already resolved when it
+ * appeared gives nothing — the receipt belongs to the flow that pressed.
+ */
+describe("KIN-MOBILE-002 R5 approval haptics", () => {
+  const RESOLVED: Partial<ApprovalEntry> = {
+    phase: "resolved",
+    pending: false,
+    resolution: { kind: "approval", decision: "approved" },
+  };
+
+  it("KIN-MOBILE-002 R5: an approved card fires one medium impact and one success notification", async () => {
+    const screen = await renderScreen({
+      items: [approvalEntry("a1", { phase: "submitting" })],
+    });
+
+    // Pressing is not the outcome: a submit in flight is silent.
+    expect(impactAsync).not.toHaveBeenCalled();
+    expect(notificationAsync).not.toHaveBeenCalled();
+
+    screen.rerender(
+      screenElement({
+        items: [approvalEntry("a1", RESOLVED)],
+        pendingCount: 0,
+      }),
+    );
+
+    await waitFor(() => expect(impactAsync).toHaveBeenCalledTimes(1));
+    expect(impactAsync).toHaveBeenCalledWith(Haptics.ImpactFeedbackStyle.Medium);
+    expect(notificationAsync).toHaveBeenCalledTimes(1);
+    expect(notificationAsync).toHaveBeenCalledWith(
+      Haptics.NotificationFeedbackType.Success,
+    );
+  });
+
+  it("KIN-MOBILE-002 R5: a card that mounts already resolved fires no haptics", async () => {
+    const screen = await renderScreen({
+      items: [approvalEntry("a1", RESOLVED)],
+      pendingCount: 0,
+    });
+
+    // The card really is drawn resolved; only the receipt is withheld, because
+    // this screen did not witness the decision (AGENTS.md §11).
+    expect(screen.getByTestId("result:approval:a1")).toBeTruthy();
+    expect(impactAsync).not.toHaveBeenCalled();
+    expect(notificationAsync).not.toHaveBeenCalled();
+  });
+
+  it("KIN-MOBILE-002 R5: a failed approval fires the error notification, not the success one", async () => {
+    const screen = await renderScreen({
+      items: [approvalEntry("a1", { phase: "submitting" })],
+    });
+
+    screen.rerender(
+      screenElement({
+        items: [
+          // approvalsModel.ts:451 lands a failed write on idle with the
+          // failure kept; the card is still pending in the list.
+          approvalEntry("a1", {
+            phase: "idle",
+            failure: { reason: "rejected", status: 403 },
+          }),
+        ],
+        pendingCount: 1,
+      }),
+    );
+
+    await waitFor(() => expect(notificationAsync).toHaveBeenCalledTimes(1));
+    expect(notificationAsync).toHaveBeenCalledWith(
+      Haptics.NotificationFeedbackType.Error,
+    );
+    expect(impactAsync).not.toHaveBeenCalled();
   });
 });

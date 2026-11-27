@@ -1,0 +1,37 @@
+[
+  {
+    "label": "the composer loses the signed 22pt capsule radius, so the bar reads as another rounded rectangle (R-rn-composer-approvals-c)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  composer: {\n    borderColor: colors.hairlineStrong,\n    borderRadius: radius.composer,",
+    "new": "  composer: {\n    borderColor: colors.hairlineStrong,\n    borderRadius: 8,",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.composer.visual.test.tsx -t \"KIN-MOBILE-002 R5: the composer is one capsule on the composer radius above the home indicator\""
+  },
+  {
+    "label": "Send is filled on an empty draft, so the screen shows a hot primary with nothing to send (R-rn-composer-approvals-c)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  const filled = canSend && !primaryTaken;",
+    "new": "  const filled = !primaryTaken;",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.composer.visual.test.tsx -t \"KIN-MOBILE-002 R5: Send is a 44pt circle, filled only while a draft exists\""
+  },
+  {
+    "label": "Send ignores a waiting approval and becomes a second filled primary (R-rn-composer-approvals-c)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  const filled = canSend && !primaryTaken;",
+    "new": "  const filled = canSend;",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.composer.visual.test.tsx -t \"KIN-MOBILE-002 R5: a pending approval keeps Send outlined even with a draft\""
+  },
+  {
+    "label": "Stop shrinks under the 44pt floor, so the circle beside Send is no longer the signed target (R-rn-composer-approvals-c)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  circle: {\n    alignItems: \"center\",\n    backgroundColor: \"transparent\",\n    borderRadius: radius.composer,\n    height: BACK_SIZE,",
+    "new": "  circle: {\n    alignItems: \"center\",\n    backgroundColor: \"transparent\",\n    borderRadius: radius.composer,\n    height: 30,",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.composer.visual.test.tsx -t \"KIN-MOBILE-002 R5: a running round adds a 44pt circular Stop beside Send\""
+  },
+  {
+    "label": "queued rows lose the capsule's 6pt rhythm, so two rows read as one block (R-rn-composer-approvals-c)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  queue: {\n    gap: 6,\n  },",
+    "new": "  queue: {\n    gap: 4,\n  },",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.composer.visual.test.tsx -t \"KIN-MOBILE-002 R5: a queued row keeps its words, its queued label and a 44pt withdraw inside the capsule\""
+  }
+]
