@@ -196,18 +196,10 @@ func (e *Engine) Decide(ctx context.Context, id, decision, via string) (store.Ap
 
 	// Event + task status. Losing approval_decided would make the audit trail
 	// incomplete; surface the error even though the decision row is stored.
-	decidedEvent := map[string]any{
-		"approval_id": id,
-		"decision":    decision,
-		"decided_via": via,
-	}
-	if a.DecidedAt != nil {
-		// The console rebuilds a decided card from the request + decision pair
-		// after a reload or on a second device; without this the card knows
-		// what was decided but not when.
-		decidedEvent["decided_at"] = *a.DecidedAt
-	}
-	evPayload, _ := json.Marshal(decidedEvent)
+	// The console rebuilds a decided card from the request + decision pair after
+	// a reload or on a second device; approvalDecisionPayload carries decided_at
+	// so the card knows what was decided and when.
+	evPayload := approvalDecisionPayload(a, decision, via)
 	if _, err := e.appendEventLocked(ctx, a.TaskID, "approval_decided", evPayload); err != nil {
 		e.bus.PublishApproval(a)
 		return a, fmt.Errorf("persist approval_decided: %w", err)
@@ -233,6 +225,74 @@ func (e *Engine) Decide(ctx context.Context, id, decision, via string) (store.Ap
 
 	e.bus.PublishApproval(a)
 	return a, nil
+}
+
+// approvalDecisionPayload is the approval_decided event body. Decide and the
+// task-end settle share it, so the public event has one shape whichever path
+// wrote the decision.
+func approvalDecisionPayload(a store.Approval, decision, via string) json.RawMessage {
+	ev := map[string]any{
+		"approval_id": a.ID,
+		"decision":    decision,
+		"decided_via": via,
+	}
+	if a.DecidedAt != nil {
+		ev["decided_at"] = *a.DecidedAt
+	}
+	payload, _ := json.Marshal(ev)
+	return payload
+}
+
+// announceSettledDecisions tells the readers of the decisions a terminal
+// transition already resolved in its store transaction: a long-poll that was
+// waiting on one unblocks with the answer, and the transcript records what
+// happened to the card. The durable write is behind it, so a failure to
+// announce leaves the answer in place and only loses the live update -- the same
+// best-effort contract the cancel path has.
+func (e *Engine) announceSettledDecisions(ctx context.Context, settled store.SettledDecisions) {
+	for _, a := range settled.Approvals {
+		e.announceSettledApproval(ctx, a)
+	}
+	for _, q := range settled.Questions {
+		e.announceSettledQuestion(ctx, q)
+	}
+}
+
+func (e *Engine) announceSettledApproval(ctx context.Context, a store.Approval) {
+	e.notifyApprovalWaiters(a.ID, a)
+	via := "interrupt"
+	if a.DecidedVia != nil {
+		via = *a.DecidedVia
+	}
+	// Deliberately no resume step: the task this approval belonged to has
+	// already ended, so there is nothing left to resume.
+	if _, err := e.appendEventLocked(ctx, a.TaskID, "approval_decided",
+		approvalDecisionPayload(a, a.Decision, via)); err != nil {
+		e.bus.PublishApproval(a)
+		return
+	}
+	e.bus.PublishApproval(a)
+}
+
+func (e *Engine) announceSettledQuestion(ctx context.Context, q store.UserQuestion) {
+	e.notifyUserQuestionWaiters(q.ID, q)
+	via := "interrupt"
+	if q.AnsweredVia != nil {
+		via = *q.AnsweredVia
+	}
+	// The body AnswerUserQuestion writes for an interrupt answer (see
+	// user_questions.go); the row's Response carries the same empty selection.
+	evPayload, _ := json.Marshal(map[string]any{
+		"question_id":  q.ID,
+		"status":       q.Status,
+		"response":     q.Response,
+		"answered_via": via,
+	})
+	if _, err := e.appendEventLocked(ctx, q.TaskID, "user_question_answered", evPayload); err != nil {
+		e.bus.PublishUserQuestion(q)
+		return
+	}
+	e.bus.PublishUserQuestion(q)
 }
 
 // GetApproval returns one approval.
