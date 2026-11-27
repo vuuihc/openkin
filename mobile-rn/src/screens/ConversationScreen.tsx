@@ -206,7 +206,15 @@ export default function ConversationScreen({
         appStateSubscription = appStatePort.addEventListener(
           "change",
           (next) => {
-            if (shouldResume(previousAppState, next)) void thread.resume();
+            if (shouldResume(previousAppState, next)) {
+              void thread.resume();
+              // R8: a decision settled on another device is gone from the
+              // node's pending lists, so the return re-reads them beside the
+              // stream — one read per edge, no poll. The model drops a late
+              // answer from a list this screen no longer owns (AGENTS.md §11),
+              // and a failed read keeps the cards already drawn.
+              void approvalsRef.current?.load();
+            }
             previousAppState = next;
           },
         );
