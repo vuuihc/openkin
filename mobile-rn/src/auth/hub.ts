@@ -1,6 +1,7 @@
 import { apiFetch, type TransportReason } from "../api/transport";
 import {
   clearSession,
+  isHubOrigin,
   isLoopbackHost,
   secureStoreBackend,
   writeSession,
@@ -67,12 +68,19 @@ export type HubSignInOptions = {
   timeoutMs?: number;
 };
 
+/**
+ * The explicit, per-origin opt-in for a plaintext Hub on a local network
+ * (ADR 0037 §1). Default off: a caller that omits it keeps the refusal.
+ */
+export type HubAllowance = { allowInsecure?: boolean };
+
 export type HubSignIn = {
-  probe(rawUrl: string): Promise<HubProbe>;
+  probe(rawUrl: string, allowance?: HubAllowance): Promise<HubProbe>;
   signInWithPassword(
     rawUrl: string,
     email: string,
     password: string,
+    allowance?: HubAllowance,
   ): Promise<HubAttempt>;
   /** Best-effort logout, then the Keychain entry goes (expiry path). */
   signOut(origin: string): Promise<void>;
@@ -82,9 +90,15 @@ export type HubSignIn = {
  * A typed Hub address normalized to its origin, or null when it is not one.
  *
  * https is required off loopback: the session cookie is the credential, and a
- * plaintext origin would hand it to the network. A bare host gets https.
+ * plaintext origin would hand it to the network. A bare host gets https. The
+ * one exception is `allowance.allowInsecure`, supplied only after the pair
+ * screen showed, and the person confirmed, the plaintext warning for this
+ * exact origin (ADR 0037 §1). Nothing here remembers it between calls.
  */
-export function normalizeHubOrigin(raw: string): string | null {
+export function normalizeHubOrigin(
+  raw: string,
+  allowance?: HubAllowance,
+): string | null {
   const trimmed = raw.trim();
   if (trimmed === "") return null;
   const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
@@ -97,7 +111,13 @@ export function normalizeHubOrigin(raw: string): string | null {
     return null;
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
-  if (parsed.protocol === "http:" && !isLoopbackHost(parsed.hostname)) return null;
+  if (
+    parsed.protocol === "http:" &&
+    !isLoopbackHost(parsed.hostname) &&
+    allowance?.allowInsecure !== true
+  ) {
+    return null;
+  }
   if (parsed.hostname === "") return null;
   return parsed.origin;
 }
@@ -179,8 +199,11 @@ export function createHubSignIn(options: HubSignInOptions = {}): HubSignIn {
   const signInFailure = (reason: TransportReason): HubReason =>
     reason === "expired" ? "rejected" : reason;
 
-  async function probe(rawUrl: string): Promise<HubProbe> {
-    const origin = normalizeHubOrigin(rawUrl);
+  async function probe(
+    rawUrl: string,
+    allowance?: HubAllowance,
+  ): Promise<HubProbe> {
+    const origin = normalizeHubOrigin(rawUrl, allowance);
     if (origin === null) return { ok: false, reason: "insecure", origin: null };
 
     const result = await apiFetch<StatusBody>(origin, "/api/auth/status", {
@@ -198,8 +221,9 @@ export function createHubSignIn(options: HubSignInOptions = {}): HubSignIn {
     rawUrl: string,
     email: string,
     password: string,
+    allowance?: HubAllowance,
   ): Promise<HubAttempt> {
-    const origin = normalizeHubOrigin(rawUrl);
+    const origin = normalizeHubOrigin(rawUrl, allowance);
     if (origin === null) return { ok: false, reason: "insecure", origin: null };
 
     const login = await apiFetch<unknown>(origin, "/api/auth/login", {
@@ -234,12 +258,22 @@ export function createHubSignIn(options: HubSignInOptions = {}): HubSignIn {
     }
 
     const store = await backend();
-    await writeSession({ kind: "hub", origin }, store);
+    // The flag is computed here, from the origin the opt-in admitted — never
+    // taken from the URL, a server answer or the store (ADR 0037 §2). A
+    // plaintext origin is exactly one `isHubOrigin` refuses.
+    await writeSession(
+      isHubOrigin(origin)
+        ? { kind: "hub", origin }
+        : { kind: "hub", origin, insecure: true },
+      store,
+    );
     return { ok: true, origin };
   }
 
   async function signOut(origin: string): Promise<void> {
-    const target = normalizeHubOrigin(origin);
+    // Sign-out is the safe direction: a confirmed plaintext origin keeps its
+    // best-effort logout instead of being refused as insecure here.
+    const target = normalizeHubOrigin(origin, { allowInsecure: true });
     if (target !== null) {
       // Best effort: the Keychain entry goes even when the Hub cannot be
       // reached, which is exactly when someone signs out.

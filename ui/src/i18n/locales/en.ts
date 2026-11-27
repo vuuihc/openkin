@@ -34,6 +34,13 @@ const en: MessageTree = {
     hubBack: "Use a different Hub",
     hubRejected: "The Hub refused this sign-in. Check the address and the account, then try again.",
     hubInsecure: "Use an https:// Hub address. http is allowed only on this device.",
+    hubPlaintextTitle: "This address is not HTTPS",
+    hubPlaintextBody:
+      "The connection is plaintext, so your sign-in credential (kin_session) can be read by other devices on the same network.",
+    hubPlaintextConfirm: "Continue anyway",
+    hubPlaintextCancel: "Cancel",
+    hubPlaintextMarker:
+      "Not secure: plaintext connection — your sign-in credential can be read by devices on this network.",
     hubNoAccounts:
       "This Hub has no accounts yet. Set it up in a browser, or pair with a node link.",
     hubNeedsOwner:
