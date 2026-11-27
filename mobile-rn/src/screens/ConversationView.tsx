@@ -90,6 +90,12 @@ import { MessageBody } from "./MarkdownBody";
 export const BACK_SIZE = 44;
 
 /**
+ * DESIGN.md's mono row — a tool line, its command and its arguments. The same
+ * platform select as `MarkdownBody`'s fenced code, so the two cannot disagree.
+ */
+const MONO = Platform.select({ ios: "Menlo", default: "monospace" });
+
+/**
  * The metrics of a device that reports no safe area. The view also is rendered
  * on its own, without a provider, by the reading suites; reading the context
  * directly (rather than `useSafeAreaInsets`, which throws) treats that as a
@@ -305,7 +311,7 @@ function ToolRow({
       testID={`conversation:tool:${step.key}`}
     >
       <View style={styles.toolHead}>
-        <Text numberOfLines={2} style={styles.tool}>
+        <Text numberOfLines={1} ellipsizeMode="tail" style={styles.tool}>
           {step.name}
         </Text>
         <Text style={styles.toolStatus}>{t(statusKey(step.status))}</Text>
@@ -1359,6 +1365,7 @@ const makeStyles = (
   },
   detailText: {
     color: colors.secondary,
+    fontFamily: MONO,
     fontSize: 13,
   },
   errorItem: {
@@ -1501,7 +1508,8 @@ const makeStyles = (
   tool: {
     color: colors.secondary,
     flexShrink: 1,
-    fontSize: 14,
+    fontFamily: MONO,
+    fontSize: 13,
     fontWeight: "500",
   },
   toolDetail: {
@@ -1525,6 +1533,7 @@ const makeStyles = (
   },
   toolStatus: {
     color: colors.muted,
+    fontFamily: MONO,
     fontSize: 12,
     fontWeight: "600",
   },
