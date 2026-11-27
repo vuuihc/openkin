@@ -1,0 +1,37 @@
+[
+  {
+    "label": "rn-arm-dropped: a phone-only screen change reaches the gate uncaptured again",
+    "file": "rsi/runtime/screenshots-obligation.sh",
+    "test": "bash rsi/runtime/tests/test-screenshots-obligation.sh",
+    "old": "RN_VIS=\"$(grep -E '^mobile-rn/(src/screens|src/native|app)/.*\\.tsx$' \"$PATHS\" 2>/dev/null | grep -vE '\\.(test|spec|mutants)\\.' || true)\"",
+    "new": "RN_VIS=\"\""
+  },
+  {
+    "label": "invisibility-arm-dropped: \"none: not visible\" passes on a phone change (the rn-approval-dock major)",
+    "file": "rsi/runtime/screenshots-obligation.sh",
+    "test": "bash rsi/runtime/tests/test-screenshots-obligation.sh",
+    "old": "      *\"not visible\"*|*\"not user-visible\"*|*\"no ui/ change\"*|*\"nothing to see\"*)",
+    "new": "      *\"__never_matches__\"*)"
+  },
+  {
+    "label": "shots-check-inverted: a non-empty capture dir no longer satisfies the obligation",
+    "file": "rsi/runtime/screenshots-obligation.sh",
+    "test": "bash rsi/runtime/tests/test-screenshots-obligation.sh",
+    "old": "if [ -d \"$SHOTS\" ] && [ -n \"$(ls -A \"$SHOTS\" 2>/dev/null)\" ]; then",
+    "new": "if [ -d \"$SHOTS\" ] && [ -z \"$(ls -A \"$SHOTS\" 2>/dev/null)\" ]; then"
+  },
+  {
+    "label": "merge-call-removed: the merge lane no longer consults the obligation and never holds",
+    "file": "rsi/runtime/merge.sh",
+    "test": "bash rsi/runtime/tests/test-screenshots-obligation.sh",
+    "old": "SHOT_VERDICT=\"$(bash \"$RSI_DIR/runtime/screenshots-obligation.sh\" \"$SHOT_PATHS\" \"$SHOT_BODY\" \"$STATE/shots/$SLUG\" 2>&1)\"; SHOT_RC=$?",
+    "new": "SHOT_VERDICT=\"\"; SHOT_RC=0"
+  },
+  {
+    "label": "check-sh-unwired: the gate stops running the obligation suite",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-screenshots-obligation.sh",
+    "old": "  bash rsi/runtime/tests/test-screenshots-obligation.sh || return 1",
+    "new": "  : # screenshot obligation suite not wired"
+  }
+]

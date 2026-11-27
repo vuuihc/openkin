@@ -15,7 +15,7 @@
   },
   {
     "label": "the merge gate's screenshot sendback asks for two evidence widths",
-    "file": "rsi/runtime/merge.sh",
+    "file": "rsi/runtime/screenshots-obligation.sh",
     "test": "bash rsi/runtime/tests/test-evidence-widths.sh",
     "old": "Capture 390x844, 820x1180 and 1100x760 before/after",
     "new": "Capture 390x844 and 1100x760 before/after"
