@@ -127,8 +127,14 @@ npx --no-install jest --ci --runInBand
   这证明组件配置，不证明真机键盘动画、遮挡或玻璃 blur 体感；这些仍需人验，不记作 done。
 - 推送注册尚未接入；`mobile-rn/package.json` 没有 `expo-notifications`，
   `mobile-rn/src/push/route.ts` 是点开通知后的路由逻辑，不是注册与投递的真机证据。
-- 玻璃层尚未接入本轮基线；`mobile-rn/package.json` 没有 `expo-blur`。
-  用量 **sheet** 由 #768 跟进（本轮查询仍 open），不能据此宣布玻璃头部完成；头部仍待接入。
+- **玻璃层已接入本轮基线之后。** `mobile-rn/package.json:15` 有 `"expo-blur": "58.0.6"`；
+  `mobile-rn/src/native/GlassSurface.tsx:26` 从 `expo-blur` 引入 `BlurView`，`:77-90` 渲染该面
+  （`glass.test.ts:16` 钉住普通手机走 blur，不是平白卡片）。两处调用点都用它：
+  用量 **sheet** 在 `mobile-rn/src/screens/ProviderUsageSheet.tsx:176`（#768，`f80acc50`），
+  对话头部在 `mobile-rn/src/screens/ConversationView.tsx:963`（#785，`8dda1e69`）；对应
+  `ProviderUsageSheet.glass.test.tsx:159`、`Conversation.glass.test.tsx:162`。
+  这证明代码与测试，不证明真机玻璃 blur 的手感——真机体感仍未验，不记作 done。
+- `2026-11-27 · 复核：玻璃层已落地（#768 用量 sheet、#785 对话头部）；真机体感仍未验。`
 - 扫码未实现；`mobile-rn/app/pair.tsx` 当前配对表单只有链接输入与提交，本轮没有扫码验收。
 - 手机上还没有「新建对话」入口；`docs/product/stories/KIN-MOBILE-001.md` §2
   的空态行与 §「变更记录」将该入口留给另立的 start 故事，不把本轮列表图当入口交付。

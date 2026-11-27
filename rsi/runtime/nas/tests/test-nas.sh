@@ -861,6 +861,134 @@ t_no_pr_is_not_divergence() {
   check "T16 no git error about a null object" bash -c "! grep -q 'Not a valid object name' '$T2/i1.log'"
 }
 
+# --- NAS base: the shipped bundle is the only source of the base ---------------------------------
+# pulse-nas.sh bundles `origin/main`, so the bundle's head ref is refs/remotes/origin/main; the
+# long-lived bare repo keeps that same ref from earlier jobs and nothing in the shipped flow
+# refreshes it. nas-base.sh applies the bundle by the head ref it carries and prints the base to
+# build on; with no bundle the fallback is the repo's refs/heads/main, never an origin/main the
+# repo happened to keep. A bundle from an older producer whose head is refs/heads/main still applies.
+nas_seed() { # T SLUG — bare repo main=OLD, stale refs/remotes/origin/main=OLD; prints "OLD NEW"
+  local T="$1" slug="$2" old new
+  git init -q --bare "$T/work/openkin.git"
+  mkdir -p "$T/work/jobs/$slug" "$T/work/wt" "$T/work/logs"
+  printf '{"item":"R-NAS-BASE","paths":["docs"],"brief":"b"}\n' > "$T/work/jobs/$slug/job.json"
+  printf '{"status":"queued","slug":"%s"}\n' "$slug" > "$T/work/jobs/$slug/status.json"
+  git -C "$T/ctrl" checkout -q main
+  # The lane refuses to hand over without the sweep script; the sandbox repo is not the real tree,
+  # so it carries a stub. The sweep itself is not under test here.
+  mkdir -p "$T/ctrl/rsi/runtime"
+  printf '#!/bin/bash\nexit 0\n' > "$T/ctrl/rsi/runtime/commit-leftovers.sh"
+  echo old >> "$T/ctrl/docs/base.md"; git -C "$T/ctrl" add -A; git -C "$T/ctrl" commit -qm old
+  old="$(git -C "$T/ctrl" rev-parse main)"
+  git --git-dir="$T/work/openkin.git" fetch -q "$T/ctrl" main:refs/heads/main
+  git --git-dir="$T/work/openkin.git" update-ref refs/remotes/origin/main "$old"
+  echo new >> "$T/ctrl/docs/base.md"; git -C "$T/ctrl" add -A; git -C "$T/ctrl" commit -qm new
+  new="$(git -C "$T/ctrl" rev-parse main)"
+  printf '%s %s\n' "$old" "$new"
+}
+nas_base() { # T SLUG — run the lane's base picker against the bare repo, print the picked ref
+  bash "$NASDIR/nas-side/nas-base.sh" "$1/work/openkin.git" "$1/work/jobs/$2"
+}
+
+case_stale_origin_main_does_not_win_over_the_shipped_bundle() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git -C "$T/ctrl" update-ref refs/remotes/origin/main main
+  git -C "$T/ctrl" bundle create "$T/work/jobs/s1/origin-main.bundle" refs/remotes/origin/main >/dev/null
+  local out; out="$(nas_base "$T" s1)"
+  check "NAS base: the shipped bundle head wins over a stale origin/main" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse "$out")" = "$new" ]
+  check "NAS base: the picked base is not the stale commit" \
+    bash -c "[ \"\$(git --git-dir='$T/work/openkin.git' rev-parse '$out')\" != '$old' ]"
+}
+
+case_bundle_apply_updates_origin_main() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git -C "$T/ctrl" update-ref refs/remotes/origin/main main
+  git -C "$T/ctrl" bundle create "$T/work/jobs/s1/origin-main.bundle" refs/remotes/origin/main >/dev/null
+  nas_base "$T" s1 >/dev/null
+  check "NAS base: the apply moves refs/remotes/origin/main to the bundle head" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse refs/remotes/origin/main)" = "$new" ]
+  check "NAS base: the apply does not leave the repo's main in charge" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse refs/heads/main)" = "$old" ]
+}
+
+# A worker-side `git fetch origin` in a linked worktree advances the bare repo's
+# refs/remotes/origin/main past the head the Mac shipped, so the apply must rewind it: a plain
+# (non-force) refspec rejects that non-fast-forward and every lane then fails on the base pick.
+case_force_apply_rewinds_a_ref_ahead_of_the_bundle() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git -C "$T/ctrl" update-ref refs/remotes/origin/main main
+  git -C "$T/ctrl" bundle create "$T/work/jobs/s1/origin-main.bundle" refs/remotes/origin/main >/dev/null
+  echo later >> "$T/ctrl/docs/base.md"; git -C "$T/ctrl" add -A; git -C "$T/ctrl" commit -qm later
+  local ahead; ahead="$(git -C "$T/ctrl" rev-parse main)"
+  git --git-dir="$T/work/openkin.git" fetch -q "$T/ctrl" main   # objects only; refs stay put
+  git --git-dir="$T/work/openkin.git" update-ref refs/remotes/origin/main "$ahead"
+  check "NAS base: the fixture leaves origin/main ahead of the shipped head" \
+    bash -c "[ \"\$(git --git-dir='$T/work/openkin.git' rev-parse refs/remotes/origin/main)\" = '$ahead' ] && [ '$ahead' != '$new' ]"
+  local out; out="$(nas_base "$T" s1)"
+  check "NAS base: the bundle is force-applied over a ref ahead of it" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse "$out")" = "$new" ]
+  check "NAS base: the ref ahead of the bundle is rewound to the bundle head" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse refs/remotes/origin/main)" = "$new" ]
+}
+
+case_no_bundle_falls_back_to_repo_main() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git --git-dir="$T/work/openkin.git" fetch -q "$T/ctrl" main   # objects only; refs stay put
+  git --git-dir="$T/work/openkin.git" update-ref refs/remotes/origin/main "$new"   # stale, newer
+  local out; out="$(nas_base "$T" s1)"
+  check "NAS base: with no bundle the base is refs/heads/main" [ "$out" = refs/heads/main ]
+  check "NAS base: with no bundle the repo's main is the base" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse "$out")" = "$old" ]
+  check "NAS base: with no bundle the stale origin/main still does not win" \
+    bash -c "[ \"\$(git --git-dir='$T/work/openkin.git' rev-parse '$out')\" != '$new' ]"
+}
+
+case_bundle_head_under_refs_heads_main_still_applies() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git -C "$T/ctrl" bundle create "$T/work/jobs/s1/origin-main.bundle" main >/dev/null
+  git bundle list-heads "$T/work/jobs/s1/origin-main.bundle" | grep -q ' refs/heads/main$' \
+    || bad "NAS base: fixture bundle head is refs/heads/main"
+  local out; out="$(nas_base "$T" s1)"
+  check "NAS base: an older producer's refs/heads/main bundle is the base" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse "$out")" = "$new" ]
+  check "NAS base: the older bundle updates refs/heads/main" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse refs/heads/main)" = "$new" ]
+}
+
+case_recorded_base_is_the_picked_base() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git -C "$T/ctrl" update-ref refs/remotes/origin/main main
+  git -C "$T/ctrl" bundle create "$T/work/jobs/s1/origin-main.bundle" refs/remotes/origin/main >/dev/null
+  mkdir -p "$T/bl"
+  : > "$T/bl/claude-env.sh"
+  ln -s "$NASDIR/nas-side/nas-base.sh" "$T/bl/nas-base.sh"
+  cat > "$T/bin/claude" <<'EOS'
+#!/bin/bash
+printf 'RSI item: R-NAS-BASE\n\nBody.\n' > "${FAKE_LANE_J:?}/pr-body.md"
+echo worker > docs/worker.md
+git add -A >/dev/null 2>&1
+git commit -qm "feat: worker change"
+exit 0
+EOS
+  chmod +x "$T/bin/claude"
+  env NAS_LANE_BL="$T/bl" NAS_LANE_WORK="$T/work" FAKE_LANE_J="$T/work/jobs/s1" \
+      PATH="$T/bin:$PATH" bash "$NASDIR/nas-side/nas-lane.sh" s1 >/dev/null 2>&1
+  local base created
+  base="$(jget "$T/work/jobs/s1/status.json" base)"
+  created="$(git -C "$T/work/wt/rsi-s1" rev-parse HEAD~1 2>/dev/null)"
+  check "NAS base: the lane recorded a base" [ -n "$base" ]
+  check "NAS base: status.base is the commit the worktree was created from" [ "$base" = "$created" ]
+  check "NAS base: the worktree was created from the shipped bundle head" [ "$created" = "$new" ]
+  check "NAS base: the recorded base is not the stale origin/main" [ "$created" != "$old" ]
+}
+
 if [ "${1:-}" = "--sandbox" ]; then sandbox; echo "$T"; SANDBOXES=(); exit 0; fi
 if [ -n "${1:-}" ]; then "$1"; finish; exit $?; fi    # test-nas.sh <function> — one test (mutant runs)
 
@@ -891,4 +1019,10 @@ t_pulse_capacity
 t_pulse_lock_ownership
 t_pulse_start_failure
 t_pulse_ship_failure
+case_stale_origin_main_does_not_win_over_the_shipped_bundle
+case_bundle_apply_updates_origin_main
+case_force_apply_rewinds_a_ref_ahead_of_the_bundle
+case_no_bundle_falls_back_to_repo_main
+case_bundle_head_under_refs_heads_main_still_applies
+case_recorded_base_is_the_picked_base
 finish
