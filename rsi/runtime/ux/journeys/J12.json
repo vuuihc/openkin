@@ -83,7 +83,7 @@
     ["wait", "css=[data-session-row]:has-text(\"[seed] Morning planning\")"],
     ["rows", "css=[data-phone-scroll] section:has([data-session-row]:has-text(\"[seed] Morning planning\")):not(:has(section))", "[seed] Approve the migration|[seed] Morning planning"],
     ["shot", "order-before"],
-    ["drag", "css=[data-session-row]:has-text(\"[seed] Morning planning\")", -240, 520],
+    ["drag", "css=[data-session-row]:has-text(\"[seed] Morning planning\")", -340, 520],
     ["rows", "css=[data-phone-scroll] section:has([data-session-row]:has-text(\"[seed] Morning planning\")):not(:has(section))", "[seed] Morning planning|[seed] Approve the migration"],
     ["shot", "order-after-drag"],
     ["goto", "/sessions"],

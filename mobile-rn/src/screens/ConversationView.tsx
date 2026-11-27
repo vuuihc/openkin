@@ -70,6 +70,13 @@ import {
   type ReadingMemory,
   type ReadingPlace,
 } from "../thread/readingMemory";
+import {
+  lastAgentTurnIndex,
+  roundEndedUncleanly,
+  spineFor,
+  type SpineContext,
+  type SpineTone,
+} from "../thread/turnSpine";
 import type { SendOutcome, ThreadState } from "../thread/threadModel";
 import {
   ApprovalsSection,
@@ -388,15 +395,32 @@ function ProgressRows({
   );
 }
 
+/**
+ * The border a tone paints. The tone map uses the pigments that do not switch
+ * with the scheme (DESIGN.md 活动脊: blue runs, green done, red failed or
+ * stopped, orange waiting on an approval).
+ */
+function spineStyle(tone: SpineTone, styles: ReturnType<typeof makeStyles>) {
+  return {
+    approval: styles.spineApproval,
+    done: styles.spineDone,
+    failed: styles.spineFailed,
+    running: styles.spineRunning,
+  }[tone];
+}
+
 function TurnBlock({
   turn,
   index,
+  spine,
   expandedSteps,
   onToggleStep,
   t,
 }: {
   turn: Turn;
   index: number;
+  /** The thread-level facts the spine's decision table reads. */
+  spine: SpineContext;
   expandedSteps: Record<string, boolean>;
   onToggleStep: (key: string) => void;
   t: ConversationViewProps["t"];
@@ -404,21 +428,30 @@ function TurnBlock({
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // The colours the markdown renderer needs but does not own (KIN-MOBILE-002
-  // R4a); drawn from the palette, never spelled here (R1b).
+  // R4a/R4b); drawn from the palette, never spelled here (R1b).
   const markdownStyles = useMemo(
-    () => ({ codeBackground: colors.fill, hairline: colors.hairlineStrong }),
+    () => ({
+      blueInk: colors.blueInk,
+      codeBackground: colors.fill,
+      fillStrong: colors.fillStrong,
+      hairline: colors.hairlineStrong,
+    }),
     [colors],
   );
+  const tone = spineFor(turn, index, spine);
   if (turn.kind === "user") {
     return (
-      <Text style={styles.user} testID={`conversation:turn:${index}`}>
-        {turn.item.text}
-      </Text>
+      <View style={styles.bubble} testID={`conversation:turn:${index}`}>
+        <Text style={styles.bubbleText}>{turn.item.text}</Text>
+      </View>
     );
   }
   const items: ChatItem[] = turn.kind === "agent" ? turn.items : [turn.item];
   return (
-    <View style={styles.turn} testID={`conversation:turn:${index}`}>
+    <View
+      style={[styles.turn, tone !== null && spineStyle(tone, styles)]}
+      testID={`conversation:turn:${index}`}
+    >
       {items.map((item, itemIndex) =>
         item.kind === "progress" ? (
           <ProgressRows
@@ -927,6 +960,19 @@ export default function ConversationView({
       approvals.state.status === "error" ||
       !approvals.state.online);
 
+  // The spine's thread-level facts (KIN-MOBILE-002 R4b): the live agent turn
+  // owns the live tone, an unclean round is red, and a waiting approval
+  // outranks the running flag so the blocked turn reads orange.
+  const spine: SpineContext = {
+    lastAgentIndex: lastAgentTurnIndex(state.turns),
+    running: state.running,
+    failed: roundEndedUncleanly(state.turns, t("chat.stoppedNote")),
+    awaitingApproval:
+      approvals !== undefined &&
+      approvals.state.items.some((item) => item.pending),
+    stoppedNote: t("chat.stoppedNote"),
+  };
+
   // An open round that has not spoken yet ends the transcript with one working
   // line (signed §4 慢: keep what arrived and show the activity row). The shared
   // predicate is the web console's own, so the two surfaces agree on when a
@@ -1125,6 +1171,7 @@ export default function ConversationView({
             expandedSteps={expandedSteps}
             index={index}
             onToggleStep={toggleStep}
+            spine={spine}
             t={t}
             turn={item}
           />
@@ -1192,6 +1239,25 @@ const makeStyles = (
     gap: 12,
     padding: 16,
     paddingBottom: 48,
+  },
+  /**
+   * The person's own message (KIN-MOBILE-002 R4b): a right-aligned bubble in
+   * the scheme's bubble blue, on-brand ink. `maxWidth` leaves the other side
+   * readable and still wraps a long word rather than clipping it at 390.
+   */
+  bubble: {
+    alignSelf: "flex-end",
+    backgroundColor: colors.bubbleUser,
+    borderRadius: radius.bubble,
+    marginTop: 8,
+    maxWidth: "82%",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  bubbleText: {
+    color: colors.onBrand,
+    fontSize: 16,
+    fontWeight: "600",
   },
   /**
    * The composer's one round control (DESIGN.md:39): a 44pt target whose
@@ -1385,6 +1451,27 @@ const makeStyles = (
     alignItems: "center",
     justifyContent: "center",
   },
+  /** The activity spine (DESIGN.md 活动脊): 3pt edge, 8pt gap to the text. */
+  spineApproval: {
+    borderLeftColor: colors.orange,
+    borderLeftWidth: 3,
+    paddingLeft: 8,
+  },
+  spineDone: {
+    borderLeftColor: colors.green,
+    borderLeftWidth: 3,
+    paddingLeft: 8,
+  },
+  spineFailed: {
+    borderLeftColor: colors.red,
+    borderLeftWidth: 3,
+    paddingLeft: 8,
+  },
+  spineRunning: {
+    borderLeftColor: colors.blue,
+    borderLeftWidth: 3,
+    paddingLeft: 8,
+  },
   tool: {
     color: colors.secondary,
     flexShrink: 1,
@@ -1431,12 +1518,6 @@ const makeStyles = (
   },
   turn: {
     gap: 8,
-  },
-  user: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "600",
-    marginTop: 8,
   },
   usageEntry: {
     alignItems: "center",
