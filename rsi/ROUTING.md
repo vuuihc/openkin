@@ -1,6 +1,6 @@
 # RSI model routing and necessity policy
 
-CEO 2026-11-15 (Asia/Singapore). Ethan: default to DeepSeek; use stronger models only when necessary, and judge necessity carefully. Prefer Gemini 4 Hydrogen (Antigravity; strong and durable; multimodal, so it is also the UX vision reviewer) for that necessary work, then gpt-6.1-sol, then Carbon, with Kimi last because it spends the company Volcengine key. Do not default to the highest Hydrogen tier: medium for normal strong and UX reviews; high only for F1–F4 / S1–S3 / architecture, or a second strong pass after disagreement. Never xhigh by default.
+CEO 2026-11-15 (Asia/Singapore), strong-review order amended 2026-11-28. Ethan: default to DeepSeek; use stronger models only when necessary, and judge necessity carefully. For that necessary work, take the subscription route that fits the role: the ordinary standing strong review starts on `gpt-6.1-sol` (Codex, ChatGPT) while its allowance is available, and falls back to Gemini 4 Hydrogen (Antigravity; strong and durable; multimodal, so it is also the UX vision reviewer) when Codex is limited. UX vision reviews and the high-stakes class start on Hydrogen; Carbon is the further independent opinion in every order, with Kimi last because it spends the company Volcengine key. Do not default to the highest Hydrogen tier: medium for normal strong and UX reviews; high only for F1–F4 / S1–S3 / architecture, or a second strong pass after disagreement. Never xhigh by default.
 
 This file is the policy. `runtime/escalate.py` enforces it and logs every decision and outcome. `runtime/dispatch.sh` / `run.sh` apply it. Revert: restore `common.sh` model vars and drop the escalate hooks; see `DECISIONS.md`.
 
@@ -10,12 +10,12 @@ This file is the policy. `runtime/escalate.py` enforces it and logs every decisi
 |---|---|---|---|
 | Worker / rework | DeepSeek V4.1 Flash | `--effort high` | Volcengine (cheap; official off-peak ¥1 / ¥0.02 / ¥4 per M) |
 | Director, fill, planner, dream, first merge reviewer | DeepSeek V4.1 Flash | `--effort max` | Volcengine (same list prices; max uses more thinking tokens) |
-| Second code reviewer (`reviewer-alt`, risky paths or >500 lines) | `agy/gemini-4-hydrogen-medium` (or `hydrogen-high` for F/S/architecture or disagreement) | — | Antigravity Google consumer sign-in. Not Volcengine. Standing “different family” requirement. |
+| Second code reviewer (`reviewer-alt`, risky paths or >500 lines) | `gpt-6.1-sol` (Codex, ChatGPT) first; `agy/gemini-4-hydrogen-medium` when `state/sol-limited-until` is set (or `hydrogen-high` for F/S/architecture or disagreement) | — | ChatGPT subscription first, Antigravity consumer sign-in as fallback. Neither is Volcengine. Standing “different family” requirement. |
 | UX vision reviewer | `agy/gemini-4-hydrogen-medium` (Hydrogen is multimodal; `hydrogen-high` for F/S/architecture) | — | Same Antigravity account. `gpt-6.1-sol` via `claude -p` is the fallback if Hydrogen/agy is limited. |
 
 **Kimi is the advisor, not the daily loop (Ethan 2026-11-17).** No worker, rework, director, fill, planner or dream run resolves to Kimi: `runtime/common.sh` pins `ANTHROPIC_DEFAULT_OPUS_MODEL` to DeepSeek so even a Claude Code internal "opus" turn stays cheap, and the global `~/.claude` mapping is not inherited by loop processes. The one routine Kimi caller is the CEO advisor (≤1 per patrol, ≤3 per day, `pi -p --model magpie/auto/kimi-k3.1-pro`); the only other case is item 4 below, as the last resort.
 
-Do not start from Kimi or Carbon. DeepSeek at `--effort max` is the first lever for harder control-plane work. Strong reviews start on Hydrogen-medium, not on sol.
+Do not start from Kimi or Carbon. DeepSeek at `--effort max` is the first lever for harder control-plane work. The ordinary standing strong review starts on `gpt-6.1-sol` while its allowance is available and falls back to Hydrogen-medium when `state/sol-limited-until` is set; UX vision and the high-stakes class still start on Hydrogen (see below).
 
 ## When escalation is necessary
 
@@ -29,12 +29,13 @@ Escalate only when at least one concrete signal is present, and spend at most **
 
 ## Which strong model (role fit, then cost)
 
-Once a signal fires, pick the first model that fits and is available. Cost source is part of the fit: prefer a subscription that is not the Volcengine key. Same order for standing second-reviewer and UX vision reviews.
+Once a signal fires, pick the first model that fits and is available. Cost source is part of the fit: prefer a subscription that is not the Volcengine key. The order follows the role, not one global list:
 
-1. **Hydrogen first** (`agy` `gemini-4-hydrogen-medium` by default; `gemini-4-hydrogen-high` only for Astryx F1–F4 / S1–S3, architecture-marked or cross-cutting work, or a second strong pass after reviewer disagreement). Never `gemini-4-hydrogen-xhigh` by default. Invoked non-interactively with `agy -p --model <id> --output-format json --sandbox --disable-slash-commands` under the local Antigravity Google consumer sign-in (zshisme; no GCP quota project). The PR diff is attached inline (and as a file) so the model does not need Bash; `read_file` is allowed so UX reviews can open screenshots. This is not the Factory/Droid alias `factory/gemini-4-*` (do not use those from this loop).
-2. **`gpt-6.1-sol` second** (ChatGPT Plus via Codex / `claude -p` for images). Fallback when agy is disabled, unsigned, or rate-limited, and for UX if Hydrogen cannot be reached.
-3. **Carbon (Antigravity `gemini-4-carbon-high`) third**, same `agy` path, same consumer sign-in, for a further independent opinion.
-4. **Kimi k3.1 pro last.** Company Volcengine key, official list CNY. Only if Hydrogen, Codex and Carbon are all unavailable (missing CLI, auth, or API/quota error) **and** today’s Kimi list CNY is under ¥150 (`RSI_VOLC_KIMI_DAY_MAX`) **and** overall Volcengine list CNY is under ¥450 (`RSI_VOLC_KIMI_MAX`). Otherwise stay on the last working subscription model.
+1. **Ordinary standing code review** (`reviewer` / `reviewer-alt`, no high-stakes reason) — **`gpt-6.1-sol` first** (ChatGPT Plus via Codex, or `claude -p` when an image is attached). This is the standing strong reviewer while the ChatGPT allowance is available. A `state/sol-limited-until` marker skips it and falls back to Hydrogen-medium, then Carbon. Kimi stays last.
+2. **UX vision review** (`ux-*`) — **Hydrogen first**, unchanged: `agy gemini-4-hydrogen-medium` (`gemini-4-hydrogen-high` for F1–F4 / S1–S3, architecture-marked or cross-cutting work, or a second strong pass after disagreement). Hydrogen is the multimodal route the UX gate is built on (`runtime/ux-gate.sh:8`); native `codex exec` is text-only and `claude -p` on `gpt-6.1-sol` is the documented fallback. Invoked non-interactively with `agy -p --model <id> --output-format json --sandbox --disable-slash-commands` under the local Antigravity Google consumer sign-in (zshisme; no GCP quota project). The PR diff is attached inline (and as a file) so the model does not need Bash; `read_file` is allowed so UX reviews can open screenshots. This is not the Factory/Droid alias `factory/gemini-4-*` (do not use those from this loop).
+3. **High-stakes class** (`astryx-foundation*`, `architecture*`, `reviewer-disagreement`) — **`hydrogen-high` first**, then Hydrogen-medium, then Codex, then Carbon. The class deliberately buys the strongest tier, and a `reviewer-disagreement` second pass must not re-run Codex: now that Codex gives the standing first opinion, a same-model pass would not be a second opinion. Never `gemini-4-hydrogen-xhigh` by default.
+4. **Carbon** (Antigravity `gemini-4-carbon-high`) — the next independent opinion in every order, same `agy` path, same consumer sign-in.
+5. **Kimi k3.1 pro last** in every order. Company Volcengine key, official list CNY. Only if Codex, Hydrogen and Carbon are all unavailable (missing CLI, auth, or API/quota error) **and** today’s Kimi list CNY is under ¥150 (`RSI_VOLC_KIMI_DAY_MAX`) **and** overall Volcengine list CNY is under ¥450 (`RSI_VOLC_KIMI_MAX`). Otherwise stay on the last working subscription model.
 
 ## Tiered review (CEO 2026-11-15, `runtime/review-tier.py`)
 
@@ -42,9 +43,9 @@ Review cost follows risk; nothing else about the gate changes.
 
 | Tier | When | Reviewer |
 |---|---|---|
-| small | pure refactor/extract (or ≤ 400 lines), no deps/migrations/auth/persist/permission, no routing-contract files, tests only added, item not F/S/N/Q3a, rework < 2 | one DeepSeek `--effort max` review; only rework ≥ 2 may escalate; `VERDICT: UNSURE` → Hydrogen-medium (sol fallback) once |
+| small | pure refactor/extract (or ≤ 400 lines), no deps/migrations/auth/persist/permission, no routing-contract files, tests only added, item not F/S/N/Q3a, rework < 2 | one DeepSeek `--effort max` review; only rework ≥ 2 may escalate; `VERDICT: UNSURE` → `reviewer-alt` once (Codex first; the small tier stays DeepSeek-only while sol is limited) |
 | medium | not small, ≤ 500 lines (or a refactor/extract ≤ 800 with modified tests), nothing risky | DeepSeek `--effort max`, normal necessity signals |
-| large | risky paths, > 500 lines, F/S/N/Q3a items, 2+ rework rounds | Hydrogen-medium (hydrogen-high for F/S/architecture or disagreement); sol fallback |
+| large | risky paths, > 500 lines, F/S/N/Q3a items, 2+ rework rounds | Codex first for an ordinary review (Hydrogen-medium fallback when sol is limited); `hydrogen-high` first for F/S/architecture or disagreement |
 
 The reviewer ends a FAIL with a `FIXLIST:` block (`- path:line | blocker/major | issue | smallest fix`); `fixlist.py` puts it at the top of the sendback so the rework lane makes minimal edits. `RSI_CARBON_ENABLED` and `RSI_AGY_ENABLED` default to 1. The earlier empty Carbon reviews were not a launchd PATH or expired sign-in problem (agy is on PATH after `common.sh`; 30/31 runs were `status=SUCCESS` with `denied_actions: Bash` because `--mode plan --sandbox --disable-slash-commands` auto-denies `git diff` in headless mode, and `--mode plan` has no effect when slash commands are disabled). One run was a transient `authentication failed or timed out`. `dispatch.sh` now inlines the diff, allows `read_file`, and does not use `--mode plan`.
 
@@ -81,5 +82,5 @@ agy -p "$PROMPT" --model gemini-4-hydrogen-medium \
 
 Use `gemini-4-hydrogen-high` only for F1–F4 / S1–S3 / architecture or a second pass after disagreement. Carbon is the same invocation with `gemini-4-carbon-high`. Do not pass `--mode plan` (it has no effect with `--disable-slash-commands`). Local CLI: `agy` 1.5.9 (`/opt/homebrew/bin/agy` or `~/.antigravity/antigravity/bin/agy`; `common.sh` pins `AGY`). Auth is the existing Antigravity OAuth (type `antigravity`, zshisme), not a magpie provider. Treat the consumer subscription as finite; quota/limit errors write `state/agy-limited-until` and fall back to sol.
 
-If Hydrogen returns no usable result (process died, empty log, or a review with no `VERDICT: PASS` / `VERDICT: FAIL` line), `dispatch.sh` falls back to `codex/gpt-6.1-sol`, then Carbon, then Kimi last. A reviewer-infra no-verdict is a retry in `merge.sh`, not a sendback and not a burned rework round.
+If the chosen model returns no usable result (process died, empty log, or a review with no `VERDICT: PASS` / `VERDICT: FAIL` line), `dispatch.sh` falls back along the order above, ending with Kimi last. A reviewer-infra no-verdict is a retry in `merge.sh`, not a sendback and not a burned rework round.
 

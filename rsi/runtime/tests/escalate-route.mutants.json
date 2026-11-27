@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the ordinary standing review goes back to Hydrogen first",
+    "file": "rsi/runtime/escalate.py",
+    "test": "bash rsi/runtime/tests/test-escalate.sh",
+    "old": "    return [\"codex\", \"hydrogen\", \"carbon\", \"kimi\"]",
+    "new": "    return [\"hydrogen\", \"codex\", \"carbon\", \"kimi\"]"
+  },
+  {
+    "label": "a sol-limited Codex is no longer skipped",
+    "file": "rsi/runtime/escalate.py",
+    "test": "bash rsi/runtime/tests/test-escalate.sh",
+    "old": "        if name == \"codex\" and sol_is_limited(state):",
+    "new": "        if False and name == \"codex\" and sol_is_limited(state):"
+  },
+  {
+    "label": "the high-stakes order starts on Codex instead of hydrogen-high",
+    "file": "rsi/runtime/escalate.py",
+    "test": "bash rsi/runtime/tests/test-escalate.sh",
+    "old": "    if wants_high(reasons):\n        return [\"hydrogen-high\", \"hydrogen\", \"codex\", \"carbon\", \"kimi\"]",
+    "new": "    if wants_high(reasons):\n        return [\"codex\", \"hydrogen-high\", \"hydrogen\", \"carbon\", \"kimi\"]"
+  },
+  {
+    "label": "the UX role branch is unreachable, so UX reviews start on Codex",
+    "file": "rsi/runtime/escalate.py",
+    "test": "bash rsi/runtime/tests/test-escalate.sh",
+    "old": "    if (role or \"\").startswith(\"ux-\"):",
+    "new": "    if False and (role or \"\").startswith(\"ux-\"):"
+  }
+]

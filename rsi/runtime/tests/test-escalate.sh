@@ -144,13 +144,32 @@ check reviewer-alt s S1 shaS >/dev/null
 n2=$(wc -l < "$T/st/escalations.jsonl")
 [ "$n1" -eq "$n2" ] && ok hold-deduped || bad hold-deduped
 
-# --- Hydrogen-medium default; high only for F/S/architecture or disagreement; agy-limited -> sol ---
+# --- Codex first for the ordinary standing review; Hydrogen first for UX and the high class ---
+# CEO 2026-11-28: the standing strong review starts on Codex while its allowance is available.
+# Hydrogen-medium stays first for UX vision (multimodal) and for the high-stakes class, which
+# also keeps a reviewer-disagreement second pass off the model that gave the first opinion.
 fake="$T/fake-agy"; printf '#!/bin/sh\nexit 0\n' > "$fake"; chmod +x "$fake"
 export RSI_AGY_ENABLED=1 RSI_CARBON_ENABLED=1 AGY="$fake"
 # clear the sol limit from the previous case
 rm -f "$T/st/sol-limited-until"
 out="$(check reviewer-alt n T1 shaN)"
-echo "$out" | grep -q "RSI_ESCALATE_MODEL=hydrogen$" && echo "$out" | grep -q "standing-strong-review" && ok standing-hydrogen-medium || { echo "$out"; bad standing-hydrogen-medium; }
+echo "$out" | grep -q "RSI_ESCALATE_MODEL=codex$" && echo "$out" | grep -q "standing-strong-review" && echo "$out" | grep -q "RSI_ESCALATE_FALLBACK=hydrogen" && ok standing-codex-first || { echo "$out"; bad standing-codex-first; }
+
+# Codex unavailable (its allowance marker is set) falls back to Hydrogen-medium, not a hold.
+echo $(( $(date +%s) + 3600 )) > "$T/st/sol-limited-until"
+out="$(check reviewer-alt n2 T1 shaN2)"
+echo "$out" | grep -q "RSI_ESCALATE_MODEL=hydrogen$" && echo "$out" | grep -q "standing-strong-review" && echo "$out" | grep -q "sol-limited" && ok standing-hydrogen-when-sol-limited || { echo "$out"; bad standing-hydrogen-when-sol-limited; }
+rm -f "$T/st/sol-limited-until"
+
+# UX vision reviews are unchanged: Hydrogen is the multimodal route the UX gate is built on.
+out="$(check ux-reviewer-alt ux1 T1 shaUX)"
+echo "$out" | grep -q "RSI_ESCALATE_MODEL=hydrogen$" && echo "$out" | grep -q "standing-strong-review" && ok ux-vision-stays-hydrogen-first || { echo "$out"; bad ux-vision-stays-hydrogen-first; }
+
+# A second pass after a reviewer disagreement stays on hydrogen-high: now that the ordinary route
+# is Codex, re-running it would make the second opinion the same model as the first.
+RSI_STATE="$T/st" python3 "$PY" --save-deepseek --slug d --sha sha1 --verdict PASS >/dev/null
+out="$(check reviewer-alt d T1 sha1)"
+echo "$out" | grep -q "RSI_ESCALATE_MODEL=hydrogen-high" && echo "$out" | grep -q "reviewer-disagreement" && ok disagreement-second-pass-not-codex || { echo "$out"; bad disagreement-second-pass-not-codex; }
 out="$(check reviewer-alt f F1 shaFnew)"
 # f still has attempts=2 and item F1 from earlier, but shaFnew is a new sha so no reuse if we use a fresh slug
 echo 'item: F3' > "$T/st/sendback/f3.md"
