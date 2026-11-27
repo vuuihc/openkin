@@ -41,7 +41,7 @@ import {
 } from "../../../ui/src/components/chat/transcriptProjection";
 import { focusNode } from "../a11y/focus";
 import { useTheme } from "../theme/useTheme";
-import type { Palette } from "../theme/tokens";
+import { radius, type Palette } from "../theme/tokens";
 import { canRetry } from "../native/reconnect";
 import {
   sharedDraftMemory,
@@ -461,8 +461,11 @@ type ComposerProps = {
   onWithdraw?: (id: string) => void;
   /** The words that outlive this component, keyed by conversation. */
   draftMemory: DraftMemory;
-  /** This device's home-indicator clearance (see `composerBottomInset`). */
-  bottomPadding: number;
+  /**
+   * A pending 批准 already owns the screen's one filled primary
+   * (DESIGN.md:47), so Send keeps its outline even with a draft.
+   */
+  primaryTaken: boolean;
 };
 
 /**
@@ -490,7 +493,7 @@ function Composer({
   onStop,
   onWithdraw,
   draftMemory,
-  bottomPadding,
+  primaryTaken,
 }: ComposerProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -526,6 +529,10 @@ function Composer({
   // states why. An empty box has nothing to send, and a post already in flight
   // must not be posted a second time.
   const canSend = text.trim().length > 0 && !offline && !sending;
+  // The screen's one filled primary (DESIGN.md:47): a draft makes Send it,
+  // unless a waiting 批准 already holds that role — then Send stays the
+  // outlined circle beside it.
+  const filled = canSend && !primaryTaken;
 
   /**
    * The post came back. A refusal puts the words back into a box the person
@@ -577,12 +584,17 @@ function Composer({
   };
 
   return (
-    <View
-      style={[styles.composer, { paddingBottom: bottomPadding }]}
-      testID="conversation:composerBar"
-    >
+    <View style={styles.composer} testID="conversation:composerBar">
+      {/*
+        The capsule's surface is the system material, not paint: it sits
+        behind the queue, the draft and Send, and the bar itself stays
+        transparent so the transcript scrolling beneath it is what tints the
+        glass (the header's switch). The capsule's `overflow: hidden` clips it
+        to the signed 22pt radius.
+      */}
+      <GlassSurface material="composer" style={StyleSheet.absoluteFill} />
       {state.sendQueue.length > 0 ? (
-        <View style={styles.queue}>
+        <View style={styles.queue} testID="conversation:queue">
           {state.sendQueue.map((item) => (
             <View key={item.id} style={styles.queueRow}>
               <View style={styles.queueWords}>
@@ -648,7 +660,11 @@ function Composer({
           accessibilityState={{ disabled: !canSend, busy: sending }}
           disabled={!canSend}
           onPress={send}
-          style={[styles.action, !canSend && styles.actionDisabled]}
+          style={[
+            styles.circle,
+            filled && styles.circleFilled,
+            !canSend && styles.circleDisabled,
+          ]}
           testID="conversation:send"
         >
           {sending ? (
@@ -659,7 +675,7 @@ function Composer({
             <View style={styles.sendingCue}>
               <Text
                 aria-hidden
-                style={[styles.actionText, styles.actionTextHidden]}
+                style={[styles.circleLabel, styles.circleLabelHidden]}
               >
                 {t("composer.send")}
               </Text>
@@ -670,7 +686,12 @@ function Composer({
               />
             </View>
           ) : (
-            <Text style={canSend ? styles.actionText : styles.actionTextDisabled}>
+            // The circle speaks through fill and ink — brand fill with ink on
+            // brand while a draft exists, the outlined circle otherwise — and
+            // the closed state through opacity, never through colour alone.
+            <Text
+              style={[styles.circleLabel, filled && styles.circleLabelFilled]}
+            >
               {t("composer.send")}
             </Text>
           )}
@@ -681,12 +702,14 @@ function Composer({
             accessibilityState={{ disabled: offline }}
             disabled={offline}
             onPress={() => onStop?.()}
-            style={[styles.action, offline && styles.actionDisabled]}
+            style={[
+              styles.circle,
+              styles.stopCircle,
+              offline && styles.circleDisabled,
+            ]}
             testID="conversation:stop"
           >
-            <Text
-              style={offline ? styles.actionTextDisabled : styles.actionText}
-            >
+            <Text style={[styles.circleLabel, styles.stopCircleLabel]}>
               {t("composer.stop")}
             </Text>
           </Pressable>
@@ -988,6 +1011,9 @@ export default function ConversationView({
       ) : null}
     </>
   );
+  // DESIGN.md:47 — a pending 批准 already owns the screen's one filled
+  // primary, so Send must not paint a second one. The prop is optional.
+  const primaryTaken = (approvals?.state.pendingCount ?? 0) > 0;
   return (
     // The keyboard-avoiding box wraps the transcript and the composer: on iOS
     // its padding moves the composer above the keyboard and shrinks the
@@ -1109,16 +1135,22 @@ export default function ConversationView({
       />
       {onSend ? (
         // A sibling of the scroller, not a row inside it: the composer is
-        // reachable at every scroll position.
-        <Composer
-          bottomPadding={composerBottomInset(insets.bottom)}
-          draftMemory={draftMemory}
-          onSend={onSend}
-          onStop={onStop}
-          onWithdraw={onWithdraw}
-          state={state}
-          t={t}
-        />
+        // reachable at every scroll position. The dock owns the home-indicator
+        // clearance, so the capsule itself floats 8pt above it (DESIGN.md:39).
+        <View
+          style={{ paddingBottom: composerBottomInset(insets.bottom) }}
+          testID="conversation:composerDock"
+        >
+          <Composer
+            draftMemory={draftMemory}
+            onSend={onSend}
+            onStop={onStop}
+            onWithdraw={onWithdraw}
+            primaryTaken={primaryTaken}
+            state={state}
+            t={t}
+          />
+        </View>
       ) : null}
       {usage !== undefined ? (
         // A sibling of the scroller too: closing the sheet leaves the
@@ -1143,31 +1175,6 @@ const makeStyles = (
   colors: Palette,
   glassColor: string = "transparent",
 ) => StyleSheet.create({
-  action: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: BACK_SIZE,
-    minWidth: BACK_SIZE,
-    paddingHorizontal: 12,
-  },
-  actionDisabled: {
-    opacity: 0.5,
-  },
-  actionText: {
-    color: colors.blueInk,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  actionTextDisabled: {
-    color: colors.muted,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  // The sending control's word keeps the box it always had, so the cue
-  // replacing it cannot move the row; the platform indicator covers it.
-  actionTextHidden: {
-    opacity: 0,
-  },
   back: {
     alignItems: "center",
     borderRadius: 8,
@@ -1186,12 +1193,63 @@ const makeStyles = (
     padding: 16,
     paddingBottom: 48,
   },
+  /**
+   * The composer's one round control (DESIGN.md:39): a 44pt target whose
+   * square box plus half-side radius is the circle. Send and Stop share it;
+   * fill, border and ink are the small differences that name each one.
+   */
+  circle: {
+    alignItems: "center",
+    backgroundColor: "transparent",
+    borderRadius: radius.composer,
+    height: BACK_SIZE,
+    justifyContent: "center",
+    // The fixed box is the circle; the floors keep a font scale or a
+    // platform that ignores the size from shrinking the target below 44pt.
+    minHeight: BACK_SIZE,
+    minWidth: BACK_SIZE,
+    width: BACK_SIZE,
+  },
+  /** Closed: the same circle at reduced presence, not a different shape. */
+  circleDisabled: {
+    opacity: 0.5,
+  },
+  /** A draft exists and no 批准 is waiting: Send is the filled primary. */
+  circleFilled: {
+    backgroundColor: colors.blue,
+  },
+  circleLabel: {
+    color: colors.blueInk,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  circleLabelFilled: {
+    color: colors.onBrand,
+  },
+  // The sending control's word keeps the box it always had, so the cue
+  // replacing it cannot move the circle; the platform indicator covers it.
+  circleLabelHidden: {
+    opacity: 0,
+  },
+  /** Stop is the outlined circle: the hairline is its whole edge. */
+  stopCircle: {
+    borderColor: colors.hairlineStrong,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  stopCircleLabel: {
+    color: colors.redInk,
+  },
   composer: {
-    borderTopColor: colors.hairlineStrong,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    gap: 8,
+    borderColor: colors.hairlineStrong,
+    borderRadius: radius.composer,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+    marginHorizontal: 16,
+    marginBottom: 8,
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingVertical: 12,
+    backgroundColor: "transparent",
+    gap: 8,
   },
   composerRow: {
     alignItems: "flex-end",
@@ -1282,7 +1340,7 @@ const makeStyles = (
     paddingLeft: 12,
   },
   queue: {
-    gap: 4,
+    gap: 6,
   },
   queueLabel: {
     color: colors.muted,
