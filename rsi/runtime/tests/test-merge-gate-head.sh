@@ -41,6 +41,9 @@ cat > "$T/head-stub.sh" <<'SH'
 #!/bin/bash
 set -u
 [ -n "${STUB_HEAD_ARG_FILE:-}" ] && printf '%s' "${1:-UNSET}" > "$STUB_HEAD_ARG_FILE"
+# Record a COMPLETED poll, not its start: when a waiter sees this line the stub has exited, so
+# head_moved_live() already holds the value and its comparison is the next thing the watcher runs.
+trap '[ -z "${STUB_HEAD_LOG:-}" ] || printf "poll\n" >> "$STUB_HEAD_LOG"' EXIT
 case "${STUB_HEAD_MODE:-file}" in
   warn)  printf 'warning: failed to read the PR head\n\n'; exit 0 ;;
   fail)  exit 1 ;;
@@ -89,18 +92,29 @@ wait_file() { # <secs> <file>
   return 1
 }
 
+wait_polls() { # <secs> <n> — bounded wait for >= <n> completed head-stub polls in $STUB_HEAD_LOG
+  local i=0 lim=$(( $1 * 10 )) have=0
+  while [ "$i" -lt "$lim" ]; do
+    have="$(grep -c . "$STUB_HEAD_LOG" 2>/dev/null || true)"
+    [ "${have:-0}" -ge "$2" ] && return 0
+    sleep 0.1; i=$((i+1))
+  done
+  return 1
+}
+
 new_case() { # <name> — fresh state dir and control tree
   CASE="$1"; ST="$T/state"; RPID=""; SEAM_PID=""
+  STUB_HEAD_LOG="$T/$CASE.polls"
   rm -rf "$ST"; mkdir -p "$ST/merge" "$ST/sendback"
   rm -rf "$T/ctrl"; mkdir -p "$T/ctrl/rsi/state"; : > "$T/ctrl/rsi/state/PAUSE"
   rm -f "$T/$CASE".head "$T/$CASE".started "$T/$CASE".release "$T/$CASE".out \
-        "$T/$CASE".gatepid "$T/$CASE".childpid "$T/$CASE".ran
+        "$T/$CASE".gatepid "$T/$CASE".childpid "$T/$CASE".ran "$T/$CASE".polls
 }
 
 start_seam() { # <case> <stale-sha> <hold|fast> [head-mode] [gate-rc]
   local hold=0
   [ "$3" = hold ] && hold=1
-  STUB_HEAD_MODE="${4:-file}" STUB_HEAD_FILE="$T/$1.head" \
+  STUB_HEAD_MODE="${4:-file}" STUB_HEAD_FILE="$T/$1.head" STUB_HEAD_LOG="$STUB_HEAD_LOG" \
   STUB_GATE_HOLD="$hold" STUB_GATE_RC="${5:-0}" \
   STUB_GATE_STARTED="$T/$1.started" STUB_GATE_RELEASE="$T/$1.release" \
   STUB_GATE_PID="$T/$1.gatepid" STUB_GATE_CHILD="$T/$1.childpid" \
@@ -146,7 +160,9 @@ test_same_head_keeps_the_gate() {
   printf '%s\n' "$HEAD" > "$T/$CASE.head"
   start_seam "$CASE" "$HEAD" hold
   wait_file 10 "$T/$CASE.started" || fail "same-head: the stub gate never started"
-  sleep 1.5                    # at least one poll: an equal live head must not kill the gate
+  # At least one completed poll: an equal live head must not kill the gate. A bare sleep would
+  # let a loaded machine release the gate before the watcher ever read the head.
+  wait_polls 10 1 || fail "same-head: the watcher never polled the head"
   : > "$T/$CASE.release"
   finish_seam 15
   [ "$RC" -eq 0 ] || fail "same-head: seam exited $RC ($OUT)"
@@ -186,7 +202,8 @@ test_unreadable_head_fails_open() {
     printf '%s\n' "$HEAD" > "$T/$CASE.head"
     start_seam "$CASE" "$HEAD" hold "$mode"
     wait_file 10 "$T/$CASE.started" || fail "$mode: the stub gate never started"
-    sleep 2.5                  # two polls on an unreadable head must not kill the gate
+    # Two completed polls on an unreadable head must not kill the gate.
+    wait_polls 10 2 || fail "$mode: the watcher did not poll the head twice"
     : > "$T/$CASE.release"
     finish_seam 15
     [ "$RC" -eq 0 ] || fail "$mode: seam exited $RC ($OUT)"

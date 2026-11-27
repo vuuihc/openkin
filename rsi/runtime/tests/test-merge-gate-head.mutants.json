@@ -35,6 +35,13 @@
     "new": "  cp \"$prev.new\" \"$prev\" 2>/dev/null || true"
   },
   {
+    "label": "the bounded head read is discarded, so a head that moves mid-gate is never detected",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=test_moved_head_skips_the_cycle bash rsi/runtime/tests/test-merge-gate-head.sh",
+    "old": "  live=\"$(cat \"$f\" 2>/dev/null)\"; rm -f \"$f\"",
+    "new": "  live=\"\"; rm -f \"$f\""
+  },
+  {
     "label": "the head-move suite is not wired into check.sh, so a regression in it never runs in the gate",
     "file": "scripts/check.sh",
     "test": "bash rsi/runtime/tests/test-wiring.sh",

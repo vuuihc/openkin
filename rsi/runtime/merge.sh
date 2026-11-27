@@ -94,9 +94,17 @@ case "$GATE_HEAD_POLL_SECS" in ''|*[!0-9]*|0) GATE_HEAD_POLL_SECS=20 ;; esac
 GATE_WATCH_MAX_SECS="${RSI_GATE_WATCH_MAX_SECS:-3600}"
 case "$GATE_WATCH_MAX_SECS" in ''|*[!0-9]*|0) GATE_WATCH_MAX_SECS=3600 ;; esac
 head_moved_live() { # <pr> <sha> -> prints the live head; 0 only when it is an oid and differs from sha
-  local n="$1" sha="$2" live
+  local n="$1" sha="$2" live f rc
   [ -n "$n" ] && [ -n "$sha" ] || return 1
-  live="$(pr_head "$n" 2>/dev/null)" || return 1
+  # Bounded, and read through a scratch file rather than a command substitution: a stalled gh must
+  # not hold the watcher (and the .gate.lock behind it) forever, and with_timeout's kill cannot
+  # unblock $( ) while a surviving child still holds the pipe open (reproduced with a sleeping
+  # reader: the watcher stayed blocked past 60 s). Either failure reads as unreadable, which fails
+  # open exactly like a failing gh.
+  f="$(mktemp "${TMPDIR:-/tmp}/rsi-head.XXXXXX")" || return 1
+  with_timeout 15 pr_head "$n" > "$f" 2>/dev/null; rc=$?
+  live="$(cat "$f" 2>/dev/null)"; rm -f "$f"
+  [ "$rc" -eq 0 ] || return 1
   oid "$live" || return 1
   [ "$live" != "$sha" ] || return 1
   printf '%s\n' "$live"
