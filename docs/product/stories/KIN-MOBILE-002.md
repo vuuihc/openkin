@@ -128,6 +128,7 @@ owner 2026-11-27 实测原话：「体验了下确实太初级了，建议用 op
 | R3 列表 | `mobile-rn/src/screens/ConversationList.visual.test.tsx` | Given 三种状态行 When 渲染 Then 状态点形状+颜色、待批 pill、分组头与折叠在 |
 | R4 对话 | `mobile-rn/src/screens/Conversation.visual.test.tsx` | Given 含标题/列表/代码/表格的回答 When 渲染 Then 各元素按类型渲染、表格可横滚、脊色随状态 |
 | R5 审批 | `mobile-rn/src/screens/Approvals.visual.test.tsx` | Given 待批 When 渲染 Then 批准是唯一实心主按钮；Given 批准成功 Then haptics 被调一次 |
+| R6 用量 sheet | `mobile-rn/src/screens/ProviderUsage.visual.test.tsx` | Given 三个花费不等的 agent 与一条未定价行 When 渲染用量 sheet Then 每行有身份色圆点、右对齐 tabular 金额与按花费占比的条；When 切换本周/30天/90天 Then 同一分段控件回调已选窗口；When 暗色/亮色 Then 控件、行与条取自 token；Given 空/陈旧/断线/过期 Then KIN-MOBILE-001 文案与重试保留 |
 | 视觉 | 390×844 与 820×1180 截图，明暗各一组 | 对照 6 帧逐屏核对 |
 
 测试文件里必须出现 `KIN-MOBILE-002`。
@@ -141,3 +142,4 @@ owner 2026-11-27 实测原话：「体验了下确实太初级了，建议用 op
 
 - 2026-11-27 创建（draft）。owner dogfood 后要求按 mobile-design/open-design 的方法做正经设计;设计流程按 `~/.agents/skills/mobile-design` 执行,token 端口 astryx neutral 已在桌面落地的同一套（`ui/src/design/theme.css`）。
 - 2026-11-27 · CEO 受托签字 `approved`：D1–D5 全部按推荐通过；按顾问指出的最大风险，把 D3 收紧为「明确凭据明文传输、按 origin 记住一次、地址变化重新确认、拒绝/确认/重连均有测试」，并把 D5 的「实现 PR 同步更新 ADR 0036 依赖表与签名测试」写进范围（决策见 `rsi/DECISIONS.md` 同日）。
+- 2026-11-27 · CEO 补记 R6 验收行（做 list 已含 R6，验收表漏列）。

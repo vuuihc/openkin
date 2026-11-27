@@ -45,7 +45,7 @@ import type {
 import ProviderUsage from "./ProviderUsage";
 import { dragOffset, shouldDismiss } from "./sheetDrag";
 import { useTheme } from "../theme/useTheme";
-import { scrim } from "../theme/tokens";
+import { radius, scrim } from "../theme/tokens";
 import type { Palette } from "../theme/tokens";
 
 type Translate = (
@@ -226,11 +226,12 @@ const makeStyles = (
   /**
    * The card's geometry only: its colour belongs to the glass branch below, so
    * the blur is never covered by a panel paint. `overflow: "hidden"` clips the
-   * absolute-fill surface to the signed top radius.
+   * absolute-fill surface to the signed 20pt sheet radius (`mobile-rn/DESIGN.md`
+   * 圆角 20).
    */
   card: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: radius.sheet,
+    borderTopRightRadius: radius.sheet,
     height: "85%",
     overflow: "hidden",
   },

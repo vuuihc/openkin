@@ -97,6 +97,7 @@ describe("KIN-MOBILE-002 signature", () => {
       "mobile-rn/src/screens/Approvals.visual.test.tsx",
       "mobile-rn/src/screens/Conversation.visual.test.tsx",
       "mobile-rn/src/screens/ConversationList.visual.test.tsx",
+      "mobile-rn/src/screens/ProviderUsage.visual.test.tsx",
       "mobile-rn/src/screens/pair.visual.test.tsx",
       "mobile-rn/src/theme/noLiterals.test.ts",
       "mobile-rn/src/theme/theme.test.ts",

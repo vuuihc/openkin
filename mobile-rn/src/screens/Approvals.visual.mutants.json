@@ -1,0 +1,23 @@
+[
+  {
+    "label": "approve loses its fill, so the card's one primary reads as another quiet control (R-rn-composer-approvals-b)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "  approve: {\n    backgroundColor: colors.blue,\n    borderRadius: radius.bubble,\n  },",
+    "new": "  approve: {\n    backgroundColor: \"transparent\",\n    borderRadius: radius.bubble,\n  },",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.visual.test.tsx -t \"KIN-MOBILE-002 R5: approve is the only filled primary and deny is outlined\""
+  },
+  {
+    "label": "deny gains the brand fill, so the destructive action looks like the safe one (R-rn-composer-approvals-b)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "  deny: {\n    backgroundColor: \"transparent\",\n    borderColor: colors.hairlineStrong,",
+    "new": "  deny: {\n    backgroundColor: colors.blue,\n    borderColor: colors.hairlineStrong,",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.visual.test.tsx -t \"KIN-MOBILE-002 R5: approve is the only filled primary and deny is outlined\""
+  },
+  {
+    "label": "the approve label falls back to blue ink on the brand fill, the pair theme.css does not assign (R-rn-composer-approvals-b)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "  approveLabel: {\n    color: colors.onBrand,\n  },",
+    "new": "  approveLabel: {\n    color: colors.blueInk,\n  },",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.visual.test.tsx -t \"KIN-MOBILE-002 R5: approve is the only filled primary and deny is outlined\""
+  }
+]
