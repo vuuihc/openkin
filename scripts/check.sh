@@ -414,6 +414,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-ux-gate-grounded-red.sh || return 1
   bash rsi/runtime/tests/test-switch-attribution.sh || return 1
   bash rsi/runtime/tests/test-lane-leftovers.sh || return 1
+  bash rsi/runtime/tests/test-lane-partial-handoff.sh || return 1
   bash rsi/runtime/tests/test-lane-mutants.sh || return 1
   bash rsi/runtime/tests/test-lane-claim-check.sh || return 1
   bash rsi/runtime/tests/test-removed-literal-check.sh || return 1
