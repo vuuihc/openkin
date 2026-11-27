@@ -137,7 +137,13 @@ gate_watched() { # <pr> <sha> <state> <slug> <gate-log> <worktree> <cmd...>
   # The TERM trap keeps a killed gate's exit normal, so bash prints no "Terminated" job line
   # into the verifier log; rsi_kill_tree has already killed the gate's own children.
   ( trap 'exit 143' TERM; if [ -n "$wt" ]; then cd "$wt" || exit 1; fi; "$@" ) > "$gl" 2>&1 &
-  local gp=$! wp
+  local gp=$! wp=""
+  # A signal while we wait must not leave the gate or the watcher behind: the caller's cleanup
+  # only knows $CHILD (the reviewer), and a synchronous gate used to keep the verifier waiting.
+  # Kill both, then restore the script's own exit convention for the rest of the verifier.
+  trap 'rsi_kill_tree "$gp" 2>/dev/null; kill "${wp:-}" 2>/dev/null; exit 143' TERM
+  trap 'rsi_kill_tree "$gp" 2>/dev/null; kill "${wp:-}" 2>/dev/null; exit 129' HUP
+  trap 'rsi_kill_tree "$gp" 2>/dev/null; kill "${wp:-}" 2>/dev/null; exit 130' INT
   (
     sp=""; w=0; live=""
     # A cancelled watcher must not leave its sleep behind for a whole poll interval.
@@ -153,13 +159,16 @@ gate_watched() { # <pr> <sha> <state> <slug> <gate-log> <worktree> <cmd...>
     done
   ) &
   wp=$!
-  wait "$gp"; GATE_RC=$?
+  wait "$gp"; GATE_RC=$?; gp=""   # reaped: a late signal must not chase a reused pid
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
   if [ -s "$marker" ]; then
     # The watcher is mid-kill (it wrote the marker first): give it its bounded finish, then reap it.
     local i=0
     while [ "$i" -lt 30 ] && kill -0 "$wp" 2>/dev/null; do sleep 0.1; i=$((i+1)); done
   fi
-  kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null
+  kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; wp=""
   local live; live="$(cat "$marker" 2>/dev/null || true)"; rm -f "$marker"
   if oid "$live" && [ "$live" != "$sha" ]; then GATE_LIVE_HEAD="$live"; return 2; fi
   return 0
