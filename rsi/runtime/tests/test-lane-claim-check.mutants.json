@@ -12,5 +12,12 @@
     "test": "RSI_TEST_ONLY=case_lane_checks_the_body_it_uploads bash rsi/runtime/tests/test-lane-claim-check.sh",
     "old": "if [ \"$(claim_body_sha \"$STATUS_NOTE_FILE\")\" != \"${CLAIM_BODY_SHA:-}\" ]; then",
     "new": "if false; then"
+  },
+  {
+    "label": "an existing PR skips the body upload again when the local body predates the lane header: GitHub keeps a body no seam passed and the merge gate sends the PR back",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_live_body_is_always_uploaded_from_the_checked_file bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "  if [ -s \"$STATUS_NOTE_FILE\" ]; then\n    if [ -n \"${CLAIM_BODY_SHA:-}\" ] && [ \"$(claim_body_sha \"$STATUS_NOTE_FILE\")\" != \"$CLAIM_BODY_SHA\" ]; then",
+    "new": "  if [ -s \"$STATUS_NOTE_FILE\" ] && [ \"$STATUS_NOTE_FILE\" -nt \"$HDR\" ]; then\n    if [ -n \"${CLAIM_BODY_SHA:-}\" ] && [ \"$(claim_body_sha \"$STATUS_NOTE_FILE\")\" != \"$CLAIM_BODY_SHA\" ]; then"
   }
 ]
