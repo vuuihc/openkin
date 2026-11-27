@@ -148,8 +148,9 @@ R4's live round imports `highestContiguousSeq`, `hasSequenceGap` and `mergeEvent
 No dependency enters `ui/package.json` or `go.mod`. `mobile-rn/package.json` is the only manifest this
 decision covers. Every version is an **exact pin** (no `^`, no `~`) and was published at least seven
 days before 2026-11-24, so a compromised or broken release cannot enter unreviewed. Publish dates were
-read from `npm view <pkg> time --json` on 2026-11-24; the signature test parses this table and fails
-on a range, a missing date, or a date after 2026-11-17.
+read from `npm view <pkg> time --json` on 2026-11-24, and the three R5 rows on 2026-11-27; every row
+is still published on or before 2026-11-17, and the signature test parses this table and fails on a
+range, a missing date, or a date after that cutoff.
 
 | package | version | published | why / first slice |
 |---|---|---|---|
@@ -165,6 +166,9 @@ on a range, a missing date, or a date after 2026-11-17.
 | `expo-secure-store` | `58.0.3` | 2026-11-11 | token in Keychain, not AsyncStorage; R2 |
 | `expo-notifications` | `58.1.9` | 2026-11-11 | approval/question push; R7 |
 | `expo-blur` | `58.0.6` | 2026-11-11 | glass bottom bar/header; R7 |
+| `expo-haptics` | `58.0.8` | 2026-11-11 | approval and rejection haptic feedback; R5 |
+| `expo-symbols` | `58.0.5` | 2026-11-11 | SF Symbols in composer and approval controls; R5 |
+| `expo-glass-effect` | `58.0.5` | 2026-10-23 | iOS 26 liquid-glass composer surface, BlurView fallback on older systems; R5 |
 | `jest-expo` | `58.0.15` | 2026-11-17 | test preset; R1 |
 | `typescript` | `5.7.2` | 2024-11-22 | same compiler family as `ui` (`ui/package.json` pins `^5.7.2`), so shared files typecheck the same way; R1 |
 | `@types/react` | `19.3.0` | 2026-09-09 | React 19 types; R1 |
@@ -240,7 +244,7 @@ Each slice is one PR, ≤ ~800 changed lines, with its own tests.
   screens and behaviours of `KIN-CONTRACT-001`, `KIN-CONTINUE-002/003/005/007` and `KIN-RESULT-*`
   rather than designing a second product. A screen that disagrees with a signed story is a bug in the
   RN screen, not a new decision.
-- **The dependency surface is small and dated.** Sixteen exact pins, each old enough to have survived
+- **The dependency surface is small and dated.** Nineteen exact pins, each old enough to have survived
   a week of public use, and a test that refuses a range. The trade-off is manual bump PRs; that is
   deliberate while the client is new.
 - **Feel remains a human acceptance.** The light gate is cheap because it does not pretend to measure
