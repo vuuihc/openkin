@@ -1,6 +1,6 @@
 # KIN-AGENTS-002 · 看清安装探测与会话/角色导入的边界
 
-状态：draft
+状态：approved
 优先级：P0
 旅程：J6
 归属面：`IA.md`「设置与环境」的 `/settings?tab=agents`
@@ -168,3 +168,4 @@
 
 - 2026-11-23 创建（R-agents-detect，合同 only；不写代码、审阅页或帧）。
 - 2026-11-25（+08）· 对齐：part b 的审阅页与 6 张帧已由 #629 b0d46372 交付；状态保持 draft，等待人签字。
+- 2026-11-27 · CEO 受托签字（approved）：D1–D3 按审阅页推荐；审阅页已读（MECE、6 帧、六段流程、状态板）。见 rsi/DECISIONS.md 同日条。

@@ -30,7 +30,10 @@ import {
 import { importToast } from "../lib/agentSessionImport";
 import { useAgentSessionImport } from "../hooks/useAgentSessionImport";
 import { refreshMachines } from "../hooks/useMachines";
-import { LocalAgentSettingsSection } from "../components/settings/LocalAgentSettingsSection";
+import {
+  LocalAgentSettingsSection,
+  type AgentProvidersStatus,
+} from "../components/settings/LocalAgentSettingsSection";
 import {
   ProviderSettingsSection,
   type AgentCatalogStatus,
@@ -185,6 +188,12 @@ export default function SettingsPage() {
     agents: AgentInfo[];
   }>({ status: "loading", agents: [] });
   const [agentProviders, setAgentProviders] = useState<AgentProvider[]>([]);
+  // The provider read is the agents tab's own. It has a status and a reason so
+  // a first read that fails says so and offers a retry, and a re-probe that
+  // fails keeps the rows already on screen (KIN-AGENTS-002 D1).
+  const [agentProvidersStatus, setAgentProvidersStatus] =
+    useState<AgentProvidersStatus>("loading");
+  const [agentProvidersError, setAgentProvidersError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The read's own failure. `error` keeps its meaning (a page-level action
   // failed), but a failed read is a state of the page, not an action result: a
@@ -235,6 +244,8 @@ export default function SettingsPage() {
     [navigate, location.pathname, location.search],
   );
   const reconnectGen = useAppStore((s) => s.reconnectGen);
+  const wsStatus = useAppStore((s) => s.wsStatus);
+  const online = wsStatus !== "disconnected";
   const pushToast = useAppStore((s) => s.pushToast);
   // The slow hint belongs under the skeleton only; over a named failure it
   // would sit under the retry and read as a second answer to the same wait.
@@ -367,8 +378,35 @@ export default function SettingsPage() {
     }
   }, []);
 
-  const loadSeq = useRef(0);
-  const load = useCallback(
+  /**
+   * Read the local agent providers for the agents tab.
+   *
+   * Owned here rather than inside the detection section so the import group
+   * renders from the same metadata without depending on the detection half
+   * (KIN-AGENTS-002 D2): deleting that half later leaves the row imports and
+   * the role editor working. The sequence guard mirrors `agentCatalogSeq`: the
+   * first activation, a reconnect and a refresh can overlap, and only the
+   * newest answer may paint. A failure keeps the rows already on screen.
+   */
+  const agentProvidersSeq = useRef(0);
+  const agentProvidersRead = useRef(false);
+  const readAgentProviders = useCallback(async () => {
+    const seq = ++agentProvidersSeq.current;
+    setAgentProvidersStatus("loading");
+    setAgentProvidersError(null);
+    try {
+      const providers = await listAgentProviders();
+      if (seq !== agentProvidersSeq.current) return;
+      setAgentProviders(providers);
+      setAgentProvidersStatus("ready");
+    } catch (e) {
+      if (seq !== agentProvidersSeq.current) return;
+      setAgentProvidersStatus("failed");
+      setAgentProvidersError(e instanceof ApiError ? e.message : String(e));
+    }
+  }, []);
+
+  const loadSeq = useRef(0);  const load = useCallback(
     async (preserveDirty = false) => {
       // Only the newest read may write. A mount read, a reconnect read and a
       // retry can overlap, and a late rejection from an older one used to be
@@ -396,9 +434,6 @@ export default function SettingsPage() {
         } catch {
           if (seq === loadSeq.current) setProviders([]);
         }
-        listAgentProviders()
-          .then(setAgentProviders)
-          .catch(() => undefined);
       } catch (e) {
         if (seq !== loadSeq.current) return;
         if (e instanceof ApiError && e.status === 401) return;
@@ -428,6 +463,28 @@ export default function SettingsPage() {
     seenReconnect.current = reconnectGen;
     void load(true);
   }, [reconnectGen, load]);
+
+  // Opening Settings on any other tab must not read /api/agent-providers; the
+  // first activation of the agents tab is what starts it. Coming back to the
+  // tab later keeps the previous answer and timestamp rather than probing
+  // again (KIN-AGENTS-002 §3, 离开再回来).
+  useEffect(() => {
+    if (activeTab !== "agents" || agentProvidersRead.current) return;
+    agentProvidersRead.current = true;
+    void readAgentProviders();
+  }, [activeTab, readAgentProviders]);
+
+  // A reconnect while the agents tab is open re-reads the providers, the same
+  // rule the page's own reload follows: a link that came back must not leave
+  // the rows presenting the pre-disconnect snapshot as current.
+  const seenProviderReconnect = useRef(reconnectGen);
+  useEffect(() => {
+    if (reconnectGen === seenProviderReconnect.current) return;
+    seenProviderReconnect.current = reconnectGen;
+    if (activeTab !== "agents") return;
+    agentProvidersRead.current = true;
+    void readAgentProviders();
+  }, [reconnectGen, activeTab, readAgentProviders]);
 
   /**
    * Save the shared settings form. `scope` is the group whose Save button was
@@ -486,9 +543,6 @@ export default function SettingsPage() {
       // button must not wait on an inventory read to finish.
       void refreshMachines();
       void loadAgentCatalog();
-      listAgentProviders()
-        .then(setAgentProviders)
-        .catch(() => undefined);
     } catch (e) {
       const message = e instanceof ApiError ? e.message : String(e);
       if (scope === "price") setPriceError(message);
@@ -544,12 +598,13 @@ export default function SettingsPage() {
 
   const refreshAgentCatalog = async () => {
     setRefreshingAgentCatalog(true);
+    // A press is also the one path that starts the read on a tab whose first
+    // activation answer has not landed yet (or failed).
+    agentProvidersRead.current = true;
     try {
-      const [, providers] = await Promise.all([loadAgentCatalog(), listAgentProviders()]);
-      setAgentProviders(providers);
-    } catch {
-      // Keep the last-known-good provider snapshot visible when the daemon is
-      // reconnecting; the agent read reports its own failure in its row.
+      // Both reads report through their own state; this only owns the shared
+      // busy flag, which clears when the slower one is done.
+      await Promise.all([loadAgentCatalog(), readAgentProviders()]);
     } finally {
       setRefreshingAgentCatalog(false);
     }
@@ -917,6 +972,9 @@ export default function SettingsPage() {
       <LocalAgentSettingsSection
         active={activeTab === "agents"}
         agentProviders={agentProviders}
+        providersStatus={agentProvidersStatus}
+        providersError={agentProvidersError}
+        online={online}
         refreshingAgentCatalog={refreshingAgentCatalog}
         importingSessions={importingEveryMachine}
         settingsBusy={busy}

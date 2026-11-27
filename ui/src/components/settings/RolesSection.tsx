@@ -26,6 +26,7 @@ export function RolesSection({
   onSave,
   saving,
   disabled,
+  offline,
 }: {
   roles: AgentRole[];
   onChange: (roles: AgentRole[]) => void;
@@ -33,6 +34,8 @@ export function RolesSection({
   onSave: () => void;
   saving?: boolean;
   disabled?: boolean;
+  /** The console is disconnected: the editor is read-only and says why. */
+  offline?: boolean;
 }) {
   const tr = useT();
 
@@ -51,7 +54,12 @@ export function RolesSection({
   return (
     <SettingsSection
       title={tr("settings.roles.heading")}
-      description={tr("settings.roles.description")}
+      description={
+        <span className="block space-y-1">
+          <span className="block">{tr("settings.localAgents.rolesRule")}</span>
+          <span className="block text-caption">{tr("settings.roles.description")}</span>
+        </span>
+      }
       action={
         <div className="flex flex-wrap gap-2">
           <button
@@ -74,6 +82,14 @@ export function RolesSection({
         </div>
       }
     >
+      {offline ? (
+        <p
+          role="status"
+          className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-body leading-4 text-kin-orange-ink"
+        >
+          {tr("settings.localAgents.offlineRoles")}
+        </p>
+      ) : null}
       {roles.length === 0 ? (
         <p className="text-body text-kin-muted">{tr("settings.roles.empty")}</p>
       ) : (
