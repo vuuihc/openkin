@@ -319,9 +319,10 @@ pass "$case_name"
 # mobile-rn/ vocabulary, so the RN path fell through to the no-match fallback
 # (every journey) and the mixed selection walked the whole console. mobile-rn/
 # cannot render in the web console; its proof is scripts/check.sh's mobile-rn job.
-# The renderer row names only the journeys that draw a message body or table
-# through ui/src/components/Markdown.tsx (J3's reply paragraphs, J16's long answer
-# table, J17's message-body tap). Pin the literal list so the row cannot drift.
+# The renderer row names every journey whose steps draw the assistant paragraph
+# (J2, J9, J11, J12, J14), a reply body or table (J3, J16), notes.md (J13) or the
+# message-body tap (J17) through ui/src/components/Markdown.tsx. Pin the literal
+# list so the row cannot drift.
 case_name="select refuses a pure RN changed-file list"
 printf 'mobile-rn/src/screens/ConversationView.tsx\n' > "$T/rn-only.txt"
 out="$(select_walk --files "$T/rn-only.txt")"; rc=$?
@@ -340,9 +341,9 @@ printf '%s\n' \
 out="$(select_walk --files "$T/rn-renderer.txt")"; rc=$?
 [ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/select.err"))"
 got="$(printf '%s\n' "$out" | sort | tr '\n' ' ')"
-[ "$got" = 'J16 J17 J3 ' ] \
-  || fail "$case_name: got '$got', wanted only the shared renderer's J3 J16 J17"
-for banned in J9 J10 J11 J12; do
+[ "$got" = 'J11 J12 J13 J14 J16 J17 J2 J3 J9 ' ] \
+  || fail "$case_name: got '$got', wanted only the shared renderer's nine journeys"
+for banned in J1 J10 J15; do
   printf '%s\n' "$out" | grep -qx "$banned" \
     && fail "$case_name: $banned was selected although no file in the list can reach it"
 done

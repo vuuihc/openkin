@@ -13,9 +13,10 @@
 #   1. mobile-rn/ is not a console surface: it neither closes the attribution union
 #      nor adds journeys (an RN change cannot render in the web console; its proof
 #      is scripts/check.sh's mobile-rn job).
-#   2. The shared markdown renderer has its own journeys.json row: the journeys
-#      whose steps draw a message body or a table through ui/src/components/Markdown.tsx
-#      (J3's reply paragraphs, J16's long answer table, J17's message-body tap).
+#   2. The shared markdown renderer has its own journeys.json row: every journey
+#      whose steps draw the assistant paragraph (J2, J9, J11, J12, J14), a reply
+#      body or table (J3, J16), notes.md (J13) or the message-body tap (J17)
+#      through ui/src/components/Markdown.tsx.
 #   3. Every other unmatched path still fails closed, exactly as before the rule.
 #   4. scripts/check.sh names this suite, so the guard cannot land unwired.
 #
@@ -41,7 +42,7 @@ pass() { PASSED=$((PASSED+1)); echo "ok: $*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 PASSED=0
 # A case that stops running reds the suite instead of shrinking the summary.
-EXPECTED_CASES=6
+EXPECTED_CASES=7
 
 npm()  { echo "booby trap: npm invoked" >&2; exit 97; }
 go()   { echo "booby trap: go invoked" >&2; exit 97; }
@@ -60,16 +61,18 @@ cp "$GATE" "$CTRL/rsi/runtime/ux-gate.sh"
 chmod +x "$CTRL/rsi/runtime/"*.sh
 printf '\nGH="%s"\n' "$GH_STUB" >> "$CTRL/rsi/runtime/common.sh"
 
-# Walker stub: the same unrelated J12 red on the first and the confirm walk. It
-# ignores the journey selector, so the gate's attribution decision is the only
-# thing that can keep this line from convicting.
+# Walker stub: the same unrelated reds on the first and the confirm walk. J10 is
+# outside the renderer's row, so only the gate's attribution decision can keep it
+# from convicting; J12 is inside it now and is seeded as a known artefact by the
+# first gate case. The stub ignores the journey selector, so the selector cannot
+# hide a conviction.
 WALK_STUB="$T/bin/walk.sh"
 cat > "$WALK_STUB" <<'SH'
 #!/bin/bash
 set -u
 dir="$1"; printf '%s\n' "$dir" >> "$WALKS_LOG"
 mkdir -p "$dir"
-printf '{"hardFail":["J12/mac: the list order changed after a session switch"],"screens":[{"journey":"J12","name":"list-1100","lint":{"smallTapTargets":0}}]}\n' > "$dir/walk.json"
+printf '{"hardFail":["J12/mac: the list order changed after a session switch","J10/mac: the phone drawer lost its focus trap"],"screens":[{"journey":"J12","name":"list-1100","lint":{"smallTapTargets":0}}]}\n' > "$dir/walk.json"
 printf 'png\n' > "$dir/J12-mac-1-list.png"
 SH
 chmod +x "$WALK_STUB"
@@ -159,9 +162,9 @@ test_mixed_changed_file_list_selects_only_the_renderer_journeys() {
   out="$(select_walk --files "$T/rn-renderer.txt")"; rc=$?
   [ "$rc" -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/select.err"))"
   got="$(printf '%s\n' "$out" | sort | tr '\n' ' ')"
-  [ "$got" = 'J16 J17 J3 ' ] \
-    || fail "$case_name: got '$got', want only the shared renderer's J3 J16 J17"
-  for banned in J9 J10 J11 J12; do
+  [ "$got" = 'J11 J12 J13 J14 J16 J17 J2 J3 J9 ' ] \
+    || fail "$case_name: got '$got', want only the shared renderer's nine journeys"
+  for banned in J1 J10 J15; do
     printf '%s\n' "$out" | grep -qx "$banned" \
       && fail "$case_name: $banned was selected although no file in the list can reach it"
   done
@@ -170,25 +173,33 @@ test_mixed_changed_file_list_selects_only_the_renderer_journeys() {
 
 # --- cases -----------------------------------------------------------------------------------
 
-# The #822 shape: RN screen + shared renderer. The reproduced J12 red is outside
-# the renderer's journeys, so it is recorded as evidence and the PR passes.
+# The #822 shape: RN screen + shared renderer. J12 is one of the renderer's own
+# journeys now, so its list-order artefact is a known walk artefact (state/
+# ux-known-artifacts.txt), not a reason to narrow the reach set. J10 is outside
+# the renderer's row: it is recorded as evidence and the PR passes.
 test_mixed_rn_renderer_is_not_convicted_by_an_unrelated_journey() {
   case_name="test_mixed_rn_renderer_is_not_convicted_by_an_unrelated_journey"
   new_case mixed_rn_renderer
   mkwt mixed_rn_renderer \
     mobile-rn/src/screens/ConversationView.tsx \
     ui/src/components/Markdown.tsx
+  printf '%s\n' 'J12/mac: the list order changed after a session switch' > "$ST/ux-known-artifacts.txt"
   run_gate
   [ "$RC" -eq 0 ] || fail "$case_name: exit $RC, want 0 ($(tail -4 "$T/$CASE.out" | tr '\n' ' '))"
   [ ! -s "$BODY" ] || fail "$case_name: a UX sendback body was written for a red the diff cannot reach"
-  [ "$(walks)" = 2 ] || fail "$case_name: $(walks) walks, want the first and its confirm (the red must be reproduced, not flaked)"
+  [ "$(walks)" = 2 ] || fail "$case_name: $(walks) walks, want the first and its confirm (the J10 red must be reproduced, not flaked)"
   grep -Fq 'reproduced=1' "$T/$CASE.out" \
-    || fail "$case_name: the confirm walk did not reproduce the J12 red, so outside.txt would prove nothing"
-  grep -Fq 'J12/mac:' "$UXD/outside.txt" 2>/dev/null \
-    || fail "$case_name: the reproduced J12 red is not recorded in outside.txt as evidence"
-  if grep -Fq 'ATTRCLOSED' "$UXD/attributed.txt" 2>/dev/null; then
-    fail "$case_name: the attribution still failed closed: $(cat "$UXD/attributed.txt")"
-  fi
+    || fail "$case_name: the confirm walk did not reproduce the J10 red, so outside.txt would prove nothing"
+  grep -Fq 'J10/mac:' "$UXD/outside.txt" 2>/dev/null \
+    || fail "$case_name: the reproduced J10 red is not recorded in outside.txt as evidence"
+  grep -Fq 'J12/mac:' "$UXD/ignored.txt" 2>/dev/null \
+    || fail "$case_name: the J12 known artefact was not printed and saved as ignored"
+  attr="$(sed -n 1p "$UXD/attributed.txt" 2>/dev/null || true)"
+  case "$attr" in
+    ATTRCLOSED*) fail "$case_name: the attribution failed closed: $attr" ;;
+  esac
+  printf '%s\n' "$attr" | grep -Fq 'J12' \
+    || fail "$case_name: the renderer's own J12 is missing from the reach set: $attr"
   pass "$case_name"
 }
 
@@ -206,8 +217,8 @@ test_rn_path_never_closes_the_attribution_union() {
   case "$attr" in
     ATTRCLOSED*) fail "$case_name: mobile-rn/ closed the union: $attr" ;;
   esac
-  [ "$attr" = "ATTRJ=J3,J16,J17" ] \
-    || fail "$case_name: attributed '$attr', want the shared renderer's row ATTRJ=J3,J16,J17"
+  [ "$attr" = "ATTRJ=J2,J3,J9,J11,J12,J13,J14,J16,J17" ] \
+    || fail "$case_name: attributed '$attr', want the shared renderer's row ATTRJ=J2,J3,J9,J11,J12,J13,J14,J16,J17"
   pass "$case_name"
 }
 
@@ -235,6 +246,26 @@ test_a_genuinely_unmapped_path_still_fails_closed() {
   pass "$case_name"
 }
 
+# The same doctrine on its ui/-specific branch: an unmapped console component
+# beside the renderer closes the union instead of silently widening it.
+test_an_unmapped_ui_path_still_fails_closed() {
+  case_name="test_an_unmapped_ui_path_still_fails_closed"
+  new_case unmapped_ui_path
+  mkwt unmapped_ui_path \
+    ui/src/components/UnmappedSurface.tsx \
+    ui/src/components/Markdown.tsx
+  run_gate
+  [ "$RC" -eq 1 ] || fail "$case_name: exit $RC, want 1 (a sendback) ($(tail -4 "$T/$CASE.out" | tr '\n' ' '))"
+  grep -Fq 'J12/mac:' "$BODY" 2>/dev/null \
+    || fail "$case_name: the reproduced J12 red is not in the sendback body"
+  attr="$(sed -n 1p "$UXD/attributed.txt" 2>/dev/null || true)"
+  case "$attr" in
+    ATTRCLOSED*ui/src/components/UnmappedSurface.tsx*) ;;
+    *) fail "$case_name: want ATTRCLOSED naming the unmapped ui path, got '$attr'" ;;
+  esac
+  pass "$case_name"
+}
+
 # AGENTS §12: a new suite nobody wires is a green light for a regression.
 test_check_sh_names_this_suite() {
   case_name="test_check_sh_names_this_suite"
@@ -255,6 +286,7 @@ run test_mixed_changed_file_list_selects_only_the_renderer_journeys
 run test_mixed_rn_renderer_is_not_convicted_by_an_unrelated_journey
 run test_rn_path_never_closes_the_attribution_union
 run test_a_genuinely_unmapped_path_still_fails_closed
+run test_an_unmapped_ui_path_still_fails_closed
 run test_check_sh_names_this_suite
 [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 # The literal pins a full run; a focused run (RSI_TEST_ONLY) is the red-proof seam the

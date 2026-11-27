@@ -3677,7 +3677,7 @@ function selectJourneys(spec, journeysArg, filesArg) {
     // this pins the predicate, not a product path.
     if (listed.length && !files.length) {
       throw new Error('selection refused: --files names only files that cannot change the console ('
-        + listed.length + ' generated, docs, test or loop-plumbing paths)');
+        + listed.length + ' generated, docs, test, loop-plumbing or mobile-rn paths)');
     }
     const set = new Set();
     for (const f of files) { const hit = spec.paths.find(([re]) => new RegExp('^(' + re + ')').test(f) || re.split('|').some((p) => f.startsWith(p))); (hit ? hit[1] : known).forEach((j) => set.add(j)); }

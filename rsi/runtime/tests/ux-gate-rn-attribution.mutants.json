@@ -10,7 +10,7 @@
     "label": "the shared markdown renderer's journeys.json row removed: a Markdown.tsx change falls through to every journey, and the walker's mixed selection walks all 17 again",
     "file": "rsi/runtime/ux/journeys.json",
     "test": "RSI_TEST_ONLY=test_mixed_changed_file_list_selects_only_the_renderer_journeys bash rsi/runtime/tests/test-ux-gate-rn-attribution.sh",
-    "old": "    [\"ui/src/components/Markdown.tsx|ui/src/lib/markdownInline.ts\", [\"J3\", \"J16\", \"J17\"]],",
+    "old": "    [\"ui/src/components/Markdown.tsx|ui/src/lib/markdownInline.ts\", [\"J2\", \"J3\", \"J9\", \"J11\", \"J12\", \"J13\", \"J14\", \"J16\", \"J17\"]],",
     "new": ""
   },
   {
