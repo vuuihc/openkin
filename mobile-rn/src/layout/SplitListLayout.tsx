@@ -108,6 +108,9 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     overflow: "hidden",
   },
   root: {
+    // The right pane paints nothing of its own: without this the empty pane
+    // shows the navigator's white screen under a dark list (EVIDENCE.md D4).
+    backgroundColor: colors.bg,
     flex: 1,
   },
   stackColumn: {
