@@ -8,11 +8,11 @@ import type { AgentProvider } from "../../api/client";
 import { setLocale } from "../../i18n";
 
 /**
- * The rendering half of the settings section. Its pure helpers — the status
- * key, the capability predicate — are covered in the sibling file, and both can
- * be right while the section hands the wrong thing to the wrong control: a
- * per-provider row that imports *everything*, or a main button that stays live
- * through a fan-out, is a bug that only shows up on screen.
+ * The rendering half of the settings section. Its pure helper — the capability
+ * predicate — is covered in the sibling file, and it can be right while the
+ * section hands the wrong thing to the wrong control: a per-provider row that
+ * imports *everything*, or a main button that stays live through a fan-out, is
+ * a bug that only shows up on screen.
  */
 
 beforeEach(() => {
@@ -105,11 +105,10 @@ describe("the settings section's import controls", () => {
       }),
     );
 
-    // Provider-named imports (KIN-AGENTS-002); the second button is the second
-    // provider's detection row. The *id* is what is asserted.
+    // Provider-named imports (KIN-AGENTS-002), one per importable provider in
+    // the import group. The *id* is what is asserted.
     const rows = screen.getAllByRole("button", { name: /^Import sessions from / });
-    // One per provider in each of the two groups that offer the row errand.
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(2);
     await user.click(rows[1]);
 
     expect(onImportProviderSessions).toHaveBeenCalledTimes(1);
@@ -143,8 +142,8 @@ describe("the settings section's import controls", () => {
       }),
     );
 
-    // The row stays in both groups, but nothing invites an errand that cannot run.
-    expect(screen.getAllByText("Gemini")).toHaveLength(2);
+    // The row stays, but nothing invites an errand that cannot run.
+    expect(screen.getAllByText("Gemini")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Import sessions from Gemini" })).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { AgentProvider, AgentProviderState } from "../../api/client";
+import type { AgentProvider } from "../../api/client";
 import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useT } from "../../i18n/react";
 import type { AgentRole } from "../../lib/agentRoles";
@@ -9,17 +9,8 @@ import { RolesSection } from "./RolesSection";
 import { SettingsSection, SettingsTabPanel } from "./SettingsPrimitives";
 
 /** How the agents tab's one provider read is going. The page owns the read;
- *  both the detection rows and the import rows render from it. */
+ *  the import rows render from it and own its read lifecycle on screen. */
 export type AgentProvidersStatus = "loading" | "ready" | "failed";
-
-export function localAgentStatusKey(state: AgentProviderState): string {
-  if (state === "available") return "settings.localAgents.available";
-  if (state === "unsupported") return "settings.localAgents.unsupported";
-  if (state === "not_detected") return "settings.localAgents.notDetected";
-  if (state === "degraded") return "settings.localAgents.degraded";
-  if (state === "permission_required") return "settings.localAgents.permissionRequired";
-  return "settings.localAgents.unavailable";
-}
 
 export function canImportAgentSessions(agent: AgentProvider): boolean {
   return (agent.capabilities ?? []).some(
@@ -62,8 +53,8 @@ export function LocalAgentSettingsSection({
   agentProviders: AgentProvider[];
   providersStatus?: AgentProvidersStatus;
   providersError?: string | null;
-  /** False while the console is disconnected: every group says so, the two
-   *  write actions disable with a reason, and the role editor is read-only. */
+  /** False while the console is disconnected: the import group says so, its
+   *  read and writes disable with a reason, and the role editor is read-only. */
   online?: boolean;
   refreshingAgentCatalog: boolean;
   importingSessions: boolean;
@@ -78,11 +69,17 @@ export function LocalAgentSettingsSection({
   const tr = useT();
   const coarse = useCoarsePointer();
   const detectionBusy = refreshingAgentCatalog || providersStatus === "loading";
+  const readFailed = providersStatus === "failed";
   const importable = agentProviders.filter(canImportAgentSessions);
+  // A first read that failed has no results at all; it must not borrow the
+  // empty list's sentence (an empty list is a successful read with no rows).
+  const firstReadFailed = readFailed && agentProviders.length === 0;
   const importBlockedReason = !online
     ? tr("settings.localAgents.offlineImport")
     : importable.length === 0
-      ? tr("settings.localAgents.emptyImport")
+      ? firstReadFailed
+        ? tr("settings.localAgents.firstReadFailed")
+        : tr("settings.localAgents.emptyImport")
       : undefined;
   // TASTE 16: the 44px floor follows the pointer, not the viewport. The import
   // row's compact shape is a mouse convenience; on glass the same button keeps
@@ -97,172 +94,69 @@ export function LocalAgentSettingsSection({
 
   return (
     <SettingsTabPanel id="agents" active={active}>
-      {/* Group 1 — installation status: automatic and read-only. */}
+      {/* Group 1 — import sessions. Owns the provider read's lifecycle and its
+          own refresh entry, so removing any other half leaves it working (D2). */}
       <SettingsSection
-        title={tr("settings.localAgents.detectionHeading")}
-        description={tr("settings.localAgents.detectionRule")}
+        title={tr("settings.localAgents.importHeading")}
+        description={tr("settings.localAgents.importRule")}
         action={
           <Button
             variant="secondary"
             disabled={detectionBusy || !online}
             onClick={onRefreshAgentCatalog}
-            title={!online ? tr("settings.localAgents.offlineDetection") : undefined}
+            title={!online ? tr("settings.localAgents.offlineImport") : undefined}
             className="text-caption"
           >
             {detectionBusy
               ? tr("settings.localAgents.refreshing")
-              : providersStatus === "failed" && agentProviders.length > 0
+              : readFailed && agentProviders.length > 0
                 ? tr("settings.localAgents.retryDetection")
                 : tr("settings.localAgents.refresh")}
           </Button>
         }
       >
-        {!online ? <OfflineNote>{tr("settings.localAgents.offlineDetection")}</OfflineNote> : null}
-        {providersStatus === "failed" ? (
+        {!online ? <OfflineNote>{tr("settings.localAgents.offlineImport")}</OfflineNote> : null}
+        {readFailed && agentProviders.length > 0 ? (
+          // D1: a failed re-read keeps the rows and their old timestamps; the
+          // failure is one sentence above them.
           <InlineAlert className="space-y-2">
-            {agentProviders.length > 0 ? (
-              // D1: a failed re-probe keeps the rows and their old timestamps;
-              // the failure is one sentence at the group head.
-              <p>
-                {tr("settings.localAgents.detectionFailed", {
-                  reason: providersError ?? "",
-                })}
-              </p>
-            ) : (
-              <>
-                <p className="font-medium">{tr("settings.localAgents.firstReadFailed")}</p>
-                <p className="text-caption">
-                  {providersError || tr("settings.localAgents.firstReadFailedHint")}
-                </p>
-                <Button
-                  variant="secondary"
-                  disabled={!online}
-                  onClick={onRefreshAgentCatalog}
-                  className="text-caption"
-                >
-                  {tr("common.retry")}
-                </Button>
-              </>
-            )}
+            <p>
+              {tr("settings.localAgents.detectionFailed", {
+                reason: providersError ?? "",
+              })}
+            </p>
           </InlineAlert>
         ) : null}
-        <div className="divide-y divide-[var(--kin-hairline)] rounded-lg border border-[var(--kin-hairline)]">
-          {agentProviders.map((agent) => {
-            const capabilities = new Map(
-              (agent.capabilities ?? []).map((capability) => [capability.capability, capability]),
-            );
-            const statusText = tr(localAgentStatusKey(agent.state));
-            const canImport = canImportAgentSessions(agent);
-            const capabilityBadge = (id: string, label: string) => {
-              const capability = capabilities.get(id);
-              if (!capability) return null;
-              const supported = capability.state === "available";
-              return (
-                <span
-                  title={capability.evidence}
-                  className={[
-                    "px-1.5 py-0.5 rounded border text-micro",
-                    supported
-                      ? "border-kin-hairline text-kin-muted"
-                      : "border-kin-orange/40 text-kin-orange-ink",
-                  ].join(" ")}
-                >
-                  {supported
-                    ? label
-                    : `${label} · ${tr("settings.localAgents.capabilityUnsupported")}`}
-                </span>
-              );
-            };
-            return (
-              <div
-                key={agent.id}
-                className="px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5"
-              >
-                <span
-                  className={[
-                    "w-2 h-2 rounded-full flex-none",
-                    agent.state === "available"
-                      ? "bg-kin-blue"
-                      : agent.state === "unsupported"
-                        ? "bg-kin-orange"
-                        : "bg-kin-muted",
-                  ].join(" ")}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="text-body text-kin-text truncate">{agent.name || agent.id}</div>
-                  <div className="text-caption text-kin-muted truncate">
-                    {agent.id}
-                    {" · "}
-                    {statusText}
-                    {agent.reason ? ` · ${agent.reason}` : ""}
-                  </div>
-                  <div className="text-caption text-kin-muted">{lastDetectedText(agent)}</div>
-                  {!canImport ? (
-                    <div className="text-caption text-kin-orange-ink">
-                      {tr("settings.localAgents.importUnsupportedReason")}
-                    </div>
-                  ) : null}
-                </div>
-                {canImport && (
-                  <Button
-                    variant="secondary"
-                    disabled={importingSessions || !online}
-                    onClick={() => onImportProviderSessions(agent.id)}
-                    aria-label={tr("settings.localAgents.importProviderLabel", {
-                      name: agent.name || agent.id,
-                    })}
-                    title={!online ? tr("settings.localAgents.offlineImport") : undefined}
-                    className={rowImportClass}
-                  >
-                    {tr("settings.localAgents.importProvider")}
-                  </Button>
-                )}
-                {/* The capability chips are reference detail; on a phone they
-                    used to share the row with the name and the import button,
-                    which left the agent's name 3 characters wide. They take
-                    their own full-width line below `lg`. */}
-                <div className="flex flex-wrap justify-end gap-1 max-lg:order-last max-lg:w-full max-lg:justify-start">
-                  {capabilityBadge("session_list", tr("settings.localAgents.listCapability"))}
-                  {capabilityBadge(
-                    "session_history_read",
-                    tr("settings.localAgents.historyCapability"),
-                  )}
-                  {capabilityBadge("session_attach", tr("settings.localAgents.attachCapability"))}
-                  {capabilityBadge("resume", tr("settings.localAgents.resumeCapability"))}
-                  {capabilities.size === 0 && (
-                    <span className="text-caption text-kin-muted">
-                      {tr("settings.localAgents.noCapabilities")}
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-          {agentProviders.length === 0 && (
-            <div className="px-3 py-3 text-caption text-kin-muted">
-              {detectionBusy
-                ? tr("settings.localAgents.refreshing")
-                : tr("settings.localAgents.noProviders")}
-            </div>
-          )}
-        </div>
-      </SettingsSection>
-
-      {/* Group 2 — import sessions, drawn from the same metadata but never
-          from the detection group's markup (D2). */}
-      <SettingsSection
-        title={tr("settings.localAgents.importHeading")}
-        description={tr("settings.localAgents.importRule")}
-      >
-        {!online ? <OfflineNote>{tr("settings.localAgents.offlineImport")}</OfflineNote> : null}
-        {agentProviders.length === 0 ? (
+        {firstReadFailed ? (
+          <InlineAlert className="space-y-2">
+            <p className="font-medium">{tr("settings.localAgents.firstReadFailed")}</p>
+            <p className="text-caption">
+              {providersError || tr("settings.localAgents.firstReadFailedHint")}
+            </p>
+            <Button
+              variant="secondary"
+              disabled={!online}
+              onClick={onRefreshAgentCatalog}
+              className="text-caption"
+            >
+              {tr("common.retry")}
+            </Button>
+          </InlineAlert>
+        ) : null}
+        {providersStatus === "loading" && agentProviders.length === 0 ? (
+          <div className="px-3 py-3 text-caption text-kin-muted">
+            {tr("settings.localAgents.refreshing")}
+          </div>
+        ) : null}
+        {providersStatus === "ready" && agentProviders.length === 0 ? (
           <div className="px-3 py-3">
             <p className="text-body text-kin-secondary">{tr("settings.localAgents.emptyImport")}</p>
             <p className="text-caption text-kin-muted">
               {tr("settings.localAgents.emptyImportHint")}
             </p>
           </div>
-        ) : (
+        ) : null}
+        {agentProviders.length > 0 ? (
           <ul className="divide-y divide-[var(--kin-hairline)] rounded-lg border border-[var(--kin-hairline)]">
             {agentProviders.map((agent) => {
               const canImport = canImportAgentSessions(agent);
@@ -282,6 +176,9 @@ export function LocalAgentSettingsSection({
                         {tr("settings.localAgents.importUnsupportedReason")}
                       </div>
                     ) : null}
+                    {/* Provenance for the row's import: after a failed read the
+                        button is honest only beside the old scan time. */}
+                    <div className="text-caption text-kin-muted">{lastDetectedText(agent)}</div>
                   </div>
                   {canImport && (
                     <Button
@@ -299,7 +196,7 @@ export function LocalAgentSettingsSection({
               );
             })}
           </ul>
-        )}
+        ) : null}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Button
             variant="secondary"
@@ -323,7 +220,7 @@ export function LocalAgentSettingsSection({
         </div>
       </SettingsSection>
 
-      {/* Group 3 — role defaults: saved text, no probe and no import. */}
+      {/* Group 2 — role defaults: saved text, no probe and no import. */}
       <RolesSection
         roles={roles}
         onChange={onRolesChange}
