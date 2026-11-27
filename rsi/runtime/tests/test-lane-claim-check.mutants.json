@@ -4,7 +4,7 @@
     "file": "rsi/runtime/lane.sh",
     "test": "RSI_TEST_ONLY=case_claimed_output_must_match_the_merge_tree bash rsi/runtime/tests/test-lane-claim-check.sh",
     "old": "  merge_wt=\"$(claim_merge_wt \"$wt\")\"\n  if [ -n \"$merge_wt\" ]; then\n    check_wt=\"$merge_wt\"",
-    "new": "  merge_wt=\"\""
+    "new": "  merge_wt=\"\"\n  if false; then\n    check_wt=\"$merge_wt\""
   },
   {
     "label": "the pre-push body-identity guard removed: a body rewritten after the seam read it is pushed and uploaded unchecked",
