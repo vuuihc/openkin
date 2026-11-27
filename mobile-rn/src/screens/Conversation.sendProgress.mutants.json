@@ -9,8 +9,8 @@
   {
     "label": "the hidden word stays in the accessibility tree, so the reader hears both the label and the cue",
     "file": "mobile-rn/src/screens/ConversationView.tsx",
-    "old": "              <Text\n                aria-hidden\n                style={[styles.actionText, styles.actionTextHidden]}\n              >",
-    "new": "              <Text\n                style={[styles.actionText, styles.actionTextHidden]}\n              >",
+    "old": "              <Text\n                aria-hidden\n                style={[styles.circleLabel, styles.circleLabelHidden]}\n              >",
+    "new": "              <Text\n                style={[styles.circleLabel, styles.circleLabelHidden]}\n              >",
     "test": "cd mobile-rn && npx jest src/screens/Conversation.sendProgress.test.tsx -t \"KIN-MOBILE-001 §5 慢: a post in flight draws the sending indicator\""
   },
   {

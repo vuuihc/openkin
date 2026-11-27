@@ -105,7 +105,11 @@ describe("KIN-MOBILE-001 R4 keyboard and safe areas", () => {
     expect(box.memoizedProps?.behavior).toBe("padding");
     expect(box.memoizedProps?.keyboardVerticalOffset).toBe(0);
 
-    const style = StyleSheet.flatten(composer.props.style);
+    // The clearance belongs to the dock that holds the capsule: the capsule
+    // itself floats 8pt above it (KIN-MOBILE-002 R5), while the dock keeps the
+    // insets arithmetic this suite pins.
+    const dock = screen.getByTestId("conversation:composerDock");
+    const style = StyleSheet.flatten(dock.props.style);
     expect(style.paddingBottom).toBe(42);
   });
 
@@ -115,7 +119,7 @@ describe("KIN-MOBILE-001 R4 keyboard and safe areas", () => {
     const header = screen.getByTestId("conversation:header");
     expect(StyleSheet.flatten(header.props.style).paddingTop).toBe(12);
 
-    const composer = screen.getByTestId("conversation:composerBar");
-    expect(StyleSheet.flatten(composer.props.style).paddingBottom).toBe(24);
+    const dock = screen.getByTestId("conversation:composerDock");
+    expect(StyleSheet.flatten(dock.props.style).paddingBottom).toBe(24);
   });
 });

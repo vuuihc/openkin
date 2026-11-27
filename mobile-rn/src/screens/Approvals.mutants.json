@@ -44,8 +44,8 @@
   {
     "label": "a failed decision leaves the reader on the button instead of the reason it must read (R-rn-approvals-focus)",
     "file": "mobile-rn/src/screens/Approvals.tsx",
-    "old": "  useReaderFocus(resolved, resultRef);\n  useReaderFocus(entry.failure != null, failureRef);\n\n  return (\n    <View style={styles.card} testID={`card:${entry.key}`}>\n      <Text accessibilityRole=\"header\" style={styles.cardTitle}>\n        {title}",
-    "new": "  useReaderFocus(resolved, resultRef);\n\n  return (\n    <View style={styles.card} testID={`card:${entry.key}`}>\n      <Text accessibilityRole=\"header\" style={styles.cardTitle}>\n        {title}",
+    "old": "  useReaderFocus(resolved, resultRef);\n  useReaderFocus(entry.failure != null, failureRef);\n  useApprovalHaptics(entry);\n\n  return (\n    <View style={styles.card} testID={`card:${entry.key}`}>\n      <Text accessibilityRole=\"header\" style={styles.cardTitle}>\n        {title}",
+    "new": "  useReaderFocus(resolved, resultRef);\n  useApprovalHaptics(entry);\n\n  return (\n    <View style={styles.card} testID={`card:${entry.key}`}>\n      <Text accessibilityRole=\"header\" style={styles.cardTitle}>\n        {title}",
     "test": "cd mobile-rn && npx jest src/screens/Approvals.test.tsx -t \"KIN-MOBILE-001 R5: a failed decision hands the reader to the reason and its retry\""
   },
   {
