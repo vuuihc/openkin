@@ -18,6 +18,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
+import * as Haptics from "expo-haptics";
 import {
   Pressable,
   ScrollView,
@@ -82,6 +83,53 @@ function useReaderFocus(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Run one haptic without letting it speak. The taptic engine is a device
+ * courtesy, not part of the decision: a phone that cannot vibrate (or a jest
+ * render with no native module) must not break the card that just landed.
+ */
+function fireHaptic(call: () => Promise<unknown>): void {
+  try {
+    void Promise.resolve(call()).catch(() => undefined);
+  } catch {
+    // No engine, no receipt — the visible result is still the answer.
+  }
+}
+
+/**
+ * KIN-MOBILE-002 R5 — one haptic per approval outcome (DESIGN.md:41):
+ * an approved or denied card gives one medium impact plus one success
+ * notification as the decision lands, a failed write gives one error
+ * notification instead, and nothing is felt on the press itself.
+ *
+ * The ref of the previous phase is the whole guard: a card that mounts already
+ * resolved (a reload, or the list that answered while this screen was away)
+ * fires nothing, and a repaint while resolved fires nothing again. Only the
+ * transition out of `submitting` is an outcome this card witnessed
+ * (AGENTS.md §11: the late answer belongs to the flow that asked).
+ */
+function useApprovalHaptics(entry: ApprovalEntry): void {
+  const previous = useRef(entry.phase);
+
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = entry.phase;
+    if (before !== "submitting" || entry.phase !== "resolved") return;
+
+    if (entry.failure) {
+      fireHaptic(() =>
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error),
+      );
+      return;
+    }
+
+    fireHaptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+    fireHaptic(() =>
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+    );
+  }, [entry.phase, entry.failure]);
 }
 
 /** The tool and the body of the permission being asked for. */
@@ -212,6 +260,7 @@ function ApprovalCard({
   const failureRef = useRef<ViewInstance | null>(null);
   useReaderFocus(resolved, resultRef);
   useReaderFocus(entry.failure != null, failureRef);
+  useApprovalHaptics(entry);
 
   return (
     <View style={styles.card} testID={`card:${entry.key}`}>

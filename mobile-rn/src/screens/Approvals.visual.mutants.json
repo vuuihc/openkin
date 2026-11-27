@@ -19,5 +19,19 @@
     "old": "  approveLabel: {\n    color: colors.onBrand,\n  },",
     "new": "  approveLabel: {\n    color: colors.blueInk,\n  },",
     "test": "cd mobile-rn && npx jest src/screens/Approvals.visual.test.tsx -t \"KIN-MOBILE-002 R5: approve is the only filled primary and deny is outlined\""
+  },
+  {
+    "label": "the previous-phase guard is dropped, so a card that arrived already resolved buzzes as if this screen decided it (R-rn-composer-approvals-c)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "    if (before !== \"submitting\" || entry.phase !== \"resolved\") return;",
+    "new": "    if (entry.phase !== \"resolved\") return;",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.visual.test.tsx -t \"KIN-MOBILE-002 R5: a card that mounts already resolved fires no haptics\""
+  },
+  {
+    "label": "a failed write reports the success notification, so the reader feels the wrong outcome (R-rn-composer-approvals-c)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error),",
+    "new": "        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.visual.test.tsx -t \"KIN-MOBILE-002 R5: a failed approval fires the error notification, not the success one\""
   }
 ]
