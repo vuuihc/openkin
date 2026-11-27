@@ -340,9 +340,11 @@ claim_fail_handoff() { # <body-file> [RSI_CLAIM_RETRY_SECS]
     GH_REPO="vuuihc/openkin"
     MODE=new; TIMEDOUT=0; W_MIN=1; COST=0; SWEPT_N=0; M_WORKER=worker
     WORKER_TITLE=""; HDR="$T/hdr"; LK="$T/lk"; PRN=""; PRURL=""
-    # The span hashes the hand-off body with the lane's own helper; source its production
-    # definition (the function body has no column-0 close), never a copy that could drift.
+    # The span pins the hand-off to a private snapshot with the lane's own helpers; source their
+    # production definitions (the function bodies have no column-0 close), never copies that could
+    # drift.
     eval "$(awk '/^claim_body_sha\(\)/ { on = 1 } on { print } on && /^}/ { exit }' "$LANE")"
+    eval "$(awk '/^claim_body_snapshot\(\)/ { on = 1 } on { print } on && /^}/ { exit }' "$LANE")"
     finish() { printf 'FINISH %s|%s|%s\n' "$1" "${2:-}" "${3:-}" >> "$T/ph-finish.log"; }
     count_fail() { :; }; count_ok() { :; }; count_timeout() { :; }; scorecard_row() { :; }
     gh_pr_create() { printf 'pr create %s %s\n' "$2" "$3" >> "$T/ph-pr.log"; printf 'https://github.com/%s/pull/77\n' "$GH_REPO"; }
@@ -437,11 +439,12 @@ case_prose_diff_without_claim_line_never_leaves_the_lane() {
   [ ! -s "$T/ph-pr.log" ] || fail "noline: a PR was opened for a body with no claim line"
 }
 
-# The lane checks one file and uploads another: a body rewritten after the seam read it (a late
-# worker write, a generator) must fail closed before the push instead of publishing bytes the rule
-# never saw. The claim command itself appends to the hand-off body, which is exactly that race.
+# The lane checks one file and uploads that same file: the hand-off snapshots the worker's body
+# before the claim seam and never reopens the original. A write to the snapshot after that read (a
+# stray generator, a truncated copy, the claim command itself) must fail closed before the push
+# instead of publishing bytes the rule never saw.
 case_lane_checks_the_body_it_uploads() {
-  local body_file="$CTRL/rsi/state/lanes/1.pr-body.md" claim="$CTRL/rsi/state/lanes/1.claim.txt"
+  local body_file="$CTRL/rsi/state/lanes/1.pr-body.snapshot.md" claim="$CTRL/rsi/state/lanes/1.claim.txt"
   new_repo uploadbytes
   change docs/plans/gap-log.md '- a sentence the claim can prove'
   body "Claim check: printf 'REAL-OUTPUT-42\\n'; printf 'late edit\\n' >> '$body_file'" \
@@ -546,6 +549,51 @@ case_claimed_output_must_match_the_merge_tree() {
     || fail "mergetree: the evidence does not name the drift: $(cat "$claim" 2>/dev/null)"
 }
 
+# The carry must not follow a symlink out of the merge worktree: main can commit `leak -> <external
+# dir>` while the lane holds an ignored file under `leak/`, and `mkdir -p` / `ln -s` would then
+# create that file's parent and the link outside the temporary worktree, writing beside the lane
+# where it has no business. A path whose existing ancestors are not real directories of the merge
+# worktree is skipped; the claim still runs and passes. The same main advance moves the claimed
+# line, so the case is red on any seam that reads the branch tip instead of the merge result.
+case_ignored_carry_cannot_escape_the_merge_worktree() {
+  local out="$T/outside-symlink" base pr blob notes_blob main_commit
+  new_repo symlinkcarry
+  # Ignore the carried file, not its directory: `--directory` would collapse an ignored directory
+  # to `leak/deep/`, whose dirname is the symlink itself, and the escape needs a path below it.
+  printf 'leak/deep/out.txt\n' >> "$R/.gitignore"
+  g add .gitignore && g commit -q -m 'ignore the carried path' \
+    || fail "symlinkcarry: cannot commit .gitignore"
+  change docs/plans/gap-log.md '- a sentence the claim proves'
+  mkdir -p "$R/leak/deep" "$out"
+  printf 'CARRIED-42\n' > "$R/leak/deep/out.txt"
+  pr="$(g rev-parse HEAD)"
+  base="$(g rev-parse origin/main)"
+  # Advance main without checking it out: the worktree's `leak/` directory must stay in place for
+  # the ignored listing, and a checkout through the symlink commit would not. The heading moves the
+  # claimed line from 2 to 3, so the claim below is true only on the merge result.
+  blob="$(printf '%s' "$out" | g hash-object -w --stdin)" \
+    || fail "symlinkcarry: cannot hash the symlink target"
+  notes_blob="$({ printf '# An extra heading\n'; cat "$R/NOTES.md"; } | g hash-object -w --stdin)" \
+    || fail "symlinkcarry: cannot hash the advanced notes"
+  main_commit="$(
+    export GIT_INDEX_FILE="$T/symlinkcarry.index"
+    g read-tree "$base" \
+      && g update-index --add --cacheinfo "100644,$notes_blob,NOTES.md" \
+      && g update-index --add --cacheinfo "120000,$blob,leak" \
+      && g commit-tree "$(g write-tree)" -p "$base" -m 'main advances with a symlink'
+  )" || fail "symlinkcarry: cannot advance main"
+  g update-ref refs/remotes/origin/main "$main_commit"
+  g checkout -q -B rsi/handoff "$pr" || fail "symlinkcarry: cannot return to the branch"
+  g ls-files --others --ignored --exclude-standard --directory | grep -qx 'leak/deep/out.txt' \
+    || fail "symlinkcarry: the fixture does not expose the ignored path"
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "3:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  seam
+  [ "$RC" -eq 0 ] || fail "symlinkcarry: the seam did not read the merge result ($OUT)"
+  [ -z "$(ls -A "$out")" ] \
+    || fail "symlinkcarry: the carry wrote outside the merge worktree: $(ls -A "$out")"
+}
+
 # A main advance that conflicts with the branch cannot be turned into a merge tree. The seam must
 # then check the branch tip — a conflict is merge.sh's verdict — instead of inventing a red the
 # worker cannot fix.
@@ -576,7 +624,9 @@ case_claim_fail_evidence_wiring() {
   local inv claim fin
   inv="$(grep -nF 'if ! CLAIM_EV="$(bash "$SELF" --claim-check-check' "$LANE" | head -1 | cut -d: -f1)"
   [ -n "$inv" ] || fail "wiring: lane.sh has no guarded claim check"
-  claim="$(grep -nF '$STATE/lanes/$N.claim.txt' "$LANE" | head -1 | cut -d: -f1)"
+  # The first evidence write after the check belongs to the seam's own failure branch; the
+  # snapshot failure before the check writes the same file and must not stand in for it.
+  claim="$(grep -nF '$STATE/lanes/$N.claim.txt' "$LANE" | cut -d: -f1 | awk -v inv="$inv" '$1 > inv { print; exit }')"
   [ -n "$claim" ] || fail "wiring: lane.sh never writes the claim evidence file"
   fin="$(grep -nF 'finish failed "" "claim check:' "$LANE" | head -1 | cut -d: -f1)"
   [ -n "$fin" ] || fail "wiring: no claim-check failure branch"
@@ -720,20 +770,25 @@ live_fixture() {
   cat > "$GH_STUB" <<'SH'
 #!/bin/bash
 printf '%s\n' "$*" >> "$STUB_CALLS"
+# Opt-in: a successful create/edit publishes the bytes the lane actually handed gh (the file named
+# by --body-file), so a case can prove what GitHub keeps. The default stub is the lying GitHub the
+# read-back cases need: it reports success while keeping its old body.
+publish_body() { # <gh args...>
+  [ "${STUB_EDIT_PUBLISHES:-0}" = 1 ] || return 0
+  local f="" a prev=""
+  for a in "$@"; do [ "$prev" = --body-file ] && f="$a"; prev="$a"; done
+  [ -n "$f" ] && cp "$f" "$STUB_BODY"
+  return 0
+}
 case "$1 $2" in
   # STUB_ON_LIST names a file to append to while `pr list` runs: the window between the push and
   # the upload guards, so a case can rewrite the hand-off body exactly where a late worker would.
   'pr list')
     [ -z "${STUB_ON_LIST:-}" ] || printf 'rewritten after the push\n' >> "$STUB_ON_LIST"
     [ "$STUB_LIST_MODE" != existing ] || echo 123 ;;
-  'pr create') echo 'https://github.com/example/repo/pull/123' ;;
-  # Opt-in: a successful edit publishes the uploaded file, so a case can prove the lane replaced
-  # GitHub's body. The default stub is the lying GitHub the read-back cases need: it reports
-  # success while keeping its old body.
+  'pr create') publish_body "$@"; echo 'https://github.com/example/repo/pull/123' ;;
   'pr edit')
-    if [ "$STUB_EDIT_RC" -eq 0 ] && [ "${STUB_EDIT_PUBLISHES:-0}" = 1 ] && [ -n "${STUB_LOCAL_BODY:-}" ]; then
-      cp "$STUB_LOCAL_BODY" "$STUB_BODY"
-    fi
+    [ "$STUB_EDIT_RC" -eq 0 ] && publish_body "$@"
     echo 'stub edit rejected' >&2; exit "$STUB_EDIT_RC" ;;
   'pr comment') : ;;
   'pr view')
@@ -769,6 +824,7 @@ pr_handoff() {
     printf 'SELF=%q\nWT=%q\nBR=rsi/live-body\nSTATUS_NOTE_FILE=%q\nHDR=%q\n' \
       "$LANE" "$R" "$BODY" "$hdr"
     printf 'FINISH_FILE=%q\nGH=%q\n' "$T/finish" "$GH_STUB"
+    printf 'CLAIM_BODY_SNAPSHOT=%q\n' "$CTRL/rsi/state/lanes/1.pr-body.snapshot.md"
     printf 'source %q\n' "$RUNTIME/lane-pr.sh"
     printf 'source %q\n' "$RUNTIME/lane-push.sh"
     cat <<'SH'
@@ -776,10 +832,15 @@ N=1; ITEM=R-fixture; SLUG=fixture; MODE=new; WORKER_TITLE='fix: fixture'
 TIMEDOUT=0; W_MIN=0; COST=0; SWEPT_N=0
 finish() { printf '%s\n' "$*" >> "$FINISH_FILE"; }
 count_fail() { :; }; count_ok() { :; }; scorecard_row() { :; }
-# The production span hashes the hand-off body where the seam read it and re-checks the same hash
-# before each upload; source the lane's own helper and pin the hash the way lane.sh does, so the
-# upload guards are live in this fixture instead of seeing an unset CLAIM_BODY_SHA.
+# The production span starts after the seams, so pin the body the way lane.sh does: one private
+# snapshot the lane owns, hashed, with the worker's mutable file kept as the source a case can
+# rewrite mid-upload. Source the lane's own helpers, so the upload guards are live in this fixture
+# instead of seeing an unset CLAIM_BODY_SHA.
 eval "$(awk '/^claim_body_sha\(\)/ { on = 1 } on { print } on && /^}/ { exit }' "$SELF")"
+eval "$(awk '/^claim_body_snapshot\(\)/ { on = 1 } on { print } on && /^}/ { exit }' "$SELF")"
+CLAIM_BODY_SOURCE="$STATUS_NOTE_FILE"
+claim_body_snapshot "$CLAIM_BODY_SOURCE" "$CLAIM_BODY_SNAPSHOT" || exit 1
+STATUS_NOTE_FILE="$CLAIM_BODY_SNAPSHOT"
 CLAIM_BODY_SHA="$(claim_body_sha "$STATUS_NOTE_FILE")"
 SH
     awk '/^# push \+ PR / { on = 1 } on { print } on && /^finish done / { exit }' "$LANE"
@@ -787,7 +848,7 @@ SH
   rm -f "$T/finish"
   OUT="$(RSI_CTRL="$CTRL" HOME="$T/home" RSI_GH="$GH_STUB" \
     STUB_CALLS="$GH_CALLS" STUB_BODY="$LIVE_BODY" STUB_VIEW_MODE="$VIEW_MODE" \
-    STUB_EDIT_RC="$EDIT_RC" STUB_LIST_MODE="$LIST_MODE" STUB_LOCAL_BODY="$BODY" \
+    STUB_EDIT_RC="$EDIT_RC" STUB_LIST_MODE="$LIST_MODE" \
     STUB_EDIT_PUBLISHES="${EDIT_PUBLISHES:-0}" \
     STUB_ON_LIST="${ON_LIST:-}" \
     STUB_SLOW_GIT="$T/slow-git-started" \
@@ -891,35 +952,66 @@ case_live_body_is_always_uploaded_from_the_checked_file() {
   grep -q '^done 123 ' "$T/finish" || fail "live upload: the checked body was not published"
 }
 
-# The pre-push guard proves the body at the push; the push and the `gh pr list` call that follows
-# still take time. A worker (or a generator) rewriting the hand-off body in that window must not
-# have its bytes uploaded: the existing-PR edit and the new-PR create each re-hash the file first
-# and fail closed, so GitHub never keeps a body the merge gate's rule has not seen.
-case_upload_guards_refuse_a_body_rewritten_after_the_push() {
-  local claim="$CTRL/rsi/state/lanes/1.claim.txt"
+# The hand-off pins the body before the seams and uploads that private snapshot, so a source
+# rewrite during the push — the window between the push and the upload — must not change what
+# GitHub keeps. The published body is the bytes the seam proved, not the rewritten source, and the
+# read-back still passes because it compares the live body to the same snapshot.
+case_source_change_during_upload_publishes_the_snapshot() {
   live_fixture live-rewrite-edit
-  ON_LIST="$BODY"   # the pr list stub runs between the push and both upload guards
-  rm -f "$claim"
+  ON_LIST="$BODY"   # the pr list stub runs between the push and both uploads
+  EDIT_PUBLISHES=1
   pr_handoff
-  [ "$RC" -eq 1 ] || fail "rewrite/edit: hand-off exit $RC, want 1 ($OUT)"
-  grep -q '^failed .*hand-off body changed' "$T/finish" \
-    || fail "rewrite/edit: the changed body was not recorded failed ($OUT)"
-  grep -qF 'live body not replaced' "$claim" 2>/dev/null \
-    || fail "rewrite/edit: the evidence does not name the refused upload: $(cat "$claim" 2>/dev/null)"
-  ! grep -q '^pr edit ' "$GH_CALLS" || fail "rewrite/edit: a rewritten body was uploaded"
-  ! grep -q '^done ' "$T/finish" || fail "rewrite/edit: a rewritten body finished done"
+  [ "$RC" -eq 0 ] || fail "rewrite/edit: hand-off exit $RC, want 0 ($OUT)"
+  seam_output_has 'PR_BODY_OK' || fail "rewrite/edit: no OK verdict ($OUT)"
+  grep -q '^pr edit ' "$GH_CALLS" || fail "rewrite/edit: the snapshot was not uploaded"
+  grep -q '^done 123 ' "$T/finish" || fail "rewrite/edit: the snapshot was not published"
+  ! grep -qF 'rewritten after the push' "$LIVE_BODY" \
+    || fail "rewrite/edit: the source rewrite reached GitHub: $(cat "$LIVE_BODY")"
+  grep -qF "Claim check: grep -n 'Prose claim check' NOTES.md" "$LIVE_BODY" \
+    || fail "rewrite/edit: the uploaded body is not the snapshot the seam proved: $(cat "$LIVE_BODY")"
 
   live_fixture live-rewrite-create
-  LIST_MODE=new; ON_LIST="$BODY"
+  LIST_MODE=new; ON_LIST="$BODY"; EDIT_PUBLISHES=1
+  pr_handoff
+  [ "$RC" -eq 0 ] || fail "rewrite/create: hand-off exit $RC, want 0 ($OUT)"
+  seam_output_has 'PR_BODY_OK' || fail "rewrite/create: no OK verdict ($OUT)"
+  grep -q '^pr create ' "$GH_CALLS" || fail "rewrite/create: the snapshot was not uploaded"
+  grep -q '^done 123 ' "$T/finish" || fail "rewrite/create: the snapshot was not published"
+  ! grep -qF 'rewritten after the push' "$LIVE_BODY" \
+    || fail "rewrite/create: the source rewrite reached GitHub: $(cat "$LIVE_BODY")"
+  grep -qF "Claim check: grep -n 'Prose claim check' NOTES.md" "$LIVE_BODY" \
+    || fail "rewrite/create: the uploaded body is not the snapshot the seam proved: $(cat "$LIVE_BODY")"
+}
+
+# The upload guards still matter: the file gh is about to keep is the snapshot the seam proved, and
+# a snapshot changed under the lane (a stray writer, a truncated copy) must fail closed rather than
+# publish bytes the rule never saw.
+case_upload_guards_refuse_a_snapshot_changed_after_the_push() {
+  local claim="$CTRL/rsi/state/lanes/1.claim.txt"
+  local snap="$CTRL/rsi/state/lanes/1.pr-body.snapshot.md"
+  live_fixture live-snapshot-edit
+  ON_LIST="$snap"   # the pr list stub runs between the push and both upload guards
   rm -f "$claim"
   pr_handoff
-  [ "$RC" -eq 1 ] || fail "rewrite/create: hand-off exit $RC, want 1 ($OUT)"
+  [ "$RC" -eq 1 ] || fail "snapshot/edit: hand-off exit $RC, want 1 ($OUT)"
+  grep -q '^failed .*hand-off body changed' "$T/finish" \
+    || fail "snapshot/edit: the changed snapshot was not recorded failed ($OUT)"
+  grep -qF 'live body not replaced' "$claim" 2>/dev/null \
+    || fail "snapshot/edit: the evidence does not name the refused upload: $(cat "$claim" 2>/dev/null)"
+  ! grep -q '^pr edit ' "$GH_CALLS" || fail "snapshot/edit: a changed snapshot was uploaded"
+  ! grep -q '^done ' "$T/finish" || fail "snapshot/edit: a changed snapshot finished done"
+
+  live_fixture live-snapshot-create
+  LIST_MODE=new; ON_LIST="$snap"
+  rm -f "$claim"
+  pr_handoff
+  [ "$RC" -eq 1 ] || fail "snapshot/create: hand-off exit $RC, want 1 ($OUT)"
   grep -q '^failed .*body uploaded differs' "$T/finish" \
-    || fail "rewrite/create: the changed body was not recorded failed ($OUT)"
+    || fail "snapshot/create: the changed snapshot was not recorded failed ($OUT)"
   grep -qF 'PR not opened' "$claim" 2>/dev/null \
-    || fail "rewrite/create: the evidence does not name the refused upload: $(cat "$claim" 2>/dev/null)"
-  ! grep -q '^pr create ' "$GH_CALLS" || fail "rewrite/create: a rewritten body opened a PR"
-  ! grep -q '^done ' "$T/finish" || fail "rewrite/create: a rewritten body finished done"
+    || fail "snapshot/create: the evidence does not name the refused upload: $(cat "$claim" 2>/dev/null)"
+  ! grep -q '^pr create ' "$GH_CALLS" || fail "snapshot/create: a changed snapshot opened a PR"
+  ! grep -q '^done ' "$T/finish" || fail "snapshot/create: a changed snapshot finished done"
 }
 
 case_live_body_timeout_fails_closed() {
@@ -982,6 +1074,7 @@ run case_prose_diff_without_claim_line_never_leaves_the_lane
 run case_lane_checks_the_body_it_uploads
 run case_lane_seam_and_merge_gate_agree
 run case_claimed_output_must_match_the_merge_tree
+run case_ignored_carry_cannot_escape_the_merge_worktree
 run case_a_conflicting_main_advance_falls_back_to_the_branch_tip
 run case_claim_check_retry_body_fixed_mid_handoff
 run case_claim_check_retry_still_failing_stays_failed
@@ -995,7 +1088,8 @@ run case_code_only_diff_is_na
 run case_live_body_read_retries_once
 run case_live_body_stale_valid_claim_fails
 run case_live_body_is_always_uploaded_from_the_checked_file
-run case_upload_guards_refuse_a_body_rewritten_after_the_push
+run case_source_change_during_upload_publishes_the_snapshot
+run case_upload_guards_refuse_a_snapshot_changed_after_the_push
 run case_live_body_timeout_fails_closed
 run case_live_body_check_timeout_fails_closed
 run case_gh_override_is_honoured

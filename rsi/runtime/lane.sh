@@ -327,8 +327,9 @@ PY
 # merge lane's. The body is passed through as-is: claim_check.py returns NA for a code-only diff
 # without reading it, and names an unreadable body only when a prose path changed.
 # The hand-off body is one file: the seam reads it and the upload must publish those same bytes.
-# A body rewritten after the read (a late worker write, a generator) would otherwise reach GitHub
-# unchecked, so the span hashes it immediately before each seam read and verifies before the push.
+# The worker can still rewrite that file while the lane runs, so the hand-off pins it with
+# claim_body_snapshot() and every later step reads the private copy; the hash is what proves the
+# bytes about to be uploaded are the bytes the seam proved.
 claim_body_sha() { # <body-file> -> sha256 of a non-empty body, nothing otherwise
   [ -s "$1" ] || return 0
   # shasum on macOS, sha256sum on Linux: either one; a host with neither cannot pin the bytes, and
@@ -338,6 +339,21 @@ claim_body_sha() { # <body-file> -> sha256 of a non-empty body, nothing otherwis
   elif command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" 2>/dev/null | awk '{print $1}'
   fi
+}
+
+# The hand-off body is the worker's mutable file, so the lane never proves or uploads it directly:
+# claim_body_snapshot() copies it once into a private file the lane alone writes, and the claim
+# seam, the bounded retry, the upload guards, the create/edit and the read-back all read that
+# snapshot. Reopening the original after validation was the 2026-11-28 review's race — the upload
+# hashed the mutable source and then handed the same path to gh, so a write in that window reached
+# GitHub unchecked. The copy is atomic (a partial snapshot never becomes the upload) and 0600; an
+# empty or missing body yields an empty snapshot, and a stale snapshot from an earlier round in the
+# same lane slot is overwritten rather than read.
+claim_body_snapshot() { # <body-file> <snapshot-file> — 0 on success, including an empty body
+  local tmp="$2.tmp.$$"
+  (umask 077 && { [ ! -s "$1" ] || cat "$1"; } > "$tmp") 2>/dev/null \
+    || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$2" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
 
 # The claim must be proven on the tree the merge gate reads: the PR merged with the local
@@ -354,7 +370,7 @@ claim_body_sha() { # <body-file> -> sha256 of a non-empty body, nothing otherwis
 # is merge.sh's call, and a seam must never invent a red for it; the caller then says so in its
 # verdict instead of reporting a bare OK for a tree it did not check.
 claim_merge_wt() { # <worktree>
-  local wt tmp tree commit rel
+  local wt tmp tree commit rel anc keep rest comp
   wt="$(cd "${1%/}" 2>/dev/null && pwd)" || return 0
   "$GIT" -C "$wt" merge-base --is-ancestor origin/main HEAD 2>/dev/null && return 0
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/claim-merge.XXXXXX")" || return 0
@@ -374,6 +390,23 @@ claim_merge_wt() { # <worktree>
     rel="${rel%/}"
     [ -n "$rel" ] || continue
     [ -e "$tmp/wt/$rel" ] && continue
+    # The merge result can commit a symlink where the lane has a directory (`leak -> /outside`) and
+    # `mkdir -p` / `ln -s` would then follow it out of the temporary worktree, writing where the
+    # lane has no business. Carry a path only when every ancestor that already exists under the
+    # merge worktree is a real directory; a symlink, a file or a `..` component skips the carry.
+    anc="$tmp/wt" keep=1 rest="$rel"
+    while [ -n "$rest" ]; do
+      case "$rest" in
+        */*) comp="${rest%%/*}"; rest="${rest#*/}" ;;
+        *) comp="$rest"; rest="" ;;
+      esac
+      case "$comp" in ''|.|..) keep=0; break ;; esac
+      anc="$anc/$comp"
+      [ -L "$anc" ] && { keep=0; break; }
+      [ -e "$anc" ] || break
+      [ -d "$anc" ] || { keep=0; break; }
+    done
+    [ "$keep" -eq 1 ] || continue
     mkdir -p "$(dirname "$tmp/wt/$rel")" 2>/dev/null || continue
     ln -s "$wt/$rel" "$tmp/wt/$rel" 2>/dev/null || true
   done < <("$GIT" -C "$wt" ls-files --others --ignored --exclude-standard --directory -z 2>/dev/null)
@@ -1014,9 +1047,19 @@ fi
 # rsi/runtime/claim_check.py is the merge gate's own rule. On a FAIL the branch stays committed
 # and clean: no push, no PR, and the worker fixes the body in its own session.
 CLAIM_RETRY_NOTE=""
-# The bytes this seam is about to prove; verified again immediately before the push. Taken before
-# each read, so the retry's legitimate mid-hand-off body fix is re-hashed rather than mistaken for
-# a rewrite after the check.
+# The worker's body file is still writable while the lane runs, so the hand-off pins it first: one
+# private snapshot carries the bytes to the claim seam, the upload and the read-back, and the
+# original is never reopened. The retry below is the only later write, and it re-snapshots so a
+# legitimate mid-hand-off fix is proved rather than mistaken for a rewrite after the check.
+CLAIM_BODY_SOURCE="$STATUS_NOTE_FILE"
+CLAIM_BODY_SNAPSHOT="$STATE/lanes/$N.pr-body.snapshot.md"
+if ! claim_body_snapshot "$CLAIM_BODY_SOURCE" "$CLAIM_BODY_SNAPSHOT"; then
+  printf '%s\n' 'CLAIM_LANE_FAIL: cannot snapshot the hand-off body; not pushing' \
+    > "$STATE/lanes/$N.claim.txt"
+  finish failed "" "claim body: cannot snapshot the hand-off body (evidence: $STATE/lanes/$N.claim.txt)"
+  exit 1
+fi
+STATUS_NOTE_FILE="$CLAIM_BODY_SNAPSHOT"
 CLAIM_BODY_SHA="$(claim_body_sha "$STATUS_NOTE_FILE")"
 if ! CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; then
   [ -n "$CLAIM_EV" ] && printf '%s\n' "$CLAIM_EV"
@@ -1043,7 +1086,9 @@ if ! CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1
   if [ "$CLAIM_RETRY_SECS_USE" -gt 0 ]; then
     # The pause is bounded twice: by the clamp above and by bounded_run's own watchdog.
     bounded_run "$((CLAIM_RETRY_SECS_USE + 2))" sleep "$CLAIM_RETRY_SECS_USE" >/dev/null 2>&1 || true
-    # Re-read the body from disk; never reuse the first verdict, and hash the bytes this read sees.
+    # Re-snapshot the worker's body; never reuse the first verdict, and hash the bytes this read
+    # sees. A failed copy leaves the previous snapshot in place, so the re-check still fails closed.
+    claim_body_snapshot "$CLAIM_BODY_SOURCE" "$CLAIM_BODY_SNAPSHOT" || true
     CLAIM_BODY_SHA="$(claim_body_sha "$STATUS_NOTE_FILE")"
     CLAIM_EV="$(bash "$SELF" --claim-check-check "$WT" "$STATUS_NOTE_FILE" 2>&1)"; CLAIM_RC=$?
     printf 'attempt 2: %s\n' "$(printf '%s' "${CLAIM_EV:-check produced no output}" | head -1)" >> "$CLAIM_ATTEMPTS"
@@ -1115,9 +1160,10 @@ SIZE_EV="$(bash "$SELF" --diff-size-check "$WT" "$STATE/merge/$SLUG.size-ok" 2>&
 }
 [ -n "$SIZE_EV" ] && printf '%s\n' "$SIZE_EV"
 
-# The seam proved one body; the push must publish that same body. A rewrite between the read and
-# the push would hand GitHub bytes the merge gate's rule never saw, which is the mechanical round
-# this row removes. Fail closed while the branch is still unpushed so the worker fixes its own
+# The seam proved one file; the push must publish those same bytes. Everything from here on reads
+# the private snapshot taken before the seam, so a rewrite of the worker's original body can no
+# longer reach GitHub; this guard fails when the snapshot itself changed under the lane (a stray
+# writer, a truncated copy). Fail closed while the branch is unpushed so the worker fixes its own
 # body in its own session.
 if [ "$(claim_body_sha "$STATUS_NOTE_FILE")" != "${CLAIM_BODY_SHA:-}" ]; then
   printf '%s\n' "CLAIM_LANE_FAIL: the hand-off body changed after the claim seam read it; not pushing" \
@@ -1145,9 +1191,9 @@ if [ -z "$PRN" ]; then
   BODY="$STATUS_NOTE_FILE"; [ -s "$BODY" ] || { BODY="$STATE/lanes/$N.pr-body.fallback.md"; printf 'RSI lane %s, item %s.\n\nWorker summary:\n\n%s\n\nRSI item: %s\n' "$N" "$ITEM" "$(tail -c 3000 "$STATE/lanes/$N.worker.txt")" "$ITEM" > "$BODY"; }
   # The PR body must be the bytes the claim seam hashed. The generated fallback is only legitimate
   # when the seam had no body to read (a code-only PR whose worker died before writing one); a
-  # switched path or a rewritten file is the body-it-uploads gap and must not reach GitHub.
-  if [ -n "${CLAIM_BODY_SHA:-}" ] \
-     && { [ "$BODY" != "$STATUS_NOTE_FILE" ] || [ "$(claim_body_sha "$BODY")" != "$CLAIM_BODY_SHA" ]; }; then
+  # switched path or a snapshot changed since the seam is the body-it-uploads gap and must not
+  # reach GitHub.
+  if [ -n "${CLAIM_BODY_SHA:-}" ] && [ "$(claim_body_sha "$BODY")" != "$CLAIM_BODY_SHA" ]; then
     printf '%s\n' 'CLAIM_LANE_FAIL: the body uploaded differs from the body the claim seam read; PR not opened' \
       > "$STATE/lanes/$N.claim.txt"
     finish failed "" "claim check: the body uploaded differs from the body the seam read (evidence: $STATE/lanes/$N.claim.txt)"
@@ -1164,8 +1210,8 @@ if [ -z "$PRN" ]; then
   PRN="$(echo "$PRURL" | sed -n 's#.*/pull/\([0-9]*\).*#\1#p')"
 else
   PRURL="https://github.com/$GH_REPO/pull/$PRN"
-  # Always publish the file the seam checked. The old `-nt $HDR` skip left GitHub's previous body
-  # in place whenever the local body predated the lane header (a rework carrying an earlier
+  # Always publish the snapshot the seam checked. The old `-nt $HDR` skip left GitHub's previous
+  # body in place whenever the local body predated the lane header (a rework carrying an earlier
   # round's body, clock skew), so the merge lane read a body no seam had passed — exactly the
   # "body it uploads" gap. A failed edit is still only logged; the read-back below decides.
   if [ -s "$STATUS_NOTE_FILE" ]; then

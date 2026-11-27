@@ -14,11 +14,11 @@
     "new": "if false; then"
   },
   {
-    "label": "an existing PR skips the body upload again when the local body predates the lane header: GitHub keeps a body no seam passed and the merge gate sends the PR back",
+    "label": "an existing PR skips the body upload again: GitHub keeps a body no seam passed and the merge gate sends the PR back",
     "file": "rsi/runtime/lane.sh",
     "test": "RSI_TEST_ONLY=case_live_body_is_always_uploaded_from_the_checked_file bash rsi/runtime/tests/test-lane-claim-check.sh",
     "old": "  if [ -s \"$STATUS_NOTE_FILE\" ]; then\n    if [ -n \"${CLAIM_BODY_SHA:-}\" ] && [ \"$(claim_body_sha \"$STATUS_NOTE_FILE\")\" != \"$CLAIM_BODY_SHA\" ]; then",
-    "new": "  if [ -s \"$STATUS_NOTE_FILE\" ] && [ \"$STATUS_NOTE_FILE\" -nt \"$HDR\" ]; then\n    if [ -n \"${CLAIM_BODY_SHA:-}\" ] && [ \"$(claim_body_sha \"$STATUS_NOTE_FILE\")\" != \"$CLAIM_BODY_SHA\" ]; then"
+    "new": "  if false; then\n    if [ -n \"${CLAIM_BODY_SHA:-}\" ] && [ \"$(claim_body_sha \"$STATUS_NOTE_FILE\")\" != \"$CLAIM_BODY_SHA\" ]; then"
   },
   {
     "label": "the merge worktree stops carrying ignored paths: a claim that reads a built bundle the lane holds goes red in the lane while the merge gate accepts it",
@@ -28,9 +28,9 @@
     "new": "ls-files --others --exclude-standard --directory -z"
   },
   {
-    "label": "the existing-PR upload guard removed: a hand-off body rewritten after the seam read it replaces the live body unchecked",
+    "label": "the existing-PR upload guard removed: a hand-off snapshot changed after the seam read it replaces the live body unchecked",
     "file": "rsi/runtime/lane.sh",
-    "test": "RSI_TEST_ONLY=case_upload_guards_refuse_a_body_rewritten_after_the_push bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "test": "RSI_TEST_ONLY=case_upload_guards_refuse_a_snapshot_changed_after_the_push bash rsi/runtime/tests/test-lane-claim-check.sh",
     "old": "    if [ -n \"${CLAIM_BODY_SHA:-}\" ] && [ \"$(claim_body_sha \"$STATUS_NOTE_FILE\")\" != \"$CLAIM_BODY_SHA\" ]; then",
     "new": "    if false; then"
   },
@@ -40,5 +40,33 @@
     "test": "RSI_TEST_ONLY=case_a_conflicting_main_advance_falls_back_to_the_branch_tip bash rsi/runtime/tests/test-lane-claim-check.sh",
     "old": "    claim_note=\" (merge with origin/main not materialized; the branch tip was checked — a conflict is merge.sh's verdict)\"",
     "new": "    claim_note=\"\""
+  },
+  {
+    "label": "the ignored-path carry follows a committed symlink ancestor: it writes the carried link beside the temporary merge worktree instead of staying inside it",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_ignored_carry_cannot_escape_the_merge_worktree bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "    [ \"$keep\" -eq 1 ] || continue\n",
+    "new": "    keep=1\n"
+  },
+  {
+    "label": "the hand-off uploads the worker's mutable body again instead of the private snapshot the claim seam proved",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_lane_checks_the_body_it_uploads bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "STATUS_NOTE_FILE=\"$CLAIM_BODY_SNAPSHOT\"",
+    "new": "STATUS_NOTE_FILE=\"$CLAIM_BODY_SOURCE\""
+  },
+  {
+    "label": "the existing-PR upload hands gh the mutable source instead of the snapshot: a source rewrite during the push reaches GitHub unchecked",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_source_change_during_upload_publishes_the_snapshot bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "bounded_run 10 \"$GH\" pr edit \"$PRN\" --repo \"$GH_REPO\" --body-file \"$STATUS_NOTE_FILE\" \\",
+    "new": "bounded_run 10 \"$GH\" pr edit \"$PRN\" --repo \"$GH_REPO\" --body-file \"$CLAIM_BODY_SOURCE\" \\"
+  },
+  {
+    "label": "the bounded retry re-checks the first snapshot instead of re-snapshotting a mid-hand-off body fix",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=case_claim_check_retry_body_fixed_mid_handoff bash rsi/runtime/tests/test-lane-claim-check.sh",
+    "old": "    claim_body_snapshot \"$CLAIM_BODY_SOURCE\" \"$CLAIM_BODY_SNAPSHOT\" || true",
+    "new": "    true"
   }
 ]
