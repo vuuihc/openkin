@@ -15,7 +15,11 @@ import { palette, type Scheme } from "../theme/tokens";
 
 /** The two shapes a glass surface can take. */
 export type GlassSpec =
-  | { kind: "blur"; intensity: number; tint: "systemMaterialLight" }
+  | {
+      kind: "blur";
+      intensity: number;
+      tint: "systemMaterialLight" | "systemMaterialDark";
+    }
   | { kind: "opaque"; color: string };
 
 /**
@@ -53,6 +57,8 @@ export function glassFor(opts: {
   return {
     kind: "blur",
     intensity: GLASS_INTENSITY,
-    tint: "systemMaterialLight",
+    // The blur's material follows the scheme: a light material over a dark
+    // conversation washes the text behind it white again.
+    tint: opts.scheme === "dark" ? "systemMaterialDark" : "systemMaterialLight",
   };
 }

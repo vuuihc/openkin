@@ -254,6 +254,7 @@ export default function PairScreen() {
             void probe();
           }}
           placeholder={t("pairing.hubPlaceholder")}
+          placeholderTextColor={colors.muted}
           returnKeyType="go"
           style={styles.input}
           value={hubTyped}
@@ -299,6 +300,7 @@ export default function PairScreen() {
                   keyboardType="email-address"
                   onChangeText={setEmail}
                   placeholder={t("account.emailPlaceholder")}
+                  placeholderTextColor={colors.muted}
                   style={styles.input}
                   textContentType="username"
                   value={email}
@@ -309,6 +311,7 @@ export default function PairScreen() {
                   autoCorrect={false}
                   onChangeText={setPassword}
                   placeholder={t("account.passwordLabel")}
+                  placeholderTextColor={colors.muted}
                   secureTextEntry
                   style={styles.input}
                   textContentType="password"
@@ -380,6 +383,7 @@ export default function PairScreen() {
                 void submitNode();
               }}
               placeholder={t("pairing.placeholder")}
+              placeholderTextColor={colors.muted}
               ref={inputRef}
               returnKeyType="go"
               style={styles.input}
@@ -424,10 +428,12 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     gap: 10,
   },
   title: {
+    color: colors.text,
     fontSize: 24,
     fontWeight: "600",
   },
   subtitle: {
+    color: colors.text,
     fontSize: 18,
     fontWeight: "600",
   },
@@ -439,6 +445,7 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     borderColor: colors.hairlineStrong,
     borderRadius: 8,
     borderWidth: 1,
+    color: colors.text,
     fontSize: 16,
     minHeight: 44,
     paddingHorizontal: 12,
@@ -475,6 +482,7 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     gap: 4,
   },
   origin: {
+    color: colors.text,
     fontSize: 15,
     fontWeight: "600",
   },

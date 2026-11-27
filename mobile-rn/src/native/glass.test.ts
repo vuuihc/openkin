@@ -22,6 +22,14 @@ describe("KIN-MOBILE-001 R7 glass surface", () => {
     });
   });
 
+  it("KIN-MOBILE-001 R7: the blur follows the scheme, so dark mode gets the dark material", () => {
+    expect(glassFor({ reduceTransparency: false, platform: "ios", scheme: "dark" })).toEqual({
+      kind: "blur",
+      intensity: 60,
+      tint: "systemMaterialDark",
+    });
+  });
+
   it("KIN-MOBILE-001 R7: reduce transparency keeps the sheet readable over an opaque surface", () => {
     expect(GLASS_FALLBACK.light).toBe(palette.light.elevated);
     expect(glassFor({ reduceTransparency: true, platform: "ios", scheme: "light" })).toEqual({

@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { render } from "@testing-library/react-native";
+import { fireEvent, render } from "@testing-library/react-native";
 import { StyleSheet, useColorScheme, type StyleProp, type ViewStyle } from "react-native";
 import type { Task } from "../../../ui/src/api/contract";
 import type { Machine } from "../../../ui/src/lib/devices";
@@ -12,6 +12,7 @@ import { createReadingMemory } from "../thread/readingMemory";
 import { palette, scrim, wash, type Palette } from "./tokens";
 import ListScreen from "../screens/ListScreen";
 import ConversationView from "../screens/ConversationView";
+import PairScreen from "../../app/pair";
 
 /**
  * KIN-MOBILE-002 R1b — the two schemes, painted by real screens.
@@ -29,6 +30,37 @@ import ConversationView from "../screens/ConversationView";
 jest.mock("react-native/Libraries/Utilities/useColorScheme", () => ({
   __esModule: true,
   default: jest.fn(),
+}));
+
+// The pair route reads its own navigation and auth seams; the render below is
+// about the ink and placeholder colours it paints, not either seam.
+jest.mock("expo-router", () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  useLocalSearchParams: () => ({ hub: "https://kin.example.com" }),
+}));
+
+jest.mock("../auth/hubSignIn", () => ({
+  hubSignIn: {
+    probe: jest.fn(async () => ({
+      ok: true,
+      origin: "https://kin.example.com",
+      status: {
+        origin: "https://kin.example.com",
+        needsBootstrap: false,
+        claimable: false,
+        authenticated: false,
+        providers: [{ id: "password", label: "Password", kind: "password" }],
+      },
+    })),
+    signInWithPassword: jest.fn(),
+    startProvider: jest.fn(),
+    completeCallback: jest.fn(),
+    cancel: jest.fn(),
+  },
+}));
+
+jest.mock("../auth/pairing", () => ({
+  pairing: { pairWithLink: jest.fn(), clearRetired: jest.fn() },
 }));
 
 const systemScheme = jest.mocked(useColorScheme) as jest.MockedFunction<
@@ -231,6 +263,40 @@ describe("KIN-MOBILE-002 R1b screens", () => {
     expect(styleOf(view.getByTestId("conversation:composerBar")).borderTopColor).toBe(
       palette.light.hairlineStrong,
     );
+  });
+
+  it("KIN-MOBILE-002 R1b: the pair screen paints its text and placeholders from the palette", async () => {
+    systemScheme.mockReturnValue("dark");
+    const view = await render(createElement(PairScreen));
+
+    // The heading is plain text on the screen's own surface.
+    expect(styleOf(view.getByText(t("pairing.hubTitle"))).color).toBe(
+      palette.dark.text,
+    );
+
+    // The Hub address field: typed text and its placeholder.
+    const hub = view.getByLabelText(t("pairing.hubPlaceholder"));
+    expect(styleOf(hub).color).toBe(palette.dark.text);
+    expect(hub.props.placeholderTextColor).toBe(palette.dark.muted);
+
+    // Probe the listed password Hub so the email and password fields exist.
+    await fireEvent.press(view.getByText(t("pairing.hubContinue")));
+    const email = await view.findByLabelText(t("account.emailLabel"));
+    const password = view.getByLabelText(t("account.passwordLabel"));
+    expect(email.props.placeholderTextColor).toBe(palette.dark.muted);
+    expect(password.props.placeholderTextColor).toBe(palette.dark.muted);
+    expect(styleOf(view.getByText("https://kin.example.com")).color).toBe(
+      palette.dark.text,
+    );
+
+    // The node section's heading and address field take the same ink.
+    await fireEvent.press(view.getByText(t("pairing.hubNodeInstead")));
+    expect(styleOf(view.getByText(t("pairing.hubNodeTitle"))).color).toBe(
+      palette.dark.text,
+    );
+    const node = view.getByLabelText(t("pairing.hint"));
+    expect(styleOf(node).color).toBe(palette.dark.text);
+    expect(node.props.placeholderTextColor).toBe(palette.dark.muted);
   });
 
   it("KIN-MOBILE-002 R1b: every sampled ink clears 4.5:1 on the surface it is drawn on", () => {

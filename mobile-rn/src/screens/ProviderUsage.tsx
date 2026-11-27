@@ -467,7 +467,6 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     fontSize: 14,
   },
   screen: {
-    backgroundColor: colors.bg,
     flex: 1,
   },
   tile: {

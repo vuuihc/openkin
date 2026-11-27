@@ -527,6 +527,7 @@ export default function ConversationList({
                 setSearchFocused(true);
               }}
               placeholder={t("sessions.searchPlaceholder")}
+              placeholderTextColor={colors.muted}
               returnKeyType="search"
               style={styles.searchInput}
               testID="list-search"
@@ -749,6 +750,7 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     lineHeight: 24,
   },
   searchInput: {
+    color: colors.text,
     flex: 1,
     fontSize: 16,
     minHeight: ROW_MIN_HEIGHT,

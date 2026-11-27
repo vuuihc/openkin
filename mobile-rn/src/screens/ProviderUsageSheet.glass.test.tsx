@@ -171,6 +171,13 @@ describe("KIN-MOBILE-001 §7 provider/usage sheet glass", () => {
       backgroundColor?: string;
     };
     expect(cardStyle.backgroundColor ?? "transparent").toBe("transparent");
+
+    // The hosted usage screen paints no background of its own either: an
+    // opaque fill on its scroller would sit over the blur the sheet drew.
+    const hostedStyle = StyleSheet.flatten(
+      screen.getByTestId("provider-usage-screen").props.style,
+    ) as { backgroundColor?: string };
+    expect(hostedStyle.backgroundColor).toBeUndefined();
   });
 
   it("KIN-MOBILE-001 §7: reduce transparency swaps the blur for an opaque surface", async () => {

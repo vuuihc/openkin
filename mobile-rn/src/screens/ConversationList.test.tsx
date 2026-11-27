@@ -473,6 +473,16 @@ describe("KIN-MOBILE-001 R3 conversation list screen", () => {
     expect(onQueryChange).toHaveBeenCalledWith("alpha");
   });
 
+  it("KIN-MOBILE-002 R1b: the search field paints its text and placeholder from the palette", async () => {
+    const screen = await renderList();
+
+    const field = screen.getByTestId("list-search");
+    expect(StyleSheet.flatten(field.props.style).color).toBe(
+      palette.light.text,
+    );
+    expect(field.props.placeholderTextColor).toBe(palette.light.muted);
+  });
+
   it("KIN-MOBILE-001 R3: the search field and its clear button are each a 44pt target", async () => {
     const screen = await renderList({}, { query: "alpha" });
     const field = StyleSheet.flatten(
