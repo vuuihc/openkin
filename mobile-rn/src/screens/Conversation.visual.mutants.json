@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the tool name falls back to the body face, so the row is no longer the signed mono line (R-rn-tool-row-mono)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  tool: {\n    color: colors.secondary,\n    flexShrink: 1,\n    fontFamily: MONO,\n    fontSize: 13,",
+    "new": "  tool: {\n    color: colors.secondary,\n    flexShrink: 1,\n    fontSize: 13,",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.visual.test.tsx -t \"KIN-MOBILE-002 R4c: a collapsed tool row is one mono line\""
+  },
+  {
+    "label": "the tool name may wrap to two lines again, pushing the status and 详情 out of the one-line row (R-rn-tool-row-mono)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "<Text numberOfLines={1} ellipsizeMode=\"tail\" style={styles.tool}>",
+    "new": "<Text numberOfLines={2} ellipsizeMode=\"tail\" style={styles.tool}>",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.visual.test.tsx -t \"KIN-MOBILE-002 R4c: a long tool name truncates to one line and keeps its status\""
+  },
+  {
+    "label": "the expanded input and output render in the body face, so the recorded command is not mono (R-rn-tool-row-mono)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  detailText: {\n    color: colors.secondary,\n    fontFamily: MONO,",
+    "new": "  detailText: {\n    color: colors.secondary,",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.visual.test.tsx -t \"KIN-MOBILE-002 R4c: an expanded tool row draws its input and output in mono\""
+  },
+  {
+    "label": "the status word falls back to the body face, so the one line is only half mono (R-rn-tool-row-mono)",
+    "file": "mobile-rn/src/screens/ConversationView.tsx",
+    "old": "  toolStatus: {\n    color: colors.muted,\n    fontFamily: MONO,",
+    "new": "  toolStatus: {\n    color: colors.muted,",
+    "test": "cd mobile-rn && npx jest src/screens/Conversation.visual.test.tsx -t \"KIN-MOBILE-002 R4c: a collapsed tool row is one mono line\""
+  }
+]
