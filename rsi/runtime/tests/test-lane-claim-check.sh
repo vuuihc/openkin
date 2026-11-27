@@ -95,8 +95,9 @@ MD
   printf '# gap log\n' > "$R/docs/plans/gap-log.md"
   printf '# IA\n' > "$R/docs/product/IA.md"
   # A lane that ran the product's `npm run build` leaves built, ignored bundles behind; the seam
-  # must read the tree as clean (STATUS Watch 76).
-  printf 'web/dist/assets/\n' > "$R/.gitignore"
+  # must read the tree as clean (STATUS Watch 76). `.data/` is the top-level ignored shape (live
+  # state, a build output dir) used to prove the merge-result carry.
+  printf 'web/dist/assets/\n.data/\n' > "$R/.gitignore"
   g add -A >/dev/null && g commit -q -m base || fail "$name: base commit failed"
   g remote add origin "$T/$name.git" || fail "$name: remote add failed"
   g push -q -u origin main || fail "$name: push main failed"
@@ -260,7 +261,9 @@ case_lane_runs_seam_before_push() {
     || fail "wiring: the claim check (line $inv) does not run after mutant evidence (line $mut)"
   [ "$inv" -lt "$push" ] \
     || fail "wiring: the claim check (line $inv) runs after the push (line $push)"
-  fin="$(grep -nF 'finish failed "" "claim check:' "$LANE" | cut -d: -f1)"
+  # The first claim-check failure branch: the pre-push body-identity guard is a later one, also
+  # before the push, and must not stand in for the seam's own branch.
+  fin="$(grep -nF 'finish failed "" "claim check:' "$LANE" | head -1 | cut -d: -f1)"
   [ -n "$fin" ] || fail "wiring: no failure branch records the claim-check verdict"
   [ "$fin" -gt "$inv" ] && [ "$fin" -lt "$push" ] \
     || fail "wiring: the failure branch (line $fin) is not between the check and the push"
@@ -337,6 +340,11 @@ claim_fail_handoff() { # <body-file> [RSI_CLAIM_RETRY_SECS]
     GH_REPO="vuuihc/openkin"
     MODE=new; TIMEDOUT=0; W_MIN=1; COST=0; SWEPT_N=0; M_WORKER=worker
     WORKER_TITLE=""; HDR="$T/hdr"; LK="$T/lk"; PRN=""; PRURL=""
+    # The span pins the hand-off to a private snapshot with the lane's own helpers; source their
+    # production definitions (the function bodies have no column-0 close), never copies that could
+    # drift.
+    eval "$(awk '/^claim_body_sha\(\)/ { on = 1 } on { print } on && /^}/ { exit }' "$LANE")"
+    eval "$(awk '/^claim_body_snapshot\(\)/ { on = 1 } on { print } on && /^}/ { exit }' "$LANE")"
     finish() { printf 'FINISH %s|%s|%s\n' "$1" "${2:-}" "${3:-}" >> "$T/ph-finish.log"; }
     count_fail() { :; }; count_ok() { :; }; count_timeout() { :; }; scorecard_row() { :; }
     gh_pr_create() { printf 'pr create %s %s\n' "$2" "$3" >> "$T/ph-pr.log"; printf 'https://github.com/%s/pull/77\n' "$GH_REPO"; }
@@ -410,15 +418,217 @@ case_claim_fail_evidence_keeps_the_first_run() {
     || fail "evidence: the green run rewrote or deleted the first run's evidence"
 }
 
+# A prose diff with no column-0 `Claim check:` line must stop the hand-off in the lane's own
+# pre-push span, not only in the bare seam: the branch stays unpushed, no PR is opened, and the
+# evidence names the missing line. This is the shape that reached the merge gate 18 times in the
+# 11-20 → 11-27 window (sendback/done: gap-log-close-20261121, phone-list-deliver, lessons-*).
+case_prose_diff_without_claim_line_never_leaves_the_lane() {
+  local claim="$CTRL/rsi/state/lanes/1.claim.txt"
+  new_repo noline
+  change docs/product/IA.md '- a surface sentence the body never claims'
+  body "A delivery summary with no claim line." ""
+  rm -f "$claim" "$T/ph-finish.log"
+  claim_fail_handoff "$BODY"
+  [ "$PH_RC" -eq 1 ] || fail "noline: hand-off exit $PH_RC, want 1 ($(cat "$T/ph-finish.log"))"
+  ! git -C "$T/noline.git" rev-parse --verify -q refs/heads/rsi/handoff >/dev/null \
+    || fail "noline: a prose diff with no claim line was pushed"
+  [ -f "$claim" ] || fail "noline: no claim evidence at $claim"
+  grep -qF "no 'Claim check:' line at column 0" "$claim" \
+    || fail "noline: the evidence does not name the missing line: $(cat "$claim")"
+  grep -q '^FINISH failed|.*claim check:' "$T/ph-finish.log" || fail "noline: the lane did not record failed"
+  [ ! -s "$T/ph-pr.log" ] || fail "noline: a PR was opened for a body with no claim line"
+}
+
+# The lane checks one file and uploads that same file: the hand-off snapshots the worker's body
+# before the claim seam and never reopens the original. A write to the snapshot after that read (a
+# stray generator, a truncated copy, the claim command itself) must fail closed before the push
+# instead of publishing bytes the rule never saw.
+case_lane_checks_the_body_it_uploads() {
+  local body_file="$CTRL/rsi/state/lanes/1.pr-body.snapshot.md" claim="$CTRL/rsi/state/lanes/1.claim.txt"
+  new_repo uploadbytes
+  change docs/plans/gap-log.md '- a sentence the claim can prove'
+  body "Claim check: printf 'REAL-OUTPUT-42\\n'; printf 'late edit\\n' >> '$body_file'" \
+       "Claim output:" "REAL-OUTPUT-42"
+  rm -f "$claim" "$T/ph-finish.log"
+  claim_fail_handoff "$BODY"
+  [ "$PH_RC" -eq 1 ] || fail "upload: hand-off exit $PH_RC, want 1 ($(cat "$T/ph-finish.log"))"
+  ! git -C "$T/uploadbytes.git" rev-parse --verify -q refs/heads/rsi/handoff >/dev/null \
+    || fail "upload: a body that changed after the seam was pushed"
+  [ -f "$claim" ] || fail "upload: no claim evidence at $claim"
+  grep -qF 'changed after the claim seam' "$claim" \
+    || fail "upload: the evidence does not name the changed body: $(cat "$claim")"
+}
+
+# The lane seam and the merge gate are one rule: for a good body and every bad shape (missing line,
+# indented line, empty output, drifted output, bare waiver) both call sites must reach the same
+# verdict. A seam that passes a body the gate rejects is the round this row removes.
+parity_case() { # <label> <want-rc> <body line>...
+  local label="$1" want="$2" lane_rc gate_rc slug paths
+  shift 2
+  body "$@"
+  seam; lane_rc=$RC
+  mkdir -p "$CTRL/rsi/state/merge" "$CTRL/rsi/state/sendback"
+  paths="$T/parity.paths"; printf '%s\n' 'docs/plans/gap-log.md' > "$paths"
+  slug="parity-${label//[^a-zA-Z0-9]/-}"
+  RSI_CTRL="$CTRL" RSI_PR_STATE_CMD="bash $T/pr-state-stub.sh \"\$1\"" STUB_STATE_OUT=OPEN \
+    bash "$REPO/rsi/runtime/merge.sh" --claim-gate-check 461 "$slug" R-parity "$R" "$BODY" "$paths" \
+    >"$T/parity.out" 2>&1
+  gate_rc=$?
+  [ "$lane_rc" -eq "$want" ] || fail "parity/$label: lane seam exit $lane_rc, want $want ($OUT)"
+  [ "$gate_rc" -eq "$want" ] \
+    || fail "parity/$label: merge gate exit $gate_rc, want $want ($(cat "$T/parity.out"))"
+}
+
+case_lane_seam_and_merge_gate_agree() {
+  new_repo parity
+  change docs/plans/gap-log.md '- a sentence the claim proves'
+  printf '#!/bin/bash\nprintf "%%s\\n" "${STUB_STATE_OUT:-OPEN}"\n' > "$T/pr-state-stub.sh"
+  chmod +x "$T/pr-state-stub.sh"
+  parity_case good 0 \
+    "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+    "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  parity_case missing-line 1 "A delivery summary with no claim line." ""
+  parity_case indented-line 1 \
+    "  Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+    "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  parity_case empty-output 1 "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:"
+  parity_case drifted-output 1 \
+    "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+    "99:Prose claim check: a line the command never printed"
+  parity_case bare-waiver 1 "Claim check: none" "Claim output:" "-"
+}
+
+# A claim is proven on the tree the merge gate reads: the PR merged with origin/main. merge.sh's
+# sync_main merges main into the branch before its claim gate, so a claim that is true on the
+# branch tip can be false after that sync. Measured 2026-11-27: 12 `mech-claim` rounds of this
+# shape (rn-design-pass #812: lane CLAIM_LANE_OK + PR_BODY_OK at 14:08 and 14:26, merge gate
+# `stories: 25 (approved 5, blocked 1, covered 18, draft 1)` vs `approved 4, covered 19`;
+# rn-empty-hint #766: claimed `193:` vs real `194:`). The lane must catch the drift before the
+# push, and a claim the merge does not move must still pass on the same tree.
+case_claimed_output_must_match_the_merge_tree() {
+  local base pr claim="$CTRL/rsi/state/lanes/1.claim.txt"
+  new_repo mergetree
+  change docs/plans/gap-log.md '- the sentence this PR delivers'
+  pr="$(g rev-parse HEAD)"
+  base="$(g rev-parse origin/main)"
+  # origin/main advances after this branch was cut: one heading inserted above the claimed line.
+  g checkout -q --detach "$base" || fail "mergetree: cannot detach at the branch point"
+  { printf '# An extra heading\n'; cat "$R/NOTES.md"; } > "$T/notes.merged" && mv "$T/notes.merged" "$R/NOTES.md"
+  g add NOTES.md && g commit -q -m 'main advance' || fail "mergetree: cannot advance main"
+  g update-ref refs/remotes/origin/main "$(g rev-parse HEAD)"
+  g checkout -q -B rsi/handoff "$pr" || fail "mergetree: cannot return to the branch"
+  # The merge gate runs the claim in the lane worktree, where ignored build artifacts exist. A
+  # claim reading one is legitimate and must stay green on the merge result; the merge worktree
+  # carries every ignored path the lane holds. `.data/` is ignored at the top level, so no
+  # untracked parent directory masks a missing carry.
+  mkdir -p "$R/.data"
+  printf 'IGNORED-ARTIFACT-42\n' > "$R/.data/out.txt"
+  body "Claim check: cat .data/out.txt" "Claim output:" "IGNORED-ARTIFACT-42"
+  seam
+  [ "$RC" -eq 0 ] \
+    || fail "mergetree: an ignored artifact the lane holds is missing on the merge result ($OUT)"
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  seam
+  [ "$RC" -eq 1 ] || fail "mergetree: exit $RC, want 1 — the claimed line moved on the merge result ($OUT)"
+  seam_output_has "not in the command's real output" \
+    || fail "mergetree: the drift is not named: $OUT"
+  # The same merge, a claim it does not move: the merge-result check is not a blanket red.
+  body "Claim check: grep -o 'KIN-CONTINUE-001' NOTES.md" "Claim output:" "KIN-CONTINUE-001"
+  seam
+  [ "$RC" -eq 0 ] || fail "mergetree: a claim the merge does not move failed ($OUT)"
+  # The real pre-push span must stop the drifted claim before the push, with evidence.
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  rm -f "$claim" "$T/ph-finish.log"
+  claim_fail_handoff "$BODY"
+  [ "$PH_RC" -eq 1 ] || fail "mergetree: hand-off exit $PH_RC, want 1"
+  ! git -C "$T/mergetree.git" rev-parse --verify -q refs/heads/rsi/handoff >/dev/null \
+    || fail "mergetree: a drifted claim was pushed"
+  grep -qF "not in the command's real output" "$claim" 2>/dev/null \
+    || fail "mergetree: the evidence does not name the drift: $(cat "$claim" 2>/dev/null)"
+}
+
+# The carry must not follow a symlink out of the merge worktree: main can commit `leak -> <external
+# dir>` while the lane holds an ignored file under `leak/`, and `mkdir -p` / `ln -s` would then
+# create that file's parent and the link outside the temporary worktree, writing beside the lane
+# where it has no business. A path whose existing ancestors are not real directories of the merge
+# worktree is skipped; the claim still runs and passes. The same main advance moves the claimed
+# line, so the case is red on any seam that reads the branch tip instead of the merge result.
+case_ignored_carry_cannot_escape_the_merge_worktree() {
+  local out="$T/outside-symlink" base pr blob notes_blob main_commit
+  new_repo symlinkcarry
+  # Ignore the carried file, not its directory: `--directory` would collapse an ignored directory
+  # to `leak/deep/`, whose dirname is the symlink itself, and the escape needs a path below it.
+  printf 'leak/deep/out.txt\n' >> "$R/.gitignore"
+  g add .gitignore && g commit -q -m 'ignore the carried path' \
+    || fail "symlinkcarry: cannot commit .gitignore"
+  change docs/plans/gap-log.md '- a sentence the claim proves'
+  mkdir -p "$R/leak/deep" "$out"
+  printf 'CARRIED-42\n' > "$R/leak/deep/out.txt"
+  pr="$(g rev-parse HEAD)"
+  base="$(g rev-parse origin/main)"
+  # Advance main without checking it out: the worktree's `leak/` directory must stay in place for
+  # the ignored listing, and a checkout through the symlink commit would not. The heading moves the
+  # claimed line from 2 to 3, so the claim below is true only on the merge result.
+  blob="$(printf '%s' "$out" | g hash-object -w --stdin)" \
+    || fail "symlinkcarry: cannot hash the symlink target"
+  notes_blob="$({ printf '# An extra heading\n'; cat "$R/NOTES.md"; } | g hash-object -w --stdin)" \
+    || fail "symlinkcarry: cannot hash the advanced notes"
+  main_commit="$(
+    export GIT_INDEX_FILE="$T/symlinkcarry.index"
+    g read-tree "$base" \
+      && g update-index --add --cacheinfo "100644,$notes_blob,NOTES.md" \
+      && g update-index --add --cacheinfo "120000,$blob,leak" \
+      && g commit-tree "$(g write-tree)" -p "$base" -m 'main advances with a symlink'
+  )" || fail "symlinkcarry: cannot advance main"
+  g update-ref refs/remotes/origin/main "$main_commit"
+  g checkout -q -B rsi/handoff "$pr" || fail "symlinkcarry: cannot return to the branch"
+  g ls-files --others --ignored --exclude-standard --directory | grep -qx 'leak/deep/out.txt' \
+    || fail "symlinkcarry: the fixture does not expose the ignored path"
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "3:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  seam
+  [ "$RC" -eq 0 ] || fail "symlinkcarry: the seam did not read the merge result ($OUT)"
+  [ -z "$(ls -A "$out")" ] \
+    || fail "symlinkcarry: the carry wrote outside the merge worktree: $(ls -A "$out")"
+}
+
+# A main advance that conflicts with the branch cannot be turned into a merge tree. The seam must
+# then check the branch tip — a conflict is merge.sh's verdict — instead of inventing a red the
+# worker cannot fix.
+case_a_conflicting_main_advance_falls_back_to_the_branch_tip() {
+  local base pr
+  new_repo conflictfallback
+  change docs/plans/gap-log.md '- the branch sentence'
+  pr="$(g rev-parse HEAD)"
+  base="$(g rev-parse origin/main)"
+  g checkout -q --detach "$base" || fail "conflict: cannot detach at the branch point"
+  printf '# main says something else\n' >> "$R/docs/plans/gap-log.md"
+  g add -A && g commit -q -m 'main advance' || fail "conflict: cannot advance main"
+  g update-ref refs/remotes/origin/main "$(g rev-parse HEAD)"
+  g checkout -q -B rsi/handoff "$pr" || fail "conflict: cannot return to the branch"
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  seam
+  [ "$RC" -eq 0 ] || fail "conflict: exit $RC, want 0 — a conflict is merge.sh's verdict ($OUT)"
+  case "$OUT" in
+    "CLAIM_LANE_OK: "*"branch tip was checked"*) ;;
+    *) fail "conflict: the fallback did not say which tree was checked: $OUT" ;;
+  esac
+}
+
 # Source pin, the same shape as case_lane_runs_seam_before_push: the pre-push claim seam must write
 # the evidence file before it calls finish failed, so deleting the write is a red.
 case_claim_fail_evidence_wiring() {
   local inv claim fin
   inv="$(grep -nF 'if ! CLAIM_EV="$(bash "$SELF" --claim-check-check' "$LANE" | head -1 | cut -d: -f1)"
   [ -n "$inv" ] || fail "wiring: lane.sh has no guarded claim check"
-  claim="$(grep -nF '$STATE/lanes/$N.claim.txt' "$LANE" | head -1 | cut -d: -f1)"
+  # The first evidence write after the check belongs to the seam's own failure branch; the
+  # snapshot failure before the check writes the same file and must not stand in for it.
+  claim="$(grep -nF '$STATE/lanes/$N.claim.txt' "$LANE" | cut -d: -f1 | awk -v inv="$inv" '$1 > inv { print; exit }')"
   [ -n "$claim" ] || fail "wiring: lane.sh never writes the claim evidence file"
-  fin="$(grep -nF 'finish failed "" "claim check:' "$LANE" | cut -d: -f1)"
+  fin="$(grep -nF 'finish failed "" "claim check:' "$LANE" | head -1 | cut -d: -f1)"
   [ -n "$fin" ] || fail "wiring: no claim-check failure branch"
   [ "$claim" -gt "$inv" ] \
     || fail "wiring: the evidence write (line $claim) does not follow the check (line $inv)"
@@ -555,15 +765,31 @@ live_fixture() {
        "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
   LIVE_BODY="$T/live.body"; cp "$BODY" "$LIVE_BODY"
   GH_STUB="$T/gh-stub"; GH_CALLS="$T/gh.calls"; : > "$GH_CALLS"
-  VIEW_MODE=body; EDIT_RC=0; LIST_MODE=existing
+  VIEW_MODE=body; EDIT_RC=0; LIST_MODE=existing; EDIT_PUBLISHES=0; ON_LIST=""
   HANDOFF_GIT=/usr/bin/git; HANDOFF_CHECK_SECS=180
   cat > "$GH_STUB" <<'SH'
 #!/bin/bash
 printf '%s\n' "$*" >> "$STUB_CALLS"
+# Opt-in: a successful create/edit publishes the bytes the lane actually handed gh (the file named
+# by --body-file), so a case can prove what GitHub keeps. The default stub is the lying GitHub the
+# read-back cases need: it reports success while keeping its old body.
+publish_body() { # <gh args...>
+  [ "${STUB_EDIT_PUBLISHES:-0}" = 1 ] || return 0
+  local f="" a prev=""
+  for a in "$@"; do [ "$prev" = --body-file ] && f="$a"; prev="$a"; done
+  [ -n "$f" ] && cp "$f" "$STUB_BODY"
+  return 0
+}
 case "$1 $2" in
-  'pr list') [ "$STUB_LIST_MODE" != existing ] || echo 123 ;;
-  'pr create') echo 'https://github.com/example/repo/pull/123' ;;
-  'pr edit') echo 'stub edit rejected' >&2; exit "$STUB_EDIT_RC" ;;
+  # STUB_ON_LIST names a file to append to while `pr list` runs: the window between the push and
+  # the upload guards, so a case can rewrite the hand-off body exactly where a late worker would.
+  'pr list')
+    [ -z "${STUB_ON_LIST:-}" ] || printf 'rewritten after the push\n' >> "$STUB_ON_LIST"
+    [ "$STUB_LIST_MODE" != existing ] || echo 123 ;;
+  'pr create') publish_body "$@"; echo 'https://github.com/example/repo/pull/123' ;;
+  'pr edit')
+    [ "$STUB_EDIT_RC" -eq 0 ] && publish_body "$@"
+    echo 'stub edit rejected' >&2; exit "$STUB_EDIT_RC" ;;
   'pr comment') : ;;
   'pr view')
     case "$STUB_VIEW_MODE" in
@@ -598,6 +824,7 @@ pr_handoff() {
     printf 'SELF=%q\nWT=%q\nBR=rsi/live-body\nSTATUS_NOTE_FILE=%q\nHDR=%q\n' \
       "$LANE" "$R" "$BODY" "$hdr"
     printf 'FINISH_FILE=%q\nGH=%q\n' "$T/finish" "$GH_STUB"
+    printf 'CLAIM_BODY_SNAPSHOT=%q\n' "$CTRL/rsi/state/lanes/1.pr-body.snapshot.md"
     printf 'source %q\n' "$RUNTIME/lane-pr.sh"
     printf 'source %q\n' "$RUNTIME/lane-push.sh"
     cat <<'SH'
@@ -605,13 +832,26 @@ N=1; ITEM=R-fixture; SLUG=fixture; MODE=new; WORKER_TITLE='fix: fixture'
 TIMEDOUT=0; W_MIN=0; COST=0; SWEPT_N=0
 finish() { printf '%s\n' "$*" >> "$FINISH_FILE"; }
 count_fail() { :; }; count_ok() { :; }; scorecard_row() { :; }
+# The production span starts after the seams, so pin the body the way lane.sh does: one private
+# snapshot the lane owns, hashed, with the worker's mutable file kept as the source a case can
+# rewrite mid-upload. Source the lane's own helpers, so the upload guards are live in this fixture
+# instead of seeing an unset CLAIM_BODY_SHA.
+eval "$(awk '/^claim_body_sha\(\)/ { on = 1 } on { print } on && /^}/ { exit }' "$SELF")"
+eval "$(awk '/^claim_body_snapshot\(\)/ { on = 1 } on { print } on && /^}/ { exit }' "$SELF")"
+CLAIM_BODY_SOURCE="$STATUS_NOTE_FILE"
+claim_body_snapshot "$CLAIM_BODY_SOURCE" "$CLAIM_BODY_SNAPSHOT" || exit 1
+STATUS_NOTE_FILE="$CLAIM_BODY_SNAPSHOT"
+CLAIM_BODY_SHA="$(claim_body_sha "$STATUS_NOTE_FILE")"
 SH
     awk '/^# push \+ PR / { on = 1 } on { print } on && /^finish done / { exit }' "$LANE"
   } > "$T/handoff.sh"
   rm -f "$T/finish"
   OUT="$(RSI_CTRL="$CTRL" HOME="$T/home" RSI_GH="$GH_STUB" \
     STUB_CALLS="$GH_CALLS" STUB_BODY="$LIVE_BODY" STUB_VIEW_MODE="$VIEW_MODE" \
-    STUB_EDIT_RC="$EDIT_RC" STUB_LIST_MODE="$LIST_MODE" STUB_SLOW_GIT="$T/slow-git-started" \
+    STUB_EDIT_RC="$EDIT_RC" STUB_LIST_MODE="$LIST_MODE" \
+    STUB_EDIT_PUBLISHES="${EDIT_PUBLISHES:-0}" \
+    STUB_ON_LIST="${ON_LIST:-}" \
+    STUB_SLOW_GIT="$T/slow-git-started" \
     GIT="$HANDOFF_GIT" RSI_PR_BODY_CHECK_SECS="$HANDOFF_CHECK_SECS" \
     bash "$T/handoff.sh" 2>&1)"; RC=$?
 }
@@ -696,6 +936,84 @@ case_live_body_stale_valid_claim_fails() {
   seam_output_has 'differs' || fail "stale valid body mismatch is not named ($OUT)"
 }
 
+# The seam proves a local file; the merge lane reads GitHub. A lane whose body file is older than
+# the lane header (a rework carrying an earlier round's body, a local clock skew) used to skip the
+# edit, leaving an unchecked live body in place while the seam had passed — the body-it-uploads
+# gap. The upload must always publish the file the seam read.
+case_live_body_is_always_uploaded_from_the_checked_file() {
+  live_fixture live-upload
+  printf 'An older live body with no claim line.\n' > "$LIVE_BODY"
+  touch -t 199901010000 "$BODY"
+  EDIT_PUBLISHES=1
+  pr_handoff
+  [ "$RC" -eq 0 ] || fail "live upload: hand-off exit $RC, want 0 ($OUT)"
+  seam_output_has 'PR_BODY_OK' || fail "live upload: no OK verdict ($OUT)"
+  grep -q '^pr edit ' "$GH_CALLS" || fail "live upload: an older checked body skipped the upload"
+  grep -q '^done 123 ' "$T/finish" || fail "live upload: the checked body was not published"
+}
+
+# The hand-off pins the body before the seams and uploads that private snapshot, so a source
+# rewrite during the push — the window between the push and the upload — must not change what
+# GitHub keeps. The published body is the bytes the seam proved, not the rewritten source, and the
+# read-back still passes because it compares the live body to the same snapshot.
+case_source_change_during_upload_publishes_the_snapshot() {
+  live_fixture live-rewrite-edit
+  ON_LIST="$BODY"   # the pr list stub runs between the push and both uploads
+  EDIT_PUBLISHES=1
+  pr_handoff
+  [ "$RC" -eq 0 ] || fail "rewrite/edit: hand-off exit $RC, want 0 ($OUT)"
+  seam_output_has 'PR_BODY_OK' || fail "rewrite/edit: no OK verdict ($OUT)"
+  grep -q '^pr edit ' "$GH_CALLS" || fail "rewrite/edit: the snapshot was not uploaded"
+  grep -q '^done 123 ' "$T/finish" || fail "rewrite/edit: the snapshot was not published"
+  ! grep -qF 'rewritten after the push' "$LIVE_BODY" \
+    || fail "rewrite/edit: the source rewrite reached GitHub: $(cat "$LIVE_BODY")"
+  grep -qF "Claim check: grep -n 'Prose claim check' NOTES.md" "$LIVE_BODY" \
+    || fail "rewrite/edit: the uploaded body is not the snapshot the seam proved: $(cat "$LIVE_BODY")"
+
+  live_fixture live-rewrite-create
+  LIST_MODE=new; ON_LIST="$BODY"; EDIT_PUBLISHES=1
+  pr_handoff
+  [ "$RC" -eq 0 ] || fail "rewrite/create: hand-off exit $RC, want 0 ($OUT)"
+  seam_output_has 'PR_BODY_OK' || fail "rewrite/create: no OK verdict ($OUT)"
+  grep -q '^pr create ' "$GH_CALLS" || fail "rewrite/create: the snapshot was not uploaded"
+  grep -q '^done 123 ' "$T/finish" || fail "rewrite/create: the snapshot was not published"
+  ! grep -qF 'rewritten after the push' "$LIVE_BODY" \
+    || fail "rewrite/create: the source rewrite reached GitHub: $(cat "$LIVE_BODY")"
+  grep -qF "Claim check: grep -n 'Prose claim check' NOTES.md" "$LIVE_BODY" \
+    || fail "rewrite/create: the uploaded body is not the snapshot the seam proved: $(cat "$LIVE_BODY")"
+}
+
+# The upload guards still matter: the file gh is about to keep is the snapshot the seam proved, and
+# a snapshot changed under the lane (a stray writer, a truncated copy) must fail closed rather than
+# publish bytes the rule never saw.
+case_upload_guards_refuse_a_snapshot_changed_after_the_push() {
+  local claim="$CTRL/rsi/state/lanes/1.claim.txt"
+  local snap="$CTRL/rsi/state/lanes/1.pr-body.snapshot.md"
+  live_fixture live-snapshot-edit
+  ON_LIST="$snap"   # the pr list stub runs between the push and both upload guards
+  rm -f "$claim"
+  pr_handoff
+  [ "$RC" -eq 1 ] || fail "snapshot/edit: hand-off exit $RC, want 1 ($OUT)"
+  grep -q '^failed .*hand-off body changed' "$T/finish" \
+    || fail "snapshot/edit: the changed snapshot was not recorded failed ($OUT)"
+  grep -qF 'live body not replaced' "$claim" 2>/dev/null \
+    || fail "snapshot/edit: the evidence does not name the refused upload: $(cat "$claim" 2>/dev/null)"
+  ! grep -q '^pr edit ' "$GH_CALLS" || fail "snapshot/edit: a changed snapshot was uploaded"
+  ! grep -q '^done ' "$T/finish" || fail "snapshot/edit: a changed snapshot finished done"
+
+  live_fixture live-snapshot-create
+  LIST_MODE=new; ON_LIST="$snap"
+  rm -f "$claim"
+  pr_handoff
+  [ "$RC" -eq 1 ] || fail "snapshot/create: hand-off exit $RC, want 1 ($OUT)"
+  grep -q '^failed .*body uploaded differs' "$T/finish" \
+    || fail "snapshot/create: the changed snapshot was not recorded failed ($OUT)"
+  grep -qF 'PR not opened' "$claim" 2>/dev/null \
+    || fail "snapshot/create: the evidence does not name the refused upload: $(cat "$claim" 2>/dev/null)"
+  ! grep -q '^pr create ' "$GH_CALLS" || fail "snapshot/create: a changed snapshot opened a PR"
+  ! grep -q '^done ' "$T/finish" || fail "snapshot/create: a changed snapshot finished done"
+}
+
 case_live_body_timeout_fails_closed() {
   live_fixture live-timeout
   VIEW_MODE=timeout
@@ -752,6 +1070,12 @@ run case_claim_fail_keeps_real_output
 run case_claim_fail_real_output_is_bounded
 run case_claim_fail_evidence_keeps_the_first_run
 run case_claim_fail_evidence_wiring
+run case_prose_diff_without_claim_line_never_leaves_the_lane
+run case_lane_checks_the_body_it_uploads
+run case_lane_seam_and_merge_gate_agree
+run case_claimed_output_must_match_the_merge_tree
+run case_ignored_carry_cannot_escape_the_merge_worktree
+run case_a_conflicting_main_advance_falls_back_to_the_branch_tip
 run case_claim_check_retry_body_fixed_mid_handoff
 run case_claim_check_retry_still_failing_stays_failed
 run case_claim_check_retry_zero_disables
@@ -763,6 +1087,9 @@ run case_unreadable_live_body_fails_closed
 run case_code_only_diff_is_na
 run case_live_body_read_retries_once
 run case_live_body_stale_valid_claim_fails
+run case_live_body_is_always_uploaded_from_the_checked_file
+run case_source_change_during_upload_publishes_the_snapshot
+run case_upload_guards_refuse_a_snapshot_changed_after_the_push
 run case_live_body_timeout_fails_closed
 run case_live_body_check_timeout_fails_closed
 run case_gh_override_is_honoured
