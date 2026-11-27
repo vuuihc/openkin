@@ -14,16 +14,9 @@ import { splitBlocks } from "./markdownBlocks";
 
 describe("KIN-MOBILE-002 R4a block parse", () => {
   it("KIN-MOBILE-002 R4a: a heading, a bullet list, a fenced code block, a quote and an hr each come back as their own block", () => {
-    const text = [
-      "## 结论",
-      "- 一",
-      "- 二",
-      "```ts",
-      "const a = 1;",
-      "```",
-      "> 引用",
-      "---",
-    ].join("\n");
+    const text = ["## 结论", "- 一", "- 二", "```ts", "const a = 1;", "```", "> 引用", "---"].join(
+      "\n",
+    );
 
     expect(splitBlocks(text)).toEqual([
       { type: "h2", value: "结论" },
