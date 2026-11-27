@@ -160,6 +160,7 @@
   .decision .tradeoff { color: var(--muted); font-size: 13.5px; }
   .decision.settled { border-left-color: var(--ok); }
   .decision.settled .rec strong { color: var(--ok); }
+  .tag-settled { font-size: 11.5px; font-weight: 600; color: var(--ok); background: var(--ok-soft); border-radius: 999px; padding: 2px 8px; }
   .reply { margin-top: 10px; }
   .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 13.5px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
   .sign { border-left: 4px solid var(--ok); }
@@ -184,10 +185,10 @@
   <header>
     <div class="eyebrow">Figma 审阅版 · 约 8 分钟 · 5 个决定</div>
     <h1>KIN-MOBILE-002 · RN 手机端视觉系统<small>五屏重画：连接、列表、对话、composer 与审批、用量</small></h1>
-    <p class="meta">draft · 面：手机 · 对照 <code>KIN-MOBILE-002.md</code> 与 <code>mobile-rn/DESIGN.md</code></p>
+    <p class="meta">approved（2026-11-27 CEO 受托签字）· 面：手机 · 对照 <code>KIN-MOBILE-002.md</code> 与 <code>mobile-rn/DESIGN.md</code></p>
     <p class="meta">11 月 27 日 · 5 屏 + 1 状态三联帧 · 明暗两套 token</p>
     <div class="tags">
-      <span class="pill here">待签字</span>
+      <span class="pill ok">approved · CEO 受托签字</span>
       <span class="pill plain">旅程 J1 J2 J4</span>
       <span class="pill plain">手机 390/820</span>
     </div>
@@ -200,11 +201,11 @@
   <section class="card howto" aria-labelledby="how-title">
     <h2 id="how-title">怎么审</h2>
     <ol>
-      <li><strong>先看切法</strong>：这条只管"换皮"，行为一格不动。</li>
+      <li><strong>先看切法</strong>：这条主要换皮，唯一的行为例外是 D3 的局域网 http 确认。</li>
       <li><strong>再看每一屏</strong>：先看帧，再读帧下六段用户流程。帧是暗色模式；浅色用同一套 token 的反侧，token 表在「决定 D1」。</li>
-      <li><strong>最后回决定</strong>：每条都有推荐和代价；页尾有回复模板。</li>
+      <li><strong>最后回决定</strong>：五条都已定（2026-11-27 CEO 受托签字）；每条仍写推荐与代价，方便以后回看为什么这样定。</li>
     </ol>
-    <p class="note">都同意就回「全部同意」；有修改就回「D2 改成…」。帧在卡片内可左右滑，页面本身不横滚。</p>
+    <p class="note">五条已定，无需再签；如要反对某一条，只回编号与一句话原因。帧在卡片内可左右滑，页面本身不横滚。</p>
   </section>
 
   <nav class="toc" aria-label="页内导航">
@@ -291,7 +292,7 @@
         <li><b>起点</b><span>刚装好或会话过期；屏幕是连接页，不是列表空态</span></li>
         <li><b>动作</b><span>选「Hub 账号」或「直连这台设备」；Hub 路填地址/邮箱/密码，或点「用浏览器登录」</span></li>
         <li><b>立刻看到</b><span>按下即转圈；成功直落列表，密码框支持系统密码自动填充</span></li>
-        <li><b>慢·空·失败·断线</b><span>失败分清「凭据错误 / 地址不可达 / 不是 https」；局域网 http 先弹一次「不安全」确认（帧底橙条），确认后才连——这解除现在连不上局域网 Hub 的阻塞</span></li>
+        <li><b>慢·空·失败·断线</b><span>失败分清「凭据错误 / 地址不可达 / 不是 https」；局域网 http 先弹一次「不安全 / 凭据明文传输」确认（帧底橙条），确认后才连——这解除现在连不上局域网 Hub 的阻塞</span></li>
         <li><b>键盘与焦点</b><span>键盘弹出时登录按钮不被遮；密码框可「显示」；错误后焦点回输入框并读出原因</span></li>
         <li><b>离开再回来</b><span>凭据进 Keychain（行为不变）；记住上次选的分段与 Hub 地址</span></li>
       </ol>
@@ -385,48 +386,49 @@
   <section id="decisions">
     <h2>决定</h2>
 
-    <div class="decision" id="d1">
-      <h3>D1 · token 端口桌面 theme.css，明暗两套，parity 测试兜底</h3>
+    <div class="decision settled" id="d1">
+      <h3>D1 · token 端口桌面 theme.css，明暗两套，parity 测试兜底 <span class="tag-settled">已定</span></h3>
       <p class="rec">推荐：<strong>同意</strong>。<code>mobile-rn/src/theme/tokens.ts</code> 逐值端口 <code>ui/src/design/theme.css</code>（含注释里的对比度结论），一条测试读 css 原文比对，web 改色手机端立刻红。</p>
       <p class="tradeoff">代价：手机端没有独立配色权——但这正是目的（一个产品一套语言）。备选"手机单独设计一套"会再制造一次 drift，且桌面那套每个值都量过对比度，重做的成本是重新量一遍。</p>
     </div>
 
-    <div class="decision" id="d2">
-      <h3>D2 · 不上底部 tab bar</h3>
+    <div class="decision settled" id="d2">
+      <h3>D2 · 不上底部 tab bar <span class="tag-settled">已定</span></h3>
       <p class="rec">推荐：<strong>同意</strong>。RN 只有一个一级页（列表）；用量是 sheet、审批在对话流里。D8 的四个入口等例行任务/运维真的进了 RN 再加玻璃底栏。</p>
       <p class="tradeoff">代价：与 web 手机壳的四入口不一致——但 web 那四个面 RN 里三个还不存在，放空 tab 是更大的违背。</p>
     </div>
 
-    <div class="decision" id="d3">
-      <h3>D3 · 局域网 http Hub：显式确认一次后可连</h3>
-      <p class="rec">推荐：<strong>同意</strong>。现在 <code>normalizeHubOrigin</code> 直接拒绝非回环 http，你的局域网 Hub（192.168.x）根本连不上。改成：http 非回环先出「不安全」确认（说明凭据走明文），确认一次记住该地址。</p>
-      <p class="tradeoff">代价：明文内网凭据的理论风险——但网络是你自己的局域网，且旧 Capacitor 版本来就是这个行为；不确认就放行是不可接受的中间态，所以是确认而不是放行。</p>
+    <div class="decision settled" id="d3">
+      <h3>D3 · 局域网 http Hub：显式确认一次后可连 <span class="tag-settled">已定</span></h3>
+      <p class="rec">推荐：<strong>同意</strong>。现在 <code>normalizeHubOrigin</code> 直接拒绝非回环 http，你的局域网 Hub（192.168.x）根本连不上。改成：http 非回环先出「不安全」确认（明确说明凭据明文传输），按 origin 确认一次记住该地址；地址变化重新确认，拒绝时不连接也不记住。</p>
+      <p class="tradeoff">代价：明文内网凭据的理论风险——但网络是你自己的局域网，且旧 Capacitor 版本来就是这个行为；不确认就放行是不可接受的中间态，所以是确认而不是放行。这是凭据传输安全边界的变更：R2 的实现 PR 必须先写局域网 http 凭据 ADR，并在 PR 上打 <code>needs-ceo</code> 留给 owner 批准，不得由循环自行合并（<code>rsi/MANDATE.md</code> 红线；<code>rsi/runtime/merge.sh</code> 的红线路径表不覆盖 <code>mobile-rn/src/auth/</code>）。</p>
     </div>
 
-    <div class="decision" id="d4">
-      <h3>D4 · markdown 自绘精简渲染器，不引库</h3>
+    <div class="decision settled" id="d4">
+      <h3>D4 · markdown 自绘精简渲染器，不引库 <span class="tag-settled">已定</span></h3>
       <p class="rec">推荐：<strong>同意</strong>。段落/标题/列表/代码块/表格横滚/引用，复用 shared 解析；约几百行。community markdown 库要么维护停滞要么依赖 web 布局假设，表格横滚正是它们最差的部分。</p>
       <p class="tradeoff">代价：不覆盖 markdown 全量语法（嵌套表格、脚注等稀有构造退化为纯文本）；以后要全量再引库，渲染器接口不变。</p>
     </div>
 
-    <div class="decision" id="d5">
-      <h3>D5 · 新增三个 expo 官方依赖</h3>
+    <div class="decision settled" id="d5">
+      <h3>D5 · 新增三个 expo 官方依赖 <span class="tag-settled">已定</span></h3>
       <p class="rec">推荐：<strong>同意</strong>。<code>expo-haptics</code>（批准反馈）、<code>expo-symbols</code>（SF Symbols 导航图标）、<code>expo-glass-effect</code>（iOS 26 液态玻璃条，旧系统回落已有的 expo-blur）。都是 expo 官方包、随 SDK 版本锁定。</p>
       <p class="tradeoff">代价：依赖表从 16 个变 19 个，ADR 0036 要加一行——CEO 循环已有 expo 依赖豁免先例。备选"不用图标全靠文字"在导航条上不可行（返回 chevron、搜索放大镜）。</p>
     </div>
   </section>
 
   <section id="reply">
-    <h2>签字</h2>
+    <h2>签字与反对模板</h2>
     <div class="card sign">
-      <p>都同意就回「全部同意」，我把故事转 approved 并排进 RN 队列（R1 token 层先行，后续切片并行）。有修改直接写，例如「D4 改成引库」。</p>
-      <div class="reply"><pre>KIN-MOBILE-002 全部同意
-（或：D1… D2… D3… D4… D5… 逐条写修改）</pre></div>
+      <p><strong>2026-11-27 CEO 受托签字（approved）：D1–D5 全部按推荐通过</strong>（记录见 <code>rsi/DECISIONS.md</code>）。故事已排进 RN 队列，R1 token 层先行，后续切片并行。</p>
+      <p class="note">没有待拍板决定；如果要反对某一条，只回编号与一句话即可，例如「D4 改成引库」。复制下面这段：</p>
+      <div class="reply"><pre>KIN-MOBILE-002 已读，按签字开工 R1。
+如需改一处：D＿ — 一句话原因。</pre></div>
     </div>
   </section>
 
   <footer>
-    <p>KIN-MOBILE-002 · draft · 帧源在 <code>KIN-MOBILE-002.figma/frames/</code>（SVG，Figma 可导入）· 设计系统全文 <code>mobile-rn/DESIGN.md</code></p>
+    <p>KIN-MOBILE-002 · approved · 帧源在 <code>KIN-MOBILE-002.figma/frames/</code>（SVG，Figma 可导入）· 设计系统全文 <code>mobile-rn/DESIGN.md</code></p>
     <p>设计方法：<code>mobile-design</code> skill（RubenGlez/mobile-design v1.0.0）+ open-design craft 规则 + astryx neutral token（经桌面 theme.css 落地）。</p>
   </footer>
 </main>

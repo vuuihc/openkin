@@ -1,6 +1,6 @@
 # KIN-MOBILE-002 · RN 手机端的视觉系统与五屏重画
 
-状态：draft
+状态：approved
 优先级：P0
 旅程：J1、J2、J4
 归属面：`IA.md`「手机（390 宽）」
@@ -23,16 +23,16 @@ owner 2026-11-27 实测原话：「体验了下确实太初级了，建议用 op
 
 - 做：
   - R1 token 层：`mobile-rn/src/theme/tokens.ts`（DOM-free TS），端口 `ui/src/design/theme.css` 明暗两套全部色值、字阶、间距、圆角；`useColorScheme` 选套；一条 parity 测试读 `theme.css` 原文，断言 RN token 与之一致，web 改色手机端立刻红。
-  - R2 连接/登录页：大标题 + 分段「Hub 账号 / 直连这台设备」；表单按 iOS 规范（标签在框上、44pt 高、密码可显示）；局域网 http 显式「不安全」确认（解除 parity 版连不上局域网 Hub 的阻塞，见 `mobile-rn/src/auth/hub.ts:100`）。
+  - R2 连接/登录页：大标题 + 分段「Hub 账号 / 直连这台设备」；表单按 iOS 规范（标签在框上、44pt 高、密码可显示）；局域网 http 显式「不安全 / 凭据明文传输」确认，按 origin 记住一次，地址变化重新确认（解除 parity 版连不上局域网 Hub 的阻塞，见 `mobile-rn/src/auth/hub.ts:100`）。这是凭据传输安全边界的变更：R2 的实现 PR 必须先写局域网 http 凭据 ADR，并在 PR 上打 `needs-ceo` 留给 owner 批准，不得由循环自行合并（`rsi/MANDATE.md` 红线；`rsi/runtime/merge.sh` 的红线路径表不覆盖 `mobile-rn/src/auth/`）。
   - R3 列表重画：iOS 分组列表——设备分区头、项目折叠、行两行式、inset hairline；状态点形状+颜色双编码；待批计数红 pill；搜索进导航条。
   - R4 对话重画：活动脊 + markdown 渲染（段落/标题/列表/代码块/表格横滚/引用）；用户气泡右对齐蓝色；工具行折叠成 mono 一行；轮末 meta 行。
   - R5 composer 与审批：composer 玻璃底胶囊、发送圆形按钮、运行中变停止；排队消息行带撤回；审批卡浮在 composer 上方——命令 mono、批准实心/拒绝描边，一屏一个实心主按钮；批准/拒绝 expo-haptics 反馈。
   - R6 用量 sheet：底部 sheet、抓握条、分段 本周/30天/90天、provider 行带身份色与占比条。
   - markdown 渲染用自绘精简渲染器，复用 shared 解析，不引新库（决定 D4，见审阅页；要全量 markdown 再议）。
-  - 新依赖三个，都是 expo 官方包：`expo-haptics`、`expo-symbols`（SF Symbols）、`expo-glass-effect`（iOS 26 液态玻璃,旧系统回落 BlurView）。
+  - 新依赖三个，都是 expo 官方包：`expo-haptics`、`expo-symbols`（SF Symbols）、`expo-glass-effect`（iOS 26 液态玻璃,旧系统回落 BlurView）；第一个使用它们的实现 PR 必须同步更新 ADR 0036 的依赖表与签名测试。
   - 空/加载/失败/断线四态按帧重画（骨架条、断线横幅、空态文案）。
 - 不做：
-  - 行为变化：KIN-MOBILE-001 已签的交互、状态、流程一格不动；本条只换皮与补 token。
+  - 行为变化：KIN-MOBILE-001 已签的交互、状态、流程一格不动；本条只换皮与补 token。唯一例外是 D3 的局域网 http 确认（见 R2），它按 MANDATE 走 ADR + `needs-ceo`。
   - 底部 tab bar：RN 只有列表一个一级页；例行任务/运维进 RN 时另开故事。
   - 新建对话入口、推送、设置其余页面：各有去处，不在本条。
   - Android 适配：`app.json` 的 android 块是空的；帧按 iOS 画，Android 另开故事。
@@ -124,7 +124,7 @@ owner 2026-11-27 实测原话：「体验了下确实太初级了，建议用 op
 | token parity | `mobile-rn/src/theme/tokens.parity.test.ts`（新） | Given `ui/src/design/theme.css` 原文 When 解析 Then RN tokens 的每个色值与之一致；Given web 改一个色 When 跑 Then 红 |
 | 字面量 guard | `mobile-rn/src/theme/noLiterals.test.ts`（新） | Given `mobile-rn/src` 与 `app` 源文件 When 扫 hex/rgb 字面量 Then 为零（token 模块自身与测试夹具除外） |
 | 明暗两套 | `mobile-rn/src/theme/theme.test.ts`（新） | Given 系统暗/亮 When 渲染列表与对话 Then 关键元素的色值取自对应 scheme；对比度抽样 ≥4.5:1 |
-| R2 连接页 | `mobile-rn/src/screens/pair.visual.test.tsx` | Given 局域网 http 地址 When 提交 Then 先出「不安全」确认，确认后才连；https 直接连 |
+| R2 连接页 | `mobile-rn/src/screens/pair.visual.test.tsx` | Given 局域网 http 地址 When 提交 Then 先出「不安全 / 凭据明文传输」确认，确认后才连；Given 拒绝 Then 不连接且不记住确认；Given 同一 origin 已确认 When 重连 Then 不重复询问；Given 地址变化 When 提交 Then 重新确认；https 直接连 |
 | R3 列表 | `mobile-rn/src/screens/ConversationList.visual.test.tsx` | Given 三种状态行 When 渲染 Then 状态点形状+颜色、待批 pill、分组头与折叠在 |
 | R4 对话 | `mobile-rn/src/screens/Conversation.visual.test.tsx` | Given 含标题/列表/代码/表格的回答 When 渲染 Then 各元素按类型渲染、表格可横滚、脊色随状态 |
 | R5 审批 | `mobile-rn/src/screens/Approvals.visual.test.tsx` | Given 待批 When 渲染 Then 批准是唯一实心主按钮；Given 批准成功 Then haptics 被调一次 |
@@ -140,3 +140,4 @@ owner 2026-11-27 实测原话：「体验了下确实太初级了，建议用 op
 ## 变更记录
 
 - 2026-11-27 创建（draft）。owner dogfood 后要求按 mobile-design/open-design 的方法做正经设计;设计流程按 `~/.agents/skills/mobile-design` 执行,token 端口 astryx neutral 已在桌面落地的同一套（`ui/src/design/theme.css`）。
+- 2026-11-27 · CEO 受托签字 `approved`：D1–D5 全部按推荐通过；按顾问指出的最大风险，把 D3 收紧为「明确凭据明文传输、按 origin 记住一次、地址变化重新确认、拒绝/确认/重连均有测试」，并把 D5 的「实现 PR 同步更新 ADR 0036 依赖表与签名测试」写进范围（决策见 `rsi/DECISIONS.md` 同日）。
