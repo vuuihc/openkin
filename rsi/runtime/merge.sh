@@ -2575,12 +2575,17 @@ if [ -n "$HOLD" ]; then
   exit 0
 fi
 
-# 3. MANDATE 5 screenshots (cheap, before spending a gate/review): local shots dir, local PR body file, or the PR body itself (cloud PRs)
-if echo "$CH" | grep -qE '^ui/src/.*\.tsx$' && ! echo "$CH" | grep -qE '^ui/src/.*\.(test|spec)\.' ; then
-  if [ -z "$(ls "$STATE/shots/$SLUG" 2>/dev/null)" ] && ! echo "$BODY" | grep -qiE 'screenshots?:.*(none|not visible|https?://|!\[)' ; then
-    echo "UI .tsx changed but no screenshots in $STATE/shots/$SLUG/ and no 'Screenshots:' line with a link/image or 'none: <reason>' in the PR body (MANDATE 5). Capture 390x844, 820x1180 and 1100x760 before/after, or state why nothing is visible." > "$STATE/merge/$SLUG.err"
-    sendback "$SLUG" "$ITEM" "missing screenshots" "$STATE/merge/$SLUG.err" "hold-screenshots" - -; exit 0
-  fi
+# 3. MANDATE 5 screenshots (cheap, before spending a gate/review): one predicate for ui/src and
+# the phone client, fed the changed paths, the PR body and the local shots dir. An RN-only
+# screen change is obliged too, and may not waive itself as "not visible"
+# (rn-approval-dock, 2026-11-28).
+SHOT_PATHS="$STATE/merge/$SLUG.shot-paths"; SHOT_BODY="$STATE/merge/$SLUG.shot-body"
+printf '%s\n' "$CH" > "$SHOT_PATHS"; printf '%s\n' "$BODY" > "$SHOT_BODY"
+SHOT_VERDICT="$(bash "$RSI_DIR/runtime/screenshots-obligation.sh" "$SHOT_PATHS" "$SHOT_BODY" "$STATE/shots/$SLUG" 2>&1)"; SHOT_RC=$?
+rm -f "$SHOT_PATHS" "$SHOT_BODY"
+if [ "$SHOT_RC" -ne 0 ]; then
+  printf '%s\n' "${SHOT_VERDICT#SHOTS_FAIL: }" > "$STATE/merge/$SLUG.err"
+  sendback "$SLUG" "$ITEM" "missing screenshots" "$STATE/merge/$SLUG.err" "hold-screenshots" - -; exit 0
 fi
 # 3b. CI already concluded red on this head: send back before paying for a serialised gate and a
 # strong review — the verdict step 6 reads is already decided. ci_early_red fails open on a

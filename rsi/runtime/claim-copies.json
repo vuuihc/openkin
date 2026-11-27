@@ -21,7 +21,7 @@
         "rsi/roles/fixer.md",
         "rsi/roles/reviewer.md",
         "rsi/runtime/lane.sh",
-        "rsi/runtime/merge.sh",
+        "rsi/runtime/screenshots-obligation.sh",
         "rsi/runtime/prompts/cloud-brief-template.md",
         "rsi/runtime/prompts/fill.md",
         "rsi/runtime/prompts/pulse-serial.md"
