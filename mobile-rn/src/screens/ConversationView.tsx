@@ -947,6 +947,7 @@ export default function ConversationView({
     awaitingApproval:
       approvals !== undefined &&
       approvals.state.items.some((item) => item.pending),
+    stoppedNote: t("chat.stoppedNote"),
   };
 
   // An open round that has not spoken yet ends the transcript with one working
@@ -1234,7 +1235,7 @@ const makeStyles = (
   },
   /**
    * The person's own message (KIN-MOBILE-002 R4b): a right-aligned bubble in
-   * the scheme's bubble blue, on-status ink. `maxWidth` leaves the other side
+   * the scheme's bubble blue, on-brand ink. `maxWidth` leaves the other side
    * readable and still wraps a long word rather than clipping it at 390.
    */
   bubble: {
@@ -1247,7 +1248,7 @@ const makeStyles = (
     paddingVertical: 10,
   },
   bubbleText: {
-    color: colors.onStatus,
+    color: colors.onBrand,
     fontSize: 16,
     fontWeight: "600",
   },

@@ -8,10 +8,10 @@
  * | # | Turn                        | Context            | Tone     |
  * |---|-----------------------------|--------------------|----------|
  * | 1 | the person's or standalone  | —                  | none     |
- * | 2 | agent holding an error item | —                  | failed   |
- * | 3 | the last agent turn         | `awaitingApproval` | approval |
- * | 4 | the last agent turn         | `running`          | running  |
- * | 5 | the last agent turn         | `failed`           | failed   |
+ * | 2 | agent holding an error item or stop note | —       | failed   |
+ * | 3 | the live agent turn         | `awaitingApproval` | approval |
+ * | 4 | the live agent turn         | `running`          | running  |
+ * | 5 | the live agent turn         | `failed`           | failed   |
  * | 6 | every other agent turn      | —                  | done     |
  *
  * A standalone turn never carries a spine: an error or stop note is a line
@@ -25,7 +25,7 @@ import type { Turn } from "../../../ui/src/components/chat/transcriptProjection"
 export type SpineTone = "running" | "done" | "failed" | "approval";
 
 export type SpineContext = {
-  /** Index of the newest agent turn, or -1 when the thread has none. */
+  /** Index of the live agent turn, or -1 when a newer turn is waiting for it. */
   lastAgentIndex: number;
   /** The thread's own running flag (`ThreadState.running`). */
   running: boolean;
@@ -33,6 +33,8 @@ export type SpineContext = {
   failed: boolean;
   /** Whether this task has an approval or question still pending. */
   awaitingApproval: boolean;
+  /** The catalogue sentence a stop leaves inside its agent turn. */
+  stoppedNote: string;
 };
 
 /** The tone one turn's spine paints, or null when it carries no spine. */
@@ -42,7 +44,15 @@ export function spineFor(
   ctx: SpineContext,
 ): SpineTone | null {
   if (turn.kind !== "agent") return null;
-  if (turn.items.some((item) => item.kind === "error")) return "failed";
+  if (
+    turn.items.some(
+      (item) =>
+        item.kind === "error" ||
+        (item.kind === "meta" && item.label === ctx.stoppedNote),
+    )
+  ) {
+    return "failed";
+  }
   if (index === ctx.lastAgentIndex) {
     if (ctx.awaitingApproval) return "approval";
     if (ctx.running) return "running";
@@ -51,12 +61,15 @@ export function spineFor(
   return "done";
 }
 
-/** Index of the newest agent turn, or -1 when the thread has none. */
+/**
+ * Index of the agent turn the live flags may paint, or -1 when the transcript
+ * has moved past it. A trailing person/standalone turn is a newer round that
+ * has no agent work yet; repainting the previous answer as running would say
+ * the old round came back to life.
+ */
 export function lastAgentTurnIndex(turns: Turn[]): number {
-  for (let i = turns.length - 1; i >= 0; i -= 1) {
-    if (turns[i]!.kind === "agent") return i;
-  }
-  return -1;
+  const last = turns.length - 1;
+  return turns[last]?.kind === "agent" ? last : -1;
 }
 
 /**

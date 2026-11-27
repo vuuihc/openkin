@@ -135,7 +135,7 @@ describe("KIN-MOBILE-002 R4b the reading surface", () => {
       paddingVertical: 10,
     });
     const ink = styleOf(light.getByText("把结论写成三条。"));
-    expect(ink.color).toBe(palette.light.onStatus);
+    expect(ink.color).toBe(palette.light.onBrand);
     expect(ink.color).not.toBe(palette.light.text);
 
     // The same bubble under a dark phone reads the dark scheme's blue.
@@ -145,7 +145,7 @@ describe("KIN-MOBILE-002 R4b the reading surface", () => {
       palette.dark.bubbleUser,
     );
     expect(styleOf(dark.getByText("把结论写成三条。")).color).toBe(
-      palette.dark.onStatus,
+      palette.dark.onBrand,
     );
   });
 
@@ -193,6 +193,38 @@ describe("KIN-MOBILE-002 R4b the reading surface", () => {
     expect(styleOf(view.getByTestId("conversation:turn:3")).borderLeftColor).toBe(
       palette.light.red,
     );
+  });
+
+  it("KIN-MOBILE-002 R4b: a newer ask leaves the old answer done, while its stopped note stays red", async () => {
+    const waiting = await renderView(
+      [
+        userTurn("一"),
+        agentTurn(message("a1", "上一轮答完了")),
+        userTurn("二"),
+      ],
+      { running: true },
+    );
+
+    expect(
+      styleOf(waiting.getByTestId("conversation:turn:1")).borderLeftColor,
+    ).toBe(palette.light.green);
+
+    const stopped = await renderView(
+      [
+        userTurn("一"),
+        agentTurn(message("a2", "做到一半"), {
+          kind: "meta",
+          key: "stopped-1",
+          label: t("chat.stoppedNote"),
+        }),
+        userTurn("二"),
+      ],
+      { running: true },
+    );
+
+    expect(
+      styleOf(stopped.getByTestId("conversation:turn:1")).borderLeftColor,
+    ).toBe(palette.light.red);
   });
 
   it("KIN-MOBILE-002 R4b: a pending approval turns the last agent turn's spine orange", async () => {

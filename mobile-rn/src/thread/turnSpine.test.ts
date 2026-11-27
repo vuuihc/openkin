@@ -4,6 +4,7 @@ import type {
   Turn,
 } from "../../../ui/src/components/chat/transcriptProjection";
 import {
+  lastAgentTurnIndex,
   roundEndedUncleanly,
   spineFor,
   type SpineContext,
@@ -42,6 +43,7 @@ function ctx(overrides: Partial<SpineContext> = {}): SpineContext {
     running: false,
     failed: false,
     awaitingApproval: false,
+    stoppedNote: STOPPED,
     ...overrides,
   };
 }
@@ -88,6 +90,50 @@ describe("KIN-MOBILE-002 R4b spine decision table", () => {
     expect(spineFor(agentTurn(message("m1", "更早的答复")), 1, ctx())).toBe("done");
     expect(spineFor(agentTurn(message("m2", "上一轮")), 1, running)).toBe("done");
     expect(spineFor(agentTurn(message("m3", "这一轮")), 3, running)).toBe("running");
+  });
+
+  it("KIN-MOBILE-002 R4b: a trailing person turn means no earlier agent turn is live", () => {
+    const waitingForAgent = [
+      userTurn("问"),
+      agentTurn(message("m1", "上一轮答完了")),
+      userTurn("再问"),
+    ];
+
+    expect(lastAgentTurnIndex(waitingForAgent)).toBe(-1);
+    expect(
+      spineFor(
+        waitingForAgent[1]!,
+        1,
+        ctx({
+          lastAgentIndex: lastAgentTurnIndex(waitingForAgent),
+          running: true,
+        }),
+      ),
+    ).toBe("done");
+    expect(
+      lastAgentTurnIndex([userTurn("问"), agentTurn(message("m2", "这轮在做"))]),
+    ).toBe(1);
+  });
+
+  it("KIN-MOBILE-002 R4b: a stop note inside an agent turn stays failed after a newer ask arrives", () => {
+    const stoppedAgent = agentTurn(message("m1", "做到一半"), {
+      kind: "meta",
+      key: "stopped-9",
+      label: STOPPED,
+    });
+    const afterNewAsk = [userTurn("问"), stoppedAgent, userTurn("再问")];
+
+    expect(roundEndedUncleanly(afterNewAsk, STOPPED)).toBe(false);
+    expect(
+      spineFor(
+        stoppedAgent,
+        1,
+        ctx({
+          lastAgentIndex: lastAgentTurnIndex(afterNewAsk),
+          running: true,
+        }),
+      ),
+    ).toBe("failed");
   });
 });
 
