@@ -734,7 +734,7 @@
     },
     {
       "id": "KIN-AGENTS-002",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J6"
