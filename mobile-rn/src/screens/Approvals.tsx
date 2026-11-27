@@ -28,7 +28,7 @@ import {
 } from "react-native";
 import { focusNode } from "../a11y/focus";
 import { useTheme } from "../theme/useTheme";
-import { wash, type Palette } from "../theme/tokens";
+import { radius, wash, type Palette } from "../theme/tokens";
 import type {
   ApprovalEntry,
   ApprovalsState,
@@ -260,10 +260,10 @@ function ApprovalCard({
           accessibilityState={{ disabled: !actionable }}
           disabled={!actionable}
           onPress={() => onApprove(entry.id)}
-          style={[styles.action, !actionable && styles.actionDim]}
+          style={[styles.action, styles.approve, !actionable && styles.actionDim]}
           testID={`approve:${entry.id}`}
         >
-          <Text style={styles.actionText}>
+          <Text style={[styles.actionText, styles.approveLabel]}>
             {submitting ? t("approval.approving") : t("chat.approve")}
           </Text>
         </Pressable>
@@ -277,10 +277,10 @@ function ApprovalCard({
           accessibilityState={{ disabled: !actionable }}
           disabled={!actionable}
           onPress={() => onDeny(entry.id)}
-          style={[styles.action, !actionable && styles.actionDim]}
+          style={[styles.action, styles.deny, !actionable && styles.actionDim]}
           testID={`deny:${entry.id}`}
         >
-          <Text style={styles.actionText}>
+          <Text style={[styles.actionText, styles.denyLabel]}>
             {submitting ? t("approval.denying") : t("chat.deny")}
           </Text>
         </Pressable>
@@ -597,6 +597,19 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
+  /**
+   * 批准 is the card's one filled control: the brand pigment with the ink
+   * `theme.css` assigns to it, at the frame's button radius. 拒绝 is its
+   * outlined counterpart in red ink, so the safe action never reads as the
+   * destructive one (KIN-MOBILE-002 R5, the frame's approval card).
+   */
+  approve: {
+    backgroundColor: colors.blue,
+    borderRadius: radius.bubble,
+  },
+  approveLabel: {
+    color: colors.onBrand,
+  },
   badge: {
     color: colors.orangeInk,
     fontSize: 13,
@@ -622,8 +635,9 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     gap: 12,
   },
   card: {
+    backgroundColor: colors.elevated,
     borderColor: colors.hairlineStrong,
-    borderRadius: 12,
+    borderRadius: radius.card,
     borderWidth: 1,
     gap: 8,
     padding: 12,
@@ -637,6 +651,14 @@ const makeStyles = (colors: Palette) => StyleSheet.create({
     gap: 12,
     padding: 16,
     paddingBottom: 32,
+  },
+  deny: {
+    backgroundColor: "transparent",
+    borderColor: colors.hairlineStrong,
+    borderWidth: 1,
+  },
+  denyLabel: {
+    color: colors.redInk,
   },
   detail: {
     color: colors.secondary,
