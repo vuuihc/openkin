@@ -77,6 +77,110 @@ gate_lock_decision() { # <acquired|timeout> <slug> <sha> <state-dir> -> 0 SKIP /
   GATE_LOCK_REASON="gate lock timeout on ${sha:0:8}: another verifier holds it; cycle skipped, no sendback"
   return 0
 }
+# A gate that starts on a head which then MOVES is a verdict nobody can use: the eight minutes of
+# check.sh + review are already spent on a dead SHA, and the verdict either gets dropped silently or
+# (worse) turns into a sendback for a branch that already contains the fix. The review-side half of
+# this rule is in sendback(); this is the gate-side half (R-merge-gate-head: 2026-11-27 #812 was
+# gated on a257d605 while the live head was 67460726, eight minutes of gate and review on a SHA whose
+# verdict could not be used). Re-read the head while the gate runs and unwind as a SKIP, the same
+# contract gate_lock_decision uses for loop contention: no sendback, no attempt, no PASS line.
+# Fail closed on READING: a blank head, a non-oid (a gh warning line) or a failing gh keeps today's
+# behaviour, because killing a gate on a bad read is worse than finishing on a head that the
+# post-review suppression still catches.
+GATE_HEAD_POLL_SECS="${RSI_HEAD_POLL_SECS:-20}"
+case "$GATE_HEAD_POLL_SECS" in ''|*[!0-9]*|0) GATE_HEAD_POLL_SECS=20 ;; esac
+# The watcher never extends a gate: after this many seconds it stops polling the head and falls back
+# to the plain wait, so the gate's own duration (its verifier slot) is exactly today's.
+GATE_WATCH_MAX_SECS="${RSI_GATE_WATCH_MAX_SECS:-3600}"
+case "$GATE_WATCH_MAX_SECS" in ''|*[!0-9]*|0) GATE_WATCH_MAX_SECS=3600 ;; esac
+head_moved_live() { # <pr> <sha> -> prints the live head; 0 only when it is an oid and differs from sha
+  local n="$1" sha="$2" live f rc
+  [ -n "$n" ] && [ -n "$sha" ] || return 1
+  # Bounded, and read through a scratch file rather than a command substitution: a stalled gh must
+  # not hold the watcher (and the .gate.lock behind it) forever, and with_timeout's kill cannot
+  # unblock $( ) while a surviving child still holds the pipe open (reproduced with a sleeping
+  # reader: the watcher stayed blocked past 60 s). Either failure reads as unreadable, which fails
+  # open exactly like a failing gh.
+  f="$(mktemp "${TMPDIR:-/tmp}/rsi-head.XXXXXX")" || return 1
+  with_timeout 15 pr_head "$n" > "$f" 2>/dev/null; rc=$?
+  live="$(cat "$f" 2>/dev/null)"; rm -f "$f"
+  [ "$rc" -eq 0 ] || return 1
+  oid "$live" || return 1
+  [ "$live" != "$sha" ] || return 1
+  printf '%s\n' "$live"
+}
+head_moved_skip() { # <pr> <slug> <stale> <live> <state>: one cycles line, at most one operator line per stale head
+  local n="$1" slug="$2" stale="$3" live="$4" state="$5" marker
+  printf '%s #%s %s head_moved_skip stale=%s live=%s\n' \
+    "$(date '+%F %H:%M')" "$n" "$slug" "${stale:0:8}" "${live:0:8}" >> "$state/merge/cycles.log"
+  marker="$state/merge/$slug.head-moved.$stale"   # per stale head: a repeat cycle must not spam needs-ceo
+  [ -e "$marker" ] && return 0
+  : > "$marker"
+  printf -- '- %s PR #%s rsi/%s: head moved %s -> %s during the gate; cycle skipped, no verdict, no sendback (re-gate on the new head)\n' \
+    "$(date '+%F %H:%M')" "$n" "$slug" "${stale:0:8}" "${live:0:8}" >> "$state/needs-ceo.md"
+  return 0
+}
+# The unwind every gate invocation shares: a killed reviewer's half-written output is discarded,
+# never promoted to $PREV; the machine-wide lock is released on every path (a leaked lock costs the
+# next PR up to 30 minutes); the skip is recorded once. The caller exits the cycle immediately after.
+gate_head_unwind() { # <pr> <slug> <state> <live-head>
+  local n="$1" slug="$2" state="$3" live="$4" prev
+  prev="$state/merge/$slug.review.txt"   # separate: bash 3.2's `local` cannot expand a same-line sibling
+  if [ -n "${REVPID:-}" ]; then rsi_kill_tree "$REVPID"; wait "$REVPID" 2>/dev/null || true; REVPID=""; CHILD=""; fi
+  rm -rf "$state/.gate.lock"
+  rm -f "$prev.new"
+  head_moved_skip "$n" "$slug" "${SHA:-}" "$live" "$state"
+  say "#$n $slug: head moved ${SHA:0:8} -> ${live:0:8} during the gate; cycle skipped, no verdict, no sendback"
+  return 0
+}
+# Run the gate while a watcher re-reads the live PR head. 0 = the gate finished (GATE_RC holds its
+# exit code); 2 = the head moved (GATE_LIVE_HEAD holds the new oid, the gate's whole process tree was
+# killed). The watcher writes the live head BEFORE it kills, so a parent that returns from wait()
+# knows the death was a head move and not a gate that finished.
+gate_watched() { # <pr> <sha> <state> <slug> <gate-log> <worktree> <cmd...>
+  local n="$1" sha="$2" state="$3" slug="$4" gl="$5" wt="$6" marker
+  shift 6
+  marker="$state/merge/$slug.gate-live-head"; rm -f "$marker"
+  GATE_LIVE_HEAD=""
+  # The TERM trap keeps a killed gate's exit normal, so bash prints no "Terminated" job line
+  # into the verifier log; rsi_kill_tree has already killed the gate's own children.
+  ( trap 'exit 143' TERM; if [ -n "$wt" ]; then cd "$wt" || exit 1; fi; "$@" ) > "$gl" 2>&1 &
+  local gp=$! wp=""
+  # A signal while we wait must not leave the gate or the watcher behind: the caller's cleanup
+  # only knows $CHILD (the reviewer), and a synchronous gate used to keep the verifier waiting.
+  # Kill both, then restore the script's own exit convention for the rest of the verifier.
+  trap 'rsi_kill_tree "$gp" 2>/dev/null; kill "${wp:-}" 2>/dev/null; exit 143' TERM
+  trap 'rsi_kill_tree "$gp" 2>/dev/null; kill "${wp:-}" 2>/dev/null; exit 129' HUP
+  trap 'rsi_kill_tree "$gp" 2>/dev/null; kill "${wp:-}" 2>/dev/null; exit 130' INT
+  (
+    sp=""; w=0; live=""
+    # A cancelled watcher must not leave its sleep behind for a whole poll interval.
+    trap '[ -n "${sp:-}" ] && kill "$sp" 2>/dev/null; exit 0' TERM INT
+    while kill -0 "$gp" 2>/dev/null; do
+      sleep "$GATE_HEAD_POLL_SECS" & sp=$!; wait "$sp" || exit 0; sp=""
+      kill -0 "$gp" 2>/dev/null || exit 0
+      w=$((w + GATE_HEAD_POLL_SECS)); [ "$w" -le "$GATE_WATCH_MAX_SECS" ] || exit 0
+      live="$(head_moved_live "$n" "$sha")" || continue
+      printf '%s\n' "$live" > "$marker" 2>/dev/null || true
+      rsi_kill_tree "$gp"
+      exit 0
+    done
+  ) &
+  wp=$!
+  wait "$gp"; GATE_RC=$?; gp=""   # reaped: a late signal must not chase a reused pid
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  if [ -s "$marker" ]; then
+    # The watcher is mid-kill (it wrote the marker first): give it its bounded finish, then reap it.
+    local i=0
+    while [ "$i" -lt 30 ] && kill -0 "$wp" 2>/dev/null; do sleep 0.1; i=$((i+1)); done
+  fi
+  kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; wp=""
+  local live; live="$(cat "$marker" 2>/dev/null || true)"; rm -f "$marker"
+  if oid "$live" && [ "$live" != "$sha" ]; then GATE_LIVE_HEAD="$live"; return 2; fi
+  return 0
+}
 item_id() { # slug body -> the marker's id, else R-<slug>: the one reader and the one fallback rule
   local id
   id="$(printf '%s\n' "$2" | python3 "$RSI_DIR/runtime/item_marker.py")"
@@ -2010,6 +2114,20 @@ if [ "${1:-}" != "--one" ]; then
     [ $GLRC -eq 0 ] && { echo "SKIP $GATE_LOCK_REASON"; exit 0; }
     echo "GATE $GATE_LOCK_REASON"; exit 1
   fi
+  # Hermetic seam for rsi/runtime/tests/test-merge-gate-head.sh: the same gate_watched() and
+  # gate_head_unwind() the gate body runs, over a stub gate command and a stubbed PR head
+  # (RSI_PR_HEAD_CMD), with RSI_HEAD_POLL_SECS shortened. No lock acquisition, fetch, review,
+  # dispatch or real gate.
+  if [ "${1:-}" = "--gate-head-check" ]; then
+    [ $# -ge 7 ] || { echo "usage: merge.sh --gate-head-check <pr> <sha> <state-dir> <slug> <gate-log> <gate-cmd...>" >&2; exit 2; }
+    GHN="$2"; SHA="$3"; GHSTATE="$4"; GHSLUG="$5"; GHGL="$6"; shift 6
+    REVPID="${RSI_TEST_REV_PID:-}"; [ -n "$REVPID" ] && CHILD="$REVPID"
+    if gate_watched "$GHN" "$SHA" "$GHSTATE" "$GHSLUG" "$GHGL" "" "$@"; then
+      echo "GATE $GATE_RC"; exit 0
+    fi
+    gate_head_unwind "$GHN" "$GHSLUG" "$GHSTATE" "$GATE_LIVE_HEAD"
+    echo "SKIP $GATE_LIVE_HEAD"; exit 0
+  fi
   # Hermetic seam for rsi/runtime/tests/test-gate-no-verdict.sh: the same skip decision the
   # verifier applies to a gate log the gate refused to judge. No lock, fetch, gate, gh or review.
   if [ "${1:-}" = "--no-verdict-check" ]; then
@@ -2586,15 +2704,27 @@ if [ $NEED_GATE -eq 1 ]; then
         SHA="$($GIT -C "$WT" rev-parse HEAD)"
       fi
     fi
-    ( cd "$WT" && RSI_DIST_BUILT_SHA="$BUILT_SHA" bash "$RSI_DIR/runtime/gate.sh" "$WT" ) > "$GL" 2>&1; GRC=$?; rm -rf "$STATE/.gate.lock"
-    $GIT -C "$WT" checkout -q -- . 2>/dev/null   # drop build leftovers (tracked files only) in our own rsi worktree
+    if gate_watched "$N" "$SHA" "$STATE" "$SLUG" "$GL" "$WT" env RSI_DIST_BUILT_SHA="$BUILT_SHA" bash "$RSI_DIR/runtime/gate.sh" "$WT"; then
+      GRC=$GATE_RC; rm -rf "$STATE/.gate.lock"
+      $GIT -C "$WT" checkout -q -- . 2>/dev/null   # drop build leftovers (tracked files only) in our own rsi worktree
+    else
+      # The PR head moved while the gate ran: the gate's verdict would be about a SHA nobody can
+      # merge. Kill the tree (gate_watched did), drop the leftovers, skip the cycle.
+      $GIT -C "$WT" checkout -q -- . 2>/dev/null
+      gate_head_unwind "$N" "$SLUG" "$STATE" "$GATE_LIVE_HEAD"; exit 0
+    fi
     # Mechanical failure (format only): format the changed files, commit, push, re-gate ONCE. Not a sendback, not a rework round.
     if [ $GRC -ne 0 ] && [ "$(grep '^GATE_RESULT' "$GL" | head -1 | sed 's/.*FAIL: *//; s/ *$//')" = prettier ] && [ ! -e "$STATE/merge/$SLUG.autoformatted.$SHA" ]; then
       touch "$STATE/merge/$SLUG.autoformatted.$SHA"; say "#$N $SLUG: gate failed on prettier only -> auto-format, push, re-gate (mechanical)"
       if bash "$RSI_DIR/runtime/format-changed.sh" --write --commit --check "$WT" >> "$GL.fmt" 2>&1 && with_timeout 120 "$GIT" -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null; then
         SHA="$($GIT -C "$WT" rev-parse HEAD)"; GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"
         if mklock "$STATE/.gate.lock" 1800; then
-          ( cd "$WT" && bash "$RSI_DIR/runtime/gate.sh" "$WT" ) > "$GL" 2>&1; GRC=$?; rm -rf "$STATE/.gate.lock"; $GIT -C "$WT" checkout -q -- . 2>/dev/null
+          if gate_watched "$N" "$SHA" "$STATE" "$SLUG" "$GL" "$WT" bash "$RSI_DIR/runtime/gate.sh" "$WT"; then
+            GRC=$GATE_RC; rm -rf "$STATE/.gate.lock"; $GIT -C "$WT" checkout -q -- . 2>/dev/null
+          else
+            $GIT -C "$WT" checkout -q -- . 2>/dev/null
+            gate_head_unwind "$N" "$SLUG" "$STATE" "$GATE_LIVE_HEAD"; exit 0
+          fi
         else
           gate_lock_decision timeout "$SLUG" "$SHA" "$STATE"
           say "#$N $SLUG: $GATE_LOCK_REASON (re-gate after auto-format); skipping this cycle"
@@ -2610,7 +2740,12 @@ if [ $NEED_GATE -eq 1 ]; then
         if mklock "$STATE/.gate.lock" 1800; then
           # Consumed only when the retry really runs: a lock-timeout skip keeps it for the next cycle.
           touch "$STATE/merge/$SLUG.gate-outside-retry.$SHA"
-          ( cd "$WT" && bash "$RSI_DIR/runtime/gate.sh" "$WT" ) > "$GL" 2>&1; GRC=$?; rm -rf "$STATE/.gate.lock"; $GIT -C "$WT" checkout -q -- . 2>/dev/null
+          if gate_watched "$N" "$SHA" "$STATE" "$SLUG" "$GL" "$WT" bash "$RSI_DIR/runtime/gate.sh" "$WT"; then
+            GRC=$GATE_RC; rm -rf "$STATE/.gate.lock"; $GIT -C "$WT" checkout -q -- . 2>/dev/null
+          else
+            $GIT -C "$WT" checkout -q -- . 2>/dev/null
+            gate_head_unwind "$N" "$SLUG" "$STATE" "$GATE_LIVE_HEAD"; exit 0
+          fi
         else
           gate_lock_decision timeout "$SLUG" "$SHA" "$STATE"
           say "#$N $SLUG: $GATE_LOCK_REASON (outside-footprint re-gate); skipping this cycle"

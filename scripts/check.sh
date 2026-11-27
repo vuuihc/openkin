@@ -324,6 +324,8 @@ job_shell_test() {
   bash rsi/runtime/tests/test-runtime-modes.sh || return 1
   bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
   bash rsi/runtime/tests/test-gate-carry.sh || return 1
+  # A gate that starts on a head which then moves unwinds as a skip, not a verdict (R-merge-gate-head).
+  bash rsi/runtime/tests/test-merge-gate-head.sh || return 1
   # The default gate starts only the jobs CI does not run; this pins the split and the
   # premises that make dropping the rest safe (R-gate-ci-dedupe).
   bash rsi/runtime/tests/test-check-job-parity.sh || return 1
