@@ -1044,6 +1044,243 @@ case_gh_override_is_honoured() {
   [ "$actual" = "$T/test-gh" ] || fail "RSI_GH override ignored"
 }
 
+# --- producer PR: a PR opened outside a lane runs the same claim rule before it exists -----------
+# Measured 2026-11-27: the nightly DREAM consolidation (#828) and a CEO docs PR (#819) reached
+# `gh pr create` with no lane record; #828's body had no column-0 `Claim check:` line, so the merge
+# gate sent it back after a full gate and an independent review (rework 20:35 → 20:51). The lane has
+# run this rule before its push since #833; rsi/runtime/producer-pr.sh is the producer's half. These
+# cases drive the CLI the producers call, with a stub gh that records every argv and publishes the
+# --body-file bytes, so "no PR exists" and "these exact bytes were uploaded" are both observable.
+PRODUCER="$RUNTIME/producer-pr.sh"
+
+# producer_stub <dir> — a stub gh that logs every argv, publishes the --body-file bytes, and can
+# fail its first create with the transient GitHub error #329 saw before returning a URL.
+producer_stub() { # <dir>
+  local dir="$1"
+  rm -rf "$dir"; mkdir -p "$dir"
+  PSTUB="$dir"; PCALLS="$dir/gh.calls"; PBODY="$dir/uploaded.body"; PFAIL="$dir/fail-once"
+  : > "$PCALLS"; rm -f "$PBODY" "$PFAIL"
+  cat > "$dir/gh" <<'SH'
+#!/bin/bash
+printf '%s\n' "$*" >> "$STUB_CALLS"
+# publish — keep the bytes the caller handed gh as the PR body, like a real `pr create`/`pr edit`
+# keeps GitHub's copy. STUB_EXISTING makes create report the branch's PR already exists (exit 1,
+# the URL in the message) without publishing, as gh does on a re-run for an open PR.
+publish() {
+  local f="" a prev=""
+  for a in "$@"; do [ "$prev" = --body-file ] && f="$a"; prev="$a"; done
+  [ -n "$f" ] && cp "$f" "$STUB_BODY"
+  return 0
+}
+case "$1 $2" in
+  'pr create')
+    if [ "${STUB_EXISTING:-}" = 1 ]; then
+      echo 'a pull request for branch "rsi/dream-2026-01-01" into "main" already exists: https://github.com/owner/repo/pull/4242' >&2
+      exit 1
+    fi
+    if [ -n "${STUB_FAIL_ONCE:-}" ] && [ ! -f "$STUB_FAIL_ONCE" ]; then
+      : > "$STUB_FAIL_ONCE"
+      echo 'Post "https://api.github.com/graphql": EOF' >&2
+      exit 1
+    fi
+    publish "$@"
+    printf 'https://github.com/owner/repo/pull/4242\n'
+    ;;
+  'pr list') : ;;
+  'pr edit') publish "$@" ;;
+  *) echo "unexpected gh command: $*" >&2; exit 1 ;;
+esac
+SH
+  chmod +x "$dir/gh"
+}
+
+# pseam <worktree> <body-file> — run the producer CLI against the current fixture. Sets POUT
+# (stdout), PERR (stderr) and PRC. The retry pause is zero so the transient-failure case is quick.
+pseam() {
+  PERR="$T/producer.err"; rm -f "$PERR"
+  POUT="$(RSI_CTRL="$CTRL" HOME="$T/home" GH="$PSTUB/gh" STUB_CALLS="$PCALLS" \
+    STUB_BODY="$PBODY" STUB_FAIL_ONCE="${PFAIL_ONCE:-}" STUB_EXISTING="${PEXISTING:-}" \
+    RSI_GH_PR_RETRY_SLEEP=0 \
+    bash "$PRODUCER" "$1" "$2" owner/repo main rsi/dream-2026-01-01 'dream consolidation' \
+    2>"$PERR")"
+  PRC=$?
+}
+
+# A false prose claim is refused before any gh call: the body the merge gate would reject never
+# becomes a PR, so no rework round is spent on it.
+case_a_false_prose_claim_never_opens_the_pr() {
+  new_repo producer-false
+  change docs/plans/gap-log.md '- a sentence the claim cannot prove'
+  producer_stub "$T/producer-false-stub"
+  body "Claim check: printf 'REAL-OUTPUT-42\n'" "Claim output:" "a line the command never printed"
+  pseam "$R" "$BODY"
+  [ "$PRC" -eq 1 ] || fail "pfalse: exit $PRC, want 1 ($POUT; $(cat "$PERR"))"
+  grep -qF 'PRODUCER_PR_REFUSED: CLAIM_LANE_FAIL:' <<<"$POUT" \
+    || fail "pfalse: the refusal does not name the claim FAIL: $POUT"
+  [ "$(grep -c '^pr create' "$PCALLS")" -eq 0 ] \
+    || fail "pfalse: a false claim still called gh pr create: $(cat "$PCALLS")"
+}
+
+# A proven claim opens the PR with the bytes the seam read: one create, one OK line.
+case_a_passing_prose_claim_opens_the_pr_with_the_body_the_seam_read() {
+  new_repo producer-pass
+  change docs/plans/gap-log.md '- a sentence the tree supports'
+  producer_stub "$T/producer-pass-stub"
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  pseam "$R" "$BODY"
+  [ "$PRC" -eq 0 ] || fail "ppass: exit $PRC, want 0 ($POUT; $(cat "$PERR"))"
+  [ "$POUT" = 'PRODUCER_PR_OK: https://github.com/owner/repo/pull/4242' ] \
+    || fail "ppass: the producer must print exactly one OK line on stdout: $POUT"
+  [ "$(grep -c '^pr create' "$PCALLS")" -eq 1 ] \
+    || fail "ppass: want exactly one gh pr create: $(cat "$PCALLS")"
+  cmp -s "$BODY" "$PBODY" || fail "ppass: the uploaded body is not the source body"
+}
+
+# A re-run for a branch whose PR is already open: gh_pr_create returns the existing URL from the
+# "already exists" message without uploading --body-file (lane-pr.sh), so GitHub keeps the body an
+# earlier round wrote and the prompt's "fix the body and re-run the helper" changes nothing. The
+# producer must publish the snapshot the seam read on every run, not only when it creates the PR.
+case_a_rerun_for_an_open_pr_still_uploads_the_checked_body() {
+  new_repo producer-existing
+  change docs/plans/gap-log.md '- a sentence the tree supports'
+  producer_stub "$T/producer-existing-stub"
+  printf 'the stale body an earlier round opened the PR with\n' > "$PBODY"
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  PEXISTING=1
+  pseam "$R" "$BODY"
+  PEXISTING=""
+  [ "$PRC" -eq 0 ] || fail "pexisting: exit $PRC, want 0 ($POUT; $(cat "$PERR"))"
+  [ "$POUT" = 'PRODUCER_PR_OK: https://github.com/owner/repo/pull/4242' ] \
+    || fail "pexisting: the producer must print the existing PR's OK line: $POUT"
+  grep -q '^pr create ' "$PCALLS" || fail "pexisting: the create path was not exercised"
+  grep -q '^pr edit 4242 --repo owner/repo --body-file ' "$PCALLS" \
+    || fail "pexisting: the existing PR's body was never edited: $(cat "$PCALLS")"
+  cmp -s "$BODY" "$PBODY" \
+    || fail "pexisting: the edited body is not the snapshot the seam read: $(cat "$PBODY" 2>/dev/null)"
+  ! grep -qF 'the stale body' "$PBODY" 2>/dev/null \
+    || fail "pexisting: GitHub kept the earlier round's body"
+}
+
+# A code-only diff is never asked for a claim check, and the NA path still creates one PR.
+case_a_code_only_diff_opens_the_pr_with_no_body_read() {
+  new_repo producer-code
+  change ui/src/foo.ts 'export const foo = 4'
+  producer_stub "$T/producer-code-stub"
+  body "A code-only delivery with no claim line."
+  pseam "$R" "$BODY"
+  [ "$PRC" -eq 0 ] || fail "pcode: exit $PRC, want 0 ($POUT; $(cat "$PERR"))"
+  grep -qF 'PRODUCER_PR_SEAM: CLAIM_LANE_NA:' "$PERR" \
+    || fail "pcode: the producer did not take the NA path: $(cat "$PERR")"
+  [ "$(grep -c '^pr create' "$PCALLS")" -eq 1 ] \
+    || fail "pcode: want exactly one gh pr create: $(cat "$PCALLS")"
+  cmp -s "$BODY" "$PBODY" || fail "pcode: the uploaded body is not the source body"
+}
+
+# The reasoned waiver is the escape hatch, and it opens the PR like any other passing verdict.
+case_a_reasoned_waiver_opens_the_pr() {
+  new_repo producer-waiver
+  change docs/product/IA.md '- a heading rename'
+  producer_stub "$T/producer-waiver-stub"
+  body "Claim check: none: this PR only renames a heading; no command can prove a rename"
+  pseam "$R" "$BODY"
+  [ "$PRC" -eq 0 ] || fail "pwaiver: exit $PRC, want 0 ($POUT; $(cat "$PERR"))"
+  grep -qF 'PRODUCER_PR_SEAM: CLAIM_LANE_WAIVED:' "$PERR" \
+    || fail "pwaiver: the producer did not take the waiver path: $(cat "$PERR")"
+  [ "$(grep -c '^pr create' "$PCALLS")" -eq 1 ] \
+    || fail "pwaiver: want exactly one gh pr create: $(cat "$PCALLS")"
+}
+
+# The producer snapshots the body before the seam and uploads that snapshot: a rewrite during the
+# seam (a stray generator, the claim command itself) must not be the body GitHub keeps.
+case_a_body_rewritten_during_the_seam_is_not_the_one_uploaded() {
+  local dir="$T/producer-rewrite" src="$T/producer-rewrite-source.body"
+  rm -rf "$dir"; mkdir -p "$dir/runtime"
+  cp "$PRODUCER" "$dir/runtime/producer-pr.sh" || fail "rewrite: cannot copy the producer"
+  cp "$RUNTIME/lane-pr.sh" "$dir/runtime/lane-pr.sh" || fail "rewrite: cannot copy lane-pr.sh"
+  cat > "$dir/runtime/lane.sh" <<'SH'
+#!/bin/bash
+printf 'CLAIM_LANE_OK: stub seam\n'
+printf 'rewritten by the seam\n' > "$STUB_SOURCE_BODY"
+exit 0
+SH
+  chmod +x "$dir/runtime/lane.sh"
+  producer_stub "$T/producer-rewrite-stub"
+  printf 'the body the seam read\n' > "$src"
+  PERR="$T/producer.err"; rm -f "$PERR"
+  POUT="$(RSI_CTRL="$CTRL" HOME="$T/home" GH="$PSTUB/gh" STUB_CALLS="$PCALLS" \
+    STUB_BODY="$PBODY" STUB_SOURCE_BODY="$src" RSI_GH_PR_RETRY_SLEEP=0 \
+    bash "$dir/runtime/producer-pr.sh" "$T" "$src" owner/repo main rsi/dream-x 'dream' \
+    2>"$PERR")"
+  PRC=$?
+  [ "$PRC" -eq 0 ] || fail "rewrite: exit $PRC, want 0 ($POUT; $(cat "$PERR"))"
+  grep -qxF 'rewritten by the seam' "$src" || fail "rewrite: the stub seam did not rewrite the source"
+  grep -qxF 'the body the seam read' "$PBODY" \
+    || fail "rewrite: the pre-seam bytes were not uploaded: $(cat "$PBODY" 2>/dev/null)"
+  ! grep -qF 'rewritten by the seam' "$PBODY" 2>/dev/null \
+    || fail "rewrite: a rewrite during the seam reached GitHub: $(cat "$PBODY")"
+}
+
+# #329's shape: gh reports `Post …: EOF` after GitHub may already have created the PR. The helper
+# must retry, look before creating, and still report one PR.
+case_a_transient_gh_create_failure_is_retried_without_duplicating() {
+  new_repo producer-retry
+  change docs/plans/gap-log.md '- a sentence the claim proves'
+  producer_stub "$T/producer-retry-stub"
+  PFAIL_ONCE="$PFAIL"
+  body "Claim check: grep -n 'Prose claim check' NOTES.md" "Claim output:" \
+       "2:Prose claim check: the KIN-CONTINUE-001 story is signed."
+  pseam "$R" "$BODY"
+  PFAIL_ONCE=""
+  [ "$PRC" -eq 0 ] || fail "pretry: exit $PRC, want 0 ($POUT; $(cat "$PERR"))"
+  [ "$(grep -c '^pr create' "$PCALLS")" -eq 2 ] \
+    || fail "pretry: want two create attempts: $(cat "$PCALLS")"
+  [ "$(grep -c '^PRODUCER_PR_OK: ' <<<"$POUT")" -eq 1 ] \
+    || fail "pretry: want exactly one PRODUCER_PR_OK line: $POUT"
+}
+
+# A seam that prints a passing verdict and then dies non-zero is not a pass: the exit code is an
+# independent signal, and a checker that crashed after printing must not open the PR.
+case_a_nonzero_exit_is_a_refusal_even_with_an_ok_verdict() {
+  local dir="$T/producer-exit" src="$T/producer-exit.body"
+  rm -rf "$dir"; mkdir -p "$dir/runtime"
+  cp "$PRODUCER" "$dir/runtime/producer-pr.sh" || fail "pexit: cannot copy the producer"
+  cp "$RUNTIME/lane-pr.sh" "$dir/runtime/lane-pr.sh" || fail "pexit: cannot copy lane-pr.sh"
+  cat > "$dir/runtime/lane.sh" <<'SH'
+#!/bin/bash
+printf 'CLAIM_LANE_OK: stub seam\n'
+exit 1
+SH
+  chmod +x "$dir/runtime/lane.sh"
+  producer_stub "$T/producer-exit-stub"
+  printf 'the body the seam read\n' > "$src"
+  PERR="$T/producer.err"; rm -f "$PERR"
+  POUT="$(RSI_CTRL="$CTRL" HOME="$T/home" GH="$PSTUB/gh" STUB_CALLS="$PCALLS" \
+    STUB_BODY="$PBODY" RSI_GH_PR_RETRY_SLEEP=0 \
+    bash "$dir/runtime/producer-pr.sh" "$T" "$src" owner/repo main rsi/dream-x 'dream' \
+    2>"$PERR")"
+  PRC=$?
+  [ "$PRC" -eq 1 ] || fail "pexit: exit $PRC, want 1 ($POUT; $(cat "$PERR"))"
+  grep -qF 'PRODUCER_PR_REFUSED: CLAIM_LANE_OK:' <<<"$POUT" \
+    || fail "pexit: the refusal does not name the OK verdict it rejected: $POUT"
+  [ "$(grep -c '^pr create' "$PCALLS")" -eq 0 ] \
+    || fail "pexit: a non-zero seam exit still opened a PR: $(cat "$PCALLS")"
+}
+
+# Static wiring: the in-repo producer reads its prompt, role card and README, not this test, so all
+# three must name the seam. A later edit that silently drops it turns this red.
+case_the_dream_producer_is_wired_to_the_seam() {
+  grep -qF 'producer-pr.sh' "$REPO/rsi/runtime/prompts/dream.md" \
+    || fail "wiring: rsi/runtime/prompts/dream.md does not name producer-pr.sh"
+  grep -qF 'producer-pr.sh' "$REPO/rsi/roles/dream.md" \
+    || fail "wiring: rsi/roles/dream.md does not name producer-pr.sh"
+  grep -qF 'producer-pr.sh' "$REPO/rsi/README.md" \
+    || fail "wiring: rsi/README.md does not name producer-pr.sh"
+  grep -qF 'PRODUCER_PR_REFUSED' "$REPO/rsi/runtime/prompts/dream.md" \
+    || fail "wiring: the dream prompt does not say a refusal means fixing the body"
+}
+
 RAN=0
 run() { # a case is named either case_... or its short form, x-...
   local short="${1#case_}"; short="${short//_/-}"
@@ -1093,5 +1330,14 @@ run case_upload_guards_refuse_a_snapshot_changed_after_the_push
 run case_live_body_timeout_fails_closed
 run case_live_body_check_timeout_fails_closed
 run case_gh_override_is_honoured
+run case_a_false_prose_claim_never_opens_the_pr
+run case_a_passing_prose_claim_opens_the_pr_with_the_body_the_seam_read
+run case_a_rerun_for_an_open_pr_still_uploads_the_checked_body
+run case_a_code_only_diff_opens_the_pr_with_no_body_read
+run case_a_reasoned_waiver_opens_the_pr
+run case_a_body_rewritten_during_the_seam_is_not_the_one_uploaded
+run case_a_transient_gh_create_failure_is_retried_without_duplicating
+run case_a_nonzero_exit_is_a_refusal_even_with_an_ok_verdict
+run case_the_dream_producer_is_wired_to_the_seam
 [ -z "$ONLY" ] || [ "$RAN" -gt 0 ] || fail "RSI_TEST_ONLY='$ONLY' matched no case"
 echo ALL-PASS
