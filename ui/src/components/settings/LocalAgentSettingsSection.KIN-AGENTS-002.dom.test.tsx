@@ -98,9 +98,7 @@ describe("KIN-AGENTS-002 · the two groups and what they read", () => {
   it("KIN-AGENTS-002 the agents tab has no detection group; import and roles keep their address", () => {
     render(section({}));
 
-    expect(
-      screen.queryByRole("heading", { name: detectionHeading(), level: 2 }),
-    ).toBeNull();
+    expect(screen.queryByRole("heading", { name: detectionHeading(), level: 2 })).toBeNull();
     expect(screen.getByRole("heading", { name: importHeading(), level: 2 })).not.toBeNull();
     expect(screen.getByRole("heading", { name: rolesHeading(), level: 2 })).not.toBeNull();
     expect(
@@ -144,7 +142,11 @@ describe("KIN-AGENTS-002 · the two groups and what they read", () => {
 
   it("KIN-AGENTS-002 a failed first read says it has no results instead of calling the list empty", () => {
     render(
-      section({ providersStatus: "failed", providersError: "daemon did not respond", providers: [] }),
+      section({
+        providersStatus: "failed",
+        providersError: "daemon did not respond",
+        providers: [],
+      }),
     );
 
     const imports = group(importHeading());
