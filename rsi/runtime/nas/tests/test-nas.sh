@@ -401,6 +401,58 @@ t_worktree_ownership() {
   check "M4 the dirty worktree is reported" grep -q 'uncommitted changes' "$T2/i2.log"
 }
 
+# --- T19: a clean worktree sitting on a newer main is materialised, not refused forever (M4) --------
+# Live 2026-11-27: a finished NAS job was refused on every pulse for 2h11m (48 passes). The lane
+# worktree was clean and on rsi/<slug>, but its branch merely stood at a newer main than the bundle's
+# base (`git log origin/main..HEAD` empty): HEAD was not an ancestor of the bundle ref, so the refusal
+# ladder treated a worktree with no work of its own as if it held unpublished commits. A worktree that
+# really carries its own commits must still be refused untouched (b1), and a dirty one too (b2).
+case_clean_worktree_ahead_of_bundle_syncs() {
+  # a1-a3: clean, on the right branch, at a newer main, zero commits of its own -> publishes.
+  local T; sandbox; T=$T
+  local bundle; bundle="$(job "$T" s1 R-T-19a 0)"      # bundle ref = the job commit
+  # Advance main past the bundle's base and push it, then stand the clean lane branch on that new
+  # main. The branch has no commits beyond origin/main, exactly the live topology.
+  git -C "$T/ctrl" checkout -q main
+  echo newer > "$T/ctrl/docs/newer-main.md"
+  git -C "$T/ctrl" add -A; git -C "$T/ctrl" commit -qm "chore: newer main"
+  git -C "$T/ctrl" push -q origin main
+  local newer; newer="$(git -C "$T/ctrl" rev-parse main)"
+  git -C "$T/ctrl" branch -f rsi/s1 "$newer"
+  git -C "$T/ctrl" worktree add -q "$T/wt/rsi-s1" rsi/s1
+  run_ingest "$T" > "$T/i1.log" 2>&1
+  check "M4 a clean worktree on a newer main still publishes" [ -s "$T/gh.log" ]
+  check "M4 it is consumed as ingested" [ "$(jget "$T/nas/work/jobs/s1/status.json" status)" = ingested ]
+  check "M4 its ack is recorded" grep -qx 's1:done:1700000000' "$T/state/nas/acks.txt"
+  check "M4 the pass reports the materialised bundle" grep -q 'had no commits of its own; materialised the NAS bundle' "$T/i1.log"
+  check "M4 it is not reported with the old refusal" bash -c "! grep -q 'commits the NAS bundle does not contain' '$T/i1.log'"
+  check "M4 the worktree HEAD proof ran at the bundle commit" [ "$(git -C "$T/wt/rsi-s1" rev-parse HEAD)" = "$bundle" ]
+  check "M4 the lane branch was not re-pointed" [ "$(git -C "$T/ctrl" rev-parse rsi/s1)" = "$newer" ]
+
+  # b1: a worktree carrying its own unpublished commit stays refused and byte-identical.
+  local T2; sandbox; T2=$T
+  job "$T2" s1 R-T-19b 0 >/dev/null
+  git -C "$T2/ctrl" worktree add -q -B rsi/s1 "$T2/wt/rsi-s1" rsi/s1
+  echo later > "$T2/wt/rsi-s1/docs/later.md"
+  git -C "$T2/wt/rsi-s1" add -A; git -C "$T2/wt/rsi-s1" commit -qm "fix: local rework commit"
+  local later; later="$(git -C "$T2/wt/rsi-s1" rev-parse HEAD)"
+  run_ingest "$T2" > "$T2/i1.log" 2>&1
+  check "M4 a worktree with its own commits is still refused" [ "$(git -C "$T2/wt/rsi-s1" rev-parse HEAD)" = "$later" ]
+  check "M4 it publishes nothing" [ ! -s "$T2/gh.log" ]
+  check "M4 it keeps the refusal verbatim" grep -q 'commits the NAS bundle does not contain; leaving it alone' "$T2/i1.log"
+  check "M4 it is not consumed" [ "$(jget "$T2/nas/work/jobs/s1/status.json" status)" = done ]
+
+  # b2: a dirty worktree is still refused before any of this (existing M4 behaviour).
+  local T3; sandbox; T3=$T
+  job "$T3" s2 R-T-19c 0 >/dev/null
+  git -C "$T3/ctrl" worktree add -q -B rsi/s2 "$T3/wt/rsi-s2" rsi/s2
+  echo dirty >> "$T3/wt/rsi-s2/docs/s2.md"
+  run_ingest "$T3" > "$T3/i1.log" 2>&1
+  check "M4 uncommitted edits still survive" grep -q dirty "$T3/wt/rsi-s2/docs/s2.md"
+  check "M4 a dirty worktree still publishes nothing" [ ! -s "$T3/gh.log" ]
+  check "M4 the dirty worktree is still reported" grep -q 'uncommitted changes' "$T3/i1.log"
+}
+
 # --- T18: a worktree that resolves to the control checkout is refused before any git mutation (M4) -
 # Live 2026-11-22 00:40: the control checkout (a symlink into the worktree root) physically pointed
 # at a registered lane's worktree directory, checked out on that lane's branch. A NAS result for
@@ -873,6 +925,7 @@ t_claim_gate_existing_pr_keeps_body
 t_claim_gate_no_verdict_holds
 t_release_ownership
 t_worktree_ownership
+case_clean_worktree_ahead_of_bundle_syncs
 case_wt_resolving_to_control_tree_is_refused
 case_control_tree_on_another_branch_is_still_refused
 case_distinct_worktree_still_syncs

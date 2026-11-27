@@ -373,7 +373,7 @@ real_path() { "$REALPATH_BIN" -c 'import os,sys; print(os.path.realpath(sys.argv
 # merge lock, never re-points an existing branch, and fast-forwards with `merge --ff-only`, which cannot
 # discard a HEAD that advanced after our checks. Prints why it refused and returns 1 to leave it alone.
 sync_worktree() { # SLUG WT BR REF EXPECT
-  local SLUG="$1" WT="$2" BR="$3" REF="$4" EXPECT="$5" CUR_BR CUR GOT WT_REAL CTRL_REAL
+  local SLUG="$1" WT="$2" BR="$3" REF="$4" EXPECT="$5" CUR_BR CUR GOT WT_REAL CTRL_REAL OWN
   # --- control-tree guard -----------------------------------------------------------------------
   # The control checkout can itself resolve into the worktree root: on 2026-11-22 the control
   # checkout was a symlink that physically pointed at a registered lane's worktree directory, with
@@ -426,9 +426,20 @@ sync_worktree() { # SLUG WT BR REF EXPECT
     echo "worktree $WT has uncommitted changes; leaving it alone"; slug_lock_drop; return 1
   fi
   if ! with_timeout 60 "$GIT" -C "$WT" merge-base --is-ancestor HEAD "$REF"; then
-    echo "worktree $WT has commits the NAS bundle does not contain; leaving it alone"; slug_lock_drop; return 1
-  fi
-  if ! with_timeout 120 "$GIT" -C "$WT" merge --ff-only -q "$REF" >/dev/null 2>&1; then
+    # The worktree is clean and on the right branch, but HEAD is not in the bundle's history. On
+    # 2026-11-27 that held a finished job 48 passes in a row: the lane branch merely stood at a
+    # newer main than the bundle's base, so it had no work of its own to lose. Only overwrite when
+    # that is provable — `origin/main..HEAD` counts zero commits — and materialise the bundle with a
+    # detached checkout, never re-pointing the branch. A worktree that really carries unpublished
+    # commits keeps today's refusal, verbatim, and is never touched.
+    OWN="$(with_timeout 60 "$GIT" -C "$WT" rev-list --count origin/main..HEAD 2>/dev/null || true)"
+    if [ "$OWN" != 0 ]; then
+      echo "worktree $WT has commits the NAS bundle does not contain; leaving it alone"; slug_lock_drop; return 1
+    fi
+    with_timeout 120 "$GIT" -C "$WT" checkout -q --detach "$REF" >/dev/null 2>&1 \
+      || { echo "worktree $WT could not be moved to the NAS bundle; leaving it alone"; slug_lock_drop; return 1; }
+    echo "worktree $WT had no commits of its own; materialised the NAS bundle at $EXPECT"
+  elif ! with_timeout 120 "$GIT" -C "$WT" merge --ff-only -q "$REF" >/dev/null 2>&1; then
     echo "worktree $WT could not be fast-forwarded safely; leaving it alone"; slug_lock_drop; return 1
   fi
   GOT="$(with_timeout 60 "$GIT" -C "$WT" rev-parse HEAD)"
