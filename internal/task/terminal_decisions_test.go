@@ -216,6 +216,186 @@ func TestFinishKeepsAHumanDecision(t *testing.T) {
 	wantNoPendingDecisions(t, e, st, taskID)
 }
 
+// waitForDecisionWaiters blocks until the long-polls have registered their
+// channel on the engine ("" skips that half). Ending the task only wakes a
+// waiter that is already there, so without this the test would race the finish
+// and pass on the waiter's timeout path even if the announce were deleted.
+func waitForDecisionWaiters(t *testing.T, e *Engine, approvalID, questionID string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		e.mu.Lock()
+		approvals := len(e.approvalWaiters[approvalID])
+		questions := len(e.userQuestionWaiters[questionID])
+		e.mu.Unlock()
+		if (approvalID == "" || approvals > 0) && (questionID == "" || questions > 0) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("the long-polls never registered as waiters, so the task ending would not be what wakes them")
+}
+
+// The settle is announced after the commit: the long-poll the MCP tool holds
+// must wake with the answer instead of blocking until its timeout, and the
+// transcript must gain the same approval_decided event a person's decision
+// writes. The waiter is registered before the task ends, so only the announce
+// can be what unblocks it.
+func TestFinishUnblocksPendingApprovalWaiter(t *testing.T) {
+	ctx := context.Background()
+	e, st, taskID, execID := startedTask(t)
+	a := requestPendingApproval(t, e, taskID)
+
+	waitCtx, cancelWait := context.WithCancel(context.Background())
+	t.Cleanup(cancelWait)
+	type waitResult struct {
+		approval store.Approval
+		err      error
+	}
+	waiter := make(chan waitResult, 1)
+	go func() {
+		got, err := e.WaitApproval(waitCtx, a.ID, 30*time.Second)
+		waiter <- waitResult{approval: got, err: err}
+	}()
+	waitForDecisionWaiters(t, e, a.ID, "")
+
+	if _, err := e.finishRun(ctx, taskID, execID, StatusFailed, nil, nil); err != nil {
+		t.Fatalf("finish failed: %v", err)
+	}
+
+	select {
+	case got := <-waiter:
+		if got.err != nil {
+			t.Fatalf("WaitApproval: %v", got.err)
+		}
+		if got.approval.Decision != store.DecisionExpired {
+			t.Fatalf("WaitApproval decision = %q, want %q", got.approval.Decision, store.DecisionExpired)
+		}
+		if got.approval.DecidedVia == nil || *got.approval.DecidedVia != "interrupt" {
+			t.Fatalf("WaitApproval decided_via = %v, want %q", got.approval.DecidedVia, "interrupt")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitApproval stayed blocked after the task ended: the settled decision was never announced")
+	}
+
+	events, err := st.ListEvents(ctx, taskID, 0)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	var sawDecided bool
+	for _, ev := range events {
+		if ev.Type != "approval_decided" {
+			continue
+		}
+		var payload struct {
+			ApprovalID string `json:"approval_id"`
+			Decision   string `json:"decision"`
+			DecidedVia string `json:"decided_via"`
+			DecidedAt  *int64 `json:"decided_at"`
+		}
+		if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+			t.Fatalf("approval_decided payload: %v", err)
+		}
+		if payload.ApprovalID != a.ID {
+			continue
+		}
+		sawDecided = true
+		if payload.Decision != store.DecisionExpired {
+			t.Fatalf("approval_decided decision = %q, want %q", payload.Decision, store.DecisionExpired)
+		}
+		if payload.DecidedVia != "interrupt" {
+			t.Fatalf("approval_decided decided_via = %q, want %q", payload.DecidedVia, "interrupt")
+		}
+		if payload.DecidedAt == nil || *payload.DecidedAt == 0 {
+			t.Fatalf("approval_decided has no decided_at: %s", ev.Payload)
+		}
+	}
+	if !sawDecided {
+		t.Fatal("no approval_decided event for the settled approval; its transcript card would stay pending forever")
+	}
+}
+
+// The question half of the same contract: WaitUserQuestion must wake with the
+// answered row, and the transcript must record user_question_answered with the
+// empty selection the interrupt answer already uses.
+func TestFinishUnblocksPendingQuestionWaiter(t *testing.T) {
+	ctx := context.Background()
+	e, st, taskID, execID := startedTask(t)
+	q := requestPendingQuestion(t, e, taskID)
+
+	waitCtx, cancelWait := context.WithCancel(context.Background())
+	t.Cleanup(cancelWait)
+	type waitResult struct {
+		question store.UserQuestion
+		err      error
+	}
+	waiter := make(chan waitResult, 1)
+	go func() {
+		got, err := e.WaitUserQuestion(waitCtx, q.ID, 30*time.Second)
+		waiter <- waitResult{question: got, err: err}
+	}()
+	waitForDecisionWaiters(t, e, "", q.ID)
+
+	if _, err := e.finishRun(ctx, taskID, execID, StatusSucceeded, nil, nil); err != nil {
+		t.Fatalf("finish succeeded: %v", err)
+	}
+
+	select {
+	case got := <-waiter:
+		if got.err != nil {
+			t.Fatalf("WaitUserQuestion: %v", got.err)
+		}
+		if got.question.Status != store.UQStatusAnswered {
+			t.Fatalf("WaitUserQuestion status = %q, want %q", got.question.Status, store.UQStatusAnswered)
+		}
+		if got.question.AnsweredVia == nil || *got.question.AnsweredVia != "interrupt" {
+			t.Fatalf("WaitUserQuestion answered_via = %v, want %q", got.question.AnsweredVia, "interrupt")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitUserQuestion stayed blocked after the task ended: the settled answer was never announced")
+	}
+
+	events, err := st.ListEvents(ctx, taskID, 0)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	var sawAnswered bool
+	for _, ev := range events {
+		if ev.Type != "user_question_answered" {
+			continue
+		}
+		var payload struct {
+			QuestionID  string          `json:"question_id"`
+			Status      string          `json:"status"`
+			Response    json.RawMessage `json:"response"`
+			AnsweredVia string          `json:"answered_via"`
+		}
+		if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+			t.Fatalf("user_question_answered payload: %v", err)
+		}
+		if payload.QuestionID != q.ID {
+			continue
+		}
+		sawAnswered = true
+		if payload.Status != store.UQStatusAnswered {
+			t.Fatalf("user_question_answered status = %q, want %q", payload.Status, store.UQStatusAnswered)
+		}
+		if payload.AnsweredVia != "interrupt" {
+			t.Fatalf("user_question_answered answered_via = %q, want %q", payload.AnsweredVia, "interrupt")
+		}
+		var response map[string]json.RawMessage
+		if err := json.Unmarshal(payload.Response, &response); err != nil {
+			t.Fatalf("user_question_answered response: %v", err)
+		}
+		if selected, ok := response["selected"]; !ok || string(selected) != "[]" {
+			t.Fatalf("user_question_answered response = %s, want {\"selected\":[]}", payload.Response)
+		}
+	}
+	if !sawAnswered {
+		t.Fatal("no user_question_answered event for the settled question; its transcript card would stay pending forever")
+	}
+}
+
 // Control: the cancel path already settled what was waiting on it before this
 // change. The same fixture through Cancel stays green on both trees and is what
 // shows the two tests above are about the missing end states, not the fixture.
