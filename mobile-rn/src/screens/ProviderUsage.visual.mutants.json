@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the identity dot is dropped, so the signed per-agent mark disappears from every row (R-rn-usage-sheet)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "        <View\n          accessibilityElementsHidden\n          importantForAccessibility=\"no-hide-descendants\"\n          style={[styles.identityDot, { backgroundColor: tint }]}\n          testID={`usage-agent-dot:${entry.agent}`}\n        />",
+    "new": "        {null}",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.visual.test.tsx -t \"KIN-MOBILE-002 R6: the usage rows show identity dots, right-aligned tabular amounts and proportional bars\""
+  },
+  {
+    "label": "the proportional bar ignores its share and fills the whole track for every agent (R-rn-usage-sheet)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "            { backgroundColor: tint, width: `${percent}%` },",
+    "new": "            { backgroundColor: tint, width: \"100%\" },",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.visual.test.tsx -t \"KIN-MOBILE-002 R6: the bar share matches the cost share of the window total\""
+  }
+]
