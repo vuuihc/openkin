@@ -1,6 +1,6 @@
 # 用户故事方案
 
-状态：24 条合同已写，22 条已签字（16 条 `covered`、6 条 `approved`、1 条 `draft`、1 条 `blocked`）；七条意图已于 2026-11-11 全部签字。逐条签字、逐条交付，不分阶段。
+状态：25 条合同已写，24 条已签字（19 条 `covered`、5 条 `approved`、0 条 `draft`、1 条 `blocked`）；七条意图已于 2026-11-11 全部签字。逐条签字、逐条交付，不分阶段。
 配套：[`IA.md`](../IA.md)（哪个面归谁）、[`TASTE.md`](../TASTE.md)（所有面长什么样）、[`stories/README.md`](README.md)（怎么写、怎么签、怎么交付）、[`LESSONS.md`](../LESSONS.md)（规则从真实缺陷长出来）。
 
 ## 一句话

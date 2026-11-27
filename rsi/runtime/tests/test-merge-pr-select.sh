@@ -118,6 +118,13 @@ cat > "$T/order.json" <<'EOF'
  {"number":20,"headRefName":"rsi/small-a","isDraft":false,"labels":[],"title":"small a",
   "body":"RSI item: R-small-a","files":[{"path":"docs/a.md","additions":1,"deletions":0}]}]
 EOF
+# Two small-safe PRs for the queue-wait order: the higher-numbered one listed second.
+cat > "$T/fifo.json" <<'EOF'
+[{"number":784,"headRefName":"rsi/rework-loop","isDraft":false,"labels":[],"title":"small a",
+  "body":"RSI item: R-rework-loop","files":[{"path":"docs/a.md","additions":1,"deletions":0}]},
+ {"number":790,"headRefName":"rsi/settings-coarse-links","isDraft":false,"labels":[],"title":"small b",
+  "body":"RSI item: R-settings-coarse-links","files":[{"path":"docs/b.md","additions":1,"deletions":0}]}]
+EOF
 
 # --- cases -------------------------------------------------------------------------------------
 
@@ -167,7 +174,7 @@ needs_ceo_label_skipped() {
   expect_none needs-ceo-label-skipped
 }
 
-# The extraction must not reorder: small-safe first, then PR number.
+# The extraction must not reorder: small-safe first, then longest-waiting, then PR number.
 small_before_large() {
   local got
   run_select "$T/order.json"
@@ -175,6 +182,48 @@ small_before_large() {
   got="$(printf '%s\n' "$OUT" | cut -f2 | paste -sd, -)"
   [ "$got" = "small-a,small-b,large-pr" ] \
     || fail "small-before-large: order is '$got', want 'small-a,small-b,large-pr' ($OUT)"
+}
+
+# A small that has been eligible longest is served first: #790 waited 200 minutes while the
+# lower-numbered #784 re-queued a minute ago, so #790's row must come first. Before the
+# longest-waiting sort, #784 always won on number and #790 starved with "small slots busy".
+longest_waiting_first() {
+  rm -rf "$T/ctrl/rsi/state/merge"; mkdir -p "$T/ctrl/rsi/state/merge"
+  echo $(( $(date +%s) - 200 * 60 )) > "$T/ctrl/rsi/state/merge/settings-coarse-links.queued_at"
+  echo $(( $(date +%s) - 60 )) > "$T/ctrl/rsi/state/merge/rework-loop.queued_at"
+  run_select "$T/fifo.json"
+  local got
+  [ "$RC" -eq 0 ] || fail "longest-waiting-first: selection failed rc=$RC ($OUT)"
+  got="$(printf '%s\n' "$OUT" | cut -f2 | paste -sd, -)"
+  [ "$got" = "settings-coarse-links,rework-loop" ] \
+    || fail "longest-waiting-first: order is '$got', want 'settings-coarse-links,rework-loop' ($OUT)"
+}
+
+# A PR that has never been eligible has no .queued_at: those sort after waiting ones, then by
+# number — the old order is preserved when nothing has waited.
+never_queued_orders_by_number() {
+  rm -rf "$T/ctrl/rsi/state/merge"
+  run_select "$T/fifo.json"
+  local got
+  [ "$RC" -eq 0 ] || fail "never-queued-orders-by-number: selection failed rc=$RC ($OUT)"
+  got="$(printf '%s\n' "$OUT" | cut -f2 | paste -sd, -)"
+  [ "$got" = "rework-loop,settings-coarse-links" ] \
+    || fail "never-queued-orders-by-number: order is '$got', want 'rework-loop,settings-coarse-links' ($OUT)"
+}
+
+# A PR that has never been eligible still comes after one that has waited: only #790 has a
+# .queued_at (120 minutes old), and #784 must sort after it. If the never-queued default
+# regresses from sys.maxsize to 0, a brand-new PR jumps every PR already in the queue and
+# only this case notices.
+never_queued_after_waiting() {
+  rm -rf "$T/ctrl/rsi/state/merge"; mkdir -p "$T/ctrl/rsi/state/merge"
+  echo $(( $(date +%s) - 120 * 60 )) > "$T/ctrl/rsi/state/merge/settings-coarse-links.queued_at"
+  run_select "$T/fifo.json"
+  local got
+  [ "$RC" -eq 0 ] || fail "never-queued-after-waiting: selection failed rc=$RC ($OUT)"
+  got="$(printf '%s\n' "$OUT" | cut -f2 | paste -sd, -)"
+  [ "$got" = "settings-coarse-links,rework-loop" ] \
+    || fail "never-queued-after-waiting: order is '$got', want 'settings-coarse-links,rework-loop' ($OUT)"
 }
 
 # The backpressure counter shares the same predicate: a CEO-named PR is active again, a dream
@@ -234,6 +283,9 @@ run draft-skipped draft_skipped
 run hold-label-skipped hold_label_skipped
 run needs-ceo-label-skipped needs_ceo_label_skipped
 run small-before-large small_before_large
+run longest-waiting-first longest_waiting_first
+run never-queued-orders-by-number never_queued_orders_by_number
+run never-queued-after-waiting never_queued_after_waiting
 run backpressure-counts-ceo-pr backpressure_counts_ceo_pr
 run shared-predicate-wired shared_predicate_wired
 echo ALL-PASS

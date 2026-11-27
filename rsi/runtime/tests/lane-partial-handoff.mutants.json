@@ -1,0 +1,58 @@
+[
+  {
+    "label": "fallback never written: a committed lane with no body still strands its commit",
+    "file": "rsi/runtime/lane-body.sh",
+    "test": "RSI_TEST_ONLY=test_missing_body_with_a_commit_writes_a_partial_fallback bash rsi/runtime/tests/test-lane-partial-handoff.sh",
+    "old": "  cat > \"$fallback\" <<EOF",
+    "new": "  cat > /dev/null <<EOF"
+  },
+  {
+    "label": "existing body ignored: the worker's body is replaced by a generated fallback",
+    "file": "rsi/runtime/lane-body.sh",
+    "test": "RSI_TEST_ONLY=test_existing_body_is_never_rewritten bash rsi/runtime/tests/test-lane-partial-handoff.sh",
+    "old": "  if [ -s \"$body\" ]; then",
+    "new": "  if false; then"
+  },
+  {
+    "label": "no-commit guard dropped: a lane that committed nothing writes a hand-off body",
+    "file": "rsi/runtime/lane-body.sh",
+    "test": "RSI_TEST_ONLY=test_no_commit_writes_no_fallback bash rsi/runtime/tests/test-lane-partial-handoff.sh",
+    "old": "  [ \"$ahead\" -ge 1 ] || return 1",
+    "new": "  :"
+  },
+  {
+    "label": "partial label lost: the fallback no longer says it is a partial hand-off",
+    "file": "rsi/runtime/lane-body.sh",
+    "test": "RSI_TEST_ONLY=test_partial_body_names_the_missing_hand_off_evidence bash rsi/runtime/tests/test-lane-partial-handoff.sh",
+    "old": "Partial: the worker did not write",
+    "new": "Draft: the worker did not write"
+  },
+  {
+    "label": "claim waiver lost: the partial body no longer clears the claim seam it must pass",
+    "file": "rsi/runtime/lane-body.sh",
+    "test": "RSI_TEST_ONLY=test_partial_body_waives_the_claim_seam bash rsi/runtime/tests/test-lane-partial-handoff.sh",
+    "old": "Claim check: none: the worker did not write a claim before it exited (partial hand-off).",
+    "new": "none: the worker did not write a claim before it exited (partial hand-off)."
+  },
+  {
+    "label": "helper call dropped: lane.sh reaches the body seams with no body at all",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_lane_writes_the_fallback_before_the_body_dependent_seams bash rsi/runtime/tests/test-lane-partial-handoff.sh",
+    "old": "  if HANDOFF_BODY=\"$(ensure_handoff_body \"$STATE\" \"$N\" \"$ITEM\" \"$WT\" \"$GIT\" \"$SLUG\")\"; then",
+    "new": "  if HANDOFF_BODY=\"\"; then"
+  },
+  {
+    "label": "swap dropped: the lane writes the fallback but keeps reading the missing worker body",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test_lane_writes_the_fallback_before_the_body_dependent_seams bash rsi/runtime/tests/test-lane-partial-handoff.sh",
+    "old": "      STATUS_NOTE_FILE=\"$HANDOFF_BODY\"",
+    "new": "      :"
+  },
+  {
+    "label": "suite unwired: the gate no longer runs the partial hand-off proof",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-lane-partial-handoff.sh || return 1\n",
+    "new": ""
+  }
+]

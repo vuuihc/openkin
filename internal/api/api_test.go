@@ -1149,3 +1149,154 @@ func TestUserQuestionsAPI(t *testing.T) {
 		t.Fatalf("status=%s want pending", pending.Status)
 	}
 }
+
+// endableAPIAdapter reports the start and then holds its result until the test
+// sends one, so a task can carry live decisions and still be ended by a real
+// turn end rather than by a store write no handler performs.
+type endableAPIAdapter struct {
+	end <-chan adapter.Event
+}
+
+func (a *endableAPIAdapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
+	ch := make(chan adapter.Event, 4)
+	h := &testHandle{ch: ch, cancelCh: make(chan struct{})}
+	go func() {
+		defer close(ch)
+		ch <- adapter.Event{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s","subtype":"init"}`)}
+		select {
+		case ev := <-a.end:
+			ch <- ev
+		case <-ctx.Done():
+		case <-h.cancelCh:
+		}
+	}()
+	return h, nil
+}
+
+// The lists are what the console counts: a task that has ended must contribute
+// no row to either pending list, whichever terminal status it ended in.
+func TestAnEndedTaskIsNotOfferedAsAPendingDecision(t *testing.T) {
+	ctx := context.Background()
+	_, token := newTestServer(t)
+
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	end := make(chan adapter.Event, 1)
+	ad := &endableAPIAdapter{end: end}
+	eng := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
+	t.Cleanup(eng.Close)
+	if err := eng.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Store: st, Auth: remote.NewAuth(token), Engine: eng, Version: "test"}
+	h := s.Handler()
+
+	post := func(path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "127.0.0.1:12345"
+		h.ServeHTTP(rr, req)
+		return rr
+	}
+
+	rr := post("/api/tasks", `{"agent":"claude-code","cwd":"/tmp","prompt":"hold"}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+	var created store.Task
+	_ = json.Unmarshal(rr.Body.Bytes(), &created)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		tt, _ := eng.Get(ctx, created.ID)
+		if tt.Status == "running" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	rr = post("/internal/approvals",
+		`{"task_id":"`+created.ID+`","kind":"tool_use","payload":{"tool_name":"Write","input":{"file_path":"a"}}}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create approval: %d %s", rr.Code, rr.Body.String())
+	}
+	var appr store.Approval
+	_ = json.Unmarshal(rr.Body.Bytes(), &appr)
+
+	rr = post("/internal/user-questions",
+		`{"task_id":"`+created.ID+`","question":"Which auth?","header":"Auth","options":[{"label":"JWT"},{"label":"Session"}]}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create user question: %d %s", rr.Code, rr.Body.String())
+	}
+	var question store.UserQuestion
+	_ = json.Unmarshal(rr.Body.Bytes(), &question)
+
+	// End the turn as a failure, through the adapter's own result: the same
+	// terminal writer a real failed turn uses.
+	end <- adapter.Event{Type: "result", Payload: json.RawMessage(`{"is_error":true}`)}
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		final, err := eng.Get(ctx, created.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if final.Status == "failed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task status = %s, want failed", final.Status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/approvals?status=pending", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list approvals: %d %s", rr.Code, rr.Body.String())
+	}
+	var approvals []store.Approval
+	_ = json.Unmarshal(rr.Body.Bytes(), &approvals)
+	for _, a := range approvals {
+		if a.TaskID == created.ID {
+			t.Fatalf("GET /api/approvals?status=pending still offers %s for the ended task", a.ID)
+		}
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/user-questions?status=pending", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list user questions: %d %s", rr.Code, rr.Body.String())
+	}
+	var questions []store.UserQuestion
+	_ = json.Unmarshal(rr.Body.Bytes(), &questions)
+	for _, q := range questions {
+		if q.TaskID == created.ID {
+			t.Fatalf("GET /api/user-questions?status=pending still offers %s for the ended task", q.ID)
+		}
+	}
+
+	gotApproval, err := st.GetApproval(ctx, appr.ID)
+	if err != nil {
+		t.Fatalf("get approval: %v", err)
+	}
+	if gotApproval.Decision != store.DecisionExpired {
+		t.Fatalf("the approval for the ended task = %q, want %q", gotApproval.Decision, store.DecisionExpired)
+	}
+	gotQuestion, err := st.GetUserQuestion(ctx, question.ID)
+	if err != nil {
+		t.Fatalf("get user question: %v", err)
+	}
+	if gotQuestion.Status != store.UQStatusAnswered {
+		t.Fatalf("the user question for the ended task = %q, want %q", gotQuestion.Status, store.UQStatusAnswered)
+	}
+}

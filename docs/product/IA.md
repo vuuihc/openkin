@@ -33,7 +33,7 @@
 - 例行任务的运行就是一条任务行，不是第二份列表：`routine_id` 非空的行在尾部带「例行」标记并加入行的无障碍名称；`?routine=<id>` 把列表收窄到这一个例行的运行（服务端 `routine_id` 加已加载页的本地收窄，和 `?status=` 同一套规则），此时导入的 agent 会话整组隐藏、不提供手动排序、空结果显示「没有符合筛选的对话」，筛选条上留一枚可清除的「例行运行」chip。
 - 手机整页与 Mac 左栏共用同一个列表组件（`SessionList`）：数据、搜索、过滤、排序、折叠、行操作一致，宽度只决定容器和溢出的触发方式（左栏悬停按钮 / 手机滑动与长按；行操作与长按入口归 KIN-MANAGE-001）。项目标题把这份列表收窄到该项目（`?project=<id>`，同一层、不改历史），折叠是它前面的箭头；任务头的项目名落在同一份收窄列表（`?project=<id>`，筛选条上留一枚写着项目名的可清除 chip，清除即回到全量列表、不新增历史条目）。项目行自己还提供一句话摘要和工作目录两个编辑入口（`ProjectSummaryEditor` / `ProjectRootsEditor`）：摘要的粗指针在 `⋯` 表里、细指针在悬停按钮里，工作目录两个指针都有入口（粗指针是 `⋯` 表里的一行、细指针是悬停按钮，打开的是同一个编辑器：粗指针为底部表、细指针为对话框）；保存后列表原地重画，从不跳 `/projects/:id`。项目不是第四个区域（KIN-CONTRACT-001，2026-11-22）：项目层级由这份列表的设备 → 项目 → 对话画出，`/projects` 不再渲染集合，而是重定向到 `/sessions`——书签、通知、⌘K 都落在同一份列表；`/projects/:id` 旧封面 URL 以 `replace` 落到按项目收窄的对话列表（`/sessions?project=<id>`），书签与旧返回层都落到同一份列表。区域表只有三个区域（`ui/src/lib/areas.ts`），每个导航面都读它。
 - 项目封面已退役（KIN-CONTRACT-001，2026-11-24）：项目没有自己的页面，最近活动、摘要与工作说明都在列表里这个项目那一行；列表不复制第二份对话列表（2026-11-11，KIN-PROJECT-001 签字的规则沿用）。摘要编辑 One-Pager 的 `Current Focus`，例行任务在 `/routines`；项目记录、摘要、工作说明各自失败、各自保留上次结果（2026-11-11 交付）。
-- 导入的 agent 会话不是项目：每台机器末尾单独一组「导入的会话（N）」，默认收起，行与原生对话同形（无彩色 rail、状态点或可用性徽标）；新导入只改计数，不自动展开。行在列表上方打开一张 sheet（agent 与状态、最近三轮、一个 composer），不离开列表；发送即把源会话接到新任务并落到 `/tasks/<id>`，列表留在下面一层（R-agent-preview，2026-11-23）。`/agent-sessions/:id` 旧整页 URL 现在以 `replace` 落到 `/sessions?agent=<id>`：列表不动，该会话的 sheet 开在列表上方，关闭即回到同一份列表并去掉参数（R-agent-retire 5a，2026-11-24；详情页文件留给 5b 删除）。
+- 导入的 agent 会话不是项目：每台机器末尾单独一组「导入的会话（N）」，默认收起，行与原生对话同形（无彩色 rail、状态点或可用性徽标）；新导入只改计数，不自动展开。行在列表上方打开一张 sheet（agent 与状态、最近三轮、一个 composer），不离开列表；发送即把源会话接到新任务并落到 `/tasks/<id>`，列表留在下面一层（R-agent-preview，2026-11-23）。`/agent-sessions/:id` 旧整页 URL 现在以 `replace` 落到 `/sessions?agent=<id>`：列表不动，该会话的 sheet 开在列表上方，关闭即回到同一份列表并去掉参数（R-agent-retire 5a，2026-11-24；详情页文件已由 5b 删除——#676 先删掉它的两个套件，`ui/src/App.tsx:276` 现在只剩这条重定向，没有任何路由再渲染它）。
 
 ## 要改的 9 处
 
@@ -94,7 +94,7 @@
 
 | 面 | 归谁 | 内容 |
 |---|---|---|
-| 控制台设置 `/settings` | Hub | Agent、模型、权限等运行默认值（KIN-SETTINGS-001 的面；该故事于 2026-11-17 CEO 代签，D1–D8 已定，设计页 5 帧）；远程 / 通知两个 tab 已于 2026-11-11（R0b-3）删除，relay / APNs 仍是 daemon API；通知只保留 iPhone 首次授权的一行；`?tab=operations` 托管 Agent 运维（原 `AgentsPage` 主体，N4 已接管），E4a 已由 #141 `71402048` 交付、`/agents` 与 `/usage` 都 `replace` 到它；分区 ID 仍是 `general` / `agents` / `providers` / `routing` / `advanced` / `operations`，`?tab=agents` 永远是本地 Agent 与角色；安装状态（探测）、会话导入与角色默认三块的边界见 `KIN-AGENTS-002` |
+| 控制台设置 `/settings` | Hub | Agent、模型、权限等运行默认值（KIN-SETTINGS-001 的面；该故事于 2026-11-17 CEO 代签，D1–D8 已定，设计页 5 帧）；远程 / 通知两个 tab 已于 2026-11-11（R0b-3）删除，relay / APNs 仍是 daemon API；通知只保留 iPhone 首次授权的一行；`?tab=operations` 托管 Agent 运维（原 `AgentsPage` 主体，N4 已接管），E4a 已由 #141 `71402048` 交付、`/agents` 与 `/usage` 都 `replace` 到它；分区 ID 仍是 `general` / `agents` / `providers` / `routing` / `advanced` / `operations`，`?tab=agents` 永远是本地 Agent 与角色；探测组已于 2026-11-27（`R-agents-probe-removal`）删除，只剩「会话导入」与「角色默认」两块，导入组自己拥有 provider 读取的生命周期与刷新入口，边界见 `KIN-AGENTS-002` |
 | 菜单栏托盘（Mac） | 桌面壳 | 常驻版本行「Kin X」；检查更新、下载（进度）、安装（open dmg + 确认退出）、删除已下载的安装包；只连 github.com 官方 Releases，不做后台轮询 |
 | 手机 | 手机 App 自己（`KIN-CONTINUE-006`） | 开屏先跑随包的控制台（基线），新版本在后台整套取回、校验（版本 / Hub API 兼容 / 字节完整）后原子换入，并保留上一份完整版本；取不回、只取到一半或两侧不兼容时继续用基线，用一句话说明，不转圈。浏览器 PWA 仍由 Hub 重新部署时自然更新。**2026-11-21 CEO 记为暂不做**：实测限速下开屏只差 3.7 秒，失败已由 #482 的有界重试与重载按钮覆盖，跨源白名单（权限边界）不值得为此开；`KIN-CONTINUE-006` 转 `blocked`，恢复方式见该故事 |
 

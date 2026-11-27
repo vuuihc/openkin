@@ -483,7 +483,7 @@
         "ui/src/pages/macKeyboardWiring.test.ts",
         "ui/src/pages/SettingsPage.leaveGuard.dom.test.tsx",
         "ui/src/pages/settingsTabsWiring.test.ts",
-        "ui/src/pages/AgentSessionDetailPage.dom.test.tsx"
+        "ui/src/components/sessions/AgentSessionSheet.dom.test.tsx"
       ],
       "blockedReason": null
     },
@@ -709,7 +709,7 @@
     },
     {
       "id": "KIN-CONTRACT-001",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -727,13 +727,14 @@
       "ownerPaths": [],
       "tests": [
         "ui/src/lib/surfacesContract.KIN-CONTRACT-001.test.ts",
-        "ui/src/pages/RoutinesPage.dom.test.tsx"
+        "ui/src/pages/RoutinesPage.dom.test.tsx",
+        "ui/src/pages/SettingsPage.leaveGuard.dom.test.tsx"
       ],
       "blockedReason": null
     },
     {
       "id": "KIN-AGENTS-002",
-      "state": "draft",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J6"
@@ -744,14 +745,17 @@
       ],
       "title": "看清安装探测与会话/角色导入的边界",
       "file": "docs/product/stories/KIN-AGENTS-002.md",
-      "surface": "设置 → agents tab（安装状态 / 会话导入 / 角色默认）",
+      "surface": "设置 → agents tab（会话导入 / 角色默认）",
       "ownerPaths": [],
-      "tests": [],
+      "tests": [
+        "ui/src/components/settings/LocalAgentSettingsSection.KIN-AGENTS-002.dom.test.tsx",
+        "ui/src/pages/SettingsPage.KIN-AGENTS-002.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {
       "id": "KIN-CONTINUE-007",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -766,6 +770,10 @@
       "surface": "",
       "ownerPaths": [],
       "tests": [
+        "ui/src/lib/sessionListFolds.test.ts",
+        "ui/src/components/sessions/SessionList.listScan.dom.test.tsx",
+        "ui/src/components/sessions/SessionRow.coarse.dom.test.tsx",
+        "ui/src/components/layout/Sidebar.dom.test.tsx",
         "ui/src/lib/surfacesContract.KIN-CONTINUE-007.test.ts"
       ],
       "blockedReason": null
@@ -788,6 +796,27 @@
       "ownerPaths": [],
       "tests": [
         "ui/src/lib/surfacesContract.KIN-MOBILE-001.test.ts"
+      ],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-MOBILE-002",
+      "state": "approved",
+      "priority": "P0",
+      "journeys": [
+        "J1",
+        "J2",
+        "J4"
+      ],
+      "surfaces": [
+        "phone"
+      ],
+      "title": "RN 视觉系统与五屏设计",
+      "file": "docs/product/stories/KIN-MOBILE-002.md",
+      "surface": "phone",
+      "ownerPaths": [],
+      "tests": [
+        "ui/src/lib/surfacesContract.KIN-MOBILE-002.test.ts"
       ],
       "blockedReason": null
     }

@@ -13,9 +13,10 @@ import {
 } from "react-router-dom";
 import AppShell from "./AppShell";
 import SessionsPage from "../../pages/SessionsPage";
+import SessionsRoute from "../../pages/SessionsRoute";
 import NewChatPage from "../../pages/NewChatPage";
 import AgentsPage from "../../pages/AgentsPage";
-import AgentSessionDetailPage from "../../pages/AgentSessionDetailPage";
+import { AgentSessionEntryRedirect } from "../../App";
 import { setLocale } from "../../i18n";
 import { resetLeaveGuard } from "../../lib/leaveGuard";
 import { useLeaveGuard } from "../../hooks/useLeaveGuard";
@@ -36,7 +37,13 @@ import type { AgentSession, Task } from "../../api/client";
  */
 
 const fixtures = vi.hoisted(() => ({
+  // The shell's own width (AppShell's `useMinWidth`): which list is drawn.
   wide: false,
+  // What `matchMedia` answers: what `phonePush`/`isPhoneLayout` read. Split
+  // from `wide` so the one test that widens mid-attach can flip the history
+  // decision without swapping the whole route tree (and with it the sheet
+  // instance whose attach is still out).
+  mediaWide: false,
   sessions: [] as AgentSession[],
   tasks: [] as Task[],
 }));
@@ -220,9 +227,9 @@ vi.mock("../chat/Composer", () => ({
   ),
 }));
 
-function viewport(wide = fixtures.wide) {
+function viewport(mediaWide = fixtures.mediaWide) {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: query === "(min-width: 768px)" ? wide : false,
+    matches: query === "(min-width: 768px)" ? mediaWide : false,
     media: query,
     onchange: null,
     addEventListener: vi.fn(),
@@ -244,7 +251,7 @@ function browser(initial: string) {
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/new" element={<NewChatPage />} />
           <Route path="/agents" element={<Navigate to="/settings?tab=operations" replace />} />
-          <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
+          <Route path="/agent-sessions/:id" element={<AgentSessionEntryRedirect />} />
           <Route path="/settings" element={<SettingsAtTab />} />
           <Route path="/tasks/:id" element={<div>conversation page</div>} />
         </Routes>
@@ -264,10 +271,14 @@ function browserAt(entries: string[]) {
       <Jump />
       <AppShell pendingApprovals={[]}>
         <Routes>
-          <Route path="/sessions" element={<SessionsPage />} />
+          {/* The real `/sessions` route: at a Mac width the sidebar is the
+              list and the main area is the draft. Rendering `SessionsPage`
+              here would mount a second list — and a second sheet — beside the
+              sidebar's, which the product never does. */}
+          <Route path="/sessions" element={<SessionsRoute />} />
           <Route path="/new" element={<NewChatPage />} />
           <Route path="/agents" element={<Navigate to="/settings?tab=operations" replace />} />
-          <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
+          <Route path="/agent-sessions/:id" element={<AgentSessionEntryRedirect />} />
           <Route path="/settings" element={<SettingsAtTab />} />
           <Route path="/tasks/:id" element={<div>conversation page</div>} />
         </Routes>
@@ -339,6 +350,7 @@ beforeEach(() => {
   sessionStorage.clear();
   api.attach.mockClear();
   fixtures.wide = false;
+  fixtures.mediaWide = false;
   fixtures.sessions = [];
   fixtures.tasks = [];
   localStorage.setItem("kin_draft_cwd", "/work");
@@ -494,8 +506,9 @@ describe("continuing an imported session", () => {
     expect(window.history.state.idx).toBe(0);
   });
 
-  it("pushes the conversation on the Mac, so Back returns to the imported session", async () => {
+  it("pushes the conversation on the Mac, so Back returns to the list with the sheet open", async () => {
     fixtures.wide = true;
+    fixtures.mediaWide = true;
     viewport(true);
     fixtures.sessions = [
       {
@@ -514,17 +527,23 @@ describe("continuing an imported session", () => {
     ];
     const user = userEvent.setup();
     browserAt(["/sessions", "/agent-sessions/s1"]);
-    await screen.findByRole("heading", { name: "Yesterday session" });
+    // The old page URL replaces itself with the list narrowed by `?agent=`,
+    // and the list opens that session's sheet over it.
+    const sheet = await screen.findByRole("dialog", { name: /Yesterday session/ });
+    expect(window.location.pathname).toBe("/sessions");
+    expect(window.location.search).toBe("?agent=s1");
     expect(window.history.state.idx).toBe(1);
 
-    await user.click(await screen.findByTestId("composer-send"));
+    await user.click(within(sheet).getByTestId("composer-send"));
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
 
-    // The Mac keeps ordinary nested history: the imported session is still
+    // The Mac keeps ordinary nested history: the list with the sheet is still
     // one Back away, not replaced by the conversation.
     expect(window.history.state.idx).toBe(2);
     await browserBack();
-    await waitFor(() => expect(window.location.pathname).toBe("/agent-sessions/s1"));
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.location.search).toBe("?agent=s1");
+    await screen.findByRole("dialog", { name: /Yesterday session/ });
     expect(window.history.state.idx).toBe(1);
   });
 
@@ -548,8 +567,8 @@ describe("continuing an imported session", () => {
     ];
     const user = userEvent.setup();
     browserAt(["/sessions", "/agent-sessions/s1"]);
-    await screen.findByRole("heading", { name: "Yesterday session" });
-    await user.click(await screen.findByTestId("composer-send"));
+    const sheet = await screen.findByRole("dialog", { name: /Yesterday session/ });
+    await user.click(within(sheet).getByTestId("composer-send"));
     expect(api.attach).toHaveBeenCalledWith("s1", { prompt: "keep going" });
 
     // The reader starts editing another screen while the attach is out.
@@ -589,12 +608,14 @@ describe("continuing an imported session", () => {
     ];
     const user = userEvent.setup();
     browserAt(["/sessions", "/agent-sessions/s1"]);
-    await screen.findByRole("heading", { name: "Yesterday session" });
-    await user.click(await screen.findByTestId("composer-send"));
+    const sheet = await screen.findByRole("dialog", { name: /Yesterday session/ });
+    await user.click(within(sheet).getByTestId("composer-send"));
 
-    // Started as a phone, answered as a Mac. The landing surface decides the
-    // history shape: a Mac keeps the imported session underneath.
-    fixtures.wide = true;
+    // Started as a phone, answered as a Mac. `phonePush` reads the media
+    // query, not the shell's width, so flipping it is what makes the landing
+    // surface decide the history shape here; a Mac keeps the list and its
+    // sheet underneath.
+    fixtures.mediaWide = true;
     viewport(true);
     await act(async () => {
       attach.resolve({ task: { id: "task-1" } });
@@ -604,7 +625,8 @@ describe("continuing an imported session", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
     expect(window.history.state.idx).toBe(2);
     await browserBack();
-    await waitFor(() => expect(window.location.pathname).toBe("/agent-sessions/s1"));
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.location.search).toBe("?agent=s1");
   });
 });
 

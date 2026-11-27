@@ -211,13 +211,14 @@ seen: 1
 证据：`834cef3f`（2026-11-05，修复 `5a00281d`，2026-11-04）
 
 ## 2026-11-05 · 异步回调按发起流程归属，不属于本流程的回调不能结束它
-seen: 5
+seen: 6
 
 发生了什么：手机登录用一个全局 pending 流程轮询 `kin://auth-callback`。旧逻辑把任何回调都当成“某个流程结束了”，于是第二个并发登录的错误回调清掉了仍在等自己浏览器的那个流程，界面只剩一个不会再回来的等待。`a2a61343` 改成按 `device_key` 归属：别人的错误回调消费掉但本流程继续轮询，无归属的成功只由唯一 pending 流程认领。
 2026-11-11 再次出现：AGENTS 页二至四轮复审连续补代际——迟到的接入回答不提交、所有读共用代际、接入读也取代际、smoke 刷新失败与陈旧回答都要换代际，陈旧回答不得判“本机不再报告”；PROJECT 封面的加载与重连也用请求代际挡住迟到读（`9f14406c`、`53667935`）。
 2026-11-14 再次出现：手机单面化复审又连补三轮迟到回答的归属——fork、artifact、删除与 recipe 的回答先按发起时的视图/任务绑定，再把 history key 与 visit 计数写进 screen identity；recipe 与导入会话在落地时重新确认当前屏幕；设置页的慢保存也会落到读者已经改过的字段上（`13db5b1a`、`596c0bcc`、`0dfef1c9`）。
 2026-11-15 再次出现：routines 页的 load、older-page 与 read-history 每个请求都要自带代际，否则 A→B→A 切换机器、查询刷新或第二次翻页的迟到回答会覆盖新状态、把旧游标接到新搜索上（`88de1938`）。
 2026-11-18 再次出现（同一不变量的进程版）：评审结论只是对某个 SHA 的回答。rework lane 在 merge lane 评审期间推进 head 后，旧的 gate/review 结论仍被用来发 sendback，把已经含修复的 head 弹回去，PR #231/#242 各损失一次 attempt 与 10–20 分钟；`620e94a1` 改为先读 live head，与受审 SHA 不同就只落记录、不计 attempt。
+2026-11-24 再次出现（RN 手机端重做同一不变量）：线程模型的复审发现 post-rewrite 缺口被按旧 epoch 修补、`start()` 重试后不重开 SSE、并发 send 插队（`82409ace`，#698）；流的 epoch 守卫初值是 -1，把 `event_epoch: 0` 的首个事件当成被改写的尾部，从快照续读时已回放的 `seq <= afterSeq` 被重复交付（`b79c0511`，#693）；用量读取经「当前 ref」找发布者，迟到的回答会被重定向到更新的一次屏幕运行，随后按 AGENTS §11 改成读取时捕获发布者（`a3a5ae2d`，#706）。
 
 为什么没拦住：测试一次只跑一个流程，没覆盖“两个流程同时在等”的时序；代码注释还把“任何回调都结束一个流程”写成了刻意设计，评审时看起来像是合理的清理。
 
@@ -285,7 +286,7 @@ orchestration 显式标记的只读轮仍覆盖 yolo。新增任何一种「权�
 证据：`64032786`（2026-11-09）
 
 ## 2026-11-10 · iPad 是桌面宽度、手指和无 Shift 软键盘，三种形态各验证一遍
-seen: 3
+seen: 5
 
 发生了什么：iPad 上连着暴露三处形态错配（`5ff1d874` 记录了前两处）。① 侧栏第一下
 点击被 iOS 的 hover 模拟吃掉，项目行三个只在 hover 出现的按钮根本够不到；触摸形态
@@ -298,6 +299,8 @@ Shift，`Shift+Enter` 换行在 iPad 上不可达，长消息只能一口气写�
 `⌘/Ctrl+Enter`。
 2026-11-17 再次出现：新对话的运行设置用 `sm:` 断点回答“拇指下的 44px”，768px 宽的 iPad 拿到桌面尺寸——正面 28px、面板行约 32px、派发触发器 42x28、routine 开关 26x26；`77ede76f` 改用 `useCoarsePointer()`，触摸在任何宽度都保持 44px，并加一条源码测试阻止 `sm:` 收缩回归。同一天的 `e98d6b24` 又把项目封面的入口 chip 从 27.9px 抬到 44px（`min-h-11` 对非替换 inline 盒无效）。
 2026-11-22 再次出现：820×1180 的 iPad 竖屏仍是桌面壳层，全局 44px 地板停在 767.98，`/new` 封面 chip 量到 75×27.9、列表列的六个控件 32–36 高、消息操作行 40.5×44（高够宽不够）；`f938f290`（#595）、`76f047fc`（#607）、`f5fa2097`（#608）分别用 `.touch-floor` 与 `useCoarsePointer()` 把粗指针下的控件补到 44×44，细指针与 390 的数字不变，每条 coarse 分支各配 mutant。
+2026-11-24 再次出现：共享 `Menu` 的搜索清除与行把 44px 地板挂在 `max-sm:` 上，820×1180 粗指针下量到行 36px、清除键 28×28（`e26ce2ce`，#685）；同一天 dogfood 又在 820 粗指针下量到 routines 筛选 chip 24 高、设置分区标签 40 高，两者的地板都绑在宽度上（`.touch-lg` 止于 767.98、`sm:min-h-10`），#692 改读 `useCoarsePointer()`，并在随后给单字符 chip 补上 `min-w-11`（`266ea80d`，缺口先由 #691 登记 `1a8a326c`）。
+2026-11-25 再次出现：composer 的用量 chip 在 1600px 侧栏以下的所有宽度都画出来，768–1599 点开的却是 `md:hidden` 的底部 sheet，且断点 effect 在同一提交里把它关掉——820×1180 实点后没有 dialog、`aria-expanded` 回到 false；`bed4f956`（#731）在 md 以上改用 Sheet 的 dialog 形态并 stub `matchMedia` 钉住平板打开态。
 
 为什么没拦住：宽度断点被当成了输入形态的代理——`touch-*` 和 44pt 地板写在
 `max-width` 里，iPad 宽度 ≥768 同时拿到“桌面样式”和“手指”两个互斥前提；安全区
@@ -377,7 +380,7 @@ seen: 1
 证据：`8f50cd6c`（2026-11-09，修复 `a3b8d5a3`，2026-11-05）
 
 ## 2026-11-09 · 新 gate、测试和守卫先在它该拦的失败上红一次
-seen: 1
+seen: 2
 
 发生了什么：三处绿灯都没有证明它们声称的事。① `6a513336` 的 smoke 重启检查在重启前
 先删掉刚写的 routine，空数据库也能通过；复审指出后改成保留该行、重启后读回。②
@@ -400,6 +403,7 @@ Prettier 放在最前面，55 个历史文件一直红，后面的 lint/tsc/测�
 检查前面。
 
 证据：`6a513336`、`b8f75f18`（2026-11-08）、`caef7f2e`（2026-11-09）
+2026-11-24 再次出现：#684 的 renamed-copy 第二阶段，每个 fixture 都缺 `ui/node_modules`，所有用例都停在 `RENAME_COPY_NA`，「失败测试 → 拦住 push」的映射只被一次未提交的手工运行证明过；随后补两个桩 vitest 用例（红→`RENAME_COPY_RED` 退出 1，绿→`RENAME_COPY_OK` 退出 0）和一个翻转 rc=0 映射的 mutant，同时发现 `npx` 在缺本地二进制时会去联网下载，改为直接检查并运行 `ui/node_modules/.bin/vitest`（`7f38588e`）。#706 的用量弹层挂载没有卸载行，删掉清理里的 cancel，所有套件仍绿，补 RTL 用例与删行 mutant 后才红（`a3a5ae2d`）。
 
 ## 2026-11-10 · 读一页历史的成本要在最大的真实目录上按页测量
 seen: 2
@@ -509,9 +513,10 @@ seen: 1
 证据：`5e70d328`（2026-11-11，修复 `77b7e8e4`，2026-11-11）
 
 ## 2026-11-15 · CI 会跑的格式检查必须先出现在本地 gate
-seen: 1
+seen: 2
 
 发生了什么：新对话交接功能通过本地 gate 和独立评审后，CI 的 changed-file Prettier 仍失败；`79429776` 追加纯格式化提交，随后重新走 gate 和 delta review。`3f6fafee` 把 changed-file Prettier 补进本地 gate。
+2026-11-26 再次出现：#778 由 NAS 交付，Mac 侧交接自检只跑 `ui` 的 tsc、库存与 vitest，看不到 `mobile-rn/`；`app/pair.tsx` 引用未声明的 `pairView`/`setBrowserOpened`、约十个测试 fixture 缺 `kind` 也照样开了 PR，只有 CI 的 mobile-rn 作业变红，返工提交才补上（`bea7329e`）。
 
 为什么没拦住：本地 gate 与 CI 的检查集合不同；把“功能检查和评审通过”误当成了“交付检查全部通过”。
 
@@ -531,7 +536,7 @@ seen: 1
 证据：`1f630884`，[PR #55](https://github.com/vuuihc/openkin/pull/55)
 
 ## 2026-11-15 · AST 与 ESLint 守卫要验证语言绑定和真实配置语义
-seen: 1
+seen: 2
 
 发生了什么：新增的 portal 与数字层级 lint 仍漏掉 named-default import、`z-[+9999]` 和正数 variant；facade/test/generated 的排除配置混有 `linterOptions`，直接跑 ESLint 时不是全局 ignore。`568d7117` 补齐词法绑定、正数与 variant 匹配、独立 global ignores，并加四条红测；`1ddca115` 压缩文档后重新通过 delta review。
 
@@ -540,6 +545,7 @@ seen: 1
 规则：AST 规则按 import 词法绑定匹配调用，数值覆盖符号与 variant；排除路径必须通过真实 linter 配置验证。每个旁路一条负向测试和 mutant，不能只证明常见写法会被拦。
 
 证据：`568d7117`、`1ddca115`，[PR #56](https://github.com/vuuihc/openkin/pull/56#issuecomment-6886170695)
+2026-11-24 再次出现：RN 的 import-closure 守卫按标识符名扫 `window`，把 `usage.ts` 里同名的属性签名、参数和属性赋值误报成浏览器全局；#697 改成「按值使用才算全局、被本地声明绑定的引用按绑定解析」，随后又发现方法/访问器名被当成词法绑定，`{ window() { return window; } }` 会藏住真实的全局读取，改成只有函数声明与函数表达式绑定自己的名字，并补第四个 mutant（`dda89ae6`）。
 ## 2026-11-13 · 以路径为键的界面状态必须带机器维度，归属未证实按远端处理
 seen: 1
 
@@ -574,10 +580,12 @@ seen: 1
 证据：`8a341cc9`（2026-11-14）、`987d5788`（2026-11-15）
 
 ## 2026-11-15 · 合并或变基的结果当成一次新改动，提交前重跑 gate
-seen: 2
+seen: 4
 
 发生了什么：把本地 main 合到 origin/main（对方已落 Astryx 重构 #67/#68/#70/#77/#78）之后，合并树连着补了三个提交才回到可用：`69de811d` 删掉 `NewChatPage.tsx` 里合并后已无人使用的 `phonePush`、`displayUserPrompt` 两个 import，把 `scripts/ui-inventory-baseline.json` 的 `raw_button` 299→300、`push_toast` 132→134 上调（该文件自己写着计数只许降、上调要写明原因，而这次提交正文为空），并把 `routineHistoryWiring.test.ts` 里钉死单行源码的断言改成格式化后的多行写法；`1c540c9f` 对合并后的文件整体跑 Prettier（12 个文件、约 4000 行改动，两个 locale 文件各 3600+ 行）；`c41037b2` 再重建 `web/dist/index.html`。合并提交的正文只写了“reconciles …”，没有任何验证记录。
 2026-11-22 再次出现：release 的冗余合并分支先 merge + commit、再证明结果；证明失败时未证明的合并提交已经留在本地 main，下一次 release 因 origin/main 已是祖先而跳过集成与证明，把整棵树直接发到 node 与 Hub。`11ad6921`（#609）改为 `--no-commit` 合并、在暂存树上证明，失败就 abort 且 HEAD 与工作树不动，只提交已证明的树。
+2026-11-25 再次出现：lane 的首读骨架提交早于 main 的 #747（`ThreadState.title` 改成必填），合入 origin/main 之后 `tsc --noEmit` 才红在测试 helper 的 state fixture 上，只能再补一个提交给 fixture 加 title（`b13c5b1c`，#752）。三个日期（2026-11-15、2026-11-22、2026-11-25）已满，升级为 AGENTS.md 第 20 条。
+2026-11-26 再次出现：三个 PR 都在合入 origin/main 之后才补正合并树上的值——#761 的库存基线在合并前量，`role_status`、`rounded_border_surface` 两行比合并树宽松一格，第二个提交才重量（`6cd5f5cd`）；#759 的 `chat.queued` 引用在合并后从 zh.ts:394 挪到 409（`6b8e77e9`）；#770 贴的 jest 计数在合入 #766 后从 408 变成 409（`314a5830`）。
 
 为什么没拦住：合并被当成“把两边放在一起”的机械动作，而不是一次会产生新代码的改动；冲突解决只求能提交，合并树没有重跑 tsc、测试与格式检查，库存 ratchet 反而在空正文提交里被放宽；生成物（`web/dist/index.html`）也等到第三个提交才跟上。
 
@@ -597,13 +605,14 @@ seen: 1
 证据：#96（`07e9b3b7`，669 行）对比 #97–#108（0 行），`rsi/state/merged.log` 02:34–07:39
 
 ## 2026-11-16 · 同一份交付只投递一次，认领随落库一起释放
-seen: 5
+seen: 6
 
 发生了什么：`state/cloud/design-system-gallery.json` 在 #96 合入后没有被释放，#97–#108 的重复投递就是这么来的。同一时期还有一类同源错误：`slices.py ready` 在 lane 退出后就把仍有开放 PR 的切片重新列为 ready（15:22 记录：N2/T1/L1/P1/Q3a 同时被列为 ready 而它们都有 live PR）。
 2026-11-19 再次出现：squash merge 不会把分支提交带进 main，`git diff origin/main...rsi/<slug>` 在 PR 合入后仍非空；残留的 `state/sendback/<slug>.md` 让 `lane.sh` autofill 为已经在 main 上的工作认领了一个幽灵 rework lane（lane 3 `cancelled: stale sendback`），损失一个 worker 轮次与一个 merge-lane 槽，merge.sh 也在该文件存在时拒绝已修好的 PR；`6ea5b433` 在合入成功时把 sendback 归档到 `state/sendback/done/`，autofill 先读 PR 状态再决定是否认领。
 2026-11-20 再次出现：认领端仍不读落库记录——一个通知文案条目在 PR 合入并发版数小时后还写着“queued for reproduction”，只靠人工重读产品代码才拦住一次对已完成工作的付费重做，提交正文记 “Prose notes failed four times in one day”（`43ed7134`）。`lanes.py claim` 与 `cloud-claim` 现在先读 `$STATE/merged.log`，已在其中的条目以 exit 9 拒绝并点名 PR 与 sha，只有 `--redeliver` 允许有意重做，`--mode rework` 跳过（rework 的 PR 本来就开着）。
 2026-11-20 再次出现（同一形状的另一端）：验证失败可能在 PR 关闭后几分钟才结束，写 sendback 的地方没有重读 PR 状态，已关闭/已合并的 PR 仍被排进 rework——#451 在 06:28Z 关闭，06:29:30Z 的 rework 产出 #453（同一行文档的第三份），吃掉一个 gate 槽与一个 lane 轮次（`83aa0cda`）。`sendback()`/`sendback_mech()` 现在先读 live PR 状态，MERGED/CLOSED 只归档到 `sendback/done/` 并留一行 needs-ceo，不加 attempt，也不再写 phantom scorecard 行。
 2026-11-23 再次出现：#633 的返工已经推成 `1bd56a7d`，但 merge lane 还没归档 sendback；autofill 取到 head、看到 diff 就认领，worker 重改一段已修好的文字（sendback 12:05 写出，lane 在 49 秒时被停）。autofill 现在比较 head 提交时间与 sendback mtime，head 严格更新就把 sendback 归档到 `sendback/done/<slug>-stale-head-*.md` 并继续本轮；不可读输入 fail open，平局不算陈旧（`a158c248`）。
+2026-11-25 再次出现：#727 交付的用量缓存文案改动 main 上已由 `d7df42c3` 做过，复核后第二个提交才把 gap-log 的交付归属改回 `d7df42c3`、本 PR 只保留回归钉（`409c41db`）。
 
 为什么没拦住：“已交付”只写在 `merged.log` 里，投递端（cloud/NAS ingest、scheduler）在决定要不要再干一次时不读它；认领的释放挂在合并流程之外，合入成功并不必然触发。
 
@@ -680,12 +689,13 @@ seen: 2
 证据：`ecb3485a`（06:36 记录）、`5ae52e54`（今晚 `origin/main` 导出树 `RATCHET_PASS`）
 
 ## 2026-11-17 · 只读评审者的搜索要限定在 state 目录，且每次等待都有超时
-seen: 5
+seen: 6
 
 发生了什么：G4 (#163) 的独立复审两次挂起，都是评审者在 `$HOME` 下执行 `find ... -name merged.log`（macOS 容器 / worktree 让这次遍历极慢）；第一次杀进程后复审再次复现，直到把 `$STATE` 的实际路径写进评审简报、并禁止跨 `$HOME` / `/Users` 的 `find`，`#163` 才在 07:36 以 `5ae52e54` 合入。
 2026-11-18 再次出现：Bash 工具的默认 55 分钟超时比 50 分钟的 worker 看门狗还长，`lanes.py status` 只打印 `ACTIVE age=39m`；一条嵌套 heredoc 吞掉闭合括号后挂在 stdin 上 2,400 秒，一个 worker 轮次就这样被吃掉，期间看起来一直“健康”（`920eb53c` 把默认值降到 10 分钟、上限 30 分钟，并让状态打印 silent 分钟数）。
 2026-11-19 再次出现：`run_codex` 是唯一没有 `DISPATCH_MAX_SECS` 的派发路径，merge.sh 等评审也没有自己的 deadline；2026-11-15 两次静默的 codex exec 评审占住两个 verifier 槽整整一小时（`e10d9cb4` 用与 claude/agy 相同的看门狗包住 codex，超时后走 reviewer-alt 回退，不伪造结论）。
 2026-11-20 再次出现（产品侧）：一次性链接兑换在 `bootProbe` 之前运行且没有自己的 deadline，Hub 接受 `POST /api/auth/login-link` 后永不回答时启动画面永远停在 splash，`#431` 的 1500 ms 账号探针超时没有机会执行；`4d08ce5f` 给兑换加了命名 deadline，超时后打开控制台并说明“链接没有完成”，迟到成功再补一次探测。
+2026-11-24 再次出现：#694 给 lane 的 `git push` 加有界重试，第一版重试环里的 `push` 与 `ls-remote` 都没有超时，传输卡住时 lane.sh 会连同锁与槽位一起挂住；merge lane 评审后把两个网络调用都包进 `with_timeout`（`RSI_PUSH_TIMEOUT_SECS`，默认 120）并补用例与 mutant（`9af7fe20`）。
 
 为什么没拦住：评审简报只给了 `$STATE` 这个环境变量名，没有给出可直接 `ls` 的绝对路径，评审者按“找文件”的直觉搜索整个 home；watchdog 只看到“评审未返回”，分不清是模型慢还是子进程卡住。
 
@@ -752,9 +762,10 @@ seen: 2
 证据：`4a2bd127`（#268）；`rsi/state/needs-ceo.md` 2026-11-18 05:50
 
 ## 2026-11-18 · 仓库自带的冒烟要自己 pin 它需要的环境变量
-seen: 1
+seen: 2
 
 发生了什么：`scripts/journeys-smoke.sh` 从未导出 `RSI_FAKE_SLOW_SECS`，J3 的排队步骤在 3 秒窗口里全部失败，#264 因此被返工一轮。
+2026-11-26 再次出现：check.sh 在 lane worker 里跑 test-sim-slot，worker 导出的 `RSI_LANE_PID`/`RSI_LANE_N`/`RSI_SIM_SLOT` 被套件继承，“lane 外”用例反而拿到临时槽位而失败，第三个提交才在套件里 unset 这些变量（`4104bd1b`）。
 
 为什么没拦住：单测与本地走查各自 export 了变量，仓库自己的 smoke 没有跑过一次完整 J3；缺变量时表现为产品超时，不是配置错误。
 
@@ -763,9 +774,10 @@ seen: 1
 证据：`5a4f97df`（#264）；`scripts/journeys-smoke.sh`
 
 ## 2026-11-18 · 新增可执行脚本必须以 100755 进 git
-seen: 1
+seen: 2
 
 发生了什么：#254 的两个新测试脚本在工作区可执行，但提交为 644；fresh checkout 直接失败，评审因此给了 blocker。
+2026-11-26 再次出现：#769 的 `rsi/runtime/shim/xcrun` 以 100644 提交（仓库 `core.fileMode=false`，+x 没进索引），worker 按 PATH 查找会跳过不可执行文件，模拟器槽位守卫根本不触发；第二个提交才改 mode，并让 test-sim-slot 断言 100755、按 PATH 解析 `xcrun`（`4104bd1b`）。
 
 为什么没拦住：只在当前工作区跑过，没有在干净检出上执行；`core.fileMode` 的本地配置会掩盖 mode 差异。
 
@@ -787,12 +799,14 @@ seen: 3
 证据：`b4ee0d5b`（#263）；`rsi/state/needs-ceo.md` 2026-11-18 04:55
 
 ## 2026-11-18 · 把一次失败计进 rework 之前，先在同一棵树上确认它能复现
-seen: 4
+seen: 6
 
 发生了什么：一条 J9 滚动失败曾让 PR #296 被计 9 分钟与 $0.89，而三次独立走查都无法复现；`8e23d244` 因此加了 confirm：只重走失败行点名的 journey，一次，同一棵树，flaked 记进 sendback 与 `scores.json`，复现的仍然阻塞。同一天 `9d03f1b5` 发现确认器只认 `<journey>/<viewport>: …` 行，而截图检查把硬失败写成 `<step>: blank page`（step 里已经含 journey，如 `J11-phone-03-switch-back`）；J11 的确认重走零硬失败，PR #330 仍被计一个 rework 轮次——同一类假红又来一次。
 2026-11-19 再次出现：gate 等 `state/.gate.lock` 超时（1800 s）本是循环自己的争用，却被记成“gate failed: gate lock timeout”算在分支头上——一个 rework lane、三次尝试之一、一个 worker 去改没人证明有错的代码（`c8e66893`，#387）；同一天确认重走在同一棵树上 `reproduced=0, flaked>0`，评审者拿到的仍是首次走查的 flaked 截图，PR #389 据此被打 density=2 feedback=2 并 block（`c22dc001`）。两处都改成“没有复现证据就不计费”：超时转 SKIP/exit 0 并留一次 needs-ceo 标记；确认侧把 flakes 列为非证据、只在确认目录或 `walk.json` 上 ground，必要时 exit 2 而不是 sendback。
 2026-11-20 再次出现：gate 用六条 J6/mac 行把 #435 退回，而在同一棵树上用该树自己的 walker 重放是 1 绿 5 红、同一份启动代码在 08:15 还是绿的；根因是 walker 在 `/api/agents` 未返回时就数选项，跟 PR 改动无关（`4d08ce5f` 记录、`46af34ad` 修复）。
 2026-11-20 再次出现：确认重走复现为零（`reproduced=0`），评审者却只拿到 confirm 目录，首走已走绿的 J1/J11/J12 变得不可见，五条评分轴被一条 journey 定成 mean 2.0、PR #467 被退回（`359a1a69`）；证据改成按 journey 取并集后，flaked journey 的首走截图与所有首走 hardFail 行仍不算证据。
+2026-11-25 再次出现：#712 因 `ui/src/design/tailwind.test.ts` 被退回 rework（3 次中的第 2 次），真因是主机 load ~370、gate 日志里有 `[vitest-pool]: Failed to start forks worker`，同时还有十个无关文件失败；`9f2812cf`（#723）把带 pool 报错的日志判为机械性失败、重跑一次。
+2026-11-25 再次出现：合并 gate 里 mobile-rn 的 jest 与 21 个 job 同机并跑，5 s 默认单测超时在负载下到期而同一棵树单独跑全绿，当天三份 merge 日志（lessons-20261124、journeys-seed-j1j5j7、fill-story-rows）因此被退回；`7a3f56a1`（#736）把 `jest.testTimeout` 设为 20000 并用 mutant 钉住。
 
 为什么没拦住：确认器按想象中的日志格式写解析，没有拿真实的失败行样本验证；“能确认”被实现成“能解析一种前缀”，其余形态静默落回计费路径；负向用例只覆盖了能被解析的那一种。
 
@@ -845,9 +859,10 @@ seen: 1
 证据：`f3a2258d`（#414）、`40b7c77e`（#412）（2026-11-20）
 
 ## 2026-11-20 · 测试要等它断言的事件，不用睡眠或读一次赌时序
-seen: 1
+seen: 2
 
 发生了什么：同一批里四处：`TestNodeChannelRecordsDeviceAndAgents` 在 `awaitDevice` 返回后立刻读 `conns.Connected`，而注册行先写、socket 后挂，2026-11-20 两次 CI 假红（#473 13:27Z、#483 16:15Z，`83ce5d9a`）；`TestAWorkspaceFailureReportsThePromptsItCouldNotDeliver` 等到 `StatusFailed` 就读一次事件，而报告在 `finishRun` 之后写，本机 1/30、CI 2/2 假红（`879150d4`）；J6 走查在 `/api/agents` 回答前数选项，负载下 0.6–1.6 s 的目录让两条计数读到 0，六条下游行为未改的 PR 行变红（`46af34ad`）；排队 prompt 测试靠 80 ms 运行时长赌 adapter 已启动（`a102ac14`）。随后 `a8b74835` 把“不用 sleep 当同步、改过的 Go 测试跑 `-count=5 -race`”写进 worker/reviewer 契约。
+2026-11-26 再次出现：claim 重试钳制用例用 `[ "$elapsed" -lt 10 ]` 计时整个交接，负载下诚实地超过 10 s 就假红；第一次返工改读 lane 自己的 attempt 记录，但 12 s 看门狗仍会把慢交接杀掉判红，且把任何非零退出都报成超时，第二个提交才把看门狗放到 60 s 并拆开两种裁决（`5988486c`，#765）。
 
 为什么没拦住：这些断言都在“状态翻转”之后读一次，而产品保证的只是“最终会出现”，不是“翻转时已经在”；测试没有等它真正断言的那个信号（channel 挂上、报告落地、目录到达、adapter 启动），窗口小的时候本机偶发，负载一上来就必现。
 
@@ -985,27 +1000,27 @@ seen: 1
 | 新增凭证表要在同一个提交里进导出排除清单 | 2 | 未升级；restore 已补 `credentialFreeTables` 与逐表红测，下一次新增凭证表仍按同一清单办 |
 | 绑定密钥只存服务端，不让它经过浏览器或提供方往返 | 1 | 未升级；`726eb318` 已把 key 收进服务端 pending 状态，下一次新增回调参数先问“它在谁手里” |
 | 改原生壳层配置后，在模拟器里冷启动走一次真实路径 | 1 | 未升级；下一次改 `mobile/` 时在模拟器冷启动并走一次运行时 URL |
-| 异步回调按发起流程归属，不属于本流程的回调不能结束它 | 5 | AGENTS.md「Agent best practices」第 11 条；`620e94a1` 已把 sendback 绑定到受审 SHA；仍需一个能复现该规则的回归测试（两个并发流程 + 一个迟到回答），本轮不改代码 |
+| 异步回调按发起流程归属，不属于本流程的回调不能结束它 | 6 | AGENTS.md「Agent best practices」第 11 条；`620e94a1` 已把 sendback 绑定到受审 SHA；仍需一个能复现该规则的回归测试（两个并发流程 + 一个迟到回答），本轮不改代码；RN 线程模型与用量读取的同类缺口已由 `82409ace`/`b79c0511`/`a3a5ae2d` 修好并各配红测。 |
 | 连接断了不等于工作结束 | 1 | 未升级；ADR 0022 已补重连宽限（现 5 分钟）与 `turn.resume`，下一次改控制通道先跑拔 socket 的端到端测试 |
 | 长任务的 ctx 必须由守护进程持有 | 1 | 未升级；`internal/server/node.go` 已显式命名 `frameCtx`，下一次加长任务回调按此自查 |
 | 浮层按实测视口摆放，390px 下逐个验证 | 1 | 未升级；先修 issue #1/#3，再补一条 390px 的几何测试 |
 | YOLO 会话的首轮不能是只读 plan 轮 | 2 | 未升级；首轮已补 Create→首轮的端到端断言，worker 轮已按同一裁决修好并补红测（`c84d9da0`）；下一次新增权限模式×工作区组合先写这条测试 |
-| iPad 是桌面宽度、手指和无 Shift 软键盘，三种形态各验证一遍 | 3 | AGENTS.md「Agent best practices」第 16 条；`77ede76f` 已改按 `pointer: coarse`，`f938f290`/`76f047fc`/`f5fa2097` 把 820 粗指针下的封面 chip、列表列与消息操作补到 44×44 并各配 mutant；仍需一条能复现“≥768 粗指针控件必须 44×44”的回归测试，本轮不改代码 |
+| iPad 是桌面宽度、手指和无 Shift 软键盘，三种形态各验证一遍 | 5 | AGENTS.md「Agent best practices」第 16 条；`77ede76f` 已改按 `pointer: coarse`，`f938f290`/`76f047fc`/`f5fa2097` 把 820 粗指针下的封面 chip、列表列与消息操作补到 44×44 并各配 mutant；仍需一条能复现“≥768 粗指针控件必须 44×44”的回归测试，本轮不改代码；2026-11-24 `e26ce2ce`（#685 Menu 的 `max-sm:` 地板）与 `266ea80d`（#692 routines chip 与设置标签）已改读 `useCoarsePointer()` 并各配 mutant，同类控件仍要按 820 粗指针逐个量；2026-11-25 `bed4f956`（#731 用量 sheet 在 768–1599 被 `md:hidden` 吃掉）已在 md 以上改用 dialog 形态。 |
 | 超时预算按有界输入的上限和链路推算，不按一次本机测量 | 2 | 未升级；`queryTimeout` 已按 provider 实测重算；#647 已把共享面走查上限改成 2700s 并让 ux-walk.sh 与 merge.sh 同步；下一次新增预算先写上限算式与最慢链路 |
 | 两路 feed 合并同一实体时用稳定身份键，不用 cwd 或标题 | 1 | 未升级；`phoneSessionBuckets` 已按 (device, ref) 去重，下一次合并 feed 先找 ADR 身份键 |
 | 同一个到期时间存两处时，续期要在同一响应里重发 | 1 | 未升级；cookie 已随续期重发，下一次加滑动过期先列出所有副本 |
-| 新 gate、测试和守卫先在它该拦的失败上红一次 | 1 | 未升级；smoke 已补重启读回、`conn_test` 已显式持锁，下一次新守卫先用解析器和负向用例 |
+| 新 gate、测试和守卫先在它该拦的失败上红一次 | 2 | 未升级；smoke 已补重启读回、`conn_test` 已显式持锁，下一次新守卫先用解析器和负向用例；`7f38588e` 已补 RED/OK 桩用例与翻转 mutant，`a3a5ae2d` 已补卸载取消的用例，下一次写有 NA 出口的守卫先让每个裁决分支各执行一次。 |
 | 读一页历史的成本要在最大的真实目录上按页测量 | 2 | 未升级；`dec1f83b` 已把 125MB 尾页从 6.8s 降到 0.10s，下一次读路径改动先量最大文件与公网链路 |
 | 跨机链路按可达路径选择，不把一个固定 URL 当成唯一入口 | 1 | 未升级；`349a8212` 已把节点改到局域网并记录候选方案，下一次做 Hub 连接轮次先实现有序候选与真实路径测量 |
 | 一个 URL 参数只归一个功能所有，一次性深链按值应用 | 1 | 未升级；`SessionList` 已独占 `search/status/scope`，`/new` 的深链已按值应用；下一次新增 URL 状态先列参数归属 |
 | 后台刷新、重连和失败回执不能覆盖用户正在写的内容 | 2 | 未升级；`0dfef1c9` 已在设置页补“保存只采纳请求带上的字段”，下一次新增后台读/保存先写“编辑中来一次，文本与基线不变”的测试 |
 | 判断“上面还开着一层”要看那一层自己的状态，不用 role 或宿主推断 | 1 | 未升级；下一次给 `Sheet` 加内容列表先补“只开这一层时 Escape 能关”的测试 |
 | 重画评审页的帧要换文件名，按 1100 与 390 打开页面本身 | 1 | 未升级；下一次替换帧或截图先换名，再在两个宽度看整页 |
-| CI 会跑的格式检查必须先出现在本地 gate | 1 | 未升级；`3f6fafee` 已补 changed-file Prettier |
+| CI 会跑的格式检查必须先出现在本地 gate | 2 | 未升级；`3f6fafee` 已补 changed-file Prettier；2026-11-26 `bea7329e` 再次命中（NAS 交接自检不跑 CI 已有的 mobile-rn tsc+jest） |
 | 串行检查的退出码要逐个传递，不能由最后一条覆盖 | 1 | 未升级；`1f630884` 已执行生产 job 的失败组合 |
-| AST 与 ESLint 守卫要验证语言绑定和真实配置语义 | 1 | 未升级；`568d7117` 已补四条红测，下一次新规则先列旁路 |
+| AST 与 ESLint 守卫要验证语言绑定和真实配置语义 | 2 | 未升级；`568d7117` 已补四条红测，下一次新规则先列旁路；`dda89ae6` 已让 RN 的 DOM 扫描按绑定解析，并配四个 mutant，下一次写标识符扫描先列「同名但非全局」的旁路。 |
 | 合入必须改变树 | 1 | 未升级；`merge.sh` 需补 changedFiles > 0 断言，空 PR 关闭不合 |
-| 同一份交付只投递一次，认领随落库一起释放 | 5 | AGENTS.md「Agent best practices」第 14 条；`43ed7134` 已让 `claim`/`cloud-claim` 先读 `merged.log`，`83aa0cda` 已让写 sendback 前重读 live PR 状态；#633 已让 autofill 归档 head 更新的 stale sendback；仍需一条能复现“已落库条目再次被认领必须拒绝”的回归测试，本轮不改代码 |
+| 同一份交付只投递一次，认领随落库一起释放 | 6 | AGENTS.md「Agent best practices」第 14 条；`43ed7134` 已让 `claim`/`cloud-claim` 先读 `merged.log`，`83aa0cda` 已让写 sendback 前重读 live PR 状态；#633 已让 autofill 归档 head 更新的 stale sendback；2026-11-25 `409c41db` 重做了 `d7df42c3` 已落的文案；仍需一条能复现“已落库条目再次被认领必须拒绝”的回归测试，本轮不改代码 |
 | 循环脚本安装要么整份要么不装 | 2 | 未升级；`node-stamp.sh` 已按整份恢复，`1ff7749b` 已在 `common.sh` 自愈可执行位；下一次安装脚本先断言存在性、语法与可执行位 |
 | gate 日志要留下失败测试的名字 | 1 | 未升级；`gate.sh` `step()` 已保留 FAIL 标识，下一次改日志先验分类器 |
 | 判断证据缺失要列目录，不要猜文件名 | 1 | 未升级；`rsi/roles/reviewer.md` 已写抗体 |
@@ -1013,29 +1028,29 @@ seen: 1
 | 以路径为键的界面状态必须带机器维度，归属未证实按远端处理 | 1 | 未升级；手机项目桶已带 deviceId，下一次新增按路径读写的状态先问“哪台机器”，并写同路径双机测试 |
 | 发布流水线在第一个真 tag 之前先整条跑通一次 | 1 | 未升级；下一次改 `.github/workflows/` 先用预发布 tag 或 `workflow_dispatch` 跑通，并核对 `--version` 与 tag 一致 |
 | 列表响应按列表要用的字段投影，并在真实数据量上对着链路上限断言 | 1 | 未升级；`987d5788` 已给 routines 分页读加 summary 投影，下一次新增列表先把同一实体的所有读路径列出来并对 relay 上限断言 |
-| 合并或变基的结果当成一次新改动，提交前重跑 gate | 2 | 未升级；`11ad6921` 已让 release 的冗余合并先 `--no-commit` 证明再提交、失败不动 HEAD；下一次解冲突或合并后先在合并树上跑 tsc/测试/格式/库存基线并重建 `web/dist`，ratchet 上调须在正文写明原因 |
+| 合并或变基的结果当成一次新改动，提交前重跑 gate | 4 | AGENTS.md「Agent best practices」第 20 条；2026-11-15、2026-11-22、2026-11-25 三个日期已满；`11ad6921` 已让 release 合并先证明再提交，`b13c5b1c` 补了合入 #747 后的 fixture；仍需一条能复现“合并树未重跑 tsc/测试就不得推送”的回归测试，本轮不改代码；2026-11-26 `6cd5f5cd`/`6b8e77e9`/`314a5830` 再次命中（基线、行号引用、测试计数都在合并后才重量） |
 | 限流与额度只看结构化错误，不读正文 | 2 | 未升级；`note_agy_limit()` 只认结构化错误，`1444792c` 已让压缩状态按协议字段落定，回归用例在 `rsi/runtime/tests/`；下一个状态先问“有没有结构化字段” |
 | 走查选择器静默丢参数时，绿色不是证据 | 1 | 未升级；#429 `70e07458` 已 fail closed，下一次改选择器先跑空选择负例 |
 | 等待面必须有一个说人话的终点 | 2 | 未升级；#423/#424 已补终态页与静态页测试，`10e695fb` 已让手动启动态的中英文都要求 reload；下一次新增等待面先写失败状态 |
 | 忙标志不能顺手拒绝可排队的下一条消息 | 3 | 未升级；#430 `cc3f47aa` 已落地并带「收尾中发送→收尾后投递」测试，`0fd6239b` 已补编排回合的 settle 路径；第三次仍只跨 2 个日期，满 3 个日期再升级 |
 | 类名字符串测试证明不了生成的规则 | 1 | 未升级；#414 `f3a2258d` 已带 390px 断言，下一次改 utility 先在构建产物里数规则 |
 | 测量必须在 `origin/main` 的导出树上做 | 2 | 未升级；DREAM 夜报与 planner 卡已写抗体，下一次测量前先 `git archive` |
-| 只读评审者的搜索要限定在 state 目录 | 5 | AGENTS.md「Agent best practices」第 13 条；`merge.sh` 的 `$RB` 与 codex 看门狗已就位，`4d08ce5f` 给产品侧链接兑换补了命名 deadline；仍需一条能复现“无界等待必然被信号终止”的回归测试，本轮不改代码 |
+| 只读评审者的搜索要限定在 state 目录 | 6 | AGENTS.md「Agent best practices」第 13 条；`merge.sh` 的 `$RB` 与 codex 看门狗已就位，`4d08ce5f` 给产品侧链接兑换补了命名 deadline；仍需一条能复现“无界等待必然被信号终止”的回归测试，本轮不改代码；`9af7fe20` 已把 lane 推送重试的 push 与 ls-remote 包进 `with_timeout`。 |
 | 同一份共享文件一轮只能有一个写者 | 2 | 未升级；baseline / locale 的单写者规则已进 DECISIONS，第三次时进 AGENTS.md |
 | 一个字段有多个展示副本时，改名要逐面接线并验证实时重绘 | 1 | 未升级；`taskDisplayTitle` 已收敛取名表达式，下一次新增可编辑字段先列展示副本并写“挂着时改名立即重绘”的测试 |
 | 截断用户或 PR 文本要按字符边界，不按字节 | 1 | 未升级；三处截断已改 `iconv -c`，下一次切文本先加一条中英混排的边界用例 |
 | 浮层盖住列表根页时，用真实指针点一次种子行 | 3 | AGENTS.md「Agent best practices」第 18 条；`panelPresence` 已让浮动卡在有面板时只留横条，并覆盖隐藏面板与列面板两种形态；#661 把让位收窄到手机 tab 根并用 768 走查重新量几何；仍需一条能复现“浮层不得盖住列表行、让位不得误伤侧栏”的回归测试，本轮不改代码 |
 | `--no-build` 走查先校验 `index.html` 与 `assets/` 同源 | 2 | 未升级；`04fa6370` 已让可构建路径在不一致时重建，下一次复用 dist 前先断言入口 chunk 存在 |
-| 仓库自带的冒烟要自己 pin 它需要的环境变量 | 1 | 未升级；`RSI_FAKE_SLOW_SECS` 已进 smoke，下一次加时间窗步骤先补 export 与完整旅程 |
-| 新增可执行脚本必须以 100755 进 git | 1 | 未升级；#254 的脚本已修正，下一次新脚本用 `--chmod=+x` 并断言 `ls-files -s` |
+| 仓库自带的冒烟要自己 pin 它需要的环境变量 | 2 | 未升级；`RSI_FAKE_SLOW_SECS` 已进 smoke，下一次加时间窗步骤先补 export 与完整旅程；2026-11-26 `4104bd1b` 再次命中（套件继承了 lane 的环境变量），套件已自行 unset |
+| 新增可执行脚本必须以 100755 进 git | 2 | 未升级；#254 的脚本已修正，下一次新脚本用 `--chmod=+x` 并断言 `ls-files -s`；2026-11-26 `4104bd1b`（xcrun shim）再次命中，已让测试断言 git mode 并按 PATH 调用 |
 | 同步/快进失败不得吞掉 | 3 | 未升级；`b8828d55` 已在 release 重建前拒绝空 SHA，`04fd5718`/`12814263` 已让被钉住的控制树在 `--status` 显式显示；下一次不可逆步骤前先断言目标 SHA 与树状态 |
-| 把一次失败计进 rework 之前，先在同一棵树上确认它能复现 | 4 | AGENTS.md「Agent best practices」第 15 条；`c8e66893`/`c22dc001`/`359a1a69` 已分别修超时计费、确认证据与绿 journey 证据并集；仍需一条能复现“未复现的失败不得计费”的端到端回归测试，本轮不改代码 |
+| 把一次失败计进 rework 之前，先在同一棵树上确认它能复现 | 6 | AGENTS.md「Agent best practices」第 15 条；`c8e66893`/`c22dc001`/`359a1a69` 已分别修超时计费、确认证据与绿 journey 证据并集；2026-11-25 `9f2812cf` 把 vitest pool 饥饿判为机械性失败、`7a3f56a1` 给 RN jest 20 s 上限；仍需一条能复现“未复现的失败不得计费”的端到端回归测试，本轮不改代码 |
 | 改到受版本控制的文件或生成物时，恢复要挂满退出与信号路径 | 1 | 未升级；`25dc3d81` 已挂 EXIT/TERM/HUP/INT 并有信号回放用例，下一次写临时改动受控文件的工具先复用 `restore_dist` |
 | 调度与健康判据读瞬时状态，不读累积计数或代理指标 | 1 | 未升级；`1505de69` 已改读 VM pressure 与真实 headroom，下一次加门槛先在“历史高水位、当前正常”的样本上验证不误拒 |
-| 散文承诺要写清它断言的那一行 | 8 | AGENTS.md「Agent best practices」第 17 条；2026-11-19、2026-11-21、2026-11-22、2026-11-23 四个日期已满；`2b78ee75`/`a0bf8ccb` 已分别修正发布行与切换延迟；#636/#640/#661 再次命中；仍需一条能复现“散文声明必须带 path:line + 命令”的回归测试，本轮不改代码 |
+| 散文承诺要写清它断言的那一行 | 12 | AGENTS.md「Agent best practices」第 17 条；2026-11-19、2026-11-21、2026-11-22、2026-11-23 四个日期已满；`2b78ee75`/`a0bf8ccb` 已分别修正发布行与切换延迟；#636/#640/#661 再次命中；2026-11-25 `7bc11ed6`/`617dde1c`/`8127cf1c` 再次命中；仍需一条能复现“散文声明必须带 path:line + 命令”的回归测试，本轮不改代码；2026-11-26 `388fd107`（#776）再次命中 |
 | 扫描目录要容忍条目在列举与读取之间消失 | 1 | 未升级；`efab74f2` 已逐条 stat 并加 `_sendback-order` stdin seam，下一次写批处理先区分“扫描失败”和“扫描为空” |
 | 变体工具类要在编译产物里断言有规则，安全区用注入值量 | 1 | 未升级；`@utility pt-safe` 已让变体产出规则，`topInset` 套件编译真实样式表覆盖每个 `*pt-safe` token；下一次新增自定义工具类先在构建产物里断言变体选择器 |
-| 测试要等它断言的事件，不用睡眠或读一次赌时序 | 1 | 未升级；`a8b74835` 已把“不用 sleep、`-count=5 -race`”写进 worker/reviewer 契约；下一次改并发测试先指出它等的是哪个信号 |
+| 测试要等它断言的事件，不用睡眠或读一次赌时序 | 2 | 未升级；`a8b74835` 已把“不用 sleep、`-count=5 -race`”写进 worker/reviewer 契约；下一次改并发测试先指出它等的是哪个信号；2026-11-26 `5988486c` 再次命中（秒表裁决→改读 attempt 记录，看门狗与裁决分离） |
 | 读取失败不是空结果，不可读必须 fail closed 或显示失败态 | 1 | 未升级；`379a123e`/`12814263`/`370a20af` 已分别补 fail-closed、derived 状态行与 loading/ready/failed 三态；下一次新增读路径先写缺失/不可读负例 |
 | 同一判据只留一份实现，复制出来的副本会各自长洞 | 2 | 未升级；`e91065e6` 已把记录分类收敛到 sessioncatalog、`379a123e` 已把红线清单定义一次；#656 已收敛会话列表 key 表并断言成员完整；下一次修判据先 grep 所有副本 |
 | 调度意图要在 claim 处机械执行，所有入口回答同一问题 | 2 | 未升级；`1ce227f7`/`0da63a2b` 已让 claim 与 idle 用同一门槛、`2e962351` 已把 debounce 与 autofill 解耦；#643 已让三处共用 `ux_cooldown_skip()`，#635 已收进 `slot_claim()`；下一次加调度规则先写两个入口同答的测试 |
@@ -1049,8 +1064,24 @@ seen: 1
 | 比较命令输出前先剥掉颜色和空白，再按片段逐条要求 | 1 | 未升级；#657 已归一化 ANSI/空白并按竖线逐段匹配，三个负例与三个 mutant 已红；下一次改 claim 比较先跑颜色与拼接用例 |
 | 重复出现的同类控件要逐处修，契约要遍历每一处 | 1 | 未升级；#644 已把 J4 九次按压全部加上等待与图标瞄准，契约逐处遍历并配 mutant；下一次改重复控件先数实例 |
 | 滚动位置在滚动事件里保存，卸载时不要回读容器 | 1 | 未升级；#650 已把位置存进 ref，两个 DOM 用例在旧树上红；下一次改列表恢复先列 tab 返回与浏览器 Back 两条路径 |
-| 修好已登记缺陷的 PR 要在同一个 PR 里关闭那条例目 | 1 | 未升级；#638 已把 gap-log 守卫接进 merge.sh（10 用例、8 mutant）；下一次修 gap-log 条目先在同 PR 移动 |
+| 修好已登记缺陷的 PR 要在同一个 PR 里关闭那条例目 | 2 | 未升级；#638 已把 gap-log 守卫接进 merge.sh（10 用例、8 mutant）；下一次修 gap-log 条目先在同 PR 移动；`deee67da` 补移 #675 的条目，下一次分支早于条目登记时由修复者在同 PR 里补移或写 `Gap-log: none:`。 |
 | 弹层复用仓库已有的层栈与槽位，别自造原生 modal | 1 | 未升级；#646/#630 已用 Sheet 的桌面 dialog 模式与 header 槽，DOM 用例与 mutant 已红；下一次加弹层先查层栈与滚动体 |
+| 改文案或接线时，钉住旧值的断言也属于这次改动 | 7 | AGENTS.md「Agent best practices」第 19 条；2026-11-21、2026-11-23、2026-11-24 三个日期已满；`e18701b0`/`b1902b31`/`25e24186`/`9af7fe20` 再次命中；2026-11-25 `7c5f81f7`/`a61194a8` 再次命中，`9cf7566f` 已在推送前拦截被删字面量的陈旧测试；仍需一条能复现“改值后孤立的旧值断言必须红”的回归测试，本轮不改代码；2026-11-26 `102ad7ce`/`bea7329e` 再次命中（代码移动或改签名后 mutant 锚点失配） |
+| 瞬时传输失败不能让已通过的一轮作废 | 1 | 未升级；`9af7fe20` 已让 lane 有界重试、重试前对账远端并把终态记成 `delivered-unpushed`，下一次给不可重放的投递加重试先写“服务端已接受但连接断了”的用例 |
+| 整串参数要拆开或拒绝，不得原样记成一条永不匹配的路径 | 1 | 未升级；`8a901c2f` 已让 claim/cloud-claim 按空白拆分并对非路径词元退出码 2，下一次加声明范围的入口先写“一个带空格的整串”的负例 |
+| 为过行数闸门而拆出的切片，被甩出的部分要按名收回 | 1 | 未升级；`0c0b8c0c`/`b79c0511`/`82409ace` 已把被折掉的证明与模块收回，下一次拆切片先在 followups 里写被甩部分的文件名与收回 PR |
+| 读者是否在跟随，读记录下来的意图，不读实时距离 | 1 | 未升级；`25e24186` 已改读 `stickToBottomRef` 并带「底栏让出 40px 无滚动」的红测，下一次改依赖距离的提示先问“布局无滚动变化时它还对吗” |
+| 移动测量边界时，测量器里的每一份旧值也要同改 | 1 | 未升级；9c 拆出 9c1，让仪器与产品同 PR 修改并保持 mutant 红；下一次改边界先列仪器里的所有拷贝 |
+| 只在「缺陷不会发生的那条路」上写的测试，绿着也证明不了修复 | 2 | 未升级；`93320cd5` 与 `0675704a` 都在 review 后补了失败分支的用例；下一次写修复测试先在未修复的树上看到红 |
+| 会让每次重试都必然失败的判据或残留状态，要自带出路 | 1 | 未升级；`f4c5244e` 已让 docs scope 遇到被测试引用的文档时降级为 full，`01310718` 已复用 0 提交的残留分支；下一次写 fail-closed 判据先写“作者能做什么让它变绿”的用例 |
+| 清理挂在 EXIT trap 上时，成功路径解除 trap 前要先显式清理 | 1 | 未升级；`fac30e62` 已抽出 `lane_release_host` 并在成功路径的 `finish done` 之前调用，case 10 与 mutant 钉住顺序；下一次加 trap 清理先给成功路径写一条用例 |
+| 浮层压住输入控件等于不可达，正文可盖 | 2 | 未升级；gap-log `## Open` 条目由行 35 修复，`UserQuestionCard.tsx:163` 补 `data-kin-hit-row` 标记后按 390/820 真实指针验证；2026-11-26 `fcf23678`（#757）再次命中：只修了 390，820 由 UX gate 才发现 |
+| 工作已验证但 PR 不存在等于没交付 | 2 | 未升级；#738（`28e4326b`）与 #752（`b13c5b1c`）两次；下一次 `gh pr create` 失败写 `state/lanes/<slug>.pr-missing` |
+| 签故事前先量平台的事件载荷，键盘类验收格要带证据 | 2 | 未升级；row 36 改写 KIN-MOBILE-001 §5 的 Enter 格并记一行 DECISIONS；2026-11-26 `c7061e26`/`6437b04d` 再次命中（签入了产品或该面不存在的能力） |
+| 按路径裁剪检查范围时，范围从「谁读这个文件」推导 | 1 | 未升级；`1effe5a3` 已把 `rsi/runtime/ux` 整棵树判为 code，并让 rsi/markdown 与默认分支都询问 `named_by_rn_test`；下一次改分类器先列每个作业的间接输入 |
+| 行数上限要在产出方量，不要等最后一道门 | 1 | 未升级；PR #788 新增 `rsi/runtime/diff-size.sh` 供 lane/NAS 推送前量（未合入）；下一次加有上限的度量先给产出方同一份实现 |
+| 带秘密的流程里不加调试日志，临时日志不得进提交 | 1 | 未升级；`314a5830` 已撤掉 `PAIR_DEBUG`；下一次兜底提交前先逐文件看 diff |
+| 同步工作树后验证下一步要用的分支 | 1 | 未升级；`63142f50` 的 NAS 同步用例同时断言 HEAD、分支指向和旧提交仍可达 |
 
 ## 2026-11-19 · 走查步骤没有契约，就能在全绿时被删掉
 seen: 3
@@ -1068,7 +1099,7 @@ seen: 3
 证据：`2a6eaa9e`、`3c2d4a5c`
 
 ## 2026-11-19 · 散文承诺要写清它断言的那一行
-seen: 8
+seen: 12
 
 发生了什么：一天里三次：GOAL 说「打开 PR 面板不花 GitHub 调用」而测试钉着首看查询；`PLAN.md`
 手写「4 covered / 10 approved」而注册表是 2/14；ADR 把 `migrate()` 的盖章顺序和 node→Hub 载体
@@ -1078,6 +1109,8 @@ seen: 8
 2026-11-21 再次出现：方向文档复审一次退回五处与自身来源矛盾的散文——阶段日期写成 11-23（CEO 记录是 11-28）、故事写成“已签”（登记处是 draft）、Done means 丢了本阶段的一句话目标、把已停项挪进下一阶段、ADR 引用 `rsi/GOAL.md` 行号被自己的插入挤走；`b6ca930f`（#546）把长期引用改成点名段落，不再钉行号。
 2026-11-22 再次出现：切换延迟计划把退役腿的 post-cut p50 写成 pre-cut 的 61.9，并把“本文所有数字”的出处说明扩到两条仍在使用的腿；`a0bf8ccb`（#603）按 P12 记录改成 63.9，并只把说明限定在 mac-area-to-area。
 2026-11-23 再次出现：#636 的第一版正文把一条没有已发货生产者的兜底写成“修复了上报的点击”，复核后改记为 latent hardening 并保留 followup（`c7a37b2a`）；#640 的 claim 行号被 lane 自己的 format 提交整体移位（240/256/277→235/251/272），契约改为先 `format-changed.sh --write --commit` 再写正文（`69f07489`）；#661 的返工报告用 364/360 描述 768 几何，真实走查量到行 x96–332、pill x360–744，第三次提交按实测改正（`4bb92c19`）。
+2026-11-25 再次出现：#725 的模拟器文档暗示 App Store 与 `run:ios` 两条兜底都跑过，实际模拟器里已有缓存的 Expo Go、两条都没执行，第二个提交才改成如实写“未执行”（`7bc11ed6`）；KIN-AGENTS-002 的草稿合同仍写评审页与 Figma 帧“由 part b 交付、尚不存在”，而它们已在 #629 `b0d46372` 落地（`617dde1c`，#710）；#726 的结算记录先声称六条验收行全部有证据，820「展开另一个项目」一句其实没有任何来源，第二个提交才改为五条完整、一条带缺口（`8127cf1c`）。
+2026-11-26 再次出现：KIN-NOTIFY-001 的契约仍承诺 R0b-3 已删掉的通知设置面板、点名一个不可能存在的测试文件，返工时评审又找出四处引用错位（IA.md:77、notify.go:525、登出删除登记的测试名、locales.test.ts），第二个提交才逐条改正（`388fd107`，#776）。
 
 为什么没拦住：brief 和 PR 体只要求「写清楚」，没要求指出这句话对应的 `path:line` 与今天的证据。
 
@@ -1243,7 +1276,7 @@ Tailwind 从不生成 `md:`/`max-md:` 变体；构建出的 CSS 里 `.pt-safe` �
 `ui/src/components/layout/topInset.test.ts`。
 
 ## 2026-11-21 · 改文案或接线时，钉住旧值的断言也属于这次改动
-seen: 3
+seen: 7
 
 发生了什么：一夜两次同一形状。① #504 改了 `FloatingApproval.tsx` 的 `stripOnly` 组合，
 却把 `ui/src/pages/floatingApprovalWiring.test.ts:72` 的旧正则留在原地，gate 先红在
@@ -1251,6 +1284,10 @@ seen: 3
 `ui/src/pages/TaskSessionHost.handoff.dom.test.tsx:317` 仍断言 `Task not found`——它不在
 PR 改的 8 个文件里，CI `build` 在 head `1849750d` 上 1 failed / 3713 passed。
 2026-11-23 再次出现：#645 把 check.sh 默认从 22 个 job 收到 14 个后，CI-run 清单仍断言未缩进的 `start ui-inventory`，AGENTS.md 与 job 注释也还写着旧默认（`5d6a9680`）；#659 的四个 mutant 仍指向 #654 已删掉的行（`mutants.py` 报 `pattern occurs 0 times`），只能改钉到幸存的共享 `$UX_SPEC_PATHS` 行（`c13a9dca`）；#656 的三套用例仍断言已退役的 `/projects/:id` 地址（`79a77832`）。
+2026-11-24 再次出现：#665 把项目控件改名为「只看这个项目」并删掉 `/projects/:id`，`Sidebar` 里四条 `getByRole` 断言仍找旧标签、第五条还在点已不再打开封面的标题，另有四份故事契约仍列着已删除的 `ProjectDetailPage` 等路径，先红了 CI 和一轮合并 gate 才在同一 PR 里补上（`e18701b0`）；#676 删页面套件后 removed-surfaces 记录涨到 23 条，钉着旧总数的 mutant 锚点对不上文件（`b1902b31`），#683 再删一页涨到 24 条，同一个计数 mutant 又得重指一次（`25e24186`）；#694 把 `push -q -u` 换成 `git_push_retry` 后，四套 harness 还钉着已删除的字面量，返工才改成定位新调用（`9af7fe20`）。三个日期（2026-11-21、2026-11-23、2026-11-24）已满，升级为 AGENTS.md 第 19 条。
+2026-11-25 再次出现：KIN-CONTINUE-007 把工作方式面板换成一行折叠披露后，两个项目封面 mutant 锚点仍指向已不存在的 clamp 预览与标题 span，只能另起提交改钉（`7c5f81f7`，#705）；粗指针地板已改到 1023.98px，`.touch-floor` 注释、SheetSelect 测试注释、TASTE 规则 21 与故事现状仍写着 767.98px，靠一个后续 PR 统一改正（`a61194a8`，#712）。
+2026-11-26 再次出现：#773 把表格判据抽进共享 `ui/src/lib/markdownTable.ts` 后，三个 R-rn-table-block mutant 仍锚在被删的 `tableBlock.ts` 行上，最后一个提交才改指（`102ad7ce`）；#778 给 projects 的 `apiFetch` 加了 `session` 参数，manifest 的旧文本不再匹配 `listModel.ts`，`mutate()` 无法应用，也要单独补一个提交重新锚定（`bea7329e`）。
+2026-11-27 再次出现：设置页把导入入口拆到独立分组后，导入 mutant 仍指向旧分组；RN 用量表新增 R6 验收文件后，跨端签名测试仍钉住旧文件清单，两处都在同一 PR 的后续提交才补齐（`61ba5ef6`、`a5508fd4`）。
 
 为什么没拦住：两条 lane 的验收与独立复核都没有把「旧字符串/旧接线的每一处字面断言」
 当成本次 diff 的一部分（#506 的复核给了 PASS）。gate 的 outside-footprint 分类按目录
@@ -1394,11 +1431,12 @@ seen: 1
 证据：#593 `d7d29e32`（先加断言）、#608 `f5fa2097`（按卡片宽度抬到 44px）。
 
 ## 2026-11-23 · 只在「缺陷不会发生的那条路」上写的测试，绿着也证明不了修复
-seen: 1
+seen: 2
 
 发生了什么：#605 的「新进展」药丸修复：第一版测试只覆盖「从底部发送」，而发送本身会在任何人
 滚动前花掉 pin，所以未修复的树也全绿；review 发现后改成「布局恢复仍欠 pin」的那条路径，才在
 旧树上红。
+2026-11-25 再次出现：#713 菜单翻边修复的唯一测量用例内容都比下方空间高，永远走“换另一侧”分支；review 发现“保留首选侧”分支整段删掉套件仍绿，第二个提交才补上内容放得下的用例（`0675704a`）。
 
 为什么没拦住：测试作者把「能复现症状的操作」写成了「最常见的操作」，而缺陷只在 pin 仍欠着、
 且布局恢复占住读者行时出现。
@@ -1470,9 +1508,10 @@ seen: 1
 证据：`d937cc10`（#642）、`c51aa250`（#649）、`5a9aaf03`（#650）
 
 ## 2026-11-23 · 修好已登记缺陷的 PR 要在同一个 PR 里关闭那条例目
-seen: 1
+seen: 2
 
 发生了什么：两天里 #611、#615、#632 三个修复 PR 落地时，各自 `## Open` 里的 gap-log 条目还开着，每个都要再花一个 docs-only PR 去移动它；每小时巡检直接读 `## Open`，修好的条目留在那里就会把做完的活重新派一次。`docs/plans/gap-log.md:25-27` 本来就写着“同一个 PR 移动”的规则，但没有任何执行点。#638 让 `rsi/runtime/gap_log_check.py` 拥有这条规则：PR diff 碰到某条 `## Open` 引用的路径时，要么声明该条目自己的文本（条目已移入 `## 已修`，且 gap-log 在 diff 里），要么写至少 20 字的 `Gap-log: none: <reason>`；merge.sh 在 reviewer 之前机械执行，不满足就退回。解析按标题锚定——文件头部散文同时提到两个标题，直接 `split('## Open')` 会切错区域（#611 的 brief 就踩过）。十条用例、八个 mutant、fill.md 的派发半边与 MANDATE 第 7 项一起落地。
+2026-11-24 再次出现（守卫看不见的变体）：#675（`ee772863`）修好 routines 审批条的覆盖，但它开分支时 #674（`052bba66`）登记的条目还不存在，门读到的基线里没有这一条，于是放行了一份不再成立的豁免；条目留在 `## Open`，要再花一个 docs-only PR 才移到 `## 已修`，而下一轮 dogfood 以 `## Open` 为空作门（`deee67da`，#678）。同日 #692 在同一个 PR 里关闭了两条 820 粗指针的缺口（`266ea80d`），说明机制本身可行，缺的是对「分支早于条目登记」的识别。
 
 为什么没拦住：规则只写在文档里，没有执行点；巡检只读 `## Open`，一个已修条目留在那里就变成新的待办。按字符串切标题还会被文件自己的说明文字骗过。
 
@@ -1567,3 +1606,199 @@ seen: 1
 
 证据：`docs/product/stories/KIN-CONTINUE-007.md`「现在」一节、dogfood `20261124-05`
 `readings.json` `C4-820-scan`。
+
+## 2026-11-24 · 瞬时传输失败不能让已通过的一轮作废
+seen: 1
+
+发生了什么：lane 过完全部检查、提交之后，一次 `git push` 遇到 TLS 抖动，整轮交付就丢了：提交正文记录的 #84（2026-11-15）与 #693（2026-11-24）各发生一次，每次都要有人去找那个提交、手工推分支、手工开 PR。更糟的是失败还会计入 `count_fail`，把一次网络抖动当成 runner 故障喂给熔断器。
+
+为什么没拦住：推送写成单次 `push -q -u`，没有重试，也没有“服务端已接受但连接先断了”这条路径；失败的终态只有“lane 失败”，分不出“工作没做完”和“工作做完了只是没送达”。
+
+规则：不可重放的投递（push、开 PR）先有界重试（次数与间隔可覆盖），每次失败后对账远端 head：已落地就不再重复；最终失败记为独立终态（`delivered-unpushed` 加本地 SHA 与恢复指令），不计入 runner 失败；重试环里的每个网络调用都有自己的超时。
+
+证据：`9af7fe20`（#694；八个用例、含“已落地的推送不重复”与有界超时用例）
+
+## 2026-11-24 · 整串参数要拆开或拒绝，不得原样记成一条永不匹配的路径
+seen: 1
+
+发生了什么：调用方把 `"$PATHS"` 当一个带引号的参数传给 `lanes.py claim`，argv 里只有一个词，claim 把整串记成一条永远匹配不到文件的路径；`--worker-contract-check` 随即把每个被改的文件都判为足迹之外，行 3 `delete-pagesb2c-del` 失去 claim，空转了一个 fill 周期（followup 1832，2026-11-24 07:36）。
+
+为什么没拦住：入口只校验“非空、不过宽”，没有校验“每个词元本身像一条路径”；一个永不匹配的 claim 看上去和一个很窄的 claim 一样合法。
+
+规则：声明范围的命令对每个 `--paths` 参数按空白拆分；整段文本本身是真实文件或目录时保持原子（带空格的已跟踪路径有四个）；拆出非路径词元时退出码 2 并引用该词元与整段参数，不得悄悄记成更窄的范围。
+
+证据：`8a901c2f`（#690；claim 与 cloud-claim 两条入口、六个 mutant）
+
+## 2026-11-24 · 为过行数闸门而拆出的切片，被甩出的部分要按名收回
+seen: 1
+
+发生了什么：RN 的切片要过合并线的行数上限，拆分时把本该跟着已合并代码走的东西甩了出去，之后靠“restore”PR 一条条补回：R2a 删掉了 `pairingLink.test.ts`、把 `transport.test.ts` 砍到只剩两个边界，代码合了、证明没合，直到 #677 才补回（`0c0b8c0c`）；R4a 的任务事件流模块在 #693 才恢复（`b79c0511`）；#698 被合并线量到 1049 行、超过 1000 的上限，只好把重试 `start()` 的修复连同测试单独停放，并在 lane followups 里记一笔待恢复（`82409ace`）。
+
+为什么没拦住：行数上限只数改动行，不问“被甩的是代码还是它的证明”；拆分后没有地方强制登记被甩出的文件名与收回 PR，下一片是否带回它全靠记忆。
+
+规则：为过行数上限而拆分，只能按意图或文件拆，不能把已合并代码的测试甩出去；被停放的部分必须在 followups 里写明文件名、来源提交与负责收回的行，收回的 PR 引用该行。
+
+证据：`0c0b8c0c`（#677）、`b79c0511`（#693）、`82409ace`（#698）
+
+## 2026-11-24 · 读者是否在跟随，读记录下来的意图，不读实时距离
+seen: 1
+
+发生了什么：「新进展」药丸判断读者有没有看到末尾时，读的是实时的“离末尾多远”。J16 的 820×1180 走查把读者停在末尾上方 140px，随后到达的回复被记成“已看到”：底栏是 transcript `clientHeight` 的一部分，底栏让出一行（药丸落下、等待条收起）就会让距离缩小而读者根本没滚动，96px 的“已追上”判断因此答了“追上了”（`25e24186`，#683）。
+
+为什么没拦住：#605 当时的修复和测试只覆盖了“滚动造成的距离变化”，没有摆出“布局无滚动地改变距离”这个前置状态，距离判据也没有被读者真实意图替换。
+
+规则：任何“读者是否还在跟随”的判断读读者自己的滚动或本页选择的落点所记录的意图（`stickToBottomRef`），不读实时距离；测试要摆出“底栏让出 40px 且没有滚动”的状态，并在旧判据上看到它红；放得下视口的 transcript 不发提示。
+
+证据：`25e24186`（#683；`TaskDetailPage.newActivityPin` 的回归用例在恢复实时距离判据后变红）；先前 #605 `93320cd5`
+
+## 2026-11-25 · 移动测量边界时，测量器里的每一份旧值也要同改
+seen: 1
+
+发生了什么：拆 9c 时发现 `rsi/runtime/ux/measure-list-shell.mjs` 在 `:69`、`:125`、`:291`
+把 767.98 硬编码成自己的边界（`:19`、`:65` 的注释也各有一份）。若只把 `.touch-lg` 粗指针臂移到
+1023.98 而不改仪器，它在 820 会打印 `floor-now: off`，并在自己的 `--self-test` 上失败——同一份
+「边界」在产品和仪器里各有一份拷贝，仪器量的是旧世界。
+
+为什么没拦住：仪器现有的 `--self-test` 只证明脚本能跑完，不证明它测的边界等于产品当次的边界；
+边界值不是从产品读出来的。
+
+规则：改任何被测量的边界（断点、最小值、条数）时，同一个 PR 改掉测量器里的每一份拷贝，并让
+`--self-test` 或 mutant 证明「产品边界 == 仪器边界」；否则仪器的绿灯只是旧边界的绿灯。
+
+证据：`rsi/state/STATUS.md` 2026-11-25 07:26「The 9c split and the instrument defect it
+exposed」；`rsi/runtime/ux/measure-list-shell.mjs:19/:65/:69/:125/:291`。
+
+## 2026-11-25 · 会让每次重试都必然失败的判据或残留状态，要自带出路
+seen: 1
+
+发生了什么：#722（`0634a37b`）给合并 gate 加了 docs scope：只改 markdown 的 PR 只跑 stories、ux-spec-refs 与 doc-refs，而 doc-refs 在 ui/Go/Python 测试引用了改动文档时 fail closed。`scope_of` 却从不降级，这样的 PR 每次 gate 都必红、rework lane 怎么改也改不绿，mobile-contract-settle lane 因此被退回三次；`f4c5244e`（#749）让 `scope_of` 在测试引用改动路径或文件名时直接降级为 full，check.sh 的 fail-closed 留作兜底。同一天另一形状：`worktree add -b` 半途失败会留下一个 0 提交、没有 worktree 的 `rsi/<slug>` 分支，此后每次派发都死在“分支已存在”，lane 2 在 rn-gate-timeout 上一直红（`01310718`，#735 改为复用该空分支并快进到 origin/main）。
+
+为什么没拦住：两处都只测了“判据会拦”和“正常路径能过”，没测“拦下之后下一轮怎样才能过”；fail closed 被当成终点，而不是“把调用方引到能跑的那条路”。
+
+规则：写 fail-closed 判据或可能半途失败的步骤时，同一个 PR 里写清并测试出路：被拦的输入下一轮会走哪条能变绿的路径（降级到完整检查、复用残留状态、或显式 needs-ceo），并用一条“连续两轮同一输入”的用例证明第二轮不会再以同样原因失败；作者无法通过改代码修好的失败不得计进 rework。
+
+证据：`0634a37b`（#722）→ `f4c5244e`（#749）；`01310718`（#735）（2026-11-25）
+
+## 2026-11-25 · 清理挂在 EXIT trap 上时，成功路径解除 trap 前要先显式清理
+seen: 1
+
+发生了什么：#724（`47261f5f`）把 lane 的 cwd 扫尾与模拟器关机放进 `lane.sh` 的 EXIT trap，但成功路径先 `rm -rf "$LK"; trap - EXIT` 再退出，trap 根本不跑——每条开了 PR 的 lane 都把 worker 启动的模拟器和 setsid 子进程留在机器上；当天两台遗留模拟器让主机 load 在 100–600 持续一个多小时，压力门关着、四个返工停摆。`fac30e62`（#745）抽出 `lane_release_host`，在成功路径 `finish done` 之前显式调用；第二个提交又把调用挪到 `finish done` 之前，否则 lane 已报空闲而清理还在跑，merge 可能在同一 worktree 起验证进程又被清理杀掉。
+
+为什么没拦住：#724 的 hermetic 套件只模拟了被看门狗杀掉的那条路，成功路径上 trap 被解除这件事没有任何用例；“EXIT trap 总会执行”被当成事实，而同一脚本里就有 `trap - EXIT`。
+
+规则：把清理挂在 trap 上时，先 grep 同一脚本里所有 `trap -`/`exit` 前的解除点；解除 trap 的成功路径必须显式调用同一个清理函数，且在“标记完成/释放锁”之前调用；测试同时覆盖被杀路径与成功路径，并用 mutant 钉住清理与完成标记的先后。
+
+证据：`47261f5f`（#724）→ `fac30e62`（#745）（2026-11-25）
+
+## 2026-11-26 · 浮层压住输入控件等于不可达——正文可盖，输入不可盖
+seen: 2
+
+发生了什么：2026-11-25-22 的 390 dogfood 里，回答问题的「其他」自定义输入框被浮动批准条压住：预设选项 44px、点中心命中自己，输入框却点不到；同一个 820 下输入框可点。`01c7ceb4`（#737）把它登记进 `docs/plans/gap-log.md`，行 35 修复中（`rsi/state/briefs/phone-question-field.md`）。
+2026-11-26 再次出现：#757 第一版只在 768 以下让浮动批准条让位，并给问题卡打了一次性的 `phone` 标记；UX gate 的 820 iPad 读数显示展开的决策卡仍盖住第二张问题卡的输入框焦点环并截掉「提交」按钮底部，最后一个提交才让它在所有宽度对每个 hit row 让位（`fcf23678`）。
+
+为什么没拦住：让位判据的锚点是 `data-kin-hit-row`（列表行）与 `data-kin-reading`（正文），输入框两个都没有（`ui/src/components/cards/FloatingApproval.tsx:262` 的 `covers(...)`）；既有回归用例只证明行和正文可点。2026-11-22 的取舍（`rsi/DECISIONS.md:166`）只说了「正文可被覆盖」，没有区分输入框。
+
+规则：浮动卡片/条带在任何宽度压住一个可交互控件（输入、按钮、可选行）时，必须让位或在同一屏内可关闭；只有正文段落可以被覆盖。证明用真实指针或 `elementFromPoint` 在 390 与粗指针 ≥768 各点一次被盖控件本身，覆盖者的存在不算证据。
+
+证据：`rsi/state/dogfood/20261125-22.md`（F2 回答问题 · 390）、`docs/plans/gap-log.md`（#737 `01c7ceb4` 登记）、`rsi/state/briefs/phone-question-field.md`。
+
+## 2026-11-26 · 工作已验证但 PR 不存在，等于没交付
+seen: 2
+
+发生了什么：① 2026-11-25 23:52，一条 lane 的 `gh pr create` 连续三次 502；分支 `28e4326b` 已推送、9 文件 +693/−20、64/64 jest、18/18 mutant 红，但合并车道只看得到 open PR，19 分钟后才由 CEO 用 REST 补开 #738。② 2026-11-26 05:0x，row 31 跑了 52 分钟、测试与 mutant 全绿后死在模拟器步骤，因缺 PR body 被 red-first 判失败，240 行已验证代码滞留到 06:24 才由后续 lane 转成 #752（`b13c5b1c`）。
+
+为什么没拦住：lane 的完成判据是「提交 + 推送」，PR 创建被当成收尾动作；它失败时没有留下合并车道能读的记录，`lanes.py status` 也只显示 lane 结束。
+
+规则：PR body 是 lane 的第一件产物，不是最后一件；`gh pr create` 失败时写 `state/lanes/<slug>.pr-missing`（含 branch、sha、body 路径），并让 `lanes.py status` 与合并车道能据此接管；body 或证据未完成不算 done。
+
+证据：PR #738（`28e4326b`）、`rsi/state/lanes/rn-list-restore.pr-body.md`、PR #752（`b13c5b1c`）、`rsi/state/followups.md` 2026-11-26 条目。
+
+## 2026-11-26 · 签故事前先量平台的事件载荷，键盘类验收格要有该平台的证据
+seen: 2
+
+发生了什么：KIN-MOBILE-001 §5 的「Enter 发送、Shift+Enter 换行（外接键盘）」签进了故事（`docs/product/stories/KIN-MOBILE-001.md:102`），直到 row 36 才量到：RN 0.88.1（`mobile-rn/package.json:21`）的 `TextInputKeyPressEventData` 只带 `key`、`target`、`eventCount`，没有 shift/meta（`mobile-rn/node_modules/react-native/Libraries/Components/TextInput/TextInput.flow.js:99-105`），而多行框的 `submitBehavior` 默认 `newline`（同目录 `TextInput.js:449-469`）——Return 不可能同时发送与换行。已签的父规则是手机用发送键（`docs/product/stories/KIN-START-001.md:45`）、Mac 用 ⌘Enter（`docs/product/stories/KIN-CONTRACT-001.md:67`）。
+2026-11-26 再次出现：KIN-MOBILE-001 §8 已签的「未读数与待批计数以服务端为准」承诺了产品没有的按会话未读——唯一的未读是 routine 徽标（`internal/api/api.go:582`），store/api 里没有任何已读标记，RN 也没有 routines 面，只能事后改措辞并记 DECISIONS（`c7061e26`，#774）；同日 RN 空列表的提示指向一个手机上不存在的「新建对话」入口（`6437b04d`，#766）。
+
+为什么没拦住：故事评审读的是意图文案，没有一条要求「这个格子的行为在该框架的事件载荷里存在」；框架的能力边界从未被抄进契约，直到一条 lane 要动手时才撞上。
+
+规则：任何承诺按键、手势或系统事件的验收格，签名时附上该平台事件载荷的 `path:line`（字段列表）与一个最小验证；载荷不支持的组合改成该平台已实现的动作，或明确写成「仅 web」。发现已签的格里不可能的行为，按 row 36 的方式改措辞并记一行 DECISIONS，不硬造实现。
+
+证据：`docs/product/stories/KIN-MOBILE-001.md:102`、`mobile-rn/package.json:21`、`TextInput.flow.js:99-105` / `TextInput.js:449-469`（RN 0.88.1 安装树）、`rsi/state/STATUS.md` 行 36。
+
+## 2026-11-26 · 按路径裁剪检查范围时，范围从「谁读这个文件」推导，不从文件所在目录推导
+seen: 1
+
+发生了什么：#763 给 CI 加了按 diff 裁剪的 changes 分类器，首版有两处把会被测试读到的文件判成了「无需检查」：`rsi/runtime/ux/journeys/*.json` 由 `scripts/journeys_seed_test.py` 经 `rsi/runtime/ux/spec.py` 读取，却没有任何套件写出它的路径，于是改旅程被当成文档、跳过了它唯一的执行者 journeys 作业；`docs/adr/0036-*.md` 和 `scripts/check.sh` 分别被 `mobile-rn` 的 `importContract.test.ts`、`checkJob.test.ts` 点名，但对应分支从不问 mobile-rn 的套件，新的 mobile-rn 作业恰好在它钉住的那些 diff 上被跳过。评审返工的第二个提交才补上（`1effe5a3`）。
+
+为什么没拦住：分类器的 10 个用例都按「目录 → 作业」举例，没有一例是「文件在 docs/rsi 目录里，但被某个测试间接读取」；判据只匹配测试源码里写出的路径或文件名，经由加载器间接读取的文件不在其中。
+
+规则：按路径给检查定范围时，先列出每个作业的输入文件（包括被加载器、glob、fixture 间接读取的），再判断一个改动能否跳过它；分类器的用例必须包括「看似文档、实为测试输入」的路径，分不清的归 code（fail closed）。
+
+证据：`1effe5a3`（#763，返工提交 `fix(ci): classify the ux tree as code and let mobile-rn tests scope rn`）
+
+## 2026-11-26 · 行数上限要在产出方量，不要等最后一道门
+seen: 1
+
+发生了什么：Hub 登录（#778）由 NAS 一次性交付了 token store、Hub 认证、带 cookie 的传输、配对页接线、下游 session 透传和中英文案，合并车道量到超过 1000 行的上限；巡检按「一项完整能力、近一半是测试与 mutant」给了 `size-ok` 豁免，最终压扁合并为 35 个文件、+1605/−98（`bea7329e`）。worker 收到的只有一句「约 800 行」的文字提示，lane 和 NAS 都没有量行数的命令，超限要到合并车道才第一次被量到——此时 gate 槽位、评审和一轮返工都已经付出去了。
+
+为什么没拦住：上限只在 `rsi/runtime/merge.sh` 里计算；产出端没有同一算法的工具，也没有「超限不推送、不开 PR」的判据；豁免由巡检自批，没有要求先拆。
+
+规则：任何有上限的度量，产出方（lane、NAS worker、交接自检）用与最后一道门同一份实现在推送前量，超限就不开 PR、写 followups 拆分；豁免只能是 CEO 显式写入、注明为何不能拆，不由巡检自动生成。
+
+证据：`bea7329e`（#778）；`rsi/state/merge/rn-hub-signin.size-ok`；修复见 PR #788（`rsi/runtime/diff-size.sh`，未合入）
+
+## 2026-11-26 · 带秘密的流程里不加调试日志，临时日志不得进提交
+seen: 1
+
+发生了什么：RN 证据刷新的 lane 为排查配对，在 `mobile-rn/app/pair.tsx` 的配对 catch 里加了一条 `PAIR_DEBUG` 的 `console.error`，输出这个携带配对 token 的流程的错误详情；它被「提交剩余改动」的兜底提交一起带进分支（`e31969c6`），还让一个纯文档的 diff 变成了代码 diff，后续提交才把 catch 恢复成与 origin/main 逐字节一致（`314a5830`，#770）。
+
+为什么没拦住：兜底提交「commit remaining edits」不区分有意改动和排查残留；没有任何检查对 secret-bearing 文件里新增的 `console.*` 报警，自审只看了文档部分。
+
+规则：在配对、登录、token 交换等携带秘密的代码里不加调试日志；确需排查时只打印不含秘密的阶段名，并在提交前 `git diff origin/main -- <文件>` 确认已撤掉；兜底的「提交剩余改动」前先逐文件看 diff，发现排查残留就丢弃，不提交。
+
+证据：`e31969c6` → `314a5830`（#770，`fix(mobile-rn): drop the pairing catch debug log`）
+
+## 2026-11-27 · 云端作业的基线量作业自己的记录，不量 brief 的自述
+seen: 1
+
+发生了什么：NAS 上从 11-24 15:54 起的每个作业都建在 `ee7728631d` 上，而当时已发布 bundle 的头是 `e9ea9d8b`（#793，01:49 合入）；20 份 `status.json` 里 19 份一致，不是偶发。作业按 brief 里的基线自述「跑在 main 上」，直到巡检在 04:33 直接读作业记录才发现——期间所有云端交付都是在一个三天前的树上长出来的。
+
+为什么没拦住：`nas-lane.sh` 只认自己 checkout 出来的树；没有任何一步把作业实际建在其上的 SHA 与已发布 bundle 的头做比较，`status.json` 里的 SHA 也没有消费者。
+
+规则：云端作业的基线以作业自己的记录为准——每次分发把「作业实际建在其上的 SHA」与「已发布产物记录的头」各写一行，两者不等就不派；巡检读 `status.json` 的 SHA，不读 brief 的自述。
+
+证据：`ee7728631d`（19/20 `status.json`）；修复 PR #799（`rsi/runtime/nas/nas-side/nas-base.sh`，未合入）
+
+## 2026-11-27 · 引行号否认一个能力的句子，会随邻座 PR 一起过期
+seen: 1
+
+发生了什么：`rsi/DECISIONS.md:194` 用「对话头今天只画返回与用量（`mobile-rn/src/screens/ConversationView.tsx:600-632`）」把 RN 的标题判成不存在。该区间在 `1e9d0b47` 上是离线/重试块；#753 `d33326fb`（11-26 07:25，比这条决定早 27 分钟合入）已经在 `:661` 渲染 `testID="conversation:title"`，今天在 `4d0856bc:1006`（`accessibilityRole="header"` 在 `:1002`）。合同因此连续两轮把已发布的事实写成缺口。
+
+为什么没拦住：句子引的是行号区间，不是一条会因为能力存在而变红的测试；邻座 PR 改了同一个文件后，没有任何一步重读被引用的区间，评审也只核对了「有 path:line」。
+
+规则：合同或 DECISIONS 里否认某个能力的句子，必须点名「能力若存在就会红的那条测试」，不能只引行号；同一文件有 PR 合入时，重读并复量该句。
+
+证据：`d33326fb`（#753）、`4d0856bc:1006`；修复 PR #801（`docs/product/stories/KIN-MOBILE-001.md` + `rsi/DECISIONS.md`，未合入）
+
+## 2026-11-27 · 一次只读一格的合同复查不是复查
+seen: 1
+
+发生了什么：03:16 的 §2d 复查结论是「KIN-MOBILE-001 没有非真机缺口」，但它只读了 §5 的「撤回」格，没读同一节的「慢」格；「慢：发送按钮转圈但草稿仍可编辑」（`docs/product/stories/KIN-MOBILE-001.md:101`）在 `cf62febe` 上确实没有转圈——`ActivityIndicator` 在 `ConversationView.tsx` 里一次都没出现。缺口又活了 3 小时，直到 05:20 重读才发现，由 #800 `4d0856bc` 补上。
+
+为什么没拦住：复查记录只写了结论，没写「读了哪几格、每格判什么」；一个格子通过就被当成整节通过。
+
+规则：合同复查逐格列出「读了哪一格、结论是什么」；只读一格就下「没有缺口」不算复查，报告里也不许写成整节通过。
+
+证据：`4d0856bc`（#800）、`docs/product/stories/KIN-MOBILE-001.md:101`
+
+
+## 2026-11-27 · 同步工作树后验证下一步要用的分支
+seen: 1
+
+发生了什么：NAS 接收流程修复了干净工作树位于较新主线时无法导入的问题，但第一版用分离 HEAD 检出交付提交。下一轮返工会在分离 HEAD 上提交，而推送脚本推的是原分支，导致返工无法交付（`63142f50`）。
+
+为什么没拦住：第一版用例只证明 HEAD 到了包里的提交且可以发布，没有验证后续返工使用的分支也指向该提交。
+
+规则：同步交付提交后，同时断言 HEAD 的提交和所附着的分支，并验证旧提交仍可达。后续会继续在该工作树提交时，验收至少覆盖一次按分支推送的路径。
+
+证据：`63142f50`（#804，正文记录两轮修复及分支附着断言）

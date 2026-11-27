@@ -1,0 +1,58 @@
+[
+  {
+    "label": "the action control drops below the signed 44pt touch floor (R-rn-approvals-screen)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "    minHeight: 44,\n    minWidth: 44,",
+    "new": "    minHeight: 32,\n    minWidth: 32,",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.test.tsx -t \"KIN-MOBILE-001 R5: every action is a labelled control that speaks its action and object\""
+  },
+  {
+    "label": "offline stops disabling approve, deny and submit, so a dead network posts anyway (R-rn-approvals-screen)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "  return online && entry.phase === \"idle\";",
+    "new": "  return entry.phase === \"idle\";",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.test.tsx -t \"KIN-MOBILE-001 R5: offline disables submit and already-read approvals stay visible\""
+  },
+  {
+    "label": "a failed card's controls stay disabled, so the reason it names cannot be retried (R-rn-approvals-screen)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "  return online && entry.phase === \"idle\";",
+    "new": "  return online && entry.phase === \"idle\" && !entry.failure;",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.test.tsx -t \"KIN-MOBILE-001 R5: a failed decision restores the card as operable and names the reason\""
+  },
+  {
+    "label": "the settled card drops its reader hand-off, leaving the reader on the pressed control (R-rn-approvals-focus)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "    if (target && !wasTarget.current) focusNode(ref);",
+    "new": "    if (false) focusNode(ref);",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.test.tsx -t \"KIN-MOBILE-001 R5: approving moves the reader to the settled result row\""
+  },
+  {
+    "label": "the settled question also drops its reader hand-off, leaving focus on nothing (R-rn-approvals-focus)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "    if (target && !wasTarget.current) focusNode(ref);",
+    "new": "    if (false) focusNode(ref);",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.test.tsx -t \"KIN-MOBILE-001 R5: answering a question moves the reader to the result row the chosen option left\""
+  },
+  {
+    "label": "a settled card seizes the reader on every render, stealing focus from a reloaded list (R-rn-approvals-focus)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "    if (target && !wasTarget.current) focusNode(ref);",
+    "new": "    if (target) focusNode(ref);",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.test.tsx -t \"KIN-MOBILE-001 R5: a card that was already handled when it arrived takes no focus\""
+  },
+  {
+    "label": "a failed decision leaves the reader on the button instead of the reason it must read (R-rn-approvals-focus)",
+    "file": "mobile-rn/src/screens/Approvals.tsx",
+    "old": "  useReaderFocus(resolved, resultRef);\n  useReaderFocus(entry.failure != null, failureRef);\n  useApprovalHaptics(entry);\n\n  return (\n    <View style={styles.card} testID={`card:${entry.key}`}>\n      <Text accessibilityRole=\"header\" style={styles.cardTitle}>\n        {title}",
+    "new": "  useReaderFocus(resolved, resultRef);\n  useApprovalHaptics(entry);\n\n  return (\n    <View style={styles.card} testID={`card:${entry.key}`}>\n      <Text accessibilityRole=\"header\" style={styles.cardTitle}>\n        {title}",
+    "test": "cd mobile-rn && npx jest src/screens/Approvals.test.tsx -t \"KIN-MOBILE-001 R5: a failed decision hands the reader to the reason and its retry\""
+  },
+  {
+    "label": "the focus seam reports success for a node with no native handle (R-rn-approvals-focus)",
+    "file": "mobile-rn/src/a11y/focus.ts",
+    "old": "  if (tag == null) return false;",
+    "new": "  return true;",
+    "test": "cd mobile-rn && npx jest src/a11y/focus.test.ts -t \"KIN-MOBILE-001 R5: a null ref and a node without a handle focus nothing and report false\""
+  }
+]

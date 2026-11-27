@@ -30,7 +30,10 @@ import {
 import { importToast } from "../lib/agentSessionImport";
 import { useAgentSessionImport } from "../hooks/useAgentSessionImport";
 import { refreshMachines } from "../hooks/useMachines";
-import { LocalAgentSettingsSection } from "../components/settings/LocalAgentSettingsSection";
+import {
+  LocalAgentSettingsSection,
+  type AgentProvidersStatus,
+} from "../components/settings/LocalAgentSettingsSection";
 import {
   ProviderSettingsSection,
   type AgentCatalogStatus,
@@ -185,6 +188,11 @@ export default function SettingsPage() {
     agents: AgentInfo[];
   }>({ status: "loading", agents: [] });
   const [agentProviders, setAgentProviders] = useState<AgentProvider[]>([]);
+  // The provider read is the agents tab's own. It has a status and a reason so
+  // a first read that fails says so and offers a retry, and a re-probe that
+  // fails keeps the rows already on screen (KIN-AGENTS-002 D1).
+  const [agentProvidersStatus, setAgentProvidersStatus] = useState<AgentProvidersStatus>("loading");
+  const [agentProvidersError, setAgentProvidersError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The read's own failure. `error` keeps its meaning (a page-level action
   // failed), but a failed read is a state of the page, not an action result: a
@@ -235,6 +243,8 @@ export default function SettingsPage() {
     [navigate, location.pathname, location.search],
   );
   const reconnectGen = useAppStore((s) => s.reconnectGen);
+  const wsStatus = useAppStore((s) => s.wsStatus);
+  const online = wsStatus !== "disconnected";
   const pushToast = useAppStore((s) => s.pushToast);
   // The slow hint belongs under the skeleton only; over a named failure it
   // would sit under the retry and read as a second answer to the same wait.
@@ -367,6 +377,29 @@ export default function SettingsPage() {
     }
   }, []);
 
+  /**
+   * Read the local agent providers for the agents tab. Owned by the page, not
+   * the detection section, so the import group renders from the same metadata
+   * without depending on that half (D2). Only the newest answer may paint.
+   */
+  const agentProvidersSeq = useRef(0);
+  const agentProvidersRead = useRef(false);
+  const readAgentProviders = useCallback(async () => {
+    const seq = ++agentProvidersSeq.current;
+    setAgentProvidersStatus("loading");
+    setAgentProvidersError(null);
+    try {
+      const providers = await listAgentProviders();
+      if (seq !== agentProvidersSeq.current) return;
+      setAgentProviders(providers);
+      setAgentProvidersStatus("ready");
+    } catch (e) {
+      if (seq !== agentProvidersSeq.current) return;
+      setAgentProvidersStatus("failed");
+      setAgentProvidersError(e instanceof ApiError ? e.message : String(e));
+    }
+  }, []);
+
   const loadSeq = useRef(0);
   const load = useCallback(
     async (preserveDirty = false) => {
@@ -396,9 +429,6 @@ export default function SettingsPage() {
         } catch {
           if (seq === loadSeq.current) setProviders([]);
         }
-        listAgentProviders()
-          .then(setAgentProviders)
-          .catch(() => undefined);
       } catch (e) {
         if (seq !== loadSeq.current) return;
         if (e instanceof ApiError && e.status === 401) return;
@@ -428,6 +458,19 @@ export default function SettingsPage() {
     seenReconnect.current = reconnectGen;
     void load(true);
   }, [reconnectGen, load]);
+
+  // Opening Settings on any other tab must not read /api/agent-providers. The
+  // first activation starts it; coming back keeps the old answer and time. A
+  // reconnect while the tab is open re-reads, like the page's own reload.
+  const seenProviderReconnect = useRef(reconnectGen);
+  useEffect(() => {
+    const reconnected = reconnectGen !== seenProviderReconnect.current;
+    seenProviderReconnect.current = reconnectGen;
+    if (activeTab !== "agents") return;
+    if (!reconnected && agentProvidersRead.current) return;
+    agentProvidersRead.current = true;
+    void readAgentProviders();
+  }, [reconnectGen, activeTab, readAgentProviders]);
 
   /**
    * Save the shared settings form. `scope` is the group whose Save button was
@@ -486,9 +529,6 @@ export default function SettingsPage() {
       // button must not wait on an inventory read to finish.
       void refreshMachines();
       void loadAgentCatalog();
-      listAgentProviders()
-        .then(setAgentProviders)
-        .catch(() => undefined);
     } catch (e) {
       const message = e instanceof ApiError ? e.message : String(e);
       if (scope === "price") setPriceError(message);
@@ -544,12 +584,13 @@ export default function SettingsPage() {
 
   const refreshAgentCatalog = async () => {
     setRefreshingAgentCatalog(true);
+    // A press is also the one path that starts the read on a tab whose first
+    // activation answer has not landed yet (or failed).
+    agentProvidersRead.current = true;
     try {
-      const [, providers] = await Promise.all([loadAgentCatalog(), listAgentProviders()]);
-      setAgentProviders(providers);
-    } catch {
-      // Keep the last-known-good provider snapshot visible when the daemon is
-      // reconnecting; the agent read reports its own failure in its row.
+      // Both reads report through their own state; this only owns the shared
+      // busy flag, which clears when the slower one is done.
+      await Promise.all([loadAgentCatalog(), readAgentProviders()]);
     } finally {
       setRefreshingAgentCatalog(false);
     }
@@ -917,6 +958,9 @@ export default function SettingsPage() {
       <LocalAgentSettingsSection
         active={activeTab === "agents"}
         agentProviders={agentProviders}
+        providersStatus={agentProvidersStatus}
+        providersError={agentProvidersError}
+        online={online}
         refreshingAgentCatalog={refreshingAgentCatalog}
         importingSessions={importingEveryMachine}
         settingsBusy={busy}
@@ -979,7 +1023,7 @@ export default function SettingsPage() {
               href="https://github.com/BerriAI/litellm"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex min-h-11 items-center text-caption text-kin-blue-ink hover:underline shrink-0 sm:min-h-0"
+              className="inline-flex min-h-11 touch-floor items-center text-caption text-kin-blue-ink hover:underline shrink-0 sm:min-h-0"
               title={tr("settings.price.sourceHint")}
             >
               {tr("settings.price.sourceName")} ↗

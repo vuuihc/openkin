@@ -41,6 +41,10 @@
     ],
     [
       "click",
+      "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开项目'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Expand project']"
+    ],
+    [
+      "click",
       "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"
     ],
     [

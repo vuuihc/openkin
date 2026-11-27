@@ -10,14 +10,24 @@
 # matters — a quick-tunnel URL is still the wrong thing to open a build with.
 # Without it the app boots on its bundled console and asks for the Hub.
 #
-# Signing is automatic against the team in the Xcode project. Archiving and
-# uploading both need the Mac to be signed in to that Apple ID in Xcode
-# (Settings → Accounts) — the first upload for a bundle id also needs the app
-# record to exist in App Store Connect, which Xcode cannot create for you on
-# the command line.
+# Signing is automatic against the team in the Xcode project. Archiving needs
+# the Mac to be signed in to that Apple ID in Xcode (Settings → Accounts), and
+# so does uploading — unless you hand the upload an App Store Connect API key,
+# which needs no signed-in account. All three or none:
+#
+#   KIN_ASC_KEY_PATH=/path/to/AuthKey_ABC123DEFG.p8
+#   KIN_ASC_KEY_ID=ABC123DEFG
+#   KIN_ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000
+#
+# A partial trio, or a key path that is not a readable file, stops before
+# xcodebuild rather than falling back to the signed-in account. The first
+# upload for a bundle id also needs the app record to exist in App Store
+# Connect, which Xcode cannot create for you on the command line.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/.."
+source "$SCRIPT_DIR/lib/export-args.sh"
 
 KIN_HUB_URL="${KIN_HUB_URL:-}"
 if [ -n "$KIN_HUB_URL" ]; then
@@ -29,6 +39,13 @@ fi
 
 ARCHIVE_ONLY=0
 [[ "${1:-}" == "--archive-only" ]] && ARCHIVE_ONLY=1
+
+# A typo'd KIN_ASC_* should cost a second, not the archive below. The upload
+# step validates again (the library is also used on its own); --archive-only
+# never uploads, so it needs no usable key and ignores the trio.
+if [[ "$ARCHIVE_ONLY" != "1" ]]; then
+  kin_export_auth || exit 1
+fi
 
 DERIVED="$PWD/ios/DerivedData"
 PACKAGES="$DERIVED/SourcePackages"
@@ -105,8 +122,7 @@ cat > "$EXPORT_PLIST" <<PLIST_EOF
 </plist>
 PLIST_EOF
 
-echo "==> uploading to TestFlight"
-xcodebuild -exportArchive \
+run_ios_export \
   -archivePath "$ARCHIVE" \
   -exportPath "$EXPORT_DIR" \
   -exportOptionsPlist "$EXPORT_PLIST" \

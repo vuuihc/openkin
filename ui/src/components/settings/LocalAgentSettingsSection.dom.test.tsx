@@ -8,11 +8,11 @@ import type { AgentProvider } from "../../api/client";
 import { setLocale } from "../../i18n";
 
 /**
- * The rendering half of the settings section. Its pure helpers — the status
- * key, the capability predicate — are covered in the sibling file, and both can
- * be right while the section hands the wrong thing to the wrong control: a
- * per-provider row that imports *everything*, or a main button that stays live
- * through a fan-out, is a bug that only shows up on screen.
+ * The rendering half of the settings section. Its pure helper — the capability
+ * predicate — is covered in the sibling file, and it can be right while the
+ * section hands the wrong thing to the wrong control: a per-provider row that
+ * imports *everything*, or a main button that stays live through a fan-out, is
+ * a bug that only shows up on screen.
  */
 
 beforeEach(() => {
@@ -105,12 +105,9 @@ describe("the settings section's import controls", () => {
       }),
     );
 
-    // Every row carries the same label, and the rows are drawn in the order the
-    // catalog gave them, so the second button is the second provider's row. What
-    // is asserted is the *id*: a row that asked for everything would call this
-    // once with the wrong argument, and a row that ignored its provider would
-    // call it with a constant.
-    const rows = screen.getAllByRole("button", { name: "Import" });
+    // Provider-named imports (KIN-AGENTS-002), one per importable provider in
+    // the import group. The *id* is what is asserted.
+    const rows = screen.getAllByRole("button", { name: /^Import sessions from / });
     expect(rows).toHaveLength(2);
     await user.click(rows[1]);
 
@@ -126,7 +123,9 @@ describe("the settings section's import controls", () => {
     expect(screen.queryByText(/auto-import/i)).toBeNull();
     expect(screen.queryByText(/automatic sync/i)).toBeNull();
     expect(screen.getByRole("button", { name: "Import sessions now" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Import" })).not.toBeNull();
+    expect(screen.getAllByRole("button", { name: "Import sessions from Codex" })).not.toHaveLength(
+      0,
+    );
   });
 
   it("offers no import for a provider that cannot list sessions", () => {
@@ -143,9 +142,8 @@ describe("the settings section's import controls", () => {
       }),
     );
 
-    // The row is still there — the person needs to see that the provider exists
-    // and why it is not usable — but nothing invites an errand that cannot run.
-    expect(screen.queryByText("Gemini")).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Import" })).toBeNull();
+    // The row stays, but nothing invites an errand that cannot run.
+    expect(screen.getAllByText("Gemini")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Import sessions from Gemini" })).toBeNull();
   });
 });

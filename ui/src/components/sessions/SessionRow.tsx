@@ -9,6 +9,7 @@ import {
 import { useT } from "../../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
 import { isImeKeyEvent } from "../../lib/ime";
+import type { PendingCounts } from "../../lib/pendingCounts";
 import type { PhoneSessionRow } from "../../lib/phoneSessionBuckets";
 import { formatRelativeTime } from "../../lib/relativeTime";
 import { rowSelectable } from "../../lib/sessionSelection";
@@ -18,7 +19,6 @@ import HighlightedText from "../HighlightedText";
 import {
   IconArchive,
   IconCheck,
-  IconMachine,
   IconMore,
   IconPencil,
   IconPin,
@@ -34,7 +34,6 @@ import SwipeReveal, { type SwipeReorder } from "../mobile/SwipeReveal";
 import ActionSheet, { type ActionSheetRow } from "../ui/ActionSheet";
 import Button from "../ui/Button";
 import Menu, { type MenuItem } from "../ui/Menu";
-import PendingBadge from "../ui/PendingBadge";
 import type { SessionScopeFilter } from "../ui/SessionFilters";
 import TextInput from "../ui/TextInput";
 
@@ -61,11 +60,18 @@ import TextInput from "../ui/TextInput";
  */
 export type SessionRowProps = {
   row: PhoneSessionRow;
+  /** The machine a pinned row came from. Pinning lifts the row out of the
+   *  device heading that names every other row's machine, so this one names
+   *  it on its own face; empty for every row under a heading (KIN-CONTINUE-001). */
   deviceLabel: string;
   query: string;
   now: number;
   viewedIds: ReadonlySet<string>;
-  pendingCount: number;
+  /** What this conversation waits on, by kind. The row names the kind instead
+   *  of folding both into one number: an approval and a question are different
+   *  waits (TASTE 18), and a questions-only row that said "awaiting approval"
+   *  claimed an approval that did not exist. */
+  pending: PendingCounts;
   active: boolean;
   onOpen: () => void;
   shell: "sidebar" | "page";
@@ -104,7 +110,7 @@ export default function SessionRow({
   deviceLabel,
   now,
   viewedIds,
-  pendingCount,
+  pending,
   active,
   onOpen,
   shell,
@@ -154,19 +160,55 @@ export default function SessionRow({
   const avatar = agentAvatarMeta(row.agentId);
   // A run is a task spawned by a routine; an ordinary chat carries no
   // `routine_id`. The marker is part of the row's sentence as well as its
-  // tail, so a screen reader hears "this is a run" before the actions.
+  // metadata, so a screen reader hears "this is a run" before the actions.
   const routineRun = Boolean(row.task?.routine_id);
-  const label = [
-    row.title,
-    agentDisplayName(row.agentId),
-    formatRelativeTime(row.at, now),
-    row.task && dot ? tr(taskCardStatusView(row.task.status).labelKey) : "",
-    routineRun ? tr("sessions.routineRun") : "",
-    pendingCount > 0 ? tr("sessions.pendingApprovals", { count: String(pendingCount) }) : "",
-    row.remote ? deviceLabel || tr("machine.remote") : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  // One status, in words (KIN-CONTINUE-007): what needs the person first, then
+  // what is still working, then a failed end before the routine marker, then
+  // that it is over. Every tone that can draw a dot names itself, so a state is
+  // never a colour alone.
+  const agent = agentDisplayName(row.agentId);
+  const at = formatRelativeTime(row.at, now);
+  const statusView = row.task ? taskCardStatusView(row.task.status) : null;
+  const taskStatus =
+    statusView?.tone === "approval"
+      ? tr(
+          row.task?.status === "waiting_input"
+            ? "sessions.statusWaitingInput"
+            : "sessions.statusWaitingApproval",
+        )
+      : statusView?.tone === "running"
+        ? tr("sessions.statusRunning")
+        : statusView?.tone === "failed"
+          ? tr("sessions.statusFailed")
+          : routineRun
+            ? tr("sessions.routineRun")
+            : statusView?.tone === "completed"
+              ? tr("sessions.statusSucceeded")
+              : statusView?.tone === "canceled"
+                ? tr("sessions.statusCanceled")
+                : "";
+  // A waiting count names the kind it counts: approvals-only keeps the signed
+  // 「待批准 N」 (KIN-CONTINUE-007), questions-only says 「待回答 N」, and both
+  // kinds say the neutral count the nav badge already uses. A pending item is
+  // authoritative while a status lags behind it, so it wins over the task
+  // status above.
+  const status =
+    pending.total === 0
+      ? taskStatus
+      : pending.approvals > 0 && pending.questions === 0
+        ? tr("sessions.statusPendingCount", { count: String(pending.approvals) })
+        : pending.questions > 0 && pending.approvals === 0
+          ? tr("sessions.statusPendingQuestions", { count: String(pending.questions) })
+          : tr("sessions.pendingApprovals", { count: String(pending.total) });
+  // The row's second line says who ran it, when, and one status; a pinned row
+  // additionally names its machine, because pinning lifts it out of the device
+  // heading that says it for every other row. In the 304px column the line is
+  // narrower than the slots at caption size, so the agent — the constant, and
+  // the one part the avatar already hints at — is what ellipsizes; the time,
+  // the status and the device keep their own boxes and stay readable. The
+  // accessible name is the whole sentence, so a screen reader reads the title
+  // once.
+  const label = [row.title, agent, at, status, deviceLabel].filter(Boolean).join(" · ");
   const gutter = shell === "sidebar" ? "px-2" : "px-4";
   // The Mac sidebar is a pointer surface with a keyboard: its edit is confirmed
   // with Enter. A touch surface has neither key, so it draws explicit controls.
@@ -203,7 +245,7 @@ export default function SessionRow({
   // is information, not a lock: every edit below it stays available. It is only
   // added in the non-selection branch — while selecting, the menu is the one
   // way out.
-  const runningNow = row.task ? taskCardStatusView(row.task.status).tone === "running" : false;
+  const runningNow = statusView?.tone === "running";
   // A mode can end while its surface is open (the row is archived from
   // elsewhere, multi-select starts): the surface is gone with the trigger, or
   // its action set is about to change under the reader, so the state must not
@@ -393,46 +435,45 @@ export default function SessionRow({
           )}
         </div>
       ) : (
-        <span
-          id={titleId}
-          className={[
-            "min-w-0 flex-1 truncate leading-ui text-kin-text",
-            shell === "sidebar" ? "text-body font-normal" : "text-subtitle font-medium",
-          ].join(" ")}
-        >
-          <HighlightedText text={row.title} query={query} />
+        <span className="flex min-w-0 flex-1 flex-col justify-center">
+          <span
+            id={titleId}
+            data-session-title
+            className={[
+              "block min-w-0 truncate leading-ui text-kin-text",
+              shell === "sidebar" ? "text-body font-normal" : "text-subtitle font-medium",
+            ].join(" ")}
+          >
+            <HighlightedText text={row.title} query={query} />
+          </span>
+          {/* The second line is its own element, so a long title truncates on
+              the first line instead of squeezing the metadata (KIN-CONTINUE-007).
+              Inside it the lead gives way first: the status is its own flex
+              item with `shrink-0`, so the agent and time ellipsize before the
+              one status does. Two lines at the type ladder's 1.375 leading keep
+              a row above 44px even at the mouse's compact padding. */}
+          <span
+            data-session-meta
+            className="flex min-w-0 items-center text-caption leading-ui text-kin-muted"
+          >
+            <span className="min-w-0 truncate">{agent}</span>
+            {at ? <span className="shrink-0 whitespace-pre">{agent ? ` · ${at}` : at}</span> : null}
+            {status ? (
+              <span data-session-status className="shrink-0 whitespace-pre">
+                {agent || at ? ` · ${status}` : status}
+              </span>
+            ) : null}
+            {deviceLabel ? (
+              <span className="shrink-0 whitespace-pre">
+                {agent || at || status ? ` · ${deviceLabel}` : deviceLabel}
+              </span>
+            ) : null}
+          </span>
         </span>
       )}
-      {/* While editing, the field owns the row's tail. A 248px sidebar cannot
-          hold the name, the time and a trigger at once: keeping them beside
-          the field clipped the title to a few characters. */}
-      {!renaming && (
-        <>
-          {row.remote && (
-            <span
-              className="flex-none text-kin-muted"
-              title={deviceLabel || tr("machine.remote")}
-              aria-hidden
-            >
-              <IconMachine size={12} />
-            </span>
-          )}
-          <PendingBadge count={pendingCount} />
-          {routineRun ? (
-            <span className="max-w-[6rem] flex-none truncate text-caption leading-ui text-kin-muted">
-              {tr("sessions.routineRun")}
-            </span>
-          ) : null}
-          {deviceLabel ? (
-            <span className="max-w-[6rem] flex-none truncate text-caption leading-ui text-kin-muted">
-              {deviceLabel}
-            </span>
-          ) : null}
-          <span className="flex-none text-caption leading-ui text-kin-muted tabular-nums">
-            {formatRelativeTime(row.at, now)}
-          </span>
-        </>
-      )}
+      {/* While editing, the field owns the row: the second line goes with the
+          rest of the tail, because a 248px sidebar cannot hold the name and the
+          metadata beside an open field. */}
     </>
   );
 

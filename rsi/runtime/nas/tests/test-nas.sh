@@ -401,6 +401,78 @@ t_worktree_ownership() {
   check "M4 the dirty worktree is reported" grep -q 'uncommitted changes' "$T2/i2.log"
 }
 
+# --- T19: a clean worktree sitting on a newer main is materialised, not refused forever (M4) --------
+# Live 2026-11-27: a finished NAS job was refused on every pulse for 2h11m (48 passes). The lane
+# worktree was clean and on rsi/<slug>, but its branch merely stood at a newer main than the bundle's
+# base (`git log origin/main..HEAD` empty): HEAD was not an ancestor of the bundle ref, so the refusal
+# ladder treated a worktree with no work of its own as if it held unpublished commits. A worktree that
+# really carries its own commits must still be refused untouched (b1), and a dirty one too (b2).
+case_clean_worktree_ahead_of_bundle_syncs() {
+  # a1-a3: clean, on the right branch, at a newer main, zero commits of its own -> publishes.
+  local T; sandbox; T=$T
+  local bundle; bundle="$(job "$T" s1 R-T-19a 0)"      # bundle ref = the job commit
+  # Advance main past the bundle's base and push it, then stand the clean lane branch on that new
+  # main. The branch has no commits beyond origin/main, exactly the live topology.
+  git -C "$T/ctrl" checkout -q main
+  echo newer > "$T/ctrl/docs/newer-main.md"
+  git -C "$T/ctrl" add -A; git -C "$T/ctrl" commit -qm "chore: newer main"
+  git -C "$T/ctrl" push -q origin main
+  local newer; newer="$(git -C "$T/ctrl" rev-parse main)"
+  git -C "$T/ctrl" branch -f rsi/s1 "$newer"
+  git -C "$T/ctrl" worktree add -q "$T/wt/rsi-s1" rsi/s1
+  run_ingest "$T" > "$T/i1.log" 2>&1
+  check "M4 a clean worktree on a newer main still publishes" [ -s "$T/gh.log" ]
+  check "M4 it is consumed as ingested" [ "$(jget "$T/nas/work/jobs/s1/status.json" status)" = ingested ]
+  check "M4 its ack is recorded" grep -qx 's1:done:1700000000' "$T/state/nas/acks.txt"
+  check "M4 the pass reports the materialised bundle" grep -q 'had no commits of its own; materialised the NAS bundle' "$T/i1.log"
+  check "M4 it is not reported with the old refusal" bash -c "! grep -q 'commits the NAS bundle does not contain' '$T/i1.log'"
+  check "M4 the worktree HEAD proof ran at the bundle commit" [ "$(git -C "$T/wt/rsi-s1" rev-parse HEAD)" = "$bundle" ]
+  check "M4 the worktree is left attached to its lane branch" [ "$(git -C "$T/wt/rsi-s1" symbolic-ref --short HEAD)" = rsi/s1 ]
+  check "M4 the lane branch now points at the bundle" [ "$(git -C "$T/ctrl" rev-parse rsi/s1)" = "$bundle" ]
+  check "M4 the branch's old tip is still reachable from origin/main" git -C "$T/ctrl" merge-base --is-ancestor "$newer" origin/main
+
+  # b1: a worktree carrying its own unpublished commit stays refused and byte-identical.
+  local T2; sandbox; T2=$T
+  job "$T2" s1 R-T-19b 0 >/dev/null
+  git -C "$T2/ctrl" worktree add -q -B rsi/s1 "$T2/wt/rsi-s1" rsi/s1
+  echo later > "$T2/wt/rsi-s1/docs/later.md"
+  git -C "$T2/wt/rsi-s1" add -A; git -C "$T2/wt/rsi-s1" commit -qm "fix: local rework commit"
+  local later; later="$(git -C "$T2/wt/rsi-s1" rev-parse HEAD)"
+  run_ingest "$T2" > "$T2/i1.log" 2>&1
+  check "M4 a worktree with its own commits is still refused" [ "$(git -C "$T2/wt/rsi-s1" rev-parse HEAD)" = "$later" ]
+  check "M4 it publishes nothing" [ ! -s "$T2/gh.log" ]
+  check "M4 it keeps the refusal verbatim" grep -q 'commits the NAS bundle does not contain; leaving it alone' "$T2/i1.log"
+  check "M4 it is not consumed" [ "$(jget "$T2/nas/work/jobs/s1/status.json" status)" = done ]
+
+  # b2: a dirty worktree is still refused before any of this (existing M4 behaviour).
+  local T3; sandbox; T3=$T
+  job "$T3" s2 R-T-19c 0 >/dev/null
+  git -C "$T3/ctrl" worktree add -q -B rsi/s2 "$T3/wt/rsi-s2" rsi/s2
+  echo dirty >> "$T3/wt/rsi-s2/docs/s2.md"
+  run_ingest "$T3" > "$T3/i1.log" 2>&1
+  check "M4 uncommitted edits still survive" grep -q dirty "$T3/wt/rsi-s2/docs/s2.md"
+  check "M4 a dirty worktree still publishes nothing" [ ! -s "$T3/gh.log" ]
+  check "M4 the dirty worktree is still reported" grep -q 'uncommitted changes' "$T3/i1.log"
+
+  # b3: the own-commit count is unreadable (no origin/main to count against) -> fail closed. Reading
+  # that failure as zero would re-attach a worktree on a guess; the `|| true` is load-bearing.
+  local T4; sandbox; T4=$T
+  job "$T4" s1 R-T-19d 0 >/dev/null
+  git -C "$T4/ctrl" checkout -q main
+  echo newer > "$T4/ctrl/docs/newer-main.md"
+  git -C "$T4/ctrl" add -A; git -C "$T4/ctrl" commit -qm "chore: newer main"
+  git -C "$T4/ctrl" push -q origin main
+  local newer4; newer4="$(git -C "$T4/ctrl" rev-parse main)"
+  git -C "$T4/ctrl" branch -f rsi/s1 "$newer4"
+  git -C "$T4/ctrl" worktree add -q "$T4/wt/rsi-s1" rsi/s1
+  git -C "$T4/origin.git" update-ref -d refs/heads/main
+  git -C "$T4/ctrl" update-ref -d refs/remotes/origin/main
+  run_ingest "$T4" > "$T4/i1.log" 2>&1
+  check "M4 an unreadable own-commit count is not read as zero" [ "$(git -C "$T4/wt/rsi-s1" rev-parse HEAD)" = "$newer4" ]
+  check "M4 an unreadable count publishes nothing" [ ! -s "$T4/gh.log" ]
+  check "M4 an unreadable count keeps the refusal" grep -q 'commits the NAS bundle does not contain; leaving it alone' "$T4/i1.log"
+}
+
 # --- T18: a worktree that resolves to the control checkout is refused before any git mutation (M4) -
 # Live 2026-11-22 00:40: the control checkout (a symlink into the worktree root) physically pointed
 # at a registered lane's worktree directory, checked out on that lane's branch. A NAS result for
@@ -861,6 +933,134 @@ t_no_pr_is_not_divergence() {
   check "T16 no git error about a null object" bash -c "! grep -q 'Not a valid object name' '$T2/i1.log'"
 }
 
+# --- NAS base: the shipped bundle is the only source of the base ---------------------------------
+# pulse-nas.sh bundles `origin/main`, so the bundle's head ref is refs/remotes/origin/main; the
+# long-lived bare repo keeps that same ref from earlier jobs and nothing in the shipped flow
+# refreshes it. nas-base.sh applies the bundle by the head ref it carries and prints the base to
+# build on; with no bundle the fallback is the repo's refs/heads/main, never an origin/main the
+# repo happened to keep. A bundle from an older producer whose head is refs/heads/main still applies.
+nas_seed() { # T SLUG — bare repo main=OLD, stale refs/remotes/origin/main=OLD; prints "OLD NEW"
+  local T="$1" slug="$2" old new
+  git init -q --bare "$T/work/openkin.git"
+  mkdir -p "$T/work/jobs/$slug" "$T/work/wt" "$T/work/logs"
+  printf '{"item":"R-NAS-BASE","paths":["docs"],"brief":"b"}\n' > "$T/work/jobs/$slug/job.json"
+  printf '{"status":"queued","slug":"%s"}\n' "$slug" > "$T/work/jobs/$slug/status.json"
+  git -C "$T/ctrl" checkout -q main
+  # The lane refuses to hand over without the sweep script; the sandbox repo is not the real tree,
+  # so it carries a stub. The sweep itself is not under test here.
+  mkdir -p "$T/ctrl/rsi/runtime"
+  printf '#!/bin/bash\nexit 0\n' > "$T/ctrl/rsi/runtime/commit-leftovers.sh"
+  echo old >> "$T/ctrl/docs/base.md"; git -C "$T/ctrl" add -A; git -C "$T/ctrl" commit -qm old
+  old="$(git -C "$T/ctrl" rev-parse main)"
+  git --git-dir="$T/work/openkin.git" fetch -q "$T/ctrl" main:refs/heads/main
+  git --git-dir="$T/work/openkin.git" update-ref refs/remotes/origin/main "$old"
+  echo new >> "$T/ctrl/docs/base.md"; git -C "$T/ctrl" add -A; git -C "$T/ctrl" commit -qm new
+  new="$(git -C "$T/ctrl" rev-parse main)"
+  printf '%s %s\n' "$old" "$new"
+}
+nas_base() { # T SLUG — run the lane's base picker against the bare repo, print the picked ref
+  bash "$NASDIR/nas-side/nas-base.sh" "$1/work/openkin.git" "$1/work/jobs/$2"
+}
+
+case_stale_origin_main_does_not_win_over_the_shipped_bundle() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git -C "$T/ctrl" update-ref refs/remotes/origin/main main
+  git -C "$T/ctrl" bundle create "$T/work/jobs/s1/origin-main.bundle" refs/remotes/origin/main >/dev/null
+  local out; out="$(nas_base "$T" s1)"
+  check "NAS base: the shipped bundle head wins over a stale origin/main" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse "$out")" = "$new" ]
+  check "NAS base: the picked base is not the stale commit" \
+    bash -c "[ \"\$(git --git-dir='$T/work/openkin.git' rev-parse '$out')\" != '$old' ]"
+}
+
+case_bundle_apply_updates_origin_main() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git -C "$T/ctrl" update-ref refs/remotes/origin/main main
+  git -C "$T/ctrl" bundle create "$T/work/jobs/s1/origin-main.bundle" refs/remotes/origin/main >/dev/null
+  nas_base "$T" s1 >/dev/null
+  check "NAS base: the apply moves refs/remotes/origin/main to the bundle head" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse refs/remotes/origin/main)" = "$new" ]
+  check "NAS base: the apply does not leave the repo's main in charge" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse refs/heads/main)" = "$old" ]
+}
+
+# A worker-side `git fetch origin` in a linked worktree advances the bare repo's
+# refs/remotes/origin/main past the head the Mac shipped, so the apply must rewind it: a plain
+# (non-force) refspec rejects that non-fast-forward and every lane then fails on the base pick.
+case_force_apply_rewinds_a_ref_ahead_of_the_bundle() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git -C "$T/ctrl" update-ref refs/remotes/origin/main main
+  git -C "$T/ctrl" bundle create "$T/work/jobs/s1/origin-main.bundle" refs/remotes/origin/main >/dev/null
+  echo later >> "$T/ctrl/docs/base.md"; git -C "$T/ctrl" add -A; git -C "$T/ctrl" commit -qm later
+  local ahead; ahead="$(git -C "$T/ctrl" rev-parse main)"
+  git --git-dir="$T/work/openkin.git" fetch -q "$T/ctrl" main   # objects only; refs stay put
+  git --git-dir="$T/work/openkin.git" update-ref refs/remotes/origin/main "$ahead"
+  check "NAS base: the fixture leaves origin/main ahead of the shipped head" \
+    bash -c "[ \"\$(git --git-dir='$T/work/openkin.git' rev-parse refs/remotes/origin/main)\" = '$ahead' ] && [ '$ahead' != '$new' ]"
+  local out; out="$(nas_base "$T" s1)"
+  check "NAS base: the bundle is force-applied over a ref ahead of it" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse "$out")" = "$new" ]
+  check "NAS base: the ref ahead of the bundle is rewound to the bundle head" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse refs/remotes/origin/main)" = "$new" ]
+}
+
+case_no_bundle_falls_back_to_repo_main() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git --git-dir="$T/work/openkin.git" fetch -q "$T/ctrl" main   # objects only; refs stay put
+  git --git-dir="$T/work/openkin.git" update-ref refs/remotes/origin/main "$new"   # stale, newer
+  local out; out="$(nas_base "$T" s1)"
+  check "NAS base: with no bundle the base is refs/heads/main" [ "$out" = refs/heads/main ]
+  check "NAS base: with no bundle the repo's main is the base" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse "$out")" = "$old" ]
+  check "NAS base: with no bundle the stale origin/main still does not win" \
+    bash -c "[ \"\$(git --git-dir='$T/work/openkin.git' rev-parse '$out')\" != '$new' ]"
+}
+
+case_bundle_head_under_refs_heads_main_still_applies() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git -C "$T/ctrl" bundle create "$T/work/jobs/s1/origin-main.bundle" main >/dev/null
+  git bundle list-heads "$T/work/jobs/s1/origin-main.bundle" | grep -q ' refs/heads/main$' \
+    || bad "NAS base: fixture bundle head is refs/heads/main"
+  local out; out="$(nas_base "$T" s1)"
+  check "NAS base: an older producer's refs/heads/main bundle is the base" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse "$out")" = "$new" ]
+  check "NAS base: the older bundle updates refs/heads/main" \
+    [ "$(git --git-dir="$T/work/openkin.git" rev-parse refs/heads/main)" = "$new" ]
+}
+
+case_recorded_base_is_the_picked_base() {
+  local T; sandbox; T=$T
+  local old new; read -r old new <<<"$(nas_seed "$T" s1)"
+  git -C "$T/ctrl" update-ref refs/remotes/origin/main main
+  git -C "$T/ctrl" bundle create "$T/work/jobs/s1/origin-main.bundle" refs/remotes/origin/main >/dev/null
+  mkdir -p "$T/bl"
+  : > "$T/bl/claude-env.sh"
+  ln -s "$NASDIR/nas-side/nas-base.sh" "$T/bl/nas-base.sh"
+  cat > "$T/bin/claude" <<'EOS'
+#!/bin/bash
+printf 'RSI item: R-NAS-BASE\n\nBody.\n' > "${FAKE_LANE_J:?}/pr-body.md"
+echo worker > docs/worker.md
+git add -A >/dev/null 2>&1
+git commit -qm "feat: worker change"
+exit 0
+EOS
+  chmod +x "$T/bin/claude"
+  env NAS_LANE_BL="$T/bl" NAS_LANE_WORK="$T/work" FAKE_LANE_J="$T/work/jobs/s1" \
+      PATH="$T/bin:$PATH" bash "$NASDIR/nas-side/nas-lane.sh" s1 >/dev/null 2>&1
+  local base created
+  base="$(jget "$T/work/jobs/s1/status.json" base)"
+  created="$(git -C "$T/work/wt/rsi-s1" rev-parse HEAD~1 2>/dev/null)"
+  check "NAS base: the lane recorded a base" [ -n "$base" ]
+  check "NAS base: status.base is the commit the worktree was created from" [ "$base" = "$created" ]
+  check "NAS base: the worktree was created from the shipped bundle head" [ "$created" = "$new" ]
+  check "NAS base: the recorded base is not the stale origin/main" [ "$created" != "$old" ]
+}
+
 if [ "${1:-}" = "--sandbox" ]; then sandbox; echo "$T"; SANDBOXES=(); exit 0; fi
 if [ -n "${1:-}" ]; then "$1"; finish; exit $?; fi    # test-nas.sh <function> — one test (mutant runs)
 
@@ -873,6 +1073,7 @@ t_claim_gate_existing_pr_keeps_body
 t_claim_gate_no_verdict_holds
 t_release_ownership
 t_worktree_ownership
+case_clean_worktree_ahead_of_bundle_syncs
 case_wt_resolving_to_control_tree_is_refused
 case_control_tree_on_another_branch_is_still_refused
 case_distinct_worktree_still_syncs
@@ -891,4 +1092,10 @@ t_pulse_capacity
 t_pulse_lock_ownership
 t_pulse_start_failure
 t_pulse_ship_failure
+case_stale_origin_main_does_not_win_over_the_shipped_bundle
+case_bundle_apply_updates_origin_main
+case_force_apply_rewinds_a_ref_ahead_of_the_bundle
+case_no_bundle_falls_back_to_repo_main
+case_bundle_head_under_refs_heads_main_still_applies
+case_recorded_base_is_the_picked_base
 finish
