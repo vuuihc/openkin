@@ -7,7 +7,7 @@ import { fenceLines, isTableDivider, isTableRow, parseTable, splitTableRow } fro
  * The console and the phone used to carry a copy of this walk each, and the
  * copies drifted: the phone drew a fenced code sample as a table. These cases
  * pin the seam's own contract; each surface's rendering is pinned beside that
- * surface (`Markdown.table.dom.test.tsx`, `tableBlock.test.ts`).
+ * surface (`Markdown.table.dom.test.tsx`, `markdownBlocks.test.ts`).
  */
 
 describe("R-shared-markdown-table predicates", () => {
