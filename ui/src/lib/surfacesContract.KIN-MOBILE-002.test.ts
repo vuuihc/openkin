@@ -3,9 +3,11 @@
  *
  * The behaviour and visual tests in the acceptance table are created by the implementation
  * slices themselves. Until then this file pins the half that must already be true: the story
- * and registry agree on `approved`, the CEO call is recorded, the Figma-first review page is
- * complete and local, the risky LAN-http decision carries its safeguards, and the dependency
- * decision names the ADR update the first implementation PR owes.
+ * and registry agree on a signed state, the review page records `approved` and marks every
+ * decision settled, the CEO call is recorded, the Figma-first review page is complete and
+ * local, the risky LAN-http decision carries its safeguards and the owner-approval obligation
+ * the red-line path list cannot see, and the dependency decision names the ADR update the
+ * first implementation PR owes.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -27,12 +29,21 @@ function acceptanceTests(text: string): string[] {
 }
 
 describe("KIN-MOBILE-002 signature", () => {
-  it("records the signed state in the story and the registry", () => {
+  it("records the signed state in the story, the registry and the review page", () => {
+    // `approved` → `covered` is the story's own documented delivery step, so the reachable
+    // signed states are asserted as a set rather than pinning the pre-delivery one. The review
+    // page is the signed artefact itself and keeps `approved` as the signature record.
+    const signed = ["approved", "covered", "failing"];
     const storyState = story.match(/^状态：(.+)$/m)?.[1];
     const row = registry.stories.find((s) => s.id === "KIN-MOBILE-002");
-    expect(storyState).toBe("approved");
-    expect(row?.state).toBe("approved");
+    expect(storyState, "the contract records no 状态 line").toBeDefined();
+    expect(signed, `contract state ${storyState}`).toContain(storyState);
+    expect(signed, `registry state ${row?.state}`).toContain(row?.state);
+    expect(row?.state, "the contract and the registry disagree").toBe(storyState);
     expect(row?.tests).toContain("ui/src/lib/surfacesContract.KIN-MOBILE-002.test.ts");
+    expect(review).toContain('<p class="meta">approved');
+    expect(review).toContain('<span class="pill ok">approved');
+    expect(review).toContain("KIN-MOBILE-002 · approved");
   });
 
   it("records the CEO call with the D3 and D5 safeguards", () => {
@@ -55,9 +66,21 @@ describe("KIN-MOBILE-002 signature", () => {
     for (const text of [story, review]) {
       expect(text).toContain("凭据明文");
       expect(text).toContain("地址变化重新确认");
+      // The auth-boundary obligation: merge.sh's red-line path list does not cover
+      // `mobile-rn/src/auth/`, so the contract itself has to hold the R2 PR for owner approval.
+      expect(text).toContain("必须先写局域网 http 凭据 ADR");
+      expect(text).toContain("needs-ceo");
+      expect(text).toContain("留给 owner 批准");
     }
     expect(story).toContain("Given 拒绝 Then 不连接且不记住确认");
     expect(story).toContain("Given 同一 origin 已确认 When 重连 Then 不重复询问");
+  });
+
+  it("marks every decision settled and turns the reply block into the objection template", () => {
+    expect(review.match(/class="decision settled"/g)?.length).toBe(5);
+    expect(review.match(/class="tag-settled">已定<\/span>/g)?.length).toBe(5);
+    expect(review).toContain("反对模板");
+    expect(review).not.toContain("全部同意");
   });
 
   it("pins the three Expo dependency decision and its ADR follow-through", () => {
@@ -87,7 +110,12 @@ describe("KIN-MOBILE-002 signature", () => {
     expect(review).toContain("width=device-width");
     expect(review).toContain("<h2>MECE");
     expect(review).not.toContain("（填）");
-    expect(review).not.toMatch(/<(?:script|img|link)[^>]+(?:src|href)="https?:\/\//i);
+    // Local-only page: the one permitted `http` string is the SVG namespace inside the favicon
+    // data URI. Strip it, then ban every other external URL on an element or in CSS.
+    const localOnly = review.replace(/xmlns=['"]http:\/\/www\.w3\.org\/2000\/svg['"]/g, "");
+    expect(localOnly).not.toMatch(/<(?:script|img|link)[^>]+(?:src|href)=["']https?:\/\//i);
+    expect(localOnly).not.toMatch(/@import\s+(?:url\()?\s*["']?https?:\/\//i);
+    expect(localOnly).not.toMatch(/url\(\s*["']?https?:\/\//i);
 
     const frames = [
       ...new Set(

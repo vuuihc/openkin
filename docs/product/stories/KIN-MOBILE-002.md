@@ -23,7 +23,7 @@ owner 2026-11-27 实测原话：「体验了下确实太初级了，建议用 op
 
 - 做：
   - R1 token 层：`mobile-rn/src/theme/tokens.ts`（DOM-free TS），端口 `ui/src/design/theme.css` 明暗两套全部色值、字阶、间距、圆角；`useColorScheme` 选套；一条 parity 测试读 `theme.css` 原文，断言 RN token 与之一致，web 改色手机端立刻红。
-  - R2 连接/登录页：大标题 + 分段「Hub 账号 / 直连这台设备」；表单按 iOS 规范（标签在框上、44pt 高、密码可显示）；局域网 http 显式「不安全 / 凭据明文传输」确认，按 origin 记住一次，地址变化重新确认（解除 parity 版连不上局域网 Hub 的阻塞，见 `mobile-rn/src/auth/hub.ts:100`）。
+  - R2 连接/登录页：大标题 + 分段「Hub 账号 / 直连这台设备」；表单按 iOS 规范（标签在框上、44pt 高、密码可显示）；局域网 http 显式「不安全 / 凭据明文传输」确认，按 origin 记住一次，地址变化重新确认（解除 parity 版连不上局域网 Hub 的阻塞，见 `mobile-rn/src/auth/hub.ts:100`）。这是凭据传输安全边界的变更：R2 的实现 PR 必须先写局域网 http 凭据 ADR，并在 PR 上打 `needs-ceo` 留给 owner 批准，不得由循环自行合并（`rsi/MANDATE.md` 红线；`rsi/runtime/merge.sh` 的红线路径表不覆盖 `mobile-rn/src/auth/`）。
   - R3 列表重画：iOS 分组列表——设备分区头、项目折叠、行两行式、inset hairline；状态点形状+颜色双编码；待批计数红 pill；搜索进导航条。
   - R4 对话重画：活动脊 + markdown 渲染（段落/标题/列表/代码块/表格横滚/引用）；用户气泡右对齐蓝色；工具行折叠成 mono 一行；轮末 meta 行。
   - R5 composer 与审批：composer 玻璃底胶囊、发送圆形按钮、运行中变停止；排队消息行带撤回；审批卡浮在 composer 上方——命令 mono、批准实心/拒绝描边，一屏一个实心主按钮；批准/拒绝 expo-haptics 反馈。
@@ -32,7 +32,7 @@ owner 2026-11-27 实测原话：「体验了下确实太初级了，建议用 op
   - 新依赖三个，都是 expo 官方包：`expo-haptics`、`expo-symbols`（SF Symbols）、`expo-glass-effect`（iOS 26 液态玻璃,旧系统回落 BlurView）；第一个使用它们的实现 PR 必须同步更新 ADR 0036 的依赖表与签名测试。
   - 空/加载/失败/断线四态按帧重画（骨架条、断线横幅、空态文案）。
 - 不做：
-  - 行为变化：KIN-MOBILE-001 已签的交互、状态、流程一格不动；本条只换皮与补 token。
+  - 行为变化：KIN-MOBILE-001 已签的交互、状态、流程一格不动；本条只换皮与补 token。唯一例外是 D3 的局域网 http 确认（见 R2），它按 MANDATE 走 ADR + `needs-ceo`。
   - 底部 tab bar：RN 只有列表一个一级页；例行任务/运维进 RN 时另开故事。
   - 新建对话入口、推送、设置其余页面：各有去处，不在本条。
   - Android 适配：`app.json` 的 android 块是空的；帧按 iOS 画，Android 另开故事。
