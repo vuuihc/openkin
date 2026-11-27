@@ -5,7 +5,7 @@
 
 | 编号 | 状态 | 优先级 | 旅程 | 面 | 标题 | 测试 |
 |---|---|---|---|---|---|---|
-| `KIN-AGENTS-002` | approved | P0 | J6 | Mac/手机 | 看清安装探测与会话/角色导入的边界 | 2 |
+| `KIN-AGENTS-002` | covered | P0 | J6 | Mac/手机 | 看清安装探测与会话/角色导入的边界 | 2 |
 | `KIN-CONTINUE-001` | covered | P0 | J1、J2 | Mac/手机 | 接着问一段对话 | 26 |
 | `KIN-CONTINUE-002` | covered | P0 | J1、J2 | Mac/手机 | 手机只留一个导航面：列表页就是侧栏 | 6 |
 | `KIN-CONTINUE-003` | covered | P0 | J1、J2、J3、J4、J5、J6、J7 | Mac/手机 | 统一控制台的四区导航与工作台 | 11 |
@@ -32,4 +32,4 @@
 
 ## 汇总
 
-approved 5 · blocked 1 · covered 18
+approved 4 · blocked 1 · covered 19
