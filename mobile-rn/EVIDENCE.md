@@ -1,10 +1,12 @@
 # KIN-MOBILE-001 证据：RN 客户端的代码复核与历史模拟器画面
 
-**结论：2026-11-28 本轮有 9 张当前画面：390 五张（列表、对话、审批、用量亮色，
-对话暗色），820 四张（列表、对话的亮色与暗色）。820 亮色对话显示 `[seed] reading`
+**结论：2026-11-28 本轮有 9 张画面：390 五张（列表、对话、审批、用量亮色，
+对话暗色），820 四张（列表、对话的亮色与暗色）；其中 820 列表暗色是缺陷修复前的
+证据，不是当前画面。820 亮色对话显示 `[seed] reading`
 的长回答与五行 GFM 表格（`Surface` / `Before` / `After` 可见，`Owner` 列在横向
-滚动区）；820 暗色对话确为暗色主题。820 列表暗色同时暴露一处未修缺陷：左侧列表
-已暗、右侧空阅读栏仍是亮色（见 §已知 D4）。未拍的格子见 §截图的缺口行。下方
+滚动区）；820 暗色对话确为暗色主题。820 列表暗色同时暴露的右侧空阅读栏亮色缺陷
+（§已知 D4）已在本轮修复：分栏根节点画上主题背景，代码与测试已绿，820 暗色重拍
+待下一轮证据。未拍的格子见 §截图的缺口行。下方
 2026-11-26 与 `14918d30` 的表仍是历史，不证明当前画面或真机表现。**
 
 ## 这次运行
@@ -63,7 +65,7 @@ npx --no-install jest --ci --runInBand
 | 对话 | 390 | 暗 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/390-conversation-dark.png` | 1170×2532 | 暗色主题；`[seed] Phone review` 与同一条 `[seed] reading` 长回答；表格在首屏下方 |
 | 列表 | 820 | 亮 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/820-list-light.png` | 1640×2360 | 左侧设备 → 项目 → 对话列表，右侧「在左侧选一条对话，在这里阅读。」 |
 | 对话 | 820 | 亮 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/820-conversation-light.png` | 1640×2360 | `[seed] reading` 长回答与五行 GFM 表格；末行句子 `Final row: … must be fully readable at the bottom of the pane.` 可见 |
-| 列表 | 820 | 暗 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/820-list-dark.png` | 1640×2360 | 左侧列表暗色；右侧空阅读栏仍是亮色（缺陷 D4，见 §已知） |
+| 列表 | 820 | 暗 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/820-list-dark.png` | 1640×2360 | 左侧列表暗色；右侧空阅读栏仍是亮色（缺陷 D4 的修复前证据，见 §已知） |
 | 对话 | 820 | 暗 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/820-conversation-dark.png` | 1640×2360 | 暗色主题；同一条 `[seed] reading` 长回答与五行表格，末行句子可见 |
 
 **未拍与原因：** 820 的审批与用量、390 的列表 / 审批 / 用量暗色本轮未拍；时间
@@ -144,11 +146,27 @@ npx --no-install jest --ci --runInBand
 
 ## 已知（不要再报）
 
-- **D4 · 820 空阅读栏在暗色下仍是亮色（2026-11-28 发现，未修）。** 证据：
-  `rsi/state/shots/rn-evidence-capture/820-list-dark.png`（iPad Air 11-inch (M4)，
-  暗色）。左侧列表已暗，右侧「在左侧选一条对话，在这里阅读。」的空栏保持亮色
-  背景与深色文字；亮 → 暗切换后复现，排除单次重绘。选中一条对话后右侧阅读栏在
-  暗色下正常（`820-conversation-dark.png`）。本行只记录，不改产品代码。
+- **D4 · 820 空阅读栏在暗色下仍是亮色（2026-11-28 发现；修复已落，820 暗色重拍待下一轮证据）。**
+  原证据：`rsi/state/shots/rn-evidence-capture/820-list-dark.png`（iPad Air 11-inch
+  (M4)，暗色，修复前）。左侧列表已暗，右侧「在左侧选一条对话，在这里阅读。」的空栏
+  保持亮色背景与深色文字；亮 → 暗切换后复现，排除单次重绘。选中一条对话后右侧阅读栏
+  在暗色下正常（`820-conversation-dark.png`），因为 `ConversationView` 自己画了容器
+  （`mobile-rn/src/screens/ConversationView.tsx:1358` 的 `container`，在 `:1071` 使用）。
+- 读法与修复：`SplitListLayout` 的根节点原本只有 `flex: 1`，空栏没有任何一层画背景，
+  于是露出导航屏的白色。现在根节点用调色板画主题页背景
+  （`mobile-rn/src/layout/SplitListLayout.tsx:113` 的 `backgroundColor: colors.bg`），
+  亮暗两套外观都由 `useTheme()` 决定，没有颜色字面量。
+- 回归：`mobile-rn/src/layout/SplitListLayout.dark.test.tsx:67`
+  （暗色空栏；同时钉住空栏与对话容器不自画背景）、`:88`（亮色跟随）、
+  `:96`（选中对话仍暗 + 767 手机栈几何不变），
+  三个用例名都含 `KIN-MOBILE-001 R3`；对应的四个变体在
+  `mobile-rn/src/layout/splitPane.mutants.json`（暗色空栏两个，亮色与选中对话各一个）。
+  本轮结果：`npx --no-install jest src/layout/SplitListLayout.dark.test.tsx` 3 项通过；
+  `python3 scripts/mutants.py mobile-rn/src/layout/splitPane.mutants.json`
+  `4/4 mutants red; 0 problem(s)`。
+- 重拍：本轮主机 `mem_avail_mb=5088–5554`、`swap_free_mb=885`（两次读数），低于本次
+  任务门槛 6144 / 2048（§这次运行 记录的历史门槛是 4096 / 512），模拟器未启动；
+  下一次证据轮补 `820-list-dark` 的修复后画面并替换本行。
 - **键盘避让代码已落地，真机未验。** #733，`445dffab`；
   `mobile-rn/src/screens/ConversationView.tsx:772` 用 `KeyboardAvoidingView` 包住正文与
   composer。`mobile-rn/src/screens/Conversation.safearea.test.tsx:98` 的
@@ -190,4 +208,4 @@ npx --no-install jest --ci --runInBand
   「粘贴配对链接」定位。已有设备会话指向已删的一次性节点时，列表只显示
   「对话列表读不出来 · 重试」，不会自动回配对页；用
   `xcrun simctl openurl booted "exp://127.0.0.1:8081/--/pair"` 深链过去。
-  820 空阅读栏的暗色缺陷见 §已知 D4，不是截图错误。
+  820 空阅读栏的暗色缺陷见 §已知 D4（修复已落，重拍待下一轮），不是截图错误。

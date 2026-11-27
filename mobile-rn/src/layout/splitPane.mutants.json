@@ -1,0 +1,30 @@
+[
+  {
+    "label": "the split root stops painting, so the 820 empty pane shows the navigator's white under a dark list again (R-rn-dark-split-pane)",
+    "file": "mobile-rn/src/layout/SplitListLayout.tsx",
+    "old": "  root: {\n    // The right pane paints nothing of its own: without this the empty pane\n    // shows the navigator's white screen under a dark list (EVIDENCE.md D4).\n    backgroundColor: colors.bg,\n    flex: 1,\n  },",
+    "new": "  root: {\n    flex: 1,\n  },",
+    "test": "cd mobile-rn && npx jest src/layout/SplitListLayout.dark.test.tsx -t \"KIN-MOBILE-001 R3: the split's empty reading pane paints the dark page background, not the navigator's white\""
+  },
+  {
+    "label": "the split root paints a light literal instead of the palette, so dark mode keeps the white slab (R-rn-dark-split-pane)",
+    "file": "mobile-rn/src/layout/SplitListLayout.tsx",
+    "old": "    backgroundColor: colors.bg,",
+    "new": "    backgroundColor: \"#ffffff\",",
+    "test": "cd mobile-rn && npx jest src/layout/SplitListLayout.dark.test.tsx -t \"KIN-MOBILE-001 R3: the split's empty reading pane paints the dark page background, not the navigator's white\""
+  },
+  {
+    "label": "the split root hard-codes the dark page literal, so light mode is painted dark (R-rn-dark-split-pane)",
+    "file": "mobile-rn/src/layout/SplitListLayout.tsx",
+    "old": "    backgroundColor: colors.bg,",
+    "new": "    backgroundColor: \"#1a1a1c\",",
+    "test": "cd mobile-rn && npx jest src/layout/SplitListLayout.dark.test.tsx -t \"KIN-MOBILE-001 R3: the empty pane follows the light scheme too\""
+  },
+  {
+    "label": "the background moves from the split root to the empty state, so the root no longer owns the pane fill and the empty state is the only painted surface (R-rn-dark-split-pane)",
+    "file": "mobile-rn/src/layout/SplitListLayout.tsx",
+    "old": "  empty: {\n    alignItems: \"center\",\n    flex: 1,\n    justifyContent: \"center\",\n    padding: 24,\n  },\n  emptyText: {\n    color: colors.muted,\n    fontSize: 15,\n    textAlign: \"center\",\n  },\n  listColumn: {\n    height: \"100%\",\n    overflow: \"hidden\",\n  },\n  root: {\n    // The right pane paints nothing of its own: without this the empty pane\n    // shows the navigator's white screen under a dark list (EVIDENCE.md D4).\n    backgroundColor: colors.bg,\n    flex: 1,\n  },",
+    "new": "  empty: {\n    alignItems: \"center\",\n    backgroundColor: colors.bg,\n    flex: 1,\n    justifyContent: \"center\",\n    padding: 24,\n  },\n  emptyText: {\n    color: colors.muted,\n    fontSize: 15,\n    textAlign: \"center\",\n  },\n  listColumn: {\n    height: \"100%\",\n    overflow: \"hidden\",\n  },\n  root: {\n    flex: 1,\n  },",
+    "test": "cd mobile-rn && npx jest src/layout/SplitListLayout.dark.test.tsx -t \"KIN-MOBILE-001 R3: a selected conversation keeps the split's background and the phone stack keeps its geometry\""
+  }
+]
