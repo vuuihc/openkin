@@ -49,9 +49,7 @@ describe("the queued-message discard report in the stream", () => {
   it("R-stop-discard-copy: the discard report reads as a quiet localized note in zh", () => {
     setLocale("zh");
     try {
-      const { container } = render(
-        <ChatStream events={discardEvents(1)} hostSpeaker="kin" />,
-      );
+      const { container } = render(<ChatStream events={discardEvents(1)} hostSpeaker="kin" />);
 
       const note = screen.getByText("已丢弃 1 条排队消息");
       // The quiet meta line, not the red error block.
@@ -69,9 +67,7 @@ describe("the queued-message discard report in the stream", () => {
 
   it("R-stop-discard-copy: the en note names the conversation, not a task", () => {
     setLocale("en");
-    const { container } = render(
-      <ChatStream events={discardEvents(2)} hostSpeaker="kin" />,
-    );
+    const { container } = render(<ChatStream events={discardEvents(2)} hostSpeaker="kin" />);
 
     const note = screen.getByText(/queued messages discarded/);
     expect(note.textContent).toContain("2");
