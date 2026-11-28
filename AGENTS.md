@@ -97,6 +97,9 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
 18. **An overlay on a list root yields to the row.** A floating card, strip or pill that covers a list row must yield to that row on the surface where they coexist, and the row must be proven tappable with a real pointer or `elementFromPoint` at 390 and at the coarse ≥768 boundary; the overlay's own presence is not evidence, and a document-wide yield that also clips a sidebar row is not a fix.
 19. **A changed value takes its pinned assertions with it.** Renaming a user-visible string, changing a count, a job list or a wired constant updates every literal assertion, mutant anchor and doc line that pins the old value in the same commit: `grep -rn` the old value across tests, `*.mutants.json` and docs before the gate, and the PR body says "old-value assertions updated" or why one stays; it still needs a reproducing regression test (a gate that goes red on an orphaned old-value pin), not written in this change.
 20. **A merge result is a new change.** After merging or rebasing onto `origin/main` (including a lane syncing before its push), re-run the gate on the merged tree — tsc, tests, format, inventory baselines and the `web/dist` rebuild — before committing or pushing, and commit only a proven tree; it still needs a reproducing regression test (a push that goes red when the merged tree was not re-checked), not written in this change.
+21. **测试必须断言行为，不得只断言元素、宿主或源码文本存在；把生产路径做成 no-op 时测试必须变红。**
+22. **浮层可以覆盖正文，但不得压住任何输入、按钮、可选行或穿过它的滚动手势；被盖控件必须真实命中，滚动必须到达底层滚动体。**
+23. **同步、fetch 或快进失败就是失败；不得用 `|| true` 吞掉，必须保留真实退出码、打印原因、给出有界超时，只有显式记录的 fallback 才能继续。**
 
 ## Development workflow
 
