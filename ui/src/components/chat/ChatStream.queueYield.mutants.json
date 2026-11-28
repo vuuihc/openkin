@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the queued pill loses its hit-row marker, so the approval card paints over the order arrows",
+    "file": "ui/src/components/chat/ChatStream.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/chat/ChatStream.queueYield.dom.test.tsx",
+    "old": "                data-kin-hit-row=\"\"\n                className=\"inline-flex items-center gap-1 rounded-full bg-kin-blue/15 px-1.5 py-px text-caption font-medium text-kin-blue-ink\"",
+    "new": "                className=\"inline-flex items-center gap-1 rounded-full bg-kin-blue/15 px-1.5 py-px text-caption font-medium text-kin-blue-ink\""
+  },
+  {
+    "label": "the transcript scroller drops the approval band, so the last queued row rests under the strip",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/pages/TaskDetailPage.queueOrder.dom.test.tsx -t \"reserves the approval band\"",
+    "old": "\"flex-1 overflow-y-auto kin-scroll py-5 min-h-0 phone-approval-clearance outline-none\"",
+    "new": "\"flex-1 overflow-y-auto kin-scroll py-5 min-h-0 outline-none\""
+  }
+]

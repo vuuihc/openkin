@@ -1671,7 +1671,18 @@ const MessageRow = memo(function MessageRow({
           <div className="flex items-center gap-1.5 px-1">
             <div className="text-caption font-medium text-kin-muted">{meta.label}</div>
             {queued && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-kin-blue/15 px-1.5 py-px text-caption font-medium text-kin-blue-ink">
+              // The pill holds the queued message's controls — place, 上移,
+              // 下移, 编辑 and 撤回 when offered. `FloatingApproval` measures
+              // every `[data-kin-hit-row]` box before it draws the decision
+              // card, and without this marker the card painted over these
+              // arrows on a phone — a real thumb landed on the card and the
+              // daemon's queue never moved (dogfood 2026-11-28 13). The marker
+              // is on the pill, not the bubble: the card yields to the
+              // controls, not to the message text.
+              <span
+                data-kin-hit-row=""
+                className="inline-flex items-center gap-1 rounded-full bg-kin-blue/15 px-1.5 py-px text-caption font-medium text-kin-blue-ink"
+              >
                 <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
                 {place !== null && (
                   <span
