@@ -10,8 +10,10 @@ This tool re-derives the selection with a deliberately COARSER rule than pr_sele
 It must NOT import the selector: if both rules were the same function, a wrong selector would make
 the difference empty and the check tautological. An open PR is reported when the head starts with
 `rsi/`, it is not a draft, it carries neither the `hold` nor the `needs-ceo` label, it is not the
-control branch `rsi/ceo-loop`, it is not the DREAM job's date-stamped consolidation branch
-`rsi/dream-<date>`, and its number is absent from the dispatcher's `--rows`.
+control branch `rsi/ceo-loop`, and its number is absent from the dispatcher's `--rows`. The
+DREAM job's date-stamped consolidation branch is not special any more: DREAM no longer merges its
+own PR, the merge lane does and records the delivery, so a skipped `rsi/dream-<date>` is exactly
+the stranded PR this alarm exists for.
 
 Fail closed, never block: unreadable JSON, an empty list, a missing/unreadable --state directory
 or any unexpected item shape exits 0 with no output and no write. A tick is never stopped and a PR
@@ -21,22 +23,15 @@ is never invented.
 import argparse
 import json
 import os
-import re
 import sys
 import time
 
 CONTROL_BRANCH = "rsi/ceo-loop"
-# The DREAM job writes its docs-only consolidation to `rsi/dream-<date>` and merges it itself, so
-# the dispatcher excludes that one head (pr_select.py documents the same rule). Mirror it here or
-# the alarm fires a false line during every DREAM window. Match the date, not the `rsi/dream-`
-# prefix: a deliverable may legitimately be named `rsi/dream-phone-line` (#535).
-DREAM_BRANCH = re.compile(r"^rsi/dream-(?:\d{8}|\d{4}-\d{2}-\d{2})$")
 HOLD_LABELS = frozenset({"hold", "needs-ceo"})
 
 RULE = (
     "Report an open PR the dispatcher did not select: rsi/* head, not a draft,\n"
-    "no hold/needs-ceo label, not rsi/ceo-loop or the date-stamped rsi/dream-<date>\n"
-    "branch, and number absent from --rows."
+    "no hold/needs-ceo label, not rsi/ceo-loop, and number absent from --rows."
 )
 
 # The script lives in rsi/runtime; its state lives in rsi/state. Derive it from __file__, never
@@ -110,8 +105,6 @@ def _coarse(number, head, draft, labels, selected):
     if not head.startswith("rsi/"):
         return False
     if head == CONTROL_BRANCH:
-        return False
-    if DREAM_BRANCH.match(head):
         return False
     if draft:
         return False

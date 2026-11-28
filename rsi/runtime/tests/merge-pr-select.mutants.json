@@ -14,25 +14,18 @@
     "new": "    if False:\n        return False"
   },
   {
-    "label": "the dream exclusion goes back to a prefix, so a real dream-* slice is stranded again (#535)",
+    "label": "the DREAM date branch is excluded again, so its consolidation PR never reaches the merge lane that records it",
     "file": "rsi/runtime/pr_select.py",
-    "test": "RSI_TEST_ONLY=dream-deliverable-selected bash rsi/runtime/tests/test-merge-pr-select.sh",
-    "old": "    if DREAM_BRANCH.match(head):",
-    "new": "    if head.startswith(\"rsi/dream-\"):"
+    "test": "RSI_TEST_ONLY=dream-branch-selected bash rsi/runtime/tests/test-merge-pr-select.sh",
+    "old": "    if head == CONTROL_BRANCH:",
+    "new": "    if head.startswith(\"rsi/dream-\"):\n        return False\n    if head == CONTROL_BRANCH:"
   },
   {
-    "label": "the DREAM job's date branch is no longer excluded, so its own consolidation PR reaches the merge lane",
+    "label": "the compact date spelling is excluded, so rsi/dream-20261121 is stranded while the merge lane is the only recorder",
     "file": "rsi/runtime/pr_select.py",
-    "test": "RSI_TEST_ONLY=dream-branch-skipped bash rsi/runtime/tests/test-merge-pr-select.sh",
-    "old": "    if DREAM_BRANCH.match(head):\n        return False",
-    "new": "    if False:\n        return False"
-  },
-  {
-    "label": "the compact date form rsi/dream-20261121 counts as a deliverable, so the DREAM job's other spelling is dispatched",
-    "file": "rsi/runtime/pr_select.py",
-    "test": "RSI_TEST_ONLY=dream-compact-date-skipped bash rsi/runtime/tests/test-merge-pr-select.sh",
-    "old": "(?:\\d{8}|\\d{4}-\\d{2}-\\d{2})",
-    "new": "(?:\\d{4}-\\d{2}-\\d{2})"
+    "test": "RSI_TEST_ONLY=dream-compact-date-selected bash rsi/runtime/tests/test-merge-pr-select.sh",
+    "old": "    if head == CONTROL_BRANCH:",
+    "new": "    if head == \"rsi/dream-20261121\":\n        return False\n    if head == CONTROL_BRANCH:"
   },
   {
     "label": "the dispatcher sorts by PR number again, so a small that re-queues after every rework starves the longer-waiting one (#790)",
