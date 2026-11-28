@@ -31,6 +31,7 @@ AGENTS.md, docs/product/TASTE.md, docs/product/IA.md, docs/plans/2026-11-14-ux-u
 - No new dependencies, no ui/package.json / go.mod / migrations / auth changes (unless the item id is F1-F3). No secrets, no personal paths/emails in code, tests, docs or the PR (public repo).
 - UI inventory ratchet: `python3 scripts/check-ui-inventory.py` must not grow; a facade/primitive slice that must add its own raw `<button>`/portal/dialog runs `--update` and says so in the PR body. Migration slices should lower the baseline in the same PR.
 - Run before pushing: the focused suites that exist on the machine you are on — `cd ui && npx vitest run <your tests> src/design/tokens.test.ts`, plus `cd ui && npm run build` (commit the regenerated web/dist/index.html only) when `ui/` changed; add `go test` for the packages you touched only where a Go toolchain exists. The Mac merge gate runs the full `check.sh` and an independent review after you push; the NAS worker container has no Go toolchain, so `go test` and `check.sh` are not expected there. Say in the PR body which commands you ran.
+- An assertion that only reads a production file's text (grep/cat on a script or module) is not behaviour evidence. The test you name must execute the production path, or a mutant must make the behaviour a no-op and redden it; a test that stays green when the code does nothing is a rework round.
 - Conventional Commits. Match existing style; follow TASTE rules (one-line list rows, no cards-in-cards, focus ring via the design token).
 
 ## Done means
