@@ -124,13 +124,25 @@ def load_groups(path):
             raise RegistryError("group %s has no 'stale' patterns" % group_id)
         compile_stale(stale, group_id)
         current = group.get("current")
-        digits = current.get("one_line_digits") if isinstance(current, dict) else None
-        if not isinstance(digits, list) or not digits or not all(
-            isinstance(digit, int) for digit in digits
-        ):
+        if not isinstance(current, dict):
+            raise RegistryError("group %s has no 'current' object" % group_id)
+        has_digits = "one_line_digits" in current
+        has_terms = "one_line_terms" in current
+        if has_digits == has_terms:
             raise RegistryError(
-                "group %s: 'current' must declare one_line_digits" % group_id
+                "group %s: 'current' must declare exactly one of one_line_digits or one_line_terms"
+                % group_id
             )
+        digits = current.get("one_line_digits")
+        terms = current.get("one_line_terms")
+        if has_digits and not (
+            isinstance(digits, list) and digits and all(isinstance(digit, int) for digit in digits)
+        ):
+            raise RegistryError("group %s: one_line_digits must be a non-empty list of integers" % group_id)
+        if has_terms and not (
+            isinstance(terms, list) and terms and all(isinstance(term, str) and term for term in terms)
+        ):
+            raise RegistryError("group %s: one_line_terms must be a non-empty list of strings" % group_id)
         swept = group.get("swept", [])
         if not isinstance(swept, list) or not all(
             isinstance(item, str) and item for item in swept
@@ -175,12 +187,16 @@ def iter_scoped(root, patterns):
     return sorted(found)
 
 
-def carries_current(text, digits):
-    """True when one line of `text` names every digit, not run into a larger number."""
-    needles = [re.compile(r"(?<![0-9])%d(?![0-9])" % digit) for digit in digits]
-    return any(
-        all(needle.search(line) for needle in needles) for line in text.splitlines()
-    )
+def carries_current(text, current):
+    """True when one line carries every digit or term the rule declares."""
+    digits = current.get("one_line_digits")
+    if digits is not None:
+        needles = [re.compile(r"(?<![0-9])%d(?![0-9])" % digit) for digit in digits]
+        return any(
+            all(needle.search(line) for needle in needles) for line in text.splitlines()
+        )
+    terms = current["one_line_terms"]
+    return any(all(term in line for term in terms) for line in text.splitlines())
 
 
 def matches_stale(line, stale):
@@ -192,7 +208,7 @@ def check_group(root, group, problems, unused):
     """Append this group's findings to `problems` and its unused allows to `unused`."""
     group_id = group["id"]
     stale = compile_stale(group["stale"], group_id)
-    digits = group["current"]["one_line_digits"]
+    current = group["current"]
     swept = [normalise(path) for path in group.get("swept", [])]
     swept_set = set(swept)
     allow = {
@@ -223,7 +239,7 @@ def check_group(root, group, problems, unused):
         except OSError:
             problems.append("%s: swept file no longer carries %s" % (rel, group_id))
             continue
-        if not carries_current(text, digits):
+        if not carries_current(text, current):
             problems.append("%s: swept file no longer carries %s" % (rel, group_id))
 
     for rel in sorted(set(allow) - used):

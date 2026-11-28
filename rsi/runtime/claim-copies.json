@@ -48,6 +48,38 @@
           "reason": "The console gate still walks and reports two widths (lines 7 and 370). Re-sweeping ux-gate.sh is a separate row; this group only names the copies it finds."
         }
       ]
+    },
+    {
+      "id": "scarce-reset-freeze",
+      "why": "The 2026-11-27 incident consumed every Codex Full reset after renewable 5h pressure and expiry were treated as spend triggers. rsi/MANDATE.md is the source: scarce reset assets are never automatic, expiry does not create demand, and any single use needs explicit approval, fresh readings and a record.",
+      "current": {
+        "one_line_terms": [
+          "Codex Full reset",
+          "external scarce assets",
+          "never automatic",
+          "renewable 5h/window pressure",
+          "expiry does not create demand",
+          "single-use approval",
+          "weekly/5h usage",
+          "record the approval and readings before use",
+          "last remaining one is never automatic"
+        ]
+      },
+      "stale": [
+        "Codex Full reset|external scarce assets"
+      ],
+      "scope": [
+        "rsi/**/*.md",
+        "rsi/**/*.sh",
+        "rsi/**/*.py"
+      ],
+      "swept": [
+        "rsi/MANDATE.md",
+        "rsi/roles/director.md",
+        "rsi/runtime/prompts/fill.md",
+        "rsi/runtime/prompts/pulse-serial.md"
+      ],
+      "allow": []
     }
   ]
 }
