@@ -7,6 +7,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+import { t as realT } from "../i18n";
 import type {
   ProviderEntry,
   ProvidersView,
@@ -183,7 +184,7 @@ describe("KIN-MOBILE-002 R6 usage sheet visual", () => {
     const claude = screen.getByTestId("usage-agent:claude-code");
     expect(
       within(claude).getByText(
-        "75% · progress.input 1.0k · progress.output 500",
+        "75% · chat.progress.input 1.0k · chat.progress.output 500",
       ),
     ).toBeTruthy();
 
@@ -191,6 +192,18 @@ describe("KIN-MOBILE-002 R6 usage sheet visual", () => {
     expect(screen.getByTestId("usage-window-total").props.children).toBe(
       "usage.spend $40.000 · usage.tokens 5.0k",
     );
+  });
+
+  it("KIN-MOBILE-002 R6: the usage caption reads the catalog's labels, never a raw key", async () => {
+    // The identity `t` above pins which key the component asks for; this render
+    // uses the real adapter, so it pins what a reader sees. A miss returns the
+    // path itself (`i18n.ts:50`), which is the defect this case exists for.
+    const screen = await renderScreen({}, { t: realT });
+
+    const claude = screen.getByTestId("usage-agent:claude-code");
+    expect(within(claude).getByText(/输入/)).toBeTruthy();
+    expect(within(claude).getByText(/输出/)).toBeTruthy();
+    expect(screen.queryByText(/progress\.(input|output)/)).toBeNull();
   });
 
   it("KIN-MOBILE-002 R6: 本周/30天/90天 render as one segmented control and keep the existing window callbacks", async () => {
