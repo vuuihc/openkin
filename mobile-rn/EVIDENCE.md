@@ -108,9 +108,11 @@ npx --no-install jest --ci --runInBand
 | 审批 | 390 | 暗 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/390-approvals-dark.png` | 1170×2532 | 待批卡：`需要权限` / `Bash` / `git status --short`；`批准` 是唯一实心蓝按钮，`拒绝` 描边；卡片与对话都是暗色，无文字裁切 |
 | 用量 | 390 | 暗 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/390-usage-dark.png` | 1170×2532 | 用量 sheet：本周 / 30 天 / 90 天，30 天选中；claude-code 身份色圆点与占比条、`$0.0029`；费用 / TOKEN / 缓存命中率（`—`，夹具无缓存数）/ 对话四格；provider 降级说明完整 |
 | 审批 | 820 | 亮 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/820-approvals-light.png` | 1640×2360 | 分栏；左列选中待批行，右侧阅读栏是同一张待批卡（批准实心 / 拒绝描边）；亮色 |
-| 审批 | 820 | 暗 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/820-approvals-dark.png` | 1640×2360 | 同上，暗色；左右两栏、卡片与 composer 都是暗色，D4 的修复保持 |
+| 审批 | 820 | 暗 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/820-approvals-dark.png` | 1640×2360 | 暗色；`批准` 二字在实心蓝按钮上可见，`拒绝` 为描边红字；左右两栏、卡片与 composer 都是暗色，D4 的修复保持 |
 | 用量 | 820 | 亮 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/820-usage-light.png` | 1640×2360 | 用量 sheet 浮在分栏上，背后是 `[seed] reading` 的读取态（标题与用户气泡可见）；亮色玻璃底 |
 | 用量 | 820 | 暗 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/820-usage-dark.png` | 1640×2360 | 同上，暗色；sheet、分段控件、provider 行与占比条都取暗色 token |
+
+**用量取证限制：** 三张用量图都仍显示未翻译的 `progress.input` / `progress.output` 键；这是本轮观察到的界面限制，取证表如实记录，不在本取证行修产品。
 
 **判定锚点：** 列表 `mobile-rn/src/screens/ConversationList.visual.test.tsx:187`
 （状态点形状 + 颜色）、`:212`（待批三角与计数）、`:308`（行与分区头按明暗取 token），
