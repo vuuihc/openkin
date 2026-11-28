@@ -174,3 +174,91 @@ describe("a send that fails while a refill lands", () => {
     expect(box().value).toBe("hold that thought");
   });
 });
+
+describe("focus after a send", () => {
+  // The textarea is disabled while a send is in flight, and Chrome moves the
+  // focus off a control the moment it becomes disabled — the 820×1180 walk
+  // recorded it at t=1387 (disabled) → t=1449 (BODY). jsdom has no such
+  // default action, and it refuses to blur a disabled control at all, so the
+  // blur is performed while the box is still enabled. The state it leaves —
+  // disabled textarea, focus on BODY — is exactly the one the walk recorded.
+  async function flushAnimationFrame() {
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    });
+  }
+
+  function submitDraft(text: string) {
+    fireEvent.change(box(), { target: { value: text } });
+    fireEvent.submit(box().closest("form")!);
+  }
+
+  it("returns focus to the textarea after a send that disabled it", async () => {
+    const onSubmit = vi.fn(() => new Promise<void>(() => undefined));
+    const { rerender } = setup({ onSubmit });
+
+    box().focus();
+    submitDraft("what changed?");
+    expect(box().value).toBe("");
+
+    box().blur();
+    rerender(<Composer onSubmit={onSubmit} busy />);
+    expect(box().disabled).toBe(true);
+    expect(document.activeElement).toBe(document.body);
+
+    rerender(<Composer onSubmit={onSubmit} busy={false} />);
+    await flushAnimationFrame();
+
+    expect(document.activeElement).toBe(box());
+  });
+
+  it("does not take focus back when the reader moved it during the send", async () => {
+    const onSubmit = vi.fn(() => new Promise<void>(() => undefined));
+    const { rerender } = render(
+      <>
+        <Composer onSubmit={onSubmit} />
+        <button>elsewhere</button>
+      </>,
+    );
+
+    box().focus();
+    submitDraft("what changed?");
+
+    rerender(
+      <>
+        <Composer onSubmit={onSubmit} busy />
+        <button>elsewhere</button>
+      </>,
+    );
+    expect(box().disabled).toBe(true);
+    const other = screen.getByRole("button", { name: "elsewhere" });
+    other.focus();
+    expect(document.activeElement).toBe(other);
+
+    rerender(
+      <>
+        <Composer onSubmit={onSubmit} busy={false} />
+        <button>elsewhere</button>
+      </>,
+    );
+    await flushAnimationFrame();
+
+    expect(document.activeElement).toBe(other);
+  });
+
+  it("leaves a composer the reader never focused unfocused", async () => {
+    const onSubmit = vi.fn(() => new Promise<void>(() => undefined));
+    const { rerender } = setup({ onSubmit });
+
+    expect(document.activeElement).toBe(document.body);
+    submitDraft("sent without touching the box");
+
+    rerender(<Composer onSubmit={onSubmit} busy />);
+    expect(box().disabled).toBe(true);
+
+    rerender(<Composer onSubmit={onSubmit} busy={false} />);
+    await flushAnimationFrame();
+
+    expect(document.activeElement).toBe(document.body);
+  });
+});

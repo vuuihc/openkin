@@ -313,6 +313,13 @@ export default function Composer({
   const [focused, setFocused] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /**
+   * A send the composer itself started owes the caret back once the textarea
+   * is live again. Armed by `submit`, spent by the disabled → live effect.
+   */
+  const restoreFocusAfterSend = useRef(false);
+  /** The disabled edge the restore watches; an effect only sees this render. */
+  const inputWasDisabled = useRef(!!(disabled || busy || stopping));
   const mentionListRef = useRef<HTMLDivElement>(null);
   const slashListRef = useRef<HTMLDivElement>(null);
   // Which of the two send buttons was pressed. Both are submit buttons in one
@@ -365,6 +372,26 @@ export default function Composer({
     if (!focusSignal) return;
     textareaRef.current?.focus({ preventScroll: true });
   }, [focusSignal, disabled]);
+
+  // A send disables the textarea, and Chrome moves the focus off a control the
+  // moment it becomes disabled — the 820×1180 walk saw the caret land on BODY
+  // and stay there after the box was live again. A send the composer itself
+  // started gets the caret back, one frame after the re-enable. A reader who
+  // moved the focus somewhere else during the send keeps it: only a focus that
+  // fell to BODY (i.e. no one claimed it) is the composer's to restore.
+  useEffect(() => {
+    const inputDisabled = !!(disabled || busy || stopping);
+    const wasDisabled = inputWasDisabled.current;
+    inputWasDisabled.current = inputDisabled;
+    if (!wasDisabled || inputDisabled) return;
+    const owed = restoreFocusAfterSend.current;
+    restoreFocusAfterSend.current = false;
+    if (!owed || !mounted.current || document.activeElement !== document.body) return;
+    requestAnimationFrame(() => {
+      if (!mounted.current || document.activeElement !== document.body) return;
+      textareaRef.current?.focus({ preventScroll: true });
+    });
+  }, [disabled, busy, stopping]);
 
   /** Grow with content up to CSS max-height, then scroll. Shrinks when cleared. */
   function adjustTextareaHeight() {
@@ -638,6 +665,9 @@ export default function Composer({
 
   async function submit(e?: FormEvent) {
     e?.preventDefault();
+    // A new send starts owing nothing; only this send, if it proceeds, may ask
+    // for the caret back when the textarea is re-enabled.
+    restoreFocusAfterSend.current = false;
     const text = value.trim();
     // Read and clear before anything can return: the intent belongs to the send that
     // is happening now, and a refused send must not leave `interrupt` armed for the
@@ -662,6 +692,13 @@ export default function Composer({
       itemsRef.current.some(isPending)
     )
       return;
+    // Did this send start from the composer itself? A hardware ⌘/Ctrl+Enter
+    // leaves the caret in the textarea; a touch on the send button leaves it
+    // on a control inside this form (or, on a phone keyboard, still in the
+    // textarea). A send from somewhere else owes no caret back.
+    const form = textareaRef.current?.form;
+    restoreFocusAfterSend.current =
+      document.activeElement === textareaRef.current || !!form?.contains(document.activeElement);
     const payload = withAttachments(text, ready);
     // Snapshot so a failed send can restore the composer + draft persistence.
     const prevValue = value;
