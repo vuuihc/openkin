@@ -172,6 +172,38 @@ PY
   fi
 }
 
+# The 2026-11-28 rework ledger measured one class behind 4 of that day's 7 sendbacks: a test that
+# cannot see the behaviour. A source-text assertion (grep/cat over a script or module) reddens
+# when the text is deleted but stays green when the production path is made a no-op, so it proves
+# nothing about behaviour. The worker contract states the rule, the cloud template carries it to
+# the NAS agents (who never read this Mac's contract), and the reviewer card names the no-op
+# loophole its deletion-only wording missed. This case reads the rendered contract, the real
+# template and the real reviewer card, so a future edit that drops any of the three fails here.
+test_test_strength_rule() {
+  lane_record new
+  local text missing=""
+  # One aggregated FAIL line, not an early exit on the first missing phrase: the Claims block
+  # names this case for both the contract bullet and the cloud template, and red_first runs one
+  # command per distinct check, so the line must name every missing piece the reverted tree lost.
+  tsr_note() { missing="${missing}${missing:+ · }$1"; }
+  text="$(contract_text new)" || bad "test-strength-rule: the worker contract states that a source-text assertion is not behaviour evidence -- --worker-contract-check exited $?"
+  grep -Fq "is not behaviour evidence" <<<"$text" \
+    || tsr_note "test-strength-rule: the worker contract states that a source-text assertion is not behaviour evidence"
+  grep -Fq "stays green when the code becomes a no-op" <<<"$text" \
+    || tsr_note "the contract does not say a test stays green when the code becomes a no-op"
+  [ -f "$CLOUD_TEMPLATE" ] \
+    || tsr_note "test-strength-rule: the cloud brief carries the same rule (no such file: $CLOUD_TEMPLATE)"
+  if [ -f "$CLOUD_TEMPLATE" ]; then
+    grep -Fq "is not behaviour evidence" "$CLOUD_TEMPLATE" \
+      || tsr_note "test-strength-rule: the cloud brief carries the same rule: the template does not say a text-only assertion is not evidence"
+    grep -Fq "execute the production path" "$CLOUD_TEMPLATE" \
+      || tsr_note "test-strength-rule: the cloud brief carries the same rule: the template does not require executing the production path"
+  fi
+  grep -Fq "made a no-op" "$ROOT/rsi/roles/reviewer.md" \
+    || tsr_note "the reviewer card does not name a no-op, only a deletion"
+  [ -z "$missing" ] || bad "$missing"
+}
+
 # Two facts the contract did not carry until 2026-11-22, each of which cost a whole rework round
 # that the gate had to report a day later: (a) an 820 shot of an empty screen passed as "evidence"
 # when MANDATE item 5 asks for the surface's real reading state, and (b) a new or reworded UI
@@ -286,6 +318,7 @@ run race-ordering-rule test_race_ordering_rule
 run race-flag-self-check test_race_flag_self_check
 run prose-claim-check-rule test_prose_claim_check_rule
 run claims-block-rule test_claims_block_rule
+run test-strength-rule test_test_strength_rule
 run no-full-gate-instruction test_no_full_gate_instruction
 run ui-evidence-and-locale-rules test_ui_evidence_and_locale_rules
 run cloud-brief-has-no-full-gate test_cloud_brief_has_no_full_gate
