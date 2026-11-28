@@ -1061,10 +1061,87 @@ EOS
   check "NAS base: the recorded base is not the stale origin/main" [ "$created" != "$old" ]
 }
 
+# --- L1: one ingest at a time (R-nas-ingest-lock) --------------------------------------------------
+# 2026-11-28 07:37: a manual ingest and the 20-minute pulse both fetched and self-checked the same
+# finished result. The lock is taken before the first ssh call, so the second run skips before any
+# fetch, claim or self-check. Its stale rule is slug_lock_take's: a missing pid is not provably
+# stale, a dead pid is reclaimed atomically, a live pid is never stolen from.
+ingest_selfcheck_stub() { # T — records each self-check run and blocks (bounded) until the test releases it
+  cat > "$1/bin/selfcheck" <<'EOS'
+#!/bin/bash
+echo "run" >> "${SC_LOG:?}"
+i=0
+while [ ! -e "${SC_RELEASE:?}" ] && [ "$i" -lt 200 ]; do sleep 0.05; i=$((i+1)); done
+exit 0
+EOS
+  chmod +x "$1/bin/selfcheck"
+}
+
+t_ingest_lock_concurrent() {
+  local T; sandbox; T=$T
+  job "$T" s1 R-L-1 0 >/dev/null
+  ingest_selfcheck_stub "$T"
+  run_ingest "$T" NAS_SELFCHECK_CMD="$T/bin/selfcheck" SC_LOG="$T/sc.log" SC_RELEASE="$T/release" \
+    > "$T/i1.log" 2>&1 &
+  local pid1=$! n=0
+  while [ ! -e "$T/sc.log" ] && [ "$n" -lt 200 ]; do sleep 0.1; n=$((n+1)); done
+  check "t_ingest_lock_concurrent: the first ingest reached its self-check" test -e "$T/sc.log"
+  run_ingest "$T" NAS_SELFCHECK_CMD="$T/bin/selfcheck" SC_LOG="$T/sc.log" SC_RELEASE="$T/release" \
+    > "$T/i2.log" 2>&1
+  local rc2=$?
+  check "t_ingest_lock_concurrent: the second ingest exits 0" [ "$rc2" = 0 ]
+  check "t_ingest_lock_concurrent: the second ingest says why it skipped" grep -q 'skip: ingest already running' "$T/i2.log"
+  check "t_ingest_lock_concurrent: the second ingest runs no self-check" [ "$(wc -l < "$T/sc.log" | tr -d ' ')" = 1 ]
+  touch "$T/release"
+  wait "$pid1" 2>/dev/null
+  check "t_ingest_lock_concurrent: the first ingest self-checks once" [ "$(wc -l < "$T/sc.log" | tr -d ' ')" = 1 ]
+  check "t_ingest_lock_concurrent: exactly one history row" [ "$(ls "$T/state/lanes/history" | wc -l | tr -d ' ')" = 1 ]
+  check "t_ingest_lock_concurrent: exactly one PR" [ "$(wc -l < "$T/gh.log" | tr -d ' ')" = 1 ]
+  check "t_ingest_lock_concurrent: the owner drops its lock on exit" [ ! -e "$T/state/nas/.ingest.lock" ]
+}
+
+t_ingest_lock_no_pid() {
+  local T; sandbox; T=$T
+  job "$T" s1 R-L-2 0 >/dev/null
+  mkdir -p "$T/state/nas/.ingest.lock"     # the mkdir->pid window: the owner is unknown, not provably stale
+  run_ingest "$T" > "$T/i1.log" 2>&1; local rc=$?
+  check "t_ingest_lock_no_pid: an ownerless lock makes the run skip" grep -q 'skip: ingest already running' "$T/i1.log"
+  check "t_ingest_lock_no_pid: the skip exits 0" [ "$rc" = 0 ]
+  check "t_ingest_lock_no_pid: a fresh lock without a pid is not stolen" test -d "$T/state/nas/.ingest.lock"
+  check "t_ingest_lock_no_pid: the skipped run opens no PR" [ ! -s "$T/gh.log" ]
+}
+
+t_ingest_lock_stale() {
+  local T; sandbox; T=$T
+  job "$T" s1 R-L-3 0 >/dev/null
+  mkdir -p "$T/state/nas/.ingest.lock"; echo 999999 > "$T/state/nas/.ingest.lock/pid"
+  run_ingest "$T" > "$T/i1.log" 2>&1
+  check "t_ingest_lock_stale: a dead owner is reclaimed, not skipped" bash -c "! grep -q 'skip: ingest already running' '$T/i1.log'"
+  check "t_ingest_lock_stale: the reclaimed run publishes" [ "$(wc -l < "$T/gh.log" | tr -d ' ')" = 1 ]
+  check "t_ingest_lock_stale: the stale lock is gone after the run" [ ! -e "$T/state/nas/.ingest.lock" ]
+}
+
+t_ingest_lock_live() {
+  local T; sandbox; T=$T
+  mkdir -p "$T/state/nas/.ingest.lock"
+  sleep 30 & local spid=$!
+  echo "$spid" > "$T/state/nas/.ingest.lock/pid"
+  run_ingest "$T" > "$T/i1.log" 2>&1; local rc=$?
+  check "t_ingest_lock_live: a live owner is never stolen from" grep -q 'skip: ingest already running' "$T/i1.log"
+  check "t_ingest_lock_live: the live lock keeps its owner" [ "$(cat "$T/state/nas/.ingest.lock/pid")" = "$spid" ]
+  check "t_ingest_lock_live: the skip exits 0" [ "$rc" = 0 ]
+  kill "$spid" 2>/dev/null; wait "$spid" 2>/dev/null
+  rm -rf "$T/state/nas/.ingest.lock"
+}
+
 if [ "${1:-}" = "--sandbox" ]; then sandbox; echo "$T"; SANDBOXES=(); exit 0; fi
 if [ -n "${1:-}" ]; then "$1"; finish; exit $?; fi    # test-nas.sh <function> — one test (mutant runs)
 
 t_ingest_twice
+t_ingest_lock_concurrent
+t_ingest_lock_no_pid
+t_ingest_lock_stale
+t_ingest_lock_live
 t_worktree_recovery
 t_screenshot_hold
 t_claim_gate_holds_missing_check

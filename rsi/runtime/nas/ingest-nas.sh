@@ -11,6 +11,9 @@
 # slug can never fast-forward the running loop's own tree.
 # Idempotent twice over: handled jobs are marked `ingested`/`held` on the NAS and their run identity is
 # recorded in state/nas/acks.txt, so a second pulse does no work and writes no second history/notice.
+# One ingest at a time: state/nas/.ingest.lock (a directory holding the owner's pid) is taken before the
+# first ssh call, so a manual run and the pulse cannot both fetch and self-check the same result; the
+# second run prints `skip: ingest already running` and exits 0.
 # Every remote call is bounded (M8); the job list is read on fd 3 so ssh cannot drain it (M3).
 source "$(cd "$(dirname "$0")/.." && pwd)/common.sh"
 STATE="${NAS_STATE:-$STATE}"; export RSI_STATE="$STATE"
@@ -32,6 +35,31 @@ PREP="${NAS_PREP:-$RSI_DIR/runtime/prep-worktree.sh}"
 HEAVY="${NAS_HEAVY:-$RSI_DIR/runtime/heavy.sh}"
 X="$STATE/nas/xfer"; mkdir -p "$X" "$STATE/nas" "$STATE/lanes/history" "$STATE/nas/hold"
 KICK=0
+
+# One ingest at a time (R-nas-ingest-lock). A manual run and the 20-minute pulse (or two pulses) used
+# to fetch, self-check and publish the same finished job at once; both paid a full Vitest + tsc. The
+# stale rule is slug_lock_take's, not the pulse's: a missing pid is the mkdir->pid window and is not
+# provably stale, a dead pid is reclaimed atomically with mv, a live pid is never stolen from.
+INGEST_LOCK="$STATE/nas/.ingest.lock"; INGEST_LOCK_HELD=""
+ingest_lock_drop() { [ -n "$INGEST_LOCK_HELD" ] && rm -rf "$INGEST_LOCK_HELD"; INGEST_LOCK_HELD=""; }
+ingest_lock_take() {
+  local pid n=0
+  while [ "$n" -lt 5 ]; do
+    if mkdir "$INGEST_LOCK" 2>/dev/null; then echo $$ > "$INGEST_LOCK/pid"; INGEST_LOCK_HELD="$INGEST_LOCK"; return 0; fi
+    pid="$(cat "$INGEST_LOCK/pid" 2>/dev/null || true)"
+    [ -z "$pid" ] && return 1                    # mkdir->pid window: an unknown owner is not provably stale
+    kill -0 "$pid" 2>/dev/null && return 1       # live owner: never stolen from
+    if mv "$INGEST_LOCK" "$INGEST_LOCK.stale.$$" 2>/dev/null; then rm -rf "$INGEST_LOCK.stale.$$"; fi
+    n=$((n+1))
+  done
+  return 1
+}
+trap ingest_lock_drop EXIT       # replaced below by the combined trap once slug_lock_drop exists
+if ! ingest_lock_take; then
+  OLD="$(cat "$INGEST_LOCK/pid" 2>/dev/null || true)"
+  echo "skip: ingest already running${OLD:+ pid $OLD}"
+  exit 0
+fi
 
 if [ -z "$REMOTE" ]; then
   REMOTE="$(with_timeout 30 "${SSH[@]}" "$NAS_HOST" 'printf %s "$HOME/kin-rsi-nas"' 2>/dev/null)" || REMOTE=""
@@ -64,7 +92,9 @@ PYI
 # the fast-forward, and ingest never touches a worktree a live verifier is using (M4).
 SLUG_LOCK=""
 slug_lock_drop() { [ -n "$SLUG_LOCK" ] && rm -rf "$SLUG_LOCK"; SLUG_LOCK=""; }
-trap slug_lock_drop EXIT
+# The one EXIT trap owns both locks: it replaces the early ingest-only trap, so it must name the ingest
+# drop; a second `trap … EXIT` that named only one lock would leak the other.
+trap 'ingest_lock_drop; slug_lock_drop' EXIT
 slug_lock_take() { # SLUG — 0 taken, 1 owned by a live merge worker
   local L="$STATE/merge/$1.lock" pid n=0
   mkdir -p "$STATE/merge"

@@ -1,0 +1,37 @@
+[
+  {
+    "label": "the ingest lock no longer stops a second ingest",
+    "file": "rsi/runtime/nas/ingest-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh t_ingest_lock_concurrent",
+    "old": "if ! ingest_lock_take; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "an ingest lock without a pid is treated as stale and stolen",
+    "file": "rsi/runtime/nas/ingest-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh t_ingest_lock_no_pid",
+    "old": "    [ -z \"$pid\" ] && return 1                    # mkdir->pid window",
+    "new": "    [ -z \"$pid\" ] && pid=999999                 # mkdir->pid window"
+  },
+  {
+    "label": "a live ingest owner is reclaimed instead of respected",
+    "file": "rsi/runtime/nas/ingest-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh t_ingest_lock_live",
+    "old": "    kill -0 \"$pid\" 2>/dev/null && return 1       # live owner: never stolen from",
+    "new": "    false                                        # live owner: never stolen from"
+  },
+  {
+    "label": "a dead ingest owner's lock is never reclaimed",
+    "file": "rsi/runtime/nas/ingest-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh t_ingest_lock_stale",
+    "old": "    if mv \"$INGEST_LOCK\" \"$INGEST_LOCK.stale.$$\" 2>/dev/null; then rm -rf \"$INGEST_LOCK.stale.$$\"; fi",
+    "new": "    :                                             # reclaim removed"
+  },
+  {
+    "label": "the no-pid case no longer creates the ownerless lock it claims to test",
+    "file": "rsi/runtime/nas/tests/test-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-nas.sh t_ingest_lock_no_pid",
+    "old": "  mkdir -p \"$T/state/nas/.ingest.lock\"     # the mkdir->pid window: the owner is unknown, not provably stale",
+    "new": "  :                                       # the mkdir->pid window: the owner is unknown, not provably stale"
+  }
+]
