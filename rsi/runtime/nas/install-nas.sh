@@ -6,6 +6,10 @@
 set -euo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd)/common.sh"
 NAS_HOST="${NAS_HOST:-nas}"
+# Ceilings for the NAS-side git sync (AGENTS.md §13). A slow GitHub link gets the defaults; the
+# KIN_NAS_* overrides exist so the hermetic suite can prove the bound with a 2 s ceiling.
+GIT_FETCH_TIMEOUT="${KIN_NAS_FETCH_TIMEOUT:-120}"
+GIT_CLONE_TIMEOUT="${KIN_NAS_CLONE_TIMEOUT:-300}"
 # Same discovery as pulse-nas.sh: the NAS install root is $HOME/kin-rsi-nas there.
 # NAS_REMOTE overrides it; nothing here hardcodes an account name.
 REMOTE="${NAS_REMOTE:-$(ssh -n -o BatchMode=yes -o ConnectTimeout=8 "$NAS_HOST" 'printf %s "$HOME/kin-rsi-nas"' 2>/dev/null || true)}"
@@ -48,7 +52,25 @@ print('Creating one (edits magpie config) needs approval: docker exec magpie mag
 PY"
 
 # Bare clone of the public repo (read-only). GitHub TLS from the NAS is flaky; fall back to a Mac-side bundle.
-if ! ssh -o BatchMode=yes "$NAS_HOST" "if [ -d '$REMOTE/work/openkin.git' ] && git --git-dir='$REMOTE/work/openkin.git' rev-parse --verify refs/heads/main >/dev/null 2>&1; then git -c http.version=HTTP/1.1 --git-dir='$REMOTE/work/openkin.git' fetch origin main || true; echo HAVE_BARE; else git -c http.version=HTTP/1.1 clone --bare https://github.com/vuuihc/openkin.git '$REMOTE/work/openkin.git'; fi"; then
+# Both remote git calls are bounded and report their own status (AGENTS.md §13): a wedged link answers 124
+# instead of blocking the installer with no output, and a failed fetch must reach the bundle below instead of
+# being swallowed into HAVE_BARE. The remote fetch is the last status word of its branch, not a `|| true`.
+sync_stage=fetch sync_timeout="$GIT_FETCH_TIMEOUT" sync_rc=0
+bounded_run "$GIT_FETCH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout=10 "$NAS_HOST" "if [ -d '$REMOTE/work/openkin.git' ] && git --git-dir='$REMOTE/work/openkin.git' rev-parse --verify refs/heads/main >/dev/null 2>&1; then git -c http.version=HTTP/1.1 --git-dir='$REMOTE/work/openkin.git' fetch origin main || exit 1; echo HAVE_BARE; else exit 75; fi" || sync_rc=$?
+if [ "$sync_rc" = 75 ]; then
+  # No usable bare repo yet: a first clone gets its own, longer ceiling.
+  sync_stage=clone sync_timeout="$GIT_CLONE_TIMEOUT" sync_rc=0
+  bounded_run "$GIT_CLONE_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout=10 "$NAS_HOST" "git -c http.version=HTTP/1.1 clone --bare https://github.com/vuuihc/openkin.git '$REMOTE/work/openkin.git'" || sync_rc=$?
+fi
+if [ "$sync_rc" != 0 ]; then
+  if [ "$sync_rc" = 124 ]; then
+    echo "NAS git $sync_stage timed out after ${sync_timeout}s"
+    # A locally killed ssh can leave the remote git finishing; settle briefly so the bundle fetch
+    # below does not race its ref lock. Bounded by construction, no retry loop.
+    sleep 2
+  else
+    echo "NAS git $sync_stage failed (exit $sync_rc)"
+  fi
   echo "NAS git clone/fetch failed; shipping origin/main bundle from this Mac"
   BUNDLE="$(mktemp /tmp/openkin-origin-main.XXXXXX.bundle)"
   git -C "$(cd "$HERE/../../.." && pwd)" bundle create "$BUNDLE" origin/main
