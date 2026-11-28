@@ -24,6 +24,42 @@ export function rectsOverlap(a: Rect, b: Rect): boolean {
   return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 }
 
+/** How far a gesture may travel and still be the tap that opened the strip. */
+const PAN_SLOP_PX = 8;
+
+/**
+ * The element a gesture at `(x, y)` scrolls: the first laid-out vertical
+ * scroll container under that point, ignoring the fixed surface that captured
+ * the gesture.
+ *
+ * The strip is `position: fixed`, so it is the topmost thing at its own
+ * pixels. A touch that starts on it never reaches the transcript or the
+ * settings pane painted underneath; the browser tries to scroll the document,
+ * which on these screens does not scroll, and the gesture dies. This answers
+ * the question a finger would have asked if the strip were not there. The
+ * document's own scrolling element is included even though the root reports
+ * `overflow: visible`: a route that scrolls the page is still a scroll target.
+ */
+function scrollableUnder(x: number, y: number, ignore: Element | null): HTMLElement | null {
+  if (typeof document.elementsFromPoint !== "function") return null;
+  const stack = document.elementsFromPoint(x, y);
+  for (const node of stack) {
+    if (!(node instanceof HTMLElement)) continue;
+    if (ignore?.contains(node)) continue;
+    // Nothing to move: a container that already shows all of its content is
+    // not the scroller a finger would have caught.
+    if (node.scrollHeight <= node.clientHeight) continue;
+    if (node === document.scrollingElement) return node;
+    const overflowY = window.getComputedStyle(node).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") return node;
+  }
+  // A short page whose body is hit-tested above the root still scrolls
+  // through the root.
+  const root = document.scrollingElement;
+  if (root instanceof HTMLElement && root.scrollHeight > root.clientHeight) return root;
+  return null;
+}
+
 type Props = {
   /** Waiting approvals, in the order the shared resource publishes them. */
   approvals: Approval[];
@@ -90,6 +126,26 @@ export default function FloatingApproval({
   // not land on *Approve* for the next, one reflexive Enter away from
   // approving what they were declining.
   const keepFocus = useRef<Decision | null>(null);
+  // A vertical pan that starts on the strip belongs to the scroller under it:
+  // the strip is fixed, so without this the gesture scrolls nothing at all.
+  // The pan is claimed only once it is past the tap slop and clearly vertical;
+  // the scroller is resolved from the first point and held for the gesture.
+  const pan = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+    lastY: number;
+    scroller: HTMLElement | null;
+    mode: "pending" | "scroll" | "none";
+  } | null>(null);
+  // A drag that scrolled must not also end as a tap on the task link. The
+  // browser sends the click after `pointerup`, so the flag is consumed by that
+  // click, cleared by the next gesture, and expires on its own so a drag that
+  // produced no click cannot swallow a later keyboard press.
+  const dragClick = useRef(false);
+  // The expiry above: cancelled by the next gesture, so a quick second drag
+  // cannot have its click unsuppressed by the first drag's timer.
+  const dragClickTimer = useRef(0);
   // How far the page's own bottom furniture reaches up the screen: the
   // composer, and the strip above it that says how many items are waiting. On
   // a conversation that band is ~120px and grows with attachments, so a fixed
@@ -603,6 +659,93 @@ export default function FloatingApproval({
     };
   }, [currentId, hidden, panelOpen, bottom, covered, raised, screenKey]);
 
+  // A wheel over the strip is the same dead band for a trackpad: the default
+  // action routes to the fixed strip and stops there, and the transcript
+  // behind it does not move. The scroll is applied to the element the wheel's
+  // own point is over instead. Non-passive, so a page that could scroll as
+  // well does not move twice, and attached to the pill only — the decision
+  // card is a scroller of its own and keeps its native wheel.
+  useEffect(() => {
+    const pill = surfaceRef.current?.querySelector<HTMLElement>("[role='status']");
+    if (!pill) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.deltaY === 0) return;
+      const scroller = scrollableUnder(event.clientX, event.clientY, surfaceRef.current);
+      if (!scroller) return;
+      const before = scroller.scrollTop;
+      scroller.scrollTop = before + event.deltaY;
+      if (scroller.scrollTop !== before) event.preventDefault();
+    };
+    pill.addEventListener("wheel", onWheel, { passive: false });
+    return () => pill.removeEventListener("wheel", onWheel);
+  }, [currentId, hidden]);
+
+  const onStripPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    // The wheel is the desktop's gesture. A mouse drag across a pill is a
+    // selection attempt, not a scroll, and must keep reading as a click.
+    if (event.pointerType === "mouse") return;
+    window.clearTimeout(dragClickTimer.current);
+    dragClick.current = false;
+    pan.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      lastY: event.clientY,
+      scroller: scrollableUnder(event.clientX, event.clientY, surfaceRef.current),
+      mode: "pending",
+    };
+  };
+
+  const onStripPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const state = pan.current;
+    if (!state || event.pointerId !== state.pointerId || state.mode === "none") return;
+    const dx = event.clientX - state.x;
+    const dy = event.clientY - state.y;
+    if (state.mode === "pending") {
+      // Below the slop the gesture is still the tap that opens the task.
+      if (Math.abs(dx) < PAN_SLOP_PX && Math.abs(dy) < PAN_SLOP_PX) return;
+      // A gesture that travels more sideways than down belongs to the pane's
+      // tab swipe: the strip never starts one, and this must not become one.
+      if (Math.abs(dx) >= Math.abs(dy) || state.scroller === null) {
+        state.mode = "none";
+        return;
+      }
+      state.mode = "scroll";
+      try {
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+      } catch {
+        // No active pointer (a synthetic event): moves still arrive here.
+      }
+    }
+    const scroller = state.scroller;
+    if (!scroller) return;
+    // Step by this frame's delta, not the total from the start: at either end
+    // of the scroller the clamp eats the overshoot, and a total would leave a
+    // dead band when the finger reverses.
+    const step = state.lastY - event.clientY;
+    state.lastY = event.clientY;
+    if (step !== 0) scroller.scrollTop += step;
+    dragClick.current = true;
+  };
+
+  const onStripPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    const state = pan.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+    pan.current = null;
+    if (!dragClick.current) return;
+    dragClickTimer.current = window.setTimeout(() => {
+      dragClick.current = false;
+    }, 500);
+  };
+
+  const onStripClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!dragClick.current) return;
+    dragClick.current = false;
+    // The click the browser derives from a drag is not a tap on the task.
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   if (!current) return null;
 
   const waiting = approvals.length - 1;
@@ -688,6 +831,21 @@ export default function FloatingApproval({
         // fire today; it keeps a gesture starting here from turning the page if
         // the card ever moves inside that pane.
         data-phone-swipe="true"
+        // A pan that starts on the fixed strip scrolls the element under it —
+        // the transcript or settings pane the reader is actually reading.
+        // Claimed only past the tap slop and only when it is more vertical
+        // than not; a click that ends a drag is swallowed above.
+        onPointerDown={onStripPointerDown}
+        onPointerMove={onStripPointerMove}
+        onPointerUp={onStripPointerEnd}
+        onPointerCancel={onStripPointerEnd}
+        onClickCapture={onStripClickCapture}
+        // `touch-action` is decided when the finger lands, so it has to be on
+        // the element the finger lands on. `pan-x` leaves the horizontal
+        // gesture to the browser, as today, and keeps the vertical pan out of
+        // the browser's hands: with the default the browser would take it for
+        // a document scroll, cancel the pointer stream, and scroll nothing.
+        style={{ touchAction: "pan-x" }}
         className="bg-kin-panel pointer-events-auto flex items-center gap-2 self-start rounded-full py-1 pl-3 pr-2 shadow-e2"
       >
         {stripOnly ? (
