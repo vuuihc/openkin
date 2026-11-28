@@ -9,9 +9,10 @@
 // stubbed by attribute and the scroll container's box is stubbed with
 // `scrollHeight`/`clientHeight`. What these tests pin is the decision — which
 // element a pan or a wheel is forwarded to, and which gestures stay a tap.
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Approval } from "../../api/client";
+import { addPanel, removePanel } from "../../lib/panelPresence";
 import FloatingApproval from "./FloatingApproval";
 
 type Box = { top: number; bottom: number; left: number; right: number };
@@ -130,6 +131,104 @@ describe("FloatingApproval forwards a gesture that starts on the strip", () => {
     fireEvent.wheel(strip, { deltaY: 120, clientX: 100, clientY: 700 });
 
     expect(transcript.scrollTop).toBe(120);
+  });
+
+  it("KIN-MOBILE-001 F2: a line-mode wheel moves lines, not pixels", () => {
+    // Firefox and some remote sessions report `DOM_DELTA_LINE`. Applied as
+    // pixels a three-line notch moves 3px and the reader sees nothing.
+    const { transcript, strip } = scene();
+
+    fireEvent.wheel(strip, { deltaY: 3, deltaMode: 1, clientX: 100, clientY: 700 });
+
+    expect(transcript.scrollTop).toBe(48);
+  });
+
+  it("KIN-MOBILE-001 F2: a page-mode wheel moves one scroller viewport", () => {
+    const { transcript, strip } = scene();
+
+    fireEvent.wheel(strip, { deltaY: 1, deltaMode: 2, clientX: 100, clientY: 700 });
+
+    // The scroller under the gesture is 600px tall, which is the page step.
+    expect(transcript.scrollTop).toBe(600);
+  });
+
+  it("KIN-MOBILE-001 F2: a nested scroller at its end hands the drag to the pane around it", () => {
+    // The settings walk selects a textarea. At its last line the clamp eats
+    // every further pixel; with the pill's vertical pan excluded from the
+    // browser, the pane around the editor is the only thing left to move.
+    const pane = document.createElement("div");
+    pane.style.overflowY = "auto";
+    Object.defineProperty(pane, "clientHeight", { configurable: true, value: 300 });
+    Object.defineProperty(pane, "scrollHeight", { configurable: true, value: 1200 });
+    pane.scrollTop = 100;
+    const editor = document.createElement("textarea");
+    editor.style.overflowY = "auto";
+    Object.defineProperty(editor, "clientHeight", { configurable: true, value: 100 });
+    Object.defineProperty(editor, "scrollHeight", { configurable: true, value: 500 });
+    editor.scrollTop = 400; // its last pixel: this direction cannot move it
+    pane.appendChild(editor);
+    document.body.appendChild(pane);
+
+    const view = render(<FloatingApproval {...props()} />);
+    const strip = view.container.querySelector<HTMLElement>("[role='status']")!;
+    stubUnder(strip, editor, pane, document.body);
+
+    pointer(strip, "pointerdown", 100, 700);
+    pointer(strip, "pointermove", 100, 660);
+    pointer(strip, "pointerup", 100, 660);
+
+    expect(editor.scrollTop).toBe(400);
+    expect(pane.scrollTop).toBe(140);
+  });
+
+  it("KIN-MOBILE-001 F2: a pill a panel remounts still forwards the wheel", () => {
+    // `hidden` renders only the sr-only live region. Opening a panel mounts
+    // the aside again through `hidden && !panelOpen`, with `hidden` and the
+    // approval unchanged: an effect keyed only on those kept listening on the
+    // detached pill, and the new one was a dead band again.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.hasAttribute("data-kin-reading"))
+        return domRect({ top: 0, bottom: 768, left: 0, right: 390 });
+      if (this.getAttribute("role") === "status")
+        return domRect({ top: 353, bottom: 405, left: 12, right: 286 });
+      if (this.tagName === "ASIDE") return domRect({ top: 353, bottom: 405, left: 12, right: 286 });
+      return domRect(EMPTY);
+    });
+    const reading = document.createElement("p");
+    reading.setAttribute("data-kin-reading", "");
+    document.body.appendChild(reading);
+    const transcript = transcriptStandIn();
+
+    const view = render(<FloatingApproval {...props()} />);
+    // The pill covers the prose under it, so the surface yields.
+    expect(view.container.querySelector("aside")).toBeNull();
+    expect(view.container.querySelector("[role='status']")).not.toBeNull();
+
+    act(() => addPanel());
+    try {
+      const strip = view.container.querySelector<HTMLElement>("[role='status']")!;
+      expect(strip.closest("aside")).not.toBeNull();
+      stubUnder(strip, document.body, transcript);
+
+      fireEvent.wheel(strip, { deltaY: 120, clientX: 100, clientY: 700 });
+
+      expect(transcript.scrollTop).toBe(120);
+    } finally {
+      act(() => removePanel());
+    }
+  });
+
+  it("KIN-MOBILE-001 F2: the rendered pill excludes the browser's vertical pan", () => {
+    const { strip } = scene();
+
+    // `touch-action` is read when the finger lands. Without `pan-x` the
+    // browser claims the vertical pan for a document scroll, cancels the
+    // pointer stream, and the strip is the reported dead band again — no
+    // synthetic pointer event can exercise that arbitration, so the rendered
+    // rule is what this pins.
+    expect(strip.style.touchAction).toBe("pan-x");
   });
 
   it("KIN-MOBILE-001 F2: a tap on the strip still opens its task", () => {

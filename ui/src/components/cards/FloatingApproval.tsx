@@ -27,6 +27,9 @@ export function rectsOverlap(a: Rect, b: Rect): boolean {
 /** How far a gesture may travel and still be the tap that opened the strip. */
 const PAN_SLOP_PX = 8;
 
+/** A line of text, the unit a `DOM_DELTA_LINE` wheel event counts in. */
+const WHEEL_LINE_PX = 16;
+
 /**
  * The element a gesture at `(x, y)` scrolls: the first laid-out vertical
  * scroll container under that point, ignoring the fixed surface that captured
@@ -58,6 +61,58 @@ function scrollableUnder(x: number, y: number, ignore: Element | null): HTMLElem
   const root = document.scrollingElement;
   if (root instanceof HTMLElement && root.scrollHeight > root.clientHeight) return root;
   return null;
+}
+
+/**
+ * The nearest vertical scroll container above `node`: where a browser sends
+ * the rest of a gesture once this one has no range left. The document's own
+ * scrolling element qualifies even though the root reports `overflow: visible`,
+ * the same exception `scrollableUnder` makes.
+ */
+function scrollableParent(node: HTMLElement): HTMLElement | null {
+  for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+    if (parent.scrollHeight <= parent.clientHeight) continue;
+    if (parent === document.scrollingElement) return parent;
+    const overflowY = window.getComputedStyle(parent).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") return parent;
+  }
+  return null;
+}
+
+/**
+ * Applies `deltaY` pixels to `start`, then to each scrollable ancestor for
+ * whatever it could not take. A textarea scrolled to its last line is the dead
+ * band a hit test alone cannot see: the gesture starts on a real scroller
+ * whose clamp eats every further pixel, and the pane around it — which still
+ * has range — never moves. Returns whether anything scrolled, which is what
+ * makes suppressing the browser's own default worthwhile.
+ */
+function scrollByChain(start: HTMLElement, deltaY: number): boolean {
+  let moved = false;
+  let remaining = deltaY;
+  let node: HTMLElement | null = start;
+  while (node && remaining !== 0) {
+    const before = node.scrollTop;
+    const max = Math.max(0, node.scrollHeight - node.clientHeight);
+    const next = Math.min(Math.max(0, before + remaining), max);
+    if (next !== before) {
+      node.scrollTop = next;
+      moved = true;
+    }
+    // Read back: a real browser clamps to the same max, and the pixels it did
+    // not take belong to the next ancestor.
+    remaining -= node.scrollTop - before;
+    node = scrollableParent(node);
+  }
+  return moved;
+}
+
+/** A wheel delta in pixels: browsers report lines and pages as well. */
+function wheelPixels(event: WheelEvent, scroller: HTMLElement | null): number {
+  if (event.deltaMode === 1) return event.deltaY * WHEEL_LINE_PX;
+  if (event.deltaMode === 2)
+    return event.deltaY * (scroller?.clientHeight || window.innerHeight || 1);
+  return event.deltaY;
 }
 
 type Props = {
@@ -672,13 +727,14 @@ export default function FloatingApproval({
       if (event.ctrlKey || event.deltaY === 0) return;
       const scroller = scrollableUnder(event.clientX, event.clientY, surfaceRef.current);
       if (!scroller) return;
-      const before = scroller.scrollTop;
-      scroller.scrollTop = before + event.deltaY;
-      if (scroller.scrollTop !== before) event.preventDefault();
+      // The pill is remounted when a yielded strip (`hidden`) is brought back
+      // by a panel opening; the element that run attached to is gone, so
+      // `panelOpen` is a dependency of this listener, not only of layout.
+      if (scrollByChain(scroller, wheelPixels(event, scroller))) event.preventDefault();
     };
     pill.addEventListener("wheel", onWheel, { passive: false });
     return () => pill.removeEventListener("wheel", onWheel);
-  }, [currentId, hidden]);
+  }, [currentId, hidden, panelOpen]);
 
   const onStripPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     // The wheel is the desktop's gesture. A mouse drag across a pill is a
@@ -721,10 +777,11 @@ export default function FloatingApproval({
     if (!scroller) return;
     // Step by this frame's delta, not the total from the start: at either end
     // of the scroller the clamp eats the overshoot, and a total would leave a
-    // dead band when the finger reverses.
+    // dead band when the finger reverses. Whatever this frame's scroller
+    // cannot take goes to the scrollable ancestor around it.
     const step = state.lastY - event.clientY;
     state.lastY = event.clientY;
-    if (step !== 0) scroller.scrollTop += step;
+    if (step !== 0) scrollByChain(scroller, step);
     dragClick.current = true;
   };
 
