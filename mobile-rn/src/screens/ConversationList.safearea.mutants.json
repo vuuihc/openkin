@@ -1,0 +1,37 @@
+[
+  {
+    "label": "the list header drops the device inset and sits under the status bar (R-rn-list-status-bar)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "      <View\n        style={[styles.navBar, { paddingTop: headerTopInset(insets.top) }]}\n        testID=\"list-nav\"\n      >",
+    "new": "      <View style={styles.navBar} testID=\"list-nav\">",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.safearea.test.tsx -t \"KIN-MOBILE-001 R3: (the list header sits below the status bar|a device without an inset keeps the compact header|the first row starts below the inset header|the cold-start skeleton keeps the header below the status bar)\""
+  },
+  {
+    "label": "the inset helper loses its 8pt of air, so the title touches the clock (R-rn-list-status-bar)",
+    "file": "mobile-rn/src/native/insets.ts",
+    "old": "  return insetTop > 0 ? insetTop + 8 : 12;",
+    "new": "  return insetTop > 0 ? insetTop : 12;",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.safearea.test.tsx -t \"KIN-MOBILE-001 R3: the list header sits below the status bar\""
+  },
+  {
+    "label": "the no-provider fallback throws instead of reading zero (R-rn-list-status-bar)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "  const insets = useContext(SafeAreaInsetsContext) ?? NO_INSETS;",
+    "new": "  const insets = useContext(SafeAreaInsetsContext)!;",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.safearea.test.tsx -t \"KIN-MOBILE-001 R3: a missing provider is a device that reports no inset\""
+  },
+  {
+    "label": "the list forces the top inset to zero on a device that reports 59 (R-rn-list-status-bar)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "  const insets = useContext(SafeAreaInsetsContext) ?? NO_INSETS;",
+    "new": "  const insets = { ...(useContext(SafeAreaInsetsContext) ?? NO_INSETS), top: 0 };",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.safearea.test.tsx -t \"KIN-MOBILE-001 R3: the 820 split column uses the same inset\""
+  },
+  {
+    "label": "the nav bar floats over the scroller instead of reserving its space above it (R-rn-list-status-bar)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "  navBar: {\n    alignItems: \"center\",",
+    "new": "  navBar: {\n    position: \"absolute\",\n    alignItems: \"center\",",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.safearea.test.tsx -t \"KIN-MOBILE-001 R3: the first row starts below the inset header\""
+  }
+]
