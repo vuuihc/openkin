@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import SplitListLayout from "../layout/SplitListLayout";
 import { headerTopInset } from "../native/insets";
 import type { ListViewState } from "../list/listModel";
-import ConversationList, { ROW_HEIGHT } from "./ConversationList";
+import ConversationList from "./ConversationList";
 
 /**
  * KIN-MOBILE-001 R3 — the list's header sits below the status bar.
@@ -146,11 +146,13 @@ describe("KIN-MOBILE-001 R3: the list clears the status bar", () => {
     expect(scroller.position).not.toBe("absolute");
     expect(scroller.marginTop ?? 0).toBe(0);
 
-    // The header's own box starts at the inset and is at least a full row.
+    // The bar's own top starts at the inset, and the bar stays in normal
+    // flow: an absolutely positioned bar keeps the child order and its own
+    // box, yet reserves no space, so the first row would sit under the clock
+    // again.
     const nav = StyleSheet.flatten(screen.getByTestId("list-nav").props.style);
-    expect((nav.paddingTop ?? 0) + (nav.minHeight ?? 0)).toBe(
-      headerTopInset(59) + ROW_HEIGHT,
-    );
+    expect(nav.paddingTop).toBe(headerTopInset(59));
+    expect(nav.position).not.toBe("absolute");
   });
 
   it("KIN-MOBILE-001 R3: the cold-start skeleton keeps the header below the status bar", async () => {

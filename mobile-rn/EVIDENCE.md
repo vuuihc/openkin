@@ -190,14 +190,18 @@ npx --no-install jest --ci --runInBand
   颜色字面量或依赖，搜索框与行不变。
 - 回归：`mobile-rn/src/screens/ConversationList.safearea.test.tsx:102`（top 59 →
   paddingTop 67）、`:110`（top 0 → 12，控制组）、`:118`（无 provider → 12，不抛）、
-  `:126`（nav 先于 scroller 且 scroller 非 absolute）、`:156`（冷启动骨架同为 67）、
-  `:166`（820 分栏同为 67，分栏根 paddingTop 0）；六个用例名都含
-  `KIN-MOBILE-001 R3`。本轮该套件 6/6 通过，`npx jest --ci --runInBand` 全套
-  75 套件 604 项通过，`npx tsc --noEmit` 无输出。
-- 变异：`mobile-rn/src/screens/ConversationList.safearea.mutants.json` 四个（nav 去
-  inset、helper 丢 8pt 空气、去无 provider 兜底、强制 top=0）；
+  `:126`（nav 先于 scroller，nav 起于 inset，且 nav 与 scroller 均为普通流、非
+  absolute）、`:158`（冷启动骨架同为 67）、
+  `:168`（820 分栏同为 67，分栏根 paddingTop 0）；六个用例名都含
+  `KIN-MOBILE-001 R3`。首轮该套件 6/6 通过，`npx jest --ci --runInBand` 全套
+  75 套件 604 项通过，`npx tsc --noEmit` 无输出；rework 轮（评审要求把「首行在
+  inset 头部之下」从 padding 求和改为普通流不变量）重跑该套件 6/6、
+  `npx tsc --noEmit` 无输出，全套留给合并门。
+- 变异：`mobile-rn/src/screens/ConversationList.safearea.mutants.json` 五个（nav 去
+  inset、helper 丢 8pt 空气、去无 provider 兜底、强制 top=0、nav 改 absolute 漂浮在
+  scroller 之上）；
   `python3 scripts/mutants.py mobile-rn/src/screens/ConversationList.safearea.mutants.json`
-  本轮输出 `4/4 mutants red; 0 problem(s)`。
+  本轮输出 `5/5 mutants red; 0 problem(s)`。
 - 取图：本轮未取。主机读数 `mem_avail_mb=5185`、`swap_free_mb=1144`，低于本故事
   6144/2048 的取图下限；按 lane brief 的诚实缺口语义记 none，后续轮次需补
   390×844 亮/暗与 820×1180，确认标题在状态栏下方。

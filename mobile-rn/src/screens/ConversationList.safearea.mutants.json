@@ -26,5 +26,12 @@
     "old": "  const insets = useContext(SafeAreaInsetsContext) ?? NO_INSETS;",
     "new": "  const insets = { ...(useContext(SafeAreaInsetsContext) ?? NO_INSETS), top: 0 };",
     "test": "cd mobile-rn && npx jest src/screens/ConversationList.safearea.test.tsx -t \"KIN-MOBILE-001 R3: the 820 split column uses the same inset\""
+  },
+  {
+    "label": "the nav bar floats over the scroller instead of reserving its space above it (R-rn-list-status-bar)",
+    "file": "mobile-rn/src/screens/ConversationList.tsx",
+    "old": "  navBar: {\n    alignItems: \"center\",",
+    "new": "  navBar: {\n    position: \"absolute\",\n    alignItems: \"center\",",
+    "test": "cd mobile-rn && npx jest src/screens/ConversationList.safearea.test.tsx -t \"KIN-MOBILE-001 R3: the first row starts below the inset header\""
   }
 ]
