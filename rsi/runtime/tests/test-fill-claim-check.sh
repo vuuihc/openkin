@@ -31,6 +31,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 FILL="$ROOT/rsi/runtime/prompts/fill.md"
 TEMPLATE="$ROOT/rsi/runtime/prompts/cloud-brief-template.md"
+PULSE="$ROOT/rsi/runtime/prompts/pulse-serial.md"
+DIRECTOR="$ROOT/rsi/roles/director.md"
+MANDATE_FILE="$ROOT/rsi/MANDATE.md"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 # Optional case group (`priority` / `audit`): every base case still runs, and one new
 # passage's case is added. The red-first lane seam reverts fill.md and runs ONE command,
@@ -164,5 +167,24 @@ if case_wanted audit; then
   fi
   pass "cell-audit-negative-fixture-is-refused"
 fi
+
+# --- 13. the scarce-asset freeze reaches every CEO control copy -------------------------------
+# 2026-11-27: the patrol consumed every Codex Full reset after treating renewable
+# 5h pressure and expiry as spend triggers. The trigger is prompt/policy text, so
+# all four control copies must carry the same prohibition, not only the incident note.
+RESET_MARKERS=('Codex Full reset and other external scarce assets are never automatic' 'renewable 5h/window pressure means wait, reschedule, downgrade, or switch models' 'expiry does not create demand' 'weekly/5h usage' 'the last remaining one is never automatic' "one use requires Ethan's explicit single-use approval")
+for reset_copy in "$MANDATE_FILE" "$DIRECTOR" "$FILL" "$PULSE"; do
+  if ! missing "$reset_copy" "scarce-asset-freeze-$reset_copy" "${RESET_MARKERS[@]}"; then
+    fail "scarce-asset-freeze-$reset_copy"
+  fi
+done
+pass "scarce-asset-freeze-present-in-control-copies"
+
+# --- 14. the check can go red: pure 5h pressure must not become a reset trigger ---------------
+grep -v 'Codex Full reset and other external scarce assets are never automatic' "$FILL" > "$T/fill-no-reset-freeze.md"
+if missing "$T/fill-no-reset-freeze.md" "reset-freeze-negative-fixture-is-refused" "${RESET_MARKERS[@]}"; then
+  fail "reset-freeze-negative-fixture-is-refused: the copy without the freeze still passed"
+fi
+pass "reset-freeze-negative-fixture-is-refused"
 
 echo "test-fill-claim-check: ALL-PASS"

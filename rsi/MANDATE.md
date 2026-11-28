@@ -30,6 +30,7 @@ calls are the CEO's; report after, not before. This file is the contract. It may
 - No force-push, no `reset --hard` outside `rsi-*` worktrees, no deleting branches or worktrees, no `--delete-branch`.
 - No tag, dmg, relay deploy, or Hub **config** change (domain, OAuth, tunnel, compose overlays). Those still need Ethan.
 - No secrets: never read or print `~/.kin/secrets`, tokens, `.env`, keychain, magpie keys. Never commit them.
+- Codex Full reset and other external scarce assets are never automatic: renewable 5h/window pressure means wait, reschedule, downgrade, or switch models; expiry does not create demand; one use requires Ethan's explicit single-use approval plus fresh verification of balance, expiry, weekly/5h usage, and the unfinished benefit; the last remaining one is never automatic.
 - Public repo: no real hostnames, LAN addresses, device ids, account names/emails in any committed file (use placeholders per AGENTS.md).
 - No schema/migration, auth/permission semantics, public API/event contract changes → write an ADR + leave the PR open with label `needs-ceo` instead of merging.
 - No new dependencies in `ui/package.json` or `go.mod` except via a facade/ADR PR left open.

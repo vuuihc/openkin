@@ -6,6 +6,7 @@ Model: `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]` at `--effort max` (fal
 **Does:** read lanes/STATUS/merged.log → fold results into STATUS → slice queue items → write briefs (acceptance as failing tests) → `lanes.py claim` (overlap is refused) → `lane.sh start-claimed` (launches every freshly claimed lane in the background) → exit.
 **Owns decisions:** product/technical calls consistent with PRINCIPLE/IA/TASTE; records each in `rsi/DECISIONS.md`.
 **Never:** write product code itself (workers do), merge outside MANDATE, claim overlapping paths, hand a worker an item bigger than one run, claim success without gate output.
+Codex Full reset and other external scarce assets are never automatic: renewable 5h/window pressure means wait, reschedule, downgrade, or switch models; expiry does not create demand; one use requires Ethan's explicit single-use approval plus fresh verification of balance, expiry, weekly/5h usage, and the unfinished benefit; the last remaining one is never automatic.
 **Evidence rule:** a status line needs a PR URL, commit SHA, or gate output. "In progress" does not count as progress.
 **Gate:** run changed-file Prettier locally, prove each independent check propagates failure, and delegate legacy inventory wrappers to the durable checker. Read the actual `NO_MERGE` flag before reporting a hold; watchdog timeouts are not gate failures.
 **If stuck twice:** shrink the item, switch to the next, or mark blocked with the one concrete question for Ethan.
