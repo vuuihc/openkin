@@ -1,12 +1,12 @@
 # KIN-MOBILE-001 证据：RN 客户端的代码复核与历史模拟器画面
 
-**结论：2026-11-28 复拍轮有 8 张当前画面（复拍提交 `3156ad74`）：390 四张
-（列表、对话的亮色与暗色），820 四张（列表、对话的亮色与暗色）。820 暗色列表的
-右侧空阅读栏已是暗色——§已知 D4 的亮色缺陷已修复，并由此图复核；820 亮色与暗色
-对话显示 `[seed] reading` 的长回答与五行 GFM 表格（`Surface` / `Before` / `After`
-可见，`Owner` 列在横向滚动区），末行句子在两种外观下都完整可读。同日早先的九张
-（`cc9c2d78`）保留为历史，其中 820 暗色列表是修复前证据，其余仍是同日画面。下方
-2026-11-26 与 `14918d30` 的表仍是历史，不证明当前画面或真机表现。**
+**结论：2026-11-28 补齐轮有 7 张当前画面（提交 `c853ac1f`）：390 暗色三张
+（列表、审批、用量）与 820 审批 / 用量明暗四张。列表暗色行带待批橙色三角与红
+`1` pill；审批卡是「批准」实心 +「拒绝」描边；用量 sheet 在两种宽度与两种外观下
+都完整（provider 行、占比条、四格数字与降级说明）。同日复拍轮另有 8 张
+（`3156ad74`）：390 与 820 的列表、对话各明暗一张；D4 由其中 820 暗色列表关闭。
+配对 / 连接页（帧 01）的视觉仍未拍，它的验收归 #825（owner 持有），本文件不认领。
+下方 2026-11-26 与 `14918d30` 的表仍是历史，不证明当前画面或真机表现。**
 
 ## 这次运行
 
@@ -35,6 +35,23 @@
 | 设备 | iPad Air 11-inch (M4)（820×1180 逻辑，1640×2360）；iPhone 17e（390×844 逻辑，1170×2532）；iOS 27.2；一次只启动一台 |
 | 内存 | 复拍前 `mem_avail_mb=4907–6157`、`swap_free_mb=1198–1439`；低于本行 brief 的 6144 / 2048 门槛，按 review 要求复拍并逐张复看像素与外观，模拟器未崩溃 |
 | 本轮截图目录 | `rsi/state/shots/rn-dark-split-pane/`（本地，不入库；8 张 PNG） |
+
+### 2026-11-28 补齐（视觉验收剩余格）
+
+| 项 | 值 |
+|---|---|
+| 日期 | 2026-11-28（主机日期；模拟器时钟为美东 2026-11-27 18:28–18:57） |
+| 拍摄提交 | `c853ac1f`（`rsi/rn-evidence-cells` 分支 HEAD；本文件是紧随其后的仅文档提交） |
+| 方式 | Expo Go 58.0.7 + Metro 离线（8081）；一次性 `kin serve`（`mktemp -d` 状态目录，绑 `127.0.0.1:0` 选端口）；`scripts/journeys_seed.py` 以 fake agent 在 `PATH` 首位运行（`created 24, existing 0, skipped 1`）；另经 `POST /api/tasks` 建 `[seed] reading` 与两条审批夹具，审批行走 loopback 的 `POST /internal/approvals`。Maestro 驱动配对与点击；未启动或读取 `:7777`、`~/.kin` |
+| 配对 | `POST /api/pairing/sessions` 铸一次性 secret；链接带 `pairing=1` 与 token，由 Maestro 一次 `inputText` + Enter 输入；secret 不入图、不入库。第一张链接漏了 `pairing=1`，被当成设备令牌，界面报「链接已过期」；补上后两台设备一次配上 |
+| 设备 | iPhone 17e（390×844 逻辑，截图 1170×2532）与 iPad Air 11-inch (M4)（820×1180 逻辑，1640×2360），iOS 27.2；一次只启动一台 |
+| 内存门槛 | 启动前 `vm_stat` 的 free + speculative + inactive ≈ 6040 MiB，swap free 1266.62 MiB；满足 ≥4096 MB 与 ≥512 MB |
+| 本轮截图目录 | `rsi/state/shots/rn-evidence-cells/`（本地，不入库；7 张 PNG） |
+
+审批夹具的有效期是本轮的新经验：`/internal/approvals` 造的卡在 fake agent 的保持
+超时（约 12 分钟）后变为 `expired`（`decided_via: interrupt`），卡片从对话里消失。
+390 与 820 的审批画面各用一张新铸的卡拍摄；拍完未再回答它。列表在深链进入对话后
+不会立刻刷新，820 的第二张卡是先返回列表、下拉刷新后再点行才对齐选中行与阅读栏。
 
 以下命令来自 2026-11-26 的基线复核，不是本次 820 走查的重跑结果；本行不改产品
 代码，只更新证据文档与截图。`--no-install` 使用已有依赖，Jest 串行运行，避免与
@@ -81,7 +98,29 @@ npx --no-install jest --ci --runInBand
 **宽度说明：** 1100×760 是 Web 控制台的宽度，RN 客户端没有该宽度的画面；
 分栏边界在 768（`mobile-rn/src/layout/split.ts`），所以本轮用 820 覆盖分栏两侧、
 390 覆盖手机栈。复拍未拍 820 的审批与用量、390 的审批与用量，原因与同日早先一轮
-相同（时间优先给 D4 的空阅读栏与阅读态表格）。
+相同（时间优先给 D4 的空阅读栏与阅读态表格）；这些缺口已由下一节的补齐轮覆盖。
+
+### 补齐画面（2026-11-28，`c853ac1f`）
+
+| 面 | 设备 | 外观 | 提交 | 文件（本地，不入库） | 像素 宽×高 | 当前判定 |
+|---|---|---|---|---|---|---|
+| 列表 | 390 | 暗 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/390-list-dark.png` | 1170×2532 | 设备 → 项目 → 对话行；`[seed] Approve the migration` 有待批橙色三角与红 `1` pill，已完成行是灰点；暗色底、浅色字，无亮色缝隙。大标题压住状态栏时钟——缺陷 D5 |
+| 审批 | 390 | 暗 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/390-approvals-dark.png` | 1170×2532 | 待批卡：`需要权限` / `Bash` / `git status --short`；`批准` 是唯一实心蓝按钮，`拒绝` 描边；卡片与对话都是暗色，无文字裁切 |
+| 用量 | 390 | 暗 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/390-usage-dark.png` | 1170×2532 | 用量 sheet：本周 / 30 天 / 90 天，30 天选中；claude-code 身份色圆点与占比条、`$0.0029`；费用 / TOKEN / 缓存命中率（`—`，夹具无缓存数）/ 对话四格；provider 降级说明完整 |
+| 审批 | 820 | 亮 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/820-approvals-light.png` | 1640×2360 | 分栏；左列选中待批行，右侧阅读栏是同一张待批卡（批准实心 / 拒绝描边）；亮色 |
+| 审批 | 820 | 暗 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/820-approvals-dark.png` | 1640×2360 | 暗色；`批准` 二字在实心蓝按钮上可见，`拒绝` 为描边红字；左右两栏、卡片与 composer 都是暗色，D4 的修复保持 |
+| 用量 | 820 | 亮 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/820-usage-light.png` | 1640×2360 | 用量 sheet 浮在分栏上，背后是 `[seed] reading` 的读取态（标题与用户气泡可见）；亮色玻璃底 |
+| 用量 | 820 | 暗 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/820-usage-dark.png` | 1640×2360 | 同上，暗色；sheet、分段控件、provider 行与占比条都取暗色 token |
+
+**用量取证限制：** 三张用量图都仍显示未翻译的 `progress.input` / `progress.output` 键；这是本轮观察到的界面限制，取证表如实记录，不在本取证行修产品。
+
+**判定锚点：** 列表 `mobile-rn/src/screens/ConversationList.visual.test.tsx:187`
+（状态点形状 + 颜色）、`:212`（待批三角与计数）、`:308`（行与分区头按明暗取 token），
+`mobile-rn/src/theme/theme.test.ts:222` / `:233`（列表暗 / 亮）；审批
+`mobile-rn/src/screens/Approvals.visual.test.tsx:172`（批准是唯一实心主按钮，拒绝
+描边）；用量 `mobile-rn/src/screens/ProviderUsage.visual.test.tsx:130`（身份圆点、
+右对齐金额、占比条）、`:254`（明暗两套取自 token）。判定是像素结论，不是这些测试
+的通过记录。
 
 ### 同日早先的 390 / 820 画面（2026-11-28，`cc9c2d78`；历史）
 
@@ -97,11 +136,13 @@ npx --no-install jest --ci --runInBand
 | 列表 | 820 | 暗 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/820-list-dark.png` | 1640×2360 | 左侧列表暗色；右侧空阅读栏仍是亮色（缺陷 D4 的修复前证据，见 §已知） |
 | 对话 | 820 | 暗 | `cc9c2d78` | `rsi/state/shots/rn-evidence-capture/820-conversation-dark.png` | 1640×2360 | 暗色主题；同一条 `[seed] reading` 长回答与五行表格，末行句子可见 |
 
-**未拍与原因：** 820 的审批与用量、390 的列表 / 审批 / 用量暗色本轮未拍；时间
-优先给了最低集合里的「820 阅读态表格 + 亮暗两种外观」。1100 宽度属于 Web 控制台，
-不在 RN 客户端此行范围。820 配对沿用模拟器里已有的设备会话（旧节点已失效，列表
-先报「对话列表读不出来」），本轮用 `exp://127.0.0.1:8081/--/pair` 深链回到配对页
-后重新配对；这是方法，不是缺口。
+**未拍与原因（已更新）：** 820 的审批与用量、390 的列表 / 审批 / 用量暗色已由
+2026-11-28 补齐轮（`c853ac1f`）覆盖，见上一节的补齐画面表。仍未拍的只有配对 /
+连接页（帧 01）：它的视觉验收归 #825（owner 持有），本文件不认领。1100 宽度属于
+Web 控制台，不在 RN 客户端此行范围。820 配对沿用模拟器里已有的设备会话（旧节点
+已失效，列表先报「对话列表读不出来」），本轮用 `exp://127.0.0.1:8081/--/pair`
+深链回到配对页后重新配对；这是方法，不是缺口。补齐轮的两台设备都先清 Keychain，
+再用带 `pairing=1` 的一次性链接配对。
 
 ### 上一轮 390 画面（2026-11-26，基线 `6cd5f5cd` 之后；历史）
 
@@ -230,6 +271,23 @@ npx --no-install jest --ci --runInBand
   主机 `mem_avail_mb=5088–5554`、`swap_free_mb=885` 未启动模拟器；本轮读数
   `4907–6157` / `1198–1439` 仍低于本行 brief 的 6144 / 2048，改为按 review 要求
   复拍并逐张复看，未出现内存压力崩溃。D4 由此关闭。
+- **D5 · 列表导航头画在 iOS 状态栏下面（2026-11-28 发现；本行只取证，不修）。**
+  当前证据：`rsi/state/shots/rn-evidence-cells/390-list-dark.png`（iPhone 17e，暗色，
+  1170×2532，提交 `c853ac1f`）里大标题「对话」压在状态栏时钟上——图里只剩分钟数
+  贴在标题右侧；`820-approvals-light.png` / `820-usage-light.png`（iPad Air 11-inch
+  (M4)，1640×2360，同提交）里标题与搜索框压在 iPad 状态栏的日期与应用名下面。
+  对话页头部没有这个问题：返回键与标题都落在状态栏下方。此前的列表取证图也有同样
+  的重叠，只是当时按测试锚点判读、没有按像素核对头部；不是本轮引入。
+  读法与修复假设：`mobile-rn/src/screens/ConversationList.tsx:737` 的 `screen` 只有
+  `backgroundColor` / `flex`，`:839` 的 `navBar` 只有 `paddingVertical: 6`，两处都
+  没有读 `useSafeAreaInsets()`；分栏壳的根节点
+  `mobile-rn/src/layout/SplitListLayout.tsx:113` 也只画背景。
+  `mobile-rn/app/_layout.tsx:39` 已挂 `SafeAreaProvider`，所以缺的是列表壳读取顶部
+  inset，不是 provider。修复应由列表壳（或 `SplitListLayout`）加
+  `paddingTop: insets.top`，对话页已有的头部内边距保持不动。
+  回归：在 `mobile-rn/src/screens/ConversationList.visual.test.tsx`（或新套件）把
+  `useSafeAreaInsets` mock 成非零（如 47 / 24），断言 `list-nav` 的 `paddingTop`
+  或标题矩形在 inset 之下；再按 390 与 820 各拍一张对照图。修复另立一行，不在本行。
 - **键盘避让代码已落地，真机未验。** #733，`445dffab`；
   `mobile-rn/src/screens/ConversationView.tsx:772` 用 `KeyboardAvoidingView` 包住正文与
   composer。`mobile-rn/src/screens/Conversation.safearea.test.tsx:98` 的
