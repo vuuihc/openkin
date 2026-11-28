@@ -42,6 +42,34 @@
     "new": "  : # drain removed by mutant\n  # `files` makes"
   },
   {
+    "label": "metadata attempts run without a deadline, so a stalled gh holds the land lock and the drain forever",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=metadata-hangs bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "    out=\"$(bounded_run \"$RECORD_METADATA_SECS\" \"$GH\" pr view \"$n\" --repo \"$GH_REPO\" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null)\"; rc=$?",
+    "new": "    out=\"$(\"$GH\" pr view \"$n\" --repo \"$GH_REPO\" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null)\"; rc=$?"
+  },
+  {
+    "label": "a rejected queue write is ignored, so the caller reports a retry that has no record behind it",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=queue-unwritable bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  queue_pending_record \"$n\" \"$slug\" \"$item\" \"$url\" || return 2\n  return 1",
+    "new": "  queue_pending_record \"$n\" \"$slug\" \"$item\" \"$url\"\n  return 1"
+  },
+  {
+    "label": "the dispatcher never drains a pre-merge intent, so a merge whose append and queue both failed is lost",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=intent-drained bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  drain_record_dir \"$(RECORD_INTENT_DIR)\"",
+    "new": "  : # intent drain removed by mutant"
+  },
+  {
+    "label": "the merge-success path skips the pre-merge intent, so a merge with no record has no recovery path",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=intent-before-merge bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "    if ! persist_merge_intent \"$N\" \"$SLUG\" \"$ITEM\" \"$PRURL\"; then",
+    "new": "    if false; then"
+  },
+  {
     "label": "the new suite is not wired into job_shell_test, so it never runs in a gate or in CI",
     "file": "scripts/check.sh",
     "test": "bash rsi/runtime/tests/test-wiring.sh",

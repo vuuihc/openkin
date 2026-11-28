@@ -56,6 +56,17 @@ printf '%s\n' "${GH_SHA:-abc1234def0000}"
 SH
 chmod +x "$T/bin/gh-flaky"
 
+# gh-hang — a metadata call that never answers, plus a child that must not survive the deadline.
+# Both pids are appended to $GH_PIDS so the case can prove the whole tree was killed.
+cat > "$T/bin/gh-hang" <<'SH'
+#!/bin/sh
+sleep 300 &
+c=$!
+printf '%s\n%s\n' "$$" "$c" >> "${GH_PIDS:?}"
+wait "$c"
+SH
+chmod +x "$T/bin/gh-hang"
+
 # --- one-line --------------------------------------------------------------------------------
 # A PR merged outside the merge lane (a model running its own `gh pr merge`) records exactly
 # one row, in the format lanes.py parses: date, time, `PR #N`, slug, item, `merged`, sha8, url.
@@ -201,6 +212,101 @@ if run_case pending-drained; then
   ok "the next dispatcher tick recovers a deferred record"
 fi
 
+# --- queue-unwritable ------------------------------------------------------------------------
+# The queue write's result used to be discarded: a disk that rejected both merged.log and the
+# pending file still printed the ordinary "pending" status, the caller released the PR, and no
+# file existed for the next tick. The seam must report UNPERSISTED (exit 2), distinct from a
+# successfully queued PENDING (exit 0).
+if run_case queue-unwritable; then
+  ST="$T/s6b"; mkdir -p "$ST/merge"
+  : > "$ST/merge/pending-records"          # a file where the queue needs a directory
+  : > "$T/gh-calls-unwritable"
+  O="$(RSI_GH="$T/bin/gh-flaky" GH_CALLS="$T/gh-calls-unwritable" GH_FAIL_FIRST=9 \
+    RSI_RECORD_RETRY_SLEEP=0 bash "$MERGE" --record-merged-check "$ST" 908 s R-x "$(url 908)" 2>"$T/err")"
+  rc=$?
+  [ "$rc" -eq 2 ] || bad "queue-unwritable: want exit 2 (no recovery record), got $rc ($O; $(cat "$T/err"))"
+  [ "$O" = "UNPERSISTED" ] || bad "queue-unwritable: want UNPERSISTED, got: $O"
+  [ "$(lines "$ST/merged.log")" = 0 ] || bad "queue-unwritable: a row was written without a commit"
+  [ -f "$ST/merge/pending-records" ] || bad "queue-unwritable: the case lost its unwritable queue path"
+  ok "a rejected queue write is reported as not persisted, not as queued"
+fi
+
+# --- metadata-hangs --------------------------------------------------------------------------
+# A stalled `gh pr view` used to run without a deadline: three attempts bound the count, not the
+# wait, so the merge-success record (holding the land lock) and the recovery drain (before open PRs
+# are read) could block forever. The deadline must kill the attempt's whole tree and the hung
+# attempt must count as unavailable metadata. The case runs the seam in the background with its own
+# watchdog so a missing deadline is a named failure, not a hung suite.
+if run_case metadata-hangs; then
+  ST="$T/s6c"; mkdir -p "$ST/merge"
+  PIDS="$T/hang-pids"; : > "$PIDS"
+  RSI_GH="$T/bin/gh-hang" GH_PIDS="$PIDS" RSI_RECORD_METADATA_SECS=1 RSI_RECORD_RETRY_SLEEP=0 \
+    bash "$MERGE" --record-merged-check "$ST" 907 s R-x "$(url 907)" >"$T/out" 2>"$T/err" &
+  hp=$!
+  deadline=$((SECONDS + 25)); timed_out=0
+  while kill -0 "$hp" 2>/dev/null; do
+    [ "$SECONDS" -lt "$deadline" ] || { timed_out=1; break; }
+    sleep 0.2
+  done
+  if [ "$timed_out" = 1 ]; then
+    kill -KILL "$hp" 2>/dev/null || true
+    while IFS= read -r p; do [ -n "$p" ] && kill -KILL "$p" 2>/dev/null || true; done < "$PIDS"
+    bad "metadata-hangs: a metadata attempt outlived its deadline (no process-tree timeout)"
+  fi
+  wait "$hp"; rc=$?
+  O="$(cat "$T/out")"
+  [ "$rc" -eq 0 ] || bad "metadata-hangs: seam exited $rc ($O; $(cat "$T/err"))"
+  [ "$O" = "PENDING" ] || bad "metadata-hangs: a timed-out attempt must read as unavailable metadata, got: $O"
+  [ "$(lines "$ST/merged.log")" = 0 ] || bad "metadata-hangs: a row was written with no commit"
+  [ -s "$PIDS" ] || bad "metadata-hangs: the hung metadata command never ran"
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    kill -0 "$p" 2>/dev/null && bad "metadata-hangs: pid $p from the hung metadata call survived the deadline"
+  done < "$PIDS"
+  ok "a hung metadata call is killed with its tree and treated as unavailable"
+fi
+
+# --- intent-drained --------------------------------------------------------------------------
+# When the append and the queue both fail, the pre-merge intent is the only recovery record left.
+# The next dispatcher tick records it before reading open PRs and removes it, like a pending row.
+if run_case intent-drained; then
+  CTRL="$T/intent-ctrl"; mkdir -p "$CTRL/rsi/state/merge/merge-intents" "$CTRL/rsi/runtime"
+  cp -R "$RUNTIME/." "$CTRL/rsi/runtime/"
+  ST="$CTRL/rsi/state"
+  printf '909\ts\tR-x\t%s\n' "$(url 909)" > "$ST/merge/merge-intents/909.tsv"
+  : > "$T/gh-calls-intent"
+  O="$(RSI_CTRL="$CTRL" RSI_GH="$T/bin/gh-flaky" GH_CALLS="$T/gh-calls-intent" GH_FAIL_FIRST=0 \
+    RSI_PR_LIST_CMD='echo []' bash "$MERGE" 2>&1)"
+  rc=$?
+  [ "$rc" -eq 0 ] || bad "intent-drained: dispatcher exited $rc ($O)"
+  grep -q 'delivery record recovered' <<<"$O" \
+    || bad "intent-drained: the intent recovery is not reported ($O)"
+  [ "$(lines "$ST/merged.log")" = 1 ] \
+    || bad "intent-drained: the intent was not recorded: $(cat "$ST/merged.log" 2>/dev/null)"
+  LC_ALL=C grep -Eq 'PR #909 s R-x merged abc1234d https://github\.com/' "$ST/merged.log" \
+    || bad "intent-drained: row does not match the merged.log format: $(cat "$ST/merged.log")"
+  [ ! -e "$ST/merge/merge-intents/909.tsv" ] \
+    || bad "intent-drained: the recorded intent is still on disk"
+  ok "the next dispatcher tick recovers a pre-merge intent"
+fi
+
+# --- intent-before-merge ---------------------------------------------------------------------
+# The intent is only a recovery record if it exists before the irreversible command: assert the
+# persist-and-check call sits above `gh pr merge`, and that a recorded row is what clears it.
+if run_case intent-before-merge; then
+  intent_line="$(grep -n 'persist_merge_intent "\$N" "\$SLUG" "\$ITEM" "\$PRURL"' "$MERGE" | head -1 | cut -d: -f1)"
+  merge_line="$(grep -n 'pr merge "\$N"' "$MERGE" | head -1 | cut -d: -f1)"
+  [ -n "$intent_line" ] || bad "intent-before-merge: the merge-success path does not persist a pre-merge intent"
+  [ -n "$merge_line" ] || bad "intent-before-merge: merge.sh no longer names the merge command"
+  [ "$intent_line" -lt "$merge_line" ] \
+    || bad "intent-before-merge: the intent is written at line $intent_line, after the merge at $merge_line"
+  grep -qF 'if ! persist_merge_intent' "$MERGE" \
+    || bad "intent-before-merge: the intent write is not checked, so a failed persist still merges"
+  grep -qF 'clear_merge_intent "$N"' "$MERGE" \
+    || bad "intent-before-merge: nothing clears the intent after the row is recorded"
+  ok "the pre-merge intent is persisted, checked and cleared"
+fi
+
 # --- merge-sh-wiring -------------------------------------------------------------------------
 # One writer, not two: merge.sh names the helper and no longer appends merged.log itself. The
 # assertion requires the executable invocation and the merge-success call, never a mention: a bare
@@ -223,7 +329,11 @@ no-commit-refused
 unwritable-log
 record-retries
 record-deferred
+queue-unwritable
+metadata-hangs
 pending-drained
+intent-drained
+intent-before-merge
 merge-sh-wiring" || bad "RSI_TEST_ONLY='$ONLY' matched no case"
 
 echo "test-record-merged: ALL-PASS"
