@@ -243,9 +243,23 @@ Web 控制台，不在 RN 客户端此行范围。820 配对沿用模拟器里�
   scroller 之上）；
   `python3 scripts/mutants.py mobile-rn/src/screens/ConversationList.safearea.mutants.json`
   本轮输出 `5/5 mutants red; 0 problem(s)`。
-- 取图：本轮未取。主机读数 `mem_avail_mb=5185`、`swap_free_mb=1144`，低于本故事
-  6144/2048 的取图下限；按 lane brief 的诚实缺口语义记 none，后续轮次需补
-  390×844 亮/暗与 820×1180，确认标题在状态栏下方。
+- 取图：2026-11-28 补拍四张（拍摄提交 `41ee84da`，即拍摄时的分支 HEAD；每次启动
+  模拟器前的主机读数：iPhone 17e `mem_avail_mb=4350`、`swap_free_mb=995`，iPad Air
+  11-inch (M4) `mem_avail_mb=6699`、`swap_free_mb=1518`，均满足本文件 4096/512 的取图
+  下限）。四张都是列表根画面（iOS 27.2，Expo Go 58.0.7 + Metro 离线 8081；一次性节点
+  绑 `127.0.0.1:0`，种子 `created 24, existing 0, skipped 1`；一次只启动一台模拟器；
+  未启动或读取 `:7777`、`~/.kin`），文件在 `rsi/state/shots/rn-d5-shots/`（本地，不入库）：
+
+  | 面 | 设备 | 外观 | 提交 | 文件 | 像素 宽×高 | 判定（标题顶 / 状态栏底） |
+  |---|---|---|---|---|---|---|
+  | 列表（390 栈） | iPhone 17e | 暗 | `41ee84da` | `390-list-dark.png` | 1170×2532 | 标题顶 196px / 65.3pt；时钟与电池底 98px / 32.7pt；相距 98px / 32.7pt，无重叠 |
+  | 列表（390 栈） | iPhone 17e | 亮 | `41ee84da` | `390-list-light.png` | 1170×2532 | 标题顶 196px / 65.3pt；时钟与电池底 98px / 32.7pt；相距 98px / 32.7pt，无重叠 |
+  | 列表（820 分栏左列） | iPad Air 11-inch (M4) | 暗 | `41ee84da` | `820-list-dark.png` | 1640×2360 | 左列标题顶 101px / 50.5pt；状态栏文字底 47px / 23.5pt；相距 54px / 27pt，nav 内容起于 inset 之下 |
+  | 列表（820 分栏左列） | iPad Air 11-inch (M4) | 亮 | `41ee84da` | `820-list-light.png` | 1640×2360 | 左列标题顶 101px / 50.5pt；状态栏文字底 47px / 23.5pt；相距 54px / 27pt，nav 内容起于 inset 之下 |
+
+  答案：在拍摄提交 `41ee84da` 上，390 与 820、亮与暗四张里，列表大标题都从状态栏下方
+  开始，状态栏的时钟/电池与标题不重叠；暗色列表行带待批橙色三角与红 `1` pill。D5 的
+  修复在像素上成立。
 - **D4 · 820 空阅读栏在暗色下仍是亮色（2026-11-28 发现；同日复拍复核为已修复）。**
   原证据：`rsi/state/shots/rn-evidence-capture/820-list-dark.png`（iPad Air 11-inch
   (M4)，暗色，修复前）。左侧列表已暗，右侧「在左侧选一条对话，在这里阅读。」的空栏
