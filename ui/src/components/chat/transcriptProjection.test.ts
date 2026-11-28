@@ -3923,13 +3923,58 @@ describe("process timing", () => {
     // writes this event in the same transaction (internal/store/pending_prompts.go).
     // It is the only on-screen account of where those messages went: dropping it
     // in projection would leave the reader with messages that silently vanished.
+    // It reads as a counted note in the reader's language, not as a failure.
     const message = "1 queued prompt(s) discarded with the canceled task";
     const items = buildChatItems([
       ev(1, "message", { role: "user", content: [{ type: "text", text: "queued" }] }),
       ev(2, "error", { message, count: 1 }),
     ]);
 
-    expect(items.find((item) => item.kind === "error")).toMatchObject({ kind: "error", message });
+    expect(items.find((item) => item.kind === "meta")).toMatchObject({
+      kind: "meta",
+      label: t("chat.discardedPrompt"),
+    });
+  });
+
+  it("R-stop-discard-copy: projects the queued-prompt discard as a counted meta row", () => {
+    // The daemon's discard report travels on the "error" channel because that
+    // is the channel it has, but a deliberate Stop is not a failure: the row
+    // is the quiet, counted note the reader needs to know where the queued
+    // messages went. The template is matched, not the whole sentence, so a
+    // different count still lands here.
+    const before = getLocale();
+    setLocale("zh");
+    try {
+      const items = buildChatItems([
+        ev(1, "message", { role: "user", content: [{ type: "text", text: "排队" }] }),
+        ev(2, "error", {
+          message: "1 queued prompt(s) discarded with the canceled task",
+          count: 1,
+        }),
+        ev(3, "error", {
+          message: "3 queued prompt(s) discarded with the canceled task",
+          count: 3,
+        }),
+      ]);
+
+      expect(items).toMatchObject([
+        { kind: "message" },
+        { kind: "meta", label: "已丢弃 1 条排队消息" },
+        { kind: "meta", label: "已丢弃 3 条排队消息" },
+      ]);
+      expect(items.some((item) => item.kind === "error")).toBe(false);
+    } finally {
+      setLocale(before);
+    }
+  });
+
+  it("R-stop-discard-copy: an ordinary error that carries a count stays an error", () => {
+    // The count alone is not the signal: only the daemon's discard template
+    // is a report. An unrelated failure with a numeric field must still be
+    // shown as a failure.
+    const items = buildChatItems([ev(1, "error", { message: "boom", count: 2 })]);
+
+    expect(items).toMatchObject([{ kind: "error", message: "boom" }]);
   });
 });
 
