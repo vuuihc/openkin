@@ -4,8 +4,10 @@
 # No NAS, no network, no Docker and no Claude: ssh/docker/claude are fakes, "the NAS" is a temp
 # tree the fake ssh reaches by running the command string locally, and $HOME points into the
 # sandbox because install-nas.sh sources rsi/runtime/common.sh, which rebuilds PATH and keeps
-# only $HOME/.local/bin from the caller's environment. The bare-clone step is answered with
-# HAVE_BARE so the Mac-side git bundle fallback can never run.
+# only $HOME/.local/bin from the caller's environment. The bare-repo sync is answered from
+# FAKE_BARE_MODE: ok (the default) keeps the Mac-side bundle fallback out of every legacy case,
+# fail runs the remote command against a git whose fetch exits 128, and hang blocks until the
+# installer's own ceiling kills it.
 # Run: bash rsi/runtime/nas/tests/test-install-preflight.sh
 #      bash rsi/runtime/nas/tests/test-install-preflight.sh <function>   (one test; mutant runs)
 set -u
@@ -14,6 +16,10 @@ NASDIR="$(cd "$HERE/.." && pwd)"
 INSTALL="$NASDIR/install-nas.sh"
 SMOKE="$NASDIR/smoke-nas.sh"
 PASS=0; FAIL=0
+REPO_ROOT="$(cd "$HERE/../../../.." && pwd)"
+ORIGIN_MAIN="$(git -C "$REPO_ROOT" rev-parse --verify origin/main 2>/dev/null || true)"
+ORIGIN_MAIN_PARENT="$(git -C "$REPO_ROOT" rev-parse --verify origin/main~1 2>/dev/null || true)"
+REAL_GIT="$(command -v git)"
 
 ok()  { PASS=$((PASS+1)); echo "ok   $*"; }
 bad() { FAIL=$((FAIL+1)); echo "FAIL $*"; }
@@ -61,7 +67,18 @@ while [ $# -gt 0 ]; do
 done
 shift || true            # host
 cmd="$*"
-case "$cmd" in *openkin.git*) echo HAVE_BARE; exit 0;; esac
+# The bare-repo sync is the only external wait in the installer. Its modes are the point of
+# cases 8-10: ok answers like a healthy NAS, fail executes the remote command with a git whose
+# fetch/clone exits 128 (so `|| true` inside the command is observable), and hang parks a real
+# process the installer must kill. The bundle-transfer command is not intercepted: it names
+# /tmp/<bundle>, not " fetch origin main", so the fallback can complete.
+case "$cmd" in *" fetch origin main"*|*"clone --bare https://"*)
+  case "${FAKE_BARE_MODE:-ok}" in
+    ok)   echo HAVE_BARE; exit 0;;
+    fail) PATH="$(dirname "$0")/failgit:$PATH"; export PATH; exec bash -c "$cmd";;
+    hang) echo $$ > "${FAKE_HANG_PID:?}"; exec sleep 300;;
+  esac;;
+esac
 case "$cmd" in *"printf %s"*) printf '%s' "${FAKE_HOME-}"; exit 0;; esac
 case "$cmd" in *loadavg*|*MemAvailable*) printf 'load=0.10 0.20 0.30\nMemAvailable_GB=12.34\n'; exit 0;; esac
 case "$cmd" in *build-up.sh*) exit 0;; esac
@@ -89,8 +106,21 @@ printf '%s\n' "$*" >> "${FAKE_CLAUDE_LOG:?}"
 printf '%s\n' "${FAKE_CLAUDE_OUT-}"
 EOS
 
+  # The failing git the fail mode runs the remote command with: rev-parse still answers from the
+  # seeded sandbox bare, and exactly the two network calls the installer must survive exit 128.
+  mkdir -p "$T/home/.local/bin/failgit"
+  cat > "$T/home/.local/bin/failgit/git" <<EOS
+#!/bin/bash
+case " \$* " in
+  *" fetch "*|*" clone "*)
+    echo "fatal: unable to access 'https://github.com/example/openkin.git': Could not resolve host" >&2
+    exit 128;;
+esac
+exec "$REAL_GIT" "\$@"
+EOS
+
   printf '[{"Config":{"Env":["MAGPIE_WEB_KEY=%s","PATH=/usr/bin"]}}]\n' "$FAKE_KEY" > "$T/magpie.json"
-  chmod +x "$T/home/.local/bin/"*
+  chmod +x "$T/home/.local/bin/"* "$T/home/.local/bin/failgit/git"
 }
 
 run_install() { # T LOG [VAR=VAL ...] — stdout to LOG, stderr to LOG.err
@@ -115,6 +145,38 @@ run_smoke() { # T LOG [VAR=VAL ...]
 
 # not_in_output LOG PATTERN — PATTERN is absent from both captured streams.
 not_in_output() { ! cat "$1" "$1.err" 2>/dev/null | grep -qF -- "$2"; }
+
+# A bare repo on the sandbox "NAS" that is valid but one commit behind origin/main, so a
+# completed bundle fallback is observable as refs/heads/main moving to this repo's origin/main.
+seed_bare() { # T
+  local T="$1"
+  mkdir -p "$T/nas/work"
+  git init --quiet --bare "$T/nas/work/openkin.git" || return 1
+  git --git-dir="$T/nas/work/openkin.git" fetch --quiet "$REPO_ROOT" \
+    "+refs/remotes/origin/main:refs/heads/main" || return 1
+  git --git-dir="$T/nas/work/openkin.git" update-ref refs/heads/main "$ORIGIN_MAIN_PARENT"
+}
+
+bare_main() { git --git-dir="$1/nas/work/openkin.git" rev-parse refs/heads/main 2>/dev/null || true; }
+
+# The installer under a wall-clock cap. Job control puts it in its own process group, so the cap
+# kills the fake ssh/sleep and the bounded_run watchdog with it; without that a hung case would
+# outlive the installer. stderr is dropped here because a killed job's "Terminated" notice belongs
+# to the shell, not the installer (whose streams run_install sends to $log and $log.err).
+run_install_capped() { # SECS T LOG [VAR=VAL ...]
+  local secs="$1" T="$2" log="$3"; shift 3
+  (
+    set -m
+    ( run_install "$T" "$log" "$@" ) & p=$!
+    set +m
+    ( sleep "$secs"; kill -TERM -- "-$p" 2>/dev/null ) & w=$!
+    wait "$p"; rc=$?
+    kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+    exit $rc
+  ) 2>/dev/null
+}
+
+pid_gone() { [ -n "${1:-}" ] && ! kill -0 "$1" 2>/dev/null; }
 
 # --- 1: a lost $HOME discovery fails closed and asks for NAS_REMOTE (M1) -------------------------
 # M1: install-nas.sh's guard `exit 1` -> `exit 0` -> this case goes red (the installer reports
@@ -252,6 +314,69 @@ t_nas_scripts_name_no_account() {
   check "M6 the scan sees the allowed container path" grep -q '/work/home' "$NASDIR/install-nas.sh"
 }
 
+# --- 8: a failed remote fetch ships the bundle instead of reporting HAVE_BARE (M9) --------------
+# M9: the remote fetch's `|| exit 1` -> `|| true` (the old swallow) -> the remote command ends in
+# `echo HAVE_BARE` with status 0, the installer never falls back, and every check below the exit
+# code goes red. The fake ssh executes the command in this mode, which is the whole point: with
+# the old intercept (answer HAVE_BARE, never run it) neither this defect nor case 9 existed.
+t_install_fetch_failure_ships_the_bundle() {
+  local T; sandbox; T=$T
+  check "t_install_fetch_failure_ships_the_bundle: the sandbox bare seeds" seed_bare "$T"
+  local rc=0
+  run_install_capped 30 "$T" "$T/out.log" NAS_REMOTE="$T/nas" FAKE_BARE_MODE=fail || rc=$?
+  check "t_install_fetch_failure_ships_the_bundle: the installer recovers and exits 0" [ "$rc" = 0 ]
+  check "t_install_fetch_failure_ships_the_bundle: the failure is named" \
+    grep -q 'fetch failed' "$T/out.log"
+  check "t_install_fetch_failure_ships_the_bundle: the fallback is announced" \
+    grep -q 'shipping origin/main bundle' "$T/out.log"
+  check "t_install_fetch_failure_ships_the_bundle: the bundle transfer ran" \
+    grep -q 'openkin-origin-main' "$T/ssh.log"
+  check "t_install_fetch_failure_ships_the_bundle: the bare repo moved to origin/main" \
+    [ "$(bare_main "$T")" = "$ORIGIN_MAIN" ]
+}
+
+# --- 9: a fetch that never answers is bounded and the tree is killed (M10) ----------------------
+# M10: call ssh directly instead of through bounded_run in the fetch branch -> the installer waits
+# out the fake 300 s sleep, the case's own cap kills it, and the exit/timing checks go red.
+t_install_bounds_a_hung_fetch() {
+  local T; sandbox; T=$T
+  check "t_install_bounds_a_hung_fetch: the sandbox bare seeds" seed_bare "$T"
+  local rc=0 start took pid=""
+  start=$(date +%s)
+  run_install_capped 20 "$T" "$T/out.log" NAS_REMOTE="$T/nas" FAKE_BARE_MODE=hang \
+    KIN_NAS_FETCH_TIMEOUT=2 FAKE_HANG_PID="$T/hang.pid" || rc=$?
+  took=$(( $(date +%s) - start ))
+  [ -s "$T/hang.pid" ] && pid="$(cat "$T/hang.pid")"
+  check "t_install_bounds_a_hung_fetch: the installer recovers and exits 0" [ "$rc" = 0 ]
+  check "t_install_bounds_a_hung_fetch: it answers inside the bound" [ "$took" -lt 20 ]
+  check "t_install_bounds_a_hung_fetch: the timeout is named with its ceiling" \
+    grep -q 'fetch timed out after 2s' "$T/out.log"
+  check "t_install_bounds_a_hung_fetch: the fallback is announced" \
+    grep -q 'shipping origin/main bundle' "$T/out.log"
+  check "t_install_bounds_a_hung_fetch: the bare repo moved to origin/main" \
+    [ "$(bare_main "$T")" = "$ORIGIN_MAIN" ]
+  check "t_install_bounds_a_hung_fetch: the fake fetch recorded its pid" [ -n "$pid" ]
+  check "t_install_bounds_a_hung_fetch: the hung process tree is gone" pid_gone "$pid"
+}
+
+# --- 10: a healthy bare repo ships no bundle (M11) ----------------------------------------------
+# M11: force the fallback branch (`if true`) -> the healthy path announces the bundle and moves
+# the untouched bare's main, so this case goes red. It pins the plausible wrong fix ("always
+# ship the bundle"), which would otherwise pass cases 8 and 9.
+t_install_healthy_bare_needs_no_bundle() {
+  local T; sandbox; T=$T
+  check "t_install_healthy_bare_needs_no_bundle: the sandbox bare seeds" seed_bare "$T"
+  local rc=0
+  run_install_capped 30 "$T" "$T/out.log" NAS_REMOTE="$T/nas" || rc=$?
+  check "t_install_healthy_bare_needs_no_bundle: the install exits 0" [ "$rc" = 0 ]
+  check "t_install_healthy_bare_needs_no_bundle: no fallback is announced" \
+    not_in_output "$T/out.log" 'shipping origin/main bundle'
+  check "t_install_healthy_bare_needs_no_bundle: no bundle is transferred" \
+    bash -c "! grep -q 'openkin-origin-main' '$T/ssh.log'"
+  check "t_install_healthy_bare_needs_no_bundle: the healthy bare keeps its ref" \
+    [ "$(bare_main "$T")" = "$ORIGIN_MAIN_PARENT" ]
+}
+
 if [ "${1:-}" = "--sandbox" ]; then sandbox; trap - EXIT; echo "$T"; exit 0; fi
 if [ -n "${1:-}" ]; then "$1"; finish; exit $?; fi    # test-install-preflight.sh <function> — one test
 
@@ -262,4 +387,7 @@ t_install_passes_the_discovered_root
 t_smoke_stops_on_bad_gateway_key
 t_smoke_needs_lane_ok
 t_nas_scripts_name_no_account
+t_install_fetch_failure_ships_the_bundle
+t_install_bounds_a_hung_fetch
+t_install_healthy_bare_needs_no_bundle
 finish

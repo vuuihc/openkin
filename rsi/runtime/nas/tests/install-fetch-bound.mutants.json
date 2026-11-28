@@ -1,0 +1,30 @@
+[
+  {
+    "label": "a failed fetch is swallowed into HAVE_BARE instead of shipping the bundle",
+    "file": "rsi/runtime/nas/install-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-install-preflight.sh t_install_fetch_failure_ships_the_bundle",
+    "old": "fetch origin main || exit 1; echo HAVE_BARE",
+    "new": "fetch origin main || true; echo HAVE_BARE"
+  },
+  {
+    "label": "the remote fetch is unbounded again",
+    "file": "rsi/runtime/nas/install-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-install-preflight.sh t_install_bounds_a_hung_fetch",
+    "old": "bounded_run \"$GIT_FETCH_TIMEOUT\" ssh -o BatchMode=yes -o ConnectTimeout=10 \"$NAS_HOST\" \"if [ -d",
+    "new": "ssh -o BatchMode=yes -o ConnectTimeout=10 \"$NAS_HOST\" \"if [ -d"
+  },
+  {
+    "label": "the installer ships the bundle even when the bare repo is healthy",
+    "file": "rsi/runtime/nas/install-nas.sh",
+    "test": "bash rsi/runtime/nas/tests/test-install-preflight.sh t_install_healthy_bare_needs_no_bundle",
+    "old": "if [ \"$sync_rc\" != 0 ]; then",
+    "new": "if true; then"
+  },
+  {
+    "label": "the fail mode stops failing the fetch, so the case only proves a happy path",
+    "file": "rsi/runtime/nas/tests/test-install-preflight.sh",
+    "test": "bash rsi/runtime/nas/tests/test-install-preflight.sh t_install_fetch_failure_ships_the_bundle",
+    "old": "    fail) PATH=\"$(dirname \"$0\")/failgit:$PATH\"; export PATH; exec bash -c \"$cmd\";;",
+    "new": "    fail) echo HAVE_BARE; exit 0;;"
+  }
+]
