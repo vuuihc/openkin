@@ -149,8 +149,8 @@
   {
     "label": "the search field leaves the navigation bar, so the title has no search beside it (R-rn-list-visual)",
     "file": "mobile-rn/src/screens/ConversationList.tsx",
-    "old": "      <View style={styles.navBar} testID=\"list-nav\">",
-    "new": "      <View style={styles.navBar}>",
+    "old": "      <View\n        style={[styles.navBar, { paddingTop: headerTopInset(insets.top) }]}\n        testID=\"list-nav\"\n      >",
+    "new": "      <View\n        style={[styles.navBar, { paddingTop: headerTopInset(insets.top) }]}\n      >",
     "test": "cd mobile-rn && npx jest src/screens/ConversationList.visual.test.tsx -t \"KIN-MOBILE-002 R3: the search field lives in the navigation bar and keeps its clear control\""
   },
   {

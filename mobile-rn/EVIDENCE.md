@@ -216,6 +216,36 @@ Web 控制台，不在 RN 客户端此行范围。820 配对沿用模拟器里�
 
 ## 已知（不要再报）
 
+- **D5 · 列表头部绘制在 iOS 状态栏下方（2026-11-28 发现；本轮修复）。**
+  原证据：`rsi/state/shots/rn-evidence-cells/390-list-dark.png`（390 暗色）与 PR #848
+  的两张 820 亮色分栏图。状态栏的时钟与电池压在「会话」大标题上；820 分栏的左列和
+  冷启动骨架也从屏幕 y=0 起画。对话页没有这个缺陷——它早已读设备顶部 inset
+  （`mobile-rn/src/screens/ConversationView.tsx:776` 读 provider，`:1077` 把
+  `headerTopInset(insets.top)` 叠加到头部样式），所以只有列表错。
+- 读法与修复：列表的 `navBar` 只有 `paddingVertical: 6`，从未读 inset。现在
+  `mobile-rn/src/screens/ConversationList.tsx:328` 以
+  `useContext(SafeAreaInsetsContext) ?? NO_INSETS` 读设备 insets（无 provider 回落为
+  0，不抛），`:448` 把同一个 `headerTopInset(insets.top)` 叠加到 nav 的样式数组。
+  inset 由列表自己读，`ListScreen` 与 `SplitListLayout` 渲染的是同一个组件，所以 390
+  栈、820 左列、骨架与空/错状态共用一套算术，分栏不再加第二个 inset；没有新公式、
+  颜色字面量或依赖，搜索框与行不变。
+- 回归：`mobile-rn/src/screens/ConversationList.safearea.test.tsx:102`（top 59 →
+  paddingTop 67）、`:110`（top 0 → 12，控制组）、`:118`（无 provider → 12，不抛）、
+  `:126`（nav 先于 scroller，nav 起于 inset，且 nav 与 scroller 均为普通流、非
+  absolute）、`:158`（冷启动骨架同为 67）、
+  `:168`（820 分栏同为 67，分栏根 paddingTop 0）；六个用例名都含
+  `KIN-MOBILE-001 R3`。首轮该套件 6/6 通过，`npx jest --ci --runInBand` 全套
+  75 套件 604 项通过，`npx tsc --noEmit` 无输出；rework 轮（评审要求把「首行在
+  inset 头部之下」从 padding 求和改为普通流不变量）重跑该套件 6/6、
+  `npx tsc --noEmit` 无输出，全套留给合并门。
+- 变异：`mobile-rn/src/screens/ConversationList.safearea.mutants.json` 五个（nav 去
+  inset、helper 丢 8pt 空气、去无 provider 兜底、强制 top=0、nav 改 absolute 漂浮在
+  scroller 之上）；
+  `python3 scripts/mutants.py mobile-rn/src/screens/ConversationList.safearea.mutants.json`
+  本轮输出 `5/5 mutants red; 0 problem(s)`。
+- 取图：本轮未取。主机读数 `mem_avail_mb=5185`、`swap_free_mb=1144`，低于本故事
+  6144/2048 的取图下限；按 lane brief 的诚实缺口语义记 none，后续轮次需补
+  390×844 亮/暗与 820×1180，确认标题在状态栏下方。
 - **D4 · 820 空阅读栏在暗色下仍是亮色（2026-11-28 发现；同日复拍复核为已修复）。**
   原证据：`rsi/state/shots/rn-evidence-capture/820-list-dark.png`（iPad Air 11-inch
   (M4)，暗色，修复前）。左侧列表已暗，右侧「在左侧选一条对话，在这里阅读。」的空栏

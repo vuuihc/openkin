@@ -7,7 +7,7 @@
  * Routing, data loading and transport stay outside this component.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Pressable,
   SectionList,
@@ -17,7 +17,12 @@ import {
   View,
   type PressableInstance,
 } from "react-native";
+import {
+  SafeAreaInsetsContext,
+  type EdgeInsets,
+} from "react-native-safe-area-context";
 import { focusNode } from "../a11y/focus";
+import { headerTopInset } from "../native/insets";
 import { useTheme } from "../theme/useTheme";
 import { palette, type, wash, type Palette } from "../theme/tokens";
 import { isRowKey, moveRow, openRow } from "../list/listKeys";
@@ -57,6 +62,9 @@ export const FOCUS_RING = palette.light.focusRing;
 /** The list header band, and the bottom tab bar the list sits above. */
 export const LIST_HEADER_HEIGHT = 56;
 export const BOTTOM_TAB_INSET = 64;
+
+/** A provider that reports nothing is a device without a status-bar inset. */
+const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
 /**
  * How long a failed scroll waits for the list to lay an off-window row out
@@ -314,6 +322,10 @@ export default function ConversationList({
   returnFocusEpoch = 0,
   resume,
 }: ConversationListProps) {
+  // The device's own insets, read by the list so both presentations agree: a
+  // missing provider is a device that reports none, exactly as the
+  // conversation header reads it (`ConversationView.tsx:776`).
+  const insets = useContext(SafeAreaInsetsContext) ?? NO_INSETS;
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // An empty device (`includeEmptyDevices`) still yields a section, and a
@@ -432,7 +444,10 @@ export default function ConversationList({
         stay put while the grouped rows scroll under them. This round ships the
         static large-title variant — no collapse-on-scroll tracking.
       */}
-      <View style={styles.navBar} testID="list-nav">
+      <View
+        style={[styles.navBar, { paddingTop: headerTopInset(insets.top) }]}
+        testID="list-nav"
+      >
         <Text accessibilityRole="header" style={styles.navTitle}>
           {t("nav.sessions")}
         </Text>
