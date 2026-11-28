@@ -64,5 +64,12 @@ if [ -f "$LOG" ] && LC_ALL=C grep -Eq "(^|[^[:alnum:]_])#${PR}([^[:alnum:]_]|$)"
 fi
 
 SHORT="${SHA:0:8}"
-printf '%s PR #%s %s %s merged %s %s\n' "$(date '+%F %H:%M')" "$PR" "$SLUG" "$ITEM" "$SHORT" "$URL" >> "$LOG"
+# A failed append must not read as a delivery. With only `set -u`, a printf the shell cannot write
+# (full disk, read-only or unwritable log) would fall straight through to "recorded" and exit 0,
+# and the caller would never queue the row for a retry. The caller treats non-zero as "not
+# recorded"; merge.sh's drain_pending_records() retries it on a later tick.
+if ! printf '%s PR #%s %s %s merged %s %s\n' "$(date '+%F %H:%M')" "$PR" "$SLUG" "$ITEM" "$SHORT" "$URL" >> "$LOG"; then
+  echo "record-merged: append to $LOG failed" >&2
+  exit 1
+fi
 echo "recorded #$PR $SHORT"

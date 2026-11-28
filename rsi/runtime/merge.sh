@@ -256,6 +256,61 @@ archive_sendback() { # slug reason sha8 — move state/sendback/<slug>.md under 
   mkdir -p "$STATE/sendback/done"
   mv "$STATE/sendback/$slug.md" "$STATE/sendback/done/$slug-$reason-$sha8.md"
 }
+# A merge is irreversible; its delivery record must not be lost with it. `gh pr view` can fail in
+# the seconds right after a merge, and record-merged.sh refuses a row with no commit, so retry the
+# metadata a bounded number of times, then queue the row on disk. The merged PR is closed, so no
+# later open-PR list can bring it back: every dispatcher tick drains the queue before reading PRs
+# (2026-11-28 review: a transient SHA failure used to archive, release and report success with no
+# row and no retry path). RSI_RECORD_RETRY_SLEEP=0 is the hermetic test seam.
+RECORD_RETRY_SLEEP="${RSI_RECORD_RETRY_SLEEP:-2}"
+PENDING_DIR() { echo "$STATE/merge/pending-records"; }
+merged_commit_sha() { # <pr> -> sha8 on stdout; non-zero when the metadata never arrived
+  local n="$1" try sha
+  for try in 1 2 3; do
+    sha="$($GH pr view "$n" --repo "$GH_REPO" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null | cut -c1-8)"
+    if [ -n "$sha" ]; then printf '%s\n' "$sha"; return 0; fi
+    [ "$try" -lt 3 ] && sleep "$RECORD_RETRY_SLEEP"
+  done
+  return 1
+}
+queue_pending_record() { # <pr> <slug> <item> <url> — one file per PR, written atomically
+  local d n="$1"
+  d="$(PENDING_DIR)"
+  mkdir -p "$d"
+  # One file per PR, published by mv: the dispatcher drains concurrently and may never rewrite a
+  # row, so a record queued while it works cannot be lost inside a shared-file rewrite.
+  printf '%s\t%s\t%s\t%s\n' "$n" "$2" "$3" "$4" > "$d/$n.tsv.$$" && mv "$d/$n.tsv.$$" "$d/$n.tsv"
+}
+record_delivery() { # <pr> <slug> <item> <url> -> sha8 on stdout; 0 recorded, 1 queued for retry
+  local n="$1" slug="$2" item="$3" url="$4" sha
+  if sha="$(merged_commit_sha "$n")" && bash "$RSI_DIR/runtime/record-merged.sh" --state "$STATE" \
+    --pr "$n" --slug "$slug" --item "$item" --sha "$sha" --url "$url" >/dev/null; then
+    printf '%s\n' "$sha"
+    return 0
+  fi
+  queue_pending_record "$n" "$slug" "$item" "$url"
+  return 1
+}
+drain_pending_records() { # retry every queued delivery once; a file leaves only when recorded
+  local d f n slug item url sha
+  d="$(PENDING_DIR)"
+  [ -d "$d" ] || return 0
+  for f in "$d"/*.tsv; do
+    [ -e "$f" ] || continue
+    # A row the recorder could never accept (empty, or no numeric PR) is dropped instead of being
+    # retried forever; a valid row stays until the append actually lands.
+    IFS=$'\t' read -r n slug item url < "$f" || { rm -f "$f"; continue; }
+    case "${n:-}" in ''|*[!0-9]*) rm -f "$f"; continue ;; esac
+    [ -n "${slug:-}" ] && [ -n "${item:-}" ] || { rm -f "$f"; continue; }
+    case "${url:-}" in https://github.com/*) ;; *) rm -f "$f"; continue ;; esac
+    if sha="$(merged_commit_sha "$n")" && bash "$RSI_DIR/runtime/record-merged.sh" --state "$STATE" \
+      --pr "$n" --slug "$slug" --item "$item" --sha "$sha" --url "$url" >/dev/null; then
+      say "#$n $slug: delivery record recovered"
+      rm -f "$f"
+    fi
+  done
+  rmdir "$d" 2>/dev/null || true
+}
 # The live PR state, keyed by slug: sendback_mech() has no PR number. Empty or unrecognised output
 # is unreadable and callers fail open. The override is a test seam, the same shape as lane.sh's.
 PR_STATE_CMD="${RSI_PR_STATE_CMD:-}"   # test seam; empty = the real gh call
@@ -2279,6 +2334,15 @@ if [ "${1:-}" != "--one" ]; then
     [ $# -ge 3 ] || { echo "usage: merge.sh --batch <id> <members-file>" >&2; exit 2; }
     batch_run "$2" "$3"; exit $?
   fi
+  # Hermetic seam for rsi/runtime/tests/test-record-merged.sh: the merge-success delivery record —
+  # bounded metadata retries, then one durable pending row — with RSI_GH stubbed. No worktree,
+  # gate, lock or dispatch.
+  if [ "${1:-}" = "--record-merged-check" ]; then
+    [ $# -ge 6 ] || { echo "usage: merge.sh --record-merged-check <state> <pr> <slug> <item> <url>" >&2; exit 2; }
+    STATE="$2"
+    if MSHA="$(record_delivery "$3" "$4" "$5" "$6")"; then echo "RECORDED $MSHA"; else echo "PENDING"; fi
+    exit 0
+  fi
   DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
   [ -e "$STATE/PAUSE" ] && { echo "paused"; exit 0; }
   # legacy single-instance lock (pre-pipeline merge.sh still running): do not double-process
@@ -2287,6 +2351,9 @@ if [ "${1:-}" != "--one" ]; then
   if ! mkdir "$DL" 2>/dev/null; then o="$(cat "$DL/pid" 2>/dev/null || true)"; if [ -n "$o" ] && kill -0 "$o" 2>/dev/null; then exit 0; fi; rm -rf "$DL"; mkdir "$DL" 2>/dev/null || exit 0; fi
   echo $$ > "$DL/pid"; trap 'rm -rf "$DL"' EXIT
   $GIT -C "$RSI_CTRL" fetch -q origin main 2>/dev/null
+  # A delivery record queued by an earlier merge (commit metadata unavailable then) is retried
+  # before the open-PR list: the merged PR is closed, so nothing else in the tick brings it back.
+  drain_pending_records
   # `files` makes the GraphQL query heavy and it occasionally fails/times out: retry once, then fall back to a light query (tier unknown = large).
   # With the batch switch on, the same call also carries the head and CI rollup the formation reads.
   PRFIELDS="number,headRefName,isDraft,labels,title,files,body"
@@ -3033,12 +3100,15 @@ for round in 1 2 3; do
       MERGED_OK=1
     fi
     if [ $MERGED_OK -eq 1 ]; then
-      MSHA="$($GH pr view "$N" --repo "$GH_REPO" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null | cut -c1-8)"
-      say "#$N $SLUG: MERGED ($MSHA)"
       # One writer, shared with any path that merges a PR itself (record-merged.sh): it keeps the
       # exact format this echo wrote, refuses a row with no commit/url, and makes a re-record a no-op.
-      bash "$RSI_DIR/runtime/record-merged.sh" --state "$STATE" --pr "$N" --slug "$SLUG" \
-        --item "$ITEM" --sha "$MSHA" --url "$PRURL" || say "#$N $SLUG: merged.log record refused"
+      # A refusal cannot un-merge the PR, so the row is queued and retried by the next tick instead.
+      if MSHA="$(record_delivery "$N" "$SLUG" "$ITEM" "$PRURL")"; then
+        say "#$N $SLUG: MERGED ($MSHA)"
+      else
+        MSHA=""
+        say "#$N $SLUG: MERGED (delivery record pending; the next dispatcher tick retries it)"
+      fi
       archive_sendback "$SLUG" merged "${MSHA:-unknown}"
       CREATED="$($GH pr view "$N" --repo "$GH_REPO" --json createdAt --jq .createdAt 2>/dev/null)"
       python3 - "$CREATED" "$N" "$SLUG" >> "$STATE/merge/cycles.log" <<'PY'

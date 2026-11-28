@@ -46,6 +46,15 @@ record() {
 lines() { if [ -f "$1" ]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
 # url <pr> — a GitHub pull request url for a fake repo.
 url() { printf 'https://github.com/example/repo/pull/%s' "$1"; }
+# gh_flaky — a stub for the $GH the merge lane calls: prints nothing for the first $GH_FAIL_FIRST
+# calls (a transient metadata failure), then $GH_SHA, counting calls in the file $GH_CALLS.
+cat > "$T/bin/gh-flaky" <<'SH'
+#!/bin/sh
+c="${GH_CALLS:?}"; n="$(cat "$c" 2>/dev/null || echo 0)"; n=$((n + 1)); echo "$n" > "$c"
+[ "$n" -le "${GH_FAIL_FIRST:-0}" ] && exit 0
+printf '%s\n' "${GH_SHA:-abc1234def0000}"
+SH
+chmod +x "$T/bin/gh-flaky"
 
 # --- one-line --------------------------------------------------------------------------------
 # A PR merged outside the merge lane (a model running its own `gh pr merge`) records exactly
@@ -119,12 +128,88 @@ if run_case no-commit-refused; then
   ok "a record with no commit is refused"
 fi
 
+# --- unwritable-log --------------------------------------------------------------------------
+# A failed append must not print "recorded": with only `set -u` the printf failure fell through to
+# a success message and exit 0, so a full disk or a read-only log claimed a delivery it never wrote.
+if run_case unwritable-log; then
+  ST="$T/s4b"; mkdir -p "$ST/merged.log"
+  record "$ST" --pr 903 --slug s --item R-x --sha abc1234def --url "$(url 903)"
+  [ "$rc" -ne 0 ] || bad "unwritable-log: a failed append exited 0 ($O)"
+  case "$O" in *recorded*) bad "unwritable-log: a failed append still printed 'recorded': $O" ;; esac
+  grep -q 'append to' <<<"$E" || bad "unwritable-log: the failure does not name the append: $E"
+  ok "a failed append is an error, not a recorded delivery"
+fi
+
+# --- record-retries --------------------------------------------------------------------------
+# The merge lane's own success path (merge.sh --record-merged-check): the metadata fails twice and
+# arrives on the third try, so the row is written in the same process and the sha is reported.
+if run_case record-retries; then
+  ST="$T/s5"; mkdir -p "$ST/merge"; : > "$T/gh-calls-retry"
+  O="$(RSI_GH="$T/bin/gh-flaky" GH_CALLS="$T/gh-calls-retry" GH_FAIL_FIRST=2 \
+    RSI_RECORD_RETRY_SLEEP=0 bash "$MERGE" --record-merged-check "$ST" 905 s R-x "$(url 905)" 2>"$T/err")"
+  rc=$?
+  [ "$rc" -eq 0 ] || bad "record-retries: seam exited $rc ($O; $(cat "$T/err"))"
+  [ "$O" = "RECORDED abc1234d" ] || bad "record-retries: want RECORDED abc1234d, got: $O"
+  [ "$(lines "$ST/merged.log")" = 1 ] || bad "record-retries: no row after the metadata arrived"
+  [ "$(cat "$T/gh-calls-retry")" = 3 ] \
+    || bad "record-retries: want 3 metadata attempts, got $(cat "$T/gh-calls-retry")"
+  ok "a transient metadata failure is retried and still records"
+fi
+
+# --- record-deferred -------------------------------------------------------------------------
+# The metadata never arrives: the merge still happened, so the row is queued on disk (one row per
+# PR) instead of being dropped, and the retry loop is bounded at three attempts.
+if run_case record-deferred; then
+  ST="$T/s6"; mkdir -p "$ST/merge"; : > "$T/gh-calls-defer"
+  O="$(RSI_GH="$T/bin/gh-flaky" GH_CALLS="$T/gh-calls-defer" GH_FAIL_FIRST=9 \
+    RSI_RECORD_RETRY_SLEEP=0 bash "$MERGE" --record-merged-check "$ST" 906 s R-x "$(url 906)" 2>"$T/err")"
+  rc=$?
+  [ "$rc" -eq 0 ] || bad "record-deferred: seam exited $rc ($O; $(cat "$T/err"))"
+  [ "$O" = "PENDING" ] || bad "record-deferred: want PENDING, got: $O"
+  [ "$(lines "$ST/merged.log")" = 0 ] || bad "record-deferred: a row was written without a commit"
+  [ "$(ls -1 "$ST/merge/pending-records" 2>/dev/null | wc -l | tr -d ' ')" = 1 ] \
+    || bad "record-deferred: want exactly one durable pending record: $(ls -A "$ST/merge/pending-records" 2>/dev/null)"
+  LC_ALL=C grep -q "^906	" "$ST/merge/pending-records/906.tsv" \
+    || bad "record-deferred: pending record does not name PR 906: $(cat "$ST/merge/pending-records/906.tsv" 2>/dev/null)"
+  [ "$(cat "$T/gh-calls-defer")" = 3 ] \
+    || bad "record-deferred: want 3 bounded attempts, got $(cat "$T/gh-calls-defer")"
+  ok "a metadata failure queues a durable record instead of dropping it"
+fi
+
+# --- pending-drained -------------------------------------------------------------------------
+# The recovery path: the next dispatcher tick retries the queued row before reading open PRs (the
+# merged PR is closed, so no open-PR list would ever bring it back). Runs merge.sh's dispatcher
+# path hermetically, with the runtime copied under a temp RSI_CTRL and an empty PR list.
+if run_case pending-drained; then
+  CTRL="$T/drain-ctrl"; mkdir -p "$CTRL/rsi/state/merge/pending-records" "$CTRL/rsi/runtime"
+  cp -R "$RUNTIME/." "$CTRL/rsi/runtime/"
+  ST="$CTRL/rsi/state"
+  printf '906\ts\tR-x\t%s\n' "$(url 906)" > "$ST/merge/pending-records/906.tsv"
+  : > "$T/gh-calls-drain"
+  O="$(RSI_CTRL="$CTRL" RSI_GH="$T/bin/gh-flaky" GH_CALLS="$T/gh-calls-drain" GH_FAIL_FIRST=0 \
+    RSI_PR_LIST_CMD='echo []' bash "$MERGE" 2>&1)"
+  rc=$?
+  [ "$rc" -eq 0 ] || bad "pending-drained: dispatcher exited $rc ($O)"
+  grep -q 'delivery record recovered' <<<"$O" \
+    || bad "pending-drained: the recovery is not reported ($O)"
+  [ "$(lines "$ST/merged.log")" = 1 ] \
+    || bad "pending-drained: the queued row was not recorded: $(cat "$ST/merged.log" 2>/dev/null)"
+  LC_ALL=C grep -Eq 'PR #906 s R-x merged abc1234d https://github\.com/' "$ST/merged.log" \
+    || bad "pending-drained: row does not match the merged.log format: $(cat "$ST/merged.log")"
+  [ -z "$(ls -A "$ST/merge/pending-records" 2>/dev/null)" ] \
+    || bad "pending-drained: the recorded row is still queued: $(ls -A "$ST/merge/pending-records")"
+  ok "the next dispatcher tick recovers a deferred record"
+fi
+
 # --- merge-sh-wiring -------------------------------------------------------------------------
-# One writer, not two: the merge lane names the helper and no longer appends merged.log itself
-# (the same source-level shape test-wiring.sh uses for the gate's own wiring).
+# One writer, not two: merge.sh names the helper and no longer appends merged.log itself. The
+# assertion requires the executable invocation and the merge-success call, never a mention: a bare
+# grep for the filename passed on a comment after the invocation was deleted (review, 2026-11-28).
 if run_case merge-sh-wiring; then
-  grep -q 'record-merged\.sh' "$MERGE" \
-    || bad "merge-sh-wiring: merge.sh does not call record-merged.sh"
+  grep -qF 'bash "$RSI_DIR/runtime/record-merged.sh" --state "$STATE"' "$MERGE" \
+    || bad "merge-sh-wiring: merge.sh does not invoke record-merged.sh"
+  grep -qF 'record_delivery "$N" "$SLUG" "$ITEM" "$PRURL"' "$MERGE" \
+    || bad "merge-sh-wiring: the merge-success block does not record through record_delivery"
   if grep -Eq '>>[[:space:]]*"\$STATE/merged\.log"' "$MERGE"; then
     bad "merge-sh-wiring: merge.sh still appends merged.log itself"
   fi
@@ -135,6 +220,10 @@ fi
 second-is-a-noop
 whole-token
 no-commit-refused
+unwritable-log
+record-retries
+record-deferred
+pending-drained
 merge-sh-wiring" || bad "RSI_TEST_ONLY='$ONLY' matched no case"
 
 echo "test-record-merged: ALL-PASS"

@@ -21,11 +21,25 @@
     "new": ": # any sha accepted"
   },
   {
-    "label": "the merge lane appends merged.log itself again, so the record has two writers with one format each",
+    "label": "a failed append still prints recorded and exits zero, so a delivery is claimed that never reached the log",
+    "file": "rsi/runtime/record-merged.sh",
+    "test": "RSI_TEST_ONLY=unwritable-log bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "if ! printf '%s PR #%s %s %s merged %s %s\\n' \"$(date '+%F %H:%M')\" \"$PR\" \"$SLUG\" \"$ITEM\" \"$SHORT\" \"$URL\" >> \"$LOG\"; then\n  echo \"record-merged: append to $LOG failed\" >&2\n  exit 1\nfi",
+    "new": "printf '%s PR #%s %s %s merged %s %s\\n' \"$(date '+%F %H:%M')\" \"$PR\" \"$SLUG\" \"$ITEM\" \"$SHORT\" \"$URL\" >> \"$LOG\" 2>/dev/null || true"
+  },
+  {
+    "label": "the merge-success path skips the writer, so a merged PR reports RECORDED with no row",
     "file": "rsi/runtime/merge.sh",
-    "test": "RSI_TEST_ONLY=merge-sh-wiring bash rsi/runtime/tests/test-record-merged.sh",
-    "old": "      bash \"$RSI_DIR/runtime/record-merged.sh\" --state \"$STATE\" --pr \"$N\" --slug \"$SLUG\" \\\n        --item \"$ITEM\" --sha \"$MSHA\" --url \"$PRURL\" || say \"#$N $SLUG: merged.log record refused\"",
-    "new": "      echo \"$(date '+%F %H:%M') PR #$N $SLUG $ITEM merged ${MSHA:-?} $PRURL\" >> \"$STATE/merged.log\""
+    "test": "RSI_TEST_ONLY=record-retries bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  if sha=\"$(merged_commit_sha \"$n\")\" && bash \"$RSI_DIR/runtime/record-merged.sh\" --state \"$STATE\" \\\n    --pr \"$n\" --slug \"$slug\" --item \"$item\" --sha \"$sha\" --url \"$url\" >/dev/null; then",
+    "new": "  if sha=\"$(merged_commit_sha \"$n\")\"; then"
+  },
+  {
+    "label": "the dispatcher never drains a queued delivery, so a transient SHA failure loses the row forever",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=pending-drained bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  drain_pending_records\n  # `files` makes",
+    "new": "  : # drain removed by mutant\n  # `files` makes"
   },
   {
     "label": "the new suite is not wired into job_shell_test, so it never runs in a gate or in CI",
