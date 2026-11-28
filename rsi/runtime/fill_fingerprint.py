@@ -9,12 +9,14 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-VERSION = 1
+VERSION = 2
 DOGFOOD_THROTTLE_SECS = 6 * 60 * 60
 DEFAULT_MAX_AGE = 45 * 60
 
@@ -24,20 +26,57 @@ class ProbeError(RuntimeError):
 
 
 def run_cmd(cmd, timeout=12, env=None):
+    """Run one probe, bounded, and kill its whole process tree on timeout.
+
+    subprocess.run(timeout=...) kills the direct child only. A probe that waits on a
+    nested process -- slices.py ready runs `lanes.py idle`, which can block on the lane
+    flock -- would leave that descendant running past the timeout, so each probe gets its
+    own session/process group and the group is SIGKILLed and reaped.
+    """
+    argv = [str(x) for x in cmd]
     try:
-        p = subprocess.run(
-            [str(x) for x in cmd],
-            capture_output=True,
+        p = subprocess.Popen(
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
             env=env,
+            start_new_session=True,
         )
-    except (OSError, subprocess.TimeoutExpired) as e:
-        raise ProbeError(f"{' '.join(map(str, cmd))}: {e}")
+    except OSError as e:
+        raise ProbeError(f"{' '.join(argv)}: {e}")
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        try:
+            p.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+        raise ProbeError(f"{' '.join(argv)}: timed out after {timeout}s")
     if p.returncode != 0:
-        detail = (p.stderr or p.stdout).strip().splitlines()
-        raise ProbeError(f"{' '.join(map(str, cmd))}: exit {p.returncode}: {detail[-1] if detail else 'no output'}")
-    return p.stdout
+        detail = (err or out).strip().splitlines()
+        raise ProbeError(f"{' '.join(argv)}: exit {p.returncode}: {detail[-1] if detail else 'no output'}")
+    return out
+
+
+CLOUD_AGE_RE = re.compile(r"\bage=\d+m\b")
+
+
+def canonical_cloud_list(text):
+    """Drop elapsed age from `lanes.py cloud-list` rows.
+
+    The formatter renders `age=<minutes>m`, so one unchanged outstanding claim has a
+    different line every minute; hashing that text would invalidate a fingerprint taken
+    during the director and pay for a repeat run. Every ownership field (item, slug,
+    brief, paths) stays; an expired claim is reaped by cloud_claims() and disappears from
+    the list, so expiry still changes the fingerprint.
+    """
+    return CLOUD_AGE_RE.sub("age=*", text)
 
 
 def sha_text(text):
@@ -108,22 +147,35 @@ def probe(repo, state, gh_repo, now=None):
     dirty = run_cmd(["git", "-C", repo, "status", "--porcelain", "--untracked-files=no"], env=git_env)
     dirty_diff = ""
     if dirty.strip():
-        dirty_diff = sha_text(run_cmd(["git", "-C", repo, "diff", "--no-ext-diff", "--"], timeout=20, env=git_env))
+        # HEAD, not the index: `git diff` alone shows unstaged changes only, so two
+        # successive edits staged to the same file keep the same porcelain status and an
+        # empty unstaged diff. --binary folds literal bytes in instead of a name-only line.
+        dirty_diff = sha_text(run_cmd(
+            ["git", "-C", repo, "diff", "HEAD", "--no-ext-diff", "--binary", "--"],
+            timeout=20, env=git_env,
+        ))
 
     runtime = repo / "rsi" / "runtime"
     slices_py = runtime / "slices.py"
     lanes_py = runtime / "lanes.py"
     slices_ready = run_cmd([sys.executable, slices_py, "ready", "--local"], timeout=45, env=env)
     cloud_pending = run_cmd([sys.executable, slices_py, "cloud-pending", "--json"], timeout=45, env=env)
-    cloud_list = run_cmd([sys.executable, lanes_py, "cloud-list"], timeout=15, env=env)
+    cloud_list = canonical_cloud_list(
+        run_cmd([sys.executable, lanes_py, "cloud-list"], timeout=15, env=env))
+    # Local dispatch capacity: a lane that finishes, crashes or releases its claim makes
+    # work dispatchable again without touching the queue or GitHub. --ignore-pressure keeps
+    # the free-lane set a function of lane state, not of the load average that moves every
+    # few seconds; the director still applies the real idle gate before it dispatches.
+    lanes_claimed = run_cmd([sys.executable, lanes_py, "claimed"], timeout=15, env=env)
+    lanes_idle = run_cmd([sys.executable, lanes_py, "idle", "--ignore-pressure"], timeout=15, env=env)
 
     prs = run_cmd([
         gh, "pr", "list", "--repo", gh_repo, "--state", "open", "--limit", "100",
-        "--json", "number,title,headRefName,mergeable,isDraft,labels",
+        "--json", "number,title,headRefName,headRefOid,mergeable,isDraft,labels,updatedAt",
     ], timeout=20, env=env)
     issues = run_cmd([
         gh, "issue", "list", "--repo", gh_repo, "--state", "open", "--limit", "100",
-        "--json", "number,title,labels",
+        "--json", "number,title,labels,updatedAt",
     ], timeout=20, env=env)
 
     dogfood = state / "dogfood"
@@ -144,6 +196,7 @@ def probe(repo, state, gh_repo, now=None):
         "ready": slices_ready,
         "cloud_pending": cloud_pending,
         "cloud_list": cloud_list,
+        "lanes": {"claimed": lanes_claimed, "idle": lanes_idle},
         "github": {"prs": prs, "issues": issues},
         "queue": markdown_section(state / "STATUS.md", "## Queue"),
         "sendback": files_hash(state / "sendback", "*.md"),

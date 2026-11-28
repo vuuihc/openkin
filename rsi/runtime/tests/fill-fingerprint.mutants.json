@@ -14,6 +14,13 @@
     "new": "            \"throttled\": bool(latest and now - latest < 0),\n"
   },
   {
+    "label": "a successful pulse never records its baseline, so every pulse pays the director again",
+    "file": "rsi/runtime/run.sh",
+    "test": "bash rsi/runtime/tests/test-fill-fingerprint.sh",
+    "old": "if [ \"$MODE\" = pulse ] && [ \"${FP_RC:-2}\" -eq 0 ] && [ $RC -eq 0 ] && [ $PR -eq 0 ] && [ $DRY -eq 0 ]; then\n",
+    "new": "if false; then # recording disabled\n"
+  },
+  {
     "label": "input drift during the director is ignored, so the next pulse can skip unread work",
     "file": "rsi/runtime/fill_fingerprint.py",
     "test": "bash rsi/runtime/tests/test-fill-fingerprint.sh",

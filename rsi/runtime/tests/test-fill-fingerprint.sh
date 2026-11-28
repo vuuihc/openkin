@@ -16,7 +16,7 @@ new_fixture() { # <case>
   CASE="$1"
   D="$T/$CASE"; REPO="$D/repo"; STATE="$D/state"
   mkdir -p "$REPO/rsi/runtime" "$REPO/docs/plans" "$REPO/docs/product/stories" \
-    "$STATE/sendback" "$STATE/merge" "$STATE/dogfood"
+    "$STATE/sendback" "$STATE/merge" "$STATE/dogfood" "$STATE/fake-lanes"
   git -C "$REPO" init -q -b main
   cat > "$REPO/rsi/DECISIONS.md" <<'EOF'
 # Decisions
@@ -46,10 +46,21 @@ else:
     raise SystemExit(2)
 PY
   cat > "$REPO/rsi/runtime/lanes.py" <<'PY'
-import sys
-if sys.argv[1] != "cloud-list":
+import os, sys
+cmd = sys.argv[1]
+if cmd == "cloud-list":
+    p = os.path.join(os.environ["RSI_STATE"], "fake-lanes", "cloud-list")
+    if os.path.exists(p):
+        sys.stdout.write(open(p).read())
+    sys.exit(0)
+p = os.path.join(os.environ["RSI_STATE"], "fake-lanes", cmd)
+if os.path.exists(p):
+    sys.stdout.write(open(p).read())
+elif cmd not in ("idle", "claimed", "status"):
     raise SystemExit(2)
 PY
+  printf '1\n' > "$STATE/fake-lanes/idle"
+  : > "$STATE/fake-lanes/claimed"
 
   cat > "$STATE/STATUS.md" <<'EOF'
 # STATUS
@@ -79,10 +90,20 @@ PY
 #!/bin/bash
 [ "${GH_FAIL:-0}" = 1 ] && exit 7
 case " $* " in
-  *" pr "*) cat "$GH_PR_FILE" ;;
-  *" issue "*) cat "$GH_ISSUE_FILE" ;;
+  *" pr "*) file="$GH_PR_FILE" ;;
+  *" issue "*) file="$GH_ISSUE_FILE" ;;
   *) exit 2 ;;
 esac
+# Honour --json like the real CLI: a field the probe stops asking for is absent from the
+# answer, so a snapshot that forgets the PR revision or an update timestamp really is blind.
+fields="$(printf '%s\n' "$@" | awk '/^--json$/{getline; print; exit}')"
+python3 - "$file" "$fields" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+keep = set(f for f in sys.argv[2].split(",") if f)
+print(json.dumps([{k: v for k, v in r.items() if not keep or k in keep} for r in rows],
+                 separators=(",", ":")))
+PY
 SH2
   chmod +x "$FAKE_GH"
 }
@@ -219,7 +240,137 @@ grep -q 'inputs changed' <<<"$OUT" || fail "dirty-tree: dirt did not force a run
 pass dirty-tree
 
 
-# 10. End-to-end wiring in run.sh: with a recorded successful fingerprint and unchanged
+# 10. Local lane state is an input: when a lane finishes or releases its claim it becomes
+#     dispatchable, and newly dispatchable R-* work must not wait for the periodic refresh
+#     while the queue and GitHub answers stay byte-identical.
+new_fixture lane-available
+baseline_success
+printf '1\n' > "$STATE/fake-lanes/claimed"
+printf '2\n' > "$STATE/fake-lanes/idle"
+expect_change_runs lane-available
+
+# 11. A staged edit changes the worktree even though the porcelain status and the unstaged
+#     diff are unchanged between two successive edits; the tree is hashed against HEAD and
+#     binary content is part of the hash, not a "Binary files differ" name line.
+new_fixture staged-edit
+printf 'v0\000base\n' > "$REPO/notes.bin"
+git -C "$REPO" add notes.bin
+git -C "$REPO" commit -qm notes
+git -C "$REPO" update-ref refs/remotes/origin/main HEAD
+run_fp 0 1000 check
+run_fp 0 1000 record
+printf 'v1\000base\n' > "$REPO/notes.bin"
+git -C "$REPO" add notes.bin
+run_fp 0 1000 check
+grep -q 'inputs changed' <<<"$OUT" || fail "staged-edit: first staged edit did not force a run: $OUT"
+run_fp 0 1000 record
+printf 'v2\000base\n' > "$REPO/notes.bin"
+git -C "$REPO" add notes.bin
+run_fp 0 1000 check
+grep -q 'inputs changed' <<<"$OUT" || fail "staged-edit: second staged edit reused the old fingerprint: $OUT"
+pass staged-edit
+
+# 12. GitHub identity fields are not enough: a new commit on an existing PR keeps number,
+#     title, labels and mergeability unchanged and must still make the director reconsider.
+new_fixture github-pr-revision
+echo '[{"number":825,"title":"x","headRefName":"rsi/x","headRefOid":"aaa111","mergeable":"MERGEABLE","isDraft":false,"labels":[],"updatedAt":"2026-11-28T10:00:00Z"}]' > "$GH_PR_FILE"
+baseline_success
+echo '[{"number":825,"title":"x","headRefName":"rsi/x","headRefOid":"bbb222","mergeable":"MERGEABLE","isDraft":false,"labels":[],"updatedAt":"2026-11-28T10:00:00Z"}]' > "$GH_PR_FILE"
+expect_change_runs github-pr-revision
+
+# 13. Feedback added to an existing issue changes only its update timestamp.
+new_fixture github-issue-update
+echo '[{"number":700,"title":"bug","labels":[],"updatedAt":"2026-11-28T10:00:00Z"}]' > "$GH_ISSUE_FILE"
+baseline_success
+echo '[{"number":700,"title":"bug","labels":[],"updatedAt":"2026-11-28T12:00:00Z"}]' > "$GH_ISSUE_FILE"
+expect_change_runs github-issue-update
+
+# 14. `lanes.py cloud-list` renders elapsed age (%dm), so an unchanged outstanding claim has
+#     different text every minute. The real formatter's ownership fields are hashed and only
+#     elapsed age is dropped; a new claim or an expired one still changes the fingerprint.
+new_fixture cloud-age-stability
+mkdir -p "$STATE/cloud/expired"
+python3 - "$HERE/../lanes.py" "$HELPER" "$STATE/cloud" <<'PY' || fail "cloud-age-stability: canonical claim data check failed"
+import importlib.util, json, os, subprocess, sys, time
+lanes, helper, cdir = sys.argv[1], sys.argv[2], sys.argv[3]
+claim = os.path.join(cdir, "c1.json")
+now = time.time()
+def write(**kw):
+    d = {"slug": "rsi/x", "item": "R-x", "brief": "b.md", "paths": ["a.py"],
+         "status": "claimed", "claimed_at": now - 60, "launched_at": now - 60,
+         "expires_at": now + 3600}
+    d.update(kw)
+    json.dump(d, open(claim, "w"))
+def cloud_list():
+    env = dict(os.environ, RSI_STATE=os.path.dirname(cdir))
+    return subprocess.run([sys.executable, lanes, "cloud-list"],
+                          capture_output=True, text=True, env=env).stdout
+spec = importlib.util.spec_from_file_location("ff", helper)
+ff = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ff)
+write()
+a = cloud_list()
+write(claimed_at=now - 180, launched_at=now - 180)
+b = cloud_list()
+assert a != b, "fixture: the real formatter did not render a different age: %r %r" % (a, b)
+ca = ff.canonical_cloud_list(a)
+assert ca == ff.canonical_cloud_list(b), "age alone changed the canonical claim data: %r vs %r" % (a, b)
+write(claimed_at=now - 60, launched_at=now - 60, paths=["b.py"])
+assert ff.canonical_cloud_list(cloud_list()) != ca, "an ownership (paths) change was dropped"
+write(paths=["a.py"], expires_at=now - 1)
+assert cloud_list() == "", "fixture: the real formatter did not reap the expired claim"
+assert ff.canonical_cloud_list("") != ca, "an expired claim was dropped from the fingerprint"
+PY
+pass cloud-age-stability
+
+# The probe itself hashes the canonical form: the same claim rendered at a different age
+# must still skip, so canonical_cloud_list being defined but bypassed in probe() is red.
+new_fixture cloud-age-wiring
+echo 'R-x    rsi/x    age=1m brief=b paths=a.py' > "$STATE/fake-lanes/cloud-list"
+baseline_success
+echo 'R-x    rsi/x    age=9m brief=b paths=a.py' > "$STATE/fake-lanes/cloud-list"
+run_fp 10 1000 check
+grep -q '^skip:' <<<"$OUT" || fail "cloud-age-wiring: elapsed age invalidated the fingerprint: $OUT"
+pass cloud-age-wiring
+
+# 15. A probe that times out must not leave its descendants running: run_cmd kills the whole
+#     process group (slices.py can wait on a nested lanes.py blocked on the lane flock).
+new_fixture process-group-timeout
+python3 - "$HELPER" "$D" <<'PY' || fail "process-group-timeout: descendant cleanup check failed"
+import importlib.util, os, subprocess, sys, time
+helper, d = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("ff", helper)
+ff = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ff)
+pidfile = os.path.join(d, "grandchild.pid")
+probe = os.path.join(d, "spawn-descendant.sh")
+with open(probe, "w") as fh:
+    fh.write('#!/bin/bash\nsleep 60 &\necho $! > "$1"\nwait\n')
+os.chmod(probe, 0o755)
+try:
+    ff.run_cmd([probe, pidfile], timeout=1)
+except ff.ProbeError:
+    pass
+else:
+    raise SystemExit("run_cmd did not time out")
+for _ in range(50):
+    if os.path.exists(pidfile):
+        break
+    time.sleep(0.05)
+pid = int(open(pidfile).read().strip())
+def alive(p):
+    out = subprocess.run(["ps", "-p", str(p), "-o", "stat="],
+                         capture_output=True, text=True).stdout.strip()
+    return bool(out) and not out.startswith("Z")
+for _ in range(100):
+    if not alive(pid):
+        break
+    time.sleep(0.05)
+assert not alive(pid), "descendant %d survived the probe timeout" % pid
+PY
+pass process-group-timeout
+
+# 16. End-to-end wiring in run.sh: with a recorded successful fingerprint and unchanged
 #     inputs, pulse exits before the paid director binary. The fake director records every
 #     invocation, so a mutant that disables the FP_RC=10 branch turns this case red.
 new_run_fixture() {
@@ -238,7 +389,8 @@ new_run_fixture() {
   git -C "$REPO" remote add origin "$REPO"
   git -C "$REPO" update-ref refs/remotes/origin/main HEAD
 
-  cp "$HERE/../run.sh" "$HERE/../common.sh" "$HERE/../fill_fingerprint.py" "$REPO/rsi/runtime/"
+  cp "$HERE/../run.sh" "$HERE/../common.sh" "$HERE/../fill_fingerprint.py" \
+     "$HERE/../parse_result.py" "$REPO/rsi/runtime/"
   cat > "$REPO/rsi/runtime/lane.sh" <<'SH2'
 #!/bin/bash
 exit 0
@@ -256,6 +408,8 @@ PYSTUB
 import sys
 if sys.argv[1] == "idle":
     print("1")
+elif sys.argv[1] == "claimed":
+    pass
 elif sys.argv[1] == "status":
     print("lane 1: idle")
 elif sys.argv[1] != "cloud-list":
@@ -286,10 +440,18 @@ PYSTUB
   cat > "$FAKE_GH" <<'SH2'
 #!/bin/bash
 case " $* " in
-  *" pr "*) cat "$GH_PR_FILE" ;;
-  *" issue "*) cat "$GH_ISSUE_FILE" ;;
+  *" pr "*) file="$GH_PR_FILE" ;;
+  *" issue "*) file="$GH_ISSUE_FILE" ;;
   *) exit 2 ;;
 esac
+fields="$(printf '%s\n' "$@" | awk '/^--json$/{getline; print; exit}')"
+python3 - "$file" "$fields" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+keep = set(f for f in sys.argv[2].split(",") if f)
+print(json.dumps([{k: v for k, v in r.items() if not keep or k in keep} for r in rows],
+                 separators=(",", ":")))
+PY
 SH2
   chmod +x "$FAKE_GH"
 
@@ -298,6 +460,7 @@ SH2
   cat > "$HOME_FAKE/.local/bin/claude" <<'SH2'
 #!/bin/bash
 echo called >> "$CLAUDE_LOG"
+echo '{"type":"result","result":"fill ok","is_error":false,"total_cost_usd":0,"num_turns":1}'
 exit 0
 SH2
   chmod +x "$HOME_FAKE/.local/bin/claude"
@@ -328,5 +491,22 @@ echo retry > "$STATE/sendback/x.md"
 run_pulse
 [ -e "$CLAUDE_LOG" ] || fail "run-sh-change: input mutation did not reach the paid director: $OUT"
 pass run-sh-change
+
+# 17. Production recording: an initially unseeded successful pulse writes the baseline itself
+#     (the fake director emits a real stream-json result line through the real parse_result.py),
+#     and the next eligible pulse skips on it. Deleting run.sh's recording block turns the
+#     second pulse into another paid run, so this case is the red for that mutant.
+new_run_fixture run-sh-record
+run_pulse
+[ "$RC" = 0 ] || fail "run-sh-record: first pulse exited $RC: $OUT"
+[ -e "$CLAUDE_LOG" ] || fail "run-sh-record: first pulse did not run the director: $OUT"
+[ -s "$STATE/fill-fingerprint" ] || fail "run-sh-record: successful pulse recorded no baseline: $OUT"
+[ ! -e "$STATE/fill-fingerprint.inflight" ] || fail "run-sh-record: inflight fingerprint left behind"
+echo 1 > "$STATE/last_fill"   # clear only the 8-minute debounce; it is not a fingerprinted input
+run_pulse
+[ "$RC" = 0 ] || fail "run-sh-record: second pulse exited $RC: $OUT"
+grep -q '^skip: fill inputs unchanged' <<<"$OUT" || fail "run-sh-record: second pulse did not skip: $OUT"
+[ "$(grep -c called "$CLAUDE_LOG")" = 1 ] || fail "run-sh-record: paid director ran again after recording"
+pass run-sh-record
 
 echo "fill fingerprint ok"
