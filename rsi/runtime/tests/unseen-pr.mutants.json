@@ -14,11 +14,11 @@
     "new": "    return number not in selected  # mutant: draft and hold labels ignored"
   },
   {
-    "label": "report the DREAM job's date-stamped consolidation branch the dispatcher excludes",
+    "label": "the alarm inherits the removed DREAM exclusion, so a stranded consolidation PR stays silent",
     "file": "rsi/runtime/unseen-pr.py",
-    "test": "RSI_TEST_ONLY=draft-hold-and-foreign-silent bash rsi/runtime/tests/test-unseen-pr.sh",
-    "old": "    if DREAM_BRANCH.match(head):\n        return False\n",
-    "new": "    # mutant: the DREAM date branch is reported\n"
+    "test": "RSI_TEST_ONLY=dream-consolidation-flagged bash rsi/runtime/tests/test-unseen-pr.sh",
+    "old": "    if head == CONTROL_BRANCH:\n        return False\n    if draft:",
+    "new": "    if head == CONTROL_BRANCH:\n        return False\n    if head.startswith(\"rsi/dream-\"):\n        return False\n    if draft:"
   },
   {
     "label": "move the alarm after the empty-set exit, where it can never fire",
