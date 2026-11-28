@@ -1,9 +1,10 @@
 #!/bin/bash
 # screenshots-obligation.sh — MANDATE 5: a change to a user-visible surface must ship
 # captures or say honestly why it cannot. One predicate for both clients, so an RN
-# screen PR carries the same obligation as a console .tsx PR; the inline gate in
+# surface PR carries the same obligation as a console .tsx PR; the inline gate in
 # merge.sh only ever matched ui/src and let a phone-only change through uncaptured
-# (rn-approval-dock, 2026-11-28: an untrue "not visible" waiver took a review round).
+# (rn-approval-dock, 2026-11-28: an untrue "not visible" waiver took a review round;
+# rn-layout-screenshot-arm, 2026-11-28: a src/layout primitive missed the matcher).
 #
 # Usage: screenshots-obligation.sh <changed-paths-file> <body-file> <shots-dir>
 #   changed-paths-file  repo-relative paths, one per line (merge.sh's $CH)
@@ -24,11 +25,13 @@ bad() { echo "SHOTS_FAIL: $*"; exit 1; }
 [ -f "$PATHS" ] || bad "changed-path list is not readable: $PATHS"
 [ -f "$BODY" ] || bad "PR body file is not readable: $BODY"
 
-# Visible surfaces: the console's .tsx (the rule merge.sh has always used) plus the
-# phone client's screens, native modules and app routes. Tests, specs and mutant
-# manifests are not surfaces.
+# Visible surfaces: the console's .tsx (the rule merge.sh has always used) plus every
+# hand-written phone .tsx under mobile-rn/src/ or mobile-rn/app/ — screens, native
+# modules, layout primitives and app routes alike, so a new family needs no matcher
+# edit. Non-.tsx modules carry no surface; tests, specs and mutant manifests are not
+# surfaces.
 UI_VIS="$(grep -E '^ui/src/.*\.tsx$' "$PATHS" 2>/dev/null | grep -vE '\.(test|spec)\.' || true)"
-RN_VIS="$(grep -E '^mobile-rn/(src/screens|src/native|app)/.*\.tsx$' "$PATHS" 2>/dev/null | grep -vE '\.(test|spec|mutants)\.' || true)"
+RN_VIS="$(grep -E '^mobile-rn/(src|app)/.*\.tsx$' "$PATHS" 2>/dev/null | grep -vE '\.(test|spec|mutants)\.' || true)"
 [ -z "$UI_VIS$RN_VIS" ] && ok "no user-visible surface changed"
 
 # Real captures satisfy the obligation regardless of what the body says.

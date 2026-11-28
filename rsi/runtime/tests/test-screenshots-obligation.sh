@@ -6,8 +6,9 @@
 # rn-approval-dock (2026-11-28) wrote `Screenshots: none: not visible — no ui/ change` while
 # changing mobile-rn/src/screens/ConversationView.tsx; the reviewer spent a round on it.
 # The obligation is one helper now (runtime/screenshots-obligation.sh): the ui/src rule
-# unchanged, plus the phone's screens/native/app surfaces, and an RN change may not waive
-# itself as invisible — a named capture gap still passes.
+# unchanged, plus every hand-written phone .tsx under mobile-rn/src/ or mobile-rn/app/ —
+# screens, native modules, layout primitives and app routes alike — and an RN change may not
+# waive itself as invisible; a named capture gap still passes.
 #
 # Hermetic: mktemp dirs, no gh, no network, no model. Prints "PASS <case>" per case.
 # Set RSI_TEST_ONLY=<case name> to run one case.
@@ -118,6 +119,53 @@ test_rn_test_and_mutant_files_have_no_obligation() {
   [ "$RC" -eq 0 ] || fail "rn/test-files: test/mutant files were obliged ($OUT)"
 }
 
+test_rn_layout_only_change_without_line_fails() {
+  # A layout primitive renders too; the old matcher let mobile-rn/src/layout through.
+  paths mobile-rn/src/layout/SplitListLayout.tsx
+  body "No body line."
+  shots_empty
+  oblig
+  [ "$RC" -ne 0 ] || fail "rn/layout-no-line: a layout .tsx reached the gate uncaptured ($OUT)"
+  case "$OUT" in
+    "SHOTS_FAIL: Phone .tsx changed but no screenshots in $T/shots/ "*) ;;
+    *) fail "rn/layout-no-line: verdict '$OUT' does not name the phone" ;;
+  esac
+}
+
+test_rn_layout_only_invisibility_waiver_fails() {
+  # The same untrue waiver that cost the rn-approval-dock round, on a layout file.
+  paths mobile-rn/src/layout/SplitListLayout.tsx
+  body "Screenshots: none: not visible — no ui/ change"
+  shots_empty
+  oblig
+  [ "$RC" -ne 0 ] || fail "rn/layout-invisible: an untrue phone waiver passed ($OUT)"
+  case "$OUT" in
+    *"user-visible on the phone"*) ;;
+    *) fail "rn/layout-invisible: verdict '$OUT' does not explain the gap" ;;
+  esac
+}
+
+test_rn_layout_named_capture_gap_passes() {
+  paths mobile-rn/src/layout/SplitListLayout.tsx
+  body "Screenshots: none: needs a simulator capture; capture floor not met on this host"
+  shots_empty
+  oblig
+  [ "$RC" -eq 0 ] || fail "rn/layout-gap: refused an honest capture gap ($OUT)"
+}
+
+test_rn_layout_non_tsx_module_has_no_obligation() {
+  # Pure logic under src/layout carries no surface of its own; only .tsx is obliged.
+  paths mobile-rn/src/layout/split.ts mobile-rn/src/layout/useListWidth.ts
+  body "No body line."
+  shots_empty
+  oblig
+  [ "$RC" -eq 0 ] || fail "rn/layout-module: a non-visual .ts module was obliged ($OUT)"
+  case "$OUT" in
+    *"no user-visible surface changed"*) ;;
+    *) fail "rn/layout-module: verdict '$OUT'" ;;
+  esac
+}
+
 test_merge_block_holds_on_rn_waiver() {
   # Run merge.sh's real step-3 block with stubs, not just a grep: an untrue RN waiver
   # must reach sendback with the hold category, and a clean change must fall through.
@@ -180,6 +228,10 @@ run test_rn_invisibility_waiver_fails
 run test_rn_named_capture_gap_passes
 run test_rn_model_only_change_has_no_obligation
 run test_rn_test_and_mutant_files_have_no_obligation
+run test_rn_layout_only_change_without_line_fails
+run test_rn_layout_only_invisibility_waiver_fails
+run test_rn_layout_named_capture_gap_passes
+run test_rn_layout_non_tsx_module_has_no_obligation
 run test_merge_block_holds_on_rn_waiver
 run test_merge_calls_the_helper
 run test_check_sh_runs_the_suite
