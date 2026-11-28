@@ -246,6 +246,35 @@ describe("focus after a send", () => {
     expect(document.activeElement).toBe(other);
   });
 
+  it("returns focus after a send started from the send button", async () => {
+    // A tap on the send button leaves the caret on a control inside the form,
+    // not in the textarea. That is the path the 820 walk used, and it must owe
+    // the caret back just like a hardware ⌘/Ctrl+Enter does.
+    const onSubmit = vi.fn(() => new Promise<void>(() => undefined));
+    const { rerender } = setup({ onSubmit });
+
+    fireEvent.change(box(), { target: { value: "sent from the button" } });
+    const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    send.focus();
+    expect(document.activeElement).toBe(send);
+    fireEvent.submit(box().closest("form")!);
+
+    // Clearing the draft disables the send button, and Chrome blurs a control
+    // it disables. jsdom refuses to blur a disabled control, so the node is
+    // re-enabled for the one focus move; the next render sets it back.
+    send.disabled = false;
+    send.blur();
+    expect(document.activeElement).toBe(document.body);
+    rerender(<Composer onSubmit={onSubmit} busy />);
+    expect(box().disabled).toBe(true);
+    expect(document.activeElement).toBe(document.body);
+
+    rerender(<Composer onSubmit={onSubmit} busy={false} />);
+    await flushAnimationFrame();
+
+    expect(document.activeElement).toBe(box());
+  });
+
   it("leaves a composer the reader never focused unfocused", async () => {
     const onSubmit = vi.fn(() => new Promise<void>(() => undefined));
     const { rerender } = setup({ onSubmit });
