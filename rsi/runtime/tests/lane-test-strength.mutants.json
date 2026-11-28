@@ -1,0 +1,9 @@
+[
+  {
+    "label": "the worker contract drops the source-text rule: a text-only test passes as evidence again",
+    "file": "rsi/runtime/lane.sh",
+    "test": "RSI_TEST_ONLY=test-strength-rule bash rsi/runtime/tests/test-lane-worker-contract.sh",
+    "old": "- An assertion on a production file's text (grep/cat over rsi/runtime/*.sh, a .py or a scripts/*.sh) is not behaviour evidence: the named test must execute the production path (bash, source, python3, the real function), or a mutant must turn the behaviour into a no-op and redden it. A test that stays green when the code becomes a no-op is a rework round, not a claim.",
+    "new": ""
+  }
+]
