@@ -43,6 +43,13 @@ fi
 # PR bodies may mark the line as a bullet or a bold label.
 SHOT_LINES="$(grep -iE '^[[:space:]>*_-]*\*{0,2}screenshots?:' "$BODY" 2>/dev/null \
   | sed -E 's/^[^:]*:\*{0,2}[[:space:]]*//' || true)"
+# The worker contract names a `## Screenshots` section, but a heading carries no colon, so
+# the inline matcher above never saw it and an honest `none:` paragraph beneath read as "no
+# Screenshots line" (rn-usage-i18n, 2026-11-28 08:40). Collect the section's own non-empty
+# lines — up to the next heading, bounded — and let the same loop below classify them; a
+# heading with no usable line still falls through to the no-usable-line failure.
+SHOT_SECTION="$(awk '/^[[:space:]]*#{1,6}[[:space:]]*[*_]*[Ss]creenshots[*_]*:?[[:space:]]*$/{f=1;n=0;next} f&&/^[[:space:]]*#{1,6}[[:space:]]/{f=0} f&&NF&&n<5{print;n++}' "$BODY" 2>/dev/null || true)"
+SHOT_LINES="$SHOT_LINES"$'\n'"$SHOT_SECTION"
 EVIDENCE=""; NONE_SEEN=""; NONE_REASON=""
 while IFS= read -r line; do
   [ -z "$line" ] && continue
