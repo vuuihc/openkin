@@ -16,7 +16,7 @@ import sys
 import time
 from pathlib import Path
 
-VERSION = 2
+VERSION = 3
 DOGFOOD_THROTTLE_SECS = 6 * 60 * 60
 DEFAULT_MAX_AGE = 45 * 60
 
@@ -77,6 +77,26 @@ def canonical_cloud_list(text):
     the list, so expiry still changes the fingerprint.
     """
     return CLOUD_AGE_RE.sub("age=*", text)
+
+
+ACTIVE_LANE_CLOCK_RE = re.compile(r"\b(age|silent)=\S+")
+
+
+def canonical_active_lanes(text):
+    """Keep every ACTIVE `lanes.py status` row across ALL_LANES, minus its clocks.
+
+    `lanes.py claimed` prints unstarted claim numbers only and `idle` scans slots 1..MAX_LANES,
+    so a running lane above a lowered limit -- which still reserves its paths -- appears in
+    neither. When it finishes or crashes, newly dispatchable work would keep the same
+    fingerprint. `status` covers ALL_LANES and carries each active lane's item, slug and paths;
+    age and silent advance on their own, so only those two fields are blanked.
+    """
+    out = []
+    for line in text.splitlines():
+        if not line.startswith("lane ") or ": ACTIVE" not in line:
+            continue
+        out.append(ACTIVE_LANE_CLOCK_RE.sub(r"\1=*", line))
+    return "\n".join(out)
 
 
 def sha_text(text):
@@ -168,6 +188,10 @@ def probe(repo, state, gh_repo, now=None):
     # few seconds; the director still applies the real idle gate before it dispatches.
     lanes_claimed = run_cmd([sys.executable, lanes_py, "claimed"], timeout=15, env=env)
     lanes_idle = run_cmd([sys.executable, lanes_py, "idle", "--ignore-pressure"], timeout=15, env=env)
+    # Active lanes reserve paths at every slot, including rows above MAX_LANES after the limit
+    # was lowered; `claimed` and `idle` miss those, so their identity and paths are hashed too.
+    lanes_active = canonical_active_lanes(
+        run_cmd([sys.executable, lanes_py, "status"], timeout=15, env=env))
 
     prs = run_cmd([
         gh, "pr", "list", "--repo", gh_repo, "--state", "open", "--limit", "100",
@@ -196,7 +220,7 @@ def probe(repo, state, gh_repo, now=None):
         "ready": slices_ready,
         "cloud_pending": cloud_pending,
         "cloud_list": cloud_list,
-        "lanes": {"claimed": lanes_claimed, "idle": lanes_idle},
+        "lanes": {"claimed": lanes_claimed, "idle": lanes_idle, "active": lanes_active},
         "github": {"prs": prs, "issues": issues},
         "queue": markdown_section(state / "STATUS.md", "## Queue"),
         "sendback": files_hash(state / "sendback", "*.md"),

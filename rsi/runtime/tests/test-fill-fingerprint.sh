@@ -249,6 +249,51 @@ printf '1\n' > "$STATE/fake-lanes/claimed"
 printf '2\n' > "$STATE/fake-lanes/idle"
 expect_change_runs lane-available
 
+# 10a. A running lane above a lowered MAX_LANES reserves paths but is absent from `claimed`
+#      (unstarted only) and from `idle` (slots 1..MAX_LANES): its release leaves both slot
+#      lists byte-identical, so only the active-lane identity/paths can make the run happen.
+new_fixture lane-above-cap-release
+cat > "$STATE/fake-lanes/status" <<'EOF'
+lane 1: idle     last: finished R-old old mode=new pr=- note=
+lane 4: ACTIVE   running  R-big rsi/big mode=rework age=12m silent=3m paths=internal/fill/a.py,internal/fill/b.py
+EOF
+baseline_success
+cat > "$STATE/fake-lanes/status" <<'EOF'
+lane 1: idle     last: finished R-old old mode=new pr=- note=
+lane 4: idle     last: finished R-big rsi/big mode=rework pr=812 note=released
+EOF
+[ "$(cat "$STATE/fake-lanes/idle")" = 1 ] || fail "lane-above-cap-release: idle list moved"
+[ ! -s "$STATE/fake-lanes/claimed" ] || fail "lane-above-cap-release: claimed list moved"
+expect_change_runs lane-above-cap-release
+
+# 10b. age and silent advance every minute on their own; they must not invalidate the
+#      fingerprint while the active lane's identity and paths stay put.
+new_fixture lane-above-cap-age
+cat > "$STATE/fake-lanes/status" <<'EOF'
+lane 1: idle     last: finished R-old old mode=new pr=- note=
+lane 4: ACTIVE   running  R-big rsi/big mode=rework age=12m silent=3m paths=internal/fill/a.py,internal/fill/b.py
+EOF
+baseline_success
+cat > "$STATE/fake-lanes/status" <<'EOF'
+lane 1: idle     last: finished R-old old mode=new pr=- note=
+lane 4: ACTIVE   running  R-big rsi/big mode=rework age=19m silent=9m paths=internal/fill/a.py,internal/fill/b.py
+EOF
+run_fp 10 1000 check
+grep -q '^skip:' <<<"$OUT" || fail "lane-above-cap-age: elapsed age invalidated the fingerprint: $OUT"
+pass lane-above-cap-age
+
+# 10c. The paths an ACTIVE row reserves are part of the input: an implementation that kept
+#      the row but canonicalised `paths=` away would miss a different overlap set.
+new_fixture lane-above-cap-paths
+cat > "$STATE/fake-lanes/status" <<'EOF'
+lane 4: ACTIVE   running  R-big rsi/big mode=rework age=12m silent=3m paths=internal/fill/a.py
+EOF
+baseline_success
+cat > "$STATE/fake-lanes/status" <<'EOF'
+lane 4: ACTIVE   running  R-big rsi/big mode=rework age=12m silent=3m paths=internal/fill/a.py,internal/fill/b.py
+EOF
+expect_change_runs lane-above-cap-paths
+
 # 11. A staged edit changes the worktree even though the porcelain status and the unstaged
 #     diff are unchanged between two successive edits; the tree is hashed against HEAD and
 #     binary content is part of the hash, not a "Binary files differ" name line.

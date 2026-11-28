@@ -28,6 +28,13 @@
     "new": "    if False and expected != fp:\n"
   },
   {
+    "label": "active lanes above a lowered MAX_LANES are dropped, so releasing one keeps the fingerprint and holds back dispatchable work",
+    "file": "rsi/runtime/fill_fingerprint.py",
+    "test": "bash rsi/runtime/tests/test-fill-fingerprint.sh",
+    "old": "        if not line.startswith(\"lane \") or \": ACTIVE\" not in line:\n            continue\n",
+    "new": "        continue  # active lanes ignored\n"
+  },
+  {
     "label": "the fingerprint suite is dropped from the shell-test job, so the guard can regress silently",
     "file": "scripts/check.sh",
     "test": "bash rsi/runtime/tests/test-wiring.sh",
