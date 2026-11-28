@@ -9,7 +9,9 @@
 # throwaway trees through its --root seam: a stale copy in a file nobody swept
 # must red and be named, a swept file that drifts must red, an allowed file must
 # pass while its unused allow entries are named on stderr only, and a replay of
-# the three pre-#568 sentences must name exactly those three files.
+# the three pre-#568 sentences must name exactly those three files. Cases 10-11
+# pin the scarce-reset freeze group: a fifth unregistered copy reds even when it
+# starts exact, and a swept copy reds when it drops the freeze.
 #
 # The negative half matters as much as the red half: today's three-width rule
 # (the `... and ...` form and the `390/820/1100` slash form) must stay green in a
@@ -33,6 +35,14 @@ SWEPT=(
   rsi/runtime/prompts/fill.md
   rsi/runtime/prompts/pulse-serial.md
 )
+# The scarce-reset freeze is a second swept set: any new copy of the rule must be
+# registered here or the checker names it instead of letting it drift unwatched.
+RESET_SWEPT=(
+  rsi/MANDATE.md
+  rsi/roles/director.md
+  rsi/runtime/prompts/fill.md
+  rsi/runtime/prompts/pulse-serial.md
+)
 # An allowed file that really matches a stale pattern on today's tree.
 ALLOWED="rsi/runtime/ux-gate.sh"
 STALE_LANE='For visible UI also save 390×844 and 1100×760 before/after screenshots'
@@ -44,9 +54,9 @@ pass() { echo "PASS $*"; }
 [ -f "$CHECKER" ] || fail "checker missing: $CHECKER"
 [ -f "$REGISTRY" ] || fail "registry missing: $REGISTRY"
 
-seed() { # <dir> — the eight swept files, exactly as the tree carries them today
+seed() { # <dir> — the swept files, exactly as the tree carries them today
   local d="$1" rel
-  for rel in "${SWEPT[@]}"; do
+  for rel in "${SWEPT[@]}" "${RESET_SWEPT[@]}"; do
     mkdir -p "$d/$(dirname "$rel")"
     cp "$REPO/$rel" "$d/$rel" || fail "seed: cannot copy $rel"
   done
@@ -221,6 +231,37 @@ PY
   pass allow-without-reason-is-a-registry-error
 }
 
+# --- 10. an unregistered fifth copy of the reset freeze is named ------------------------------
+# The incident rule is prompt/policy text. A fifth CEO copy added later must not
+# drift unwatched: even if it starts as the exact current sentence, being outside
+# the swept set is itself red so the sweep has to register or explicitly allow it.
+test_unregistered_reset_copy_reds() {
+  local tree="$T/unregistered-reset"
+  seed "$tree"
+  mkdir -p "$tree/rsi/runtime/prompts"
+  grep -m1 'Codex Full reset and other external scarce assets' "$REPO/rsi/MANDATE.md" | sed 's/^- //' \
+    > "$tree/rsi/runtime/prompts/new-ceo-prompt.md"
+  run_tree "$tree"
+  [ "$RC" -eq 1 ] || fail "unregistered-reset-copy-reds: exit $RC, want 1 ($ERR)"
+  grep -qxF 'rsi/runtime/prompts/new-ceo-prompt.md:1: stale copy of scarce-reset-freeze (not swept, not allowed)' <<<"$ERR" \
+    || fail "unregistered-reset-copy-reds: the fifth copy is not named: $ERR"
+  [ -z "$OUT" ] || fail "unregistered-reset-copy-reds: a red run wrote to stdout: $OUT"
+  pass unregistered-reset-copy-reds
+}
+
+# --- 11. a swept reset copy that loses the freeze is named ------------------------------------
+test_drifted_reset_swept_file_reds() {
+  local tree="$T/drifted-reset" target="rsi/MANDATE.md"
+  seed "$tree"
+  sed 's/expiry does not create demand/expiry creates demand/' "$tree/$target" > "$tree/$target.tmp" \
+    && mv "$tree/$target.tmp" "$tree/$target" || fail "drifted-reset: cannot edit $target"
+  run_tree "$tree"
+  [ "$RC" -eq 1 ] || fail "drifted-reset-swept-file-reds: exit $RC, want 1 ($ERR)"
+  grep -qxF "$target: swept file no longer carries scarce-reset-freeze" <<<"$ERR" \
+    || fail "drifted-reset-swept-file-reds: the drifted file is not named: $ERR"
+  pass drifted-reset-swept-file-reds
+}
+
 run() { # <function> [<case name>] — RSI_TEST_ONLY accepts either spelling
   local fn="$1" name="${2:-$1}"
   [ -n "${RSI_TEST_ONLY:-}" ] && [ "$fn" != "$RSI_TEST_ONLY" ] && [ "$name" != "$RSI_TEST_ONLY" ] \
@@ -236,4 +277,6 @@ run test_excluded_tests_and_state_are_not_scanned
 run test_repo_tree_green
 run test_pre_568_round_replays_red
 run test_allow_without_a_reason_is_a_registry_error
+run test_unregistered_reset_copy_reds
+run test_drifted_reset_swept_file_reds
 echo "test-claim-copies: ALL-PASS"
