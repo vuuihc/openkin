@@ -1,0 +1,37 @@
+[
+  {
+    "label": "counts every subject again: a docs-only range forces a release",
+    "file": "rsi/runtime/release-check.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "        if (started && (npaths == 0 || visible_path)) vis++",
+    "new": "        if (started) vis++"
+  },
+  {
+    "label": "default back to 5: one user-visible merge no longer ships",
+    "file": "rsi/runtime/release-check.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "MIN=\"${RSI_RELEASE_MIN:-1}\"",
+    "new": "MIN=\"${RSI_RELEASE_MIN:-5}\""
+  },
+  {
+    "label": "test-file exclusion dropped: a test-only change counts as shipped work",
+    "file": "rsi/runtime/release-check.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "        if (p ~ /\\.mdx?$/ || p ~ /_test\\.go$/ || p ~ /\\.snap$/ || p ~ /\\.mutants\\.json$/) return 1",
+    "new": "        if (p ~ /\\.mdx?$/ || p ~ /\\.snap$/ || p ~ /\\.mutants\\.json$/) return 1"
+  },
+  {
+    "label": "pace release_min back to 5: the patrol disagrees with the gate's default",
+    "file": "rsi/runtime/pace.py",
+    "test": "bash rsi/runtime/tests/test-pace.sh",
+    "old": "        return int(os.environ.get(\"RSI_RELEASE_MIN\", \"1\"))",
+    "new": "        return int(os.environ.get(\"RSI_RELEASE_MIN\", \"5\"))"
+  },
+  {
+    "label": "a gate HOLD no longer stops the release: the user-visible threshold holds nothing",
+    "file": "rsi/runtime/release.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "    *)\n      printf '%s\\n' \"$CHK\"\n      [ \"$waits\" -gt 0 ] && log \"GATE_WAIT ended after ${waits} checks: $(printf '%s' \"$CHK\" | sed -n 's/^reason=//p')\"\n      die \"release-check says HOLD (see above)\"",
+    "new": "    *)\n      printf '%s\\n' \"$CHK\"\n      [ \"$waits\" -gt 0 ] && log \"GATE_WAIT ended after ${waits} checks: $(printf '%s' \"$CHK\" | sed -n 's/^reason=//p')\"\n      exit 0"
+  }
+]

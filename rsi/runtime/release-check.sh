@@ -6,8 +6,16 @@
 #   * nothing is in flight — the live node answers /api/tasks with no session in
 #     queued / running / waiting_approval / waiting_input / retrying, and no merge is
 #     landing (state/.land.lock free);
-#   * enough has piled up — at least RSI_RELEASE_MIN merged PRs (default 5) sit on
-#     origin/main that no release has shipped yet.
+#   * enough has piled up — at least RSI_RELEASE_MIN user-visible merged PRs (default 1)
+#     sit on origin/main that no release has shipped yet.
+#
+# Only user-visible commits count. A commit is user-visible unless every path it changes is
+# non-shipped: docs/, rsi/, .github/, scripts/, any *.md / *.mdx, *_test.go, *.test.*,
+# *.spec.*, *.mutants.json, testdata/, __snapshots__/, *.snap. An unknown path counts as
+# visible, and so does a commit with no file list (a merge): a spurious release costs one
+# restart, a suppressed one leaves a fix unshipped. So a docs / RSI / test-only merge never
+# forces a release, while a console, daemon, API, desktop or phone merge ships on the next
+# patrol.
 #
 # "Unshipped" is measured per target: state/last_release records the SHA each target
 # (node, hub) last ran, and the count starts from the older of the two, so a release
@@ -23,7 +31,7 @@
 # Overrides (tests, and a second checkout):
 #   RSI_RELEASE_STATE   state dir              (default <ctrl>/rsi/state)
 #   RSI_REPO            checkout to count from (default <ctrl>)
-#   RSI_RELEASE_MIN     minimum unshipped PRs  (default 5)
+#   RSI_RELEASE_MIN     minimum unshipped user-visible PRs (default 1)
 #   RSI_FETCH_TIMEOUT   bound on the origin/main refresh, seconds (default 60)
 #   KIN_API             live node base URL     (default http://127.0.0.1:7777)
 #   KIN_TOKEN_FILE      node token file        (default ~/.kin/token)
@@ -32,7 +40,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 CTRL="$(cd "$HERE/../.." && pwd)"
 STATE="${RSI_RELEASE_STATE:-$CTRL/rsi/state}"
 REPO="${RSI_REPO:-$CTRL}"
-MIN="${RSI_RELEASE_MIN:-5}"
+MIN="${RSI_RELEASE_MIN:-1}"
 FETCH_TIMEOUT="${RSI_FETCH_TIMEOUT:-60}"
 case "$FETCH_TIMEOUT" in ''|*[!0-9]*)
   echo "release-check: RSI_FETCH_TIMEOUT must be whole seconds, got '$FETCH_TIMEOUT'" >&2; exit 2 ;;
@@ -165,8 +173,29 @@ if [ -n "$BASE" ] && ! $git -C "$REPO" rev-parse --verify -q "$BASE^{commit}" >/
   BASE=""
 fi
 if [ -n "$BASE" ]; then
-  read -r UNSHIPPED COMMITS <<<"$($git -C "$REPO" log --format=%s "$BASE..origin/main" 2>/dev/null |
-    awk 'BEGIN{p=0;c=0} {c++; if ($0 ~ /\(#[0-9]+\)$/) p++} END{print p+0, c+0}')"
+  # Count the commits that touch a shipped surface, not every subject: the same rule as
+  # pace.py's non_shipped(), so the patrol's "unshipped vs threshold" line agrees with this
+  # gate. A commit with no file list (a merge) is visible; an unknown path is visible.
+  read -r UNSHIPPED COMMITS <<<"$($git -C "$REPO" log --format='@@%H' --name-only "$BASE..origin/main" 2>/dev/null |
+    awk '
+      function non_shipped(p,   n, i, seg, base) {
+        n = split(p, seg, "/")
+        for (i = 1; i < n; i++)
+          if (seg[i] == "testdata" || seg[i] == "__snapshots__") return 1
+        base = seg[n]
+        if (p ~ /\.mdx?$/ || p ~ /_test\.go$/ || p ~ /\.snap$/ || p ~ /\.mutants\.json$/) return 1
+        if (base ~ /\.(test|spec)\./) return 1
+        if (p ~ /^(docs|rsi|scripts)\// || p ~ /^\.github\//) return 1
+        return 0
+      }
+      function flush() {
+        if (started && (npaths == 0 || visible_path)) vis++
+      }
+      /^@@/ { flush(); started = 1; total++; npaths = 0; visible_path = 0; next }
+      NF == 0 { next }
+      { npaths++; if (!non_shipped($0)) visible_path = 1 }
+      END { flush(); print vis + 0, total + 0 }
+    ')"
   BASE="$(printf '%s' "$BASE" | cut -c1-8)"
 else
   UNSHIPPED=0; COMMITS=0; BASE="none"
@@ -247,7 +276,7 @@ elif [ "$sessions_num" -gt 0 ]; then
 elif [ -d "$STATE/.land.lock" ] && [ -n "$(cat "$STATE/.land.lock/pid" 2>/dev/null)" ] && kill -0 "$(cat "$STATE/.land.lock/pid" 2>/dev/null)" 2>/dev/null; then
   verdict=HOLD; reason="a merge is landing"
 elif [ "$UNSHIPPED" -lt "$MIN" ]; then
-  verdict=HOLD; reason="unshipped $UNSHIPPED < $MIN"
+  verdict=HOLD; reason="unshipped visible $UNSHIPPED < $MIN"
 elif [ -n "$heavy" ]; then
   verdict=HOLD; reason="heavy: a build/test holds the machine ($heavy)"
 fi

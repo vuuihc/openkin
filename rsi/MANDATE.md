@@ -42,8 +42,12 @@ refuses unless `rsi/runtime/release-check.sh` prints `verdict=GO`. GO needs **bo
 - **nothing in flight** — the live node's `/api/tasks` has no `queued` / `running` / `waiting_approval` /
   `waiting_input` / `retrying` session, the task list is readable (unreadable = HOLD, fail closed), and no
   merge is landing (`state/.land.lock` free). A node that is down has nothing to interrupt, so it does not hold;
-- **at least 5 merged PRs unshipped** (`RSI_RELEASE_MIN`, default 5), counted from the older of the two
-  per-target SHAs in `state/last_release` — the point that the node last ran and the point the Hub last ran.
+- **at least `RSI_RELEASE_MIN` user-visible merged PRs unshipped** (**default 1**), counted from the older
+  of the two per-target SHAs in `state/last_release` — the point that the node last ran and the point the
+  Hub last ran. A PR is not user-visible when every path it changes is non-shipped: `docs/`, `rsi/`,
+  `.github/`, `scripts/`, any `*.md` / `*.mdx`, `*_test.go`, `*.test.*`, `*.spec.*`, `*.mutants.json`,
+  `testdata/`, `__snapshots__/`, `*.snap`; an unknown path counts as visible. A docs / RSI / test-only
+  merge therefore never forces a release, while any shipped-surface merge ships on the next patrol.
   A release that shipped the node but failed on the Hub is retried, never counted as shipped.
 
 Order: bring the primary checkout to `origin/main` — fast-forward when it simply lags; when local `main`

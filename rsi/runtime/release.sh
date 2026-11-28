@@ -1,8 +1,8 @@
 #!/bin/bash
 # release.sh — roll the merged work on origin/main to the live node and the Hub.
 #
-# The CEO loop runs this when release-check.sh says GO: at least RSI_RELEASE_MIN merged
-# PRs are unshipped and nobody is mid-conversation (MANDATE "Release gate"). Two targets,
+# The CEO loop runs this when release-check.sh says GO: at least RSI_RELEASE_MIN user-visible
+# merged PRs are unshipped and nobody is mid-conversation (MANDATE "Release gate"). Two targets,
 # in this order because the node is what Ethan is looking at:
 #
 #   node — fast-forward the checkout to origin/main, then ./scripts/desktop-rebuild.sh
@@ -34,7 +34,7 @@
 #   --repo DIR   the checkout to release (default /Users/vuuihc/Workspace/study/kin-multidevice)
 #   --dry-run    print the plan and the release-check verdict, change nothing
 #
-# Env: RSI_RELEASE_STATE, RSI_RELEASE_MIN (passed to release-check.sh);
+# Env: RSI_RELEASE_STATE, RSI_RELEASE_MIN (user-visible threshold passed to release-check.sh, default 1);
 #      RSI_HUB_SSH (ssh host alias, default nas), RSI_HUB_DIR (default /volume1/docker/openkin),
 #      RSI_HUB_COMPOSE (default docker-compose.dogfood.yml), RSI_HUB_IMAGE (default openkin:dogfood),
 #      RSI_HUB_TIMEOUT (build+roll seconds, default 3600).

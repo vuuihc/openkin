@@ -32,11 +32,12 @@ after the verdict when --latency is absent; without the flag the output is
 byte-identical to before.
 
 Unshipped follows the release gate (release-check.sh), not the clock: the older of
-the node=/hub= commits in state/last_release is the baseline, and every subject
-between it and refs/remotes/origin/main ending in "(#N)" is unshipped. A PR merged
-in the release minute therefore still reads unshipped. Only the local origin/main
-ref is read — the patrol updates it — and when there is no usable marker or ref the
-script falls back to the merged.log count; --json names the source that answered.
+the node=/hub= commits in state/last_release is the baseline, and every user-visible
+commit between it and refs/remotes/origin/main is unshipped (a docs / RSI / test-only
+commit never is). A PR merged in the release minute therefore still reads unshipped.
+Only the local origin/main ref is read — the patrol updates it — and when there is no
+usable marker or ref the script falls back to the merged.log count; --json names the
+source that answered.
 
 Every stamp this file compares against is written on the loop's own day: rsi/runtime/
 common.sh exports TZ=Asia/Singapore, and merged.log, merge/cycles.log and GOAL.md's phase
@@ -58,6 +59,7 @@ a decision (cut scope, unblock a lane), never a score to optimise.
 """
 import argparse
 import json
+import os
 import re
 import statistics
 import subprocess
@@ -86,7 +88,6 @@ GATE = re.compile(r"\bgate=(ran|cached)\b")
 TIER = re.compile(r"\btier=(small|medium|large)\b")
 QUEUE_WAIT = re.compile(r"\bqueue_wait=(\d+)m")
 PHASE = re.compile(r"<!--\s*phase:\s*(\S+)\s+target=(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})\s*-->")
-PR_SUBJECT = re.compile(r"\(#[0-9]+\)$")
 
 
 def lines(path):
@@ -351,6 +352,55 @@ def baseline(repo, state):
     return old
 
 
+NON_SHIPPED_PREFIXES = ("docs/", "rsi/", ".github/", "scripts/")
+NON_SHIPPED_SUFFIXES = (".md", ".mdx", "_test.go", ".snap", ".mutants.json")
+NON_SHIPPED_DIRS = ("testdata", "__snapshots__")
+
+
+def non_shipped(path):
+    """True when this path never reaches a shipped surface.
+
+    Same rule as release-check.sh: a commit is user-visible unless every path it changes
+    is one of these. An unknown path is visible.
+    """
+    parts = path.split("/")
+    if any(part in NON_SHIPPED_DIRS for part in parts[:-1]):
+        return True
+    base = parts[-1]
+    if path.endswith(NON_SHIPPED_SUFFIXES):
+        return True
+    if ".test." in base or ".spec." in base:
+        return True
+    return path.startswith(NON_SHIPPED_PREFIXES)
+
+
+def visible_commits(repo, base):
+    """(visible, total) over base..origin/main, or None when git cannot answer.
+
+    Same rule as release-check.sh: a commit with no file list (a merge) counts as visible.
+    """
+    log = git(repo, "log", "--format=@@%H", "--name-only",
+              f"{base}..refs/remotes/origin/main")
+    if log is None:
+        return None
+    visible = total = npaths = 0
+    has_visible = False
+    for ln in log.splitlines():
+        if ln.startswith("@@"):
+            if total and (npaths == 0 or has_visible):
+                visible += 1
+            total += 1
+            npaths = 0
+            has_visible = False
+        elif ln.strip():
+            npaths += 1
+            if not non_shipped(ln.strip()):
+                has_visible = True
+    if total and (npaths == 0 or has_visible):
+        visible += 1
+    return visible, total
+
+
 def unshipped_from_git(repo, state):
     """(unshipped, commits) from the gate's baseline, or None when git cannot answer."""
     base = baseline(repo, state)
@@ -358,11 +408,15 @@ def unshipped_from_git(repo, state):
         return None
     if git(repo, "rev-parse", "--verify", "-q", "refs/remotes/origin/main") is None:
         return None
-    log = git(repo, "log", "--format=%s", f"{base}..refs/remotes/origin/main")
-    if log is None:
-        return None
-    subjects = log.splitlines()
-    return sum(1 for s in subjects if PR_SUBJECT.search(s)), len(subjects)
+    return visible_commits(repo, base)
+
+
+def release_min():
+    """The gate's threshold: RSI_RELEASE_MIN (default 1), non-numeric falls back to 1."""
+    try:
+        return int(os.environ.get("RSI_RELEASE_MIN", "1"))
+    except (TypeError, ValueError):
+        return 1
 
 
 def phase():
@@ -405,6 +459,7 @@ def main():
     mtoday = [t for t in merges if t.strftime("%Y-%m-%d") == today]
 
     lat = latencies(state, day_ago)
+    rmin = release_min()
     rel_at, rel_sha = last_release(state)
     counted = unshipped_from_git(repo, state)
     if counted is None:
@@ -432,7 +487,7 @@ def main():
         "last_release_sha": rel_sha,
         "last_release_at": rel_at.strftime("%Y-%m-%d %H:%M") if rel_at else None,
         "unshipped": unshipped, "commits": commits,
-        "unshipped_source": source, "release_min": 5,
+        "unshipped_source": source, "release_min": rmin,
         "phase": name,
         "phase_target": target.strftime("%Y-%m-%d %H:%M") if target else None,
         "phase_hours_left": round(hours_left, 1) if hours_left is not None else None,
@@ -455,7 +510,8 @@ def main():
     print(f"merges: 24h={data['merges_24h']} 7d={data['merges_7d']} "
           f"today={data['merges_today']} (day={data['day_tz']})")
     print(f"open->merge: p50={p50} p90={p90} (n={data['latency_n']}, 24h)")
-    print(f"release: last {rel_sha} at {data['last_release_at']}, unshipped={unshipped}/5")
+    print(f"release: last {rel_sha} at {data['last_release_at']}, "
+          f"unshipped={unshipped}/{rmin}")
     if target:
         print(f"phase: {name} target={data['phase_target']} left={data['phase_hours_left']}h")
     print(f"pace verdict: {verdict}"
