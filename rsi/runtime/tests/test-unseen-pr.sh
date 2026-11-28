@@ -44,8 +44,8 @@ run_tool() {
 # --- fixtures ----------------------------------------------------------------------------------
 
 # The stranded shape: a CEO-named head, open, not a draft, no labels. #101 is selected normally,
-# and #535 (a deliverable named after the DREAM report's phone line) is reported too: only the
-# date-stamped `rsi/dream-<date>` branch is excluded, never the whole `rsi/dream-` prefix.
+# and #535 (a deliverable named after the DREAM report's phone line) is reported too: a
+# `rsi/dream-*` deliverable is not the DREAM job's consolidation branch.
 cat > "$T/unseen.json" <<'EOF'
 [{"number":101,"headRefName":"rsi/other","isDraft":false,"labels":[]},
  {"number":392,"headRefName":"rsi/ceo-ok-marker","isDraft":false,"labels":[]},
@@ -53,14 +53,19 @@ cat > "$T/unseen.json" <<'EOF'
 EOF
 ROWS_101="$(printf '101\tother\tSome selected work\tsmall\t')"
 
+# The DREAM job's date-stamped consolidation branch: a deliverable since DREAM stopped merging
+# its own PR, so a dispatcher tick that skips it is exactly the stranded PR this alarm names.
+cat > "$T/dream.json" <<'EOF'
+[{"number":505,"headRefName":"rsi/dream-2026-11-22","isDraft":false,"labels":[]}]
+EOF
+
 # Every exclusion the coarse rule still honours, plus a foreign head: all silent.
 cat > "$T/silent.json" <<'EOF'
 [{"number":500,"headRefName":"rsi/draft","isDraft":true,"labels":[]},
  {"number":501,"headRefName":"rsi/held","isDraft":false,"labels":[{"name":"needs-ceo"}]},
  {"number":502,"headRefName":"feature/x","isDraft":false,"labels":[]},
  {"number":503,"headRefName":"rsi/ceo-loop","isDraft":false,"labels":[]},
- {"number":504,"headRefName":"rsi/held-too","isDraft":false,"labels":[{"name":"hold"}]},
- {"number":505,"headRefName":"rsi/dream-2026-11-22","isDraft":false,"labels":[]}]
+ {"number":504,"headRefName":"rsi/held-too","isDraft":false,"labels":[{"name":"hold"}]}]
 EOF
 
 # A selected PR is not unseen.
@@ -92,12 +97,23 @@ EOF
 # --- cases -------------------------------------------------------------------------------------
 
 # The motivating case: every open PR the selected rows do not contain is named, in ascending
-# order, exit 0. #535 proves the DREAM exclusion is the date branch, not the prefix.
+# order, exit 0. #535 proves a dream-* deliverable is not the DREAM job's consolidation branch.
 unseen_flagged() {
   run_tool "$T/unseen.json" "$ROWS_101" "$T/state"
   [ "$RC" -eq 0 ] || fail "unseen-flagged: exit $RC ($OUT)"
   [ "$OUT" = "$(printf 'unseen-pr #392 rsi/ceo-ok-marker\nunseen-pr #535 rsi/dream-phone-line')" ] \
     || fail "unseen-flagged: want #392 then #535, got: $OUT"
+}
+
+# The DREAM job no longer merges its own consolidation PR — the merge lane does and records the
+# delivery — so its date-stamped branch is a deliverable. An alarm that keeps the removed
+# exclusion goes silent for the one PR DREAM cannot land itself.
+dream_consolidation_flagged() {
+  rm -rf "$T/dream-state"; mkdir -p "$T/dream-state/merge"
+  run_tool "$T/dream.json" "" "$T/dream-state"
+  [ "$RC" -eq 0 ] || fail "dream-consolidation-flagged: exit $RC ($OUT)"
+  [ "$OUT" = "unseen-pr #505 rsi/dream-2026-11-22" ] \
+    || fail "dream-consolidation-flagged: want #505 reported, got: $OUT"
 }
 
 # Draft, needs-ceo, hold, a foreign head and the control branch are never reported.
@@ -235,6 +251,7 @@ run() { # <case name> <function>
 }
 
 run unseen-flagged unseen_flagged
+run dream-consolidation-flagged dream_consolidation_flagged
 run draft-hold-and-foreign-silent draft_hold_and_foreign_silent
 run selected-is-silent selected_is_silent
 run dedupe-and-renamed-head dedupe_and_renamed_head

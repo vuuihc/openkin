@@ -5,10 +5,11 @@
 # control branch. PR #392 (head rsi/ceo-ok-marker) therefore sat open with zero cycles.log
 # entries while other PRs were verified; it had to be re-opened from another head as #395.
 # Only rsi/ceo-loop — the loop's working branch, auto-synced to origin/main, never a
-# deliverable — is a control branch. The same shape hit the dream rule: the DREAM job's own
-# branch is rsi/dream-<date>, but the filter skipped every rsi/dream-* head, so #535
-# (rsi/dream-phone-line, a real slice) sat green and MERGEABLE with zero cycles.log entries.
-# Only the date-stamped dream branch is excluded now; a dream-* deliverable is selected.
+# deliverable — is a control branch. The dream rule went the same way: the filter once skipped
+# every rsi/dream-* head, so #535 (rsi/dream-phone-line, a real slice) sat green and MERGEABLE
+# with zero cycles.log entries. DREAM also no longer merges its own date-stamped consolidation
+# PR — the merge lane is the one path that records a delivery — so both dream spellings are
+# selected now.
 #
 # One predicate (rsi/runtime/pr_select.py) now answers both callers: the dispatcher's row
 # filter and the open-PR backpressure counter in common.sh. The row filter leaves the
@@ -85,7 +86,7 @@ cat > "$T/dream-compact.json" <<'EOF'
 [{"number":507,"headRefName":"rsi/dream-20261121","isDraft":false,"labels":[],"title":"dream",
   "body":"","files":[{"path":"rsi/DECISIONS.md","additions":3,"deletions":0}]}]
 EOF
-# A deliverable whose head happens to start with dream- is not the DREAM job's branch (#535).
+# A deliverable whose head happens to start with dream- is selected like any other slice (#535).
 cat > "$T/dream-deliverable.json" <<'EOF'
 [{"number":535,"headRefName":"rsi/dream-phone-line","isDraft":false,"labels":[],
   "title":"feat(rsi): make the phone line part of the DREAM report contract",
@@ -140,14 +141,15 @@ control_branch_skipped() {
   expect_none control-branch-skipped
 }
 
-# The DREAM job's date branch is not a deliverable; both date spellings it has used stay out.
-dream_branch_skipped() {
+# The DREAM job no longer merges its own consolidation PR: the merge lane is the one path that
+# records a delivery, so both of DREAM's date spellings are deliverables the lane must select.
+dream_branch_selected() {
   run_select "$T/dream.json"
-  expect_none dream-branch-skipped
+  expect_one dream-branch-selected dream-2026-11-19
 }
-dream_compact_date_skipped() {
+dream_compact_date_selected() {
   run_select "$T/dream-compact.json"
-  expect_none dream-compact-date-skipped
+  expect_one dream-compact-date-selected dream-20261121
 }
 
 # A real slice named dream-* is selected: the prefix rule stranded #535 for 2.5 hours.
@@ -226,8 +228,9 @@ never_queued_after_waiting() {
     || fail "never-queued-after-waiting: order is '$got', want 'settings-coarse-links,rework-loop' ($OUT)"
 }
 
-# The backpressure counter shares the same predicate: a CEO-named PR is active again, a dream
-# PR is not. Total counts every open PR, as before.
+# The backpressure counter shares the same predicate: a CEO-named PR and DREAM's date-stamped
+# consolidation PR are both active now (DREAM's is a deliverable the merge lane records). Total
+# counts every open PR, as before.
 backpressure_counts_ceo_pr() {
   local bp="$T/bp" out
   rm -rf "$bp"; mkdir -p "$bp/bin" "$bp/state" "$bp/ctrl/rsi/state"
@@ -248,8 +251,8 @@ EOF
       unset RSI_OPEN_PR_COUNT
       rsi_open_pr_counts
     ' 2>&1)" || fail "backpressure-counts-ceo-pr: rsi_open_pr_counts failed ($out)"
-  [ "$out" = "1 2" ] \
-    || fail "backpressure-counts-ceo-pr: got '$out', want '1 2' (active total)"
+  [ "$out" = "2 2" ] \
+    || fail "backpressure-counts-ceo-pr: got '$out', want '2 2' (active total)"
 }
 
 # Both call sites read the one module. A re-inlined rsi/ceo-* exclusion is this bug coming back.
@@ -275,8 +278,8 @@ run() { # <case name> <function>
 
 run ceo-pr-claimed ceo_pr_claimed
 run control-branch-skipped control_branch_skipped
-run dream-branch-skipped dream_branch_skipped
-run dream-compact-date-skipped dream_compact_date_skipped
+run dream-branch-selected dream_branch_selected
+run dream-compact-date-selected dream_compact_date_selected
 run dream-deliverable-selected dream_deliverable_selected
 run non-rsi-skipped non_rsi_skipped
 run draft-skipped draft_skipped

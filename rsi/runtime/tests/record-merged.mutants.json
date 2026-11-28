@@ -1,0 +1,93 @@
+[
+  {
+    "label": "the duplicate check is dropped, so a retried merge counts the same PR twice",
+    "file": "rsi/runtime/record-merged.sh",
+    "test": "RSI_TEST_ONLY=second-is-a-noop bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "if [ -f \"$LOG\" ] && LC_ALL=C grep -Eq \"(^|[^[:alnum:]_])#${PR}([^[:alnum:]_]|$)\" \"$LOG\"; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "the PR is matched as a substring, so an existing #900 swallows a record for #90",
+    "file": "rsi/runtime/record-merged.sh",
+    "test": "RSI_TEST_ONLY=whole-token bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "if [ -f \"$LOG\" ] && LC_ALL=C grep -Eq \"(^|[^[:alnum:]_])#${PR}([^[:alnum:]_]|$)\" \"$LOG\"; then",
+    "new": "if [ -f \"$LOG\" ] && LC_ALL=C grep -q \"#${PR}\" \"$LOG\"; then"
+  },
+  {
+    "label": "an empty or '?' sha is accepted, so a delivery row lands with no commit to audit",
+    "file": "rsi/runtime/record-merged.sh",
+    "test": "RSI_TEST_ONLY=no-commit-refused bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "case \"$SHA\" in\n  ''|'?') echo \"record-merged: --sha is required: a merge with no commit is not a delivery record\" >&2; exit 2 ;;\nesac",
+    "new": ": # any sha accepted"
+  },
+  {
+    "label": "a failed append still prints recorded and exits zero, so a delivery is claimed that never reached the log",
+    "file": "rsi/runtime/record-merged.sh",
+    "test": "RSI_TEST_ONLY=unwritable-log bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "if ! printf '%s PR #%s %s %s merged %s %s\\n' \"$(date '+%F %H:%M')\" \"$PR\" \"$SLUG\" \"$ITEM\" \"$SHORT\" \"$URL\" >> \"$LOG\"; then\n  echo \"record-merged: append to $LOG failed\" >&2\n  exit 1\nfi",
+    "new": "printf '%s PR #%s %s %s merged %s %s\\n' \"$(date '+%F %H:%M')\" \"$PR\" \"$SLUG\" \"$ITEM\" \"$SHORT\" \"$URL\" >> \"$LOG\" 2>/dev/null || true"
+  },
+  {
+    "label": "the merge-success path skips the writer, so a merged PR reports RECORDED with no row",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=record-retries bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  if sha=\"$(merged_commit_sha \"$n\")\" && bash \"$RSI_DIR/runtime/record-merged.sh\" --state \"$STATE\" \\\n    --pr \"$n\" --slug \"$slug\" --item \"$item\" --sha \"$sha\" --url \"$url\" >/dev/null; then",
+    "new": "  if sha=\"$(merged_commit_sha \"$n\")\"; then"
+  },
+  {
+    "label": "the dispatcher never drains a queued delivery, so a transient SHA failure loses the row forever",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=pending-drained bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  drain_pending_records\n  # `files` makes",
+    "new": "  : # drain removed by mutant\n  # `files` makes"
+  },
+  {
+    "label": "metadata attempts run without a deadline, so a stalled gh holds the land lock and the drain forever",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=metadata-hangs bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "    out=\"$(bounded_run \"$RECORD_METADATA_SECS\" \"$GH\" pr view \"$n\" --repo \"$GH_REPO\" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null)\"; rc=$?",
+    "new": "    out=\"$(\"$GH\" pr view \"$n\" --repo \"$GH_REPO\" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null)\"; rc=$?"
+  },
+  {
+    "label": "a rejected queue write is ignored, so the caller reports a retry that has no record behind it",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=queue-unwritable bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  queue_pending_record \"$n\" \"$slug\" \"$item\" \"$url\" || return 2\n  return 1",
+    "new": "  queue_pending_record \"$n\" \"$slug\" \"$item\" \"$url\"\n  return 1"
+  },
+  {
+    "label": "the dispatcher never drains a pre-merge intent, so a merge whose append and queue both failed is lost",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=intent-drained bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  drain_record_dir \"$(RECORD_INTENT_DIR)\"",
+    "new": "  : # intent drain removed by mutant"
+  },
+  {
+    "label": "the pre-merge intent write becomes a successful no-op, so the merge runs with no recovery record",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=intent-before-merge bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  if ! persist_merge_intent \"$n\" \"$slug\" \"$item\" \"$url\"; then",
+    "new": "  if ! :; then"
+  },
+  {
+    "label": "a failed pre-merge intent write is ignored, so an unrecordable PR is merged anyway",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=intent-before-merge bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  if ! persist_merge_intent \"$n\" \"$slug\" \"$item\" \"$url\"; then",
+    "new": "  persist_merge_intent \"$n\" \"$slug\" \"$item\" \"$url\" || true\n  if false; then"
+  },
+  {
+    "label": "the drain skips the land lock, so recovery records beside a live verifier and can append a second row",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=drain-yields-to-land-lock bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  if ! mklock \"$STATE/.land.lock\" \"$max\"; then",
+    "new": "  if false; then"
+  },
+  {
+    "label": "the new suite is not wired into job_shell_test, so it never runs in a gate or in CI",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-record-merged.sh || return 1",
+    "new": "  : # wiring removed by mutant"
+  }
+]
