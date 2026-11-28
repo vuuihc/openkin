@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the agent caption asks for progress.input outside the catalog, so the sheet prints the raw path (R-rn-usage-i18n)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "t(\"chat.progress.input\")",
+    "new": "t(\"progress.input\")",
+    "test": "cd mobile-rn && npx jest src/i18n.keys.test.ts -t \"exists in both catalogs\""
+  },
+  {
+    "label": "the agent caption asks for progress.output outside the catalog, so the rendered caption leaks a key (R-rn-usage-i18n)",
+    "file": "mobile-rn/src/screens/ProviderUsage.tsx",
+    "old": "t(\"chat.progress.output\")",
+    "new": "t(\"progress.output\")",
+    "test": "cd mobile-rn && npx jest src/screens/ProviderUsage.visual.test.tsx -t \"KIN-MOBILE-002 R6: the usage caption reads the catalog's labels, never a raw key\""
+  }
+]
