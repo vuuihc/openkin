@@ -165,8 +165,7 @@ iOS 27.2，一次只启动一台。
 **仍未拍：** 配对 / 连接页（帧 01）的视觉不在本轮；它的验收随 #825（owner 持有）
 走，不在这里认领。390 亮色四格与 820 列表 / 对话已由同日 rn-evidence-capture 补证轮覆盖（证据表记作 `cc9c2d78`）。
 
-**新缺陷 D5：** 列表导航头画在 iOS 状态栏下面（标题压住时钟 / 日期），见
-`mobile-rn/EVIDENCE.md` §已知。本行只取证，不修。
+**缺陷 D5（已修复）：** 列表导航头曾画在 iOS 状态栏下面（标题压住时钟 / 日期），由 #849 `9f895e3e` 修复；唯一证据条目是 `mobile-rn/EVIDENCE.md` §已知 的「本轮修复」行，回归为 `mobile-rn/src/screens/ConversationList.safearea.test.tsx`。
 
 ## 变更记录
 
