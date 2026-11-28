@@ -271,23 +271,6 @@ Web 控制台，不在 RN 客户端此行范围。820 配对沿用模拟器里�
   主机 `mem_avail_mb=5088–5554`、`swap_free_mb=885` 未启动模拟器；本轮读数
   `4907–6157` / `1198–1439` 仍低于本行 brief 的 6144 / 2048，改为按 review 要求
   复拍并逐张复看，未出现内存压力崩溃。D4 由此关闭。
-- **D5 · 列表导航头画在 iOS 状态栏下面（2026-11-28 发现；本行只取证，不修）。**
-  当前证据：`rsi/state/shots/rn-evidence-cells/390-list-dark.png`（iPhone 17e，暗色，
-  1170×2532，提交 `c853ac1f`）里大标题「对话」压在状态栏时钟上——图里只剩分钟数
-  贴在标题右侧；`820-approvals-light.png` / `820-usage-light.png`（iPad Air 11-inch
-  (M4)，1640×2360，同提交）里标题与搜索框压在 iPad 状态栏的日期与应用名下面。
-  对话页头部没有这个问题：返回键与标题都落在状态栏下方。此前的列表取证图也有同样
-  的重叠，只是当时按测试锚点判读、没有按像素核对头部；不是本轮引入。
-  读法与修复假设：`mobile-rn/src/screens/ConversationList.tsx:737` 的 `screen` 只有
-  `backgroundColor` / `flex`，`:839` 的 `navBar` 只有 `paddingVertical: 6`，两处都
-  没有读 `useSafeAreaInsets()`；分栏壳的根节点
-  `mobile-rn/src/layout/SplitListLayout.tsx:113` 也只画背景。
-  `mobile-rn/app/_layout.tsx:39` 已挂 `SafeAreaProvider`，所以缺的是列表壳读取顶部
-  inset，不是 provider。修复应由列表壳（或 `SplitListLayout`）加
-  `paddingTop: insets.top`，对话页已有的头部内边距保持不动。
-  回归：在 `mobile-rn/src/screens/ConversationList.visual.test.tsx`（或新套件）把
-  `useSafeAreaInsets` mock 成非零（如 47 / 24），断言 `list-nav` 的 `paddingTop`
-  或标题矩形在 inset 之下；再按 390 与 820 各拍一张对照图。修复另立一行，不在本行。
 - **键盘避让代码已落地，真机未验。** #733，`445dffab`；
   `mobile-rn/src/screens/ConversationView.tsx:772` 用 `KeyboardAvoidingView` 包住正文与
   composer。`mobile-rn/src/screens/Conversation.safearea.test.tsx:98` 的
