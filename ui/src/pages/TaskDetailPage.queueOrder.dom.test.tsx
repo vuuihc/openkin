@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { useSyncExternalStore, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -434,5 +436,45 @@ describe("reordering the queue", () => {
     expect(placeOf("first thought")).toBe("2");
     expect(placeOf("second thought")).toBe("1");
     expect(placeOf("third thought")).toBe("3");
+  });
+});
+
+// The strip's band is published as custom properties from `FloatingApproval`
+// and spent by `.phone-approval-clearance` in the phone media query. The
+// transcript scroller names it so the last queued row can be scrolled above
+// the strip instead of resting under it; with nothing pending the `0px`
+// fallbacks leave today's footer clearance alone.
+const INDEX_CSS = readFileSync(join(process.cwd(), "src/index.css"), "utf8");
+const TASK_PAGE_SOURCE = readFileSync(
+  join(process.cwd(), "src/pages/TaskDetailPage.tsx"),
+  "utf8",
+);
+
+describe("the transcript clears the approval strip", () => {
+  it("R-queue-reorder-yield: the task transcript reserves the approval band on phones", async () => {
+    await open();
+
+    const scroller = screen.getByRole("region", { name: t("task.transcript") });
+    expect(scroller.className.split(/\s+/).filter(Boolean)).toContain("phone-approval-clearance");
+
+    // Both branches of the scroller's ternary: the invisible pre-positioning
+    // element is the same scroller a frame later, and losing the band on the
+    // flip would make the page jump.
+    expect(TASK_PAGE_SOURCE).toMatch(/kin-scroll py-5 min-h-0 phone-approval-clearance outline-none/);
+    expect(TASK_PAGE_SOURCE).toMatch(
+      /kin-scroll py-5 min-h-0 phone-approval-clearance invisible outline-none/,
+    );
+
+    // The class is only worth its name while the shipped rule spends the band
+    // the strip publishes.
+    const rule = INDEX_CSS.match(
+      /@media \(max-width: 767\.98px\)\s*\{\s*\.phone-approval-clearance\s*\{([^}]*)\}/,
+    );
+    expect(rule, "the phone rule exists").not.toBeNull();
+    const body = rule![1];
+    expect(body).toMatch(/padding-bottom:\s*max\(\s*var\(--phone-footer-clearance\)/);
+    expect(body).toMatch(/var\(--approval-strip-height,\s*0px\)/);
+    expect(body).toMatch(/var\(--approval-strip-bottom,\s*0px\)/);
+    expect(body).toMatch(/\+\s*8px/);
   });
 });

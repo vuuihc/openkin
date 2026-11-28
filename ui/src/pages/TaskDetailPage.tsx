@@ -2723,9 +2723,15 @@ export default function TaskDetailPage({
               aria-label={tr("task.transcript")}
               tabIndex={-1}
               className={
+                // `phone-approval-clearance` reserves the band the floating
+                // 等待处理 strip publishes, so the last queued row can rest
+                // above the strip instead of under it. Phone widths only; on
+                // a wide screen the rule does not apply and the pane does not
+                // move. Both branches name it: the invisible pre-positioning
+                // scroller is the same element a frame later.
                 scrollReady
-                  ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 outline-none"
-                  : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible outline-none"
+                  ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 phone-approval-clearance outline-none"
+                  : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 phone-approval-clearance invisible outline-none"
               }
             >
               <WorkerTimeline
