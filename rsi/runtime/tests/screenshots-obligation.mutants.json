@@ -40,5 +40,19 @@
     "test": "bash rsi/runtime/tests/test-screenshots-obligation.sh",
     "old": "  bash rsi/runtime/tests/test-screenshots-obligation.sh || return 1",
     "new": "  : # screenshot obligation suite not wired"
+  },
+  {
+    "label": "heading-section-dropped: a `## Screenshots` section is never read again (the rn-usage-i18n sendback)",
+    "file": "rsi/runtime/screenshots-obligation.sh",
+    "test": "bash rsi/runtime/tests/test-screenshots-obligation.sh",
+    "old": "SHOT_SECTION=\"$(awk '/^[[:space:]]*#{1,6}[[:space:]]*[*_]*[Ss]creenshots[*_]*:?[[:space:]]*$/{f=1;n=0;next} f&&/^[[:space:]]*#{1,6}[[:space:]]/{f=0} f&&NF&&n<5{print;n++}' \"$BODY\" 2>/dev/null || true)\"",
+    "new": "SHOT_SECTION=\"\""
+  },
+  {
+    "label": "heading-section-stops-at-blank: the blank line after the heading ends the section, so an honest reason is unread",
+    "file": "rsi/runtime/screenshots-obligation.sh",
+    "test": "bash rsi/runtime/tests/test-screenshots-obligation.sh",
+    "old": "SHOT_SECTION=\"$(awk '/^[[:space:]]*#{1,6}[[:space:]]*[*_]*[Ss]creenshots[*_]*:?[[:space:]]*$/{f=1;n=0;next} f&&/^[[:space:]]*#{1,6}[[:space:]]/{f=0} f&&NF&&n<5{print;n++}' \"$BODY\" 2>/dev/null || true)\"",
+    "new": "SHOT_SECTION=\"$(awk '/^[[:space:]]*#{1,6}[[:space:]]*[*_]*[Ss]creenshots[*_]*:?[[:space:]]*$/{f=1;n=0;next} f&&(!NF||/^[[:space:]]*#{1,6}[[:space:]]/){f=0} f&&NF&&n<5{print;n++}' \"$BODY\" 2>/dev/null || true)\""
   }
 ]
