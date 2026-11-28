@@ -112,7 +112,16 @@ npx --no-install jest --ci --runInBand
 | 用量 | 820 | 亮 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/820-usage-light.png` | 1640×2360 | 用量 sheet 浮在分栏上，背后是 `[seed] reading` 的读取态（标题与用户气泡可见）；亮色玻璃底 |
 | 用量 | 820 | 暗 | `c853ac1f` | `rsi/state/shots/rn-evidence-cells/820-usage-dark.png` | 1640×2360 | 同上，暗色；sheet、分段控件、provider 行与占比条都取暗色 token |
 
-**用量取证限制：** 三张用量图都仍显示未翻译的 `progress.input` / `progress.output` 键；这是本轮观察到的界面限制，取证表如实记录，不在本取证行修产品。
+**用量取证（2026-11-28 补拍四张）：** 拍摄提交 b7211158（即拍摄时的分支 HEAD；每次启动模拟器前的主机读数：iPhone 17e `mem_avail_mb=5179`、`swap_free_mb=1342`，iPad Air 11-inch (M4) `mem_avail_mb=6910`、`swap_free_mb=1713`，均满足本文件 4096/512 的取图下限）。四张都是用量 sheet（iOS 27.2，Expo Go 58.0.7 + Metro 离线 8081；一次性节点绑 `127.0.0.1:0`，种子 `created 17, existing 7, skipped 1`，共 24 条；一次只启动一台模拟器；未启动或读取 `:7777`、`~/.kin`），文件在 `rsi/state/shots/rn-usage-shots/`（本地，不入库）：
+
+| 面 | 设备 | 外观 | 提交 | 文件 | 像素 宽×高 | 判定（用量 sheet） |
+|---|---|---|---|---|---|---|
+| 用量 | iPhone 17e | 亮 | `b7211158` | `390-usage-light.png` | 1170×2532 | 本周 / 30 天 / 90 天分段，30 天选中；claude-code 身份圆点与整条占比条、右对齐 `$0.0025`；caption 读作 `100% · 输入 252 · 输出 42`；四格为费用 `$0.0025` / TOKEN 294 / 缓存命中率 `—` / 对话 11 |
+| 用量 | iPhone 17e | 暗 | `b7211158` | `390-usage-dark.png` | 1170×2532 | 同上的分段与数字；sheet、分段、圆点、占比条与四格都取暗色 token，caption 仍读作 `100% · 输入 252 · 输出 42` |
+| 用量 | iPad Air 11-inch (M4) | 亮 | `b7211158` | `820-usage-light.png` | 1640×2360 | sheet 浮在分栏上，背后是 `[seed] Morning planning`；本周 / 30 天 / 90 天，30 天选中；claude-code 圆点 + 右对齐 `$0.0025` + 占比条；caption 读作 `100% · 输入 252 · 输出 42` |
+| 用量 | iPad Air 11-inch (M4) | 暗 | `b7211158` | `820-usage-dark.png` | 1640×2360 | 同上，暗色；sheet、分段、圆点、占比条、四格与背景分栏都取暗色 token，caption 仍读作 `100% · 输入 252 · 输出 42` |
+
+答案：在拍摄提交 `b7211158` 上，390 与 820、亮与暗四张的 provider 行 caption 都读作 `100% · 输入 252 · 输出 42`，中文字样「输入」「输出」可见，不再是未翻译的用量键；#851 的 caption 修复在像素上成立。
 
 **判定锚点：** 列表 `mobile-rn/src/screens/ConversationList.visual.test.tsx:187`
 （状态点形状 + 颜色）、`:212`（待批三角与计数）、`:308`（行与分区头按明暗取 token），
