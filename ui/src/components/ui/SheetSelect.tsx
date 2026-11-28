@@ -86,9 +86,10 @@ function Chip({
   onClick,
 }: ChipProps) {
   const tr = useT();
-  // The floor follows the pointer, not the viewport: an iPad in portrait is
-  // 820px wide and still a thumb, so `.touch-lg`'s 768px query left this chip
-  // at 24px beside 44px controls. A mouse keeps the dense face.
+  // The floor follows the pointer, not the viewport, so the chip keeps its own
+  // 44×44 classes: `.touch-lg`'s coarse arm now reaches 1023.98px
+  // (KIN-CONTINUE-007 item 5), but an iPad in landscape past that arm is still
+  // a thumb, and a fine pointer must stay dense.
   const coarse = useCoarsePointer();
   return (
     <button
