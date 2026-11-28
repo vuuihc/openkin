@@ -1,0 +1,44 @@
+[
+  {
+    "label": "the fingerprint skip branch is disabled, so an unchanged dry queue still pays the director",
+    "file": "rsi/runtime/run.sh",
+    "test": "bash rsi/runtime/tests/test-fill-fingerprint.sh",
+    "old": "    if [ $FP_RC -eq 10 ]; then\n",
+    "new": "    if false; then # fingerprint skip disabled\n"
+  },
+  {
+    "label": "dogfood throttling never expires, so a newly dispatchable dogfood row stays invisible",
+    "file": "rsi/runtime/fill_fingerprint.py",
+    "test": "bash rsi/runtime/tests/test-fill-fingerprint.sh",
+    "old": "            \"throttled\": bool(latest and now - latest < DOGFOOD_THROTTLE_SECS),\n",
+    "new": "            \"throttled\": bool(latest and now - latest < 0),\n"
+  },
+  {
+    "label": "a successful pulse never records its baseline, so every pulse pays the director again",
+    "file": "rsi/runtime/run.sh",
+    "test": "bash rsi/runtime/tests/test-fill-fingerprint.sh",
+    "old": "if [ \"$MODE\" = pulse ] && [ \"${FP_RC:-2}\" -eq 0 ] && [ $RC -eq 0 ] && [ $PR -eq 0 ] && [ $DRY -eq 0 ]; then\n",
+    "new": "if false; then # recording disabled\n"
+  },
+  {
+    "label": "input drift during the director is ignored, so the next pulse can skip unread work",
+    "file": "rsi/runtime/fill_fingerprint.py",
+    "test": "bash rsi/runtime/tests/test-fill-fingerprint.sh",
+    "old": "    if expected != fp:\n",
+    "new": "    if False and expected != fp:\n"
+  },
+  {
+    "label": "active lanes above a lowered MAX_LANES are dropped, so releasing one keeps the fingerprint and holds back dispatchable work",
+    "file": "rsi/runtime/fill_fingerprint.py",
+    "test": "bash rsi/runtime/tests/test-fill-fingerprint.sh",
+    "old": "        if not line.startswith(\"lane \") or \": ACTIVE\" not in line:\n            continue\n",
+    "new": "        continue  # active lanes ignored\n"
+  },
+  {
+    "label": "the fingerprint suite is dropped from the shell-test job, so the guard can regress silently",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-fill-fingerprint.sh || return 1\n",
+    "new": ""
+  }
+]
