@@ -9,8 +9,12 @@
 # Prints "PASS <case>" per case; exits non-zero on the first failure.
 # Set RSI_TEST_ONLY=<case> to run one case (used to show the red run per case).
 set -u
+# The default threshold is what this suite proves; a caller's export (the CEO fill runs with
+# RSI_RELEASE_MIN=1) must not stand in for it.
+unset RSI_RELEASE_MIN
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PACE="$HERE/../pace.py"
+CHECK="$HERE/../release-check.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 fail() { echo "FAIL $*" >&2; exit 1; }
 pass() { echo "PASS $*"; }
@@ -170,6 +174,61 @@ print(time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() + off * 60)))
 PY
 }
 
+# 24. The threshold is the gate's, not a hard-coded 5: with RSI_RELEASE_MIN unset pace
+#     reports the gate's default of 1, and over the same docs-only range the gate and pace
+#     report the same unshipped count. Runs first so the red-first seam, which reverts
+#     pace.py and runs this suite, fails on a line that names this case.
+CASE="pace: release_min follows the gate and defaults to 1"
+if run_case "$CASE"; then
+R="$T/r24"; S="$T/s24"; new_repo "$R"
+mkdir -p "$R/docs"; printf 'x\n' > "$R/docs/x.md"; git -C "$R" add docs/x.md
+git -C "$R" commit -q -m "docs: x (#801)"
+origin_main "$R" HEAD
+BASE="$(git -C "$R" rev-parse HEAD~1)"
+mkdir -p "$S"; printf 'node=%s\nhub=%s\n' "$BASE" "$BASE" > "$S/last_release"
+run_json "$R" "$S"
+eq release_min 1
+eq unshipped 0
+eq commits 1
+GATE="$(env RSI_RELEASE_STATE="$S" RSI_REPO="$R" KIN_API=http://127.0.0.1:9 \
+  KIN_TOKEN_FILE="$T/no-token" RSI_FETCH_TIMEOUT=2 bash "$CHECK" 2>&1)" || true
+GATE_UNSHIPPED="$(printf '%s\n' "$GATE" | sed -n 's/^unshipped=\([0-9][0-9]*\) .*/\1/p')"
+[ "$GATE_UNSHIPPED" = "$(jget unshipped)" ] \
+  || { printf '%s\n' "$GATE" >&2; fail "$CASE: gate unshipped=$GATE_UNSHIPPED, pace=$(jget unshipped)"; }
+pass "$CASE"
+fi
+
+# 24b. The same classification edge cases in the pace reader: a shipped-to-docs rename
+#      is still visible because --no-renames exposes the deletion, while a Unicode
+#      docs-only path is parsed as a path, not as Git's quoted display string.
+CASE="pace: visible-only handles renames and unicode docs paths"
+if run_case "$CASE"; then
+R="$T/r24b"; S="$T/s24b"; new_repo "$R"
+mkdir -p "$R/ui/src/pages" "$R/docs"
+printf 'x\n' > "$R/ui/src/pages/X.tsx"
+git -C "$R" add ui/src/pages/X.tsx
+git -C "$R" commit -q -m "feat(ui): x (#802)"
+VISIBLE_TIP="$(git -C "$R" rev-parse HEAD)"
+git -C "$R" mv ui/src/pages/X.tsx docs/x.md
+git -C "$R" commit -q -m "docs: move x (#803)"
+origin_main "$R" HEAD
+mkdir -p "$S"
+printf 'node=%s\nhub=%s\n' "$VISIBLE_TIP" "$VISIBLE_TIP" > "$S/last_release"
+run_json "$R" "$S"
+eq unshipped 1
+eq commits 1
+RENAME_TIP="$(git -C "$R" rev-parse HEAD)"
+printf 'x\n' > "$R/docs/计划.md"
+git -C "$R" add 'docs/计划.md'
+git -C "$R" commit -q -m "docs: unicode plan (#804)"
+origin_main "$R" HEAD
+printf 'node=%s\nhub=%s\n' "$RENAME_TIP" "$RENAME_TIP" > "$S/last_release"
+run_json "$R" "$S"
+eq unshipped 0
+eq commits 1
+pass "$CASE"
+fi
+
 # 1. A PR merged in the same minute as the release is still unshipped: the gate counts
 #    commits, not clock minutes. Red before this change (pace said 0).
 CASE=t_same_minute_merge_is_unshipped
@@ -188,7 +247,7 @@ pass "$CASE"
 fi
 
 # 2. The older marker is the baseline by ancestry, not by line order: node at base,
-#    hub at head, two commits after base, only one PR subject.
+#    hub at head, two visible commits after base.
 CASE=t_older_marker_wins
 if run_case "$CASE"; then
 R="$T/r2"; S="$T/s2"; new_repo "$R"
@@ -200,15 +259,15 @@ HEAD_SHA="$(git -C "$R" rev-parse HEAD)"
 mkdir -p "$S"
 printf 'node=%s\nhub=%s\n' "$BASE" "$HEAD_SHA" > "$S/last_release"
 run_json "$R" "$S"
-eq unshipped 1
+eq unshipped 2
 eq commits 2
 eq unshipped_source git
 pass "$CASE"
 fi
 
-# 2b. Ancestry decides, not file order (the older marker may be listed second), and
-#     only a subject that *ends* in (#N) is a PR: mention it mid-sentence and it is
-#     just another commit.
+# 2b. Ancestry decides, not file order (the older marker may be listed second). Every
+#     commit here touches a file that is not non-shipped, so all three count — the
+#     subject text, including a mid-sentence (#99), no longer decides anything.
 CASE=t_ancestry_beats_line_order
 if run_case "$CASE"; then
 R="$T/r2b"; S="$T/s2b"; new_repo "$R"
@@ -221,7 +280,7 @@ HEAD_SHA="$(git -C "$R" rev-parse HEAD)"
 mkdir -p "$S"
 printf 'node=%s\nhub=%s\n' "$HEAD_SHA" "$BASE" > "$S/last_release"
 run_json "$R" "$S"
-eq unshipped 1
+eq unshipped 3
 eq commits 3
 eq unshipped_source git
 pass "$CASE"
@@ -459,7 +518,7 @@ norm() { sed -E 's/left=[0-9.]+h/left=Hh/' <<<"$1"; }
   || { printf '%s\n--- no cycles.log ---\n%s\n' "$OUT" "$OUT0" >&2; fail "$CASE: default output depends on --latency data"; }
 WANT_HEAD='merges: 24h=0 7d=0 today=0 (day=+08)
 open->merge: p50=30m p90=30m (n=1, 24h)
-release: last None at None, unshipped=0/5'
+release: last None at None, unshipped=0/1'
 [ "$(printf '%s\n' "$OUT0" | sed -n '1,3p')" = "$WANT_HEAD" ] \
   || { printf '%s\n' "$OUT0" >&2; fail "$CASE: default lines changed"; }
 # The phase line comes from the live rsi/GOAL.md, which this test does not

@@ -7,6 +7,9 @@
 # fake HOME so the "installed node binary" fallback never reads the real machine.
 # Prints "PASS <case>" per case; exits non-zero on the first failure.
 set -u
+# The default threshold is what this suite proves; a caller's export (the CEO fill runs
+# with RSI_RELEASE_MIN=1) must not stand in for it. Cases that need another value pass it.
+unset RSI_RELEASE_MIN
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CHECK="$HERE/../release-check.sh"
 RELEASE="$HERE/../release.sh"
@@ -98,6 +101,89 @@ run() {
   pass "$name"
 }
 
+# 3b. Only user-visible commits count. A commit is user-visible unless EVERY path it changes
+#     is non-shipped (docs/, rsi/, .github/, scripts/, markdown, Go tests, *.test.* / *.spec.*,
+#     *.mutants.json, testdata/, __snapshots__/, *.snap); unknown paths count as visible, and
+#     the f1..f6 fixture files below are unknown, so they stay visible. The
+#     fixture grows one commit at a time so each case reads its own real range above its own
+#     baseline.
+VIS="$T/vis"; mkdir -p "$VIS"
+git -C "$VIS" init -q -b main
+( cd "$VIS" && echo base > base.txt && git add base.txt && git commit -q -m "chore: init"
+  mkdir -p docs/plans && echo x > docs/plans/x.md && git add docs/plans/x.md
+  git commit -q -m "docs(plans): x (#201)"
+  mkdir -p rsi/runtime && echo x > rsi/runtime/x.sh && git add rsi/runtime/x.sh
+  git commit -q -m "chore(rsi): x (#202)"
+  echo x > README.md && git add README.md && git commit -q -m "docs: readme (#203)" )
+git -C "$VIS" remote add origin "$VIS"
+git -C "$VIS" update-ref refs/remotes/origin/main HEAD
+VIS_ROOT="$(git -C "$VIS" rev-list --max-parents=0 HEAD)"
+
+echo "node=$VIS_ROOT" > "$STATE/last_release"
+run 10 "visible-only: docs-only-never-ships" RSI_REPO="$VIS"
+grep -q '^unshipped=0 ' <<<"$LAST" || fail "visible-only: docs-only-never-ships: unshipped must be 0: $LAST"
+grep -q ' commits=3 ' <<<"$LAST" || fail "visible-only: docs-only-never-ships: commits must be 3: $LAST"
+grep -q '^reason=.*visible' <<<"$LAST" || fail "visible-only: docs-only-never-ships: reason must name visible: $LAST"
+
+( cd "$VIS" && mkdir -p ui/src/pages && echo x > ui/src/pages/X.tsx && git add ui/src/pages/X.tsx
+  git commit -q -m "feat(ui): x (#204)" )
+git -C "$VIS" update-ref refs/remotes/origin/main HEAD
+run 0 "visible-only: one-visible-commit-ships-by-default" RSI_REPO="$VIS"
+grep -q '^unshipped=1 ' <<<"$LAST" || fail "visible-only one: unshipped must be 1: $LAST"
+grep -q ' commits=4 ' <<<"$LAST" || fail "visible-only one: commits must be 4: $LAST"
+
+VIS_UI_TIP="$(git -C "$VIS" rev-parse HEAD)"
+( cd "$VIS" && mkdir -p internal/store && echo x > internal/store/x_test.go && git add internal/store/x_test.go
+  git commit -q -m "test(store): x (#205)" )
+git -C "$VIS" update-ref refs/remotes/origin/main HEAD
+echo "node=$VIS_UI_TIP" > "$STATE/last_release"
+run 10 "visible-only: test-only-change-does-not-count" RSI_REPO="$VIS"
+grep -q '^unshipped=0 ' <<<"$LAST" || fail "visible-only test: unshipped must be 0: $LAST"
+grep -q ' commits=1 ' <<<"$LAST" || fail "visible-only test: commits must be 1: $LAST"
+
+VIS_TEST_TIP="$(git -C "$VIS" rev-parse HEAD)"
+( cd "$VIS" && mkdir -p internal/api && echo x > internal/api/x.go && git add internal/api/x.go
+  git commit -q -m "feat(api): x (#206)" )
+git -C "$VIS" update-ref refs/remotes/origin/main HEAD
+echo "node=$VIS_TEST_TIP" > "$STATE/last_release"
+run 0 "visible-only: daemon-change-counts" RSI_REPO="$VIS"
+grep -q '^unshipped=1 ' <<<"$LAST" || fail "visible-only daemon: unshipped must be 1: $LAST"
+
+# Regression for the strong-review findings: rename detection must not hide the
+# deletion of a shipped file, and Git's quoted rendering of a Unicode docs path must
+# not count as an unknown shipped path.
+VIS_RENAME_BASE="$(git -C "$VIS" rev-parse HEAD)"
+( cd "$VIS" && git mv ui/src/pages/X.tsx docs/x-renamed.md
+  git commit -q -m "docs: move x (#207)" )
+git -C "$VIS" update-ref refs/remotes/origin/main HEAD
+echo "node=$VIS_RENAME_BASE" > "$STATE/last_release"
+run 0 "visible-only: shipped-to-docs-rename-still-counts" RSI_REPO="$VIS"
+grep -q '^unshipped=1 ' <<<"$LAST" || fail "visible-only rename: unshipped must be 1: $LAST"
+grep -q ' commits=1 ' <<<"$LAST" || fail "visible-only rename: commits must be 1: $LAST"
+
+VIS_RENAME_TIP="$(git -C "$VIS" rev-parse HEAD)"
+( cd "$VIS" && echo x > 'docs/计划.md' && git add 'docs/计划.md'
+  git commit -q -m "docs: unicode plan (#208)" )
+git -C "$VIS" update-ref refs/remotes/origin/main HEAD
+echo "node=$VIS_RENAME_TIP" > "$STATE/last_release"
+run 10 "visible-only: unicode-docs-path-does-not-count" RSI_REPO="$VIS"
+grep -q '^unshipped=0 ' <<<"$LAST" || fail "visible-only unicode docs: unshipped must be 0: $LAST"
+grep -q ' commits=1 ' <<<"$LAST" || fail "visible-only unicode docs: commits must be 1: $LAST"
+
+# A docs commit does not pad the count: one visible + one docs commit is still 1 against 2.
+OV="$T/ov"; mkdir -p "$OV"
+git -C "$OV" init -q -b main
+( cd "$OV" && echo base > base.txt && git add base.txt && git commit -q -m "chore: init"
+  mkdir -p docs && echo x > docs/x.md && git add docs/x.md && git commit -q -m "docs: x (#301)"
+  mkdir -p internal/api && echo x > internal/api/x.go && git add internal/api/x.go
+  git commit -q -m "feat(api): x (#302)" )
+git -C "$OV" remote add origin "$OV"
+git -C "$OV" update-ref refs/remotes/origin/main HEAD
+echo "node=$(git -C "$OV" rev-list --max-parents=0 HEAD)" > "$STATE/last_release"
+run 10 "visible-only: override-still-holds" RSI_REPO="$OV" RSI_RELEASE_MIN=2
+grep -q '^unshipped=1 ' <<<"$LAST" || fail "visible-only override: unshipped must be 1: $LAST"
+rm -f "$STATE/last_release"
+
 # --- the origin/main refresh is bounded -------------------------------------
 # release-check refreshes origin/main before every release decision. On 2026-11-28
 # 02:47 that fetch's git-remote-https child sat silent for ~3 minutes while a bounded
@@ -178,18 +264,18 @@ pass "fetch-timeout-json"
 # 4. A fetch that fails is NOT a timeout: the old `|| true` tolerance stays and the
 #    check decides from the refs it already has.
 cap_fetch 10 "fetch-error-is-not-a-timeout" FAKE_FETCH_MODE=exit1 PATH="$FAKEBIN:$PATH"
-grep -q '^reason=unshipped 0 < 5$' <<<"$LAST" \
+grep -q '^reason=unshipped visible 0 < 1$' <<<"$LAST" \
   || fail "fetch-error-is-not-a-timeout: the check did not decide normally: $LAST"
 
 # 5. A slow fetch inside its bound still decides normally.
 cap_fetch 10 "slow-fetch-inside-bound-still-decides" RSI_FETCH_TIMEOUT=10 FAKE_FETCH_MODE=sleep1 PATH="$FAKEBIN:$PATH"
-grep -q '^reason=unshipped 0 < 5$' <<<"$LAST" \
+grep -q '^reason=unshipped visible 0 < 1$' <<<"$LAST" \
   || fail "slow-fetch-inside-bound-still-decides: the check did not decide normally: $LAST"
 
 # 6. The default bound is comfortably above a slow-but-working fetch: with no
 #    RSI_FETCH_TIMEOUT in the environment a 2 s fetch must not be called a timeout.
 cap_fetch 10 "default-bound-is-not-tiny" FAKE_FETCH_MODE=sleep2 PATH="$FAKEBIN:$PATH"
-grep -q '^reason=unshipped 0 < 5$' <<<"$LAST" \
+grep -q '^reason=unshipped visible 0 < 1$' <<<"$LAST" \
   || fail "default-bound-is-not-tiny: the default bound treated a 2 s fetch as a timeout: $LAST"
 unset GIT_PID GIT_CHILD_PID
 
@@ -204,13 +290,15 @@ run 0 "GO: 6 unshipped, node idle"
 grep -q '^unshipped=6 ' <<<"$LAST" || fail "GO: unshipped count wrong: $LAST"
 [ -f "$STATE/last_release" ] || fail "the check must never write the marker"
 
-# 3. The threshold and its override.
+# 3. The threshold: one visible merge ships by default, and an explicit override still
+#    holds the same tree.
 echo "node=$BASE1" > "$STATE/last_release"
-run 10 "HOLD: 1 unshipped is below the default 5"
-run 0 "GO: RSI_RELEASE_MIN=1 accepts the same tree" RSI_RELEASE_MIN=1
+run 0 "GO: 1 unshipped visible merge ships by default"
+run 10 "HOLD: RSI_RELEASE_MIN=2 holds the same tree" RSI_RELEASE_MIN=2
 
 echo "node=$BASE2" > "$STATE/last_release"
-run 10 "HOLD: 2 unshipped is below the default 5"
+run 0 "GO: 2 unshipped visible merges ship by default"
+run 10 "HOLD: RSI_RELEASE_MIN=3 holds the same tree" RSI_RELEASE_MIN=3
 
 # 4. A conversation in flight is what a rebuild would kill.
 echo "node=$ROOT" > "$STATE/last_release"
@@ -266,8 +354,8 @@ grep -q '^reason=heavy: ' <<<"$LAST" || fail "heavy: reason must start with 'hea
 # ... and it is the binding reason only once enough work is waiting: below the threshold the
 #     older, stable explanation wins, so a misshapen marker is not blamed on a build.
 echo "node=$BASE1" > "$STATE/last_release"
-run 10 "HOLD: below the threshold the unshipped reason wins over the heavy slot"
-grep -q 'unshipped 1 < 5' <<<"$LAST" || fail "heavy: threshold reason overwritten by the heavy slot: $LAST"
+run 10 "HOLD: below the threshold the unshipped reason wins over the heavy slot" RSI_RELEASE_MIN=2
+grep -q 'unshipped visible 1 < 2' <<<"$LAST" || fail "heavy: threshold reason overwritten by the heavy slot: $LAST"
 echo "node=$ROOT" > "$STATE/last_release"
 echo 99999998 > "$STATE/heavy/slot1/pid"   # no such process
 run 0 "GO: a stale heavy pid does not hold the release"
@@ -302,7 +390,7 @@ pass "release: a dead pid is a stale lock, and a HOLD releases it"
 printf 'node=%s\nhub=%s\n' "$HEAD_SHA" "$ROOT" > "$STATE/last_release"
 run 0 "GO: node at tip but hub baseline at the root still counts the work"
 printf 'node=%s\nhub=%s\n' "$HEAD_SHA" "$BASE2" > "$STATE/last_release"
-run 10 "HOLD: node at tip, hub two merges behind"
+run 10 "HOLD: node at tip, hub two merges behind" RSI_RELEASE_MIN=3
 printf 'node=%s\nhub=%s\n' "$HEAD_SHA" "$HEAD_SHA" > "$STATE/last_release"
 run 10 "HOLD: both targets already at the tip"
 echo "node=$HEAD_SHA" > "$STATE/last_release"
@@ -739,18 +827,18 @@ L3="$T/lm3"; mkdir -p "$L3"; git -C "$L3" init -q -b trunk
   done )
 git -C "$L3" update-ref refs/remotes/origin/main HEAD
 printf 'node=%s\n' "$(git -C "$L3" rev-parse HEAD~2)" > "$STATE/last_release"
-run 10 "local_main_only_is_unknown_when_unreadable" RSI_REPO="$L3"
+run 10 "local_main_only_is_unknown_when_unreadable" RSI_REPO="$L3" RSI_RELEASE_MIN=3
 grep -q '^local_main_only=unknown$' <<<"$LAST" || fail "unreadable: expected unknown: $LAST"
 grep -q '^verdict=HOLD$' <<<"$LAST" || fail "unreadable: verdict changed: $LAST"
-grep -q '^reason=unshipped 2 < 5$' <<<"$LAST" || fail "unreadable: reason changed: $LAST"
+grep -q '^reason=unshipped visible 2 < 3$' <<<"$LAST" || fail "unreadable: reason changed: $LAST"
 
 # (d) below the threshold the HOLD reason is untouched by the new number.
 L4="$T/lm4"; L4_ROOT="$(mk_fixture_repo "$L4")"
 printf 'node=%s\n' "$(git -C "$L4" rev-parse refs/remotes/origin/main~2)" > "$STATE/last_release"
 for n in 1 2 3; do git -C "$L4" commit -q --allow-empty -m "docs: local only $n"; done
-run 10 "local_main_only_never_changes_the_verdict" RSI_REPO="$L4"
+run 10 "local_main_only_never_changes_the_verdict" RSI_REPO="$L4" RSI_RELEASE_MIN=3
 grep -q '^verdict=HOLD$' <<<"$LAST" || fail "verdict-gate: expected HOLD: $LAST"
-grep -q '^reason=unshipped 2 < 5$' <<<"$LAST" || fail "verdict-gate: reason must stay 'unshipped 2 < 5': $LAST"
+grep -q '^reason=unshipped visible 2 < 3$' <<<"$LAST" || fail "verdict-gate: reason must stay 'unshipped visible 2 < 3': $LAST"
 grep -q '^local_main_only=3$' <<<"$LAST" || fail "verdict-gate: expected 3 local-only commits: $LAST"
 
 # (e) --json carries the number, or null when it cannot be read.

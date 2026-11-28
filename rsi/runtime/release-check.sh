@@ -6,8 +6,16 @@
 #   * nothing is in flight — the live node answers /api/tasks with no session in
 #     queued / running / waiting_approval / waiting_input / retrying, and no merge is
 #     landing (state/.land.lock free);
-#   * enough has piled up — at least RSI_RELEASE_MIN merged PRs (default 5) sit on
-#     origin/main that no release has shipped yet.
+#   * enough has piled up — at least RSI_RELEASE_MIN user-visible merged PRs (default 1)
+#     sit on origin/main that no release has shipped yet.
+#
+# Only user-visible commits count. A commit is user-visible unless every path it changes is
+# non-shipped: docs/, rsi/, .github/, scripts/, any *.md / *.mdx, *_test.go, *.test.*,
+# *.spec.*, *.mutants.json, testdata/, __snapshots__/, *.snap. An unknown path counts as
+# visible, and so does a commit with no file list (a merge): a spurious release costs one
+# restart, a suppressed one leaves a fix unshipped. So a docs / RSI / test-only merge never
+# forces a release, while a console, daemon, API, desktop or phone merge ships on the next
+# patrol.
 #
 # "Unshipped" is measured per target: state/last_release records the SHA each target
 # (node, hub) last ran, and the count starts from the older of the two, so a release
@@ -23,7 +31,7 @@
 # Overrides (tests, and a second checkout):
 #   RSI_RELEASE_STATE   state dir              (default <ctrl>/rsi/state)
 #   RSI_REPO            checkout to count from (default <ctrl>)
-#   RSI_RELEASE_MIN     minimum unshipped PRs  (default 5)
+#   RSI_RELEASE_MIN     minimum unshipped user-visible PRs (default 1)
 #   RSI_FETCH_TIMEOUT   bound on the origin/main refresh, seconds (default 60)
 #   KIN_API             live node base URL     (default http://127.0.0.1:7777)
 #   KIN_TOKEN_FILE      node token file        (default ~/.kin/token)
@@ -32,7 +40,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 CTRL="$(cd "$HERE/../.." && pwd)"
 STATE="${RSI_RELEASE_STATE:-$CTRL/rsi/state}"
 REPO="${RSI_REPO:-$CTRL}"
-MIN="${RSI_RELEASE_MIN:-5}"
+MIN="${RSI_RELEASE_MIN:-1}"
 FETCH_TIMEOUT="${RSI_FETCH_TIMEOUT:-60}"
 case "$FETCH_TIMEOUT" in ''|*[!0-9]*)
   echo "release-check: RSI_FETCH_TIMEOUT must be whole seconds, got '$FETCH_TIMEOUT'" >&2; exit 2 ;;
@@ -165,8 +173,55 @@ if [ -n "$BASE" ] && ! $git -C "$REPO" rev-parse --verify -q "$BASE^{commit}" >/
   BASE=""
 fi
 if [ -n "$BASE" ]; then
-  read -r UNSHIPPED COMMITS <<<"$($git -C "$REPO" log --format=%s "$BASE..origin/main" 2>/dev/null |
-    awk 'BEGIN{p=0;c=0} {c++; if ($0 ~ /\(#[0-9]+\)$/) p++} END{print p+0, c+0}')"
+  # Count the commits that touch a shipped surface, not every subject: the same rule as
+  # pace.py's non_shipped(), so the patrol's "unshipped vs threshold" line agrees with this
+  # gate. A commit with no file list (a merge) is visible; an unknown path is visible.
+  # --no-renames keeps a shipped-to-docs deletion visible, and -z keeps Git's quoted
+  # display form out of the classifier for Unicode or otherwise escaped paths.
+  read -r UNSHIPPED COMMITS <<<"$($git -C "$REPO" log --format='@@%H' --name-only --no-renames -z "$BASE..origin/main" 2>/dev/null |
+    python3 -c '
+import os, sys
+
+def non_shipped(p):
+    parts = p.split("/")
+    if any(part in ("testdata", "__snapshots__") for part in parts[:-1]):
+        return True
+    base = parts[-1]
+    if p.endswith((".md", ".mdx", "_test.go", ".snap", ".mutants.json")):
+        return True
+    if ".test." in base or ".spec." in base:
+        return True
+    return p.startswith(("docs/", "rsi/", ".github/", "scripts/"))
+
+def commit_marker(ent):
+    return (len(ent) == 42 and ent.startswith(b"@@")
+            and all(c in b"0123456789abcdef" for c in ent[2:]))
+
+visible = total = npaths = 0
+visible_path = False
+started = False
+for ent in sys.stdin.buffer.read().split(b"\0"):
+    if not ent:
+        continue
+    if commit_marker(ent):
+        if started and (npaths == 0 or visible_path):
+            visible += 1
+        started = True
+        total += 1
+        npaths = 0
+        visible_path = False
+        continue
+    if ent.startswith(b"\n"):
+        ent = ent[1:]
+    if not ent:
+        continue
+    npaths += 1
+    if not non_shipped(os.fsdecode(ent)):
+        visible_path = True
+if started and (npaths == 0 or visible_path):
+    visible += 1
+print(visible, total)
+')"
   BASE="$(printf '%s' "$BASE" | cut -c1-8)"
 else
   UNSHIPPED=0; COMMITS=0; BASE="none"
@@ -247,7 +302,7 @@ elif [ "$sessions_num" -gt 0 ]; then
 elif [ -d "$STATE/.land.lock" ] && [ -n "$(cat "$STATE/.land.lock/pid" 2>/dev/null)" ] && kill -0 "$(cat "$STATE/.land.lock/pid" 2>/dev/null)" 2>/dev/null; then
   verdict=HOLD; reason="a merge is landing"
 elif [ "$UNSHIPPED" -lt "$MIN" ]; then
-  verdict=HOLD; reason="unshipped $UNSHIPPED < $MIN"
+  verdict=HOLD; reason="unshipped visible $UNSHIPPED < $MIN"
 elif [ -n "$heavy" ]; then
   verdict=HOLD; reason="heavy: a build/test holds the machine ($heavy)"
 fi

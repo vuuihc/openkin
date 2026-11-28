@@ -68,7 +68,7 @@ desktop-rebuild:
 	./scripts/desktop-rebuild.sh
 
 # Ship the merged loop work (MANDATE "Release gate"): node + Hub, only when nothing is
-# in flight and ≥5 merged PRs are unshipped. `make release-check` answers; `make ship`
+# in flight and ≥1 user-visible merged PR is unshipped. `make release-check` answers; `make ship`
 # acts on GO. Not to be confused with `release` above, which cross-compiles binaries.
 release-check:
 	bash rsi/runtime/release-check.sh
