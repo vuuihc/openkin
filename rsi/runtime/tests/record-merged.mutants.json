@@ -63,11 +63,25 @@
     "new": "  : # intent drain removed by mutant"
   },
   {
-    "label": "the merge-success path skips the pre-merge intent, so a merge with no record has no recovery path",
+    "label": "the pre-merge intent write becomes a successful no-op, so the merge runs with no recovery record",
     "file": "rsi/runtime/merge.sh",
     "test": "RSI_TEST_ONLY=intent-before-merge bash rsi/runtime/tests/test-record-merged.sh",
-    "old": "    if ! persist_merge_intent \"$N\" \"$SLUG\" \"$ITEM\" \"$PRURL\"; then",
-    "new": "    if false; then"
+    "old": "  if ! persist_merge_intent \"$n\" \"$slug\" \"$item\" \"$url\"; then",
+    "new": "  if ! :; then"
+  },
+  {
+    "label": "a failed pre-merge intent write is ignored, so an unrecordable PR is merged anyway",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=intent-before-merge bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  if ! persist_merge_intent \"$n\" \"$slug\" \"$item\" \"$url\"; then",
+    "new": "  persist_merge_intent \"$n\" \"$slug\" \"$item\" \"$url\" || true\n  if false; then"
+  },
+  {
+    "label": "the drain skips the land lock, so recovery records beside a live verifier and can append a second row",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=drain-yields-to-land-lock bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "  if ! mklock \"$STATE/.land.lock\" \"$max\"; then",
+    "new": "  if false; then"
   },
   {
     "label": "the new suite is not wired into job_shell_test, so it never runs in a gate or in CI",

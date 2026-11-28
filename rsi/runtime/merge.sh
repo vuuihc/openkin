@@ -309,6 +309,29 @@ record_delivery() { # <pr> <slug> <item> <url> -> sha8 on stdout; 0 recorded, 1 
   queue_pending_record "$n" "$slug" "$item" "$url" || return 2
   return 1
 }
+# The irreversible half of a landing, one function so the verifier and its hermetic seam run the
+# same code: the pre-merge intent is written and checked BEFORE `gh pr merge`, and a write that
+# cannot land stops the merge instead of leaving a merged PR with no row and no retry path.
+# 0 = merged (the caller records it), 1 = no intent so nothing was merged, 2 = the merge command
+# failed and GitHub's state did not read back as MERGED.
+land_with_intent() { # <pr> <slug> <item> <url>
+  local n="$1" slug="$2" item="$3" url="$4" mstate
+  if ! persist_merge_intent "$n" "$slug" "$item" "$url"; then
+    say "#$n $slug: cannot persist the pre-merge recovery record in $(RECORD_INTENT_DIR); not merging"
+    return 1
+  fi
+  if $GH pr merge "$n" --repo "$GH_REPO" --squash >/dev/null 2>"$STATE/merge/$slug.merge.err"; then
+    return 0
+  fi
+  mstate="$(bounded_run "$RECORD_METADATA_SECS" "$GH" pr view "$n" --repo "$GH_REPO" --json state --jq .state 2>/dev/null || true)"
+  case "$mstate" in
+    MERGED) say "#$n $slug: gh pr merge exited non-zero after GitHub completed merge — recording merge"; return 0 ;;
+    # Positively not merged: the intent is not a delivery record. An unreadable state keeps it,
+    # because the merge may have landed while the read failed.
+    OPEN|CLOSED) clear_merge_intent "$n" ;;
+  esac
+  return 2
+}
 drain_record_dir() { # <dir> — retry every queued record once; a file leaves only when recorded
   local d="$1" f n slug item url sha
   [ -d "$d" ] || return 0
@@ -330,8 +353,21 @@ drain_record_dir() { # <dir> — retry every queued record once; a file leaves o
   rmdir "$d" 2>/dev/null || true
 }
 drain_pending_records() { # the pending queue first, then any pre-merge intent the queue never replaced
+  # The verifier records its merge while holding the land lock; this drain runs in the dispatcher,
+  # which holds only .dispatch.lock. Both could pass record-merged.sh's duplicate check before
+  # either appended, writing two rows for one PR and inflating the delivery count. Recovery takes
+  # the same land lock: a live verifier makes the drain yield, and a lock it cannot take within
+  # RSI_DRAIN_LAND_LOCK_SECS leaves the rows queued for the next tick instead of racing them.
+  # RSI_GATE_LOCK_POLL is the same hermetic poll seam mklock() already exposes to the gate tests.
+  local max="${RSI_DRAIN_LAND_LOCK_SECS:-120}"
+  case "$max" in ''|*[!0-9]*) max=120 ;; esac
+  if ! mklock "$STATE/.land.lock" "$max"; then
+    say "delivery records: land lock held; draining on a later tick"
+    return 0
+  fi
   drain_record_dir "$(PENDING_DIR)"
   drain_record_dir "$(RECORD_INTENT_DIR)"
+  rm -rf "$STATE/.land.lock"
 }
 # The live PR state, keyed by slug: sendback_mech() has no PR number. Empty or unrecognised output
 # is unreadable and callers fail open. The override is a test seam, the same shape as lane.sh's.
@@ -2371,6 +2407,21 @@ if [ "${1:-}" != "--one" ]; then
       *) echo "UNPERSISTED"; exit 2 ;;
     esac
   fi
+  # Hermetic seam for rsi/runtime/tests/test-record-merged.sh: the verifier's own persist-then-merge
+  # step (land_with_intent) with RSI_GH stubbed, so the test proves the recovery record exists when
+  # the merge command runs and that a failed write means no merge — not that the call text is there.
+  # Exit 0 = MERGED (the intent was on disk when gh ran), 2 = NO-INTENT, nothing merged,
+  # 3 = MERGE-FAILED.
+  if [ "${1:-}" = "--merge-intent-check" ]; then
+    [ $# -ge 6 ] || { echo "usage: merge.sh --merge-intent-check <state> <pr> <slug> <item> <url>" >&2; exit 2; }
+    STATE="$2"
+    land_with_intent "$3" "$4" "$5" "$6"; lrc=$?
+    case "$lrc" in
+      0) echo "MERGED"; exit 0 ;;
+      1) echo "NO-INTENT"; exit 2 ;;
+      *) echo "MERGE-FAILED"; exit 3 ;;
+    esac
+  fi
   DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
   [ -e "$STATE/PAUSE" ] && { echo "paused"; exit 0; }
   # legacy single-instance lock (pre-pipeline merge.sh still running): do not double-process
@@ -3120,25 +3171,16 @@ for round in 1 2 3; do
   mklock "$STATE/.land.lock" 900 || { say "#$N: land lock timeout"; exit 0; }
   $GIT -C "$WT" fetch -q origin main 2>/dev/null
   if $GIT -C "$WT" merge-base --is-ancestor origin/main HEAD; then
-    # The merge is irreversible and its record can still fail (stale metadata, full disk): the
-    # intent written here is the recovery record that survives both, so a write that cannot land
-    # stops the merge instead of leaving a merged PR with no row and no retry path.
-    if ! persist_merge_intent "$N" "$SLUG" "$ITEM" "$PRURL"; then
-      say "#$N $SLUG: cannot persist the pre-merge recovery record in $(RECORD_INTENT_DIR); not merging"
+    MERGED_OK=0
+    land_with_intent "$N" "$SLUG" "$ITEM" "$PRURL"; LRC=$?
+    if [ "$LRC" -eq 1 ]; then
+      # No pre-merge recovery record, so nothing was merged: `.land.lock` is released and the PR
+      # stays open for a tick whose intent write can land.
       rm -rf "$STATE/.land.lock"; exit 0
     fi
-    MERGED_OK=0
-    if $GH pr merge "$N" --repo "$GH_REPO" --squash >/dev/null 2>"$STATE/merge/$SLUG.merge.err"; then
+    if [ "$LRC" -eq 0 ]; then
       MERGED_OK=1
-    else
-      MSTATE="$(bounded_run "$RECORD_METADATA_SECS" "$GH" pr view "$N" --repo "$GH_REPO" --json state --jq .state 2>/dev/null || true)"
-      case "$MSTATE" in
-        MERGED) say "#$N $SLUG: gh pr merge exited non-zero after GitHub completed merge — recording merge"; MERGED_OK=1 ;;
-        # Positively not merged: the intent is not a delivery record. An unreadable state keeps it,
-        # because the merge may have landed while the read failed.
-        OPEN|CLOSED) clear_merge_intent "$N" ;;
-      esac
-    fi
+    else say "#$N $SLUG: merge command failed: $(tail -c 200 "$STATE/merge/$SLUG.merge.err")"; rm -rf "$STATE/.land.lock"; exit 0; fi
     if [ $MERGED_OK -eq 1 ]; then
       # One writer, shared with any path that merges a PR itself (record-merged.sh): it keeps the
       # exact format this echo wrote, refuses a row with no commit/url, and makes a re-record a no-op.

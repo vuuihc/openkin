@@ -67,6 +67,17 @@ wait "$c"
 SH
 chmod +x "$T/bin/gh-hang"
 
+# gh-intent — the merge command for the pre-merge intent case. It reports whether the recovery
+# record already exists at the moment the irreversible command runs, and records that it ran: a
+# no-op persist shows up as ABSENT, and a merge that should have been refused shows up as a call.
+cat > "$T/bin/gh-intent" <<'SH'
+#!/bin/sh
+if [ -f "${GH_INTENT:?}" ]; then echo PRESENT > "${GH_MARK:?}"; else echo ABSENT > "${GH_MARK:?}"; fi
+echo "$*" >> "${GH_MARK:?}.calls"
+exit 0
+SH
+chmod +x "$T/bin/gh-intent"
+
 # --- one-line --------------------------------------------------------------------------------
 # A PR merged outside the merge lane (a model running its own `gh pr merge`) records exactly
 # one row, in the format lanes.py parses: date, time, `PR #N`, slug, item, `merged`, sha8, url.
@@ -212,6 +223,46 @@ if run_case pending-drained; then
   ok "the next dispatcher tick recovers a deferred record"
 fi
 
+# --- drain-yields-to-land-lock ---------------------------------------------------------------
+# A verifier records its merge while holding `.land.lock`; the dispatcher's recovery drain runs
+# under `.dispatch.lock` only and used to record a queued PR concurrently: both processes passed
+# record-merged.sh's duplicate check before either appended, so one delivery became two rows.
+# Recovery now takes the same land lock, so with a live verifier (a lock whose pid is alive) the
+# deterministic outcome is: no row, the queued file kept, and the row lands exactly once on the
+# first tick after the release. Old code records on the locked tick and fails the first assertion.
+if run_case drain-yields-to-land-lock; then
+  CTRL="$T/lock-ctrl"; mkdir -p "$CTRL/rsi/state/merge/pending-records" "$CTRL/rsi/runtime"
+  cp -R "$RUNTIME/." "$CTRL/rsi/runtime/"
+  ST="$CTRL/rsi/state"
+  printf '911\ts\tR-x\t%s\n' "$(url 911)" > "$ST/merge/pending-records/911.tsv"
+  mkdir -p "$ST/.land.lock"; echo $$ > "$ST/.land.lock/pid"
+  : > "$T/gh-calls-lock"
+  O="$(RSI_CTRL="$CTRL" RSI_GH="$T/bin/gh-flaky" GH_CALLS="$T/gh-calls-lock" GH_FAIL_FIRST=0 \
+    RSI_PR_LIST_CMD='echo []' RSI_DRAIN_LAND_LOCK_SECS=0 RSI_GATE_LOCK_POLL=0 bash "$MERGE" 2>&1)"
+  rc=$?
+  [ "$rc" -eq 0 ] || bad "drain-yields-to-land-lock: dispatcher exited $rc ($O)"
+  grep -q 'land lock held' <<<"$O" || bad "drain-yields-to-land-lock: the drain did not report yielding ($O)"
+  [ "$(lines "$ST/merged.log")" = 0 ] \
+    || bad "drain-yields-to-land-lock: recovery wrote a row while a live verifier held the land lock: $(cat "$ST/merged.log")"
+  [ "$(wc -l < "$T/gh-calls-lock" | tr -d ' ')" = 0 ] \
+    || bad "drain-yields-to-land-lock: the drain called merge metadata while the land lock was held"
+  [ -f "$ST/merge/pending-records/911.tsv" ] \
+    || bad "drain-yields-to-land-lock: the queued row was dropped instead of kept for the next tick"
+  rm -rf "$ST/.land.lock"
+  : > "$T/gh-calls-lock2"
+  O="$(RSI_CTRL="$CTRL" RSI_GH="$T/bin/gh-flaky" GH_CALLS="$T/gh-calls-lock2" GH_FAIL_FIRST=0 \
+    RSI_PR_LIST_CMD='echo []' bash "$MERGE" 2>&1)"
+  rc=$?
+  [ "$rc" -eq 0 ] || bad "drain-yields-to-land-lock: the tick after the release exited $rc ($O)"
+  grep -q 'delivery record recovered' <<<"$O" \
+    || bad "drain-yields-to-land-lock: the released lock did not let the row land ($O)"
+  [ "$(lines "$ST/merged.log")" = 1 ] \
+    || bad "drain-yields-to-land-lock: want exactly 1 row after the release, got $(lines "$ST/merged.log")"
+  [ ! -e "$ST/merge/pending-records/911.tsv" ] \
+    || bad "drain-yields-to-land-lock: the recorded row is still queued"
+  ok "delivery recovery yields to a live verifier and records exactly one row on the next tick"
+fi
+
 # --- queue-unwritable ------------------------------------------------------------------------
 # The queue write's result used to be discarded: a disk that rejected both merged.log and the
 # pending file still printed the ordinary "pending" status, the caller released the PR, and no
@@ -291,20 +342,38 @@ if run_case intent-drained; then
 fi
 
 # --- intent-before-merge ---------------------------------------------------------------------
-# The intent is only a recovery record if it exists before the irreversible command: assert the
-# persist-and-check call sits above `gh pr merge`, and that a recorded row is what clears it.
+# The intent is only a recovery record if it exists before the irreversible command, and a write
+# that fails must stop the merge. Both are proved through merge.sh's own persist-then-merge step
+# (--merge-intent-check calls land_with_intent), not by grepping call text: a successful no-op
+# persist shows up as the merge running without the file, and an ignored failure shows up as the
+# merge command being called after the write was refused.
 if run_case intent-before-merge; then
-  intent_line="$(grep -n 'persist_merge_intent "\$N" "\$SLUG" "\$ITEM" "\$PRURL"' "$MERGE" | head -1 | cut -d: -f1)"
-  merge_line="$(grep -n 'pr merge "\$N"' "$MERGE" | head -1 | cut -d: -f1)"
-  [ -n "$intent_line" ] || bad "intent-before-merge: the merge-success path does not persist a pre-merge intent"
-  [ -n "$merge_line" ] || bad "intent-before-merge: merge.sh no longer names the merge command"
-  [ "$intent_line" -lt "$merge_line" ] \
-    || bad "intent-before-merge: the intent is written at line $intent_line, after the merge at $merge_line"
-  grep -qF 'if ! persist_merge_intent' "$MERGE" \
-    || bad "intent-before-merge: the intent write is not checked, so a failed persist still merges"
-  grep -qF 'clear_merge_intent "$N"' "$MERGE" \
-    || bad "intent-before-merge: nothing clears the intent after the row is recorded"
-  ok "the pre-merge intent is persisted, checked and cleared"
+  ST="$T/s10"; mkdir -p "$ST/merge"
+  MARK="$T/intent-mark"; rm -f "$MARK" "$MARK.calls"
+  O="$(RSI_GH="$T/bin/gh-intent" GH_INTENT="$ST/merge/merge-intents/910.tsv" GH_MARK="$MARK" \
+    RSI_RECORD_METADATA_SECS=1 bash "$MERGE" --merge-intent-check "$ST" 910 s R-x "$(url 910)" 2>"$T/err")"
+  rc=$?
+  [ "$rc" -eq 0 ] || bad "intent-before-merge: merge path exited $rc ($O; $(cat "$T/err"))"
+  [ "$(tail -1 <<<"$O")" = MERGED ] || bad "intent-before-merge: want MERGED, got: $O"
+  [ -f "$MARK" ] \
+    || bad "intent-before-merge: the merge command never ran, so the case proves nothing"
+  [ "$(cat "$MARK")" = PRESENT ] \
+    || bad "intent-before-merge: the recovery record did not exist when the merge command ran ($(cat "$MARK"))"
+  [ -f "$ST/merge/merge-intents/910.tsv" ] \
+    || bad "intent-before-merge: the intent is gone before the delivery record is written"
+  ST="$T/s10b"; mkdir -p "$ST/merge"
+  : > "$ST/merge/merge-intents"          # a file where the intent directory must be
+  MARK="$T/intent-mark-fail"; rm -f "$MARK" "$MARK.calls"
+  O="$(RSI_GH="$T/bin/gh-intent" GH_INTENT="$ST/merge/merge-intents/911.tsv" GH_MARK="$MARK" \
+    RSI_RECORD_METADATA_SECS=1 bash "$MERGE" --merge-intent-check "$ST" 911 s R-x "$(url 911)" 2>"$T/err")"
+  rc=$?
+  [ "$rc" -eq 2 ] || bad "intent-before-merge: a refused intent write exited $rc, want 2 ($O; $(cat "$T/err"))"
+  [ "$(tail -1 <<<"$O")" = NO-INTENT ] || bad "intent-before-merge: want NO-INTENT, got: $O"
+  [ ! -e "$MARK" ] && [ ! -e "$MARK.calls" ] \
+    || bad "intent-before-merge: the merge command ran although the intent could not be written"
+  [ ! -e "$ST/merged.log" ] \
+    || bad "intent-before-merge: a refused intent write still produced a delivery row"
+  ok "the pre-merge intent exists when the merge runs, and a failed write prevents the merge"
 fi
 
 # --- merge-sh-wiring -------------------------------------------------------------------------
@@ -332,6 +401,7 @@ record-deferred
 queue-unwritable
 metadata-hangs
 pending-drained
+drain-yields-to-land-lock
 intent-drained
 intent-before-merge
 merge-sh-wiring" || bad "RSI_TEST_ONLY='$ONLY' matched no case"
