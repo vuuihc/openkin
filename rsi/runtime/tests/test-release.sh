@@ -149,6 +149,27 @@ echo "node=$VIS_TEST_TIP" > "$STATE/last_release"
 run 0 "visible-only: daemon-change-counts" RSI_REPO="$VIS"
 grep -q '^unshipped=1 ' <<<"$LAST" || fail "visible-only daemon: unshipped must be 1: $LAST"
 
+# Regression for the strong-review findings: rename detection must not hide the
+# deletion of a shipped file, and Git's quoted rendering of a Unicode docs path must
+# not count as an unknown shipped path.
+VIS_RENAME_BASE="$(git -C "$VIS" rev-parse HEAD)"
+( cd "$VIS" && git mv ui/src/pages/X.tsx docs/x-renamed.md
+  git commit -q -m "docs: move x (#207)" )
+git -C "$VIS" update-ref refs/remotes/origin/main HEAD
+echo "node=$VIS_RENAME_BASE" > "$STATE/last_release"
+run 0 "visible-only: shipped-to-docs-rename-still-counts" RSI_REPO="$VIS"
+grep -q '^unshipped=1 ' <<<"$LAST" || fail "visible-only rename: unshipped must be 1: $LAST"
+grep -q ' commits=1 ' <<<"$LAST" || fail "visible-only rename: commits must be 1: $LAST"
+
+VIS_RENAME_TIP="$(git -C "$VIS" rev-parse HEAD)"
+( cd "$VIS" && echo x > 'docs/计划.md' && git add 'docs/计划.md'
+  git commit -q -m "docs: unicode plan (#208)" )
+git -C "$VIS" update-ref refs/remotes/origin/main HEAD
+echo "node=$VIS_RENAME_TIP" > "$STATE/last_release"
+run 10 "visible-only: unicode-docs-path-does-not-count" RSI_REPO="$VIS"
+grep -q '^unshipped=0 ' <<<"$LAST" || fail "visible-only unicode docs: unshipped must be 0: $LAST"
+grep -q ' commits=1 ' <<<"$LAST" || fail "visible-only unicode docs: commits must be 1: $LAST"
+
 # A docs commit does not pad the count: one visible + one docs commit is still 1 against 2.
 OV="$T/ov"; mkdir -p "$OV"
 git -C "$OV" init -q -b main

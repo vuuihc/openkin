@@ -3,8 +3,8 @@
     "label": "counts every subject again: a docs-only range forces a release",
     "file": "rsi/runtime/release-check.sh",
     "test": "bash rsi/runtime/tests/test-release.sh",
-    "old": "        if (started && (npaths == 0 || visible_path)) vis++",
-    "new": "        if (started) vis++"
+    "old": "        if started and (npaths == 0 or visible_path):\n            visible += 1",
+    "new": "        if started:\n            visible += 1"
   },
   {
     "label": "default back to 5: one user-visible merge no longer ships",
@@ -17,8 +17,8 @@
     "label": "test-file exclusion dropped: a test-only change counts as shipped work",
     "file": "rsi/runtime/release-check.sh",
     "test": "bash rsi/runtime/tests/test-release.sh",
-    "old": "        if (p ~ /\\.mdx?$/ || p ~ /_test\\.go$/ || p ~ /\\.snap$/ || p ~ /\\.mutants\\.json$/) return 1",
-    "new": "        if (p ~ /\\.mdx?$/ || p ~ /\\.snap$/ || p ~ /\\.mutants\\.json$/) return 1"
+    "old": "    if p.endswith((\".md\", \".mdx\", \"_test.go\", \".snap\", \".mutants.json\")):\n        return True",
+    "new": "    if p.endswith((\".md\", \".mdx\", \".snap\", \".mutants.json\")):\n        return True"
   },
   {
     "label": "pace release_min back to 5: the patrol disagrees with the gate's default",
@@ -33,5 +33,33 @@
     "test": "bash rsi/runtime/tests/test-release.sh",
     "old": "    *)\n      printf '%s\\n' \"$CHK\"\n      [ \"$waits\" -gt 0 ] && log \"GATE_WAIT ended after ${waits} checks: $(printf '%s' \"$CHK\" | sed -n 's/^reason=//p')\"\n      die \"release-check says HOLD (see above)\"",
     "new": "    *)\n      printf '%s\\n' \"$CHK\"\n      [ \"$waits\" -gt 0 ] && log \"GATE_WAIT ended after ${waits} checks: $(printf '%s' \"$CHK\" | sed -n 's/^reason=//p')\"\n      exit 0"
+  },
+  {
+    "label": "rename detection restored: a shipped-to-docs move looks docs-only",
+    "file": "rsi/runtime/release-check.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "log --format='@@%H' --name-only --no-renames -z",
+    "new": "log --format='@@%H' --name-only -z"
+  },
+  {
+    "label": "gate paths reparsed linewise: quoted unicode docs paths count as visible",
+    "file": "rsi/runtime/release-check.sh",
+    "test": "bash rsi/runtime/tests/test-release.sh",
+    "old": "for ent in sys.stdin.buffer.read().split(b\"\\0\"):",
+    "new": "for ent in sys.stdin.buffer.read().splitlines():"
+  },
+  {
+    "label": "pace rename detection restored: a shipped-to-docs move looks docs-only",
+    "file": "rsi/runtime/pace.py",
+    "test": "bash rsi/runtime/tests/test-pace.sh",
+    "old": "    log = git(repo, \"log\", \"--format=@@%H\", \"--name-only\", \"--no-renames\", \"-z\",\n              f\"{base}..refs/remotes/origin/main\")",
+    "new": "    log = git(repo, \"log\", \"--format=@@%H\", \"--name-only\", \"-z\",\n              f\"{base}..refs/remotes/origin/main\")"
+  },
+  {
+    "label": "pace paths reparsed linewise: quoted unicode docs paths count as visible",
+    "file": "rsi/runtime/pace.py",
+    "test": "bash rsi/runtime/tests/test-pace.sh",
+    "old": "    for ent in log.split(\"\\0\"):",
+    "new": "    for ent in log.splitlines():"
   }
 ]

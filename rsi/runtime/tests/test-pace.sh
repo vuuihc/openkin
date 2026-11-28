@@ -198,6 +198,37 @@ GATE_UNSHIPPED="$(printf '%s\n' "$GATE" | sed -n 's/^unshipped=\([0-9][0-9]*\) .
 pass "$CASE"
 fi
 
+# 24b. The same classification edge cases in the pace reader: a shipped-to-docs rename
+#      is still visible because --no-renames exposes the deletion, while a Unicode
+#      docs-only path is parsed as a path, not as Git's quoted display string.
+CASE="pace: visible-only handles renames and unicode docs paths"
+if run_case "$CASE"; then
+R="$T/r24b"; S="$T/s24b"; new_repo "$R"
+mkdir -p "$R/ui/src/pages" "$R/docs"
+printf 'x\n' > "$R/ui/src/pages/X.tsx"
+git -C "$R" add ui/src/pages/X.tsx
+git -C "$R" commit -q -m "feat(ui): x (#802)"
+VISIBLE_TIP="$(git -C "$R" rev-parse HEAD)"
+git -C "$R" mv ui/src/pages/X.tsx docs/x.md
+git -C "$R" commit -q -m "docs: move x (#803)"
+origin_main "$R" HEAD
+mkdir -p "$S"
+printf 'node=%s\nhub=%s\n' "$VISIBLE_TIP" "$VISIBLE_TIP" > "$S/last_release"
+run_json "$R" "$S"
+eq unshipped 1
+eq commits 1
+RENAME_TIP="$(git -C "$R" rev-parse HEAD)"
+printf 'x\n' > "$R/docs/计划.md"
+git -C "$R" add 'docs/计划.md'
+git -C "$R" commit -q -m "docs: unicode plan (#804)"
+origin_main "$R" HEAD
+printf 'node=%s\nhub=%s\n' "$RENAME_TIP" "$RENAME_TIP" > "$S/last_release"
+run_json "$R" "$S"
+eq unshipped 0
+eq commits 1
+pass "$CASE"
+fi
+
 # 1. A PR merged in the same minute as the release is still unshipped: the gate counts
 #    commits, not clock minutes. Red before this change (pace said 0).
 CASE=t_same_minute_merge_is_unshipped

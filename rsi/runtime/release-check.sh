@@ -176,26 +176,52 @@ if [ -n "$BASE" ]; then
   # Count the commits that touch a shipped surface, not every subject: the same rule as
   # pace.py's non_shipped(), so the patrol's "unshipped vs threshold" line agrees with this
   # gate. A commit with no file list (a merge) is visible; an unknown path is visible.
-  read -r UNSHIPPED COMMITS <<<"$($git -C "$REPO" log --format='@@%H' --name-only "$BASE..origin/main" 2>/dev/null |
-    awk '
-      function non_shipped(p,   n, i, seg, base) {
-        n = split(p, seg, "/")
-        for (i = 1; i < n; i++)
-          if (seg[i] == "testdata" || seg[i] == "__snapshots__") return 1
-        base = seg[n]
-        if (p ~ /\.mdx?$/ || p ~ /_test\.go$/ || p ~ /\.snap$/ || p ~ /\.mutants\.json$/) return 1
-        if (base ~ /\.(test|spec)\./) return 1
-        if (p ~ /^(docs|rsi|scripts)\// || p ~ /^\.github\//) return 1
-        return 0
-      }
-      function flush() {
-        if (started && (npaths == 0 || visible_path)) vis++
-      }
-      /^@@/ { flush(); started = 1; total++; npaths = 0; visible_path = 0; next }
-      NF == 0 { next }
-      { npaths++; if (!non_shipped($0)) visible_path = 1 }
-      END { flush(); print vis + 0, total + 0 }
-    ')"
+  # --no-renames keeps a shipped-to-docs deletion visible, and -z keeps Git's quoted
+  # display form out of the classifier for Unicode or otherwise escaped paths.
+  read -r UNSHIPPED COMMITS <<<"$($git -C "$REPO" log --format='@@%H' --name-only --no-renames -z "$BASE..origin/main" 2>/dev/null |
+    python3 -c '
+import os, sys
+
+def non_shipped(p):
+    parts = p.split("/")
+    if any(part in ("testdata", "__snapshots__") for part in parts[:-1]):
+        return True
+    base = parts[-1]
+    if p.endswith((".md", ".mdx", "_test.go", ".snap", ".mutants.json")):
+        return True
+    if ".test." in base or ".spec." in base:
+        return True
+    return p.startswith(("docs/", "rsi/", ".github/", "scripts/"))
+
+def commit_marker(ent):
+    return (len(ent) == 42 and ent.startswith(b"@@")
+            and all(c in b"0123456789abcdef" for c in ent[2:]))
+
+visible = total = npaths = 0
+visible_path = False
+started = False
+for ent in sys.stdin.buffer.read().split(b"\0"):
+    if not ent:
+        continue
+    if commit_marker(ent):
+        if started and (npaths == 0 or visible_path):
+            visible += 1
+        started = True
+        total += 1
+        npaths = 0
+        visible_path = False
+        continue
+    if ent.startswith(b"\n"):
+        ent = ent[1:]
+    if not ent:
+        continue
+    npaths += 1
+    if not non_shipped(os.fsdecode(ent)):
+        visible_path = True
+if started and (npaths == 0 or visible_path):
+    visible += 1
+print(visible, total)
+')"
   BASE="$(printf '%s' "$BASE" | cut -c1-8)"
 else
   UNSHIPPED=0; COMMITS=0; BASE="none"

@@ -379,22 +379,29 @@ def visible_commits(repo, base):
 
     Same rule as release-check.sh: a commit with no file list (a merge) counts as visible.
     """
-    log = git(repo, "log", "--format=@@%H", "--name-only",
+    # Same parse as release-check.sh: --no-renames keeps a shipped-to-docs deletion
+    # visible, and -z keeps Git's quoted display form out of the classifier.
+    log = git(repo, "log", "--format=@@%H", "--name-only", "--no-renames", "-z",
               f"{base}..refs/remotes/origin/main")
     if log is None:
         return None
     visible = total = npaths = 0
     has_visible = False
-    for ln in log.splitlines():
-        if ln.startswith("@@"):
+    for ent in log.split("\0"):
+        if not ent:
+            continue
+        if re.fullmatch(r"@@[0-9a-f]{40}", ent):
             if total and (npaths == 0 or has_visible):
                 visible += 1
             total += 1
             npaths = 0
             has_visible = False
-        elif ln.strip():
+            continue
+        if ent.startswith("\n"):
+            ent = ent[1:]
+        if ent:
             npaths += 1
-            if not non_shipped(ln.strip()):
+            if not non_shipped(ent):
                 has_visible = True
     if total and (npaths == 0 or has_visible):
         visible += 1
