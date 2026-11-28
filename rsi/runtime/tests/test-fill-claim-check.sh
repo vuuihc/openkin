@@ -9,10 +9,12 @@
 # requirement itself was prose with no test: deleting fill.md's sentence left
 # the gate green. The cloud/NAS brief template never asked for a claim check at
 # all, so a prose row handed to an external agent arrived as an unverified
-# sentence. This suite pins both prompts and proves the pin can go red.
+# sentence. This suite pins the prompt copies and proves the pin can go red.
+# Cases 13-14 pin the scarce-reset freeze across MANDATE, director, fill and the
+# legacy pulse prompt; deleting legacy pulse-serial.md itself is therefore red.
 #
-# Cases 3, 4, 6, 8, 10 and 12 are negative fixtures: `missing` must refuse a copy
-# of each prompt with its claim-check text removed, or the positive cases are vacuous.
+# Cases 3, 4, 6, 8, 10, 12 and 14 are negative fixtures: `missing` must refuse a copy
+# of the relevant prompt with its required text removed, or the positive cases are vacuous.
 # Case 5 pins the queue-dry fallback (fill.md §3b) and the dogfooder trigger:
 # on 2026-11-21 deleting either left check.sh green, the silent-drop failure
 # §3b exists to repair. Case 7 pins §2d (a signed story with open scope refills
@@ -31,6 +33,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 FILL="$ROOT/rsi/runtime/prompts/fill.md"
 TEMPLATE="$ROOT/rsi/runtime/prompts/cloud-brief-template.md"
+PULSE="$ROOT/rsi/runtime/prompts/pulse-serial.md"
+DIRECTOR="$ROOT/rsi/roles/director.md"
+MANDATE_FILE="$ROOT/rsi/MANDATE.md"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 # Optional case group (`priority` / `audit`): every base case still runs, and one new
 # passage's case is added. The red-first lane seam reverts fill.md and runs ONE command,
@@ -164,5 +169,24 @@ if case_wanted audit; then
   fi
   pass "cell-audit-negative-fixture-is-refused"
 fi
+
+# --- 13. the scarce-asset freeze reaches every CEO control copy -------------------------------
+# 2026-11-27: the patrol consumed every Codex Full reset after treating renewable
+# 5h pressure and expiry as spend triggers. The trigger is prompt/policy text, so
+# all four control copies must carry the same prohibition, not only the incident note.
+RESET_MARKERS=('Codex Full reset and other external scarce assets are never automatic' 'renewable 5h/window pressure means wait, reschedule, downgrade, or switch models' 'expiry does not create demand' 'weekly/5h usage' 'record the approval and readings before use' 'the last remaining one is never automatic' "one use requires Ethan's explicit single-use approval")
+for reset_copy in "$MANDATE_FILE" "$DIRECTOR" "$FILL" "$PULSE"; do
+  if ! missing "$reset_copy" "scarce-asset-freeze-$reset_copy" "${RESET_MARKERS[@]}"; then
+    fail "scarce-asset-freeze-$reset_copy"
+  fi
+done
+pass "scarce-asset-freeze-present-in-control-copies"
+
+# --- 14. the check can go red: removing the freeze sentence is refused ---------------------
+grep -v 'Codex Full reset and other external scarce assets are never automatic' "$FILL" > "$T/fill-no-reset-freeze.md"
+if missing "$T/fill-no-reset-freeze.md" "reset-freeze-negative-fixture-is-refused" "${RESET_MARKERS[@]}"; then
+  fail "reset-freeze-negative-fixture-is-refused: the copy without the freeze still passed"
+fi
+pass "reset-freeze-negative-fixture-is-refused"
 
 echo "test-fill-claim-check: ALL-PASS"

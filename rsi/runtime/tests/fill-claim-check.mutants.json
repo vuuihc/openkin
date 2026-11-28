@@ -10,7 +10,14 @@
     "label": "drop the cloud-template claim-check bullet",
     "file": "rsi/runtime/prompts/cloud-brief-template.md",
     "test": "bash rsi/runtime/tests/test-fill-claim-check.sh",
-    "old": "- If the deliverable is a sentence rather than behaviour (a `GOAL`, an ADR, a `PLAN` or a story contract), the PR body names the exact `path:line` that sentence asserts and carries `Claim check:` with one command and its literal output; a missing or false claim check is not delivery.",
+    "old": "- If the deliverable is a sentence rather than behaviour (a `GOAL`, an ADR, a `PLAN`, a `README` or a story contract), the PR body names the exact `path:line` the sentence asserts and carries one `Claim check:` line at column 0 with a command, plus its real output under `Claim output:`. Run the same rule yourself before you finish — save the body to `/tmp/body.md`, then:",
+    "new": ""
+  },
+  {
+    "label": "drop the fill-prompt scarce-asset freeze",
+    "file": "rsi/runtime/prompts/fill.md",
+    "test": "bash rsi/runtime/tests/test-fill-claim-check.sh",
+    "old": "Codex Full reset and other external scarce assets are never automatic: renewable 5h/window pressure means wait, reschedule, downgrade, or switch models; expiry does not create demand; one use requires Ethan's explicit single-use approval plus fresh verification of balance, expiry, weekly/5h usage, and the unfinished benefit; record the approval and readings before use; the last remaining one is never automatic.",
     "new": ""
   }
 ]
