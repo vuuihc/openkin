@@ -445,10 +445,7 @@ describe("reordering the queue", () => {
 // the strip instead of resting under it; with nothing pending the `0px`
 // fallbacks leave today's footer clearance alone.
 const INDEX_CSS = readFileSync(join(process.cwd(), "src/index.css"), "utf8");
-const TASK_PAGE_SOURCE = readFileSync(
-  join(process.cwd(), "src/pages/TaskDetailPage.tsx"),
-  "utf8",
-);
+const TASK_PAGE_SOURCE = readFileSync(join(process.cwd(), "src/pages/TaskDetailPage.tsx"), "utf8");
 
 describe("the transcript clears the approval strip", () => {
   it("R-queue-reorder-yield: the task transcript reserves the approval band on phones", async () => {
@@ -460,7 +457,9 @@ describe("the transcript clears the approval strip", () => {
     // Both branches of the scroller's ternary: the invisible pre-positioning
     // element is the same scroller a frame later, and losing the band on the
     // flip would make the page jump.
-    expect(TASK_PAGE_SOURCE).toMatch(/kin-scroll py-5 min-h-0 phone-approval-clearance outline-none/);
+    expect(TASK_PAGE_SOURCE).toMatch(
+      /kin-scroll py-5 min-h-0 phone-approval-clearance outline-none/,
+    );
     expect(TASK_PAGE_SOURCE).toMatch(
       /kin-scroll py-5 min-h-0 phone-approval-clearance invisible outline-none/,
     );
