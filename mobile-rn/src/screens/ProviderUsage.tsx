@@ -156,9 +156,9 @@ function AgentRow({
 }) {
   const tint = agentColor(colors, entry.agent);
   const percent = Math.round(entry.share * 100);
-  const detail = `${percent}% · ${t("progress.input")} ${formatTokenCount(
+  const detail = `${percent}% · ${t("chat.progress.input")} ${formatTokenCount(
     entry.inputTokens,
-  )} · ${t("progress.output")} ${formatTokenCount(entry.outputTokens)}`;
+  )} · ${t("chat.progress.output")} ${formatTokenCount(entry.outputTokens)}`;
   return (
     <View style={styles.agentRow} testID={`usage-agent:${entry.agent}`}>
       <View style={styles.agentHeading}>
