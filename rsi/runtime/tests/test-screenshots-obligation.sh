@@ -23,8 +23,8 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 ONLY="${RSI_TEST_ONLY:-}"
 RC=0; OUT=""
 pass() { echo "PASS $*"; }
-fail() { echo "FAIL $*" >&2; exit 1; }
-run() { if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi; "$1" || exit 1; pass "$1"; }
+fail() { echo "FAIL ${CASE:-?}: $*" >&2; exit 1; }
+run() { if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi; CASE="$1"; "$1" || exit 1; pass "$1"; }
 
 paths() { printf '%s\n' "$@" > "$T/paths"; }
 body() { printf '%s\n' "$*" > "$T/body"; }
@@ -219,6 +219,75 @@ test_check_sh_runs_the_suite() {
     || fail "check.sh: the screenshots-obligation suite is not wired (AGENTS.md §12)"
 }
 
+# The worker contract calls the capture note a `## Screenshots` section. A heading has no
+# colon, so the inline label matcher missed it and an honest `none:` paragraph under it was
+# never read (rn-usage-i18n, 2026-11-28 08:40: RSI item R-shots-obligation-heading).
+test_heading_section_none_passes() {
+  paths mobile-rn/src/screens/ConversationView.tsx
+  printf '%s\n' \
+    '## Screenshots' \
+    '' \
+    'none: mem_avail 5402 MB < 6144 MB, swap_free 1272 MB < 2048 MB (capture floor 6144/2048, measured before writing this body).' \
+    > "$T/body"
+  shots_empty
+  oblig
+  [ "$RC" -eq 0 ] || fail "heading/none: refused an honest section reason ($OUT)"
+  case "$OUT" in
+    SHOTS_OK:*"mem_avail 5402 MB"*) ;;
+    *) fail "heading/none: verdict '$OUT' does not name the reason" ;;
+  esac
+}
+
+test_heading_section_link_passes() {
+  paths ui/src/components/Foo.tsx
+  printf '%s\n' \
+    '## Screenshots' \
+    '' \
+    '390x844: https://example.com/390.png' \
+    > "$T/body"
+  shots_empty
+  oblig
+  [ "$RC" -eq 0 ] || fail "heading/link: refused a link under the heading ($OUT)"
+  case "$OUT" in SHOTS_OK:*) ;; *) fail "heading/link: verdict '$OUT'" ;; esac
+}
+
+test_heading_section_short_none_fails() {
+  paths ui/src/components/Foo.tsx
+  printf '%s\n' '## Screenshots' '' 'none: too short' > "$T/body"
+  shots_empty
+  oblig
+  [ "$RC" -ne 0 ] || fail "heading/short: a short section reason passed ($OUT)"
+  case "$OUT" in
+    *"at least 20 characters"*) ;;
+    *) fail "heading/short: verdict '$OUT' is not the reason floor" ;;
+  esac
+}
+
+test_heading_section_empty_fails() {
+  paths ui/src/components/Foo.tsx
+  printf '%s\n' '## Screenshots' '' '## Risk' > "$T/body"
+  shots_empty
+  oblig
+  [ "$RC" -ne 0 ] || fail "heading/empty: an empty section passed ($OUT)"
+  case "$OUT" in
+    "SHOTS_FAIL: UI .tsx changed but no screenshots in $T/shots/ "*) ;;
+    *) fail "heading/empty: verdict '$OUT' is not the no-usable-line sentence" ;;
+  esac
+  { [ "$RC" -eq 1 ] || [ "$RC" -eq 2 ]; } || fail "heading/empty: unexpected exit $RC"
+}
+
+test_heading_section_invisibility_waiver_fails() {
+  paths mobile-rn/src/screens/ConversationView.tsx
+  printf '%s\n' '## Screenshots' '' 'none: not visible — no ui/ change' > "$T/body"
+  shots_empty
+  oblig
+  [ "$RC" -ne 0 ] || fail "heading/invisible: an untrue phone waiver passed ($OUT)"
+  case "$OUT" in
+    *"user-visible on the phone"*) ;;
+    *) fail "heading/invisible: verdict '$OUT' does not explain the gap" ;;
+  esac
+}
+
 run test_ui_change_without_evidence_fails
 run test_ui_change_honest_none_passes
 run test_ui_change_with_captures_passes
@@ -235,4 +304,9 @@ run test_rn_layout_non_tsx_module_has_no_obligation
 run test_merge_block_holds_on_rn_waiver
 run test_merge_calls_the_helper
 run test_check_sh_runs_the_suite
+run test_heading_section_none_passes
+run test_heading_section_link_passes
+run test_heading_section_short_none_fails
+run test_heading_section_empty_fails
+run test_heading_section_invisibility_waiver_fails
 echo ALL-PASS
