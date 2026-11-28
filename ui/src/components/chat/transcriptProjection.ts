@@ -1267,6 +1267,31 @@ export function buildChatItems(
           if (isUserFacingEvent(p, speaker, hostSpeaker)) bareStopRound = true;
           break;
         }
+        // A deliberate Stop discards the messages queued behind the canceled
+        // round, and the store reports the count on the error channel because
+        // that is the channel it has (internal/store/pending_prompts.go). It is
+        // not a failure: the report is the only on-screen account of where
+        // those messages went, so it reads as the same quiet, counted note as
+        // the stop line — in the reader's language, naming the conversation
+        // rather than the daemon's task. Match the template, not the whole
+        // sentence: the count changes with what was queued.
+        const discardCount = typeof p.count === "number" ? p.count : null;
+        if (discardCount !== null && /queued prompt\(s\) discarded/i.test(errMsg)) {
+          flushStream(true, "error");
+          streamNoteKey = null;
+          settlePartialMessages();
+          settleRunningSteps("error");
+          progressRef.current = null;
+          items.push({
+            kind: "meta",
+            key: `discard-${ev.seq}`,
+            label:
+              discardCount === 1
+                ? t("chat.discardedPrompt")
+                : t("chat.discardedPrompts", { count: discardCount }),
+          });
+          break;
+        }
         flushStream(true, "error");
         streamNoteKey = null;
         settlePartialMessages();

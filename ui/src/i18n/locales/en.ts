@@ -450,6 +450,8 @@ const en: MessageTree = {
     withdrawnNote: "A queued message was withdrawn before it was sent",
     interruptedNote: "Interrupted the previous round",
     stoppedNote: "Stopped this round",
+    discardedPrompt: "1 queued message discarded with the stopped conversation",
+    discardedPrompts: "{count} queued messages discarded with the stopped conversation",
     editQueued: "Edit queued message",
     editQueuedNamed: "Edit “{text}”",
     editNeedsEmptyComposer: "The composer already has a draft — clear it to edit a queued message",

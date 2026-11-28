@@ -432,6 +432,8 @@ const zh = {
     withdrawnNote: "一条排队中的消息已在发送前撤回",
     interruptedNote: "已打断上一轮",
     stoppedNote: "已停止本轮",
+    discardedPrompt: "已丢弃 1 条排队消息",
+    discardedPrompts: "已丢弃 {count} 条排队消息",
     editQueued: "编辑排队消息",
     editQueuedNamed: "编辑“{text}”",
     editNeedsEmptyComposer: "输入框里已有草稿，清空后才能编辑排队中的消息",
