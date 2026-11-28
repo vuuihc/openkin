@@ -1,0 +1,37 @@
+[
+  {
+    "label": "the duplicate check is dropped, so a retried merge counts the same PR twice",
+    "file": "rsi/runtime/record-merged.sh",
+    "test": "RSI_TEST_ONLY=second-is-a-noop bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "if [ -f \"$LOG\" ] && LC_ALL=C grep -Eq \"(^|[^[:alnum:]_])#${PR}([^[:alnum:]_]|$)\" \"$LOG\"; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "the PR is matched as a substring, so an existing #900 swallows a record for #90",
+    "file": "rsi/runtime/record-merged.sh",
+    "test": "RSI_TEST_ONLY=whole-token bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "if [ -f \"$LOG\" ] && LC_ALL=C grep -Eq \"(^|[^[:alnum:]_])#${PR}([^[:alnum:]_]|$)\" \"$LOG\"; then",
+    "new": "if [ -f \"$LOG\" ] && LC_ALL=C grep -q \"#${PR}\" \"$LOG\"; then"
+  },
+  {
+    "label": "an empty or '?' sha is accepted, so a delivery row lands with no commit to audit",
+    "file": "rsi/runtime/record-merged.sh",
+    "test": "RSI_TEST_ONLY=no-commit-refused bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "case \"$SHA\" in\n  ''|'?') echo \"record-merged: --sha is required: a merge with no commit is not a delivery record\" >&2; exit 2 ;;\nesac",
+    "new": ": # any sha accepted"
+  },
+  {
+    "label": "the merge lane appends merged.log itself again, so the record has two writers with one format each",
+    "file": "rsi/runtime/merge.sh",
+    "test": "RSI_TEST_ONLY=merge-sh-wiring bash rsi/runtime/tests/test-record-merged.sh",
+    "old": "      bash \"$RSI_DIR/runtime/record-merged.sh\" --state \"$STATE\" --pr \"$N\" --slug \"$SLUG\" \\\n        --item \"$ITEM\" --sha \"$MSHA\" --url \"$PRURL\" || say \"#$N $SLUG: merged.log record refused\"",
+    "new": "      echo \"$(date '+%F %H:%M') PR #$N $SLUG $ITEM merged ${MSHA:-?} $PRURL\" >> \"$STATE/merged.log\""
+  },
+  {
+    "label": "the new suite is not wired into job_shell_test, so it never runs in a gate or in CI",
+    "file": "scripts/check.sh",
+    "test": "bash rsi/runtime/tests/test-wiring.sh",
+    "old": "  bash rsi/runtime/tests/test-record-merged.sh || return 1",
+    "new": "  : # wiring removed by mutant"
+  }
+]

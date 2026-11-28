@@ -302,8 +302,10 @@ test_archive_leaves_other_slugs() {
 test_merge_success_archives_sendback() {
   local f="$ROOT/rsi/runtime/merge.sh" ln
   [ -f "$f" ] || fail "archive-source-guard: missing $f"
-  ln="$(grep -nF '>> "$STATE/merged.log"' "$f" | head -1 | cut -d: -f1)"
-  [ -n "$ln" ] || fail "archive-source-guard: merge.sh no longer writes \$STATE/merged.log"
+  # The merge-success block is anchored on the delivery record's one writer (record-merged.sh);
+  # merge.sh no longer appends merged.log itself.
+  ln="$(grep -nF 'record-merged.sh" --state' "$f" | head -1 | cut -d: -f1)"
+  [ -n "$ln" ] || fail "archive-source-guard: merge.sh no longer records the merge (record-merged.sh)"
   sed -n "${ln},$((ln + 20))p" "$f" | grep -qF 'archive_sendback' \
     || fail "archive-source-guard: the merge-success block does not call archive_sendback; a merged PR's sendback would outlive it"
 }

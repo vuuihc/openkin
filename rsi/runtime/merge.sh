@@ -3035,7 +3035,10 @@ for round in 1 2 3; do
     if [ $MERGED_OK -eq 1 ]; then
       MSHA="$($GH pr view "$N" --repo "$GH_REPO" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null | cut -c1-8)"
       say "#$N $SLUG: MERGED ($MSHA)"
-      echo "$(date '+%F %H:%M') PR #$N $SLUG $ITEM merged ${MSHA:-?} $PRURL" >> "$STATE/merged.log"
+      # One writer, shared with any path that merges a PR itself (record-merged.sh): it keeps the
+      # exact format this echo wrote, refuses a row with no commit/url, and makes a re-record a no-op.
+      bash "$RSI_DIR/runtime/record-merged.sh" --state "$STATE" --pr "$N" --slug "$SLUG" \
+        --item "$ITEM" --sha "$MSHA" --url "$PRURL" || say "#$N $SLUG: merged.log record refused"
       archive_sendback "$SLUG" merged "${MSHA:-unknown}"
       CREATED="$($GH pr view "$N" --repo "$GH_REPO" --json createdAt --jq .createdAt 2>/dev/null)"
       python3 - "$CREATED" "$N" "$SLUG" >> "$STATE/merge/cycles.log" <<'PY'
