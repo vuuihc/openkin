@@ -324,6 +324,8 @@ job_shell_test() {
   bash rsi/runtime/tests/test-record-merged.sh || return 1
   bash rsi/runtime/tests/test-lanes-claim-paths.sh || return 1
   bash rsi/runtime/tests/test-runtime-modes.sh || return 1
+  # An unchanged dry queue skips the paid fill director; every input mutation/probe failure runs it.
+  bash rsi/runtime/tests/test-fill-fingerprint.sh || return 1
   bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
   bash rsi/runtime/tests/test-gate-carry.sh || return 1
   # A gate that starts on a head which then moves unwinds as a skip, not a verdict (R-merge-gate-head).

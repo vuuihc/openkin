@@ -313,6 +313,25 @@ case "$MODE" in
       fi
       echo "no idle lane, no cloud brief pending, no dispatchable R-* row. $LANES_TXT"; exit 0
     fi
+    # A dry queue used to pay for a director every 8-12 minutes even while every input
+    # was unchanged (2026-11-28 21:09-23:19: eleven no-dispatch directors, cost_usd 5.35).
+    # The fingerprint probe is deliberately fail-open: any unreadable input runs the director.
+    FP_RC=2; FP_OUT="fill fingerprint helper missing"
+    if [ -f "$RSI_DIR/runtime/fill_fingerprint.py" ]; then
+      fp_args=(check --max-age "${RSI_FILL_FP_MAX_AGE:-2700}")
+      [ $FORCE -eq 1 ] && fp_args+=(--force)
+      FP_OUT="$(RSI_FILL_FP_GH="$GH" python3 "$RSI_DIR/runtime/fill_fingerprint.py" --repo "$RSI_CTRL" --state "$STATE" --gh-repo "$GH_REPO" "${fp_args[@]}" 2>&1)"
+      FP_RC=$?
+    fi
+    if [ $FP_RC -eq 10 ]; then
+      echo "$FP_OUT"
+      if [ $DRY -eq 0 ] && rsi_allow_workers; then
+        bash "$RSI_DIR/runtime/lane.sh" start-claimed
+        [ -x "$RSI_DIR/runtime/nas/pulse-nas.sh" ] && nohup /bin/bash "$RSI_DIR/runtime/nas/pulse-nas.sh" >> "$RUNS/launchd-nas.log" 2>&1 < /dev/null & disown 2>/dev/null || true
+      fi
+      exit 0
+    fi
+    [ $FP_RC -eq 0 ] || echo "fill fingerprint unavailable; director runs fail-open: $FP_OUT"
     date +%s > "$STATE/last_fill";;
   daily)
     [ $FORCE -eq 0 ] && ls "$RUNS"/${TODAY}*-daily.jsonl >/dev/null 2>&1 && { echo "skip: daily already ran today"; exit 0; }
@@ -373,6 +392,13 @@ if [ "$MODE" = pulse ] && [ $DRY -eq 0 ]; then
   fi
 fi
 
+if [ "$MODE" = pulse ] && [ "${FP_RC:-2}" -eq 0 ] && [ $RC -eq 0 ] && [ $PR -eq 0 ] && [ $DRY -eq 0 ]; then
+  FP_RECORD_OUT="$(RSI_FILL_FP_GH="$GH" python3 "$RSI_DIR/runtime/fill_fingerprint.py" --repo "$RSI_CTRL" --state "$STATE" --gh-repo "$GH_REPO" record 2>&1)"
+  FP_RECORD_RC=$?
+  if [ $FP_RECORD_RC -ne 0 ]; then
+    echo "fill fingerprint not recorded; the next pulse runs the director fail-open: $FP_RECORD_OUT"
+  fi
+fi
 if [ $RC -eq 143 ] && grep -q '"note":"watchdog timeout' "$LOG"; then count_timeout "$MODE" "log: ${LOG##*/}"; exit 1; fi
 if [ $RC -ne 0 ] || [ $PR -ne 0 ]; then count_fail "$MODE" "$(tail -c 200 "$LOG.result.txt" | tr '\n' ' ')  log: ${LOG##*/}"; exit 1; fi
 count_ok
