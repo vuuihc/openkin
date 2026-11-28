@@ -2,7 +2,7 @@
   {
     "label": "the queued pill loses its hit-row marker, so the approval card paints over the order arrows",
     "file": "ui/src/components/chat/ChatStream.tsx",
-    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/chat/ChatStream.queueYield.dom.test.tsx -t \"marks the queued pill as a hit row\"",
+    "test": "cd ui && VITEST_MAX_WORKERS=2 npx vitest run src/components/chat/ChatStream.queueYield.dom.test.tsx",
     "old": "                data-kin-hit-row=\"\"\n                className=\"inline-flex items-center gap-1 rounded-full bg-kin-blue/15 px-1.5 py-px text-caption font-medium text-kin-blue-ink\"",
     "new": "                className=\"inline-flex items-center gap-1 rounded-full bg-kin-blue/15 px-1.5 py-px text-caption font-medium text-kin-blue-ink\""
   },
