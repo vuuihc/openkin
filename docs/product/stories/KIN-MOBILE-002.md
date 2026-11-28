@@ -138,6 +138,36 @@ owner 2026-11-27 实测原话：「体验了下确实太初级了，建议用 op
 - 之前：`rsi/state/shots/rn-evidence-refresh/390-list.png`、`390-conversation.png`（白底卡片行、markdown 原文、裸输入框）；颜色字面量统计 `rg -n "#[0-9a-fA-F]{6}" mobile-rn/src mobile-rn/app` 共 113 处（2026-11-27，`bea7329e`）。
 - 之后：交付时补截图与 dogfood 记录。
 
+### 2026-11-28 · 补齐 390 暗色与 820 审批 / 用量
+
+拍摄于分支 HEAD `c853ac1f`，本节的文档提交紧随其后。截图保存在仓库外的
+`rsi/state/shots/rn-evidence-cells/`（本地，不入库），每张在提交前都重新打开读过
+像素。设备：iPhone 17e（390×844 逻辑）与 iPad Air 11-inch (M4)（820×1180 逻辑），
+iOS 27.2，一次只启动一台。
+
+| 面 | 设备 | 外观 | 提交 | 文件（本地） | 像素 宽×高 | 当前判定 |
+|---|---|---|---|---|---|---|
+| 列表 | 390 | 暗 | `c853ac1f` | `390-list-dark.png` | 1170×2532 | 设备 → 项目 → 对话行；`[seed] Approve the migration` 有待批橙色三角与红 `1` pill，已完成行为灰点；暗色底、浅色字。大标题与状态栏时钟重叠——缺陷 D5 |
+| 审批 | 390 | 暗 | `c853ac1f` | `390-approvals-dark.png` | 1170×2532 | 待批卡：`需要权限` / `Bash` / `git status --short`；`批准` 是唯一实心蓝按钮，`拒绝` 描边；卡片与对话都是暗色 |
+| 用量 | 390 | 暗 | `c853ac1f` | `390-usage-dark.png` | 1170×2532 | 用量 sheet：本周 / 30 天 / 90 天，30 天选中；claude-code 身份色圆点与占比条、`$0.0029`；费用 / TOKEN / 缓存命中率 / 对话四格；provider 列表降级说明保留 |
+| 审批 | 820 | 亮 | `c853ac1f` | `820-approvals-light.png` | 1640×2360 | 分栏；左列选中待批行，右侧阅读栏是同一张待批卡（批准实心 / 拒绝描边），亮色 |
+| 审批 | 820 | 暗 | `c853ac1f` | `820-approvals-dark.png` | 1640×2360 | 暗色；`批准` 二字在实心蓝按钮上可见，`拒绝` 为描边红字；左右两栏、卡片与 composer 都是暗色，D4 修复保持 |
+| 用量 | 820 | 亮 | `c853ac1f` | `820-usage-light.png` | 1640×2360 | 用量 sheet 浮在分栏上，背后是 `[seed] reading` 的读取态（标题与用户气泡可见）；亮色玻璃底 |
+| 用量 | 820 | 暗 | `c853ac1f` | `820-usage-dark.png` | 1640×2360 | 同上，暗色；sheet、分段控件、provider 行与占比条都取暗色 token |
+
+判定对应的当前 head 锚点：列表 `mobile-rn/src/screens/ConversationList.visual.test.tsx:187`
+（状态点形状 + 颜色）、`:212`（待批三角与计数）、`:308`（行与分区头按明暗取 token），
+`mobile-rn/src/theme/theme.test.ts:222` / `:233`（列表暗 / 亮）；审批
+`mobile-rn/src/screens/Approvals.visual.test.tsx:172`（批准是唯一实心主按钮，拒绝
+描边）；用量 `mobile-rn/src/screens/ProviderUsage.visual.test.tsx:130`（身份圆点、
+右对齐金额、占比条）、`:254`（明暗两套取自 token）。
+
+**仍未拍：** 配对 / 连接页（帧 01）的视觉不在本轮；它的验收随 #825（owner 持有）
+走，不在这里认领。390 亮色四格与 820 列表 / 对话已由同日 rn-evidence-capture 补证轮覆盖（证据表记作 `cc9c2d78`）。
+
+**新缺陷 D5：** 列表导航头画在 iOS 状态栏下面（标题压住时钟 / 日期），见
+`mobile-rn/EVIDENCE.md` §已知。本行只取证，不修。
+
 ## 变更记录
 
 - 2026-11-27 创建（draft）。owner dogfood 后要求按 mobile-design/open-design 的方法做正经设计;设计流程按 `~/.agents/skills/mobile-design` 执行,token 端口 astryx neutral 已在桌面落地的同一套（`ui/src/design/theme.css`）。
